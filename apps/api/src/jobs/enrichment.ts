@@ -71,8 +71,16 @@ export interface CleanUpJob {
    * `enqueueCleanUp` before this is ever sent, so a redelivery of this exact
    * message carries the same id and updates that one row rather than adding
    * another.
+   *
+   * **Optional, for one release.** A message this shape enqueued by the
+   * Worker version before this field existed can still be sitting on the
+   * queue when the new consumer starts reading it - Cloudflare Queues carry
+   * no version pin to the producer, and this deploy has no drain or pause
+   * (found in review) - and `enrichmentJobSchema`'s own union refuses,
+   * rather than silently misreads, a shape it does not recognise. Required
+   * again once a release has passed with nothing this old left to arrive.
    */
-  attemptId: string;
+  attemptId?: string | undefined;
 }
 
 /**
@@ -145,7 +153,7 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     kind: z.literal('clean-up-a-note'),
     accountName: z.string().min(1),
     itemId: z.uuid(),
-    attemptId: z.uuid(),
+    attemptId: z.uuid().optional(),
   }),
   z.object({
     kind: z.literal('read-what-a-note-means'),
@@ -232,14 +240,33 @@ export async function enqueueCleanUp(env: Env, accountName: string, itemId: stri
   // did is now a durable row from the very first capture ("See the history
   // of what Cockpit proposed for the Inbox's items", issue 444), and an
   // environment with no key still owes that row a reason, not silence.
+  //
+  // **Both reads share one try, and any failure here is logged and
+  // swallowed** - the same contract the lone `env.ENRICHMENT.send` below
+  // already keeps, extended to cover what this function now does before it
+  // (found in review). This runs from `waitUntil`, after the response has
+  // already gone, so nothing else stands between a transient failure here
+  // and a note that never gets cleaned up: capture may never fail for a
+  // reason the person capturing cannot act on, and that has to hold for a
+  // store hiccup opening the account or reading the item just as much as it
+  // already does for a hiccup putting the job on the queue.
   let account;
+  let item;
   try {
     account = await openAccount(env, accountName);
+    item = await account.item(itemId);
   } catch (error) {
     if (error instanceof AccountNotInRegisterError) return;
-    throw error;
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `item ${itemId} was captured but not queued for cleaning up: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      }),
+    );
+    return;
   }
-  const item = await account.item(itemId);
   // Dismissed and erased already, or captured by some other door that never
   // reaches this queue - nothing to show a history of.
   if (!item) return;
@@ -307,6 +334,14 @@ export async function enqueueCleanUp(env: Env, accountName: string, itemId: stri
  * mechanical title capture wrote; only a call that failed is left to throw.
  */
 export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<void> {
+  // A fresh id stands in for a message enqueued before `attemptId` existed
+  // (found in review, on the same deploy-skew window `enrichmentJobSchema`'s
+  // own `.optional()` now allows through) - no queued row exists to update
+  // under it, so every `recordRewriteOutcome` call below is a harmless no-op
+  // for exactly this one case, and the enrichment itself proceeds exactly as
+  // it always has.
+  const attemptId = job.attemptId ?? crypto.randomUUID();
+
   let account;
   try {
     account = await openAccount(env, job.accountName);
@@ -315,7 +350,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     // while a note of theirs was queued. Nothing will make this job work, so it
     // declines rather than being redelivered until its retries run out.
     //
-    // Nothing is recorded onto `job.attemptId` here: the row it names lives in
+    // Nothing is recorded onto `attemptId` here: the row it names lives in
     // the very account this could not open, so there is nowhere to write the
     // outcome to. The row is left at Pending - an administrative rarity, and
     // no rarer than the account being gone leaves every other read of it.
@@ -331,7 +366,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     // between there and here, and the job is entered from a queue rather than
     // only from there.
     await recordHistory(() =>
-      account.recordRewriteOutcome(job.attemptId, {
+      account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
         message: 'nothing was enriched: this environment has no ANTHROPIC_API_KEY',
       }),
@@ -350,7 +385,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // typed, so this is an Item that arrived by some other door.
   if (!item.capturedMessage) {
     await recordHistory(() =>
-      account.recordRewriteOutcome(job.attemptId, {
+      account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
         message: 'nothing was enriched: the item has no captured note',
       }),
@@ -362,7 +397,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // is what stops a model call being paid for to be refused.
   if (item.textsSettledAt !== null) {
     await recordHistory(() =>
-      account.recordRewriteOutcome(job.attemptId, {
+      account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
         message: 'nothing was proposed: the texts are already edited',
       }),
@@ -412,7 +447,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     );
   } catch (error) {
     await recordHistory(() =>
-      account.recordRewriteOutcome(job.attemptId, {
+      account.recordRewriteOutcome(attemptId, {
         status: 'failed',
         message: error instanceof Error ? error.message : String(error),
       }),
@@ -421,7 +456,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   }
   if (!('proposal' in read)) {
     await recordHistory(() =>
-      account.recordRewriteOutcome(job.attemptId, {
+      account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
         message: `nothing was proposed: ${read.discarded}`,
       }),
@@ -450,7 +485,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
       })),
     });
     await recordHistory(() =>
-      account.recordRewriteOutcome(job.attemptId, {
+      account.recordRewriteOutcome(attemptId, {
         status: written.applied ? 'rewritten' : 'left-as-is',
         titleAfter: written.applied ? read.proposal.title : null,
         descriptionAfter: written.applied ? read.proposal.message : null,
@@ -478,7 +513,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     // not-worth-retrying case as above, arriving by the other door.
     if (error instanceof NotFoundInAccountError) {
       await recordHistory(() =>
-        account.recordRewriteOutcome(job.attemptId, {
+        account.recordRewriteOutcome(attemptId, {
           status: 'left-as-is',
           message: 'nothing was written: the item went while the note was being read',
         }),
@@ -486,7 +521,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
       return say(job.itemId, 'nothing was written: the item went while the note was being read');
     }
     await recordHistory(() =>
-      account.recordRewriteOutcome(job.attemptId, {
+      account.recordRewriteOutcome(attemptId, {
         status: 'failed',
         message: error instanceof Error ? error.message : String(error),
       }),

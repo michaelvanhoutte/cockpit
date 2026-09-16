@@ -968,14 +968,20 @@ export function recordRewriteOutcome(
   attemptId: string,
   outcome: RewriteOutcome,
 ): void {
+  // Every field set whole, never conditionally: a retry that lands on a row
+  // an earlier delivery already wrote `titleAfter`/etc onto (a success,
+  // later redelivered and this time failing) must leave the row's own
+  // status as the only thing describing it - a `failed` row still showing a
+  // stale `titleAfter` from a previous delivery would read as a rewrite
+  // that both happened and didn't (found in review).
   db.update(rewriteHistory)
     .set({
       status: outcome.status,
       message: outcome.message,
-      ...(outcome.titleAfter !== undefined ? { titleAfter: outcome.titleAfter } : {}),
-      ...(outcome.descriptionAfter !== undefined ? { descriptionAfter: outcome.descriptionAfter } : {}),
-      ...(outcome.proposedPanelId !== undefined ? { proposedPanelId: outcome.proposedPanelId } : {}),
-      ...(outcome.proposedPanelReason !== undefined ? { proposedPanelReason: outcome.proposedPanelReason } : {}),
+      titleAfter: outcome.titleAfter ?? null,
+      descriptionAfter: outcome.descriptionAfter ?? null,
+      proposedPanelId: outcome.proposedPanelId ?? null,
+      proposedPanelReason: outcome.proposedPanelReason ?? null,
     })
     .where(and(eq(rewriteHistory.tenantId, tenantId), eq(rewriteHistory.id, attemptId)))
     .run();
@@ -1022,6 +1028,12 @@ function asRewriteHistoryEntry(row: {
  * queued is visible where it lives now and nowhere else - the same rule
  * `unfiledItemsInWorkspace` and `recentlyCapturedUnfiled` above already read
  * off `items`, not off whichever row is being joined to it.
+ *
+ * **A dismissed or completed item's rows are left out**, the same rule
+ * `recentlyCapturedUnfiled` above states for the same reason: an item gone
+ * from the Inbox has nothing here to identify it by beyond its own id, and
+ * without this a dead item's rows can crowd a live one out of the capped
+ * result below (found in review).
  */
 export function rewriteHistoryForWorkspace(
   db: AccountDb,
@@ -1037,6 +1049,8 @@ export function rewriteHistoryForWorkspace(
       and(
         eq(rewriteHistory.tenantId, tenantId),
         or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+        isNull(items.deletedAt),
+        isNull(items.completedAt),
       ),
     )
     .orderBy(desc(rewriteHistory.attemptedAt))

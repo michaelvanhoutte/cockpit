@@ -13,7 +13,7 @@ import {
   startFromEmpty,
 } from '../seed.js';
 import { handleQueue } from '../../../src/jobs/index.js';
-import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
+import { enrichmentJobSchema, type EnrichmentJob } from '../../../src/jobs/enrichment.js';
 
 /**
  * Integration level: a real store, a real queue, and the capture and every
@@ -358,6 +358,11 @@ describe('Rewrite history', () => {
       expect(rows).toHaveLength(1);
       expect(rows[0]!.status).toBe('failed');
       expect(rows[0]!.message).toBeTruthy();
+      // Not a stale leftover from the success this same record held a
+      // moment ago: a retry that fails must show as failed, not as a
+      // rewrite that both happened and didn't (found in review).
+      expect(rows[0]!.title_after).toBeNull();
+      expect(rows[0]!.description_after).toBeNull();
     });
 
     it('ends up showing the success on the same record, never a second one, when a retry follows a failure', async () => {
@@ -386,6 +391,40 @@ describe('Rewrite history', () => {
       expect(rows).toHaveLength(1);
       expect(rows[0]!.status).toBe('rewritten');
       expect(rows[0]!.title_after).toBe(A_READING.title);
+    });
+
+    /**
+     * A message enqueued by the Worker version before `attemptId` existed
+     * can still be delivered after this ships - Cloudflare Queues carry no
+     * version pin to the producer, and this deploy has no drain or pause
+     * (found in review) - so `enrichmentJobSchema`'s own union has to keep
+     * accepting that older shape rather than refusing it outright, the way
+     * it already refuses one it genuinely does not recognise.
+     */
+    it('still accepts a job enqueued before attemptId existed, rather than refusing it', () => {
+      const result = enrichmentJobSchema.safeParse({
+        kind: 'clean-up-a-note',
+        accountName: ACCOUNT_NAME,
+        itemId: nextId(),
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('cleans up the note from that older-shaped job, without adding a second record', async () => {
+      env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
+      const itemId = await captureANote();
+      await vi.waitFor(async () => expect(await statusOf(itemId)).toBe('rewritten'), {
+        timeout: 15_000,
+        interval: 50,
+      });
+
+      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId }), env);
+
+      // No second row: the old-shaped message names no attemptId, so the
+      // fresh one this run mints matches no existing row and its own
+      // outcome write no-ops, exactly as it already does for the "account
+      // left the register" rarity.
+      expect(await rowsFor(itemId)).toHaveLength(1);
     });
   });
 
@@ -471,6 +510,35 @@ describe('Rewrite history', () => {
 
       expect((await workspaceHistory('ws-personal')).some((entry) => entry.itemId === itemId)).toBe(false);
       expect((await workspaceHistory(WORKSPACE_ID)).some((entry) => entry.itemId === itemId)).toBe(true);
+    });
+
+    /**
+     * A dismissed item is gone from the Inbox it was captured into, and its
+     * rewrite-history rows follow it out of the account-wide table - the
+     * same rule `recentlyCapturedUnfiled` already states for the same
+     * reason (found in review): identified only by id, a dead item's rows
+     * have nothing here to open, and would otherwise crowd a live item's
+     * out of the capped result.
+     */
+    it('leaves out an item once it has been dismissed', async () => {
+      env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
+      const itemId = await captureANote();
+      await vi.waitFor(async () => expect(await statusOf(itemId)).toBeDefined(), {
+        timeout: 15_000,
+        interval: 20,
+      });
+      expect((await workspaceHistory(WORKSPACE_ID)).some((entry) => entry.itemId === itemId)).toBe(true);
+
+      const dismissed = await postChange('set_dismissed', {
+        commandId: nextId(),
+        issuedAt: '2026-09-16T10:00:02.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        dismissed: true,
+      });
+      expect(dismissed.status).toBe(200);
+
+      expect((await workspaceHistory(WORKSPACE_ID)).some((entry) => entry.itemId === itemId)).toBe(false);
     });
   });
 
