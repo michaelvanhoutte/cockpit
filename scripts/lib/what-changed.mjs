@@ -233,10 +233,112 @@ function testOnlyPackages(paths, packages) {
 }
 
 /**
+ * Whether `path` sits under a directory prefix (ending in `/`) or is one
+ * exact file named in `patterns` - the shape `NON_PRODUCT_DIRS` and
+ * `ROOT_MARKDOWN` answer separately above, folded into one helper here
+ * because the security and stored-data allowlists below mix both freely.
+ */
+function matchesAny(path, patterns) {
+  return patterns.some((pattern) => (pattern.endsWith('/') ? path.startsWith(pattern) : path === pattern));
+}
+
+/**
+ * Backup, restore and the shared guest account's nightly reset - named on
+ * both allowlists below ("Review a change as much as what it touches needs,
+ * and recheck only what a fix changed", issue 423), since each can hand one
+ * account another's rows, or put the guest account back wrong, whether or
+ * not the same change also touches a migration or `auth/`.
+ */
+const BACKUP_RESTORE_GUEST_RESET = [
+  'apps/api/src/accounts/backup.ts',
+  'apps/api/src/accounts/restore.ts',
+  'apps/api/src/accounts/guest-seed-data.ts',
+  'scripts/backup-export.mjs',
+  'scripts/backup-restore.mjs',
+  'scripts/guest-reset.mjs',
+  'scripts/lib/backup.mjs',
+  'scripts/lib/restore.mjs',
+  'scripts/lib/guest-reset.mjs',
+];
+
+/**
+ * Paths Review findings' table calls security: sign-in and the register
+ * (`auth/`), the web session, a connector, the gate composition and the
+ * Google OIDC and ingress-webhook routes it mounts (`http/app.ts` - "there
+ * is no perimeter to fall back on" for this app's auth model,
+ * .github/security-review-instructions.md), the CI workflows, the composite
+ * action they share, and the branch protection payload they feed, the
+ * security review's own instructions, Wrangler's configuration, and the gate
+ * itself - each a way a change could grant, keep or check access wrongly
+ * without touching a migration or a schema.
+ *
+ * The gate is on its own list for the reason CI's own code review found on
+ * this issue's pull request: `claude-security-review.yml`'s `changes` job
+ * classifies with the *base* commit's copy of this module, so a change that
+ * weakens the gate - deletes an entry here, or makes
+ * `decideSecurityOutcome` always pass - would otherwise get
+ * `security_changed=false` from that same base copy and skip the one review
+ * that would have caught it, reported skipped rather than failed. Every file
+ * that decides or asserts the verdict is named, not only this one:
+ * `scripts/what-changed.mjs` (the CI wrapper), `scripts/lib/review-gate.mjs`
+ * (`decideSecurityOutcome`), `scripts/assert-security-review.mjs`, and
+ * `.github/actions/setup/action.yml` (a sibling of `.github/workflows/`, not
+ * a path under it, so the directory-prefix entry above does not already
+ * cover it).
+ */
+const SECURITY_PATHS = [
+  'apps/api/src/auth/',
+  'apps/web/src/session/',
+  'apps/api/src/connectors/',
+  'apps/api/src/accounts/register.ts',
+  'apps/api/src/http/app.ts',
+  '.github/workflows/',
+  '.github/actions/setup/action.yml',
+  '.github/branch-protection.json',
+  '.github/security-review-instructions.md',
+  'apps/api/wrangler.jsonc',
+  'scripts/lib/what-changed.mjs',
+  'scripts/what-changed.mjs',
+  'scripts/lib/review-gate.mjs',
+  'scripts/assert-security-review.mjs',
+  ...BACKUP_RESTORE_GUEST_RESET,
+];
+
+/**
+ * Paths Review findings' table calls stored data: the migrations, both
+ * schema files (`accounts/schema.ts` for the account's own tables,
+ * `db/schema.ts` for the Durable Object's), the account store's change list,
+ * and the account store itself (`accounts/store.ts` - the Durable Object
+ * every read and write against a production or staging account's rows
+ * actually runs through) - each a way a change could read or write those
+ * rows wrongly, per "Deployed data is real".
+ */
+const STORED_DATA_PATHS = [
+  'apps/api/migrations/',
+  'apps/api/src/accounts/schema.ts',
+  'apps/api/src/db/schema.ts',
+  'apps/api/src/accounts/changes.ts',
+  'apps/api/src/accounts/store.ts',
+  ...BACKUP_RESTORE_GUEST_RESET,
+];
+
+/** Whether `path` is one Review findings' table calls a security path. */
+export function isSecurityPath(path) {
+  return matchesAny(String(path ?? ''), SECURITY_PATHS);
+}
+
+/** Whether `path` is one Review findings' table calls a stored-data path. */
+export function isStoredDataPath(path) {
+  return matchesAny(String(path ?? ''), STORED_DATA_PATHS);
+}
+
+/**
  * The class of a change - CLAUDE.md's Tests table, in code: `'docs'` (only
  * `docs/`, `.claude/` or root Markdown), `'tests'` (every product path is a
  * package's own test, `packages` naming which), or `'product'` (anything
- * else, including nothing this could classify at all).
+ * else, including nothing this could classify at all), carrying `security`
+ * and `storedData` - which Review findings' own table reads to answer the
+ * `/code-review` level and whether `/security-review` runs at all.
  *
  * `paths` is every path a change touches, gathered however the caller found
  * them - a CI diff range and a working tree's own uncommitted and committed
@@ -246,16 +348,18 @@ function testOnlyPackages(paths, packages) {
  * An empty list is `'product'`, not `'docs'`, for the reason `productChanged`
  * gives for the same case: indistinguishable from a range this could not
  * read, and the safe direction on a failure is the one that costs a run
- * rather than a merge.
+ * rather than a merge - both flags true here for the same reason, since a
+ * change nothing could classify is exactly "a path it cannot read", which
+ * Review findings' table answers security.
  */
 export function changeClass({ paths, packages } = {}) {
   const files = normalize(paths);
-  if (files.length === 0) return { class: 'product' };
+  if (files.length === 0) return { class: 'product', security: true, storedData: true };
   const product = productPaths(files);
   if (product.length === 0) return { class: 'docs' };
   const testPackages = testOnlyPackages(product, packages);
   if (testPackages !== null) return { class: 'tests', packages: testPackages };
-  return { class: 'product' };
+  return { class: 'product', security: product.some(isSecurityPath), storedData: product.some(isStoredDataPath) };
 }
 
 /**
@@ -273,8 +377,9 @@ export function changeClass({ paths, packages } = {}) {
  * `paths` still calls it, since `changeClass` answers that 'product', not
  * 'docs' (its own doc comment gives the reason), and this has to agree.
  * Thrown or not, `packages()` is asked the same question `changeClass`
- * already answers 'product' for a workspace it can't place: the safe
- * direction on a failure is the one that costs a run rather than a merge.
+ * already answers 'product', security and stored data for a workspace it
+ * can't place: the safe direction on a failure is the one that costs a
+ * review rather than a merge.
  */
 export function localChangeAnswer(paths, packages) {
   const files = normalize(paths);
@@ -284,11 +389,15 @@ export function localChangeAnswer(paths, packages) {
   try {
     resolved = packages();
   } catch {
-    return 'product changed';
+    return 'product changed (security, stored data)';
   }
 
   const result = changeClass({ paths: files, packages: resolved });
-  return result.class === 'tests' ? `tests only (${result.packages.join(', ')})` : 'product changed';
+  if (result.class === 'tests') return `tests only (${result.packages.join(', ')})`;
+  const tags = [];
+  if (result.security) tags.push('security');
+  if (result.storedData) tags.push('stored data');
+  return tags.length === 0 ? 'product changed' : `product changed (${tags.join(', ')})`;
 }
 
 /** How many product paths a run log names before it starts counting instead. */
@@ -300,14 +409,19 @@ const NAMED = 20;
  * `readFile` is handed `GITHUB_EVENT_PATH` and returns its text; `gitDiff` is
  * handed a range and returns `git diff --name-only -z` output. Either may throw,
  * and the reason both are arguments is that **every way this can fail has to say
- * "product changed"**: a skipped job satisfies a required status check
- * (docs/deployment.md, "Bootstrap runbook"), so a crash that read as
- * "documentation only" would wave an untested change through five green ticks.
+ * "product changed" and "security"**: a skipped job satisfies a required status
+ * check (docs/deployment.md, "Bootstrap runbook"), so a crash that read as
+ * "documentation only" or "not security" would wave an untested or unreviewed
+ * change through green ticks.
+ *
+ * `security` is what claude-security-review.yml's own `changes` job reads to
+ * decide whether the security review runs at all - the same shape
+ * `product_changed` already is for claude-code-review.yml's.
  */
 export function classify({ eventName, eventPath, readFile, gitDiff } = {}) {
   const range = diffRange({ eventName, event: parseEvent(readFile, eventPath) });
   if (range === null) {
-    return { changed: true, lines: [`No diff range for a ${printable(eventName ?? 'nameless')} event, so every check runs.`] };
+    return { changed: true, security: true, lines: [`No diff range for a ${printable(eventName ?? 'nameless')} event, so every check runs.`] };
   }
 
   let paths;
@@ -315,7 +429,7 @@ export function classify({ eventName, eventPath, readFile, gitDiff } = {}) {
     paths = pathsFromDiff(gitDiff(range));
   } catch (error) {
     const why = printable(String(error?.message ?? error).replace(/\s+/g, ' ').trim());
-    return { changed: true, lines: [`::warning::Could not diff ${range}, so every check runs: ${why}`] };
+    return { changed: true, security: true, lines: [`::warning::Could not diff ${range}, so every check runs: ${why}`] };
   }
 
   if (paths.length === 0) {
@@ -323,15 +437,16 @@ export function classify({ eventName, eventPath, readFile, gitDiff } = {}) {
     // found nothing product-affecting, when what it actually found is nothing
     // to classify - a range git resolved to no files, which is answered
     // "product changed" for the reason productChanged's own comment gives.
-    return { changed: true, lines: [`${range}: no paths in this diff, so every check runs rather than reading that as documentation.`] };
+    return { changed: true, security: true, lines: [`${range}: no paths in this diff, so every check runs rather than reading that as documentation.`] };
   }
 
   const forcing = productPaths(paths);
+  const security = forcing.some(isSecurityPath);
   const lines = [`${range}: ${paths.length} path(s) changed, ${forcing.length} of them product.`];
   // Named, because "why did this run" is the only question anybody asks of this
   // job, and the answer is usually one path. Capped, so a large diff does not
   // print itself into the log for an answer nobody is in doubt about.
   for (const path of forcing.slice(0, NAMED)) lines.push(`  ${printable(path)}`);
   if (forcing.length > NAMED) lines.push(`  ... and ${forcing.length - NAMED} more`);
-  return { changed: productChanged(paths), lines };
+  return { changed: productChanged(paths), security, lines };
 }

@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 //
-// What CLAUDE.md's Tests table calls the change on this branch - the
-// classifier scripts/lib/what-changed.mjs already answers for a CI diff
-// (`scripts/what-changed.mjs`), asked instead of a working tree, so a
-// session reads its answer rather than judging it by eye ("Scale a session's
-// own checks to what the change touches, as CI already does", issue 372).
+// What CLAUDE.md's Tests table, and Review findings' own table, call the
+// change on this branch - the classifier scripts/lib/what-changed.mjs already
+// answers for a CI diff (`scripts/what-changed.mjs`), asked instead of a
+// working tree, so a session reads its answer rather than judging it by eye
+// ("Scale a session's own checks to what the change touches, as CI already
+// does", issue 372; "Review a change as much as what it touches needs, and
+// recheck only what a fix changed", issue 423).
 //
 // Usage: node scripts/local-changes.mjs
 //
@@ -22,9 +24,9 @@
 // direction below exists for.
 //
 // Anything this cannot read - no `main` to diff against, `pnpm -r list`
-// failing - answers 'product', the direction that costs a run rather than a
-// merge, the same as every failure classify() (scripts/lib/what-changed.mjs)
-// already answers that way.
+// failing - answers 'product changed (security, stored data)', the direction
+// that costs a review rather than a merge, the same as every failure
+// classify() (scripts/lib/what-changed.mjs) already answers that way.
 //
 
 import { readFileSync } from 'node:fs';
@@ -60,15 +62,15 @@ function packages() {
   try {
     return testablePackages(pnpmWorkspaceList(root), (pkgPath) => JSON.parse(readFileSync(join(pkgPath, 'package.json'), 'utf8')), root);
   } catch (error) {
-    console.error(printable(`Could not read the workspace: ${error.message}. So this answers 'product changed'.`));
+    console.error(printable(`Could not read the workspace: ${error.message}. So this answers 'product changed (security, stored data)'.`));
     throw error;
   }
 }
 
 const paths = changedPaths();
 if (paths === null) {
-  console.error(printable("Could not diff against origin/main or main. So this answers 'product changed'."));
-  console.log('product changed');
+  console.error(printable("Could not diff against origin/main or main. So this answers 'product changed (security, stored data)'."));
+  console.log('product changed (security, stored data)');
 } else {
   console.log(localChangeAnswer(paths, packages));
 }
