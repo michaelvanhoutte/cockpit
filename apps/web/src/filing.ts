@@ -74,6 +74,18 @@ export function itemsInTheInbox(items: readonly Item[], filings: readonly Filing
 }
 
 /**
+ * Everything still to deal with that is filed somewhere - the complement of
+ * `itemsInTheInbox`, built the same direct way from `filings` rather than by
+ * inverting that function's own result, so a caller needing both sides of the
+ * partition (`possibleDuplicatesOf`, issue 410) pays for one scan each rather
+ * than one twice over.
+ */
+export function itemsThatAreFiled(items: readonly Item[], filings: readonly Filing[]): Item[] {
+  const filed = new Set(filings.map((filing) => filing.itemId));
+  return items.filter((item) => stillOpen(item) && filed.has(item.id));
+}
+
+/**
  * Every item filed on one panel, in order - **including the ones the panel does
  * not draw**.
  *

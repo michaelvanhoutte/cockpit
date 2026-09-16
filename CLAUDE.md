@@ -78,17 +78,31 @@ The two rules that get skipped most, restated here rather than referenced becaus
 
 | Change | Runs |
 |---|---|
-| only `docs/`, `.claude/` or root markdown | the writing rules and `pnpm test:scripts`; no security review, no browser pass, no code review above `low` |
+| only `docs/`, `.claude/` or root markdown | the writing rules and `pnpm test:scripts`; no browser pass |
 | only test files, or a test deletion | that package's suite and `pnpm test:scripts`; no browser pass |
 | anything touching product code | everything the definition of done lists today |
 
+What each of these earns in local review — `/code-review`'s level, and whether `/security-review` runs at all — is Review findings' own table below, not this one: a product change splits further there, into stored data, security, or neither.
+
 ## Review findings
 
-**Run `/code-review xhigh` yourself before pushing, not only `/security-review`** — except where Tests' scaling table caps or drops either, for a documentation-only change. Across five pull requests of one run, all twenty findings were code-review findings and the security review correctly found nothing — silence that read, from the transcript, like a review had happened. A local pass runs now; a remote round costs a push, a CI run and fourteen minutes.
+**Run `/code-review` and `/security-review` yourself before pushing, each at the level the change earns.** `node scripts/local-changes.mjs`'s answer maps to a row below, the same way it already does for Tests' scaling table above. Across five pull requests of one run, all twenty findings were code-review findings and the security review correctly found nothing — silence that read, from the transcript, like a review had happened. A local pass runs now; a remote round costs a push, a CI run and fourteen minutes.
 
-**The level is part of that command, because a bare `/code-review` picks the cheapest one.** It reuses whatever level was typed last and falls back when nothing ever was, so it lands on `low` or `medium` — fewer findings, higher confidence, which is the wrong trade when the coverage a level buys is the alternative to a remote round. `xhigh` rather than `max` because a `max` pass on a large diff is slow enough to get skipped, and a skipped review is the failure the rule above already exists to fix. `ultra` is not a deeper step on the same scale: it is a billed multi-agent review in the cloud, so only the user can start one.
+| Change | `/code-review` | Security review |
+|---|---|---|
+| `documentation only` | `low` | none |
+| `tests only (…)`, or the unit's recommended model is `haiku` | `medium` | none |
+| `product changed` | `high` | none |
+| `product changed (stored data)` | `xhigh` | none |
+| `product changed (security)`, with or without stored data | `high`, or `xhigh` with stored data | as its own agent |
 
-**Run `/security-review` as its own `Agent` subagent call, never inline via `Skill`.** `/security-review` closes with "your final reply must contain the markdown report and nothing else"; invoked inline, that closing line becomes the session's own last turn, and the work sits reviewed on an unpushed commit — which is where "Give the code review the tested gate the security review already uses" (issue 277) sat until somebody asked why, and where it recurred verbatim building "Make the security review warning mean something, or drop it" (issue 284). Spawn it instead as a `general-purpose` `Agent` call, foregrounded, on the session's own model or stronger where the calling session already requires that (`/issue` step 7 does): the closing line then binds that subagent's own last turn, and the session gets back a finished report to read, fix against, and push in the same turn. `/code-review` carries no such closing line and keeps running inline.
+This reverses "Small changes take hours: bring a pull request back to its 25-minute floor" (issue 377), which left the local level flat regardless of what a change touched.
+
+**The level is part of that command, because a bare `/code-review` picks the cheapest one.** It reuses whatever level was typed last and falls back when nothing ever was, so it lands on `low` or `medium` regardless of the table above — the wrong trade wherever that table asks for more, since the coverage a level buys is the alternative to a remote round. `xhigh` rather than `max`, even on the two highest rows, because a `max` pass on a large diff is slow enough to get skipped, and a skipped review is the failure the rule above already exists to fix. `ultra` is not a deeper step on the same scale: it is a billed multi-agent review in the cloud, so only the user can start one.
+
+**Recheck a round of fixes instead of re-reviewing the whole diff.** One targeted `/code-review` pass over the files the fixes touched, and a targeted `/security-review` pass only where a fix itself touches a security path. Run a full second pass, at the diff's own row above, only where a fix touches a stored-data path, or the fixes change more than 25% of the original diff or 40 lines, whichever is larger. Fix or decline whatever the recheck finds without another local pass — the CI code review still reads every new head regardless.
+
+**Run `/security-review` as its own `Agent` subagent call, never inline via `Skill`, wherever the table above doesn't answer none.** `/security-review` closes with "your final reply must contain the markdown report and nothing else"; invoked inline, that closing line becomes the session's own last turn, and the work sits reviewed on an unpushed commit — which is where "Give the code review the tested gate the security review already uses" (issue 277) sat until somebody asked why, and where it recurred verbatim building "Make the security review warning mean something, or drop it" (issue 284). Spawn it instead as a `general-purpose` `Agent` call, foregrounded, on the session's own model or stronger where the calling session already requires that (`/issue` step 7 does): the closing line then binds that subagent's own last turn, and the session gets back a finished report to read, fix against, and push in the same turn. `/code-review` carries no such closing line and keeps running inline.
 
 **Open the pull request as a draft, and mark it ready when the work is done.** Both review workflows skip a draft, so every intermediate push costs CI alone instead of two full reviews of code you already know is unfinished — `claude/richtext-action-scope-afec5f` bought eight in a day, none under ten minutes. Marking it ready is what fires them, once, against the finished head.
 
@@ -144,7 +158,9 @@ Anything it prints is a rule you are already working under and have not read.
 
 | Document | What it settles |
 |---|---|
-| `docs/functional-definition.md` | what the product is |
+| `docs/functional-definition.md` | purpose, problems, decisions and non-functional requirements, plus a map to the rest |
+| `docs/product/*.md` | what the product is, one file per area |
+| `docs/design-system.md` | how it looks |
 | `docs/architecture.md` | how it is built |
 | `docs/testing-strategy.md` | what counts as proof it works |
 | `docs/deployment.md` | where it runs and how it gets there |

@@ -31,9 +31,55 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Whether this diff touches a security path at all - "Review a change as
+  # much as what it touches needs, and recheck only what a fix changed"
+  # (issue 423). Modelled on claude-code-review.yml's own `changes` job: read
+  # its comment there for why this is a second copy of the classifier's I/O
+  # rather than a shared job, why the base commit's copy is read rather than
+  # this branch's, and why both steps `continue-on-error` while the gate below
+  # reads `!cancelled()` instead of the bare output.
+  #
+  # Guarded by the same fork/draft/bot check `security-review` carries, for
+  # the same reason claude-code-review.yml's `changes` job is: those three
+  # already cost this workflow zero runner minutes, and computing an answer
+  # `security-review` would ignore regardless would spend a checkout
+  # reintroducing exactly the cost those guards exist to avoid.
+  changes:
+    name: What changed
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.draft == false
+      && github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      security_changed: ${{ steps.classify.outputs.security_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          fetch-depth: 0
+      - name: Work out whether this diff touches a security path
+        id: classify
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          base="$RUNNER_TEMP/base-classifier"
+          mkdir -p "$base/lib"
+          if git show "$BASE_SHA:scripts/what-changed.mjs" > "$base/what-changed.mjs" &&
+             git show "$BASE_SHA:scripts/lib/what-changed.mjs" > "$base/lib/what-changed.mjs"; then
+            node "$base/what-changed.mjs"
+          else
+            echo "::warning::The base commit carries no classifier, so the review runs rather than trusting this branch's own."
+            echo "security_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   security-review:
     name: Security review
-    # Three skips, for different reasons.
+    needs: changes
+    # Four skips, for different reasons.
     #
     # A fork's pull request gets a read-only token and no secrets, so this job
     # cannot run - and left to fail it would report red for a reason that has
@@ -54,10 +100,18 @@ jobs:
     # required review would break", issue 310) left pull requests 292 and 293
     # - both open Dependabot pull requests at the time - unmergeable without
     # an admin bypass, the moment the payload applied.
+    #
+    # A change that touches no security path is the fourth skip, decided by
+    # the `changes` job above rather than here - it reports "not applicable"
+    # the same way a documentation-only pull request already skips
+    # claude-review, and `!cancelled()` is what lets this guard run despite
+    # `changes` failing outright rather than merely answering "no output".
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
+      !cancelled()
+      && github.event.pull_request.head.repo.full_name == github.repository
       && github.event.pull_request.draft == false
       && github.event.pull_request.user.type != 'Bot'
+      && needs.changes.outputs.security_changed != 'false'
     runs-on: ubuntu-latest
     permissions:
       contents: read

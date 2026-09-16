@@ -101,14 +101,14 @@ The runner then prints the statement list itself, so nothing is stored separatel
 
 ### Where the product's words come from
 
-**The Glossary at the end of [docs/functional-definition.md](../../../docs/functional-definition.md) is the binding vocabulary.** Use its nouns exactly as defined. Where a rule needs a word it does not have, prefer one the functional definition uses in prose; if the word is genuinely missing, **add it to the Glossary in the same change** rather than inventing a private synonym.
+**The Glossary in [docs/product/glossary.md](../../../docs/product/glossary.md) is the binding vocabulary.** Use its nouns exactly as defined. Where a rule needs a word it does not have, prefer one the product docs use in prose; if the word is genuinely missing, **add it to the Glossary in the same change** rather than inventing a private synonym.
 
 [docs/architecture.md](../../../docs/architecture.md) is the mechanism, and its words must never surface in anything the runner prints. The check is mechanical:
 
 ```bash
-# a word in the architecture but not the functional definition is a mechanism word
-grep -ci "command" docs/functional-definition.md   # 0  -> never appears in a test name
-grep -ci "command" docs/architecture.md            # 19 -> it is the write path, an implementation
+# a word in the architecture but not the product docs is a mechanism word
+grep -rci "command" docs/product/       # 3  -> only the Glossary's own list of implementation words to avoid
+grep -ci "command" docs/architecture.md # 19 -> it is the write path, an implementation
 ```
 
 "Command", "envelope", "tombstone", "snapshot", "idempotency", "last-write-wins" are all in this class. What the product calls the same things: capturing a thought, triaging an item, dismissing it, what a panel shows, a change replayed after reconnecting, a change made against an older version.

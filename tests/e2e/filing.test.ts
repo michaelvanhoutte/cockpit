@@ -5,6 +5,7 @@ import {
   dashboardBar,
   dragItemOnto,
   expect,
+  fileOnto,
   inbox,
   itemRow,
   itemsOn,
@@ -63,26 +64,6 @@ async function goToTheInbox(page: Page, isMobile: boolean): Promise<void> {
 async function goToTheDashboard(page: Page, dashboard: string, isMobile: boolean): Promise<void> {
   await openDashboard(page, dashboard, isMobile);
   await expect(page.getByRole('heading', { name: dashboard, level: 2 })).toBeVisible();
-}
-
-/** Files one item from its own row, which is the only way there is on a phone. */
-async function fileOnto(
-  page: Page,
-  title: string,
-  // The Inbox target says what it holds beside its name, so it is reached by a
-  // pattern where a panel is reached by its exact title.
-  target: string | RegExp,
-  isMobile: boolean,
-): Promise<void> {
-  await press(itemRow(page, title).getByRole('button', { name: 'Item actions' }), isMobile);
-  await press(page.getByRole('menuitem', { name: 'Move to…' }), isMobile);
-  const picker = page.getByRole('dialog');
-  await expect(picker).toBeVisible();
-  await press(
-    picker.getByRole('button', { name: target, ...(typeof target === 'string' ? { exact: true } : {}) }),
-    isMobile,
-  );
-  await expect(picker).toHaveCount(0);
 }
 
 test.describe('Panels', () => {

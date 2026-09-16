@@ -1,6 +1,6 @@
 # Cockpit — Unified Inbox & Dashboards
 
-The production application for the Unified Inbox & Dashboards concept, built to the recorded decisions in [docs/architecture.md](docs/architecture.md) (the how), [docs/functional-definition.md](docs/functional-definition.md) (the what), [docs/testing-strategy.md](docs/testing-strategy.md) (the proof), and [docs/deployment.md](docs/deployment.md) (the where). Unscheduled ideas are in [docs/ideas.md](docs/ideas.md) (the maybe).
+The production application for the Unified Inbox & Dashboards concept, built to the recorded decisions in [docs/architecture.md](docs/architecture.md) (the how), [docs/product/](docs/product/) (the what, by area) and [docs/functional-definition.md](docs/functional-definition.md) (its purpose, problems and open decisions), [docs/testing-strategy.md](docs/testing-strategy.md) (the proof), and [docs/deployment.md](docs/deployment.md) (the where). Unscheduled ideas are in [docs/ideas.md](docs/ideas.md) (the maybe).
 
 The showcase is this repository rather than a running instance. Both deployed environments are reachable by anyone who knows the URL, with Cockpit's own sign-in the only thing in the way — and it admits any Google account, giving one it has never seen an account of its own, so anybody with one who reaches the URL gets in. No connector has landed, so nothing arrives on its own, but **both hold real data from 7 September 2026** — put there by hand in production, accumulated by use in staging — and nothing re-seeds, wipes or restores over either: see "The environments" in [docs/deployment.md](docs/deployment.md).
 
@@ -16,7 +16,7 @@ cockpit/
 │   ├── connector-sdk/ # the connector SPI (connectors land as packages/connectors/*)
 │   └── config/        # shared tsconfig / prettier
 ├── tools/             # workspace packages that serve the build, not the product: the Test Explorer
-├── docs/              # functional definition, architecture, testing strategy, deployment, options docs
+├── docs/              # product docs by area, architecture, testing strategy, deployment, options docs
 ├── scripts/           # local dev startup, the browser tier's stack, branch tidying
 ├── .github/           # CI, CodeQL, the three Claude workflows, the two deploy workflows, branch protection
 ├── .claude/           # project skills and Claude Code settings every session picks up
@@ -115,6 +115,15 @@ The shared guest account goes back to its demonstration every night; this does i
 ```bash
 pnpm guest:reset --env production
 ```
+
+Duplicate flagging only ever sees notes captured since it shipped; this reads the ones that were already in the Inbox, so a duplicate can be caught among those too:
+
+```bash
+pnpm duplicates:backfill --env local
+pnpm duplicates:backfill --env production --user tenant-anna --stop-after 500
+```
+
+**It never writes to a note itself** — only what a note means and which notes repeat each other — so a run that stops has done part of the work and destroyed none of it, and running it again finishes the rest at no cost for what was already read. What that costs you, the flags, and how it is paced across days is in [docs/deployment.md](docs/deployment.md), under "Migrations and rollback". Read it before pointing this at anything but `local`.
 
 ### Tidying up branches
 

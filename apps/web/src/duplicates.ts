@@ -1,26 +1,50 @@
 import { pairedWith, type Filing, type Item, type PossibleDuplicate } from '@cockpit/shared';
-import { itemsInTheInbox } from './filing';
+import { itemsInTheInbox, itemsThatAreFiled } from './filing';
 
 /**
- * Which Items an Item may be saying again ("Flag a captured note that says what
- * another one already said", issue 407).
+ * Whether an id is still open at all - in the Inbox or filed - which is the
+ * one thing every eligible partner has to be, whichever side is asking.
+ */
+function isOpen(id: string, inbox: ReadonlySet<string>, filed: ReadonlySet<string>): boolean {
+  return inbox.has(id) || filed.has(id);
+}
+
+/**
+ * Whether `partnerId` is a duplicate worth telling `subjectId` about - the one
+ * asymmetric rule both functions below draw from, so the mark a row shows and
+ * what "Not a duplicate" actually settles can never disagree ("Flag a
+ * duplicate between two cards on dashboards", issue 410).
+ *
+ * An Inbox subject is still waiting to be triaged, so any open partner is
+ * worth it, whatever the partner's own state is. A filed subject has
+ * settled onto a Panel, so it is only worth telling it about another
+ * *filed* partner - telling it about something still in the Inbox would be
+ * the noise this mark was built to avoid, on a screen with no triage control
+ * to act on it from.
+ */
+function eligiblePartner(
+  subjectId: string,
+  partnerId: string,
+  inbox: ReadonlySet<string>,
+  filed: ReadonlySet<string>,
+): boolean {
+  if (!isOpen(subjectId, inbox, filed)) return false;
+  return inbox.has(subjectId) ? isOpen(partnerId, inbox, filed) : filed.has(partnerId);
+}
+
+/**
+ * Which Items an Item may be saying again ("Flag a captured note that says
+ * another one already said", issue 407; extended in issue 410 to include
+ * filed Items).
  *
  * **A view over the snapshot, like the Inbox itself** (`itemsInTheInbox`,
  * filing.ts): the wire carries which Items were paired, and whether a pair is
  * *offered* is worked out here, where what is filed is already known.
  *
- * **Until an Item is filed, its duplicates are everything else in the
- * Workspace; a filed Item is nothing's duplicate yet.** Filing is how a person
- * answers the question a note asks, so an Item that has been filed is no longer
- * one of two notes waiting to be told apart - and the note still in the Inbox
- * has nothing left to be warned about. Both halves therefore have to be in the
- * Inbox for either to be marked, which is also what brings the mark back when
- * one is put back.
- *
  * The server has already left out everything a person could no longer act on
  * and everything belonging to another Workspace (`listDuplicatesInWorkspace`,
  * apps/api/src/accounts/repo.ts), so what is left to decide here is filing
- * alone.
+ * alone - `eligiblePartner` above draws the rule, once.
  */
 export function possibleDuplicatesOf(
   itemId: string,
@@ -28,20 +52,21 @@ export function possibleDuplicatesOf(
   filings: readonly Filing[],
   duplicates: readonly PossibleDuplicate[],
 ): Item[] {
-  const inbox = new Map(itemsInTheInbox(items, filings).map((item) => [item.id, item]));
-  if (!inbox.has(itemId)) return [];
+  const inbox = new Set(itemsInTheInbox(items, filings).map((item) => item.id));
+  const filed = new Set(itemsThatAreFiled(items, filings).map((item) => item.id));
+  if (!isOpen(itemId, inbox, filed)) return [];
+  const byId = new Map(items.map((item) => [item.id, item]));
   return pairedWith(itemId, duplicates)
-    .map((id) => inbox.get(id))
+    .filter((id) => eligiblePartner(itemId, id, inbox, filed))
+    .map((id) => byId.get(id))
     .filter((item): item is Item => item !== undefined);
 }
 
 /**
  * Which Items a list should mark as possibly saying what another one already
- * said - both halves of every pair the Inbox still holds.
- *
- * A set worked out once for the whole list rather than a question asked per
- * row, because the answer is the same read of the same two arrays either way
- * and a list of a hundred rows would otherwise do it a hundred times.
+ * said - each side of a pair judged by `eligiblePartner`, the same rule
+ * `possibleDuplicatesOf` draws from, worked out once for the whole list
+ * rather than per row.
  */
 export function itemsThatMayBeDuplicates(
   items: readonly Item[],
@@ -49,11 +74,11 @@ export function itemsThatMayBeDuplicates(
   duplicates: readonly PossibleDuplicate[],
 ): Set<string> {
   const inbox = new Set(itemsInTheInbox(items, filings).map((item) => item.id));
+  const filed = new Set(itemsThatAreFiled(items, filings).map((item) => item.id));
   const flagged = new Set<string>();
   for (const pair of duplicates) {
-    if (!inbox.has(pair.itemId) || !inbox.has(pair.otherItemId)) continue;
-    flagged.add(pair.itemId);
-    flagged.add(pair.otherItemId);
+    if (eligiblePartner(pair.itemId, pair.otherItemId, inbox, filed)) flagged.add(pair.itemId);
+    if (eligiblePartner(pair.otherItemId, pair.itemId, inbox, filed)) flagged.add(pair.otherItemId);
   }
   return flagged;
 }

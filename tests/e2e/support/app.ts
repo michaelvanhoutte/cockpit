@@ -946,6 +946,31 @@ export async function dragItemOnto(
 }
 
 /**
+ * Files a captured item onto a panel, or back to the Inbox, through the
+ * item's own menu - the one way there is on a phone, and used by every walk
+ * that needs an item somewhere without meaning to prove the drag itself.
+ *
+ * The Inbox target says what it holds beside its name, so it is reached by a
+ * pattern where a panel is reached by its exact title.
+ */
+export async function fileOnto(
+  page: Page,
+  title: string,
+  target: string | RegExp,
+  isMobile: boolean,
+): Promise<void> {
+  await press(itemRow(page, title).getByRole('button', { name: 'Item actions' }), isMobile);
+  await press(page.getByRole('menuitem', { name: 'Move to…' }), isMobile);
+  const picker = page.getByRole('dialog');
+  await expect(picker).toBeVisible();
+  await press(
+    picker.getByRole('button', { name: target, ...(typeof target === 'string' ? { exact: true } : {}) }),
+    isMobile,
+  );
+  await expect(picker).toHaveCount(0);
+}
+
+/**
  * The titles a panel is showing, top to bottom.
  *
  * **Assert on it with `expect.poll`, never on one call of it.** It reads the
@@ -953,10 +978,19 @@ export async function dragItemOnto(
  * something into it - the command is sent, the snapshot re-read, and only then
  * is the list redrawn. A bare `expect(await itemsOn(...))` measures the list as
  * it was before any of that and fails while the product is working.
+ *
+ * **Three levels, not two**, to land on the title's own span rather than the
+ * row it shares with whichever marks sit beside it (`ItemRow.tsx`) - "Possible
+ * duplicate" among them since filed cards can carry it too ("Flag a duplicate
+ * between two cards on dashboards", issue 410). Two levels read the whole
+ * wrapper's text, mark and all, which made a panel's own titles depend on
+ * which of them happened to be flagged.
  */
 export async function itemsOn(page: Page, panel: string): Promise<string[]> {
   return page
     .getByRole('region', { name: panel })
     .getByRole('listitem')
-    .evaluateAll((rows) => rows.map((row) => row.querySelector('span > span')?.textContent ?? ''));
+    .evaluateAll((rows) =>
+      rows.map((row) => row.querySelector('span > span > span')?.textContent ?? ''),
+    );
 }

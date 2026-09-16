@@ -859,6 +859,10 @@ export const items = sqliteTable(
   },
   (t) => [
     index('items_tenant_workspace_status').on(t.tenantId, t.workspaceId, t.status),
+    // Ordered for `itemsToRead`'s cursor walk (repo.ts) - `tenant_id` alone
+    // picks out nothing within one account, so the index has to carry `id`
+    // too for the `id > ?` range and the walk's own order to use it.
+    index('items_tenant_id').on(t.tenantId, t.id),
     check('items_source_is_known', oneOf('source', sourceSchema.options)),
     check('items_status_is_known', oneOf('status', DEAD_STATUSES)),
     check('items_focus_horizon_is_known', oneOf('focus_horizon', DEAD_FOCUS_HORIZONS)),

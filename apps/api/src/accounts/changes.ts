@@ -100,6 +100,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     guestDemoSeed(accountId),
     DUPLICATE_SETTLEMENTS,
     PINNED_TEXT_EXAMPLES,
+    ITEMS_TENANT_ID,
   ];
 }
 
@@ -437,9 +438,9 @@ const TEXT_CORRECTIONS: Change = {
  *   left nothing behind.
  * - **Data the new rules reject.** None: both tables start empty. Every Item
  *   captured before this shipped therefore has no reading and takes part in
- *   nothing, which is deliberate and is its own issue ("Read the notes that
- *   were captured before this shipped", issue 409) - the same precedent issue
- *   296 set for title cleanup.
+ *   nothing until the operator's own command reads them ("Give every item
+ *   already there a vector", issue 409) - the same precedent issue 296 set for
+ *   title cleanup.
  * - **What each environment does.** The same thing: an account applies its
  *   outstanding changes inside the first request that opens it, on a laptop, in
  *   staging and in production alike.
@@ -653,6 +654,38 @@ const PINNED_TEXT_EXAMPLES: Change = {
       sql: 'CREATE INDEX `pinned_text_examples_tenant_created` ON `pinned_text_examples` (`tenant_id`,`created_at`)',
     },
   ],
+};
+
+/**
+ * A second index on `items`, ordered so `itemsToRead` (repo.ts) can walk it by
+ * cursor without a scan ("Give every item already there a vector", issue 409).
+ *
+ * **`items_tenant_workspace_status` does not serve this query.** Every row of
+ * an account is one tenant, so `tenant_id` alone picks nothing out, and that
+ * index's next column is `workspace_id` - which `itemsToRead` does not filter
+ * on - so SQLite has no way to use it for `id > ?` or for the walk's own
+ * order. Without `(tenant_id, id)`, every batch reads and sorts every open
+ * Item in the account regardless of the cursor, which turns a resumable walk
+ * into one that costs the same whether it has ten Items left or ten thousand.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It adds an index and writes to no row.
+ * - **Interrupted partway.** It cannot be: a change's statement and the record
+ *   that it ran commit together (`up-to-date.ts`), so a failure leaves no
+ *   index and the change is retried whole.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left no index behind to conflict with a fresh `CREATE INDEX`.
+ * - **Data the new rules reject.** None - an index changes nothing about which
+ *   rows exist or what they hold.
+ * - **What each environment does.** The same thing everywhere: an account
+ *   applies its outstanding changes inside the first request that opens it.
+ */
+const ITEMS_TENANT_ID: Change = {
+  name: '0032-items-tenant-id',
+  statements: [{ sql: 'CREATE INDEX `items_tenant_id` ON `items` (`tenant_id`,`id`)' }],
 };
 
 /**
