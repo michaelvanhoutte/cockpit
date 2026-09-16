@@ -1,11 +1,11 @@
 //
 // Two halves, and both are needed. The first proves the classifier tells a
 // documentation-only diff from every other kind, against path lists written
-// here, and that every way its I/O can fail still says "product changed". The
-// second reads the two workflow files, which is the half that gates: the
-// classifier is only worth anything if the jobs actually consult it, and a job
-// added or an output renamed would otherwise be found by a pull request that
-// skipped its own checks.
+// here, and that every way its I/O can fail still says "product changed" and
+// "security". The second reads the three workflow files, which is the half
+// that gates: the classifier is only worth anything if the jobs actually
+// consult it, and a job added or an output renamed would otherwise be found
+// by a pull request that skipped its own checks.
 //
 
 import assert from 'node:assert/strict';
@@ -14,7 +14,19 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
-import { changeClass, classify, diffRange, isNonProduct, localChangeAnswer, pathsFromDiff, printable, productChanged, productPaths } from './what-changed.mjs';
+import {
+  changeClass,
+  classify,
+  diffRange,
+  isNonProduct,
+  isSecurityPath,
+  isStoredDataPath,
+  localChangeAnswer,
+  pathsFromDiff,
+  printable,
+  productChanged,
+  productPaths,
+} from './what-changed.mjs';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const workflow = (name) => readFileSync(join(repo, '.github/workflows', name), 'utf8');
@@ -184,7 +196,10 @@ describe('changeClass', () => {
   ];
 
   // A loop rather than a table helper: node:test has no `it.each`, the same
-  // reason backup.test.mjs and health.test.mjs give beside their own.
+  // reason backup.test.mjs and health.test.mjs give beside their own. The
+  // seven situations are the statement list "Review a change as much as what
+  // it touches needs, and recheck only what a fix changed" (issue 423) drew
+  // up for this rule.
   for (const { situation, paths, want } of [
     {
       situation: 'uncommitted and committed changes on a branch, all under docs/',
@@ -192,20 +207,86 @@ describe('changeClass', () => {
       want: { class: 'docs' },
     },
     {
-      situation: 'the same with one file under apps/web/src',
-      paths: ['docs/architecture.md', 'apps/web/src/main.tsx'],
-      want: { class: 'product' },
-    },
-    {
       situation: "only deleted or changed files under a package's tests/",
       paths: ['apps/api/tests/unit/commands.test.ts', 'apps/api/tests/integration/http/item-changes.test.ts'],
       want: { class: 'tests', packages: ['@cockpit/api'] },
+    },
+    {
+      situation: 'app code on neither the security nor the stored-data list',
+      paths: ['docs/architecture.md', 'apps/web/src/main.tsx'],
+      want: { class: 'product', security: false, storedData: false },
+    },
+    {
+      situation: 'a migration, on its own',
+      paths: ['apps/api/migrations/0007_add_items.sql'],
+      want: { class: 'product', security: false, storedData: true },
+    },
+    {
+      situation: 'either schema file, or the account store\'s change list',
+      paths: ['apps/api/src/accounts/schema.ts', 'apps/api/src/db/schema.ts', 'apps/api/src/accounts/changes.ts'],
+      want: { class: 'product', security: false, storedData: true },
+    },
+    {
+      situation: "sign-in code, the web session, a connector, the user register, backup, restore or the guest account's reset",
+      paths: [
+        'apps/api/src/auth/session.ts',
+        'apps/web/src/session/forget.ts',
+        'apps/api/src/connectors/registry.ts',
+        'apps/api/src/accounts/register.ts',
+        'apps/api/src/accounts/backup.ts',
+        'apps/api/src/accounts/restore.ts',
+        'scripts/guest-reset.mjs',
+      ],
+      want: { class: 'product', security: true, storedData: true },
+    },
+    {
+      situation: 'a workflow, the branch-protection payload, the security-review instructions or Wrangler\'s configuration, none of them stored data',
+      paths: ['.github/workflows/ci.yml', '.github/branch-protection.json', '.github/security-review-instructions.md', 'apps/api/wrangler.jsonc'],
+      want: { class: 'product', security: true, storedData: false },
+    },
+    {
+      situation: 'a schema file and a workflow together',
+      paths: ['apps/api/src/db/schema.ts', '.github/workflows/ci.yml'],
+      want: { class: 'product', security: true, storedData: true },
+    },
+    {
+      situation: 'a path this could not read at all',
+      paths: [],
+      want: { class: 'product', security: true, storedData: true },
     },
   ]) {
     it(`answers ${situation}`, () => {
       assert.deepEqual(changeClass({ paths, packages }), want);
     });
   }
+});
+
+describe('isSecurityPath and isStoredDataPath', () => {
+  it('answer false for an ordinary product path', () => {
+    assert.equal(isSecurityPath('apps/web/src/main.tsx'), false);
+    assert.equal(isStoredDataPath('apps/web/src/main.tsx'), false);
+  });
+
+  it('match a directory prefix, not a path that merely starts with the same letters', () => {
+    // apps/api/src/auth/session.ts is security; apps/api/src/auth-helpers.ts
+    // is not the same directory and should not match its prefix by accident.
+    assert.equal(isSecurityPath('apps/api/src/auth/session.ts'), true);
+    assert.equal(isSecurityPath('apps/api/src/auth-helpers.ts'), false);
+  });
+
+  it('match an exact file rather than every file beside it', () => {
+    assert.equal(isSecurityPath('apps/api/src/accounts/register.ts'), true);
+    assert.equal(isSecurityPath('apps/api/src/accounts/new-user.ts'), false);
+    assert.equal(isStoredDataPath('apps/api/src/accounts/schema.ts'), true);
+    assert.equal(isStoredDataPath('apps/api/src/accounts/store.ts'), false);
+  });
+
+  it('carry backup, restore and the guest reset on both lists', () => {
+    for (const path of ['apps/api/src/accounts/backup.ts', 'apps/api/src/accounts/restore.ts', 'scripts/guest-reset.mjs']) {
+      assert.equal(isSecurityPath(path), true, `${path} should be a security path`);
+      assert.equal(isStoredDataPath(path), true, `${path} should be a stored-data path`);
+    }
+  });
 });
 
 describe('localChangeAnswer', () => {
@@ -232,7 +313,13 @@ describe('localChangeAnswer', () => {
     assert.equal(localChangeAnswer(paths, () => packages), 'product changed');
   });
 
-  it('answers product changed on an empty diff, agreeing with changeClass rather than reading it as documentation', () => {
+  it('tags stored data, security, or both, onto a product change that touches either list', () => {
+    assert.equal(localChangeAnswer(['apps/api/src/accounts/schema.ts'], () => packages), 'product changed (stored data)');
+    assert.equal(localChangeAnswer(['apps/api/src/auth/session.ts'], () => packages), 'product changed (security)');
+    assert.equal(localChangeAnswer(['apps/api/src/accounts/backup.ts'], () => packages), 'product changed (security, stored data)');
+  });
+
+  it('answers product changed, security and stored data, on an empty diff, agreeing with changeClass rather than reading it as documentation', () => {
     // paths.length is 0, not > 0 - the one case the docs-only short-circuit
     // deliberately excludes (scripts/local-changes.mjs's own comment on it),
     // so this still asks for the workspace.
@@ -242,18 +329,18 @@ describe('localChangeAnswer', () => {
         asked = true;
         return packages;
       }),
-      'product changed',
+      'product changed (security, stored data)',
     );
     assert.equal(asked, true, 'an empty diff should still consult changeClass, not shortcut past it');
   });
 
-  it('answers product changed, the safe direction, where the workspace could not be read', () => {
+  it('answers product changed, security and stored data - the safe direction - where the workspace could not be read', () => {
     const paths = ['apps/web/src/main.tsx'];
     assert.equal(
       localChangeAnswer(paths, () => {
         throw new Error('pnpm -r list failed: exit 1');
       }),
-      'product changed',
+      'product changed (security, stored data)',
     );
   });
 });
@@ -339,56 +426,70 @@ describe('classify', () => {
 
   const pullRequest = { pull_request: { base: { sha: sha('a') }, head: { sha: sha('b') } } };
 
-  it('says a documentation-only pull request changed nothing the checks read', () => {
-    const { changed, lines } = classify(readers({ event: pullRequest, diff: `docs/a.md${NUL}CLAUDE.md${NUL}` }));
+  it('says a documentation-only pull request changed nothing the checks read, and needs no security review', () => {
+    const { changed, security, lines } = classify(readers({ event: pullRequest, diff: `docs/a.md${NUL}CLAUDE.md${NUL}` }));
     assert.equal(changed, false);
+    assert.equal(security, false);
     assert.match(lines[0], /2 path\(s\) changed, 0 of them product\./);
   });
 
   it('names the product paths that made the suite run, and stops naming at twenty', () => {
     const many = Array.from({ length: 25 }, (unused, index) => `apps/web/src/f${index}.ts`);
-    const { changed, lines } = classify(readers({ event: pullRequest, diff: `${many.join(NUL)}${NUL}` }));
+    const { changed, security, lines } = classify(readers({ event: pullRequest, diff: `${many.join(NUL)}${NUL}` }));
     assert.equal(changed, true);
+    assert.equal(security, false, 'none of these paths are on the security list');
     assert.equal(lines.filter((line) => line.startsWith('  apps/')).length, 20);
     assert.equal(lines.at(-1), '  ... and 5 more');
+  });
+
+  it('flags security wherever a product path in the diff is one', () => {
+    const { changed, security } = classify(readers({ event: pullRequest, diff: `apps/web/src/main.tsx${NUL}apps/api/src/auth/session.ts${NUL}` }));
+    assert.equal(changed, true);
+    assert.equal(security, true);
   });
 
   it('says why it ran everything on a range with nothing in it, rather than "0 of them product"', () => {
     // productChanged([]) is true, not false - a range git resolved to no
     // files is not the same claim as "found only documentation", and the log
     // line has to say which one happened.
-    const { changed, lines } = classify(readers({ event: pullRequest, diff: '' }));
+    const { changed, security, lines } = classify(readers({ event: pullRequest, diff: '' }));
     assert.equal(changed, true);
+    assert.equal(security, true, 'a diff this could not read is the "path it cannot read" case, answered security');
     assert.equal(lines.length, 1);
     assert.doesNotMatch(lines[0], /0 of them product/);
     assert.match(lines[0], /no paths in this diff/);
   });
 
   it('runs everything when git could not answer, and says so as a warning', () => {
-    const { changed, lines } = classify(readers({ event: pullRequest, failDiff: true }));
+    const { changed, security, lines } = classify(readers({ event: pullRequest, failDiff: true }));
     assert.equal(changed, true);
+    assert.equal(security, true);
     assert.match(lines[0], /^::warning::Could not diff /);
     assert.equal(lines.length, 1);
   });
 
   it('runs everything when there is no event payload to read', () => {
-    const { changed, lines } = classify(readers({ failRead: true }));
+    const { changed, security, lines } = classify(readers({ failRead: true }));
     assert.equal(changed, true);
+    assert.equal(security, true);
     assert.match(lines[0], /^No diff range for a pull_request event/);
   });
 
   it('runs everything when the event payload is not the JSON it should be', () => {
     for (const event of ['', 'not json at all', '[]']) {
-      const { changed } = classify(readers({ event }));
+      const { changed, security } = classify(readers({ event }));
       assert.equal(changed, true, `a payload of ${JSON.stringify(event)} should run everything`);
+      assert.equal(security, true, `a payload of ${JSON.stringify(event)} should need a security review too`);
     }
   });
 
   it('runs everything on an event it has no range for', () => {
-    const { changed, lines } = classify({ ...readers({ event: pullRequest }), eventName: 'schedule' });
+    const { changed, security, lines } = classify({ ...readers({ event: pullRequest }), eventName: 'schedule' });
     assert.equal(changed, true);
+    assert.equal(security, true);
     assert.match(lines[0], /^No diff range for a schedule event/);
     assert.equal(classify().changed, true);
+    assert.equal(classify().security, true);
   });
 
   it('prints no line a runner would read as a workflow command of its own', () => {
@@ -670,5 +771,69 @@ describe("the code review's own classifier", () => {
     const block = claudeReview();
     assert.match(block, /Assert the review actually ran/, 'the assert step should live inside the claude-review job');
     assert.equal(jobIfAny(workflow('claude-code-review.yml'), 'assert-code-review'), null, 'the assert step should not be split into a job of its own');
+  });
+});
+
+describe("the security review's own classifier", () => {
+  // claude-security-review.yml's version of the same `changes`/consumer
+  // pair claude-code-review.yml carries - "Review a change as much as what
+  // it touches needs, and recheck only what a fix changed" (issue 423). The
+  // consumer job kept its pre-existing name, `security-review`, rather than
+  // being renamed to match `claude-review`.
+  const changes = () => job(workflow('claude-security-review.yml'), 'changes');
+  const securityReview = () => job(workflow('claude-security-review.yml'), 'security-review');
+
+  it('publishes a security_changed output, read from the base commit', () => {
+    const block = changes();
+    assert.match(block, /security_changed: \$\{\{ steps\.classify\.outputs\.security_changed \}\}/, 'the changes job publishes no answer');
+    assert.match(block, /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/, 'the base commit is never named');
+    assert.match(block, /git show "\$BASE_SHA:scripts\/what-changed\.mjs"/, "the base commit's own wrapper is not taken");
+    assert.match(block, /git show "\$BASE_SHA:scripts\/lib\/what-changed\.mjs"/, "the base commit's own module is not taken");
+    assert.doesNotMatch(block, /node scripts\/what-changed\.mjs/, 'this workflow never triggers on push, so it should not carry a push fallback');
+  });
+
+  it('cannot skip on a classifier that failed rather than answered', () => {
+    // Mirrors ci.yml's and claude-code-review.yml's own versions of this
+    // test: both steps continue past a failure, and the else branch fails
+    // open (`security_changed=true` written directly) rather than falling
+    // back to this branch's own copy.
+    const block = changes();
+    const steps = (block.match(/^ {6}- \w+:/gm) ?? []).length;
+    const continues = (block.match(/^ {8}continue-on-error: true$/gm) ?? []).length;
+    assert.ok(steps >= 2, `expected at least two steps in the changes job, found ${steps}`);
+    assert.equal(continues, steps, `every step of the changes job should continue on error (${continues} of ${steps} do)`);
+    const elseBranch = block.slice(block.indexOf('else', block.indexOf('git show')));
+    assert.doesNotMatch(elseBranch, /node /, 'the else branch still runs a classifier - which one, on whose copy?');
+    assert.match(elseBranch, /security_changed=true/, 'the else branch does not fail open directly');
+  });
+
+  it('skips itself on a fork, a draft or a bot pull request, the same way security-review does', () => {
+    const block = changes();
+    for (const clause of [
+      'github.event.pull_request.head.repo.full_name == github.repository',
+      'github.event.pull_request.draft == false',
+      "github.event.pull_request.user.type != 'Bot'",
+    ]) {
+      assert.ok(block.includes(clause), `the changes job is missing the guard: ${clause}`);
+    }
+  });
+
+  it('gates security-review on what changed, the same way claude-review is gated', () => {
+    const block = securityReview();
+    assert.ok(needsOf(block).includes('changes'), 'the security-review job does not wait for what changed');
+    assert.match(block, /!cancelled\(\)/, 'the gate should run despite changes failing outright, not only despite its output being unset');
+    assert.match(block, /needs\.changes\.outputs\.security_changed != 'false'/, 'the security-review job does not read the classifier');
+  });
+
+  it('skips the whole job, verdict assertion included, so the gate can never read the skip as a decline', () => {
+    // "Assert the review reached a verdict" is a step of security-review
+    // itself, not a job of its own - mirroring claude-review's own assert
+    // step, for the same reason: a non-security diff is skipped the
+    // identical way a fork, draft or bot pull request already is, so there
+    // is no path where the review step is skipped but the assert step still
+    // runs against an empty execution file.
+    const block = securityReview();
+    assert.match(block, /Assert the review reached a verdict/, 'the assert step should live inside the security-review job');
+    assert.equal(jobIfAny(workflow('claude-security-review.yml'), 'assert-security-review'), null, 'the assert step should not be split into a job of its own');
   });
 });
