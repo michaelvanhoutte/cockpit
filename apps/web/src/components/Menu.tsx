@@ -111,23 +111,10 @@ function menuButtonClassName(
       : onChrome
         ? 'text-chrome-ink-faint hover:bg-white/10 hover:text-chrome-ink focus-visible:outline-chrome-ink-soft group-data-[state=open]:bg-white/10 group-data-[state=open]:text-chrome-ink'
         : 'text-ink-faint hover:bg-accent-tint hover:text-accent-deep focus-visible:outline-accent group-data-[state=open]:bg-accent-tint group-data-[state=open]:text-accent-deep';
-  // The ring is drawn inward (a negative offset) for `SurfaceMenuButton`
-  // only, not for every `MenuTrigger` caller this string is also shared with
-  // (found in review: it had leaked into the string every caller shares) -
-  // the same reason a Panel's own header draws its own inward
-  // (`PanelCard.tsx`): `SurfaceMenuButton` sits flush with a Panel's edge
-  // once its `-mr-2` cancels the header's own `@max-[200px]:px-2`, and an
-  // outward ring there would be clipped by the page's scroll container. No
-  // other `MenuTrigger` caller passes anything that cancels padding that
-  // way, so the reason does not reach them.
-  const ring =
-    ownState === 'ancestor'
-      ? 'focus-visible:outline-2 focus-visible:-outline-offset-2'
-      : 'focus-visible:outline-2';
   // 36px, comfortably past the 24px minimum target size and reachable with a
   // thumb, in a bar whose other controls are smaller than that: the control
   // is what has to be hittable, not the text beside it.
-  return `inline-flex size-9 shrink-0 items-center justify-center rounded-md ${ring} ${colors}${className ? ` ${className}` : ''}`;
+  return `inline-flex size-9 shrink-0 items-center justify-center rounded-md focus-visible:outline-2 ${colors}${className ? ` ${className}` : ''}`;
 }
 
 /** The vertical triplet itself - see `MenuTrigger`'s doc comment for why this glyph. */

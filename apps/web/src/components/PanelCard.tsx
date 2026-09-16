@@ -308,7 +308,13 @@ export function PanelCard({
           // `group` so the button below can read *this* element's own
           // `data-state` - Radix writes that here, on the `ContextMenu.Trigger`,
           // never on the button (`SurfaceMenuButton`'s own doc comment).
-          className={`group flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
+          //
+          // `relative` for that same button: it is positioned absolute
+          // (below) rather than laid out in this flex row, which is what it
+          // takes for the button not to change this element's own height
+          // (found bisecting a real CI-only regression - see the button's
+          // own comment).
+          className={`group relative flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
             isRenaming ? '' : 'cursor-grab active:cursor-grabbing'
           }`}
         >
@@ -348,7 +354,7 @@ export function PanelCard({
             </form>
           ) : (
             <>
-              <div className="flex min-w-0 flex-1 items-center gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-2 pr-11">
                 {/* The same heading the Inbox's carries in the band above it
                   (components/InboxPanel.tsx): small, uppercase and in the accent,
                   because a header on the sheet has no fill or rule to say it is a
@@ -394,9 +400,26 @@ export function PanelCard({
                   panel's header is also its drag handle, so right-click and
                   the menu key answer a target mostly asked to do something
                   else, and this is what a pointer or a touchscreen actually
-                  reaches for. `-mr-2` so its own 36px pads back into the
-                  header's `px-4` instead of widening it. */}
-              <SurfaceMenuButton label={`Actions for ${panel.name}`} className="-mr-2" />
+                  reaches for.
+
+                  **Positioned absolute, not laid out in the flex row.** It
+                  used to be a flex sibling, which stretched the header from
+                  36px to 56px to fit its own 36px - taller than the row's
+                  own `min-height:160px` floor ever left room to notice by
+                  eye, but tall enough to push every row below it down by
+                  that much. `filing.test.ts`'s cross-panel drag walks read a
+                  target row's centre and drop there; CI (never this file's
+                  own local runs) put that centre inside the *next* panel's
+                  header often enough to fail two of them four times running,
+                  bisected on CI itself by removing the button, then by
+                  keeping it but pinning the header back to 36px this way
+                  (found in review of the PR this shipped in). The name and
+                  count reserve the same 44px with `pr-11` on the div beside
+                  this, so the button never sits over truncatable text. */}
+              <SurfaceMenuButton
+                label={`Actions for ${panel.name}`}
+                className="absolute top-1/2 right-2 -translate-y-1/2"
+              />
             </>
           )}
         </header>
