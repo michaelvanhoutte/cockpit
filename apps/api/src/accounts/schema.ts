@@ -1411,6 +1411,59 @@ export const attachments = sqliteTable(
 );
 
 /**
+ * One attempt Cockpit made to rewrite a captured item's title and description,
+ * from the moment it was queued through to its outcome ("See the history of
+ * what Cockpit proposed for the Inbox's items", issue 444).
+ *
+ * **Written from `jobs/enrichment.ts`'s own outcome points, not from
+ * `command-service.ts`** - unlike `decisionHistory` above, an attempt here is
+ * queued and settled outside any user command, so `id` is a fresh id minted
+ * at the moment it is queued rather than a reused `commandId`.
+ *
+ * **One row per attempt, updated rather than replaced as it settles** - a
+ * queue retry of the same attempt carries the same `id` and updates this row
+ * in place; a later, separate re-proposal is queued with an id of its own,
+ * so it is a second row rather than a second write to this one.
+ *
+ * **`title_before`/`description_before` are frozen at the moment this is
+ * queued.** They are what the row is showing a change *from*, and an Item
+ * edited again while the attempt is in flight must not rewrite what this row
+ * says it started with.
+ */
+export const rewriteHistory = sqliteTable(
+  'rewrite_history',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    titleBefore: text('title_before').notNull(),
+    titleAfter: text('title_after'),
+    descriptionBefore: text('description_before'),
+    descriptionAfter: text('description_after'),
+    proposedPanelId: text('proposed_panel_id').references(() => panels.id, { onDelete: 'restrict' }),
+    proposedPanelReason: text('proposed_panel_reason'),
+    /** 'pending' | 'rewritten' | 'left-as-is' | 'failed' (RewriteAttemptStatus, packages/shared). */
+    status: text('status').notNull(),
+    message: text('message'),
+    attemptedAt: text('attempted_at').notNull(),
+  },
+  (t) => [
+    // Read per workspace, most recent first - the account-wide table opened
+    // from the Inbox's own menu.
+    index('rewrite_history_tenant_workspace_attempted').on(t.tenantId, t.workspaceId, t.attemptedAt),
+    // Read per item, most recent first - the table opened from an item's own
+    // menu.
+    index('rewrite_history_tenant_item_attempted').on(t.tenantId, t.itemId, t.attemptedAt),
+    check('rewrite_history_attempted_at_is_timestamp', isTimestamp('attempted_at')),
+  ],
+);
+
+/**
  * The command log (architecture, "Mutations are commands, not object PUTs"):
  * idempotency check for retries and the audit trail. command_id is the
  * client-generated ID; a replayed command is a no-op.

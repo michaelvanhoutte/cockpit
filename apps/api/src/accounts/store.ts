@@ -87,15 +87,20 @@ import {
   listWorkspaces,
   meaningsToCompareWith,
   pinnedExamplesForAccount,
+  queueRewriteAttempt,
   recentlyCapturedUnfiled,
+  recordRewriteOutcome,
   rememberMeaning,
   replaceDuplicatesOf,
+  rewriteHistoryForItem,
+  rewriteHistoryForWorkspace,
   textCorrectionsForAccount,
   unfiledItemsInWorkspace,
 } from './repo.js';
 import { couldStillBeActedOn, pairOf, saidAgainBy } from '../domain/duplicates.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
+import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import {
   correctionStillVisible,
   deriveWhatStood,
@@ -459,8 +464,49 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
    */
   itemsWithUnsettledTexts(
     accountName: string,
-  ): Answer<{ id: string; workspaceId: string; capturedMessage: string }[]> {
+  ): Answer<
+    { id: string; workspaceId: string; title: string; description: string | null; capturedMessage: string }[]
+  > {
     return this.#answer(accountName, (db) => itemsWithUnsettledTexts(db, accountName));
+  }
+
+  /**
+   * Queues one rewrite attempt, "Pending" until `recordRewriteOutcome` below
+   * settles it ("See the history of what Cockpit proposed for the Inbox's
+   * items", issue 444). Written by the enrichment job (and the route that
+   * fires it) and by nothing else.
+   */
+  queueRewriteAttempt(accountName: string, attempt: QueuedRewriteAttempt): Answer<null> {
+    return this.#answer(accountName, (db) => {
+      queueRewriteAttempt(db, attempt);
+      return null;
+    });
+  }
+
+  /**
+   * Settles one queued rewrite attempt by its own id - a queue retry of the
+   * same attempt calls this again with the same id, updating that one row
+   * rather than adding another (issue 444). Written by the enrichment job and
+   * by nothing else.
+   */
+  recordRewriteOutcome(accountName: string, attemptId: string, outcome: RewriteOutcome): Answer<null> {
+    return this.#answer(accountName, (db) => {
+      recordRewriteOutcome(db, accountName, attemptId, outcome);
+      return null;
+    });
+  }
+
+  /**
+   * Every rewrite attempt for one Workspace's items, most recent first - the
+   * table opened from the Inbox's own menu (issue 444).
+   */
+  rewriteHistoryForWorkspace(accountName: string, workspaceId: string): Answer<RewriteHistoryEntryRow[]> {
+    return this.#answer(accountName, (db) => rewriteHistoryForWorkspace(db, accountName, workspaceId));
+  }
+
+  /** Every rewrite attempt for one item, most recent first - the table opened from that item's own menu (issue 444). */
+  rewriteHistoryForItem(accountName: string, itemId: string): Answer<RewriteHistoryEntryRow[]> {
+    return this.#answer(accountName, (db) => rewriteHistoryForItem(db, accountName, itemId));
   }
 
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */

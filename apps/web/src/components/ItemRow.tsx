@@ -17,6 +17,7 @@ import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
 import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
+import { RewriteHistoryWindow } from './RewriteHistoryWindow';
 
 /**
  * The flag's label at each level ("Show and edit an item's priority", issue
@@ -156,6 +157,8 @@ export function ItemRow({
   const trigger = useRef<HTMLButtonElement>(null);
   /** True while the entry just chosen is opening something that wants the focus. */
   const opening = useRef(false);
+  /** This item's own rewrite history, opened from its own menu ("See the history of what Cockpit proposed for the Inbox's items", issue 444). */
+  const [historyOpen, setHistoryOpen] = useState(false);
   /**
    * Whether this row's own menu is open, controlled rather than left to Radix
    * ("Pick a row by ctrl/shift-click instead of aiming for a checkbox, and
@@ -772,6 +775,15 @@ export function ItemRow({
             <DropdownMenu.Item className={menuItemClass} onSelect={markDone}>
               Mark done
             </DropdownMenu.Item>
+            <DropdownMenu.Item
+              className={menuItemClass}
+              onSelect={() => {
+                opening.current = true;
+                setHistoryOpen(true);
+              }}
+            >
+              Rewrite history…
+            </DropdownMenu.Item>
             <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
             <DropdownMenu.Item
               className={`${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`}
@@ -781,6 +793,20 @@ export function ItemRow({
             </DropdownMenu.Item>
           </MenuContent>
         </DropdownMenu.Root>
+        {/* Mounted only once opened, unlike the account-wide window a shell
+            keeps mounted between openings - a row is instantiated once per
+            item in the list, and a `useQuery` on every one of them (even
+            disabled) is a query registered per row for a feature few rows
+            will ever open. */}
+        {historyOpen && (
+          <RewriteHistoryWindow
+            open={historyOpen}
+            onClose={() => setHistoryOpen(false)}
+            returnFocusTo={trigger.current}
+            workspaceId={workspaceId}
+            itemId={item.id}
+          />
+        )}
       </div>
     </li>
   );

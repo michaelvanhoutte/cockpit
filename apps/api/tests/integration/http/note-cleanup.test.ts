@@ -391,7 +391,7 @@ describe('Capture', () => {
       theModelIs({ says: AMBIGUOUS_NOTE });
 
       await handleQueue(
-        batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId }),
+        batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: nextId() }),
         env,
       );
 
@@ -468,7 +468,7 @@ describe('Capture', () => {
       theModelIs({ says: { ...A_READING, panel: { panelId: compliance, reason: 'a compliance question' } } });
       whileReading = () => fileOnto(itemId, elsewhere);
 
-      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId }), env);
+      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: nextId() }), env);
 
       expect((await routingOf(itemId))?.proposed_panel_id).toBeNull();
       expect(await isFiled(itemId)).toBe(true);
@@ -538,7 +538,7 @@ describe('Capture', () => {
       });
       theModelIs({ says: { ...SOMETHING_ELSE, panel: { panelId: compliance, reason: 'a compliance question' } } });
 
-      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId }), env);
+      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: nextId() }), env);
 
       expect((await textsOf(itemId))?.title).toBe(SOMETHING_ELSE.title);
       expect((await routingOf(itemId))?.proposed_panel_id).toBeNull();
@@ -965,7 +965,7 @@ describe('Capture', () => {
       // queue not having got there yet. Driven rather than waited for: waiting
       // out a negative is a sleep, and a sleep is how a case comes to pass for
       // a reason nobody chose.
-      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId }), env);
+      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: nextId() }), env);
 
       const texts = await textsOf(itemId);
       expect(texts?.title).toBe(NOTE);
@@ -983,7 +983,7 @@ describe('Capture', () => {
   describe('a note you have renamed yourself is never rewritten', () => {
     /** The same note read again, which is what the queue will do by itself sooner or later. */
     const readAgain = (itemId: string) =>
-      handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId }), env);
+      handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: nextId() }), env);
 
     it.each([
       { situation: 'the title', name: 'set_title' as const, field: { title: 'Mine' } },
@@ -1088,7 +1088,7 @@ describe('Capture', () => {
       theModelIs({ says: SOMETHING_ELSE });
 
       await handleQueue(
-        batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId: theirs }),
+        batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId: theirs, attemptId: nextId() }),
         env,
       );
 
@@ -1100,7 +1100,7 @@ describe('Capture', () => {
 
     it('does nothing for an item that is no longer there', async () => {
       await handleQueue(
-        batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId: nextId() }),
+        batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId: nextId(), attemptId: nextId() }),
         env,
       );
 

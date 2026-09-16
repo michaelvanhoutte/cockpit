@@ -302,6 +302,29 @@
       ]
     },
     {
+      "key": "Rewrite history",
+      "label": "Rewrite history",
+      "parent": "Capture",
+      "sourcePatterns": [
+        "apps/api/src/domain/rewrite-history.ts",
+        "packages/shared/src/domain/rewrite-history.ts",
+        "apps/api/src/accounts/schema.ts",
+        "apps/api/src/accounts/changes.ts",
+        "apps/api/src/accounts/repo.ts",
+        "apps/api/src/accounts/store.ts",
+        "apps/api/src/accounts/rpc.ts",
+        "apps/api/src/accounts/index.ts",
+        "apps/api/src/http/app.ts",
+        "apps/api/src/jobs/enrichment.ts",
+        "apps/web/src/components/RewriteHistoryWindow.tsx",
+        "apps/web/src/components/InboxPanel.tsx",
+        "apps/web/src/components/ItemRow.tsx",
+        "apps/web/src/components/ItemForm.tsx",
+        "apps/web/src/api/queries.ts",
+        "apps/web/src/api/client.ts"
+      ]
+    },
+    {
       "key": "Connector management",
       "label": "Connector management",
       "parent": "Workspaces",

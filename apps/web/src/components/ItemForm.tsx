@@ -869,6 +869,24 @@ function TheForm({
                     </p>
                   </details>
                 )}
+
+                {/* The item's own id, in full - what a rewrite-history row
+                    identifies this item by, since its title is the very
+                    thing a rewrite changes ("See the history of what Cockpit
+                    proposed for the Inbox's items", issue 444). */}
+                <div className="mt-4 flex items-center gap-2 text-xs">
+                  <span className="shrink-0 font-semibold uppercase tracking-wide text-ink-faint">ID</span>
+                  <code className="min-w-0 flex-1 truncate rounded bg-black/5 px-1.5 py-0.5 font-mono text-ink-soft">
+                    {item.id}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => void navigator.clipboard.writeText(item.id).catch(() => {})}
+                    className="shrink-0 rounded-md border border-black/10 px-2 py-1 text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
+                  >
+                    Copy
+                  </button>
+                </div>
               </div>
             )
           )}

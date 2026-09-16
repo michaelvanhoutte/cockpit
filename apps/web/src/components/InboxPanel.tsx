@@ -1,8 +1,11 @@
+import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
 import { itemsInTheInbox } from '../filing';
 import { CaptureForm } from './CaptureForm';
 import { ItemList } from './ItemList';
+import { RowMenu } from './Menu';
+import { RewriteHistoryWindow } from './RewriteHistoryWindow';
 import { HOW_TO_FILE_FROM_THE_INBOX } from '../whatThingsAre';
 
 /**
@@ -24,20 +27,46 @@ export function InboxHeading({ workspaceId, id }: { workspaceId: string; id?: st
   const { data } = useQuery(snapshotQuery(workspaceId));
   const inbox = data ? itemsInTheInbox(data.items, data.filings ?? []) : null;
 
+  /** The account-wide rewrite history, opened from this heading's own menu ("See the history of what Cockpit proposed for the Inbox's items", issue 444). */
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const opener = useRef<HTMLElement | null>(null);
+
   return (
-    <div className="flex items-baseline gap-2">
-      <h2
-        id={id}
-        className="text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep"
-      >
-        Inbox
-      </h2>
-      {/* Nothing where the snapshot has not arrived, rather than a zero: an
-          Inbox that has not been read yet is not an empty one. */}
-      {inbox && (
-        <span className="ml-auto text-xs tabular-nums text-ink-faint">{inbox.length}</span>
-      )}
-    </div>
+    <>
+      <div className="flex items-baseline gap-2">
+        <h2
+          id={id}
+          className="text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep"
+        >
+          Inbox
+        </h2>
+        <div className="ml-auto flex items-center gap-0.5">
+          {/* Nothing where the snapshot has not arrived, rather than a zero: an
+              Inbox that has not been read yet is not an empty one. */}
+          {inbox && (
+            <span className="text-xs tabular-nums text-ink-faint">{inbox.length}</span>
+          )}
+          <RowMenu
+            label="Actions for the Inbox"
+            entries={[
+              {
+                label: 'Rewrite history…',
+                onSelect: (openedFrom) => {
+                  opener.current = openedFrom;
+                  setHistoryOpen(true);
+                },
+              },
+            ]}
+          />
+        </div>
+      </div>
+      <RewriteHistoryWindow
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        returnFocusTo={opener.current}
+        workspaceId={workspaceId}
+      />
+    </>
   );
 }
 

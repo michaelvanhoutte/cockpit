@@ -120,6 +120,15 @@ vi.mock('../../../src/api/queries', () => ({
   useSendCommand: () => () => Promise.resolve(),
   // Only read while a run of filings is in flight, which nothing here starts.
   useLatestSnapshot: () => () => Promise.resolve({ filings: [] }),
+  // Read by the Inbox heading's own "Rewrite history…" entry, closed here so nothing opens it.
+  rewriteHistoryForWorkspaceQuery: (workspaceId: string) => ({
+    queryKey: ['rewriteHistory', 'workspace', workspaceId],
+    queryFn: () => Promise.resolve({ entries: [] }),
+  }),
+  rewriteHistoryForItemQuery: (itemId: string) => ({
+    queryKey: ['rewriteHistory', 'item', itemId],
+    queryFn: () => Promise.resolve({ entries: [] }),
+  }),
 }));
 
 function theWorkspace() {

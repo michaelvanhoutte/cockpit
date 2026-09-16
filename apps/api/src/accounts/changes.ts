@@ -102,6 +102,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     PINNED_TEXT_EXAMPLES,
     ITEMS_TENANT_ID,
     ATTACHMENTS,
+    REWRITE_HISTORY,
   ];
 }
 
@@ -732,6 +733,65 @@ const ATTACHMENTS: Change = {
     },
     {
       sql: 'CREATE INDEX `attachments_tenant_item` ON `attachments` (`tenant_id`,`item_id`)',
+    },
+  ],
+};
+
+/**
+ * The append-only rewrite history a rewrite-history table reads whole per
+ * item, or per workspace most recent first ("See the history of what Cockpit
+ * proposed for the Inbox's items", issue 444) - see `schema.ts` for what each
+ * column carries and why.
+ *
+ * **A brand new table, created whole with its CHECK** - the same shape
+ * `DECISION_HISTORY` above uses, for the same reason: a table created here
+ * carries its CHECK from the start, unlike a column added to `items`.
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It adds a table and writes to no existing row.
+ * - **Interrupted partway.** It cannot be: the statements and the record that
+ *   they ran commit together (`up-to-date.ts`), so a failure leaves neither
+ *   the table nor its indexes and the change is retried whole.
+ * - **Run again.** Only an unfinished change runs again, and an unfinished one
+ *   left nothing behind.
+ * - **Data the new rules reject.** None: the table starts empty, and nothing
+ *   sweeps past titles into it - history accumulates from this shipping
+ *   forward, the same precedent issue 296 set for title cleanup itself.
+ * - **What each environment does.** The same thing everywhere: an account
+ *   applies its outstanding changes inside the first request that opens it.
+ */
+const REWRITE_HISTORY: Change = {
+  name: '0034-rewrite-history',
+  statements: [
+    {
+      sql: `CREATE TABLE \`rewrite_history\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`workspace_id\` text NOT NULL,
+	\`item_id\` text NOT NULL,
+	\`title_before\` text NOT NULL,
+	\`title_after\` text,
+	\`description_before\` text,
+	\`description_after\` text,
+	\`proposed_panel_id\` text,
+	\`proposed_panel_reason\` text,
+	\`status\` text NOT NULL,
+	\`message\` text,
+	\`attempted_at\` text NOT NULL,
+	FOREIGN KEY (\`workspace_id\`) REFERENCES \`workspaces\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`proposed_panel_id\`) REFERENCES \`panels\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "rewrite_history_attempted_at_is_timestamp" CHECK(attempted_at IS NULL OR (datetime(attempted_at) IS NOT NULL AND substr(attempted_at, 11, 1) = 'T' AND substr(attempted_at, -1) = 'Z' AND length(attempted_at) >= 20 AND date(attempted_at) = substr(attempted_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `rewrite_history_tenant_workspace_attempted` ON `rewrite_history` (`tenant_id`,`workspace_id`,`attempted_at`)',
+    },
+    {
+      sql: 'CREATE INDEX `rewrite_history_tenant_item_attempted` ON `rewrite_history` (`tenant_id`,`item_id`,`attempted_at`)',
     },
   ],
 };

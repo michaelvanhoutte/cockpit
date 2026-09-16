@@ -4,6 +4,7 @@ import {
   accountHoldingsSchema,
   itemTypeListSchema,
   registeredUserListSchema,
+  rewriteHistoryResponseSchema,
   textLearningStatusSchema,
   userDeletedSchema,
   type AccountHoldings,
@@ -21,6 +22,7 @@ import {
   type CommandResult,
   type ItemTypeList,
   type RegisteredUserList,
+  type RewriteHistoryResponse,
   type TextLearningStatus,
   type UserAdded,
   type SignedIn,
@@ -242,6 +244,28 @@ export async function fetchSnapshot(workspaceId: string): Promise<WorkspaceSnaps
   });
   if (!res.ok) throw refusal('snapshot', res.status);
   return workspaceSnapshotSchema.parse(await res.json());
+}
+
+/**
+ * Every rewrite attempt for one workspace's items, most recent first - the
+ * table opened from the Inbox's own menu ("See the history of what Cockpit
+ * proposed for the Inbox's items", issue 444).
+ */
+export async function fetchRewriteHistoryForWorkspace(workspaceId: string): Promise<RewriteHistoryResponse> {
+  const res = await api.v1.workspaces[':workspaceId']['rewrite-history'].$get({
+    param: { workspaceId },
+  });
+  if (!res.ok) throw refusal('rewrite history', res.status);
+  return rewriteHistoryResponseSchema.parse(await res.json());
+}
+
+/** Every rewrite attempt for one item, most recent first - the table opened from that item's own menu (issue 444). */
+export async function fetchRewriteHistoryForItem(itemId: string): Promise<RewriteHistoryResponse> {
+  const res = await api.v1.items[':itemId']['rewrite-history'].$get({
+    param: { itemId },
+  });
+  if (!res.ok) throw refusal('rewrite history', res.status);
+  return rewriteHistoryResponseSchema.parse(await res.json());
 }
 
 /** One sender per command; adding a command extends this map and nothing else. */

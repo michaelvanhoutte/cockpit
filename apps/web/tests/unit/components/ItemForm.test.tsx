@@ -894,6 +894,27 @@ describe('Item editing', () => {
     });
   });
 
+  /**
+   * "See the history of what Cockpit proposed for the Inbox's items" (issue
+   * 444): an item's id is what a rewrite-history row identifies it by, since
+   * its title is the very thing a rewrite changes - so the form shows it in
+   * full, with a way to copy it.
+   */
+  describe("an item's own id is shown in full, with a way to copy it", () => {
+    it('shows the id whole, and copies exactly it', async () => {
+      const user = await theForm();
+
+      const writeText = vi.fn(() => Promise.resolve());
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+      expect(screen.getByText('item-1')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Copy' }));
+
+      expect(writeText).toHaveBeenCalledWith('item-1');
+    });
+  });
+
   describe('an item that is not there is said to be gone rather than drawn empty', () => {
     it('says so, and offers nothing to save', async () => {
       held.items = [];

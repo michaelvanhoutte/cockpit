@@ -16,6 +16,8 @@ import {
   fetchItemTypes,
   fetchMe,
   fetchRegisteredUsers,
+  fetchRewriteHistoryForItem,
+  fetchRewriteHistoryForWorkspace,
   fetchSnapshot,
   fetchTextLearningStatus,
   fetchWorkspaces,
@@ -181,6 +183,26 @@ export const snapshotQuery = (workspaceId: string) =>
     queryKey: ['snapshot', workspaceId],
     queryFn: () => fetchSnapshot(workspaceId),
     staleTime: 15_000,
+  });
+
+/**
+ * One workspace's rewrite history, most recent first - the table opened from
+ * the Inbox's own menu ("See the history of what Cockpit proposed for the
+ * Inbox's items", issue 444).
+ */
+export const rewriteHistoryForWorkspaceQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: ['rewriteHistory', 'workspace', workspaceId],
+    queryFn: () => fetchRewriteHistoryForWorkspace(workspaceId),
+    staleTime: 0,
+  });
+
+/** One item's rewrite history, most recent first - the table opened from that item's own menu (issue 444). */
+export const rewriteHistoryForItemQuery = (itemId: string) =>
+  queryOptions({
+    queryKey: ['rewriteHistory', 'item', itemId],
+    queryFn: () => fetchRewriteHistoryForItem(itemId),
+    staleTime: 0,
   });
 
 /**

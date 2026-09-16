@@ -13,6 +13,7 @@ import {
   MAX_ATTACHMENT_SIZE,
   itemTypeListSchema,
   registeredUserListSchema,
+  rewriteHistoryResponseSchema,
   setAccessSchema,
   signedInSchema,
   textLearningStatusSchema,
@@ -676,6 +677,39 @@ const snapshotRoute = createRoute({
   },
 });
 
+/**
+ * Every rewrite attempt for one workspace's items, most recent first - the
+ * table opened from the Inbox's own menu ("See the history of what Cockpit
+ * proposed for the Inbox's items", issue 444).
+ */
+const rewriteHistoryForWorkspaceRoute = createRoute({
+  method: 'get',
+  path: '/v1/workspaces/{workspaceId}/rewrite-history',
+  request: { params: z.object({ workspaceId: z.string() }) },
+  responses: {
+    200: {
+      description: "One workspace's rewrite history, most recent first",
+      content: { 'application/json': { schema: rewriteHistoryResponseSchema } },
+    },
+  },
+});
+
+/**
+ * Every rewrite attempt for one item, most recent first - the table opened
+ * from that item's own menu (issue 444).
+ */
+const rewriteHistoryForItemRoute = createRoute({
+  method: 'get',
+  path: '/v1/items/{itemId}/rewrite-history',
+  request: { params: z.object({ itemId: z.uuid() }) },
+  responses: {
+    200: {
+      description: "One item's rewrite history, most recent first",
+      content: { 'application/json': { schema: rewriteHistoryResponseSchema } },
+    },
+  },
+});
+
 // --- changes ("Mutations are commands"): one POST endpoint per change --------
 
 // `ClientCommandName`, not `CommandName`: a command with no generic JSON
@@ -1018,6 +1052,16 @@ const routes = app
     const account = await openAccount(c.env, c.get('visitor').accountName);
     const snapshot = await account.snapshot(workspaceId);
     return c.json({ ...snapshot, generatedAt: new Date().toISOString() }, 200);
+  })
+  .openapi(rewriteHistoryForWorkspaceRoute, async (c) => {
+    const { workspaceId } = c.req.valid('param');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json({ entries: await account.rewriteHistoryForWorkspace(workspaceId) }, 200);
+  })
+  .openapi(rewriteHistoryForItemRoute, async (c) => {
+    const { itemId } = c.req.valid('param');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json({ entries: await account.rewriteHistoryForItem(itemId) }, 200);
   })
   .openapi(
     commandRoute('create_workspace', { conflict: 'A workspace already has that name' }),

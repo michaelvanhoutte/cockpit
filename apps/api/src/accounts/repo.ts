@@ -1,20 +1,22 @@
 import { alias } from 'drizzle-orm/sqlite-core';
 import { and, asc, desc, eq, exists, gt, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
 import type { Column } from 'drizzle-orm';
-import type {
-  Association,
-  Attachment,
-  Dashboard,
-  Filing,
-  Item,
-  ItemType,
-  Layout,
-  LayoutRow,
-  Panel,
-  PossibleDuplicate,
-  RoutingSummary,
-  ScreenSize,
-  Workspace,
+import {
+  REWRITE_HISTORY_LIMIT,
+  type Association,
+  type Attachment,
+  type Dashboard,
+  type Filing,
+  type Item,
+  type ItemType,
+  type Layout,
+  type LayoutRow,
+  type Panel,
+  type PossibleDuplicate,
+  type RewriteAttemptStatus,
+  type RoutingSummary,
+  type ScreenSize,
+  type Workspace,
 } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments.js';
@@ -22,6 +24,7 @@ import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
 import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
+import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import {
   accountTextRules,
   associations,
@@ -40,6 +43,7 @@ import {
   panelPlacements,
   panels,
   pinnedTextExamples,
+  rewriteHistory,
   screenSizes,
   textCorrections,
   workspaceRoutingSummary,
@@ -929,6 +933,150 @@ export function recentlyCapturedUnfiled(
 }
 
 /**
+ * Queues one rewrite attempt, "Pending" until `recordRewriteOutcome` below
+ * settles it ("See the history of what Cockpit proposed for the Inbox's
+ * items", issue 444).
+ */
+export function queueRewriteAttempt(db: AccountDb, attempt: QueuedRewriteAttempt): void {
+  db.insert(rewriteHistory)
+    .values({
+      id: attempt.id,
+      tenantId: attempt.tenantId,
+      workspaceId: attempt.workspaceId,
+      itemId: attempt.itemId,
+      titleBefore: attempt.titleBefore,
+      descriptionBefore: attempt.descriptionBefore,
+      status: 'pending',
+      attemptedAt: attempt.attemptedAt,
+    })
+    .run();
+}
+
+/**
+ * Settles one queued attempt by its own id - a queue retry of the same
+ * attempt calls this again with the same id, updating this one row rather
+ * than adding another (issue 444).
+ *
+ * A no-op where the id names no row: the attempt went unrecorded (the
+ * account left the register between queuing and this settling, an
+ * administrative rarity `cleanUpACapturedNote` already declines rather than
+ * retries for), and there is nothing here to update onto.
+ */
+export function recordRewriteOutcome(
+  db: AccountDb,
+  tenantId: string,
+  attemptId: string,
+  outcome: RewriteOutcome,
+): void {
+  // Every field set whole, never conditionally: a retry that lands on a row
+  // an earlier delivery already wrote `titleAfter`/etc onto (a success,
+  // later redelivered and this time failing) must leave the row's own
+  // status as the only thing describing it - a `failed` row still showing a
+  // stale `titleAfter` from a previous delivery would read as a rewrite
+  // that both happened and didn't (found in review).
+  db.update(rewriteHistory)
+    .set({
+      status: outcome.status,
+      message: outcome.message,
+      titleAfter: outcome.titleAfter ?? null,
+      descriptionAfter: outcome.descriptionAfter ?? null,
+      proposedPanelId: outcome.proposedPanelId ?? null,
+      proposedPanelReason: outcome.proposedPanelReason ?? null,
+    })
+    .where(and(eq(rewriteHistory.tenantId, tenantId), eq(rewriteHistory.id, attemptId)))
+    .run();
+}
+
+/** The columns a rewrite-history row is read by, joined to the Panel it proposed, if any and if it still exists. */
+const rewriteHistoryColumns = {
+  id: rewriteHistory.id,
+  itemId: rewriteHistory.itemId,
+  titleBefore: rewriteHistory.titleBefore,
+  titleAfter: rewriteHistory.titleAfter,
+  descriptionBefore: rewriteHistory.descriptionBefore,
+  descriptionAfter: rewriteHistory.descriptionAfter,
+  proposedPanelName: panels.name,
+  status: rewriteHistory.status,
+  message: rewriteHistory.message,
+  attemptedAt: rewriteHistory.attemptedAt,
+};
+
+function asRewriteHistoryEntry(row: {
+  id: string;
+  itemId: string;
+  titleBefore: string;
+  titleAfter: string | null;
+  descriptionBefore: string | null;
+  descriptionAfter: string | null;
+  proposedPanelName: string | null;
+  status: string;
+  message: string | null;
+  attemptedAt: string;
+}): RewriteHistoryEntryRow {
+  return { ...row, status: row.status as RewriteAttemptStatus };
+}
+
+/**
+ * Every rewrite attempt for one Workspace's items, most recent first, capped
+ * at `REWRITE_HISTORY_LIMIT` - the table opened from the Inbox's own menu
+ * (issue 444). The same Workspace privacy boundary the Inbox itself already
+ * enforces: an item still undecided between Workspaces is included, the same
+ * way `recentlyCapturedUnfiled` above includes it.
+ *
+ * **Matched on the item's current `items.workspace_id`, not the attempt's own
+ * frozen one.** An item moved to another Workspace since an attempt was
+ * queued is visible where it lives now and nowhere else - the same rule
+ * `unfiledItemsInWorkspace` and `recentlyCapturedUnfiled` above already read
+ * off `items`, not off whichever row is being joined to it.
+ *
+ * **A dismissed or completed item's rows are left out**, the same rule
+ * `recentlyCapturedUnfiled` above states for the same reason: an item gone
+ * from the Inbox has nothing here to identify it by beyond its own id, and
+ * without this a dead item's rows can crowd a live one out of the capped
+ * result below (found in review).
+ */
+export function rewriteHistoryForWorkspace(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): RewriteHistoryEntryRow[] {
+  return db
+    .select(rewriteHistoryColumns)
+    .from(rewriteHistory)
+    .innerJoin(items, eq(rewriteHistory.itemId, items.id))
+    .leftJoin(panels, and(eq(rewriteHistory.proposedPanelId, panels.id), isNull(panels.deletedAt)))
+    .where(
+      and(
+        eq(rewriteHistory.tenantId, tenantId),
+        or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+        isNull(items.deletedAt),
+        isNull(items.completedAt),
+      ),
+    )
+    .orderBy(desc(rewriteHistory.attemptedAt))
+    .limit(REWRITE_HISTORY_LIMIT)
+    .all()
+    .map(asRewriteHistoryEntry);
+}
+
+/**
+ * Every rewrite attempt for one item, most recent first, capped at
+ * `REWRITE_HISTORY_LIMIT` for the same reason the workspace-wide read above
+ * is - the table opened from that item's own menu (issue 444).
+ */
+export function rewriteHistoryForItem(db: AccountDb, tenantId: string, itemId: string): RewriteHistoryEntryRow[] {
+  return db
+    .select(rewriteHistoryColumns)
+    .from(rewriteHistory)
+    .leftJoin(panels, and(eq(rewriteHistory.proposedPanelId, panels.id), isNull(panels.deletedAt)))
+    .where(and(eq(rewriteHistory.tenantId, tenantId), eq(rewriteHistory.itemId, itemId)))
+    .orderBy(desc(rewriteHistory.attemptedAt))
+    .limit(REWRITE_HISTORY_LIMIT)
+    .all()
+    .map(asRewriteHistoryEntry);
+}
+
+/**
  * Every correction this account has ever made, oldest first - what a title or
  * description proposal reads whole, with no retrieval step ("Learn how you
  * write from the titles you correct", issue 394), capped only in the render
@@ -1250,11 +1398,13 @@ export function unfiledItemsInWorkspace(
 export function itemsWithUnsettledTexts(
   db: AccountDb,
   tenantId: string,
-): { id: string; workspaceId: string; capturedMessage: string }[] {
+): { id: string; workspaceId: string; title: string; description: string | null; capturedMessage: string }[] {
   return db
     .select({
       id: items.id,
       workspaceId: items.workspaceId,
+      title: items.title,
+      description: items.description,
       capturedMessage: items.capturedMessage,
     })
     .from(items)
@@ -1274,6 +1424,8 @@ export function itemsWithUnsettledTexts(
     .map((row) => ({
       id: row.id,
       workspaceId: row.workspaceId,
+      title: row.title,
+      description: row.description,
       capturedMessage: row.capturedMessage!,
     }));
 }
