@@ -437,9 +437,9 @@ const TEXT_CORRECTIONS: Change = {
  *   left nothing behind.
  * - **Data the new rules reject.** None: both tables start empty. Every Item
  *   captured before this shipped therefore has no reading and takes part in
- *   nothing, which is deliberate and is its own issue ("Read the notes that
- *   were captured before this shipped", issue 409) - the same precedent issue
- *   296 set for title cleanup.
+ *   nothing until the operator's own command reads them ("Give every item
+ *   already there a vector", issue 409) - the same precedent issue 296 set for
+ *   title cleanup.
  * - **What each environment does.** The same thing: an account applies its
  *   outstanding changes inside the first request that opens it, on a laptop, in
  *   staging and in production alike.

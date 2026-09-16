@@ -21,13 +21,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { addressOf } from './lib/backup.mjs';
-import {
-  needsSayingOutLoud,
-  putBack,
-  readArguments,
-  readBackup,
-  readRefusal,
-} from './lib/restore.mjs';
+import { putBack, readArguments, readBackup, readRefusal } from './lib/restore.mjs';
+import { needsSayingOutLoud } from './lib/operator.mjs';
 import { readConfig, resolveSubdomain, resolveToken } from './lib/operator-config.mjs';
 import { isLinkedWorktree, portsFor } from './lib/ports.mjs';
 

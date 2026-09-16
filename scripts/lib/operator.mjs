@@ -30,6 +30,19 @@ export function readEnvironment(name) {
 }
 
 /**
+ * Whether a target may be written to without being named out loud first.
+ *
+ * **Only the one running here.** Both deployed environments hold real data
+ * nothing re-seeds or wipes (docs/deployment.md, "The environments"), so typing
+ * the name is a small price against the run that was meant for a local
+ * checkout. Shared by every command that writes, so a command added later
+ * cannot quietly disagree about which environments are real.
+ */
+export function needsSayingOutLoud(environment) {
+  return environment !== 'local';
+}
+
+/**
  * The flags a command was given.
  *
  * `takes` names the flags that carry a value, `switches` the ones that are only

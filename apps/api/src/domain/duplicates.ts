@@ -40,8 +40,8 @@ export const SAYS_THE_SAME_THING = 0.88;
  * the model, and writes no pair that nothing could ever draw.
  *
  * A note brought back is read again the next time its texts change, which is
- * what queues a reading at all; "Read the notes that were captured before this
- * shipped" (issue 409) is where the rest of that gap is answered.
+ * what queues a reading at all; the operator's own command is what reads the
+ * rest ("Give every item already there a vector", issue 409).
  */
 export function couldStillBeActedOn(item: Pick<Item, 'completedAt' | 'deletedAt'>): boolean {
   return item.completedAt === null && item.deletedAt === null;

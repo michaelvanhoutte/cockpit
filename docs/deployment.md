@@ -406,6 +406,24 @@ pnpm guest:reset --env production
 
 **It can reach the guest account and nothing else**: it names no account, it refuses where the guest's id belongs to a real person — somebody added under the name "Guest" before adding stopped handing it out — and a store holding any other account's rows refuses before anything is dropped. The reset is one transaction, so one that fails leaves the account as it was. It asks for no confirmation, unlike a restore, because what it removes is promised to nobody; an environment with no guest account — staging — answers that it has none.
 
+And `pnpm duplicates:backfill` reads the notes that were already in the Inbox when duplicate flagging shipped, so that a duplicate can be caught among them rather than only among notes captured since ("Give every item already there a vector", issue 409):
+
+```bash
+pnpm duplicates:backfill --env production
+pnpm duplicates:backfill --env production --user tenant-anna --batch 50 --stop-after 500
+```
+
+| Flag | What it does |
+|---|---|
+| `--env` | which environment to read in; required, and anything but `local` is confirmed by typing its name |
+| `--user` | one account rather than every registered one |
+| `--batch` | how many notes one request reads, 1 to 100, 25 by default |
+| `--stop-after` | stop once this many notes have been read, and say what is left |
+
+**It only ever adds**, which is what makes it safe against real data: it writes what a note means and which notes repeat each other, and never touches the notes themselves. A note that already has a reading is not read again, so re-running costs nothing for what was done and is how a run that stopped is finished — and a note with nothing written on it is counted and named rather than passed over. **A command rather than a change to the store**, because a change that has shipped may never be edited and this has to stay re-runnable.
+
+**Pacing it is the operator's, and `--stop-after` is the lever.** A reading is one Workers AI call per note, and a few thousand notes in one sitting can pass a day's free neuron allocation; nothing schedules this, so the answer is to run it again tomorrow, which picks up exactly where it left off. Left alone it reads everything in one go — the deliberate choice while an account holds hundreds of notes rather than thousands, and the counts it prints are what say when that stops being true.
+
 ## 6. Secrets and access
 
 Secrets live in the platform, never in the repository. Per environment, because

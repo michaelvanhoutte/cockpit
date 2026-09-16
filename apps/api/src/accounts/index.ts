@@ -154,6 +154,25 @@ export interface Account {
    * two texts have been emptied and which now says nothing to compare.
    */
   forgetWhatAnItemMeans(itemId: string): Promise<null>;
+  /**
+   * One batch of the open Items nothing has read yet, from `after` onwards -
+   * what `pnpm duplicates:backfill` walks ("Give every item already there a
+   * vector", issue 409). Read by the operator's route and by nothing else.
+   */
+  itemsToRead(
+    model: string,
+    after: string | null,
+    limit: number,
+  ): Promise<{ id: string; title: string; description: string | null }[]>;
+  /**
+   * Writes what a batch of Items mean and pairs each against every Item of the
+   * account that says the same thing, in one go ("Give every item already there
+   * a vector", issue 409). Written by the operator's route and by nothing else.
+   */
+  rememberWhatTheseItemsMean(
+    model: string,
+    readings: readonly { itemId: string; reading: number[] }[],
+  ): Promise<{ remembered: string[] }>;
   /** The account's live types, in the order they were put in. */
   itemTypes(): Promise<ItemType[]>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
@@ -201,6 +220,10 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.rememberWhatAnItemMeans(accountName, itemId, model, reading)),
     forgetWhatAnItemMeans: async (itemId) =>
       unwrap(await store.forgetWhatAnItemMeans(accountName, itemId)),
+    itemsToRead: async (model, after, limit) =>
+      unwrap(await store.itemsToRead(accountName, model, after, limit)),
+    rememberWhatTheseItemsMean: async (model, readings) =>
+      unwrap(await store.rememberWhatTheseItemsMean(accountName, model, readings)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
   };

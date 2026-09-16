@@ -30,18 +30,6 @@ export function readArguments(argv) {
 }
 
 /**
- * Whether this target may be written to without being named out loud first.
- *
- * **Only the one running here.** Both deployed environments hold real data
- * nothing re-seeds or wipes (docs/deployment.md, "The environments"), so
- * restoring over either destroys something nobody can put back. Typing the name
- * is a small price against the run that was meant for a local checkout.
- */
-export function needsSayingOutLoud(environment) {
-  return environment !== 'local';
-}
-
-/**
  * Reads a backup off disk, refusing one that is not whole.
  *
  * A directory with no manifest is a run that did not finish - the manifest is
