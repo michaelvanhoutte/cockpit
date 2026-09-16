@@ -2,7 +2,7 @@ import type { Item, Panel } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { ItemList } from './ItemList';
 import { PanelText } from '../panels/PanelText';
-import { SurfaceMenu, opensOnKey, opensOnActivate } from './Menu';
+import { SurfaceMenu, SurfaceMenuButton, opensOnKey, opensOnActivate } from './Menu';
 import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThingsAre';
 
 /**
@@ -308,7 +308,7 @@ export function PanelCard({
           // `group` so the button below can read *this* element's own
           // `data-state` - Radix writes that here, on the `ContextMenu.Trigger`,
           // never on the button (`SurfaceMenuButton`'s own doc comment).
-          className={`group flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
+          className={`group relative flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
             isRenaming ? '' : 'cursor-grab active:cursor-grabbing'
           }`}
         >
@@ -348,7 +348,7 @@ export function PanelCard({
             </form>
           ) : (
             <>
-              <div className="flex min-w-0 flex-1 items-center gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-2 pr-9">
                 {/* The same heading the Inbox's carries in the band above it
                   (components/InboxPanel.tsx): small, uppercase and in the accent,
                   because a header on the sheet has no fill or rule to say it is a
@@ -390,8 +390,16 @@ export function PanelCard({
                   </span>
                 )}
               </div>
-              {/* DIAGNOSTIC BISECT: button removed to test whether it is
-                  the cause of the filing.test.ts E2E flakiness. */}
+              {/* DIAGNOSTIC BISECT round 2: absolutely positioned so its
+                  36px does not grow the header's own flex height (which the
+                  first bisect round measured at 56px vs ~38px without it) -
+                  testing whether THAT height growth, not the button's mere
+                  presence, is what the CI-only E2E drag failures track back
+                  to. */}
+              <SurfaceMenuButton
+                label={`Actions for ${panel.name}`}
+                className="absolute top-1/2 right-2 -translate-y-1/2"
+              />
             </>
           )}
         </header>
