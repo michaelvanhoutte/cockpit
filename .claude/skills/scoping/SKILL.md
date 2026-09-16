@@ -12,7 +12,7 @@ Fuzzy scope is where features go wrong, before a line of code or an issue exists
 ### 1. Read the inputs
 
 - The request itself: the conversation, the `ideas.md` entry, the bug report.
-- The existing rules for every part of the product this touches: [functional-definition.md](../../../docs/functional-definition.md), [architecture.md](../../../docs/architecture.md), and any topic doc for the area (e.g. [routing-learning.md](../../../docs/routing-learning.md), [testing-strategy.md](../../../docs/testing-strategy.md) for test placement).
+- The existing rules for every part of the product this touches: the relevant file(s) in [docs/product/](../../../docs/product/), [functional-definition.md](../../../docs/functional-definition.md) for purpose, problems and open decisions, [architecture.md](../../../docs/architecture.md), and any topic doc for the area (e.g. [routing-learning.md](../../../docs/routing-learning.md), [testing-strategy.md](../../../docs/testing-strategy.md) for test placement).
 - Open and closed issues and pull requests touching the same area (`gh issue list`, `gh pr list`), so this doesn't redo something already decided or in flight.
 
 ### 2. Decide whether it has to be seen first
@@ -43,7 +43,7 @@ Use the `grilling` skill's round-based interview (mattpocock-skills): number eac
 
 **Open with the concrete scenario, not the column name or the doc citation.** A question framed first around implementation detail costs a round trip the same question would not have asked plainly: "Learn how you write from the titles you correct" (issue 394) opened with `items.unseen`, functional-definition.md's own undecided routing question, and an unbuilt-feature reference, came back "I don't understand your question," and only landed once restated as what the person would actually see - a title proposed a moment ago, still unread in the Inbox.
 
-Do not write to `CONTEXT.md` or `docs/adr/` — Cockpit's glossary and decisions live in `functional-definition.md`, `architecture.md` and the `*-options.md` docs. Record anything permanent there, as the rule now stands and only once it is built: what the person sees, what the UI tells them and how it behaves. How it looks belongs in `docs/design-system.md`. Behaviour shared across features is stated once, in `docs/product/across-the-app.md`, and referred to from the feature. A rule is edited in place rather than appended, with its reason in a clause where it would otherwise look arbitrary. Designs not yet built go to `docs/ideas.md`, marked as decided where they are; what a rule replaced and which issue decided it stay in git and the issue.
+Do not write to `CONTEXT.md` or `docs/adr/` — Cockpit's product rules and glossary live in `docs/product/`, its open decisions in `functional-definition.md`, its architecture in `architecture.md`, and integration research in the `*-options.md` docs. Record anything permanent there, as the rule now stands and only once it is built: what the person sees, what the UI tells them and how it behaves. How it looks belongs in `docs/design-system.md`. Behaviour shared across features is stated once, in `docs/product/across-the-app.md`, and referred to from the feature. A rule is edited in place rather than appended, with its reason in a clause where it would otherwise look arbitrary. Designs not yet built go to `docs/ideas.md`, marked as decided where they are; what a rule replaced and which issue decided it stay in git and the issue.
 
 ### 4. Size it as a vertical slice
 
