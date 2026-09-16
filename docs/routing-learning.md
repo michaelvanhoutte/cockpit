@@ -21,7 +21,7 @@ Model calls at personal volume cost cents per day, so the goal is not to minimis
 
 | When it fires | What it does | Who is looking at the screen |
 |---|---|---|
-| A note syncs in | proposes a routing, reading the full decision history | nobody |
+| A note syncs in | proposes a routing, reading the bounded decision history | nobody |
 | The inbox is opened *(not built - a settle fires the equivalent instead, "The decision moments")* | refreshes proposals for everything not yet settled | me, but it runs behind the instant paint |
 | ~~Nightly~~ *(removed — the summary it rewrote was read back by nothing, "Drop the nightly filing summary, keep the sentence you wrote", issue 392)* | rewrote the plain-English summary of my filing patterns | nobody |
 | I press "re-suggest" on one item | reclassifies that item on demand | me, by explicit request, spinner accepted |
@@ -61,13 +61,13 @@ Consequences:
 
 **Moment 1** stores the note locally and nothing else, because there may be no connectivity and the note must be safe within the capture budget. This is the existing capture outbox, unchanged.
 
-**Moment 2** is the first classification: the model reads the note, the panel definitions (already plain-English sentences), the sentence I wrote about where things belong and the decision history, through the existing queue-based enrichment path.
+**Moment 2** is the first classification: the model reads the note, the panel definitions (already plain-English sentences) and the decision history, through the existing queue-based enrichment path.
 
 **Moment 3** is what makes learning land. Between triage sessions lie hours or days, so proposals from moment 2 may predate corrections made since; on inbox open, everything unsettled is re-proposed against the current history. **Shipped instead: the same re-proposal fired by moment 4 itself** ("Re-propose the rest of the inbox the moment you file one", issue 300) — a settle already carries the history moment 3 would open the inbox to re-read, so it fires the refresh directly rather than waiting for the next open. The inbox-open trigger this row describes is not built.
 
 **Moment 4** is the only binding moment and the only source of learning. Accepting and overriding both settle the routing and both append to the history, and an override is the stronger signal because it records the rejected answer alongside the correct one.
 
-**Moment 5 is gone, and the sentence I write outlived it** ("Drop the nightly filing summary, keep the sentence you wrote", issue 392). It was built to keep the model's input bounded and to make what the system learned visible and editable; what shipped was a paragraph rewritten nightly, shown read-only, and fed into nothing, beside a correction that was already the highest-ranked input in the prompt. The correction is what stayed. Making it a rules block I own, and having Cockpit account for itself on demand rather than nightly, is `text-learning.md`'s "What Cockpit says about itself".
+**Moment 5 is gone, and the sentence I write outlived it.** ("Drop the nightly filing summary, keep the sentence you wrote", issue 392). It was built to keep the model's input bounded and to make what the system learned visible and editable; what shipped was a paragraph rewritten nightly, shown read-only, and fed into nothing, beside a correction that was already the highest-ranked input in the prompt. The correction stayed as a written, editable sentence; whether this prompt still reads it is "What the model reads: bounded, no retrieval"'s own question, below. Making a rules block I own, and having Cockpit account for itself on demand rather than nightly, is `text-learning.md`'s "What Cockpit says about itself".
 
 ## 7. Moment 3 in slow motion
 
@@ -80,15 +80,17 @@ Consequences:
 
 The inbox never waits for the refresh and the refresh never waits for the inbox: they start together, and since I read at seconds per card the refresh wins the race unnoticed. Worst case the first card or two show the moment-2 proposal, produced by the same model reading a slightly older history.
 
-## 8. What the model reads: the whole history, no retrieval
+## 8. What the model reads: bounded, no retrieval
 
-**Decision: there is no search or retrieval step.** The decision history is text, included in the model's input in full. Recorded because the alternative looks more sophisticated and is worse:
+**Decision: there is no search or retrieval step.** Recorded because the alternative looks more sophisticated and is worse:
 
 - Retrieval exists to cope with corpora too large to show a model. It is a lossy compromise, never an improvement: it can only discard information before the model sees it.
-- The corpus is small. A history entry is a short note plus a destination, roughly 25 tokens, so a year of heavy use is on the order of 50,000 tokens. It is a stable append-only prefix, the ideal shape for prompt caching.
-- Reading everything is strictly better at the hard cases: notes sharing meaning but no words ("Part 11 audit trail" versus "validation protocol, who signs off"), panels defined by something other than topic ("urgent", "do at home"), and Dutch or mixed notes. Every similarity measure struggles with at least one; a model reading the panel definitions and the full history handles all three.
+- A history entry is a short note plus a destination, roughly 25 tokens — small enough that a flat cap costs nothing worth optimising around.
+- Reading everything relevant is strictly better at the hard cases: notes sharing meaning but no words ("Part 11 audit trail" versus "validation protocol, who signs off"), panels defined by something other than topic ("urgent", "do at home"), and Dutch or mixed notes. Every similarity measure struggles with at least one; a model reading the panel definitions and the history handles all three.
 
-The scaling ladder, if the history outgrows the prompt: **full history in the prompt** (now, nothing to build) → **a generated summary plus the most recent decisions** (a semantic compression written by a model that read everything, and inspectable — built once and removed for being read by nothing, so rebuilding it means feeding it into the prompt this time, issue 392) → **add retrieval**, which may never be reached.
+**Bounded two ways, not by a date window.** The model reads the most recent 50 settled decisions for the workspace whose chosen panel still exists ("Cap the routing prompt to the last 50 decisions on panels that still exist, and drop the correction override", issue 450): a flat volume cap as a backstop, and relevance tied to whether the panel itself still exists rather than to how long ago the decision was made. This is what resolves open decision 4 below — a project you have stopped working on stops being suggested once you delete its panel, without a clock and without the empty-window edge case a date cutoff would have had. The workspace's own correction sentence (`workspace_routing_summary.correction`) is no longer read into this prompt either; the sentence itself is retired by a later step, once nothing writes it either (`docs/text-learning.md`, "Build order").
+
+The scaling ladder, if 50 stops being enough: **raise the constant** (a retune, not a migration, since it names no schema) → **add retrieval**, not reached yet.
 
 ## 9. Part 2 (optional, measurement-gated): in-session carry-over
 
@@ -127,4 +129,4 @@ One non-obvious rule: when the filing was an *override*, the features behind the
 1. ~~Scope of the history: per workspace or global?~~ **Decided: per workspace** ("Learn where notes belong from where you actually file them", issue 299), on this recommendation — it is the privacy boundary and the routing vocabulary genuinely differs between Work and Personal. Cost, accepted: cross-workspace patterns are not learned.
 2. **Does the capture UI show proposals at all?** Fire-and-forget versus chips fading in a second after save. *Recommendation: fire-and-forget in v1*, being simpler and identical offline and online; revisit once proposals are demonstrably good.
 3. **When does suggest-and-confirm flip to auto-apply?** The design makes the flip a default filter change. *Proposed trigger: a sustained acceptance rate above a chosen threshold*, visible in the instrumentation, rather than a gut call.
-4. **Weighting of history entries.** Overrides should outweigh passive accepts, and old decisions should decay — a note re-filed weeks later is reorganisation, not correction. Exact weights are an implementation detail; without the principle, the system's own accepted proposals self-reinforce.
+4. ~~Weighting of history entries: overrides should outweigh passive accepts, and old decisions should decay.~~ **Decided: decay is tied to whether the decision's panel still exists, not to how long ago it was decided** ("Cap the routing prompt to the last 50 decisions on panels that still exist, and drop the correction override", issue 450, "What the model reads: bounded, no retrieval") — simpler than a date window, with no empty-window edge case, and matching how staleness already works everywhere else: delete what you are done with. Overrides outweighing accepts is unchanged: an override still records the rejected answer alongside the correct one, in the prompt's own text ("What the model reads: bounded, no retrieval").

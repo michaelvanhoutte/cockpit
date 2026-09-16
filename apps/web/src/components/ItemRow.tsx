@@ -136,10 +136,9 @@ export function ItemRow({
    * file them all in one go", issue 169), and whether it is picked.
    *
    * `revealed` is the list saying it already has a selection - which is what a
-   * plain click on a row now means instead of opening it, and what suspends
-   * this row's own menu and swipe ("Pick a row by ctrl/shift-click instead of
-   * aiming for a checkbox, and suspend single-row actions while a selection is
-   * held", issue 438).
+   * plain click on a row ends, and what suspends this row's own menu and
+   * swipe ("Pick a row by ctrl/shift-click instead of aiming for a checkbox,
+   * and suspend single-row actions while a selection is held", issue 438).
    */
   selecting?: {
     picked: boolean;
@@ -451,14 +450,17 @@ export function ItemRow({
       // this gesture is - and the reason there is no drag on touch at all,
       // where the same movement is a swipe.
       draggable
-      // Picks the row out, from anywhere on it, with ctrl/cmd or shift held.
-      // A plain click always opens the row instead - ending whatever
-      // selection was held first, or simply opening it where none was -
-      // except a plain tap on touch, which extends a selection already held
-      // instead of opening, since touch has no ctrl key of its own to pick
-      // with ("Pick a row by ctrl/shift-click instead of aiming for a
-      // checkbox, and suspend single-row actions while a selection is held",
-      // issue 438).
+      // Picks the row out, from anywhere on it, with ctrl/cmd or shift held;
+      // a plain click only ends a selection already held, and opens nothing -
+      // a double-click, or the menu's own **Open**, is what opens a row
+      // ("Require a double-click to open a row again, now that a plain click
+      // opens it", issue 456, reversing part of issue 438's own "Pick a row
+      // by ctrl/shift-click instead of aiming for a checkbox" after it shipped
+      // and read as too easy to trigger by accident).
+      //
+      // *A plain tap on touch* extends a selection already held instead,
+      // since touch has no ctrl key of its own to pick with - unchanged from
+      // issue 438.
       //
       // *Guarded exactly as the double-click below is*: a portal-rendered menu
       // entry reaches this through the React tree rather than the DOM one, and
@@ -485,16 +487,12 @@ export function ItemRow({
           selecting.onPick(false);
           return;
         }
-        // Ending a selection is what a plain click does on a mouse; a no-op
-        // where there was nothing to end.
+        // A plain click only ends a selection; it opens nothing (issue 456).
+        // A no-op where there was nothing to end.
         if (selecting.revealed) selecting.onEndSelection();
-        onOpen?.();
       }}
-      // A double-click also opens the form, for a row drawn with no selecting
-      // capability at all (`selecting` undefined, which the click above
-      // refuses outright) - a test harness, or a screen that offers no
-      // selection. Every row this app actually draws has one, so a plain
-      // click above already opens it and this is these rows' fallback alone.
+      // A double-click also opens the form, alongside the menu's own Open,
+      // since a plain click no longer does (issue 456).
       //
       // **Only when the row itself was double-clicked**, which is two different
       // questions because a React event bubbles through the component tree
@@ -666,8 +664,9 @@ export function ItemRow({
             {/* Cockpit's own proposal, not yet taken - a click is the whole of
                 accepting it, and `title` is where "in your own terms rather
                 than the model's" lives, the reason written for this hover and
-                nothing else. Stops the click reaching the row underneath it,
-                which opens the Item's form. */}
+                nothing else. `stopPropagation` here is belt-and-suspenders:
+                the row's own `closest('button')` guard already refuses any
+                click landing inside a button, chip included. */}
             {routingProposal && onAcceptRouting && (
               <button
                 type="button"

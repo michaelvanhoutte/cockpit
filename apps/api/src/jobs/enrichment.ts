@@ -381,17 +381,17 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // alone needs.
   const panels = await panelsOrEmpty(account, item.workspaceId);
 
-  // The account's decision history for this Workspace, what else it has
-  // captured lately and not yet filed - the two inputs that let a proposal
-  // learn from where notes actually get filed ("Learn where notes belong from
-  // where you actually file them", issue 299) - and the Workspace's own live
-  // correction of what the nightly summary said it learned ("Show what the
-  // system learned, in a sentence you can correct", issue 301), read together
-  // in one round trip since nothing ever needs one without the others.
-  // Neither checks the Workspace still exists: an empty answer is already the
-  // right one for a Workspace this far gone, exactly as an empty `panels`
-  // list is above.
-  const { history, recentlyCaptured, correction } = await account.routingContext(item.workspaceId, item.id);
+  // This Workspace's decision history, capped and filtered to Panels that
+  // still exist, and what else it has captured lately and not yet filed -
+  // the two inputs that let a proposal learn from where notes actually get
+  // filed ("Learn where notes belong from where you actually file them",
+  // issue 299; "Cap the routing prompt to the last 50 decisions on panels
+  // that still exist, and drop the correction override", issue 450), read
+  // together in one round trip since nothing ever needs one without the
+  // other. Neither checks the Workspace still exists: an empty answer is
+  // already the right one for a Workspace this far gone, exactly as an empty
+  // `panels` list is above.
+  const { history, recentlyCaptured } = await account.routingContext(item.workspaceId, item.id);
   // Per account, not per Workspace - how this person writes is not a
   // property of which Workspace a note landed in ("Learn how you write from
   // the titles you correct", issue 394; `docs/text-learning.md`, "Scope: per
@@ -405,7 +405,6 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
       panels,
       history,
       recentlyCaptured,
-      correction,
       corrections,
       stood,
       rules,
@@ -671,7 +670,7 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
       // exactly as `cleanUpACapturedNote` reads it, not as if it already
       // belonged where the settle that triggered this happened to be.
       const panels = await panelsOrEmpty(account, candidate.workspaceId);
-      const { history, recentlyCaptured, correction } = await account.routingContext(
+      const { history, recentlyCaptured } = await account.routingContext(
         candidate.workspaceId,
         candidate.id,
       );
@@ -680,7 +679,6 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
         panels,
         history,
         recentlyCaptured,
-        correction,
         corrections,
         stood,
         rules,
@@ -806,7 +804,7 @@ export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<
       );
 
       const panels = await panelsOrEmpty(account, candidate.workspaceId);
-      const { history, recentlyCaptured, correction } = await account.routingContext(
+      const { history, recentlyCaptured } = await account.routingContext(
         candidate.workspaceId,
         candidate.id,
       );
@@ -815,7 +813,6 @@ export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<
         panels,
         history,
         recentlyCaptured,
-        correction,
         corrections,
         stood,
         rules,

@@ -338,22 +338,22 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   /**
    * What a routing proposal reads beside the note itself, in one round trip
    * ("Learn where notes belong from where you actually file them", issue
-   * 299): the account's whole decision history for one workspace, what else
-   * it has captured lately and not yet filed, and the Workspace's own live
-   * correction of what the system otherwise learned ("Show what the system
-   * learned, in a sentence you can correct", issue 301, "the correction is
-   * an input to the proposals like anything else") - null where none has
-   * been written.
+   * 299): the most recent 50 settled decisions for one workspace whose chosen
+   * panel still exists, and what else it has captured lately and not yet
+   * filed. No longer reads the Workspace's own correction ("Cap the routing
+   * prompt to the last 50 decisions on panels that still exist, and drop the
+   * correction override", issue 450) - `getRoutingSummary` still answers it
+   * for the window that shows and lets you edit it (`snapshot` above), only
+   * this call stopped.
    */
   routingContext(
     accountName: string,
     workspaceId: string,
     excludeItemId: string,
-  ): Answer<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[]; correction: string | null }> {
+  ): Answer<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[] }> {
     return this.#answer(accountName, (db) => ({
       history: decisionHistoryForWorkspace(db, accountName, workspaceId),
       recentlyCaptured: recentlyCapturedUnfiled(db, accountName, workspaceId, excludeItemId),
-      correction: getRoutingSummary(db, accountName, workspaceId)?.correction ?? null,
     }));
   }
 

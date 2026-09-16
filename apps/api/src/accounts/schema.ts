@@ -905,9 +905,9 @@ export const items = sqliteTable(
  * tombstoned link would also collide with its own dead row on the primary key
  * the moment an item was moved off a panel and back onto it. The append-only
  * history of where things were filed, which the router reads (routing that
- * learns from past decisions, "What the model reads: the whole history, no
- * retrieval"), is the command log - which carries no foreign keys precisely so
- * it outlives what it refers to.
+ * learns from past decisions, "What the model reads: bounded, no retrieval"),
+ * is the command log - which carries no foreign keys precisely so it outlives
+ * what it refers to.
  */
 export const panelItems = sqliteTable(
   'panel_items',
@@ -955,9 +955,11 @@ export const associations = sqliteTable(
 
 /**
  * One entry per Item, written the first time it ever lands on a real Panel -
- * the append-only decision history a routing proposal reads whole ("Learn
- * where notes belong from where you actually file them", issue 299;
- * `docs/routing-learning.md`, "What the model reads").
+ * the append-only decision history a routing proposal reads from, bounded
+ * rather than whole ("Learn where notes belong from where you actually file
+ * them", issue 299; `docs/routing-learning.md`, "What the model reads:
+ * bounded, no retrieval"). The table itself keeps every row regardless -
+ * only `decisionHistoryForWorkspace`'s (`repo.ts`) own read is capped.
  *
  * **Written by whichever of `move_item_to_panel` or `add_item_to_panel` gets
  * there first, and never again for that Item.** Both settle a routing
@@ -1026,8 +1028,8 @@ export const decisionHistory = sqliteTable(
     decidedAt: text('decided_at').notNull(),
   },
   (t) => [
-    // Read per workspace, oldest first, whole (routing-learning.md, "no
-    // retrieval step") - the one access pattern this table has.
+    // Read per workspace, most recent first and capped (routing-learning.md,
+    // "What the model reads") - the one access pattern this table has.
     index('decision_history_tenant_workspace_decided').on(t.tenantId, t.workspaceId, t.decidedAt),
     check('decision_history_decided_at_is_timestamp', isTimestamp('decided_at')),
   ],

@@ -1,6 +1,7 @@
 import type { Item, Panel } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { ItemList } from './ItemList';
+import { PanelAddItemForm } from './PanelAddItemForm';
 import { PanelText } from '../panels/PanelText';
 import { SurfaceMenu, opensOnKey, opensOnActivate } from './Menu';
 import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThingsAre';
@@ -387,6 +388,17 @@ export function PanelCard({
           )}
         </header>
       </SurfaceMenu>
+
+      {/* A fixed row rather than the well's own first row: `ItemList`'s empty
+          state fills the well exactly (`min-h-full`, "tall enough to be
+          dropped on"), and a sibling inside that same scrolling box would
+          always read as more content than the well holds, meaning the well
+          would show a scrollbar it does not need - reachable at any height,
+          not only when a panel is dragged to its floor ("A Panel doesn't
+          shrink or scroll to fit a shorter dashboard row", issue 432). Kept
+          outside it instead, this row costs the well nothing and stays
+          reachable without scrolling down a long list to find it. */}
+      {!text && <PanelAddItemForm workspaceId={workspaceId} panelId={panel.id} />}
 
       {/* No padding of its own: a row carries its own, so a list inside a panel
           reads exactly as it does in the Inbox.

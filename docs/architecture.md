@@ -132,7 +132,7 @@ The Zod schemas in `packages/shared/src` are the wire contract; where a decision
 |---|---|
 | `create_workspace` | No color: it is a function of the colors every other workspace already has, and the client's copy of that list can be stale, so the server picks it. No `dashboardId`: the workspace's first dashboard takes an id derived from the workspace's own (`firstDashboardId`), which `panelId` cannot — several other commands (`rename_panel`, `delete_panel`, `set_panel_text`...) need a real uuid to address a panel by, and a derived one would leave the first panel unable to be renamed, deleted or filed into. |
 | `rename_workspace` | See "renaming carries the exact schema creating does" above. |
-| `delete_workspace` | The envelope alone. Its items are left where they are — tombstones, not deletes (§4.2) — because the router learns from the whole history of where things were filed. |
+| `delete_workspace` | The envelope alone. Its items are left where they are — tombstones, not deletes (§4.2) — because the router learns from the decisions filed against them. |
 | `reorder_workspaces` | See "a whole order" above. |
 | `set_workspace_theme` | See "one command per whole concept" above — the four colors together, not a theme name, because four colors is what a workspace stores. The server still refuses a set that is not one of the eight palette entries (`hexColorSchema` only validates `#rrggbb` shape, not membership), which is what keeps "picked from designed options" true rather than merely intended. |
 | `add_dashboard` | Name uniqueness is decided by the handler in the scope of the *workspace*, so two workspaces may each have a Research dashboard ("Add and switch dashboards", issue 32). |

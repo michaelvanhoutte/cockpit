@@ -66,7 +66,7 @@ One table, per account, three kinds of row:
 
 **What stood is derived, not stored.** An Item whose texts Cockpit proposed and nobody has changed already *is* that fact, and storing a row for each would mean a row per Item ever captured. The count and the sample are read from `items` directly. That needs one new column — when the texts were proposed — so a proposal can be told from the mechanical title capture writes when enrichment never ran, which is otherwise indistinguishable and would put notes Cockpit never read into the denominator.
 
-**Nothing carries an embedding**, and there is no retrieval step, for the reasons already settled under "What the model reads: the whole history, no retrieval" in `routing-learning.md`.
+**Nothing carries an embedding**, and there is no retrieval step, for the reasons already settled under "What the model reads: bounded, no retrieval" in `routing-learning.md`.
 
 ## What goes into the prompt
 
