@@ -946,6 +946,31 @@ export async function dragItemOnto(
 }
 
 /**
+ * Files a captured item onto a panel, or back to the Inbox, through the
+ * item's own menu - the one way there is on a phone, and used by every walk
+ * that needs an item somewhere without meaning to prove the drag itself.
+ *
+ * The Inbox target says what it holds beside its name, so it is reached by a
+ * pattern where a panel is reached by its exact title.
+ */
+export async function fileOnto(
+  page: Page,
+  title: string,
+  target: string | RegExp,
+  isMobile: boolean,
+): Promise<void> {
+  await press(itemRow(page, title).getByRole('button', { name: 'Item actions' }), isMobile);
+  await press(page.getByRole('menuitem', { name: 'Move to…' }), isMobile);
+  const picker = page.getByRole('dialog');
+  await expect(picker).toBeVisible();
+  await press(
+    picker.getByRole('button', { name: target, ...(typeof target === 'string' ? { exact: true } : {}) }),
+    isMobile,
+  );
+  await expect(picker).toHaveCount(0);
+}
+
+/**
  * The titles a panel is showing, top to bottom.
  *
  * **Assert on it with `expect.poll`, never on one call of it.** It reads the

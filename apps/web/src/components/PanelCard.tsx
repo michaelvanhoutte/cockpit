@@ -151,7 +151,14 @@ export function PanelCard({
       // Lifted, and saying so: the panel in the air is drawn back and outlined
       // in its slot while the board moves it about. Without it the gesture had
       // no sign at all that anything had been picked up.
-      className={`@container flex min-w-0 flex-col ${
+      //
+      // `min-h-0` for the reason `min-w-0` is already here: a grid item's
+      // automatic minimum size is its content's, on both axes, so without it a
+      // row dragged shorter than what is on this panel left the panel at its
+      // old height regardless - nothing to shrink into, and nothing to scroll
+      // ("A Panel doesn't shrink or scroll to fit a shorter dashboard row",
+      // issue 432).
+      className={`@container flex min-h-0 min-w-0 flex-col ${
         lifted ? 'rounded-lg opacity-40 outline-2 outline-dashed outline-accent' : ''
       }`}
     >
