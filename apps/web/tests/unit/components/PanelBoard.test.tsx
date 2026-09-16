@@ -663,21 +663,24 @@ describe('Panels', () => {
       expect(openedAt).toEqual([390]);
     });
 
-    it('leaves the header’s own drag alone, rather than being read as a press on it', async () => {
+    it('leaves the header’s own drag alone, rather than being read as a press on it', () => {
       // The button sits inside the header, which is the drag handle -
       // `onPointerDown`'s own `closest('button, ...')` guard is what this
       // proves against a real element rather than only by reading the guard.
-      const { user } = showBoard();
+      // A bare `pointerDown` with no matching `pointerUp`, the same as
+      // the touch guard just above: a full `user.click` cycle clears any
+      // lift on its own `pointerup` regardless of whether the guard ran,
+      // which would pass even with the guard deleted (found in review).
+      showBoard();
+      const lifted = () => screen.getByRole('region', { name: 'Project Falcon' }).className;
 
-      await user.click(menuButtonOf('Project Falcon'));
-      // Radix's context menu is modal: the rest of the page is hidden from
-      // the accessibility tree while it is open, which `getByRole` below
-      // reads through - closed first, the same as any other open menu is
-      // before the board underneath it is asked anything.
-      await user.keyboard('{Escape}');
+      fireEvent.pointerDown(menuButtonOf('Project Falcon'), {
+        button: 0,
+        pointerId: 1,
+        pointerType: 'mouse',
+      });
 
-      const lifted = screen.getByRole('region', { name: 'Project Falcon' }).className;
-      expect(lifted).not.toContain('opacity-40');
+      expect(lifted()).not.toContain('opacity-40');
     });
 
     it('is gone while the name is being edited in place, the same as the rest of the menu', async () => {

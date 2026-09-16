@@ -546,18 +546,19 @@ export async function chooseRowAction(
 }
 
 /**
- * Chooses what to do to a panel, from its own menu, opened on its header
- * rather than a button - the same menu a workspace's or a dashboard's own tab
- * opens (`chooseTabAction`), but without that tab's second way in: a panel has
- * no "already open" state a tap could repurpose, its plain tap being spent on
- * the drag gesture instead. A phone rests a finger on the header and holds it
- * instead, a real touch through CDP for `holdRow`'s own reason: what has to be
- * proved is that the gesture reaches Radix's long-press detection as a
- * `touch` pointer, which a synthetic `contextmenu` event cannot say anything
- * about - and would have said nothing at all about the header's own drag
- * handler once swallowing every touch before Radix ever saw one (found in
- * review; `PanelCard.tsx`'s `onPointerDown` now excludes anything that is not
- * a mouse for exactly this reason).
+ * Chooses what to do to a panel, from its own menu - the same menu a
+ * workspace's or a dashboard's own tab opens (`chooseTabAction`), opened here
+ * on the header itself rather than the header's own button, since a header
+ * has no "already open" state a tap could repurpose the way a tab does, its
+ * plain tap being spent on the drag gesture instead. A phone rests a finger
+ * on the header and holds it instead, a real touch through CDP for
+ * `holdRow`'s own reason: what has to be proved is that the gesture reaches
+ * Radix's long-press detection as a `touch` pointer, which a synthetic
+ * `contextmenu` event cannot say anything about - and would have said
+ * nothing at all about the header's own drag handler once swallowing every
+ * touch before Radix ever saw one (found in review; `PanelCard.tsx`'s
+ * `onPointerDown` now excludes anything that is not a mouse for exactly this
+ * reason).
  */
 export async function choosePanelAction(
   page: Page,
