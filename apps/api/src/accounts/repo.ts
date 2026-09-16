@@ -1,5 +1,5 @@
 import { alias } from 'drizzle-orm/sqlite-core';
-import { and, asc, desc, eq, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
 import type { Column } from 'drizzle-orm';
 import type {
   Association,
@@ -1098,6 +1098,15 @@ export function unfiledItemsInWorkspace(
  * came from, or one a person already took over by hand - either way not a
  * candidate for a fresh proposal, and this filter is what keeps both out
  * without naming the correcting Item specially.
+ *
+ * **`inALiveWorkspace` is the other.** `unfiledItemsInWorkspace` is only ever
+ * asked about the Workspace a filing just settled in, live by construction at
+ * that moment - this query has no such caller-supplied liveness to lean on,
+ * being account-wide, so it states the check itself. Without it, an Item
+ * whose Workspace was later deleted would pass every other clause here and
+ * become a permanent candidate: nothing can ever settle its texts (no UI
+ * reaches it), so it would be re-read, and a model call spent on it, on every
+ * correction anywhere in the account for as long as the account exists.
  */
 export function itemsWithUnsettledTexts(
   db: AccountDb,
@@ -1118,6 +1127,7 @@ export function itemsWithUnsettledTexts(
         isNotNull(items.capturedMessage),
         isNull(items.textsSettledAt),
         notFiledOnALivePanel(db, tenantId),
+        inALiveWorkspace(db, tenantId),
       ),
     )
     .orderBy(desc(items.createdAt))
@@ -1127,6 +1137,34 @@ export function itemsWithUnsettledTexts(
       workspaceId: row.workspaceId,
       capturedMessage: row.capturedMessage!,
     }));
+}
+
+/**
+ * Whether an Item's own Workspace still exists - `delete_workspace` tombstones
+ * only the Workspace row and leaves every Item pointing at it exactly where it
+ * was, the same fact `command-service.ts`'s own `liveDestinationPanel` states
+ * for a Panel's Workspace, so nothing else in `itemsWithUnsettledTexts` above
+ * excludes one on its own.
+ *
+ * **An undecided Item passes regardless.** `workspace_decided = false` is
+ * what shows an Item in every Workspace's Inbox at once ("Capture something
+ * before you know which workspace it belongs to", issue 165), so its own
+ * `workspace_id` is where it happened to be captured rather than where it is
+ * reachable from - the same reading `unfiledItemsInWorkspace`'s own `or(...)`
+ * clause already gives it.
+ */
+function inALiveWorkspace(db: AccountDb, tenantId: string) {
+  return or(
+    eq(items.workspaceDecided, false),
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(workspaces)
+        .where(
+          and(eq(workspaces.tenantId, tenantId), isNull(workspaces.deletedAt), eq(workspaces.id, items.workspaceId)),
+        ),
+    ),
+  );
 }
 
 export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
-import { env, applyD1Migrations } from 'cloudflare:test';
+import { env, applyD1Migrations, runInDurableObject } from 'cloudflare:test';
 import type { CommandName, CommandPayload } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
@@ -12,10 +12,13 @@ import {
   seedRegister,
   signInAs,
   startFromEmpty,
+  storeNamed,
   taskTypeIn,
 } from '../seed.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
+import { createAccountDb } from '../../../src/accounts/client.js';
+import { itemsWithUnsettledTexts } from '../../../src/accounts/repo.js';
 
 /**
  * Integration level: a real store, a real queue, and the correction arrives
@@ -206,6 +209,20 @@ async function titleOf(itemId: string, accountName: string = ACCOUNT_NAME): Prom
   return rows[0]!.title;
 }
 
+/**
+ * `itemsWithUnsettledTexts`'s own candidate ids, read directly rather than
+ * through a correction's fan-out - the one case in this file that needs it.
+ * A deleted-Workspace candidate is refused (`WorkspaceNotFoundError`) before
+ * it ever reaches the model, by `panelsThatTakeItems` alone, so `asked`
+ * cannot tell "excluded from the query" apart from "included, and refused a
+ * step later" - only the query's own answer can.
+ */
+async function unsettledCandidateIds(accountName: string = ACCOUNT_NAME): Promise<string[]> {
+  return runInDurableObject(storeNamed(accountName), (_instance, state) =>
+    itemsWithUnsettledTexts(createAccountDb(state.storage), accountName).map((row) => row.id),
+  );
+}
+
 /** Waits for a re-read to have written this title. */
 async function untilTitled(itemId: string, title: string, accountName: string = ACCOUNT_NAME): Promise<void> {
   await vi.waitFor(async () => expect(await titleOf(itemId, accountName)).toBe(title), {
@@ -362,6 +379,33 @@ describe('Triage', () => {
       await aWhileLongerThanAJobWouldTake();
       expect(asked).toEqual([]);
       expect(await titleOf(correcting)).toBe('Call Jan about the invoice');
+    });
+
+    it('never treats an Item whose Workspace has since been deleted as a candidate', async () => {
+      // `delete_workspace` tombstones only the Workspace row - the Item stays
+      // exactly where it was, unsettled and unfiled. Without `inALiveWorkspace`
+      // (`repo.ts`), it would be a permanent candidate: nothing can ever
+      // settle its texts, since no UI can reach an Item in a deleted
+      // Workspace, so it would be pulled into every re-read for as long as
+      // the account exists. (`panelsThatTakeItems` throws for a deleted
+      // Workspace before a model call is ever reached either way - what this
+      // asserts is that the candidate list itself excludes it, not the
+      // job-level outcome, which a caught `WorkspaceNotFoundError` already
+      // makes indistinguishable through `asked` alone.)
+      const orphaned = await captureANote('a note in a workspace about to be deleted', { workspaceId: 'ws-atlas' });
+      expect(
+        (
+          await postChange('delete_workspace', {
+            commandId: nextId(),
+            issuedAt: nextIssuedAt(),
+            workspaceId: 'ws-atlas',
+          })
+        ).status,
+      ).toBe(200);
+
+      const candidates = await unsettledCandidateIds();
+
+      expect(candidates).not.toContain(orphaned);
     });
 
     it("leaves another account's Items untouched", async () => {
