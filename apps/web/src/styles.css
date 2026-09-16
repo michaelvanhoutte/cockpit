@@ -67,6 +67,25 @@
   --color-status-snoozed: #a9adc0;
   --color-status-reference: #b0b3c2;
 
+  /*
+   * An item's priority, graduated the way the level itself reads - grey
+   * for unremarkable, up through the app's own amber, to a red well past
+   * `over`'s saturation. A dot rather than a wash: the planned deadline
+   * colouring ("Deadline colors", docs/ideas.md) recolours the whole card,
+   * so a small mark reusing warm hues here was never the same channel to
+   * collide with, the same way `status-waiting` above already reuses `due`'s
+   * amber for a status that has nothing to do with a deadline.
+   *
+   * Each is dark enough to write white on, the same reason `over-deep`
+   * exists beside `over`: the flag glyph drawn in these is white, and the
+   * three colours this started from (#8b8d94, #c98a4b, #e0362b) gave it
+   * 3.31:1, 2.91:1 and 4.44:1 - `over` itself was already rejected at 4.4:1
+   * for a word this small. These clear 5:1 or better.
+   */
+  --color-priority-low: #6d6f77;
+  --color-priority-normal: #8f5f2a;
+  --color-priority-high: #b8281e;
+
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 14px;
