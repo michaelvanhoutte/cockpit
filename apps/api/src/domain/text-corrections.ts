@@ -228,23 +228,36 @@ export const MIN_STOOD_FOR_PROMPT = 3;
 
 /**
  * What a proposal itself reads about the texts nobody corrected - `items`
- * narrowed to the last 30 days by `cutoff` (an ISO timestamp string, inclusive)
- * before `deriveWhatStood` above does its usual count and sample, and `null`
- * wherever fewer than `MIN_STOOD_FOR_PROMPT` texts stood in that window.
+ * narrowed to the last 30 days before `deriveWhatStood` above does its usual
+ * count and sample, and `null` wherever fewer than `MIN_STOOD_FOR_PROMPT`
+ * texts stood in that window.
  *
- * **A second, narrower view over the same `items`/`correctedItemIds` the
- * window's own all-time ratio is built from (`store.ts`), not a change to
- * `deriveWhatStood` itself.** That function still answers the window's "how
- * is it doing" screen unwindowed and unfloored - showing "0 of 1" there is
- * fine, and gating it on this issue's own floor would silently change a
- * screen this issue never asked to touch.
+ * **`correctedItemIds` must already be windowed the same way `promptCorrections`
+ * is** (`store.ts` - built from corrections whose own `recordedAt` is in the
+ * window, not the all-time set `deriveWhatStood`'s own all-time caller uses).
+ * An item counts as in-window here if *either* its own proposal or one of
+ * its corrections is recent - not just the proposal - because a text
+ * proposed long ago and corrected today still has to be counted as
+ * corrected, not silently dropped from both totals: a version windowing only
+ * on `textsProposedAt` let such an item appear under "Corrections" while the
+ * ratio directly beneath it read "0 of N proposed texts were corrected",
+ * disagreeing with the correction the prompt had just shown.
+ *
+ * **A second, narrower view over the same `items` the window's own all-time
+ * ratio is built from (`store.ts`), not a change to `deriveWhatStood`
+ * itself.** That function still answers the window's "how is it doing"
+ * screen unwindowed and unfloored - showing "0 of 1" there is fine, and
+ * gating it on this issue's own floor would silently change a screen this
+ * issue never asked to touch.
  */
 export function deriveWhatStoodForPrompt(
   items: readonly JudgeableItem[],
   correctedItemIds: ReadonlySet<string>,
   cutoff: string,
 ): WhatStood | null {
-  const windowed = items.filter((item) => withinTextLearningWindow(item.textsProposedAt, cutoff));
+  const windowed = items.filter(
+    (item) => withinTextLearningWindow(item.textsProposedAt, cutoff) || correctedItemIds.has(item.id),
+  );
   const stood = deriveWhatStood(windowed, correctedItemIds);
   const unchangedCount = stood.proposedTotal - stood.correctedTotal;
   return unchangedCount >= MIN_STOOD_FOR_PROMPT ? stood : null;

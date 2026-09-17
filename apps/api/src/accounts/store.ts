@@ -440,12 +440,23 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       const rules = getTextLearningRules(db, accountName);
       const items = judgeableItemsForAccount(db, accountName);
       const cutoff = textLearningWindowCutoff(new Date());
+      const promptCorrections = corrections.filter((entry) => withinTextLearningWindow(entry.recordedAt, cutoff));
+      // Windowed the same way `promptCorrections` is, not the all-time
+      // `correctedItemIds` above - `deriveWhatStoodForPrompt` needs to agree
+      // with exactly what `promptCorrections` shows, or a text corrected
+      // today whose proposal is otherwise stale would read as corrected in
+      // one section and uncounted in the other (issue 451's own review
+      // found this reintroducing the disagreement `correctedItemIds` above
+      // already exists to prevent).
+      const promptCorrectedItemIds = new Set(
+        promptCorrections.filter(correctionStillVisible).map((entry) => entry.itemId),
+      );
       return {
         rules: rules?.rules ?? null,
         rulesSetAt: rules?.rulesSetAt ?? null,
         stood: deriveWhatStood(items, correctedItemIds),
-        promptCorrections: corrections.filter((entry) => withinTextLearningWindow(entry.recordedAt, cutoff)),
-        promptStood: deriveWhatStoodForPrompt(items, correctedItemIds, cutoff),
+        promptCorrections,
+        promptStood: deriveWhatStoodForPrompt(items, promptCorrectedItemIds, cutoff),
         pinnedExamples: pinnedExamplesForAccount(db, accountName),
       };
     });

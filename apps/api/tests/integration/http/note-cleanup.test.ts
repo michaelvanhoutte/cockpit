@@ -1291,6 +1291,46 @@ describe('Triage', () => {
       });
     }
 
+    /**
+     * An Item Cockpit proposed for outside the window, corrected inside it -
+     * the case a review of this issue found: windowing `promptCorrections`
+     * and `promptStood` on two different fields let such an Item show up
+     * under "Corrections" while the ratio directly beneath it read "0 of N
+     * proposed texts were corrected", disagreeing with the correction the
+     * prompt had just shown.
+     */
+    async function aStaleProposalCorrectedRecently(
+      textsProposedAt: string,
+      recordedAt: string,
+      settledTitle: string,
+    ): Promise<void> {
+      const itemId = nextId();
+      await inTheStore((sql) => {
+        sql.exec(
+          `INSERT INTO items
+             (id, tenant_id, workspace_id, source, title, status, unseen, texts_proposed_at, created_at, updated_at)
+           VALUES (?, ?, ?, 'internal', ?, 'to_process', 0, ?, ?, ?)`,
+          itemId,
+          ACCOUNT_NAME,
+          WORKSPACE_ID,
+          settledTitle,
+          textsProposedAt,
+          textsProposedAt,
+          recordedAt,
+        );
+        sql.exec(
+          `INSERT INTO text_corrections
+             (item_id, tenant_id, captured_message, proposed_title, settled_title, recorded_at, updated_at)
+           VALUES (?, ?, 'a stale note', 'Proposed', ?, ?, ?)`,
+          itemId,
+          ACCOUNT_NAME,
+          settledTitle,
+          recordedAt,
+          recordedAt,
+        );
+      });
+    }
+
     it('includes a correction from inside the window, with no minimum count needed', async () => {
       await aCorrection(daysAgo(29), 'a recent note', 'Correction from inside the window');
       await readAgain();
@@ -1331,6 +1371,18 @@ describe('Triage', () => {
 
       // Only the two in-window Items count, one short of the floor of 3.
       expect(asked[0]!.system).not.toContain('What stood');
+    });
+
+    it('counts a text proposed outside the window but corrected inside it toward what stood, not neither total', async () => {
+      await aStoodItem(daysAgo(5), 'stood-one');
+      await aStoodItem(daysAgo(5), 'stood-two');
+      await aStoodItem(daysAgo(5), 'stood-three');
+      await aStaleProposalCorrectedRecently(daysAgo(60), daysAgo(5), 'Corrected long after being proposed');
+      await readAgain();
+
+      expect(asked[0]!.system).toContain('Corrected long after being proposed');
+      // Four in-window Items now: three stood, one corrected - never "0 of 3".
+      expect(asked[0]!.system).toContain('1 of 4 proposed texts were corrected');
     });
   });
 

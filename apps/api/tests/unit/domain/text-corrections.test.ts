@@ -233,6 +233,27 @@ describe('Capture', () => {
 
       expect(stood).toMatchObject({ proposedTotal: 4, correctedTotal: 1 });
     });
+
+    /**
+     * A text proposed long ago and corrected today still has to count as
+     * corrected here, not be silently excluded from both totals for having a
+     * stale `textsProposedAt` - the caller (`store.ts`) is required to pass
+     * a `correctedItemIds` already windowed the same way `promptCorrections`
+     * is, exactly so this case lands here rather than in neither bucket.
+     */
+    it('counts an Item as corrected even when its own proposal falls before the window, once its correction is in `correctedItemIds`', () => {
+      const items = [
+        ...Array.from({ length: 3 }, (_, i) => judgeable({ id: `in-window-${i}` })),
+        judgeable({ id: 'corrected-but-stale-proposal', textsProposedAt: '2026-08-01T00:00:00.000Z' }),
+      ];
+
+      const stood = deriveWhatStoodForPrompt(items, new Set(['corrected-but-stale-proposal']), CUTOFF);
+
+      // The floor of 3 is cleared by the three in-window stood items; the
+      // stale-proposal Item is counted too, as corrected rather than in
+      // neither total.
+      expect(stood).toMatchObject({ proposedTotal: 4, correctedTotal: 1 });
+    });
   });
 
   describe('Whether a correction row still shows a real difference from what was proposed', () => {
