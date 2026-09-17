@@ -50,6 +50,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
     completedAt: null,
     priority: null,
     dueDate: null,
+    dueDateSetAt: null,
     unseen: false,
     deletedAt: null,
     createdAt: '2026-08-12T10:00:00.000Z',
@@ -854,6 +855,78 @@ describe('Triage', () => {
       ).not.toThrow();
 
       expect(screen.getByText('Make appointment with Novy')).toBeInTheDocument();
+    });
+  });
+});
+
+describe('Triage', () => {
+  /**
+   * "Colour an action's own deadline as it approaches, and mark it red once
+   * passed" (issue 473). The ramp itself is proved without a clock in
+   * `dueDate.test.ts`; what is asked here is that the row reads it and draws
+   * it - `Date.now()` is what the test replaces, the same as the age above.
+   */
+  describe('an action’s row is coloured by how close its due date is, and turns red once it has passed', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('draws no colour for an item with no due date', () => {
+      aRow({ item: anItem({ dueDate: null }) });
+
+      const row = screen.getByRole('listitem');
+      expect(row.className).not.toContain('bg-over-deep');
+      expect(row.getAttribute('style') ?? '').not.toContain('color-mix');
+    });
+
+    it('tints the row toward `due` while the deadline is still ahead', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-09-11T00:00:00.000Z'));
+      aRow({
+        item: anItem({
+          dueDate: '2026-09-21',
+          dueDateSetAt: '2026-09-01T00:00:00.000Z',
+          createdAt: '2026-08-01T00:00:00.000Z',
+        }),
+      });
+
+      const row = screen.getByRole('listitem');
+      expect(row.getAttribute('style')).toContain('color-mix(in srgb, var(--color-due)');
+      expect(row.className).not.toContain('bg-over-deep');
+    });
+
+    it('turns `over-deep` with white text once the due date has passed, whatever the item otherwise carries', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-09-17T09:00:00.000Z'));
+      aRow({ item: anItem({ dueDate: '2026-09-16', dueDateSetAt: '2026-09-01T00:00:00.000Z' }) });
+
+      const row = screen.getByRole('listitem');
+      expect(row.className).toContain('bg-over-deep');
+      expect(row.className).toContain('text-white');
+    });
+
+    it('falls back to when the item was made, for a due date carried from before this shipped', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-09-11T00:00:00.000Z'));
+      aRow({
+        item: anItem({ dueDate: '2026-09-21', dueDateSetAt: null, createdAt: '2026-09-01T00:00:00.000Z' }),
+      });
+
+      expect(screen.getByRole('listitem').getAttribute('style')).toContain('color-mix');
+    });
+
+    it('leaves a picked row in its own colour rather than its due date’s, overdue included', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-09-17T09:00:00.000Z'));
+      aRow({
+        item: anItem({ dueDate: '2026-09-16', dueDateSetAt: '2026-09-01T00:00:00.000Z' }),
+        selecting: { picked: true, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() },
+      });
+
+      const row = screen.getByRole('listitem');
+      expect(row.className).toContain('bg-accent-tint');
+      expect(row.className).not.toContain('bg-over-deep');
+      expect(row.getAttribute('style') ?? '').not.toContain('color-mix');
     });
   });
 });

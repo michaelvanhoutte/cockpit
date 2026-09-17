@@ -79,6 +79,7 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     completedAt: null,
     priority: null,
     dueDate: null,
+    dueDateSetAt: null,
     unseen: false,
     deletedAt: null,
     createdAt: cmd.issuedAt,
@@ -160,9 +161,20 @@ export function applySetPriority(item: Item, cmd: SetPriorityCommand): Item | nu
   return { ...item, priority: cmd.priority, updatedAt: cmd.issuedAt };
 }
 
+/**
+ * `dueDateSetAt` is the moment a due date now colours from ("Colour an
+ * action's own deadline as it approaches, and mark it red once passed",
+ * issue 473) - the command's own clock whenever `dueDate` becomes non-null,
+ * so editing it to a new date restarts the ramp, and cleared along with it.
+ */
 export function applySetDueDate(item: Item, cmd: SetDueDateCommand): Item | null {
   if (isStale(item, cmd.issuedAt)) return null;
-  return { ...item, dueDate: cmd.dueDate, updatedAt: cmd.issuedAt };
+  return {
+    ...item,
+    dueDate: cmd.dueDate,
+    dueDateSetAt: cmd.dueDate === null ? null : cmd.issuedAt,
+    updatedAt: cmd.issuedAt,
+  };
 }
 
 export function applySetTitle(item: Item, cmd: SetTitleCommand): Item | null {

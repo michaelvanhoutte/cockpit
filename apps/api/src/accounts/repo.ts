@@ -581,6 +581,7 @@ const itemColumns = {
   completedAt: items.completedAt,
   priority: items.priority,
   dueDate: items.dueDate,
+  dueDateSetAt: items.dueDateSetAt,
   unseen: items.unseen,
   deletedAt: items.deletedAt,
   createdAt: items.createdAt,

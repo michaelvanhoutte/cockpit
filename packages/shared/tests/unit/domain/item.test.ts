@@ -277,6 +277,7 @@ describe('Capture', () => {
       completedAt: null,
       priority: null,
       dueDate: null,
+      dueDateSetAt: null,
       unseen: false,
       deletedAt: null,
       createdAt: '2026-09-04T10:00:00.000Z',

@@ -43,6 +43,7 @@ function anItem(id: string, completedAt: string | null = null): Item {
     completedAt,
     priority: null,
     dueDate: null,
+    dueDateSetAt: null,
     unseen: false,
     deletedAt: null,
     createdAt: '2026-08-31T08:00:00.000Z',

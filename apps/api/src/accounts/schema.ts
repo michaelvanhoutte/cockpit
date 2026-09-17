@@ -870,6 +870,12 @@ export const items = sqliteTable(
     completedAt: text('completed_at'),
     priority: text('priority').$type<Priority>(),
     dueDate: text('due_date'),
+    /**
+     * When `dueDate` was last set ("Colour an action's own deadline as it
+     * approaches, and mark it red once passed", issue 473). Nullable and
+     * carries no CHECK, the same shape `readings` and `texts_settled_at` are.
+     */
+    dueDateSetAt: text('due_date_set_at'),
     unseen: integer('unseen', { mode: 'boolean' }).notNull().default(false),
     deletedAt: text('deleted_at'),
 
