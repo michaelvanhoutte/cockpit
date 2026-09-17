@@ -40,7 +40,8 @@ const DUE_DATE_FORMAT = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', 
 /**
  * What a due date reads as on the row, or `null` for none and for anything
  * that is not really a date - drawn plainly, with no colour for how close it
- * is (out of scope, issue 37). Defensive the same way `usableInstant`
+ * is ("Deadlines on actions, panels and dashboards, with colour escalation",
+ * issue 37, out of scope). Defensive the same way `usableInstant`
  * (`AdminPage.tsx`) is: `dueDate` is store-validated, but a row does not
  * crash on a value it did not itself write.
  */
