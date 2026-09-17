@@ -1992,9 +1992,10 @@ describe('Onboarding', () => {
     });
 
     /**
-     * What a Priority or a Type condition sends, and what its checkboxes offer,
-     * is worked out here; that either one actually gathers or excludes an item
-     * is settled against items and filings alone in tests/unit/filters.test.ts.
+     * What a Priority, a Type or a Panel condition sends, and what its
+     * checkboxes offer, is worked out here; that any of them actually gathers
+     * or excludes an item is settled against items and filings alone in
+     * tests/unit/filters.test.ts.
      */
     it('sends a Priority condition’s chosen levels', async () => {
       const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon')] });

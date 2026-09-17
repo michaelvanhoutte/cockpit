@@ -1,5 +1,5 @@
-import { Fragment, Suspense, lazy, useEffect, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import { Component, Fragment, Suspense, lazy, useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   GRID_COLUMNS,
@@ -52,6 +52,33 @@ import { PANEL_GAP, PanelCard } from './PanelCard';
  * doc comment).
  */
 const FilterQuestion = lazy(() => import('./FilterQuestion'));
+
+/**
+ * What happens when the Filter question's chunk does not arrive. The same
+ * boundary `PanelText.tsx`'s `WhateverTheChunkDoes` and `DescriptionBox.tsx`'s
+ * `WhateverTheEditorDoes` already draw, and for the same reason: without it
+ * the whole board goes down with the one dialog that failed to fetch.
+ */
+class WhateverFilteringDoes extends Component<
+  { children: ReactNode; onFailure: () => void },
+  { broken: boolean }
+> {
+  state = { broken: false };
+
+  static getDerivedStateFromError() {
+    return { broken: true };
+  }
+
+  componentDidCatch() {
+    this.props.onFailure();
+  }
+
+  render() {
+    // Null for the render that catches; the failure is reported up, and the
+    // next render closes the dialog instead.
+    return this.state.broken ? null : this.props.children;
+  }
+}
 
 /**
  * A dashboard's panels, on the rows one of its layouts arranges them into
@@ -1079,28 +1106,30 @@ export function PanelBoard({
         // for a placeholder to stand in for - the dialog itself is the first
         // thing this ever draws, the same reason DescriptionBox.tsx's own
         // `Arriving` has no counterpart here.
-        <Suspense fallback={null}>
-          <FilterQuestion
-            // Keyed on the Panel, so the rows it opens on are that Panel's: the
-            // question reads what is stored once and is the person's from then
-            // on (`FilterQuestion`), which only holds while one Filter cannot
-            // hand its half-finished rows to the next.
-            key={beingFiltered.id}
-            open
-            panelName={beingFiltered.name}
-            conditions={(beingFiltered.filter ?? NO_CONDITIONS).conditions}
-            itemTypes={itemTypes}
-            panels={panelsInWorkspace}
-            onSave={(conditions) => setFilter(beingFiltered.id, conditions)}
-            onCancel={() => {
-              setFiltering(null);
-              command.reset();
-            }}
-            refusal={refusalFor('set_panel_filter', beingFiltered.id)}
-            busy={command.isPending}
-            returnFocusTo={askedFrom.current}
-          />
-        </Suspense>
+        <WhateverFilteringDoes onFailure={() => setFiltering(null)}>
+          <Suspense fallback={null}>
+            <FilterQuestion
+              // Keyed on the Panel, so the rows it opens on are that Panel's: the
+              // question reads what is stored once and is the person's from then
+              // on (`FilterQuestion`), which only holds while one Filter cannot
+              // hand its half-finished rows to the next.
+              key={beingFiltered.id}
+              open
+              panelName={beingFiltered.name}
+              conditions={(beingFiltered.filter ?? NO_CONDITIONS).conditions}
+              itemTypes={itemTypes}
+              panels={panelsInWorkspace}
+              onSave={(conditions) => setFilter(beingFiltered.id, conditions)}
+              onCancel={() => {
+                setFiltering(null);
+                command.reset();
+              }}
+              refusal={refusalFor('set_panel_filter', beingFiltered.id)}
+              busy={command.isPending}
+              returnFocusTo={askedFrom.current}
+            />
+          </Suspense>
+        </WhateverFilteringDoes>
       )}
 
       {beingDeleted && (
