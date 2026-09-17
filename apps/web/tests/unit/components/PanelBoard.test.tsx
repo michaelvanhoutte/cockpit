@@ -2097,6 +2097,12 @@ describe('Onboarding', () => {
       });
 
       await choose(user, 'Due soon', 'Filter…');
+      // The question is fetched only once opened (`FilterQuestion.tsx`, the
+      // lazy boundary the performance budget draws around it) - waited for
+      // here through a row it is certain to draw, so the assertion below
+      // reads an add menu that is truly absent rather than a question still
+      // in flight.
+      await screen.findByRole('button', { name: 'Remove condition 1' });
 
       expect(screen.queryByRole('button', { name: '+ Add a condition' })).toBeNull();
     });

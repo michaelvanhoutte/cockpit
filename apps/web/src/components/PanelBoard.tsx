@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -24,7 +24,6 @@ import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { filingsThatFile, itemsOnPanel } from '../filing';
 import { dayOf, filtersUsingPanel, itemsMatchingFilter, joinedBy } from '../filters';
-import { FilterQuestion } from './FilterQuestion';
 import { browserStore } from '../lastVisited';
 import { useChosenLayout } from '../panels/chosenLayout';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
@@ -45,6 +44,14 @@ import { arrangedWith, placementFor } from '../panels/dragging';
 import type { DrawnRow } from '../panels/dragging';
 import { MovePanelToDashboardPicker } from './MovePanelToDashboardPicker';
 import { PANEL_GAP, PanelCard } from './PanelCard';
+
+/**
+ * A Filter's own question, fetched only once *Filter…* is chosen from a
+ * Panel's menu - never on a cold open, the same boundary `PanelText.tsx`
+ * draws around `RichDescription` and `DrawnText` (`FilterQuestion.tsx`'s own
+ * doc comment).
+ */
+const FilterQuestion = lazy(() => import('./FilterQuestion'));
 
 /**
  * A dashboard's panels, on the rows one of its layouts arranges them into
@@ -1068,26 +1075,32 @@ export function PanelBoard({
       )}
 
       {beingFiltered && (
-        <FilterQuestion
-          // Keyed on the Panel, so the rows it opens on are that Panel's: the
-          // question reads what is stored once and is the person's from then
-          // on (`FilterQuestion`), which only holds while one Filter cannot
-          // hand its half-finished rows to the next.
-          key={beingFiltered.id}
-          open
-          panelName={beingFiltered.name}
-          conditions={(beingFiltered.filter ?? NO_CONDITIONS).conditions}
-          itemTypes={itemTypes}
-          panels={panelsInWorkspace}
-          onSave={(conditions) => setFilter(beingFiltered.id, conditions)}
-          onCancel={() => {
-            setFiltering(null);
-            command.reset();
-          }}
-          refusal={refusalFor('set_panel_filter', beingFiltered.id)}
-          busy={command.isPending}
-          returnFocusTo={askedFrom.current}
-        />
+        // No fallback: the chunk is small, and there is nothing on screen yet
+        // for a placeholder to stand in for - the dialog itself is the first
+        // thing this ever draws, the same reason DescriptionBox.tsx's own
+        // `Arriving` has no counterpart here.
+        <Suspense fallback={null}>
+          <FilterQuestion
+            // Keyed on the Panel, so the rows it opens on are that Panel's: the
+            // question reads what is stored once and is the person's from then
+            // on (`FilterQuestion`), which only holds while one Filter cannot
+            // hand its half-finished rows to the next.
+            key={beingFiltered.id}
+            open
+            panelName={beingFiltered.name}
+            conditions={(beingFiltered.filter ?? NO_CONDITIONS).conditions}
+            itemTypes={itemTypes}
+            panels={panelsInWorkspace}
+            onSave={(conditions) => setFilter(beingFiltered.id, conditions)}
+            onCancel={() => {
+              setFiltering(null);
+              command.reset();
+            }}
+            refusal={refusalFor('set_panel_filter', beingFiltered.id)}
+            busy={command.isPending}
+            returnFocusTo={askedFrom.current}
+          />
+        </Suspense>
       )}
 
       {beingDeleted && (
