@@ -22,8 +22,9 @@ import { PRIORITY_LABELS } from '../priority';
  *
  * **One row per condition, and all of them have to hold.** The rows are a list
  * rather than a sentence with clauses because that is what the question grows
- * into - a Panel condition is one more row in a sibling issue (465), and each
- * is another row here rather than another form.
+ * into - a Panel condition is one more row in a sibling issue ("Filter a
+ * Filter panel by panel, and name the Filters a panel's deletion affects",
+ * issue 465), and each is another row here rather than another form.
  *
  * **Saved whole, including saved empty.** Taking the last row out and saving is
  * a real answer: the Filter goes back to saying it has nothing chosen, which is

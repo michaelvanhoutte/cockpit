@@ -121,7 +121,8 @@ export type DueWindow = z.infer<typeof dueWindowSchema>;
  * **`field` is written down though `dueConditionSchema` alone would not need
  * it**, so the Priority and Type conditions below are another member of a
  * union here rather than a reshaping of every stored Filter — and a Panel
- * condition (issue 465) will be a fourth, the same way.
+ * condition ("Filter a Filter panel by panel, and name the Filters a panel's
+ * deletion affects", issue 465) will be a fourth, the same way.
  *
  * `orOverdue` widens the four periods to take in what is already past — ticked
  * by default, because "due today" without it hides exactly the work that most
@@ -183,7 +184,8 @@ export type TypeCondition = z.infer<typeof typeConditionSchema>;
 
 /**
  * One row of a Filter's question: a Due date, a Priority or a Type condition
- * today, a Panel condition to come (issue 465).
+ * today, a Panel condition to come ("Filter a Filter panel by panel, and name
+ * the Filters a panel's deletion affects", issue 465).
  */
 export const filterConditionSchema = z.discriminatedUnion('field', [
   dueConditionSchema,
