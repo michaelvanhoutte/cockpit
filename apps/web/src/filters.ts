@@ -236,13 +236,23 @@ export function itemsMatchingFilter(
 /** Nothing filed anywhere - handed to `holdsFor` for an Item no filing names, so nothing has to be allocated for it. */
 const EMPTY_PANEL_IDS: ReadonlySet<string> = new Set();
 
+/**
+ * Puts `value` in the Set kept for `key`, starting one where this is the
+ * first - the one allocate-or-add shape `panelIdsFiledOnto` and
+ * `panelAndFilterIdsByItem` both build a `Map<string, Set<string>>` with,
+ * written once rather than duplicated in each (found in review).
+ */
+function addToSetMap<K, V>(map: Map<K, Set<V>>, key: K, value: V): void {
+  const held = map.get(key);
+  if (held) held.add(value);
+  else map.set(key, new Set([value]));
+}
+
 /** Every Item's own filed-onto Panel ids, gathered once for the whole Filter rather than rescanned per condition. */
 function panelIdsFiledOnto(filings: readonly Filing[]): Map<string, Set<string>> {
   const byItem = new Map<string, Set<string>>();
   for (const filing of filings) {
-    const held = byItem.get(filing.itemId);
-    if (held) held.add(filing.panelId);
-    else byItem.set(filing.itemId, new Set([filing.panelId]));
+    addToSetMap(byItem, filing.itemId, filing.panelId);
   }
   return byItem;
 }
@@ -272,13 +282,8 @@ export function panelAndFilterIdsByItem(
   on: Day,
 ): Map<string, Set<string>> {
   const byItem = new Map<string, Set<string>>();
-  const add = (itemId: string, panelId: string) => {
-    const held = byItem.get(itemId);
-    if (held) held.add(panelId);
-    else byItem.set(itemId, new Set([panelId]));
-  };
   for (const [itemId, panelIds] of panelIdsFiledOnto(filingsThatFile(filings, panelsInWorkspace))) {
-    for (const panelId of panelIds) add(itemId, panelId);
+    for (const panelId of panelIds) addToSetMap(byItem, itemId, panelId);
   }
   for (const filter of panelsInWorkspace.filter(panelGathers)) {
     const matches = itemsMatchingFilter(
@@ -289,7 +294,7 @@ export function panelAndFilterIdsByItem(
       filter.filter ?? NO_CONDITIONS,
       on,
     );
-    for (const item of matches) add(item.id, filter.id);
+    for (const item of matches) addToSetMap(byItem, item.id, filter.id);
   }
   return byItem;
 }
