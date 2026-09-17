@@ -194,10 +194,22 @@ export type SetPanelFormatCommand = z.infer<typeof setPanelFormatSchema>;
  * row at a time.
  */
 export const CONDITIONS_LIMIT = 50;
-export const setPanelFilterSchema = commandEnvelopeSchema.extend({
-  panelId: z.uuid(),
-  conditions: z.array(filterConditionSchema).max(CONDITIONS_LIMIT),
-});
+export const setPanelFilterSchema = commandEnvelopeSchema
+  .extend({
+    panelId: z.uuid(),
+    conditions: z.array(filterConditionSchema).max(CONDITIONS_LIMIT),
+  })
+  // A field already on the Filter is not offered a second time in the
+  // question ("Filter a Filter panel by priority and type", issue 464); this
+  // is that same rule refused server-side too, so a stale client cannot send
+  // what its own menu would no longer offer it.
+  .refine(
+    (cmd) => {
+      const fields = cmd.conditions.map((condition) => condition.field);
+      return new Set(fields).size === fields.length;
+    },
+    { message: 'a field appears once on a Filter', path: ['conditions'] },
+  );
 export type SetPanelFilterCommand = z.infer<typeof setPanelFilterSchema>;
 
 /**

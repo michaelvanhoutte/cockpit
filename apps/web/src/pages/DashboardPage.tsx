@@ -58,6 +58,7 @@ export function DashboardPage() {
           screenSizes={data.screenSizes ?? []}
           items={data.items}
           filings={data.filings ?? []}
+          itemTypes={data.itemTypes}
         />
       )}
     </div>

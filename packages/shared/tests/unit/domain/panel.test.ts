@@ -17,6 +17,8 @@ import {
  */
 
 const DUE_TODAY: FilterCondition = { field: 'dueDate', window: 'today', orOverdue: true };
+const PRIORITY_HIGH: FilterCondition = { field: 'priority', values: ['high'] };
+const TYPE_OKR: FilterCondition = { field: 'type', values: ['type-okr'] };
 
 describe('Panels', () => {
   describe('a panel that gathers what it shows says so however its conditions were stored', () => {
@@ -26,14 +28,40 @@ describe('Panels', () => {
       });
     });
 
+    it('reads back a Priority and a Type condition beside a Due date one', () => {
+      // The three fields together, each carrying its own value shape - a
+      // discriminated union rather than a reshaping of every stored Filter
+      // ("Filter a Filter panel by priority and type", issue 464).
+      expect(
+        panelFilterFrom(panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH, TYPE_OKR])),
+      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH, TYPE_OKR] });
+    });
+
     it('is not a filter at all where nothing was stored', () => {
       expect(panelFilterFrom(null)).toBeNull();
+    });
+
+    it('drops a field stored twice, keeping the first, where it was saved before a Filter refused that', () => {
+      // *+ Add a condition* offered a Due date with nothing stopping a second
+      // one before "a field appears once on a Filter" was refused server-side
+      // ("Filter a Filter panel by priority and type", issue 464) - a Panel
+      // saved that way before the refusal shipped is real data, not a
+      // hypothetical one, so reading it back keeps the rows this release can
+      // ever draw one of per field, and lets an unrelated later save of the
+      // same Panel go through rather than be refused for a duplicate nobody
+      // just chose.
+      const week = { field: 'dueDate', window: 'week', orOverdue: false } as const;
+      expect(
+        panelFilterFrom(panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH, week])),
+      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH] });
     });
 
     it.each([
       { situation: 'text that is not what was stored at all', stored: '{oops' },
       { situation: 'a shape from some other release', stored: '{"rules":[]}' },
       { situation: 'a window this release has never heard of', stored: '{"conditions":[{"field":"dueDate","window":"fortnight"}]}' },
+      { situation: 'a priority level this release has never heard of', stored: '{"conditions":[{"field":"priority","values":["urgent"]}]}' },
+      { situation: 'a field this release has never heard of', stored: '{"conditions":[{"field":"assignee","values":[]}]}' },
       { situation: 'a list of something that is not a condition', stored: '{"conditions":["today"]}' },
       { situation: 'nothing but a number', stored: '7' },
     ])('shows nothing chosen where it holds $situation', ({ stored }) => {

@@ -8,6 +8,7 @@ import type {
   Filing,
   FilterCondition,
   Item,
+  ItemType,
   Layout,
   Panel,
   ScreenSize,
@@ -113,6 +114,11 @@ function aFilter(id: string, name: string, conditions: FilterCondition[] = []): 
   return { ...aPanel(id, name), kind: 'filter', filter: { conditions } };
 }
 
+/** A live Type, exactly as `itemTypeSchema` shapes one. */
+function aType(id: string, name: string): ItemType {
+  return { id, tenantId: 'tenant', name, color: '#000000', position: 0, createdAt: '2026-08-31T08:00:00.000Z' };
+}
+
 /**
  * The width `aLayout` intended for the matching screen size `screenSizeOf`
  * derives - kept here rather than on the Layout itself, which no longer
@@ -211,6 +217,8 @@ function showBoard({
   screenSizes = layouts.map(screenSizeOf) as ScreenSize[],
   items = [] as Item[],
   filings = [] as Filing[],
+  /** The account's live Types - what a Filter's Type condition offers, unless a case wants its own. */
+  itemTypes = [] as ItemType[],
   error,
   variables,
   /**
@@ -229,6 +237,7 @@ function showBoard({
   screenSizes?: ScreenSize[];
   items?: Item[];
   filings?: Filing[];
+  itemTypes?: ItemType[];
   error?: Error;
   variables?: { name: string; payload: Record<string, unknown> };
   settles?: boolean;
@@ -262,6 +271,7 @@ function showBoard({
         screenSizes={screenSizes}
         items={items}
         filings={filings}
+        itemTypes={itemTypes}
       />
     </QueryClientProvider>
   );
@@ -306,6 +316,12 @@ async function choose(user: ReturnType<typeof userEvent.setup>, panel: string, e
 /** The visible "..." button on a panel's header, its own way into the same menu. */
 function menuButtonOf(panelName: string) {
   return screen.getByRole('button', { name: `Actions for ${panelName}` });
+}
+
+/** Opens *+ Add a condition* and chooses one field from its menu - what every case that adds a row does first. */
+async function addCondition(user: ReturnType<typeof userEvent.setup>, field: string) {
+  await user.click(await screen.findByRole('button', { name: '+ Add a condition' }));
+  await user.click(await screen.findByRole('menuitem', { name: field }));
 }
 
 /**
@@ -1797,7 +1813,7 @@ describe('Onboarding', () => {
       const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
 
       await choose(user, 'Due soon', 'Filter…');
-      await user.click(await screen.findByRole('button', { name: '+ Add a condition' }));
+      await addCondition(user, 'Due date');
       await user.selectOptions(screen.getByRole('combobox', { name: /Due date is/ }), 'week');
       await user.click(screen.getByRole('checkbox', { name: 'or overdue' }));
       await user.click(screen.getByRole('button', { name: 'Save' }));
@@ -1829,7 +1845,7 @@ describe('Onboarding', () => {
       // no way back, where everywhere else here the later save stands.
       const { user, redrawnWith } = showBoard({ panels: [aFilter('due', 'Due soon')] });
       await choose(user, 'Due soon', 'Filter…');
-      await user.click(await screen.findByRole('button', { name: '+ Add a condition' }));
+      await addCondition(user, 'Due date');
       await user.selectOptions(screen.getByRole('combobox', { name: /Due date is/ }), 'month');
 
       redrawnWith([aFilter('due', 'Due soon', [DUE_TODAY])]);
@@ -1935,6 +1951,102 @@ describe('Onboarding', () => {
       expect(await screen.findByRole('menuitem', { name: 'Move to…' })).toBeVisible();
       expect(screen.getByRole('menuitem', { name: 'Add to…' })).toBeVisible();
       expect(screen.queryByRole('menuitem', { name: 'Remove from this panel' })).toBeNull();
+    });
+
+    /**
+     * What a Priority or a Type condition sends, and what its checkboxes offer,
+     * is worked out here; that either one actually gathers or excludes an item
+     * is settled against items and filings alone in tests/unit/filters.test.ts.
+     */
+    it('sends a Priority condition’s chosen levels', async () => {
+      const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
+
+      await choose(user, 'Due soon', 'Filter…');
+      await addCondition(user, 'Priority');
+      await user.click(screen.getByRole('checkbox', { name: 'High' }));
+      await user.click(screen.getByRole('checkbox', { name: 'Normal' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_panel_filter',
+          payload: expect.objectContaining({
+            panelId: 'due',
+            conditions: [{ field: 'priority', values: ['high', 'normal'] }],
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('sends a Type condition’s chosen Type, offered from the account’s live Types', async () => {
+      const okr = aType('type-okr', 'OKR');
+      const { mutate, user } = showBoard({
+        panels: [aFilter('due', 'Due soon')],
+        itemTypes: [okr],
+      });
+
+      await choose(user, 'Due soon', 'Filter…');
+      await addCondition(user, 'Type');
+      await user.click(screen.getByRole('checkbox', { name: 'OKR' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_panel_filter',
+          payload: expect.objectContaining({
+            panelId: 'due',
+            conditions: [{ field: 'type', values: ['type-okr'] }],
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('does not offer a field already on the filter, from its own add menu', async () => {
+      const { user } = showBoard({ panels: [aFilter('due', 'Due soon', [DUE_TODAY])] });
+
+      await choose(user, 'Due soon', 'Filter…');
+      await user.click(await screen.findByRole('button', { name: '+ Add a condition' }));
+
+      expect(screen.queryByRole('menuitem', { name: 'Due date' })).toBeNull();
+      expect(screen.getByRole('menuitem', { name: 'Priority' })).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: 'Type' })).toBeVisible();
+    });
+
+    it('stops offering to add once every field is already on the filter', async () => {
+      const { user } = showBoard({
+        panels: [
+          aFilter('due', 'Due soon', [
+            DUE_TODAY,
+            { field: 'priority', values: ['high'] },
+            { field: 'type', values: [] },
+          ]),
+        ],
+      });
+
+      await choose(user, 'Due soon', 'Filter…');
+
+      expect(screen.queryByRole('button', { name: '+ Add a condition' })).toBeNull();
+    });
+
+    it('reads a Priority and a Type condition back on hover, beside what a Due date already reads', async () => {
+      const okr = aType('type-okr', 'OKR');
+      const task = aType('type-task', 'Task');
+      showBoard({
+        panels: [
+          aFilter('due', 'Due soon', [
+            { field: 'priority', values: ['high'] },
+            { field: 'type', values: [okr.id, task.id] },
+          ]),
+        ],
+        itemTypes: [okr, task],
+      });
+
+      const due = await screen.findByRole('region', { name: 'Due soon' });
+      expect(
+        within(due).getByRole('img', { name: 'Shows priority is high and type is okr or task' }),
+      ).toBeVisible();
     });
   });
 });

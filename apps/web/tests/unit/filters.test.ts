@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Filing, FilterCondition, Item, Panel, Priority } from '@cockpit/shared';
+import type { DueCondition, Filing, FilterCondition, Item, ItemType, Panel, Priority } from '@cockpit/shared';
 import { filingsThatFile, itemsInTheInbox } from '../../src/filing';
 import { dayOf, inFilterOrder, itemsMatchingFilter, saysWhatItShows } from '../../src/filters';
 
@@ -21,7 +21,14 @@ const TODAY = '2026-09-17';
 
 function anItem(
   id: string,
-  holding: { dueDate?: string | null; priority?: Priority | null; completedAt?: string | null; createdAt?: string; workspaceId?: string } = {},
+  holding: {
+    dueDate?: string | null;
+    priority?: Priority | null;
+    typeId?: string | null;
+    completedAt?: string | null;
+    createdAt?: string;
+    workspaceId?: string;
+  } = {},
 ): Item {
   return {
     id,
@@ -42,7 +49,7 @@ function anItem(
     proposedPanelId: null,
     proposedPanelReason: null,
     sourceResolvedAt: null,
-    typeId: null,
+    typeId: holding.typeId ?? null,
     nextAction: null,
     completedAt: holding.completedAt ?? null,
     priority: holding.priority ?? null,
@@ -52,6 +59,11 @@ function anItem(
     createdAt: holding.createdAt ?? '2026-08-31T08:00:00.000Z',
     updatedAt: '2026-08-31T08:00:00.000Z',
   };
+}
+
+/** A live Type, exactly as `itemTypeSchema` shapes one. */
+function aType(id: string, name: string): ItemType {
+  return { id, tenantId: 'tenant', name, color: '#000000', position: 0, createdAt: '2026-08-31T08:00:00.000Z' };
 }
 
 function aPanel(id: string, kind: Panel['kind'] = 'items'): Panel {
@@ -75,7 +87,7 @@ function filed(panelId: string, itemId: string, position = 0): Filing {
   return { panelId, itemId, position };
 }
 
-function due(window: FilterCondition['window'], orOverdue = true): FilterCondition {
+function due(window: DueCondition['window'], orOverdue = true): DueCondition {
   return { field: 'dueDate', window, orOverdue };
 }
 
@@ -84,10 +96,15 @@ function shown(
   items: readonly Item[],
   filings: readonly Filing[],
   conditions: FilterCondition[],
-  panels: readonly Panel[] = [FALCON, GATHERS],
-  on = TODAY,
+  {
+    panels = [FALCON, GATHERS],
+    itemTypes = [] as ItemType[],
+    on = TODAY,
+  }: { panels?: readonly Panel[]; itemTypes?: readonly ItemType[]; on?: string } = {},
 ): string[] {
-  return itemsMatchingFilter(items, filings, panels, { conditions }, on).map((item) => item.id);
+  return itemsMatchingFilter(items, filings, panels, itemTypes, { conditions }, on).map(
+    (item) => item.id,
+  );
 }
 
 describe('Panels', () => {
@@ -130,7 +147,7 @@ describe('Panels', () => {
           [anItem('a', matching)],
           [filed('falcon', 'a'), filed('anna', 'a')],
           [due('today')],
-          [FALCON, also, GATHERS],
+          { panels: [FALCON, also, GATHERS] },
         ),
       ).toEqual(['a']);
     });
@@ -147,6 +164,109 @@ describe('Panels', () => {
       expect(
         shown([anItem('a', matching)], [filed('falcon', 'a')], [due('today'), due('none')]),
       ).toEqual([]);
+    });
+
+    it('draws only what meets every condition it has, across different fields', () => {
+      // A Type condition and a Due date condition together: only an OKR due
+      // this quarter, never an OKR due later or a Task due this quarter.
+      const okr = aType('type-okr', 'OKR');
+      const okrDueThisQuarter = anItem('okr-due', { typeId: okr.id, dueDate: TODAY });
+      const okrDueLater = anItem('okr-later', { typeId: okr.id, dueDate: '2027-01-01' });
+      const taskDueThisQuarter = anItem('task-due', { dueDate: TODAY });
+      const items = [okrDueThisQuarter, okrDueLater, taskDueThisQuarter];
+
+      expect(
+        shown(
+          items,
+          items.map((item) => filed('falcon', item.id)),
+          [{ field: 'type', values: [okr.id] }, due('quarter', false)],
+          { itemTypes: [okr] },
+        ),
+      ).toEqual([okrDueThisQuarter.id]);
+    });
+  });
+
+  describe('a Priority condition matches an item holding any of its chosen levels, and none with no priority at all', () => {
+    it.each([
+      {
+        situation: 'one level chosen, and the item holds it',
+        values: ['high'] as Priority[],
+        item: anItem('a', { priority: 'high' }),
+        drawn: true,
+      },
+      {
+        situation: 'two levels chosen, and the item holds one of them',
+        values: ['high', 'normal'] as Priority[],
+        item: anItem('a', { priority: 'normal' }),
+        drawn: true,
+      },
+      {
+        situation: 'two levels chosen, and the item holds neither',
+        values: ['high', 'normal'] as Priority[],
+        item: anItem('a', { priority: 'low' }),
+        drawn: false,
+      },
+      {
+        situation: 'the item has no priority at all',
+        values: ['high', 'normal', 'low'] as Priority[],
+        item: anItem('a'),
+        drawn: false,
+      },
+    ])('an item where $situation', ({ values, item, drawn }) => {
+      expect(
+        shown([item], [filed('falcon', item.id)], [{ field: 'priority', values }]),
+      ).toEqual(drawn ? [item.id] : []);
+    });
+  });
+
+  describe('a Type condition matches an item holding any of its live values, and matches nothing once none are', () => {
+    const okr = aType('type-okr', 'OKR');
+    const task = aType('type-task', 'Task');
+
+    it.each([
+      {
+        situation: 'one Type chosen, and the item holds it',
+        values: [okr.id],
+        types: [okr, task],
+        item: anItem('a', { typeId: okr.id }),
+        drawn: true,
+      },
+      {
+        situation: 'two Types chosen, and the item holds one of them',
+        values: [okr.id, task.id],
+        types: [okr, task],
+        item: anItem('a', { typeId: task.id }),
+        drawn: true,
+      },
+      {
+        situation: "the item's own Type has since been deleted",
+        values: [okr.id],
+        // Not among the live Types handed in - the same as it reads once
+        // deleted, whatever the condition still names.
+        types: [] as ItemType[],
+        item: anItem('a', { typeId: okr.id }),
+        drawn: false,
+      },
+      {
+        situation: 'every Type the condition names has since been deleted',
+        values: [okr.id, task.id],
+        types: [] as ItemType[],
+        item: anItem('a', { typeId: okr.id }),
+        drawn: false,
+      },
+      {
+        situation: 'the item has no Type at all',
+        values: [okr.id],
+        types: [okr],
+        item: anItem('a'),
+        drawn: false,
+      },
+    ])('an item where $situation', ({ values, types, item, drawn }) => {
+      expect(
+        shown([item], [filed('falcon', item.id)], [{ field: 'type', values }], {
+          itemTypes: types,
+        }),
+      ).toEqual(drawn ? [item.id] : []);
     });
   });
 
@@ -283,27 +403,66 @@ describe('Panels', () => {
   });
 
   describe('a filter reads its conditions back as a sentence', () => {
+    const okr = aType('type-okr', 'OKR');
+    const task = aType('type-task', 'Task');
+
+    const priority = (...values: Priority[]): FilterCondition => ({ field: 'priority', values });
+    const type = (...values: string[]): FilterCondition => ({ field: 'type', values });
+
     it.each([
-      { situation: 'nothing chosen', conditions: [], reads: 'Nothing chosen yet' },
-      { situation: 'due today or overdue', conditions: [due('today')], reads: 'Due today or overdue' },
-      { situation: 'due today alone', conditions: [due('today', false)], reads: 'Due today' },
-      { situation: 'due this week or overdue', conditions: [due('week')], reads: 'Due this week or overdue' },
-      { situation: 'due this month alone', conditions: [due('month', false)], reads: 'Due this month' },
-      { situation: 'due this quarter or overdue', conditions: [due('quarter')], reads: 'Due this quarter or overdue' },
+      { situation: 'nothing chosen', conditions: [] as FilterCondition[], itemTypes: [] as ItemType[], reads: 'Nothing chosen yet' },
+      { situation: 'due today or overdue', conditions: [due('today')], itemTypes: [], reads: 'Due today or overdue' },
+      { situation: 'due today alone', conditions: [due('today', false)], itemTypes: [], reads: 'Due today' },
+      { situation: 'due this week or overdue', conditions: [due('week')], itemTypes: [], reads: 'Due this week or overdue' },
+      { situation: 'due this month alone', conditions: [due('month', false)], itemTypes: [], reads: 'Due this month' },
+      { situation: 'due this quarter or overdue', conditions: [due('quarter')], itemTypes: [], reads: 'Due this quarter or overdue' },
       // *Or overdue* says nothing beside these two, so it is not read out: one
       // is overdue already, and the other is about an item with no date at all.
-      { situation: 'overdue', conditions: [due('overdue')], reads: 'Overdue' },
-      { situation: 'no due date', conditions: [due('none')], reads: 'No due date' },
+      { situation: 'overdue', conditions: [due('overdue')], itemTypes: [], reads: 'Overdue' },
+      { situation: 'no due date', conditions: [due('none')], itemTypes: [], reads: 'No due date' },
+      {
+        situation: 'priority is one level',
+        conditions: [priority('high')],
+        itemTypes: [],
+        reads: 'Priority is High',
+      },
+      {
+        situation: 'priority is several levels',
+        conditions: [priority('high', 'normal')],
+        itemTypes: [],
+        reads: 'Priority is High or Normal',
+      },
+      {
+        situation: 'type is one Type',
+        conditions: [type(okr.id)],
+        itemTypes: [okr, task],
+        reads: 'Type is OKR',
+      },
+      {
+        situation: 'type is several Types',
+        conditions: [type(okr.id, task.id)],
+        itemTypes: [okr, task],
+        reads: 'Type is OKR or Task',
+      },
+      {
+        // Left out rather than named: there is no live Type to read its name
+        // off, the same reason matching ignores it (`filters.ts`).
+        situation: 'a Type among the values has since been deleted',
+        conditions: [type(okr.id, 'type-deleted')],
+        itemTypes: [okr],
+        reads: 'Type is OKR',
+      },
       {
         // *And*, because that is what two conditions mean - a comma would read
         // as a list of alternatives, which is the one thing a Filter cannot be
         // asked for.
         situation: 'two conditions, both of which hold',
         conditions: [due('week', false), due('none')],
+        itemTypes: [],
         reads: 'Due this week and No due date',
       },
-    ])('reads $situation', ({ conditions, reads }) => {
-      expect(saysWhatItShows(conditions)).toBe(reads);
+    ])('reads $situation', ({ conditions, itemTypes, reads }) => {
+      expect(saysWhatItShows(conditions, itemTypes)).toBe(reads);
     });
   });
 });

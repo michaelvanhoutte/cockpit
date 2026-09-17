@@ -114,8 +114,14 @@ async function aFilter(name = 'Due soon'): Promise<{ dashboardId: string; panelI
   return { dashboardId, panelId };
 }
 
-/** The one condition there is today: due today, or already past. */
+/** A Due date condition: due today, or already past. */
 const DUE_TODAY = { field: 'dueDate', window: 'today', orOverdue: true };
+
+/** A Priority condition: matches an item holding either level ("Filter a Filter panel by priority and type", issue 464). */
+const PRIORITY_HIGH_OR_NORMAL = { field: 'priority', values: ['high', 'normal'] };
+
+/** A Type condition: matches an item of the seeded workspace's Task type. */
+const TYPE_TASK = { field: 'type', values: [TASK_TYPE_ID] };
 
 function setFilter(panelId: string, conditions: unknown[]) {
   return send('set_panel_filter', { workspaceId: WORKSPACE_ID, panelId, conditions });
@@ -1007,6 +1013,17 @@ describe('Panels', () => {
       expect((await panelNow(panelId)).filter).toEqual({ conditions: [] });
     });
 
+    it('accepts a Priority and a Type condition beside a Due date one', async () => {
+      // The three fields together, each carrying its own value shape - what
+      // extends `filterConditionSchema` from a Due date alone to a union
+      // ("Filter a Filter panel by priority and type", issue 464).
+      const { panelId } = await aFilter();
+      const conditions = [DUE_TODAY, PRIORITY_HIGH_OR_NORMAL, TYPE_TASK];
+
+      expect((await setFilter(panelId, conditions)).status).toBe(200);
+      expect((await panelNow(panelId)).filter).toEqual({ conditions });
+    });
+
     it('shows nothing chosen where what is stored cannot be read, and the workspace still opens', async () => {
       // The only way to store one is a release this one does not have; written
       // straight into the store, because no request can drive it here.
@@ -1041,6 +1058,27 @@ describe('Panels', () => {
         situation: 'a condition about nothing the product has',
         panel: async () => (await aFilter()).panelId,
         conditions: [{ field: 'weather', window: 'today', orOverdue: true }],
+        status: 400,
+      },
+      {
+        situation: 'a priority level nothing knows about',
+        panel: async () => (await aFilter()).panelId,
+        conditions: [{ field: 'priority', values: ['urgent'] }],
+        status: 400,
+      },
+      {
+        situation: 'a Type condition naming nothing at all',
+        panel: async () => (await aFilter()).panelId,
+        conditions: [{ field: 'type', values: [''] }],
+        status: 400,
+      },
+      {
+        // "A field already on the filter is not offered a second time" (issue
+        // 464) refused server-side too, not only left off the add menu: two
+        // Due date conditions in the one list this sends.
+        situation: 'a field already on the filter',
+        panel: async () => (await aFilter()).panelId,
+        conditions: [DUE_TODAY, { field: 'dueDate', window: 'week', orOverdue: false }],
         status: 400,
       },
       {

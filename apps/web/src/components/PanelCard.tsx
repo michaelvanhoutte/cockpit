@@ -1,4 +1,11 @@
-import { NO_CONDITIONS, panelGathers, panelHoldsText, type Item, type Panel } from '@cockpit/shared';
+import {
+  NO_CONDITIONS,
+  panelGathers,
+  panelHoldsText,
+  type Item,
+  type ItemType,
+  type Panel,
+} from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { saysWhatItShows } from '../filters';
 import { ItemList } from './ItemList';
@@ -48,6 +55,8 @@ export interface PanelCardProps {
   workspaceId: string;
   /** What is filed on this panel, in order. */
   items: readonly Item[];
+  /** The account's live Types - what a Filter's funnel reads a Type condition's values back against. */
+  itemTypes: readonly ItemType[];
   /** True while this panel is the one being renamed, which happens in its own header. */
   renaming: string | null;
   onRenamingChange: (name: string) => void;
@@ -105,6 +114,7 @@ export function PanelCard({
   panel,
   workspaceId,
   items,
+  itemTypes,
   nothingFiledYet,
   renaming,
   onRenamingChange,
@@ -127,7 +137,7 @@ export function PanelCard({
   const text = panelHoldsText(panel);
   const filter = panelGathers(panel) ? (panel.filter ?? NO_CONDITIONS) : null;
   /** What the funnel reads back on hover, and the whole of what a Filter's state is. */
-  const shows = filter ? saysWhatItShows(filter.conditions) : null;
+  const shows = filter ? saysWhatItShows(filter.conditions, itemTypes) : null;
   // Read once, said the many ways it is asked below: whether the menu is
   // open to being asked at all, whether the header is a tab stop or a name
   // and a role, whether a plain click starts a drag or does nothing.

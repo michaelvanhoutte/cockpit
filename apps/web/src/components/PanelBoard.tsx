@@ -14,6 +14,7 @@ import type {
   Filing,
   FilterCondition,
   Item,
+  ItemType,
   Layout,
   LayoutRow,
   Panel,
@@ -87,6 +88,7 @@ export function PanelBoard({
   screenSizes,
   items,
   filings,
+  itemTypes,
 }: {
   workspaceId: string;
   dashboard: Dashboard;
@@ -113,6 +115,12 @@ export function PanelBoard({
   /** Every open item of the workspace; each panel is handed the ones filed on it. */
   items: readonly Item[];
   filings: readonly Filing[];
+  /**
+   * The account's live Types - what a Filter's Type condition offers to
+   * choose from and reads its values against ("Filter a Filter panel by
+   * priority and type", issue 464).
+   */
+  itemTypes: readonly ItemType[];
 }) {
   const screenWidth = useScreenWidth();
   /**
@@ -967,11 +975,13 @@ export function PanelBoard({
                                   items,
                                   filings,
                                   panelsInWorkspace,
+                                  itemTypes,
                                   panel.filter ?? NO_CONDITIONS,
                                   today,
                                 )
                               : itemsOnPanel(items, filings, panel.id)
                           }
+                          itemTypes={itemTypes}
                           // What is filed anywhere, which a filing onto a
                           // Filter is not (`filingsThatFile`): a workspace
                           // whose only filing is one of those has still never
@@ -1066,6 +1076,7 @@ export function PanelBoard({
           open
           panelName={beingFiltered.name}
           conditions={(beingFiltered.filter ?? NO_CONDITIONS).conditions}
+          itemTypes={itemTypes}
           onSave={(conditions) => setFilter(beingFiltered.id, conditions)}
           onCancel={() => {
             setFiltering(null);
