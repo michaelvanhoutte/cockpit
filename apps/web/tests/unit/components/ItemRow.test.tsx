@@ -876,7 +876,9 @@ describe('Triage', () => {
 
       const row = screen.getByRole('listitem');
       expect(row.className).not.toContain('bg-over-deep');
-      expect(row.getAttribute('style') ?? '').not.toContain('color-mix');
+      // `due-tint` is still the row's own class either way - zero intensity,
+      // fully transparent, is what keeps a due-date-less row looking plain.
+      expect(row.getAttribute('style')).toContain('--due: 0');
     });
 
     it('tints the row toward `due` while the deadline is still ahead', () => {
@@ -891,7 +893,9 @@ describe('Triage', () => {
       });
 
       const row = screen.getByRole('listitem');
-      expect(row.getAttribute('style')).toContain('color-mix(in srgb, var(--color-due)');
+      expect(row.className).toContain('due-tint');
+      // Half the 20-day window elapsed, squared for the ease-in: 0.25.
+      expect(row.getAttribute('style')).toContain('--due: 0.25');
       expect(row.className).not.toContain('bg-over-deep');
     });
 
@@ -912,7 +916,7 @@ describe('Triage', () => {
         item: anItem({ dueDate: '2026-09-21', dueDateSetAt: null, createdAt: '2026-09-01T00:00:00.000Z' }),
       });
 
-      expect(screen.getByRole('listitem').getAttribute('style')).toContain('color-mix');
+      expect(screen.getByRole('listitem').getAttribute('style')).toContain('--due: 0.25');
     });
 
     it('leaves a picked row in its own colour rather than its due date’s, overdue included', () => {
@@ -926,7 +930,9 @@ describe('Triage', () => {
       const row = screen.getByRole('listitem');
       expect(row.className).toContain('bg-accent-tint');
       expect(row.className).not.toContain('bg-over-deep');
-      expect(row.getAttribute('style') ?? '').not.toContain('color-mix');
+      // `due-tint` is the class the intensity actually reads through; a
+      // picked row not wearing it is what leaves it inert here.
+      expect(row.className).not.toContain('due-tint');
     });
   });
 });

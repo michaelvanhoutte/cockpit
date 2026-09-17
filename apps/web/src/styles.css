@@ -203,3 +203,14 @@ body {
     inset 0 1px 3px rgb(93 82 148 / 0.16),
     inset 0 0 0 1px rgb(93 82 148 / 0.1);
 }
+
+/*
+ * An item row's ease-in tint toward `due`, as it approaches its own due date
+ * ("Colour an action's own deadline as it approaches, and mark it red once
+ * passed", issue 473) - the formula written once here rather than once per
+ * row per render, with only the fraction itself (`--due`, 0-1) set from the
+ * row's own inline style.
+ */
+@utility due-tint {
+  background-color: color-mix(in srgb, var(--color-due) calc(var(--due, 0) * 100%), transparent);
+}

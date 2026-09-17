@@ -304,17 +304,6 @@ export function ItemRow({
    * ramp itself proved without one in `dueDate.test.ts`.
    */
   const dueColor = dueColorOf(item.dueDate, item.dueDateSetAt, item.createdAt, Date.now());
-  const overdue = dueColor.kind === 'overdue';
-  /**
-   * The muted tones the row's own metadata reads in at rest, swapped for
-   * white once the row itself has gone `over-deep` - never appended beside
-   * them, since two same-specificity Tailwind classes leave which one wins
-   * to the compiled stylesheet's own order rather than to the row (found in
-   * review, the same reason the row's own background/text pair above is a
-   * ternary and not a second class tacked on).
-   */
-  const mutedText = overdue ? 'text-white' : 'text-ink-faint';
-  const accentText = overdue ? 'text-white' : 'text-accent-deep';
 
   /**
    * The finger resting on this row, waiting to become a selection ("Start a
@@ -551,18 +540,21 @@ export function ItemRow({
       // somebody had ticked. What the swipe would do is the band below instead,
       // which can say it in words.
       //
-      // **A row picked out wins over its own due colour**, overdue included:
-      // being picked is a transient thing somebody is doing to the row right
-      // now, and a due date is not. The ease-in tint short of `overdue` has no
-      // fixed class to reach for - it is `style` below, not here.
+      // **A row picked out wins over its own due colour**, `-1` (past its own
+      // due date) included: being picked is a transient thing somebody is
+      // doing to the row right now, and a due date is not. `due-tint`
+      // (styles.css) reads `--due` rather than carrying the `color-mix`
+      // formula itself, written once there rather than once per row per
+      // render - and is the default branch's own class even with no due
+      // date, since its fallback to 0 where the custom property is unset is
+      // already transparent, the same as no class at all.
       className={`group relative touch-pan-y border-b border-black/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
-        selecting?.picked ? 'bg-accent-tint' : overdue ? 'bg-over-deep text-white' : ''
+        selecting?.picked ? 'bg-accent-tint' : dueColor === -1 ? 'bg-over-deep text-white' : 'due-tint'
       }`}
-      style={
-        !selecting?.picked && dueColor.kind === 'due'
-          ? { backgroundColor: `color-mix(in srgb, var(--color-due) ${Math.round(dueColor.intensity * 100)}%, transparent)` }
-          : undefined
-      }
+      // Set regardless of which of the three classes above actually reads
+      // it: `due-tint` is the only one that does, so `-1` on an overdue row
+      // is as inert here as it is on the picked branch above.
+      style={{ '--due': dueColor ?? 0 } as React.CSSProperties}
     >
       <WhatLettingGoWouldDo across={gone} />
       {/* The row itself, which is what moves: the band above has to stay where
@@ -626,7 +618,7 @@ export function ItemRow({
                 titled rather than lettered because it has nothing to spell. */}
             {item.description && (
               <span
-                className={`shrink-0 ${mutedText}`}
+                className="shrink-0 text-ink-faint"
                 title="Has a description"
                 aria-label="Has a description"
                 role="img"
@@ -644,7 +636,7 @@ export function ItemRow({
                 choice already made. */}
             {itemHasOpenReadings(item) && (
               <span
-                className={`shrink-0 ${mutedText}`}
+                className="shrink-0 text-ink-faint"
                 title="Reads more than one way"
                 aria-label="Reads more than one way"
                 role="img"
@@ -659,7 +651,7 @@ export function ItemRow({
                 word. */}
             {mayBeADuplicate && (
               <span
-                className={`shrink-0 ${mutedText}`}
+                className="shrink-0 text-ink-faint"
                 title="Possible duplicate"
                 aria-label="Possible duplicate"
                 role="img"
@@ -672,9 +664,17 @@ export function ItemRow({
               two marks the status used to hold - the dot at the head of the row
               and the first word here - are what the type took ("Capture a thought
               or an action, and see which it is", issue 155). Its own element, so
-              it is a thing on the row rather than part of a sentence. */}
-          <span className={`flex min-w-0 gap-1 text-xs ${mutedText}`}>
-            {itemType && <span className={`shrink-0 ${accentText}`}>{itemType.name}</span>}
+              it is a thing on the row rather than part of a sentence.
+
+              This line and the type name inside it are the only two pieces of
+              text on the row that set their own muted colour regardless of
+              what the row wears - everything else here has none of its own or
+              sits on its own light chip - so both swap it for white once the
+              row has gone `over-deep` (issue 473). */}
+          <span className={`flex min-w-0 gap-1 text-xs ${dueColor === -1 ? 'text-white' : 'text-ink-faint'}`}>
+            {itemType && (
+              <span className={`shrink-0 ${dueColor === -1 ? 'text-white' : 'text-accent-deep'}`}>{itemType.name}</span>
+            )}
             <span className="truncate">
               {itemType ? '· ' : ''}
               {item.source === 'internal' ? 'Own' : item.source}
@@ -722,7 +722,7 @@ export function ItemRow({
             sideways as the numbers change under it, and `title` because `14d` is
             short enough to be worth spelling out on hover. */}
         {waited && (
-          <span className={`shrink-0 text-xs tabular-nums ${mutedText}`} title={`Waiting ${waited}`}>
+          <span className="shrink-0 text-xs tabular-nums text-ink-faint" title={`Waiting ${waited}`}>
             {waited}
           </span>
         )}

@@ -36,7 +36,7 @@ describe('Triage', () => {
     }
 
     it('draws no colour for an item with no due date', () => {
-      expect(dueColorOf(null, null, CREATED, at(0))).toEqual({ kind: 'none' });
+      expect(dueColorOf(null, null, CREATED, at(0))).toBeNull();
     });
 
     it.each([
@@ -45,9 +45,7 @@ describe('Triage', () => {
       { situation: '90% of the window elapsed', days: 18, near: 0.81 },
       { situation: 'due today, not yet passed', days: 20, near: 1 },
     ])('tints $situation to $near of full `due`', ({ days, near }) => {
-      const color = dueColorOf(DUE, SET_AT, CREATED, at(days));
-      expect(color.kind).toBe('due');
-      expect((color as { intensity: number }).intensity).toBeCloseTo(near, 5);
+      expect(dueColorOf(DUE, SET_AT, CREATED, at(days))).toBeCloseTo(near, 5);
     });
 
     it('reaches the same intensity at the same elapsed fraction, whatever the window’s own length', () => {
@@ -57,10 +55,8 @@ describe('Triage', () => {
       // quarter-long one would.
       const quarterLong = dueColorOf('2026-04-01', '2026-01-01T00:00:00.000Z', CREATED, Date.parse('2026-02-06T00:00:00.000Z'));
       const weekLong = dueColorOf('2026-01-08', '2026-01-01T00:00:00.000Z', CREATED, Date.parse('2026-01-03T19:12:00.000Z'));
-      expect(quarterLong.kind).toBe('due');
-      expect(weekLong.kind).toBe('due');
-      expect((quarterLong as { intensity: number }).intensity).toBeCloseTo(0.16, 4);
-      expect((weekLong as { intensity: number }).intensity).toBeCloseTo(0.16, 4);
+      expect(quarterLong).toBeCloseTo(0.16, 4);
+      expect(weekLong).toBeCloseTo(0.16, 4);
     });
 
     it('falls back to when the item was made for a due date set before this shipped', () => {
@@ -78,7 +74,7 @@ describe('Triage', () => {
       { situation: 'yesterday', dueDate: '2026-09-16', now: Date.parse('2026-09-17T08:00:00.000Z') },
       { situation: 'months ago', dueDate: '2026-01-01', now: Date.parse('2026-09-17T08:00:00.000Z') },
     ])('reads $situation as overdue, not escalated further', ({ dueDate, now }) => {
-      expect(dueColorOf(dueDate, dueDate, dueDate, now)).toEqual({ kind: 'overdue' });
+      expect(dueColorOf(dueDate, dueDate, dueDate, now)).toBe(-1);
     });
 
     it('is not overdue on its own due day, even late in it', () => {
@@ -88,7 +84,8 @@ describe('Triage', () => {
         '2026-09-01T00:00:00.000Z',
         Date.parse('2026-09-17T23:00:00.000Z'),
       );
-      expect(color.kind).toBe('due');
+      expect(color).not.toBe(-1);
+      expect(color).toBeGreaterThanOrEqual(0);
     });
   });
 });
