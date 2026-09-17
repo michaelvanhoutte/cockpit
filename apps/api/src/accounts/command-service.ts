@@ -56,6 +56,9 @@ import {
   DEFAULT_SCREEN_SIZE_NAME,
   isPaletteTheme,
   nearestScreenSize,
+  panelFilterAsStored,
+  panelGathers,
+  panelHoldsText,
   panelTakesItems,
 } from '@cockpit/shared';
 import { foldName } from '../domain/names.js';
@@ -390,7 +393,8 @@ function dashboardTheChangeIsAbout(
 }
 
 /**
- * Refuses a panel that holds text where an item is being filed.
+ * Refuses a panel nothing is filed onto where an item is being filed - one of
+ * text, or a Filter, which gathers what is filed elsewhere.
  *
  * One function rather than the check written twice, because filing an item and
  * adding it to one more panel are the same act with different answers about
@@ -404,9 +408,13 @@ function dashboardTheChangeIsAbout(
  * comparison against a literal, and a mistyped one would compile, never refuse,
  * and quietly reopen the hole this exists to close.
  */
-function refuseAPanelOfText(panel: { name: string; kind: PanelKind } | null) {
+function refuseAPanelNothingIsFiledOn(panel: { name: string; kind: PanelKind } | null) {
   if (panel && !panelTakesItems(panel)) {
-    throw new PanelHoldsSomethingElseError(`${panel.name} holds text, so nothing is filed on it`);
+    throw new PanelHoldsSomethingElseError(
+      panelGathers(panel)
+        ? `${panel.name} gathers what it shows, so nothing is filed on it`
+        : `${panel.name} holds text, so nothing is filed on it`,
+    );
   }
 }
 
@@ -419,8 +427,22 @@ function refuseAPanelOfText(panel: { name: string; kind: PanelKind } | null) {
  * to answer differently about the same panel.
  */
 function refuseUnlessPanelOfText(panel: { name: string; kind: PanelKind }) {
-  if (panelTakesItems(panel)) {
+  if (!panelHoldsText(panel)) {
     throw new PanelHoldsSomethingElseError(`${panel.name} holds items, not text`);
+  }
+}
+
+/**
+ * Refuses a panel that is not a Filter where its conditions are being set
+ * ("Add a Filter panel that shows every filed item due in a window", issue 463).
+ *
+ * The third of the same family, for the reason the second exists: what a panel
+ * is made of is settled when it is made, so a command about one kind reaching
+ * another is a stale client rather than a state to accept quietly.
+ */
+function refuseUnlessAFilter(panel: { name: string; kind: PanelKind }) {
+  if (!panelGathers(panel)) {
+    throw new PanelHoldsSomethingElseError(`${panel.name} is not a filter`);
   }
 }
 
@@ -914,6 +936,25 @@ export function runCommand<N extends CommandName>(
         // cannot lose a character somebody typed.
         tx.update(panels)
           .set({ format: cmd.format })
+          .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_panel_filter': {
+      const cmd = payload as CommandPayload<'set_panel_filter'>;
+      const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      // A panel that is not a Filter has nothing to gather, and setting this
+      // column on one would turn it into a Filter after the fact - the one
+      // thing "settled when the panel is made" rules out.
+      refuseUnlessAFilter(panel);
+      db.transaction((tx) => {
+        tx.update(panels)
+          // The whole list, over whatever is there: the question is saved at
+          // once, so the later save standing is the same answer this app gives
+          // everywhere else.
+          .set({ filterConditions: panelFilterAsStored(cmd.conditions) })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
         tx.insert(commands).values(commandRow).run();
@@ -1462,7 +1503,7 @@ export function runCommand<N extends CommandName>(
       }
       // Nothing is filed onto a panel of text, which draws no items: one filed
       // there would leave the Inbox and be on no screen at all.
-      refuseAPanelOfText(panel);
+      refuseAPanelNothingIsFiledOn(panel);
 
       // Checked against what the panel actually holds rather than left to the
       // foreign key, which could not tell an item of another workspace from one
@@ -1557,7 +1598,7 @@ export function runCommand<N extends CommandName>(
       }
       const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
       // The same rule the move above carries, and for the same reason.
-      refuseAPanelOfText(panel);
+      refuseAPanelNothingIsFiledOn(panel);
 
       refuseAStaleOrder(db, tenantId, { ...cmd, panelId: panel.id });
 

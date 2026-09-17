@@ -1137,6 +1137,53 @@ describe('Layouts', () => {
   });
 });
 
+describe('Panels', () => {
+  describe('every panel an account already had is still made of what it was made of', () => {
+    /**
+     * The direction that matters about `0035-panel-filters`: what makes a panel
+     * a filter is the column being set, so every panel that already existed
+     * takes NULL and is not one. A default of anything else would turn every
+     * panel in every account into a filter gathering nothing, which is a panel
+     * drawing none of the items filed onto it.
+     */
+    it('reads an items panel and a text panel back as they were, and neither as a filter', async () => {
+      const name = 'aged-store-before-filters';
+      await agedTo(name, justBefore('0035-panel-filters'));
+      await fillWithWhatIsAlreadyThere(name);
+      // A panel of text as well as the two panels of items `rowsFor` writes,
+      // so both kinds meet the change rather than only the default one.
+      await inStoreAsItIs(name, (sql) =>
+        sql.exec(
+          `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, kind, created_at)
+           VALUES ('pn-words', ?, 'db-before', 'Words', 'words', 'text', ?)`,
+          name,
+          AT,
+        ),
+      );
+
+      // Opening it is what applies the change, as the first request of the day
+      // does for a real account.
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      // Read through the real query rather than out of the table, because what
+      // the change could break is what a person ends up looking at.
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot).toMatchObject({ status: 'ok' });
+      expect(
+        snapshot.status === 'ok'
+          ? snapshot.value.panels
+              .map((panel) => ({ id: panel.id, kind: panel.kind, filter: panel.filter }))
+              .sort((one, other) => one.id.localeCompare(other.id))
+          : [],
+      ).toEqual([
+        { id: 'pn-before', kind: 'items', filter: null },
+        { id: 'pn-words', kind: 'text', filter: null },
+        { id: 'pn-wrapped', kind: 'items', filter: null },
+      ]);
+    });
+  });
+});
+
 describe('Workspace management', () => {
   /**
    * The other half of "an account nobody has opened starts with one workspace"

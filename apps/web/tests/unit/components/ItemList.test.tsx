@@ -169,7 +169,7 @@ const RESEARCH: Dashboard = {
 };
 
 function aPanel(id: string, dashboardId: string, name: string): Panel {
-  return { id, tenantId: 'tenant', dashboardId, name, kind: 'items' as const, format: 'plain' as const, body: '', readOnly: false };
+  return { id, tenantId: 'tenant', dashboardId, name, kind: 'items' as const, format: 'plain' as const, body: '', readOnly: false, filter: null };
 }
 
 function aWorkspace(id: string, name: string): Workspace {
@@ -359,8 +359,9 @@ describe('Panels', () => {
     });
 
     /**
-     * A panel of text draws no items, so one filed onto it would leave the
-     * Inbox and be on no screen at all. Offered nowhere here, including in the
+     * Neither a panel of text nor one that gathers what it shows draws what is
+     * filed onto it, so an item filed onto either would leave the Inbox and be
+     * on no screen at all. Offered nowhere here, including in the
      * recently-filed-into list above the tree - which is the same rule, and
      * would be a second place to forget it.
      *
@@ -368,10 +369,13 @@ describe('Panels', () => {
      * proved in apps/api/tests/integration/http/panel-items.test.ts: the app's
      * scoping is presentation rather than protection.
      */
-    it('offers no panel of text, in the tree or among the recent ones', async () => {
+    it.each([
+      { situation: 'a panel of text', kind: 'text' as const },
+      { situation: 'one that gathers what it shows', kind: 'filter' as const },
+    ])('offers no $situation, in the tree or among the recent ones', async ({ kind }) => {
       held.panels = [
         ...held.panels,
-        { ...aPanel('p-words', TODAY.id, 'What matters'), kind: 'text' as const },
+        { ...aPanel('p-words', TODAY.id, 'What matters'), kind },
       ];
       localStorage.setItem('cockpit.recent-panels.ws-work', JSON.stringify(['p-words', 'p-anna']));
       const user = await showList({ openDashboardId: TODAY.id });

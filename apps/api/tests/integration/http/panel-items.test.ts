@@ -102,6 +102,16 @@ async function aPanelOfText(dashboardId: string, name: string): Promise<string> 
   return panelId;
 }
 
+/** A panel that gathers what it shows, which is the other panel nothing is filed onto. */
+async function aFilter(dashboardId: string, name: string): Promise<string> {
+  const panelId = nextId();
+  expect(
+    (await send('add_panel', { workspaceId: WORKSPACE_ID, dashboardId, panelId, name, kind: 'filter' }))
+      .status,
+  ).toBe(200);
+  return panelId;
+}
+
 async function anItem(message: string, workspaceId: string = WORKSPACE_ID): Promise<string> {
   const itemId = nextId();
   expect(
@@ -289,11 +299,11 @@ describe('Panels', () => {
     });
   });
 
-  describe('nothing is filed onto a panel of text', () => {
+  describe('nothing is filed onto a panel of text, or onto one that gathers what it shows', () => {
     /**
-     * A panel of text draws no items, so one filed onto it would leave the
-     * Inbox and be on no screen at all - recoverable only by an undo somebody
-     * would have to think to reach for.
+     * Neither draws what is filed onto it, so an item filed onto one would
+     * leave the Inbox and be on no screen at all - recoverable only by an undo
+     * somebody would have to think to reach for.
      *
      * **Refused by the store and not only hidden in the app**, because the
      * app's scoping is presentation rather than protection (architecture,
@@ -305,14 +315,16 @@ describe('Panels', () => {
      * and nothing is in the way - it simply does not take items.
      */
     it.each([
-      { situation: 'moved onto one', file: move },
-      { situation: 'added to one', file: addTo },
-    ])('$situation', async ({ file }) => {
+      { situation: 'moved onto a panel of text', file: move, onto: aPanelOfText },
+      { situation: 'added to a panel of text', file: addTo, onto: aPanelOfText },
+      { situation: 'moved onto one that gathers what it shows', file: move, onto: aFilter },
+      { situation: 'added to one that gathers what it shows', file: addTo, onto: aFilter },
+    ])('$situation', async ({ file, onto }) => {
       const dashboardId = await aDashboard();
-      const words = await aPanelOfText(dashboardId, 'What matters');
+      const refusing = await onto(dashboardId, 'What matters');
       const itemId = await anItem('still to deal with');
 
-      const res = await file(itemId, words);
+      const res = await file(itemId, refusing);
 
       expect(res.status).toBe(400);
       expect(((await res.json()) as { error: string }).error).toContain('What matters');

@@ -299,6 +299,8 @@ const commandSenders = {
     api.v1.commands.set_panel_read_only.$post({ json: p }),
   set_panel_format: (p: CommandPayload<'set_panel_format'>) =>
     api.v1.commands.set_panel_format.$post({ json: p }),
+  set_panel_filter: (p: CommandPayload<'set_panel_filter'>) =>
+    api.v1.commands.set_panel_filter.$post({ json: p }),
   save_layout: (p: CommandPayload<'save_layout'>) => api.v1.commands.save_layout.$post({ json: p }),
   delete_layout: (p: CommandPayload<'delete_layout'>) =>
     api.v1.commands.delete_layout.$post({ json: p }),

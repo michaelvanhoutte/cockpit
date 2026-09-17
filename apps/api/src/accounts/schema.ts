@@ -18,7 +18,7 @@ import {
   MIN_ROW_HEIGHT,
   MIN_SCREEN_WIDTH,
   PANEL_FORMATS,
-  PANEL_KINDS,
+  STORED_PANEL_KINDS,
   prioritySchema,
   sourceSchema,
 } from '@cockpit/shared';
@@ -26,9 +26,9 @@ import type {
   AssociationKind,
   ItemReading,
   PanelFormat,
-  PanelKind,
   Priority,
   Source,
+  StoredPanelKind,
 } from '@cockpit/shared';
 
 /**
@@ -394,8 +394,13 @@ export const panels = sqliteTable(
      * What the panel is made of: the items filed into it, or the text written
      * in it. Written when the panel is made and never again, which is what
      * `panelKindSchema` in the contract says and why no command updates it.
+     *
+     * **A Filter is stored as `items` here**, and is told apart by
+     * `filter_conditions` below rather than by a third value: see
+     * `STORED_PANEL_KINDS` in the contract for why this column's CHECK cannot
+     * be widened.
      */
-    kind: text('kind').notNull().default('items').$type<PanelKind>(),
+    kind: text('kind').notNull().default('items').$type<StoredPanelKind>(),
     /**
      * Whether that text is drawn as the characters that were typed or as what
      * they mean. Not a property of the text, which is Markdown either way.
@@ -410,6 +415,30 @@ export const panels = sqliteTable(
     body: text('body').notNull().default(''),
     /** Whether that text is read rather than written in. */
     readOnly: integer('read_only', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * What a Filter gathers, as the JSON `panelFilterAsStored` writes, and NULL
+     * on every Panel that is not one ("Add a Filter panel that shows every filed
+     * item due in a window", issue 463). Being set is what *makes* a Panel a
+     * Filter, which is what let this be one `ADD COLUMN` over a table that
+     * cannot be rebuilt.
+     *
+     * **Text rather than `mode: 'json'`, and read defensively** — a stored shape
+     * this release cannot parse has to read as a Filter with nothing chosen
+     * (`panelFilterFrom`), where drizzle's own JSON mode would throw and take
+     * the whole Workspace read with it.
+     *
+     * **Nullable because NULL is the answer**: it means "not a Filter", so
+     * every Panel that already existed is right without being rewritten.
+     *
+     * **No CHECK, and not because one could not be added.** `0016-text-panels`
+     * gave this same table three columns each carrying its own, which is what
+     * `ADD COLUMN` allows where a rebuild would be needed to change a
+     * constraint already on it. It carries none because what a condition may
+     * say is the product's to extend (architecture.md, "A CHECK for what is
+     * true by definition, never for what the product tunes"), and because the
+     * read has to survive a shape it cannot parse rather than refuse it.
+     */
+    filterConditions: text('filter_conditions'),
     createdAt: text('created_at').notNull(),
     deletedAt: text('deleted_at'),
   },
@@ -428,7 +457,9 @@ export const panels = sqliteTable(
     check('panels_deleted_at_is_timestamp', isTimestamp('deleted_at')),
     // Built from the same enum the wire contract uses, per "The database is the
     // second lock": a kind the contract has never heard of cannot be stored.
-    check('panels_kind_is_known', oneOf('kind', PANEL_KINDS)),
+    // `STORED_PANEL_KINDS` rather than every kind a Panel can *read back* as,
+    // which is the contract's own distinction and the column's own comment.
+    check('panels_kind_is_known', oneOf('kind', STORED_PANEL_KINDS)),
     check('panels_format_is_known', oneOf('format', PANEL_FORMATS)),
     // A STRICT integer column takes any integer, and this one is a flag.
     check('panels_read_only_is_a_flag', sql`read_only IN (0, 1)`),

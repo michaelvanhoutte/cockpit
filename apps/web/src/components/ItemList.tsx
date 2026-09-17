@@ -13,6 +13,7 @@ import { itemsThatMayBeDuplicates, possibleDuplicatesOf } from '../duplicates';
 import { ITEM_BEING_DRAGGED, placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../dropAt';
 import {
   filedOrderOnPanel,
+  filingsThatFile,
   itemsOnPanel,
   orderPuttingBack,
   ordersForFilingSeveral,
@@ -62,6 +63,7 @@ export function ItemList({
   items,
   openDashboardId,
   panelId = null,
+  gathered = false,
   /** What the list says when it holds nothing. */
   emptyMessage,
 }: {
@@ -77,6 +79,17 @@ export function ItemList({
    * place in it.
    */
   panelId?: string | null;
+  /**
+   * That these rows were gathered by a rule rather than filed here, which is
+   * what a Filter's list is ("Add a Filter panel that shows every filed item
+   * due in a window", issue 463).
+   *
+   * Three things follow, and all three are about the rows not being this
+   * panel's to arrange: nothing may be dropped here, no row is reordered, and
+   * none offers *Remove from this panel* - a row's place on a Filter is a
+   * consequence of the Item, not a filing anybody made.
+   */
+  gathered?: boolean;
   emptyMessage: string;
 }) {
   const { data } = useQuery(snapshotQuery(workspaceId));
@@ -87,6 +100,16 @@ export function ItemList({
   // `?? []` for the reason the filings elsewhere carry one: a stored snapshot
   // can predate the field, and a row with no type is drawn rather than hidden.
   const types = data?.itemTypes ?? [];
+  /**
+   * The filings that file - the one reading this list asks whenever it needs to
+   * know whether an Item is in the Inbox, so the four places below cannot come
+   * to different answers about the same row ("Add a Filter panel that shows
+   * every filed item due in a window", issue 463).
+   */
+  const filed = useMemo(
+    () => filingsThatFile(data?.filings ?? [], data?.panels ?? []),
+    [data?.filings, data?.panels],
+  );
   const command = useCommand();
   const send = useSendCommand();
   const latestSnapshot = useLatestSnapshot();
@@ -293,8 +316,10 @@ export function ItemList({
    * render.
    */
   const flagged = useMemo(
-    () => itemsThatMayBeDuplicates(data?.items ?? [], data?.filings ?? [], data?.duplicates ?? []),
-    [data?.items, data?.filings, data?.duplicates],
+    // Which items are in the Inbox is half of the rule a pair is offered by,
+    // and a filing onto a Filter leaves an item there (`filed` above).
+    () => itemsThatMayBeDuplicates(data?.items ?? [], filed, data?.duplicates ?? []),
+    [data?.items, filed, data?.duplicates],
   );
 
   /**
@@ -351,7 +376,9 @@ export function ItemList({
     const others = possibleDuplicatesOf(
       item.id,
       data?.items ?? [],
-      data?.filings ?? [],
+      // The same reading `flagged` above is built from, so this settles only
+      // what that mark actually offered.
+      filed,
       data?.duplicates ?? [],
     ).map((other) => other.id);
     if (others.length === 0) return undefined;
@@ -764,7 +791,7 @@ export function ItemList({
     // nowhere, so moving it to the Inbox is a change that changes nothing -
     // and it would still offer to be undone, which is worse than doing nothing
     // at all.
-    if (!panelId && !(data?.filings ?? []).some((filing) => filing.itemId === itemId)) return;
+    if (!panelId && !filed.some((filing) => filing.itemId === itemId)) return;
 
 
     const moving = items.find((item) => item.id === itemId) ?? data?.items.find((i) => i.id === itemId);
@@ -775,7 +802,10 @@ export function ItemList({
     // Inbox, and there is no answer that leaves it there - the Inbox is what is
     // filed nowhere. What is left is a row arriving from another panel, where
     // moving it and adding it are two different things somebody has to mean.
-    const onAPanelAlready = (data?.filings ?? []).some((filing) => filing.itemId === itemId);
+    // `filed` rather than every filing: a row the Inbox is drawing came from
+    // the Inbox, whatever a filing onto a Filter says about it, and there is no
+    // answer to "move or add" that would leave it there.
+    const onAPanelAlready = filed.some((filing) => filing.itemId === itemId);
     if (panelId && wasAt === -1 && onAPanelAlready) {
       command.reset();
       setAsking({ item: moving, at: gap });
@@ -833,6 +863,10 @@ export function ItemList({
           // its way to another panel, and a list that offered it a place would
           // file a panel into itself.
           if (!event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
+          // A gathered list takes no drop, so it must not say it would: no
+          // `preventDefault` here is what makes the pointer read "no" over it
+          // rather than promising a filing the drop would decline.
+          if (gathered) return;
           // Both, and both are load-bearing: preventing the default is what
           // makes this a place a drop can happen at all, and stopping the
           // propagation is what keeps the panel underneath from taking the drop
@@ -853,6 +887,7 @@ export function ItemList({
         }}
         onDrop={(event) => {
           if (!event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
+          if (gathered) return;
           event.preventDefault();
           event.stopPropagation();
           drop(event);
@@ -906,7 +941,11 @@ export function ItemList({
                           command.reset();
                           setAdding(item);
                         },
-                        onRemoveFromHere: () => removeFromHere(item, panelId),
+                        // Nothing to remove from a panel the row was never
+                        // filed onto: what would take it off a Filter is the
+                        // Item ceasing to match, or leaving the panel it
+                        // really is filed on.
+                        ...(gathered ? {} : { onRemoveFromHere: () => removeFromHere(item, panelId) }),
                       }
                     : {
                         // A proposal is only ever drawn in the Inbox: it is what a

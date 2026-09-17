@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
-import { itemsInTheInbox } from '../filing';
+import { filingsThatFile, itemsInTheInbox } from '../filing';
 import { CaptureForm } from './CaptureForm';
 import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
@@ -25,7 +25,9 @@ import { HOW_TO_FILE_FROM_THE_INBOX } from '../whatThingsAre';
  */
 export function InboxHeading({ workspaceId, id }: { workspaceId: string; id?: string }) {
   const { data } = useQuery(snapshotQuery(workspaceId));
-  const inbox = data ? itemsInTheInbox(data.items, data.filings ?? []) : null;
+  const inbox = data
+    ? itemsInTheInbox(data.items, filingsThatFile(data.filings ?? [], data.panels ?? []))
+    : null;
 
   /** The account-wide rewrite history, opened from this heading's own menu ("See the history of what Cockpit proposed for the Inbox's items", issue 444). */
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -110,7 +112,10 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
   // Cockpit open before this landed opens it afterwards holding a snapshot with
   // no filings at all — which should be an Inbox holding everything, the way it
   // was, rather than a blank screen.
-  const inbox = itemsInTheInbox(data.items, data.filings ?? []);
+  // A filing onto a Filter is no filing at all (`filingsThatFile`), so the item
+  // it names is still here - which is the whole of what makes one harmless.
+  const filed = filingsThatFile(data.filings ?? [], data.panels ?? []);
+  const inbox = itemsInTheInbox(data.items, filed);
 
   /**
    * The other end of the gesture the empty panel explains (`PanelCard.tsx`),
@@ -119,7 +124,7 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
    * anything is filed, because the gesture has then been done rather than read
    * about.
    */
-  const showHowToFile = inbox.length > 0 && (data.filings ?? []).length === 0;
+  const showHowToFile = inbox.length > 0 && filed.length === 0;
 
   /* No box of its own and no heading: the column it is drawn in is the hollow
      in the sheet (pages/Layout.tsx), and the name and count are up in the band

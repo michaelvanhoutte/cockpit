@@ -18,6 +18,7 @@ import { attachmentUrl, uploadAttachment } from '../api/client';
 import { snapshotQuery, useSendCommand, type CommandArgs } from '../api/queries';
 import { DescriptionBox } from './DescriptionBox';
 import { possibleDuplicatesOf } from '../duplicates';
+import { filingsThatFile } from '../filing';
 import { useItemForm, useOpenItem } from '../itemForm';
 import { useUndo } from '../undo';
 import { browserStore } from '../lastVisited';
@@ -173,7 +174,11 @@ function TheForm({
   const saidAgain = possibleDuplicatesOf(
     itemId,
     data?.items ?? [],
-    data?.filings ?? [],
+    // The reading the row's own mark is built from, which is what "the same
+    // snapshot" above means: a filing onto a Filter leaves its Item in the
+    // Inbox (`filingsThatFile`), and which Items are in the Inbox is half of
+    // the rule a pair is offered by.
+    filingsThatFile(data?.filings ?? [], data?.panels ?? []),
     data?.duplicates ?? [],
   );
 
