@@ -1036,6 +1036,9 @@ test.describe('Panels', () => {
       const saved = answerTo(page, 'set_panel_filter');
       await choosePanelAction(page, gathering, 'Filter…', isMobile);
       await press(page.getByRole('button', { name: '+ Add a condition' }), isMobile);
+      // A Due date, from the menu the fields it does not already have a row
+      // for offer ("Filter a Filter panel by priority and type", issue 464).
+      await press(page.getByRole('menuitem', { name: 'Due date' }), isMobile);
       // Due today, or overdue, which is what a fresh condition already says.
       await press(page.getByRole('dialog').getByRole('button', { name: 'Save' }), isMobile);
       expect((await saved).status()).toBe(200);
