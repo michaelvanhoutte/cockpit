@@ -11,6 +11,7 @@ import {
   alsoWorkspaces,
   asUser,
   inStoreAsItIs,
+  inTheStore,
   seedRegister,
   signInAs,
   startFromEmpty,
@@ -26,7 +27,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
  * horizontal dependency - the model, at the network boundary, exactly as the
  * issuer is faked for signing in (tests/integration/issuer.ts). Whether the
  * real model obeys the prompt is the contract tier's question
- * (tests/contract/clean-up-a-note.v7.test.ts).
+ * (tests/contract/clean-up-a-note.v8.test.ts).
  *
  * **The queue is real.** The pool runs this Worker's declared consumer, so a
  * capture really does put a message on a queue and the consumer really does
@@ -193,6 +194,18 @@ async function untilTheNoteHasBeenRead(itemId: string): Promise<void> {
     },
     { timeout: 15_000, interval: 50 },
   );
+}
+
+/**
+ * Captures a fresh note against whatever fixture rows a case has already set
+ * up, and waits for the read that follows - the shape every case in this file
+ * that asserts on `asked[0].system` against pre-arranged evidence shares,
+ * rather than each spelling out its own `asked = []`/`vi.waitFor` pair.
+ */
+async function readAgain(): Promise<void> {
+  asked = [];
+  await captureANote({ itemId: nextId() });
+  await vi.waitFor(() => expect(asked.length).toBeGreaterThan(0), { timeout: 15_000, interval: 50 });
 }
 
 /**
@@ -562,7 +575,7 @@ describe('Capture', () => {
    * the same model call reads the account's decision history and what else
    * has been captured lately - both rendered into the system prompt, which is
    * as far as an integration test can reach into a call whose actual routing
-   * is a live model's judgment call (tests/contract/clean-up-a-note.v7.test.ts
+   * is a live model's judgment call (tests/contract/clean-up-a-note.v8.test.ts
    * proves the judgment itself).
    */
   describe('a proposal is asked with the account’s decision history and its recent, unfiled captures', () => {
@@ -739,7 +752,7 @@ describe('Capture', () => {
    * correction (`set_routing_summary_correction`) is no longer read into this
    * call at all, whether or not one has been written - as far as an
    * integration test can reach into a call whose actual routing is a live
-   * model's judgment call (tests/contract/clean-up-a-note.v7.test.ts proves
+   * model's judgment call (tests/contract/clean-up-a-note.v8.test.ts proves
    * the judgment itself).
    */
   it('never asks with a workspace correction, even once one has been written', async () => {
@@ -1116,7 +1129,7 @@ describe('Capture', () => {
  * unlike the routing history above, which is read one Workspace at a time.
  */
 describe('Triage', () => {
-  describe('a note is read against every correction this account has ever made, in any workspace', () => {
+  describe('a note is read against every correction this account has made in the last 30 days, in any workspace', () => {
     it('reaches a note captured in a different workspace', async () => {
       await alsoWorkspaces();
       const corrected = await captureANote();
@@ -1174,99 +1187,191 @@ describe('Triage', () => {
       expect(asked[0]!.system).not.toContain('Their own way of saying it');
     });
 
-    it('says so, rather than being empty, for an account with no corrections yet', async () => {
+    it('says nothing, rather than a placeholder, for an account with no corrections yet', async () => {
       const itemId = await captureANote();
 
       await untilTheNoteHasBeenRead(itemId);
 
-      expect(asked[0]!.system).toContain('nothing corrected yet');
+      expect(asked[0]!.system).not.toContain('Corrections');
     });
 
     /**
      * Whether a proposal counts as having "stood" turns on whether it has
      * actually been acted on - filed, dismissed or completed - not on
      * whether it merely exists ("Learn how you write from the titles you
-     * correct", issue 394; `docs/text-learning.md`, "The rules"). A proposal
-     * still sitting untouched in the Inbox counts in neither direction.
+     * correct", issue 394; `docs/text-learning.md`, "The rules"). Three filed
+     * ones, not one, so the count clears the floor of 3 below which "what
+     * stood" is omitted entirely ("Cap the text-learning prompt to the last
+     * 30 days, and drop rules and pinned examples as inputs", issue 451).
      */
     it('counts a filed proposal as having stood, and a still-unfiled one in neither direction', async () => {
-      const filedId = await captureANote({ itemId: nextId() });
-      await untilTheNoteHasBeenRead(filedId);
-      const panelId = await aPanel('Somewhere');
-      await moveOnto(filedId, panelId);
+      for (let i = 0; i < 3; i += 1) {
+        const filedId = await captureANote({ itemId: nextId() });
+        await untilTheNoteHasBeenRead(filedId);
+        const panelId = await aPanel(`Somewhere ${i}`);
+        await moveOnto(filedId, panelId);
+      }
 
       const untouchedId = await captureANote({ itemId: nextId() });
       await untilTheNoteHasBeenRead(untouchedId);
 
-      asked = [];
-      await captureANote({ itemId: nextId() });
-      await vi.waitFor(() => expect(asked.length).toBeGreaterThan(0), { timeout: 15_000, interval: 50 });
+      await readAgain();
 
-      // Just the filed one counted, and it was never corrected.
-      expect(asked[0]!.system).toContain('0 of 1 proposed texts were corrected');
+      // The three filed ones counted and none was corrected; the still-unfiled
+      // one would have shown up in this ratio too had it counted.
+      expect(asked[0]!.system).toContain('0 of 3 proposed texts were corrected');
     });
   });
 
   /**
-   * "Show what Cockpit is told, and say how you want it changed" (issue
-   * 398): the account's own rules for how a title and a message are written
-   * are read into the same call as the corrections evidence above -
-   * account-scoped, the same as that evidence and unlike the Workspace's own
-   * filing correction further up this file.
+   * "Cap the text-learning prompt to the last 30 days, and drop rules and
+   * pinned examples as inputs" (issue 451): both evidence sections read
+   * through `store.ts`'s `textLearningContext`, which is what an integration
+   * test can reach - the render itself is `note-cleanup.test.ts`'s sibling
+   * describes above, and the floor-of-3 arithmetic is `deriveWhatStoodForPrompt`'s
+   * own unit tests (tests/unit/domain/text-corrections.test.ts).
+   *
+   * Written by row rather than through a real correction or a real
+   * enrichment pass, for the same reason `aSettledDecision` (this file's
+   * sibling describe below) writes by row: what is under test is the query's
+   * window, not the write path, which is covered elsewhere.
    */
-  describe("a proposal is asked with the account's own rules, where some have been written", () => {
-    async function setRules(rules: string, userId?: string): Promise<void> {
-      const response = await postChange(
-        'set_text_learning_rules',
-        {
-          commandId: nextId(),
-          issuedAt: '2026-09-09T09:00:00.000Z',
-          workspaceId: ACCOUNT_WIDE,
-          rules,
-        },
-        userId,
-      );
-      expect(response.status).toBe(200);
+  describe('the corrections and what stood a proposal reads are bounded to the last 30 days', () => {
+    const NOW = Date.now();
+    /** Strictly inside the 30-day window at `n` days old, strictly outside it past 30. */
+    function daysAgo(n: number): string {
+      return new Date(NOW - n * 24 * 60 * 60 * 1000).toISOString();
     }
 
-    it('says no rules have been written, for an account that has never written any', async () => {
-      theModelIs({ says: A_READING });
+    async function aCorrection(recordedAt: string, capturedMessage: string, settledTitle: string): Promise<void> {
+      const itemId = nextId();
+      await inTheStore((sql) => {
+        sql.exec(
+          `INSERT INTO items (id, tenant_id, workspace_id, source, title, status, unseen, created_at, updated_at)
+           VALUES (?, ?, ?, 'internal', ?, 'to_process', 0, ?, ?)`,
+          itemId,
+          ACCOUNT_NAME,
+          WORKSPACE_ID,
+          settledTitle,
+          recordedAt,
+          recordedAt,
+        );
+        sql.exec(
+          `INSERT INTO text_corrections
+             (item_id, tenant_id, captured_message, proposed_title, settled_title, recorded_at, updated_at)
+           VALUES (?, ?, ?, 'Proposed', ?, ?, ?)`,
+          itemId,
+          ACCOUNT_NAME,
+          capturedMessage,
+          settledTitle,
+          recordedAt,
+          recordedAt,
+        );
+      });
+    }
+
+    /** A judgeable, acted-on Item whose texts stood - `completed_at` is what makes it `actedOn`. */
+    async function aStoodItem(textsProposedAt: string, title: string): Promise<void> {
+      const itemId = nextId();
+      await inTheStore((sql) => {
+        sql.exec(
+          `INSERT INTO items
+             (id, tenant_id, workspace_id, source, title, status, unseen, texts_proposed_at, completed_at,
+              created_at, updated_at)
+           VALUES (?, ?, ?, 'internal', ?, 'to_process', 0, ?, ?, ?, ?)`,
+          itemId,
+          ACCOUNT_NAME,
+          WORKSPACE_ID,
+          title,
+          textsProposedAt,
+          textsProposedAt,
+          textsProposedAt,
+          textsProposedAt,
+        );
+      });
+    }
+
+    it('includes a correction from inside the window, with no minimum count needed', async () => {
+      await aCorrection(daysAgo(29), 'a recent note', 'Correction from inside the window');
+      await readAgain();
+
+      expect(asked[0]!.system).toContain('Correction from inside the window');
+    });
+
+    it('excludes a correction from outside the window', async () => {
+      await aCorrection(daysAgo(31), 'an old note', 'Correction from outside the window');
+      await readAgain();
+
+      expect(asked[0]!.system).not.toContain('Correction from outside the window');
+    });
+
+    /**
+     * The floor-of-3 arithmetic itself, for every count either side of it, is
+     * unit-tested directly against `deriveWhatStoodForPrompt`
+     * (tests/unit/domain/text-corrections.test.ts) - this is the one case
+     * that level cannot reach: that a real capture, through the real store
+     * and a real cutoff, ends up with "What stood" in the prompt it actually
+     * sends.
+     */
+    it('includes what stood once 3 have stood in the window', async () => {
+      await aStoodItem(daysAgo(5), 'stood-one');
+      await aStoodItem(daysAgo(5), 'stood-two');
+      await aStoodItem(daysAgo(5), 'stood-three');
+      await readAgain();
+
+      expect(asked[0]!.system).toContain('What stood');
+      expect(asked[0]!.system).toContain('0 of 3 proposed texts were corrected');
+    });
+
+    it('never counts an unchanged title from outside the window, even toward the floor', async () => {
+      await aStoodItem(daysAgo(5), 'stood-one');
+      await aStoodItem(daysAgo(5), 'stood-two');
+      await aStoodItem(daysAgo(31), 'stood-outside-the-window');
+      await readAgain();
+
+      // Only the two in-window Items count, one short of the floor of 3.
+      expect(asked[0]!.system).not.toContain('What stood');
+    });
+  });
+
+  /**
+   * "Cap the text-learning prompt to the last 30 days, and drop rules and
+   * pinned examples as inputs" (issue 451): both are still stored and still
+   * shown on the window that reads and writes them - only the prompt itself
+   * stopped reading either.
+   */
+  describe('the prompt no longer reads this account’s own rules or pinned examples', () => {
+    it('is built without a rule the account has written', async () => {
+      const response = await postChange('set_text_learning_rules', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T09:00:00.000Z',
+        workspaceId: ACCOUNT_WIDE,
+        rules: 'Never end a title with a question mark.',
+      });
+      expect(response.status).toBe(200);
 
       const itemId = await captureANote();
       await untilTheNoteHasBeenRead(itemId);
 
-      expect(asked[0]!.system).toContain('has not written any rules');
+      expect(asked[0]!.system).not.toContain('Never end a title with a question mark.');
     });
 
-    it('carries a rule once one has been written', async () => {
-      await setRules('Never end a title with a question mark.');
-      theModelIs({ says: A_READING });
+    it('is built without an example the account has pinned', async () => {
+      const response = await postChange('pin_text_example', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T09:00:00.000Z',
+        workspaceId: ACCOUNT_WIDE,
+        exampleId: nextId(),
+        note: 'bel novy ivm afspraak',
+        title: 'A pinned title nothing else in this test writes',
+        description: '',
+      });
+      expect(response.status).toBe(200);
 
       const itemId = await captureANote();
       await untilTheNoteHasBeenRead(itemId);
 
-      expect(asked[0]!.system).toContain('Never end a title with a question mark.');
-    });
-
-    it('applies to a note captured in a different workspace than the one it was written from', async () => {
-      await alsoWorkspaces();
-      await setRules('Never end a title with a question mark.');
-      theModelIs({ says: A_READING });
-
-      const itemId = await captureANote({ workspaceId: 'ws-personal', message: 'buy milk' });
-      await untilTheNoteHasBeenRead(itemId);
-
-      expect(asked[0]!.system).toContain('Never end a title with a question mark.');
-    });
-
-    it('never surfaces rules written in another account', async () => {
-      await setRules('Their own way of writing it.', OTHER_USER_ID);
-      theModelIs({ says: A_READING });
-
-      const itemId = await captureANote();
-      await untilTheNoteHasBeenRead(itemId);
-
-      expect(asked[0]!.system).not.toContain('Their own way of writing it.');
+      expect(asked[0]!.system).not.toContain('A pinned title nothing else in this test writes');
     });
   });
 });

@@ -11,6 +11,32 @@ import type { Item } from '@cockpit/shared';
  * your first edit; your side stays live").
  */
 
+/**
+ * How far back a proposal reads its own corrections and what stood - a plain
+ * rolling window, unlike the routing prompt's own cap, which keys staleness
+ * off a Panel still existing rather than a date: writing style has no
+ * panel or project of its own to key it off ("Cap the text-learning prompt to
+ * the last 30 days, and drop rules and pinned examples as inputs", issue 451;
+ * `docs/text-learning.md`, "What goes into the prompt").
+ */
+export const TEXT_LEARNING_WINDOW_DAYS = 30;
+
+/** The earliest instant still inside the window, as of `now`. */
+export function textLearningWindowCutoff(now: Date): string {
+  return new Date(now.getTime() - TEXT_LEARNING_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/**
+ * Whether an ISO timestamp falls on or after `cutoff` - the one comparison
+ * both `promptCorrections` (`store.ts`) and `deriveWhatStoodForPrompt` below
+ * make of a different field (`recordedAt`, `textsProposedAt`), named once so
+ * a later change to what "in the window" means has one place to change
+ * rather than two copies to find and keep in sync.
+ */
+export function withinTextLearningWindow(timestamp: string | null, cutoff: string): boolean {
+  return timestamp !== null && timestamp >= cutoff;
+}
+
 /** One row of `text_corrections` (schema.ts), as `command-service.ts` writes it. */
 export interface TextCorrectionRow {
   itemId: string;
@@ -41,7 +67,7 @@ export interface TextCorrectionEntry {
  * Cockpit's own words, which a later edit can leave behind (`command-
  * service.ts`'s `UPDATE` branch rewrites the settled half and never deletes
  * or resets the row). The one definition both `renderOneTextCorrection`
- * (`clean-up-a-note.v7.ts`, which reader-facing text) and the corrected-item
+ * (`clean-up-a-note.v8.ts`, which reader-facing text) and the corrected-item
  * set (`store.ts`, which the "what stood" ratio counts by) read, so the two
  * can never disagree about the same row again.
  */
@@ -57,7 +83,7 @@ export function correctionStillVisible(entry: TextCorrectionEntry): boolean {
  * resubmission of exactly what was already there - a form saved without
  * being touched, a retried command - teaches nothing and would otherwise
  * upsert a row whose proposed and settled halves read identically, which
- * `renderCorrections` (`clean-up-a-note.v7.ts`) would have nothing to show
+ * `renderCorrections` (`clean-up-a-note.v8.ts`) would have nothing to show
  * for.
  *
  * **`null` where *this edit* clears the title to nothing**, checked only
@@ -160,7 +186,7 @@ const STOOD_SAMPLE_LIMIT = 10;
  * editing a proposed text is itself the act of having looked at it, the same
  * reasoning `actedOn`'s own filed-or-dismissed proxy rests on - without this,
  * an Item corrected while still sitting unfiled would be listed in
- * `renderCorrections` (`clean-up-a-note.v7.ts`, which reads every correction
+ * `renderCorrections` (`clean-up-a-note.v8.ts`, which reads every correction
  * unconditionally) while being excluded from this ratio, reading as two
  * sections that disagree about the same Item.
  *
@@ -188,4 +214,38 @@ export function deriveWhatStood(items: readonly JudgeableItem[], correctedItemId
     correctedTotal: judged.length - stood.length,
     sample,
   };
+}
+
+/**
+ * The floor below which "what stood" is not shown to a proposal at all - one
+ * or two unchanged texts is a coin flip being reported as a pattern, not
+ * evidence, unlike a correction, which is meaningful on its own regardless of
+ * how many others exist beside it ("Cap the text-learning prompt to the last
+ * 30 days, and drop rules and pinned examples as inputs", issue 451;
+ * `docs/text-learning.md`, "What goes into the prompt").
+ */
+export const MIN_STOOD_FOR_PROMPT = 3;
+
+/**
+ * What a proposal itself reads about the texts nobody corrected - `items`
+ * narrowed to the last 30 days by `cutoff` (an ISO timestamp string, inclusive)
+ * before `deriveWhatStood` above does its usual count and sample, and `null`
+ * wherever fewer than `MIN_STOOD_FOR_PROMPT` texts stood in that window.
+ *
+ * **A second, narrower view over the same `items`/`correctedItemIds` the
+ * window's own all-time ratio is built from (`store.ts`), not a change to
+ * `deriveWhatStood` itself.** That function still answers the window's "how
+ * is it doing" screen unwindowed and unfloored - showing "0 of 1" there is
+ * fine, and gating it on this issue's own floor would silently change a
+ * screen this issue never asked to touch.
+ */
+export function deriveWhatStoodForPrompt(
+  items: readonly JudgeableItem[],
+  correctedItemIds: ReadonlySet<string>,
+  cutoff: string,
+): WhatStood | null {
+  const windowed = items.filter((item) => withinTextLearningWindow(item.textsProposedAt, cutoff));
+  const stood = deriveWhatStood(windowed, correctedItemIds);
+  const unchangedCount = stood.proposedTotal - stood.correctedTotal;
+  return unchangedCount >= MIN_STOOD_FOR_PROMPT ? stood : null;
 }

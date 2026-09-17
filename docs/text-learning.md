@@ -70,19 +70,21 @@ One table, per account, three kinds of row:
 
 ## What goes into the prompt
 
-Five sections, in a stated order of precedence:
+Three sections, in a stated order of precedence, each bounded to a plain rolling 30-day window ("Cap the text-learning prompt to the last 30 days, and drop rules and pinned examples as inputs", issue 451) — unlike routing's own cap, writing style has no panel or project of its own to key staleness off:
 
-1. **Your rules**, in your words — explicit instruction outranks inferred pattern.
-2. **Pinned examples** — deliberate, and each one a case you chose.
-3. **Corrections** — rendered as `"<note>" — Cockpit wrote "<title>", you changed it to "<title>"`, most recent last. A correction names a wrong answer as well as a right one, so it is the stronger signal, exactly as an override is for filing.
-4. **What stood** — a sample of the texts nobody changed, under a line saying how many were proposed and how many of those were corrected.
-5. **Rejections** — a wrong answer with no right one beside it.
+1. **Corrections** — rendered as `"<note>" — Cockpit wrote "<title>", you changed it to "<title>"`, most recent last. A correction names a wrong answer as well as a right one, so it is the stronger signal, exactly as an override is for filing. No minimum count: even one in the window is shown.
+2. **What stood** — a sample of the texts nobody changed, under a line saying how many were proposed and how many of those were corrected. Shown only once at least 3 stood in the window; below that, the whole section is simply absent, since a sample that small is a coin flip rather than a pattern.
+3. **Rejections** — a wrong answer with no right one beside it. Not yet built (see "Try again" under "Build order" below); the same 30-day window applies once it is.
 
-**That ratio is the point of the fourth section, more than the sample under it.** It is what stops a handful of corrections reading as systematic failure, and it is the one input here that gets better as the proposals do rather than drying up with them.
+If a window carries nothing qualifying for a section - or, for what stood, not enough - that section is simply absent from the prompt. Nothing forces older data in to fill the gap.
+
+**Your rules and pinned examples were retired as prompt inputs by the same issue.** Both are still stored and still shown on the window that reads and writes them ("Where you see it, and change it" below); only this prompt stopped reading either, in favour of learning purely from what you actually do. Deleting the tables themselves is separate, later work ("Drop the `account_text_rules` table", issue 453; "Drop the `pinned_text_examples` table", issue 454), once the UI and commands that write them are gone ("Remove the two learning settings screens, and the commands that write to them", issue 452).
+
+**That ratio is the point of the second section, more than the sample under it.** It is what stops a handful of corrections reading as systematic failure, and it is the one input here that gets better as the proposals do rather than drying up with them.
 
 **The sample stays a sample.** Once the proposals are any good, what stood outnumbers what was corrected by an order of magnitude, and rendering all of it would drown the stronger signal in the weaker one.
 
-The prompt's own built-in examples stay. They teach the language rule, the other-readings rule and the Panel rule, which style evidence does not, and they rank below your rules on style so that "my examples are being ignored" has one place to look.
+The prompt's own built-in examples stay. They teach the language rule, the other-readings rule and the Panel rule, which style evidence does not.
 
 ## Where you see it, and change it
 
@@ -97,7 +99,9 @@ The prompt's own built-in examples stay. They teach the language rule, the other
 | Titles you corrected | the pairs, Cockpit's struck through | delete a row that teaches the wrong thing |
 | Titles you rejected | beside the corrections | |
 
-**The guidance is read-only because some of its lines are load-bearing** — the shape of the answer, the language rule, the refusal to invent a fact — and editing those breaks the feature rather than restyling it. Nothing is lost by reading rather than writing it: your rules already outrank it, so anything you disagree with you contradict in your own words. What *is* lost by hiding it is the point of the rules box, which would otherwise argue with something unreadable.
+**Your rules and pinned examples stopped reaching the prompt with "Cap the text-learning prompt to the last 30 days, and drop rules and pinned examples as inputs" (issue 451).** Both rows above still describe this screen honestly — the box and the list are still there, still yours to change — but neither now does anything to a title Cockpit proposes; writing a rule no longer overrides the guidance below, since the prompt no longer reads it at all. That stops once the screens themselves are gone (issue 452) and the tables behind them follow (issues 453, 454).
+
+**The guidance is read-only because some of its lines are load-bearing** — the shape of the answer, the language rule, the refusal to invent a fact — and editing those breaks the feature rather than restyling it.
 
 **Showing what stood is a control rather than decoration.** Nobody scrolls back through hundreds of accepted titles, so one you tolerated rather than liked stays a weak positive forever. A sample of them on a screen already open is where that gets noticed, which is the cost named under "The rules" being paid off.
 
@@ -127,7 +131,7 @@ Both of the above have shipped. What is left, named rather than numbered so that
 
 | Step | What it does | After |
 |---|---|---|
-| **The store** | The triple recorded at your first edit, the count and sample of what stood read from `items` beside it, prompt v7 reading both. Headless — it changes what titles say, and puts up no screen. | prompt v6 |
+| **The store** | The triple recorded at your first edit, the count and sample of what stood read from `items` beside it, prompt v8 reading both, each capped to the last 30 days ("Cap the text-learning prompt to the last 30 days, and drop rules and pinned examples as inputs", issue 451). Headless — it changes what titles say, and puts up no screen. | prompt v6 |
 | **The window** | Where every input becomes visible: Cockpit's own guidance in plain English, your rules in a box that overrides it, and how it is doing. The account-scoped rules replace the Workspace correction, which is read by nothing afterwards. | the store, and the nightly half removed |
 | **Pinned examples** | Add, edit and delete, onto that same window. Batch-paste was dropped from scope during "Pin an example of how you want a note written" (issue 397) — each example is added and edited one at a time. | the window |
 | **The evidence** | What it got right and what you corrected, as two lists on the same window — the sample of what stood, and the pairs with Cockpit's version struck through. | the window |
@@ -140,6 +144,6 @@ Both of the above have shipped. What is left, named rather than numbered so that
 
 ## Open decisions
 
-1. **How big the sample of what stood should be, and what is dropped first when the rest outgrows the prompt.** A row is roughly 80 tokens, so several hundred corrections is tens of thousands — comfortable now, and the ladder under "What the model reads" in `routing-learning.md` applies when it stops being. *Recommendation: keep every pinned row, cap the corrections at the most recent N, and hold the sample of what stood well below the number of corrections, since it is the weaker evidence and the count beside it carries most of what it is there for.*
+1. ~~How big the sample of what stood should be, and what is dropped first when the rest outgrows the prompt.~~ **Resolved** ("Cap the text-learning prompt to the last 30 days, and drop rules and pinned examples as inputs", issue 451): a plain rolling 30-day window, since writing style has no panel or project of its own to key staleness off the way routing does — no minimum for corrections, and a floor of 3 below which what stood is omitted entirely rather than shown as a coin flip.
 2. **Whether an edit needs to say which kind it was.** "Onboarding procedure stroomlijnen" is not a style correction — it reinterprets the note — and stored as style evidence it teaches the model to invent a verb. One tap at the moment of editing, *fixed the wording* against *changed what it's about*, would separate them. *Recommendation: measure how often it matters before building it, rather than adding a tap to every edit on a suspicion.*
 3. **Whether filing should get a rules block of its own**, now that the correction is moving to writing. It is the only way to state a rule Cockpit has not yet seen you follow. *Recommendation: leave it out until it is missed — filing already learns from what you actually do, which is the objection that removed the nightly summary in the first place.*

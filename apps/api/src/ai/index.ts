@@ -1,10 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
-import { buildCleanUpANote } from './prompts/clean-up-a-note.v7.js';
+import { buildCleanUpANote } from './prompts/clean-up-a-note.v8.js';
 import { readProposal, type ProposalRead } from './note-texts.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
-import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
 
 export type { NoteTexts, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
 
@@ -49,25 +48,19 @@ export interface AiService {
    * on panels that still exist, and drop the correction override", issue
    * 450).
    *
-   * `corrections` is every text this account has ever corrected, oldest
-   * first, and `stood` is how many other proposals simply stood - the
-   * evidence that lets a proposal learn this person's own vocabulary rather
-   * than general style ("Learn how you write from the titles you correct",
-   * issue 394; `docs/text-learning.md`). Per account, unlike the routing
-   * inputs above.
+   * `corrections` is every text this account corrected in the last 30 days,
+   * oldest first, and `stood` is how many other proposals simply stood in
+   * that same window, or `null` where fewer than 3 did - the evidence that
+   * lets a proposal learn this person's own vocabulary rather than general
+   * style ("Learn how you write from the titles you correct", issue 394;
+   * "Cap the text-learning prompt to the last 30 days, and drop rules and
+   * pinned examples as inputs", issue 451; `docs/text-learning.md`). Per
+   * account, unlike the routing inputs above.
    *
-   * `rules` is the account's own explicit rules for how a title and a
-   * message are written, in their own words, or null where none have been
-   * written ("Show what Cockpit is told, and say how you want it changed",
-   * issue 398). Per account, and read ahead of `corrections`/`stood` above -
-   * the top of the precedence `docs/text-learning.md`'s "What goes into the
-   * prompt" states.
-   *
-   * `pinnedExamples` is every worked example this account has added by hand
-   * - deliberate, chosen evidence rather than a correction that merely
-   * happened ("Pin an example of how you want a note written", issue 397).
-   * Read after `rules` and ahead of `corrections`/`stood`, the same
-   * precedence order.
+   * **No `rules` or `pinnedExamples` parameter.** Both were read into this
+   * prompt once; issue 451 stopped that, in favour of learning purely from
+   * what this account actually does. Both are still stored and still shown
+   * on the window that reads and writes them.
    *
    * Answers a refusal rather than throwing for anything the model itself said:
    * an answer that will not parse or will not validate is a discarded proposal,
@@ -81,9 +74,7 @@ export interface AiService {
     history: readonly DecisionHistoryEntry[],
     recentlyCaptured: readonly string[],
     corrections: readonly TextCorrectionEntry[],
-    stood: WhatStood,
-    rules: string | null,
-    pinnedExamples: readonly PinnedExampleEntry[],
+    stood: WhatStood | null,
   ): Promise<ProposalRead>;
 }
 
@@ -130,19 +121,9 @@ export class ClaudeAiService implements AiService {
     history: readonly DecisionHistoryEntry[],
     recentlyCaptured: readonly string[],
     corrections: readonly TextCorrectionEntry[],
-    stood: WhatStood,
-    rules: string | null,
-    pinnedExamples: readonly PinnedExampleEntry[],
+    stood: WhatStood | null,
   ): Promise<ProposalRead> {
-    const prompt = buildCleanUpANote(
-      panels,
-      history,
-      recentlyCaptured,
-      corrections,
-      stood,
-      rules,
-      pinnedExamples,
-    );
+    const prompt = buildCleanUpANote(panels, history, recentlyCaptured, corrections, stood);
     const answer = await this.#client.messages.create({
       model: prompt.model,
       /**

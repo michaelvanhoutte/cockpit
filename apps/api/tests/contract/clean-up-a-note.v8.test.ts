@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ClaudeAiService } from '../../src/ai/index.js';
 import { TITLE_LENGTH } from '@cockpit/shared';
-import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v7.js';
+import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v8.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
-import type { PinnedExampleEntry } from '../../src/domain/pinned-text-examples.js';
 import type { TextCorrectionEntry, WhatStood } from '../../src/domain/text-corrections.js';
 
 /**
@@ -38,7 +37,7 @@ import type { TextCorrectionEntry, WhatStood } from '../../src/domain/text-corre
 const key = process.env.ANTHROPIC_API_KEY ?? '';
 const reading = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined);
 
-const NO_STOOD: WhatStood = { proposedTotal: 0, correctedTotal: 0, sample: [] };
+const NO_STOOD: WhatStood | null = null;
 
 /**
  * Words that exist in one of the two languages and not the other, so a text can
@@ -105,20 +104,9 @@ async function read(
   history: readonly DecisionHistoryEntry[] = [],
   recentlyCaptured: readonly string[] = [],
   corrections: readonly TextCorrectionEntry[] = [],
-  stood: WhatStood = NO_STOOD,
-  rules: string | null = null,
-  pinnedExamples: readonly PinnedExampleEntry[] = [],
+  stood: WhatStood | null = NO_STOOD,
 ) {
-  const answer = await reading.cleanUpNote(
-    note,
-    panels,
-    history,
-    recentlyCaptured,
-    corrections,
-    stood,
-    rules,
-    pinnedExamples,
-  );
+  const answer = await reading.cleanUpNote(note, panels, history, recentlyCaptured, corrections, stood);
   // Said out loud, because a discarded answer is the one failure whose reason
   // is otherwise only in the logs of a scheduled run nobody was watching.
   if (!('proposal' in answer)) throw new Error(`nothing usable came back: ${answer.discarded}`);
@@ -207,7 +195,7 @@ describe('Capture', () => {
       expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
       // The cases in this file are only evidence about the version they ran
       // against, so the version is said out loud once.
-      expect(buildCleanUpANote([], [], [], [], NO_STOOD).version).toBe('v7');
+      expect(buildCleanUpANote([], [], [], [], NO_STOOD).version).toBe('v8');
     });
 
     it('does not pad a note that is already shorter than the target', async () => {
@@ -408,7 +396,7 @@ describe('Capture', () => {
    */
   describe('a note carrying almost nothing produces something usable or nothing at all', () => {
     it('answers a note of punctuation and emoji without inventing one, or with nothing', async () => {
-      const answer = await reading.cleanUpNote('...!! 🙂', [], [], [], [], NO_STOOD, null, []);
+      const answer = await reading.cleanUpNote('...!! 🙂', [], [], [], [], NO_STOOD);
 
       // A discard is a pass and there is nothing further to check on it: every
       // producer of that arm writes a non-empty reason, so asserting one here
@@ -481,7 +469,7 @@ describe('Capture', () => {
    * questions ("Propose where a captured note belongs, without filing it
    * there", issue 298) - the same shape the prompt's own worked example is,
    * deliberately neither the same note nor the same panel name as that
-   * example (`clean-up-a-note.v7.ts`'s last example pairs "Compliance
+   * example (`clean-up-a-note.v8.ts`'s last example pairs "Compliance
    * questions" with the Part 11 audit trail note). A pass on the exact note
    * and panel name the prompt was shown the answer to would prove recall
    * rather than generalisation - the failure this tier exists to catch, per
@@ -609,43 +597,6 @@ describe('Capture', () => {
       ];
 
       const proposal = await read(NOVY_SHAPED_NOTE, [], [], [], corrections);
-
-      expect(proposal.title).toMatch(/\bNovy\b/);
-      expect(proposal.title).not.toMatch(/\bNovi\b/i);
-    });
-  });
-
-  /**
-   * The same property proved above for a correction, for a pinned example
-   * instead ("Pin an example of how you want a note written", issue 397): a
-   * worked example chosen deliberately, with no proposal of Cockpit's own
-   * behind it to correct, still teaches this account's own vocabulary - it
-   * is read the same way a correction is, not ignored for having no "was X,
-   * became Y" shape.
-   */
-  describe('a proposal uses the vocabulary a pinned example chose', () => {
-    it('spells a name the way a pinned example spelled it, not the way the note spells it', async () => {
-      const NOVY_SHAPED_NOTE = 'novi bellen over levering volgende week';
-      const pinnedExamples: PinnedExampleEntry[] = [
-        {
-          id: 'example-1',
-          note: 'novi bellen over de afspraak maandag',
-          title: 'Novy bellen over de afspraak maandag',
-          description: null,
-          createdAt: '2026-08-01T09:00:00.000Z',
-          updatedAt: '2026-08-01T09:00:00.000Z',
-        },
-        {
-          id: 'example-2',
-          note: 'novi mailen ivm factuur',
-          title: 'Novy mailen in verband met de factuur',
-          description: null,
-          createdAt: '2026-08-05T09:00:00.000Z',
-          updatedAt: '2026-08-05T09:00:00.000Z',
-        },
-      ];
-
-      const proposal = await read(NOVY_SHAPED_NOTE, [], [], [], [], NO_STOOD, null, pinnedExamples);
 
       expect(proposal.title).toMatch(/\bNovy\b/);
       expect(proposal.title).not.toMatch(/\bNovi\b/i);

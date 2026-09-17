@@ -7,11 +7,12 @@ import { pinnedExampleSchema } from './pinned-text-examples.js';
  * want it changed", issue 398; `docs/text-learning.md`, "Where you see it,
  * and change it").
  *
- * **Rendered ahead of everything else in the prompt** - why, in
- * `renderTextLearningRules` (`apps/api/src/ai/prompts/clean-up-a-note.v7.ts`),
- * which is what actually puts it there; this file only carries the shape and
- * the cap, the same split `routing-summary.ts` makes for the Workspace-scoped
- * correction beside it.
+ * **No longer read into the prompt at all** ("Cap the text-learning prompt to
+ * the last 30 days, and drop rules and pinned examples as inputs", issue
+ * 451) - still stored here, still shown and editable on the window that
+ * reads and writes it, but nothing downstream of it any more; this file only
+ * carries the shape and the cap, the same split `routing-summary.ts` makes
+ * for the Workspace-scoped correction beside it.
  *
  * **A different table from `workspace_routing_summary`, not a migration of
  * it.** That correction is an instruction about filing, scoped to one
@@ -43,7 +44,7 @@ export const textLearningRulesSchema = z.string().trim().max(TEXT_LEARNING_RULES
 
 /**
  * The length a title is written towards - shared with the prompt
- * (`clean-up-a-note.v7.ts`, which re-exports it) so the guidance line built
+ * (`clean-up-a-note.v8.ts`, which re-exports it) so the guidance line built
  * from it can never read a different number than the one actually sent to
  * the model.
  */
@@ -52,7 +53,7 @@ export const TITLE_TARGET = 50;
 /**
  * What Cockpit is told, read back in plain English, one named sentence at a
  * time ("Show what Cockpit is told, and say how you want it changed", issue
- * 398, "What Cockpit is told"). `clean-up-a-note.v7.ts` imports each of these
+ * 398, "What Cockpit is told"). `clean-up-a-note.v8.ts` imports each of these
  * by name and interpolates it into the exact spot in the system prompt it
  * already occupied, so what the window shows can never read differently from
  * what the model is actually asked - the property this issue's own "the
@@ -69,8 +70,7 @@ export const TITLE_TARGET = 50;
  *
  * Read-only on the window: some of these lines are load-bearing for the
  * shape of the answer, and editing them breaks the feature rather than
- * restyling it. The rules box beside it is where a disagreement is written
- * instead.
+ * restyling it.
  */
 export const GUIDANCE_NO_INVENTION = 'You may not add anything the note does not contain.';
 export const GUIDANCE_NO_HEDGE =

@@ -12,7 +12,6 @@ import {
   TITLE_TARGET,
 } from '@cockpit/shared';
 import type { DecisionHistoryEntry } from '../../domain/decision-history.js';
-import type { PinnedExampleEntry } from '../../domain/pinned-text-examples.js';
 import { correctionStillVisible, type TextCorrectionEntry, type WhatStood } from '../../domain/text-corrections.js';
 
 /**
@@ -41,42 +40,42 @@ export { TITLE_TARGET };
  */
 
 /**
- * What Cockpit asks Claude for when a note has been captured, version 7.
- * `v6` ("Propose a title that names the work, not the note", issue 391)
- * changed what is asked for; this version adds a new kind of evidence rather
- * than changing the ask - what this account has actually corrected, and how
- * many of its other proposals simply stood ("Learn how you write from the
- * titles you correct", issue 394; `docs/text-learning.md`).
+ * What Cockpit asks Claude for when a note has been captured, version 8.
+ * `v7` ("Learn how you write from the titles you correct", issue 394; "Show
+ * what Cockpit is told, and say how you want it changed", issue 398; "Pin an
+ * example of how you want a note written", issue 397) added `corrections`,
+ * `stood`, `rules` and `pinnedExamples` as inputs. `v8` bounds the first two
+ * to a plain rolling 30-day window and drops the other two outright ("Cap
+ * the text-learning prompt to the last 30 days, and drop rules and pinned
+ * examples as inputs", issue 451; `docs/text-learning.md`).
  *
  * **The wanted titles use their author's own vocabulary, not the note's
  * words - the one thing no general prompt rewrite could supply**
  * (`docs/text-learning.md`, "What is wrong today"). `corrections` and `stood`
- * are that evidence: every text this account has actually corrected, oldest
- * first, and how many of the rest were simply accepted. Read per account,
- * not per Workspace - how you write is a property of you, not of which
- * Workspace a note landed in (`docs/text-learning.md`, "Scope: per
- * account").
+ * are that evidence, each already bounded to the last 30 days by the caller
+ * (`store.ts`'s `textLearningContext`) before it reaches here - `corrections`
+ * with no minimum count, `stood` handed in as `null` wherever fewer than 3
+ * texts stood in the window, since a floor that low is a coin flip rather
+ * than a pattern. Read per account, not per Workspace - how you write is a
+ * property of you, not of which Workspace a note landed in (`docs/text-
+ * learning.md`, "Scope: per account").
+ *
+ * **No `rules` or `pinnedExamples` parameter any more.** An account's own
+ * written rules and pinned examples are still stored and still shown on the
+ * window that reads and writes them - only this prompt stopped reading
+ * either, in favour of learning purely from what this account actually does.
  *
  * Nothing else moves: language, the other readings, the Panel proposal, the
  * routing history and the shape of `schema` are `v6`'s.
- *
- * **`rules` is new since `v7` shipped** ("Show what Cockpit is told, and say
- * how you want it changed", issue 398): an account's own explicit rules for
- * how a title and a message are written, in their own words, rendered ahead
- * of `corrections` and `stood` - the top of the precedence `docs/text-
- * learning.md`'s "What goes into the prompt" states, since a rule is an
- * instruction rather than evidence to weigh.
  */
 export function buildCleanUpANote(
   panels: readonly { id: string; name: string }[],
   history: readonly DecisionHistoryEntry[],
   recentlyCaptured: readonly string[],
   corrections: readonly TextCorrectionEntry[],
-  stood: WhatStood,
-  rules: string | null = null,
-  pinnedExamples: readonly PinnedExampleEntry[] = [],
+  stood: WhatStood | null,
 ): {
-  version: 'v7';
+  version: 'v8';
   model: string;
   effort: 'low';
   system: string;
@@ -87,8 +86,29 @@ export function buildCleanUpANote(
       ? panels.map((panel) => `- ${panel.id}: ${panel.name}`).join('\n')
       : '(this account has no panels yet)';
 
+  // Either section may be absent - a window with nothing qualifying, or
+  // `stood` handed in as `null` because too little stood in it to say
+  // anything - and nothing forces older data in to fill the gap (`docs/
+  // text-learning.md`, "What goes into the prompt"; issue 451).
+  //
+  // **The intro sentence rides inside this same computed value, not fixed in
+  // the template below.** `v7` could state "you are also given..." unconditionally
+  // because `renderCorrections`/`renderWhatStood` always rendered a truthful
+  // placeholder when empty; `v8`'s sections can both be genuinely absent, and
+  // a fixed sentence claiming evidence exists with nothing following it would
+  // tell the model it has vocabulary evidence it was never actually given -
+  // worst for a new or quiet account, exactly the population likeliest to
+  // need cautious defaults.
+  const styleEvidenceSections = [renderCorrections(corrections), renderWhatStood(stood)].filter(
+    (section): section is string => section !== null,
+  );
+  const styleEvidence =
+    styleEvidenceSections.length === 0
+      ? ''
+      : `You are also given this account's own record of the titles and messages you have proposed in the last 30 days and how they were received - the strongest evidence of this person's own vocabulary and length available, and it outranks the built-in guidance above on vocabulary and length wherever the two disagree. It never overrides the language rule above, and never licenses adding anything the note itself does not contain.\n\n${styleEvidenceSections.join('\n\n')}`;
+
   return {
-    version: 'v7',
+    version: 'v8',
 
     /**
      * Unchanged since `v1`, which measured a cheaper model handing the
@@ -112,8 +132,6 @@ You may:
 - finish a sentence the note leaves clipped
 - put a dictated run of words into a readable order
 
-${renderTextLearningRules(rules)}
-
 ${NO_INVENTION} Not a fact, not a name, not a date, not a number, not a reason, and not a next step. ${NO_HEDGE} Write what the note carries and stop there. If you are unsure whether something is in the note, it is not.
 
 ${NO_TALKING_ABOUT_THE_NOTE} What lands in front of this person is a piece of their own work, not a report about something they typed, so never write "the note", "this note" or "de notitie" in either text.
@@ -126,13 +144,7 @@ ${MESSAGE_PURPOSE} It is an instruction too: the work the note is asking for, sp
 
 Name the note's language first, in English, from the note alone - "English", "Dutch", or "English and Dutch" where the note genuinely mixes them. ${LANGUAGE_ANSWER} ${NEVER_TRANSLATE}
 
-You are also given this account's own evidence of how it writes: examples chosen deliberately, and a record of the titles and messages you have proposed before and how they were received - together the strongest evidence of this person's own vocabulary and length available, and it outranks the built-in guidance above on vocabulary and length wherever the two disagree. It never overrides the language rule above, never licenses adding anything the note itself does not contain, and never outranks this account's own rules at the top of this prompt, which come ahead of it too.
-
-${renderPinnedExamples(pinnedExamples)}
-
-${renderCorrections(corrections)}
-
-${renderWhatStood(stood)}
+${styleEvidence}
 
 Some notes genuinely say two things at once - "bel jan" is either call Jan, a person, or call in January, the month; "review pricing with sales monday" could put the review or the pricing on Monday. Where that is true, list the other readings: for each, a title and a message exactly as you would write your main answer, and a few words saying what that reading takes the note to mean.
 
@@ -297,65 +309,6 @@ function renderHistory(history: readonly DecisionHistoryEntry[]): string {
 }
 
 /**
- * The account's own rules for how a title and a message are written, or a
- * line saying none have been written yet - every account's starting
- * condition ("Show what Cockpit is told, and say how you want it changed",
- * issue 398).
- *
- * **Rendered before the built-in guidance that follows it, not after.** A
- * rule contradicting that guidance has to read as overriding it, which only
- * holds if it is read first - the guidance itself is never removed or
- * shortened for having one, since disagreeing with a sentence still there is
- * how a person's own rule is meant to work. It is also read before the
- * account's own record of corrections and what stood, and before the
- * examples at the end of this prompt - the top of the precedence `docs/
- * text-learning.md`'s "What goes into the prompt" states for this section.
- */
-function renderTextLearningRules(rules: string | null): string {
-  if (rules === null) {
-    return 'This person has not written any rules for how their titles and messages should be written.';
-  }
-  return `This person has written the following rule(s) for how their titles and messages should be written - the most direct signal available in this whole prompt, ahead of the guidance above, the examples below, and every correction or pattern that follows: "${rules}"`;
-}
-
-/**
- * One rendered line for a pinned example: the note, and the title and
- * message chosen for it - a direct worked example, unlike a correction,
- * which names a wrong answer as well as a right one ("Pin an example of how
- * you want a note written", issue 397).
- */
-function renderOnePinnedExample(example: PinnedExampleEntry): string {
-  const parts = [`title: "${example.title}"`];
-  if (example.description !== null) parts.push(`message: "${example.description}"`);
-  return `"${example.note}" — ${parts.join('; ')}`;
-}
-
-/**
- * The account's own pinned examples, or a line saying none have been added
- * yet - every account's starting condition ("Pin an example of how you want
- * a note written", issue 397).
- *
- * **Rendered ahead of `renderCorrections`/`renderWhatStood`, after
- * `renderTextLearningRules`** - the precedence `docs/text-learning.md`'s
- * "What goes into the prompt" states: a rule you wrote outranks every
- * example, and an example you chose outranks a correction that merely
- * happened.
- *
- * **Never capped.** Unlike `CORRECTIONS_LIMIT`/`STOOD_SAMPLE_LIMIT` below,
- * every pinned row is rendered whatever the account's volume of ordinary
- * corrections grows to - a pinned row was chosen, and `docs/text-
- * learning.md`'s own "Open decisions" recommends keeping every one of them
- * for exactly that reason.
- */
-function renderPinnedExamples(pinnedExamples: readonly PinnedExampleEntry[]): string {
-  if (pinnedExamples.length === 0) {
-    return 'Pinned examples: (nothing pinned yet)';
-  }
-  const lines = pinnedExamples.map(renderOnePinnedExample);
-  return `Pinned examples - chosen deliberately, the strongest evidence of vocabulary available in this prompt after this person's own rules above, ahead of the corrections and what-stood evidence that follow:\n${lines.join('\n')}`;
-}
-
-/**
  * Unchanged since `v4`.
  */
 function renderRecentlyCaptured(recentlyCaptured: readonly string[]): string {
@@ -368,32 +321,20 @@ function renderRecentlyCaptured(recentlyCaptured: readonly string[]): string {
 }
 
 /**
- * The most recent `CORRECTIONS_LIMIT` corrections this account has ever made
- * to a proposed title or description, oldest first - a wrong answer named
- * beside the right one, so it is read as the stronger of the two kinds of
- * evidence `docs/text-learning.md` describes ("What goes into the prompt").
+ * Every correction this account made in the last 30 days, oldest first - a
+ * wrong answer named beside the right one, so it is read as the stronger of
+ * the two kinds of evidence `docs/text-learning.md` describes ("What goes
+ * into the prompt"). No minimum count: even a single correction in the
+ * window is the strongest signal this whole prompt carries, regardless of
+ * how many others exist alongside it.
  *
- * **Capped here, in the render, not at the query.** `textCorrectionsForAccount`
- * (`repo.ts`) reads the whole table with no retrieval step - unlike
- * `decisionHistoryForWorkspace` (`repo.ts`), which now caps in the query
- * itself ("Cap the routing prompt to the last 50 decisions on panels that
- * still exist, and drop the correction override", issue 450) - so this is
- * where volume is bounded, the way `docs/text-learning.md`'s own "Open
- * decisions" anticipates.
- */
-const CORRECTIONS_LIMIT = 50;
-
-/**
- * One rendered line for a correction, or `null` where the row's settled half
- * currently reads identically to what was proposed - a title reverted back to
- * Cockpit's own words after a detour, say. Skipped rather than shown as a
- * dangling `"<note>" — ` with nothing after it: a row with nothing to show
- * teaches nothing, the same reasoning `textCorrectionFor` (`domain/text-
- * corrections.ts`) already refuses to record one for in the first place.
- *
- * **`correctionStillVisible` gates the same rows the "what stood" ratio
- * counts by** (`store.ts`) - one definition, so a reverted correction reads
- * "nothing corrected" in both places rather than disagreeing between them.
+ * **Bounded by the caller, not here.** `corrections` arrives already windowed
+ * to the last 30 days (`store.ts`'s `textLearningContext`) - unlike `v7`,
+ * which capped a whole-table read at a fixed count in this render
+ * (`CORRECTIONS_LIMIT`), the same shift `decisionHistoryForWorkspace`
+ * (`repo.ts`) already made for the routing prompt ("Cap the routing prompt to
+ * the last 50 decisions on panels that still exist, and drop the correction
+ * override", issue 450).
  */
 function renderOneTextCorrection(entry: TextCorrectionEntry): string | null {
   if (!correctionStillVisible(entry)) return null;
@@ -409,22 +350,16 @@ function renderOneTextCorrection(entry: TextCorrectionEntry): string | null {
   return `"${entry.capturedMessage}" — ${changes.join('; ')}`;
 }
 
-function renderCorrections(corrections: readonly TextCorrectionEntry[]): string {
-  // Filtered before capped: a reverted row inside the trailing window would
-  // otherwise take a slot from an older, still-visible correction, and could
-  // empty the window entirely while `correctedItemIds` (`store.ts`, built
-  // from the full, uncapped list) still reports a nonzero corrected count -
-  // the same "two sections disagree" failure `renderOneTextCorrection`'s own
-  // comment names.
-  const lines = corrections
-    .map(renderOneTextCorrection)
-    .filter((line) => line !== null)
-    .slice(-CORRECTIONS_LIMIT);
-
-  if (lines.length === 0) {
-    return 'Corrections: (nothing corrected yet - this account has no proposals to learn from)';
-  }
-
+/**
+ * `null` where the window carries nothing to show - no qualifying rows, or
+ * every one of them a reverted correction `renderOneTextCorrection` skips -
+ * so the section is simply absent from the prompt rather than a placeholder
+ * line claiming there is nothing to learn from (`docs/text-learning.md`,
+ * "What goes into the prompt"; issue 451).
+ */
+function renderCorrections(corrections: readonly TextCorrectionEntry[]): string | null {
+  const lines = corrections.map(renderOneTextCorrection).filter((line): line is string => line !== null);
+  if (lines.length === 0) return null;
   return `Corrections, oldest first:\n${lines.join('\n')}`;
 }
 
@@ -433,25 +368,26 @@ function renderCorrections(corrections: readonly TextCorrectionEntry[]): string 
  * a bounded sample of the ones that stood - the weaker of the two kinds of
  * evidence `docs/text-learning.md` describes, present so a handful of
  * corrections is never mistaken for systematic failure ("What goes into the
- * prompt", "That ratio is the point of the fourth section").
+ * prompt", "That ratio is the point of the second section").
+ *
+ * **`null` where the caller found too little to say anything.** `stood`
+ * arrives already windowed to the last 30 days and already gated at a floor
+ * of 3 unchanged texts (`store.ts`'s `textLearningContext`, `domain/text-
+ * corrections.ts`'s `deriveWhatStoodForPrompt`) - below that floor, a sample
+ * is a coin flip read as a pattern, so the whole section is simply absent
+ * rather than shown on too little evidence (issue 451).
  *
  * **"Texts", not "titles"**: a row counts as corrected the moment either the
  * title or the description was edited (`correctedItemIds`, `store.ts`), so a
  * line claiming "titles" specifically would overclaim for an account whose
  * only edits were to descriptions.
  */
-function renderWhatStood(stood: WhatStood): string {
-  if (stood.proposedTotal === 0) {
-    return 'What stood: (nothing proposed and seen yet)';
-  }
+function renderWhatStood(stood: WhatStood | null): string | null {
+  if (stood === null) return null;
 
   // Shared with the window's own "how it is doing" line (`packages/shared`),
   // so the two can never say the same ratio two different ways.
   const ratio = textLearningRatioSentence(stood.proposedTotal, stood.correctedTotal);
-  if (stood.sample.length === 0) {
-    return `What stood: ${ratio}`;
-  }
-
   const lines = stood.sample.map((title) => `- "${title}"`);
   return `What stood: ${ratio} A sample of the titles nobody changed - weaker evidence than a correction, since it may mean good, tolerable, or simply not worth fixing:\n${lines.join('\n')}`;
 }
