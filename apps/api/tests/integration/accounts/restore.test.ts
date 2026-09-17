@@ -487,8 +487,9 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // Empty, and that is the answer rather than a gap: the last two are
-    // 0015-first-workspace and 0026-guest-demo-seed, and both only insert rows.
+    // `0035-panel-filters` adds it; `0034-rewrite-history`, the other of the
+    // two, creates a table and alters none.
+    panels: ['filter_conditions'],
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */

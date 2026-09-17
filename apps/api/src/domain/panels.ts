@@ -1,5 +1,17 @@
-import { DEFAULT_CELL_SPAN, FIRST_PANEL_NAME, NAME_MAX_LENGTH } from '@cockpit/shared';
-import type { AddPanelCommand, Panel, RowInput, SaveLayoutCommand } from '@cockpit/shared';
+import {
+  DEFAULT_CELL_SPAN,
+  FIRST_PANEL_NAME,
+  NAME_MAX_LENGTH,
+  panelFilterAsStored,
+} from '@cockpit/shared';
+import type {
+  AddPanelCommand,
+  Panel,
+  PanelFormat,
+  RowInput,
+  SaveLayoutCommand,
+  StoredPanelKind,
+} from '@cockpit/shared';
 import { foldName, namedTheSame } from './names.js';
 
 /**
@@ -50,6 +62,9 @@ export function firstPanelFor(
     format: 'plain',
     body: '',
     readOnly: false,
+    // Not a Filter: a dashboard arrives with somewhere to file into, and a
+    // Filter is the one Panel nothing can be filed onto.
+    filterConditions: null,
     createdAt: dashboard.createdAt,
     deletedAt: null,
   };
@@ -111,8 +126,23 @@ export function panelNameForMove(target: readonly Panel[], name: string): string
   return `${fitted} (${n})`;
 }
 
-export interface PanelRow extends Panel {
+/**
+ * One panel as the store holds it, which is not quite what the wire carries: the
+ * stored `kind` is one of the two the column may hold (`STORED_PANEL_KINDS`),
+ * and what a Filter gathers is the text of a column rather than the shape a
+ * reader gets back.
+ */
+export interface PanelRow {
+  id: string;
+  tenantId: string;
+  dashboardId: string;
+  name: string;
   foldedName: string;
+  kind: StoredPanelKind;
+  format: PanelFormat;
+  body: string;
+  readOnly: boolean;
+  filterConditions: string | null;
   createdAt: string;
   deletedAt: string | null;
 }
@@ -126,6 +156,11 @@ export interface PanelRow extends Panel {
  * afterwards, which is the whole of "decided when it is made and never after"
  * (`panelKindSchema`): there is no command to change it, so there is no code
  * path that could.
+ *
+ * **A Filter is stored as a panel of items with its conditions set**, which is
+ * the one place that translation happens on the way in - and it arrives with no
+ * conditions, which is what makes a new one say so rather than gather
+ * everything.
  */
 export function panelFromCommand(cmd: AddPanelCommand, tenantId: string): PanelRow {
   return {
@@ -134,7 +169,8 @@ export function panelFromCommand(cmd: AddPanelCommand, tenantId: string): PanelR
     dashboardId: cmd.dashboardId,
     name: cmd.name,
     foldedName: foldName(cmd.name),
-    kind: cmd.kind,
+    kind: cmd.kind === 'filter' ? 'items' : cmd.kind,
+    filterConditions: cmd.kind === 'filter' ? panelFilterAsStored([]) : null,
     // The characters as typed, until somebody asks for formatting: it is what
     // costs nothing to draw, and a panel with nothing in it has nothing to
     // format anyway.

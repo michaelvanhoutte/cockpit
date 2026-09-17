@@ -103,6 +103,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEMS_TENANT_ID,
     ATTACHMENTS,
     REWRITE_HISTORY,
+    PANEL_FILTERS,
   ];
 }
 
@@ -794,6 +795,40 @@ const REWRITE_HISTORY: Change = {
       sql: 'CREATE INDEX `rewrite_history_tenant_item_attempted` ON `rewrite_history` (`tenant_id`,`item_id`,`attempted_at`)',
     },
   ],
+};
+
+/**
+ * What a Filter gathers ("Add a Filter panel that shows every filed item due in
+ * a window", issue 463).
+ *
+ * **One nullable column, and nothing else.** Being set is what makes a Panel a
+ * Filter — see `STORED_PANEL_KINDS` in the contract for why the `kind` column's
+ * own CHECK is not widened instead, which would have meant rebuilding a table
+ * that filings, placements and an Item's proposed Panel all point at under
+ * RESTRICT.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** it cannot. One statement, and a change's
+ *   statements and the record that they ran commit in one `transactionSync`
+ *   (store.ts) — which is load-bearing rather than a nicety, SQLite having no
+ *   `ADD COLUMN IF NOT EXISTS` for a half-applied change to re-run over.
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** there can be none. Every Panel
+ *   takes NULL, which is "not a Filter", and no row is rewritten.
+ * - **Rolled back after it has run:** an older release reads a Filter as an
+ *   empty Panel of items and will accept a filing onto it. That filing is why
+ *   the client counts a filing onto a Filter as no filing at all
+ *   (`filingsThatFile`, apps/web/src/filing.ts): the Item stays in the Inbox
+ *   rather than leaving it for a Panel that draws it nowhere.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const PANEL_FILTERS: Change = {
+  name: '0035-panel-filters',
+  statements: [{ sql: 'ALTER TABLE `panels` ADD COLUMN `filter_conditions` text' }],
 };
 
 /**

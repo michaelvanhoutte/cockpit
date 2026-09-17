@@ -15,6 +15,7 @@ import {
 } from './domain/item.js';
 import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
 import {
+  filterConditionSchema,
   panelFormatSchema,
   panelKindSchema,
   panelNameSchema,
@@ -175,6 +176,22 @@ export const setPanelFormatSchema = commandEnvelopeSchema.extend({
   format: panelFormatSchema,
 });
 export type SetPanelFormatCommand = z.infer<typeof setPanelFormatSchema>;
+
+/**
+ * set_panel_filter — what a Filter shows, whole ("Add a Filter panel that shows
+ * every filed item due in a window", issue 463).
+ *
+ * The whole list rather than the row that changed, for the reason
+ * `set_panel_text` carries a whole document: the question is saved at once, and
+ * two people editing it is the later save standing rather than a merge nobody
+ * asked for. An empty list is a real answer — the Filter goes back to saying it
+ * has nothing chosen.
+ */
+export const setPanelFilterSchema = commandEnvelopeSchema.extend({
+  panelId: z.uuid(),
+  conditions: z.array(filterConditionSchema),
+});
+export type SetPanelFilterCommand = z.infer<typeof setPanelFilterSchema>;
 
 /**
  * save_layout — one arrangement of a dashboard's panels, whole (architecture.md
@@ -580,6 +597,7 @@ export const commandSchemas = {
   set_panel_text: setPanelTextSchema,
   set_panel_read_only: setPanelReadOnlySchema,
   set_panel_format: setPanelFormatSchema,
+  set_panel_filter: setPanelFilterSchema,
   save_layout: saveLayoutSchema,
   delete_layout: deleteLayoutSchema,
   create_screen_size: createScreenSizeSchema,

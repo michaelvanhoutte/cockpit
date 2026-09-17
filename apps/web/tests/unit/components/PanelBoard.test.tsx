@@ -3,10 +3,20 @@ import { createEvent, fireEvent, render, screen, waitFor, within } from '@testin
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MIN_ROW_HEIGHT } from '@cockpit/shared';
-import type { Dashboard, Filing, Item, Layout, Panel, ScreenSize } from '@cockpit/shared';
+import type {
+  Dashboard,
+  Filing,
+  FilterCondition,
+  Item,
+  Layout,
+  Panel,
+  ScreenSize,
+} from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
+import { dayOf } from '../../../src/filters';
 import { QUIET } from '../../../src/panels/PanelText';
 import {
+  NOTHING_CHOSEN_TO_SHOW,
   NOTHING_FILED_HERE,
   NOTHING_FILED_HERE_YET_AND_HOW,
   NOTHING_WRITTEN_HERE,
@@ -67,6 +77,7 @@ function aPanel(id: string, name: string): Panel {
     format: 'plain',
     body: '',
     readOnly: false,
+    filter: null,
   };
 }
 
@@ -83,6 +94,22 @@ function aPanelOfText(
     body: holding.body ?? '',
     readOnly: holding.readOnly ?? false,
   };
+}
+
+/**
+ * Today, where whoever is running this is - the same reading the board takes
+ * (`dayOf`), so a case about *due today* is about the board drawing the row
+ * rather than about which day it is. Which items a window takes in is settled
+ * against a fixed day in tests/unit/filters.test.ts.
+ */
+const TODAY = dayOf(new Date());
+
+/** The one condition there is today: due today, or already past. */
+const DUE_TODAY: FilterCondition = { field: 'dueDate', window: 'today', orOverdue: true };
+
+/** A panel that gathers what it shows, with nothing chosen unless a case says otherwise. */
+function aFilter(id: string, name: string, conditions: FilterCondition[] = []): Panel {
+  return { ...aPanel(id, name), kind: 'filter', filter: { conditions } };
 }
 
 /**
@@ -1700,6 +1727,159 @@ describe('Onboarding', () => {
       const reading = await screen.findByRole('region', { name: 'To read' });
       expect(within(reading).getByText(NOTHING_FILED_HERE)).toBeVisible();
       expect(within(reading).queryByText(NOTHING_FILED_HERE_YET_AND_HOW)).toBeNull();
+    });
+  });
+
+  /**
+   * What a Filter gathers is worked out in tests/unit/filters.test.ts against
+   * the items and filings alone; what is asked here is the panel's own
+   * behaviour - what it says while nothing has been chosen, what its menu
+   * offers, what it sends, and what it refuses to take.
+   */
+  describe('a panel that gathers what it shows says so until somebody chooses what that is', () => {
+    it('says to choose from its menu, and shows no rows at all', async () => {
+      // An item that would match if anything had been chosen, so this cannot
+      // pass merely for want of something to draw.
+      const bart = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
+      showBoard({
+        panels: [aFilter('due', 'Due soon')],
+        items: [{ ...bart, dueDate: TODAY }],
+        filings: [{ panelId: 'falcon', itemId: bart.id, position: 0 }],
+      });
+
+      const due = await screen.findByRole('region', { name: 'Due soon' });
+      expect(within(due).getByText(NOTHING_CHOSEN_TO_SHOW)).toBeVisible();
+      expect(within(due).queryByRole('listitem')).toBeNull();
+    });
+
+    it('draws the items it gathers once it has been told what to show', async () => {
+      const bart = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
+      showBoard({
+        panels: [aFilter('due', 'Due soon', [DUE_TODAY])],
+        items: [{ ...bart, dueDate: TODAY }],
+        filings: [{ panelId: 'falcon', itemId: bart.id, position: 0 }],
+      });
+
+      const due = await screen.findByRole('region', { name: 'Due soon' });
+      expect(within(due).getAllByRole('listitem').map((row) => row.textContent)).toEqual([
+        expect.stringContaining('Reply to Bart'),
+      ]);
+      expect(within(due).queryByText(NOTHING_CHOSEN_TO_SHOW)).toBeNull();
+    });
+
+    it('reads its conditions back beside its name', async () => {
+      showBoard({ panels: [aFilter('due', 'Due soon', [DUE_TODAY])] });
+
+      const due = await screen.findByRole('region', { name: 'Due soon' });
+      expect(within(due).getByRole('img', { name: 'Shows due today or overdue' })).toBeVisible();
+    });
+
+    it('sends what was chosen, and opens again on it', async () => {
+      const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
+
+      await choose(user, 'Due soon', 'Filter…');
+      await user.click(await screen.findByRole('button', { name: '+ Add a condition' }));
+      await user.selectOptions(screen.getByRole('combobox', { name: /Due date is/ }), 'week');
+      await user.click(screen.getByRole('checkbox', { name: 'or overdue' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_panel_filter',
+          payload: expect.objectContaining({
+            panelId: 'due',
+            conditions: [{ field: 'dueDate', window: 'week', orOverdue: false }],
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('opens on the conditions the panel already has', async () => {
+      const { user } = showBoard({ panels: [aFilter('due', 'Due soon', [DUE_TODAY])] });
+
+      await choose(user, 'Due soon', 'Filter…');
+
+      expect(await screen.findByRole('combobox', { name: /Due date is/ })).toHaveValue('today');
+      expect(screen.getByRole('checkbox', { name: 'or overdue' })).toBeChecked();
+    });
+
+    it('saves with nothing left, which puts it back to saying nothing has been chosen', async () => {
+      const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon', [DUE_TODAY])] });
+
+      await choose(user, 'Due soon', 'Filter…');
+      await user.click(await screen.findByRole('button', { name: 'Remove condition 1' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_panel_filter',
+          payload: expect.objectContaining({ conditions: [] }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('is not asked what a panel of items or a panel of text shows', async () => {
+      const { user } = showBoard({
+        panels: [aPanel('falcon', 'Project Falcon'), aPanelOfText('words', 'What matters')],
+      });
+
+      for (const panel of ['Project Falcon', 'What matters']) {
+        openMenu(panel);
+        expect(await screen.findByRole('menuitem', { name: 'Rename' })).toBeVisible();
+        expect(screen.queryByRole('menuitem', { name: 'Filter…' })).toBeNull();
+        await user.keyboard('{Escape}');
+      }
+    });
+
+    it('takes no row dropped on it, so its rows cannot be put in an order', async () => {
+      // The third way an item reaches a panel, after the picker and a direct
+      // request - and the one a Filter has a list for, which is why it needs a
+      // case of its own where a panel of text's is the absence of a list.
+      //
+      // Two rows, and the second one dragged: dropped at the top, that is a
+      // reorder on any other panel, which is exactly what a gathered list must
+      // not accept.
+      const bart = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
+      const domain = anItem('11111111-1111-7111-8111-000000000002', 'Renew the domain');
+      const { mutate } = showBoard({
+        panels: [aFilter('due', 'Due soon', [DUE_TODAY])],
+        items: [
+          { ...bart, dueDate: TODAY },
+          { ...domain, dueDate: TODAY },
+        ],
+        filings: [
+          { panelId: 'falcon', itemId: bart.id, position: 0 },
+          { panelId: 'falcon', itemId: domain.id, position: 1 },
+        ],
+      });
+      const due = await screen.findByRole('region', { name: 'Due soon' });
+      // On the list rather than on the panel, because that is where the target
+      // is: an event fired on the section never reaches a handler inside it.
+      const rows = within(due).getByRole('list');
+
+      const carrying = { types: [ITEM_BEING_DRAGGED], getData: () => domain.id, setData: vi.fn() };
+      fireEvent.dragOver(rows, { dataTransfer: carrying });
+      fireEvent.drop(rows, { dataTransfer: carrying });
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('offers a row the usual menu without taking it off a panel it was never filed on', async () => {
+      const bart = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
+      const { user } = showBoard({
+        panels: [aFilter('due', 'Due soon', [DUE_TODAY])],
+        items: [{ ...bart, dueDate: TODAY }],
+        filings: [{ panelId: 'falcon', itemId: bart.id, position: 0 }],
+      });
+      const due = await screen.findByRole('region', { name: 'Due soon' });
+
+      await user.click(within(due).getByRole('button', { name: 'Item actions' }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Move to…' })).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: 'Add to…' })).toBeVisible();
+      expect(screen.queryByRole('menuitem', { name: 'Remove from this panel' })).toBeNull();
     });
   });
 });

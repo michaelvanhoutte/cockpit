@@ -27,17 +27,42 @@ export const DEFAULT_CELL_SPAN = 12;
 export const panelNameSchema = workspaceNameSchema;
 
 /**
- * What a Panel is made of: the Items filed into it, or the text written in it
- * ("Put a panel of text on a dashboard, and write in it", issue 250);
- * architecture.md §4.4 — decided when the Panel is made and never after.
+ * What a Panel is made of: the Items filed into it, the text written in it
+ * ("Put a panel of text on a dashboard, and write in it", issue 250), or the
+ * Items a rule gathers onto it ("Add a Filter panel that shows every filed item
+ * due in a window", issue 463). Decided when the Panel is made and never after.
  */
-export const PANEL_KINDS = ['items', 'text'] as const;
+export const PANEL_KINDS = ['items', 'text', 'filter'] as const;
 export const panelKindSchema = z.enum(PANEL_KINDS);
 export type PanelKind = z.infer<typeof panelKindSchema>;
 
-/** Whether a Panel takes items filed onto it — every kind except one made of text (issue 250; architecture.md §4.4). */
+/**
+ * The two kinds the store's own `kind` column has ever held, and the only two
+ * it may hold.
+ *
+ * **A Filter is not one of them, and that is the whole shape of issue 463's
+ * store change.** Widening the column's CHECK would mean rebuilding `panels`,
+ * which filings, placements and an Item's proposed Panel all point at under
+ * RESTRICT — the wall "Take the width and the name off a layout, now that its
+ * size carries them" (issue 264) hit on `layouts`. So a Filter is a Panel whose
+ * `filter_conditions` column is set, its stored `kind` stays `items`, and the
+ * read is where the wire's kind becomes `filter`.
+ *
+ * It is also what makes rolling the release back survivable: an older release
+ * reads a Filter as an empty Panel of items rather than as a kind it has never
+ * heard of.
+ */
+export const STORED_PANEL_KINDS = ['items', 'text'] as const;
+export const storedPanelKindSchema = z.enum(STORED_PANEL_KINDS);
+export type StoredPanelKind = z.infer<typeof storedPanelKindSchema>;
+
+/**
+ * Whether a Panel takes Items filed onto it — a Panel of items alone. Nothing
+ * is filed onto a Panel of text (issue 250) and nothing onto a Filter, which
+ * gathers what is already filed elsewhere (issue 463).
+ */
 export function panelTakesItems(panel: { kind: PanelKind }): boolean {
-  return panel.kind !== 'text';
+  return panel.kind === 'items';
 }
 
 /**
@@ -53,6 +78,83 @@ export type PanelFormat = z.infer<typeof panelFormatSchema>;
 /** The most a Panel of text holds, matching a Description's own cap (architecture.md §4.4). Not trimmed, unlike a Description. */
 export const PANEL_TEXT_LIMIT = 60_000;
 export const panelTextSchema = z.string().max(PANEL_TEXT_LIMIT);
+
+/**
+ * The windows a Due date condition can ask for ("Add a Filter panel that shows
+ * every filed item due in a window", issue 463).
+ *
+ * **Named periods rather than a pair of dates.** A Filter is a standing view —
+ * *this week* has to mean the week you are in whenever you look at it, which a
+ * stored Monday cannot say. Each is resolved against the viewer's own local
+ * calendar at the moment the Panel is drawn, which is also why matching is
+ * worked out in the client (`apps/web/src/filters.ts`).
+ */
+export const DUE_WINDOWS = ['overdue', 'today', 'week', 'month', 'quarter', 'none'] as const;
+export const dueWindowSchema = z.enum(DUE_WINDOWS);
+export type DueWindow = z.infer<typeof dueWindowSchema>;
+
+/**
+ * One condition on a Filter: today, always a Due date.
+ *
+ * **`field` is written down though there is only one value for it**, so the
+ * Priority, Type and Panel conditions of the sibling issues become another
+ * member of a union here rather than a reshaping of every stored Filter.
+ *
+ * `orOverdue` widens the four periods to take in what is already past — ticked
+ * by default, because "due today" without it hides exactly the work that most
+ * needs looking at. It says nothing on *overdue* or *not set*, which are not
+ * periods, and is stored on them all the same so that ticking it, switching
+ * window and switching back does not silently lose the answer.
+ */
+export const dueConditionSchema = z.object({
+  field: z.literal('dueDate'),
+  window: dueWindowSchema,
+  orOverdue: z.boolean().default(true),
+});
+export type DueCondition = z.infer<typeof dueConditionSchema>;
+
+/** One row of a Filter's question. A union of one today, per `dueConditionSchema` above. */
+export const filterConditionSchema = dueConditionSchema;
+export type FilterCondition = z.infer<typeof filterConditionSchema>;
+
+/**
+ * What a Filter shows: every condition it has, all of which must hold. OR
+ * between them is an idea rather than a rule (`docs/ideas.md`).
+ *
+ * An object rather than a bare array, so a Filter can grow a setting of its own
+ * without every stored one having to be re-read as something else.
+ */
+export const panelFilterSchema = z.object({
+  conditions: z.array(filterConditionSchema).default([]),
+});
+export type PanelFilter = z.infer<typeof panelFilterSchema>;
+
+/** A Filter with nothing chosen yet — what a new one is, and what an unreadable one reads as. */
+export const NO_CONDITIONS: PanelFilter = { conditions: [] };
+
+/**
+ * What a stored Filter says, from the text the column holds.
+ *
+ * **Anything it cannot read is no conditions, never a failure.** The column is
+ * free-form text written by whichever release stored it, and a Workspace that
+ * will not open because one Panel holds a shape this release does not
+ * understand is a far worse answer than a Panel saying it has nothing chosen —
+ * which is a state the product already draws and already explains.
+ */
+export function panelFilterFrom(stored: string | null): PanelFilter | null {
+  if (stored === null) return null;
+  try {
+    const read = panelFilterSchema.safeParse(JSON.parse(stored));
+    return read.success ? read.data : NO_CONDITIONS;
+  } catch {
+    return NO_CONDITIONS;
+  }
+}
+
+/** What a Filter's conditions are stored as — the one writer, so nothing else has to know the format. */
+export function panelFilterAsStored(conditions: readonly FilterCondition[]): string {
+  return JSON.stringify({ conditions });
+}
 
 /**
  * A Panel, as it is read back. What a Panel *holds* is not here — a filing is
@@ -73,6 +175,13 @@ export const panelSchema = z.object({
   body: z.string().default(''),
   /** Whether that text is read rather than written in — a property of the Panel, not of the viewer (architecture.md §4.4). */
   readOnly: z.boolean().default(false),
+  /**
+   * What a Filter gathers, and null on every other Panel — the field the wire's
+   * `kind` of `filter` is derived from (`STORED_PANEL_KINDS` above). Permissive
+   * like `kind`: a copy kept by a browser from before this existed reads as a
+   * Panel that is not a Filter rather than as no Panel at all.
+   */
+  filter: panelFilterSchema.nullable().catch(null).default(null),
 });
 export type Panel = z.infer<typeof panelSchema>;
 

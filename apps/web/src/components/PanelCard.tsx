@@ -1,10 +1,16 @@
-import type { Item, Panel } from '@cockpit/shared';
+import { NO_CONDITIONS, type Item, type Panel } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
+import { saysWhatItShows } from '../filters';
 import { ItemList } from './ItemList';
 import { PanelAddItemForm } from './PanelAddItemForm';
 import { PanelText } from '../panels/PanelText';
 import { SurfaceMenu, SurfaceMenuButton, opensOnKey, opensOnActivate } from './Menu';
-import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThingsAre';
+import {
+  NOTHING_CHOSEN_TO_SHOW,
+  NOTHING_FILED_HERE,
+  NOTHING_FILED_HERE_YET_AND_HOW,
+  NOTHING_MATCHES_YET,
+} from '../whatThingsAre';
 
 /**
  * One panel on a dashboard: a titled box you can move, resize and rename in
@@ -60,6 +66,11 @@ export interface PanelCardProps {
   /** Draw a panel of text's words as what they mean, or as the characters typed. */
   onFormatChange: (format: 'plain' | 'rich') => void;
   /**
+   * Asked to open the question that says what this Filter shows. Never called
+   * for any other panel, which is not offered the entry.
+   */
+  onFilter: (openedFrom: HTMLElement | null) => void;
+  /**
    * That this is the panel in the air, so it can say so. The board knows
    * which one it is; the card is what draws it.
    */
@@ -105,6 +116,7 @@ export function PanelCard({
   onMoveToAnotherDashboard,
   onReadOnlyChange,
   onFormatChange,
+  onFilter,
   lifted,
   onPickUp,
   refusal,
@@ -113,6 +125,9 @@ export function PanelCard({
   // What this panel is made of, and so what its well holds, what its header
   // says beside its name and what its menu offers.
   const text = panel.kind === 'text';
+  const filter = panel.kind === 'filter' ? (panel.filter ?? NO_CONDITIONS) : null;
+  /** What the funnel reads back on hover, and the whole of what a Filter's state is. */
+  const shows = filter ? saysWhatItShows(filter.conditions) : null;
   // Read once, said the many ways it is asked below: whether the menu is
   // open to being asked at all, whether the header is a tab stop or a name
   // and a role, whether a plain click starts a drag or does nothing.
@@ -191,6 +206,10 @@ export function PanelCard({
                       },
                     ]
                   : []),
+                // Only on a Filter, for the reason the two entries above are
+                // only on a panel of text: a panel with nothing to gather has
+                // no conditions for this to be about.
+                ...(filter ? [{ label: 'Filter…', onSelect: onFilter }] : []),
                 {
                   label: 'Move to another dashboard',
                   unavailable: canMoveToAnotherDashboard
@@ -363,6 +382,33 @@ export function PanelCard({
                 <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep">
                   {panel.name}
                 </h3>
+                {/* That this panel gathers rather than holds, and what it
+                    gathers, in the one place somebody looking at the rows
+                    would ask: hovering reads the conditions back as a
+                    sentence, so the question does not have to be reopened to
+                    find out what it says.
+
+                    It stays at every width, where the count goes, for the
+                    reason the read-only word does: nothing else on the panel
+                    repeats it. */}
+                {shows && (
+                  <span
+                    role="img"
+                    aria-label={`Shows ${shows.toLowerCase()}`}
+                    title={shows}
+                    className="shrink-0 text-ink-faint"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                      <path
+                        d="M1 1.5h10L7.2 6.1v4.2L4.8 11V6.1z"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.2"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                )}
                 {/* How much is on it, said the way the Inbox says it - until the
                   panel is too narrow to say both, and then this is the one
                   that goes: the count is the one thing the list underneath
@@ -435,7 +481,10 @@ export function PanelCard({
           shrink or scroll to fit a shorter dashboard row", issue 432). Kept
           outside it instead, this row costs the well nothing and stays
           reachable without scrolling down a long list to find it. */}
-      {!text && <PanelAddItemForm workspaceId={workspaceId} panelId={panel.id} />}
+      {/* Neither on a panel of text nor on a Filter: an item made here would
+          be filed onto the panel it was made on, and a Filter is the one panel
+          nothing is filed onto. */}
+      {!text && !filter && <PanelAddItemForm workspaceId={workspaceId} panelId={panel.id} />}
 
       {/* No padding of its own: a row carries its own, so a list inside a panel
           reads exactly as it does in the Inbox.
@@ -467,7 +516,19 @@ export function PanelCard({
             items={items}
             openDashboardId={panel.dashboardId}
             panelId={panel.id}
-            emptyMessage={nothingFiledYet ? NOTHING_FILED_HERE_YET_AND_HOW : NOTHING_FILED_HERE}
+            // A Filter's rows are gathered rather than filed, so nothing is
+            // dropped here, nothing is reordered, and no row offers to be
+            // removed from a panel it was never put on.
+            gathered={filter !== null}
+            emptyMessage={
+              filter
+                ? filter.conditions.length === 0
+                  ? NOTHING_CHOSEN_TO_SHOW
+                  : NOTHING_MATCHES_YET
+                : nothingFiledYet
+                  ? NOTHING_FILED_HERE_YET_AND_HOW
+                  : NOTHING_FILED_HERE
+            }
           />
         )}
       </div>

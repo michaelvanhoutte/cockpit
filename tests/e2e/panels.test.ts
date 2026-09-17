@@ -9,6 +9,7 @@ import {
   dashboardTab,
   expect,
   expectNoSidewaysScroll,
+  fileOnto,
   itemRow,
   itemsOn,
   press,
@@ -89,7 +90,7 @@ async function addPanel(
   page: Page,
   name: string,
   isMobile: boolean,
-  holds: 'Items' | 'Text' = 'Items',
+  holds: 'Items' | 'Text' | 'Filter' = 'Items',
 ): Promise<void> {
   // In the dashboard's own bar, beside the control naming its layout ("Pick the
   // layout you are on, by name"), rather than in a strip at the foot of the
@@ -102,9 +103,9 @@ async function addPanel(
   // **The label rather than the control**, which is what a hand hits: the radio
   // itself is drawn for screen readers only, so the whole card is the target
   // and a click aimed at the input lands on the words inside it.
-  if (holds === 'Text') {
+  if (holds !== 'Items') {
     await press(
-      page.locator('label').filter({ has: page.getByRole('radio', { name: /Text/ }) }),
+      page.locator('label').filter({ has: page.getByRole('radio', { name: new RegExp(holds) }) }),
       isMobile,
     );
   }
@@ -956,6 +957,88 @@ test.describe('Panels', () => {
 
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
+    });
+  });
+});
+
+/**
+ * A Filter gathers Items it was never filed onto, which is the one thing about
+ * it no level below this can show for a person: what it draws comes from every
+ * Panel of the Workspace rather than from its own list, and the way to tell
+ * that it worked is that a row filed somewhere else appears on it.
+ *
+ * Which Items a window takes in is settled against a fixed day in
+ * apps/web/tests/unit/filters.test.ts, what the Panel does with them in
+ * apps/web/tests/unit/components/PanelBoard.test.tsx, and that the store
+ * refuses a filing onto one in
+ * apps/api/tests/integration/http/panel-items.test.ts. This is the walk.
+ */
+/** Today, where the browser running this is, which is what a due date is written as. */
+function today(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  return `${now.getFullYear()}-${month}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+test.describe('Panels', () => {
+  test.describe('a filter gathers what is filed elsewhere and due in the window it was given', () => {
+    test('shows an item filed on another panel once it is told to show what is due today', async ({
+      page,
+      isMobile,
+    }) => {
+      await ownDashboard(page, isMobile);
+      await addPanel(page, 'Work', isMobile);
+      await addPanel(page, 'Due soon', isMobile, 'Filter');
+
+      // Nothing chosen yet, so it says how to choose rather than drawing rows.
+      const filter = page.getByRole('region', { name: 'Due soon' });
+      await expect(filter.getByText('Choose what this shows from its menu.')).toBeVisible();
+
+      // An item due today, filed on the other panel - which is the whole point:
+      // it is on Work, and it is about to appear on a panel it was never filed
+      // onto.
+      const chase = uniqueTitle('Chase the invoice');
+      await capture(page, chase, isMobile);
+      await press(itemRow(page, chase).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
+      await page.getByRole('dialog').getByLabel('Due date').fill(today());
+      await press(page.getByRole('dialog').getByRole('button', { name: 'Save' }), isMobile);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await fileOnto(page, chase, 'Work', isMobile);
+      await expect.poll(() => itemsOn(page, 'Work')).toEqual([chase]);
+
+      // A Filter is never a place to file into, so it is not among the targets
+      // the filing above went through.
+      await press(itemRow(page, chase).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Add to…' }), isMobile);
+      const picker = page.getByRole('dialog');
+      await expect(picker.getByRole('button', { name: 'Work', exact: true })).toBeVisible();
+      await expect(picker.getByRole('button', { name: 'Due soon', exact: true })).toHaveCount(0);
+      await press(picker.getByRole('button', { name: 'Cancel' }), isMobile);
+      await expect(picker).toHaveCount(0);
+
+      const saved = answerTo(page, 'set_panel_filter');
+      await choosePanelAction(page, 'Due soon', 'Filter…', isMobile);
+      await press(page.getByRole('button', { name: '+ Add a condition' }), isMobile);
+      // Due today, or overdue, which is what a fresh condition already says.
+      await press(page.getByRole('dialog').getByRole('button', { name: 'Save' }), isMobile);
+      expect((await saved).status()).toBe(200);
+
+      await expect.poll(() => itemsOn(page, 'Due soon')).toEqual([chase]);
+      // Still filed where it was filed: a Filter draws what it gathers and
+      // takes nothing away from anywhere.
+      await expect.poll(() => itemsOn(page, 'Work')).toEqual([chase]);
+      // And the funnel says what it is gathering, without reopening the
+      // question.
+      await expect(filter.getByRole('img', { name: 'Shows due today or overdue' })).toBeVisible();
+      // The row is the usual one, minus the entry that would take it off a
+      // panel it was never filed onto.
+      await press(
+        filter.getByRole('listitem').getByRole('button', { name: 'Item actions' }),
+        isMobile,
+      );
+      await expect(page.getByRole('menuitem', { name: 'Move to…' })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Remove from this panel' })).toHaveCount(0);
     });
   });
 });

@@ -1,11 +1,22 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { GRID_COLUMNS, MIN_ROW_HEIGHT, uuidv7 } from '@cockpit/shared';
-import type { Dashboard, Filing, Item, Layout, LayoutRow, Panel, ScreenSize } from '@cockpit/shared';
+import { GRID_COLUMNS, MIN_ROW_HEIGHT, NO_CONDITIONS, uuidv7 } from '@cockpit/shared';
+import type {
+  Dashboard,
+  Filing,
+  FilterCondition,
+  Item,
+  Layout,
+  LayoutRow,
+  Panel,
+  ScreenSize,
+} from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
-import { itemsOnPanel } from '../filing';
+import { filingsThatFile, itemsOnPanel } from '../filing';
+import { dayOf, itemsMatchingFilter } from '../filters';
+import { FilterQuestion } from './FilterQuestion';
 import { browserStore } from '../lastVisited';
 import { useChosenLayout } from '../panels/chosenLayout';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
@@ -122,6 +133,8 @@ export function PanelBoard({
   const [deleting, setDeleting] = useState<string | null>(null);
   /** The panel a "Move to another dashboard" picker is open for. */
   const [movingPanel, setMovingPanel] = useState<string | null>(null);
+  /** Which Filter's conditions are being edited, if any. */
+  const [filtering, setFiltering] = useState<string | null>(null);
   /**
    * Every dashboard the panel could move to: the workspace's, minus the one
    * it is already on - in tab order, which is the order `dashboards` already
@@ -212,8 +225,20 @@ export function PanelBoard({
    * from the next snapshot, and a question about one that is no longer there
    * closes itself instead of asking about a name nothing holds.
    */
+  /**
+   * The day it is where this person is looking, read once for the whole board
+   * so two Filters drawn side by side cannot land either side of midnight.
+   *
+   * Read at render rather than held in state: nothing here redraws on its own
+   * at midnight, and a Filter showing yesterday's *today* until the next change
+   * is a page that has been open all night rather than a bug to schedule a
+   * timer for.
+   */
+  const today = dayOf(new Date());
+
   const beingDeleted = panels.find((panel) => panel.id === deleting);
   const beingMoved = panels.find((panel) => panel.id === movingPanel);
+  const beingFiltered = panels.find((panel) => panel.id === filtering);
 
   const refusal =
     command.error instanceof CommandRefused
@@ -230,6 +255,7 @@ export function PanelBoard({
       | 'save_layout'
       | 'set_panel_read_only'
       | 'set_panel_format'
+      | 'set_panel_filter'
       | 'move_panel_to_dashboard',
     id?: string,
   ) => {
@@ -704,6 +730,29 @@ export function PanelBoard({
     });
   };
 
+  /**
+   * What a Filter shows, saved whole ("Add a Filter panel that shows every
+   * filed item due in a window", issue 463).
+   *
+   * Closed only once it lands, the way the rename is: a refusal leaves the
+   * question up with the rows still in it rather than losing what was chosen.
+   */
+  const setFilter = (panelId: string, conditions: FilterCondition[]) => {
+    command.mutate(
+      {
+        name: 'set_panel_filter',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          panelId,
+          conditions,
+        },
+      },
+      { onSuccess: () => setFiltering(null) },
+    );
+  };
+
   const deletePanel = (panelId: string) => {
     command.mutate(
       {
@@ -879,8 +928,22 @@ export function PanelBoard({
                         <PanelCard
                           panel={panel}
                           workspaceId={workspaceId}
-                          items={itemsOnPanel(items, filings, panel.id)}
-                          nothingFiledYet={filings.length === 0}
+                          items={
+                            panel.kind === 'filter'
+                              ? itemsMatchingFilter(
+                                  items,
+                                  filings,
+                                  panels,
+                                  panel.filter ?? NO_CONDITIONS,
+                                  today,
+                                )
+                              : itemsOnPanel(items, filings, panel.id)
+                          }
+                          // What is filed anywhere, which a filing onto a
+                          // Filter is not (`filingsThatFile`): a workspace
+                          // whose only filing is one of those has still never
+                          // filed anything, and the lesson has to stay up.
+                          nothingFiledYet={filingsThatFile(filings, panels).length === 0}
                           renaming={renaming?.id === panel.id ? renaming.name : null}
                           onRenamingChange={(name) => setRenaming({ id: panel.id, name })}
                           onStartRenaming={() => {
@@ -911,6 +974,14 @@ export function PanelBoard({
                           }}
                           onReadOnlyChange={(readOnly) => setReadOnly(panel.id, readOnly)}
                           onFormatChange={(format) => setFormat(panel.id, format)}
+                          onFilter={(openedFrom) => {
+                            command.reset();
+                            setRenaming(null);
+                            setDeleting(null);
+                            setMovingPanel(null);
+                            askedFrom.current = openedFrom;
+                            setFiltering(panel.id);
+                          }}
                           lifted={dragging?.id === panel.id}
                           onPickUp={(pointerId) => pickUp(panel.id, pointerId)}
                           refusal={
@@ -918,7 +989,13 @@ export function PanelBoard({
                             refusalFor('delete_panel', panel.id) ??
                             refusalFor('set_panel_read_only', panel.id) ??
                             refusalFor('set_panel_format', panel.id) ??
-                            refusalFor('move_panel_to_dashboard', panel.id)
+                            refusalFor('move_panel_to_dashboard', panel.id) ??
+                            // Only where the question is shut: while it is
+                            // open it says its own, which is where somebody
+                            // looking at it would read it.
+                            (filtering === panel.id
+                              ? null
+                              : refusalFor('set_panel_filter', panel.id))
                           }
                           busy={command.isPending}
                         />
@@ -941,6 +1018,22 @@ export function PanelBoard({
             onFitToContents={fitRowToContents}
           />
         </div>
+      )}
+
+      {beingFiltered && (
+        <FilterQuestion
+          open
+          panelName={beingFiltered.name}
+          conditions={(beingFiltered.filter ?? NO_CONDITIONS).conditions}
+          onSave={(conditions) => setFilter(beingFiltered.id, conditions)}
+          onCancel={() => {
+            setFiltering(null);
+            command.reset();
+          }}
+          refusal={refusalFor('set_panel_filter', beingFiltered.id)}
+          busy={command.isPending}
+          returnFocusTo={askedFrom.current}
+        />
       )}
 
       {beingDeleted && (

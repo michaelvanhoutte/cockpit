@@ -1107,6 +1107,7 @@ const routes = app
   .openapi(commandRoute('set_panel_text'), async (c) => c.json(await change(c, 'set_panel_text', c.req.valid('json')), 200))
   .openapi(commandRoute('set_panel_read_only'), async (c) => c.json(await change(c, 'set_panel_read_only', c.req.valid('json')), 200))
   .openapi(commandRoute('set_panel_format'), async (c) => c.json(await change(c, 'set_panel_format', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_panel_filter'), async (c) => c.json(await change(c, 'set_panel_filter', c.req.valid('json')), 200))
   .openapi(commandRoute('save_layout', { conflict: 'The dashboard already has a layout at that screen size' }), async (c) => c.json(await change(c, 'save_layout', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_layout'), async (c) => c.json(await change(c, 'delete_layout', c.req.valid('json')), 200))
   .openapi(

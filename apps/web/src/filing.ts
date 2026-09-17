@@ -1,4 +1,4 @@
-import type { Filing, Item } from '@cockpit/shared';
+import type { Filing, Item, Panel } from '@cockpit/shared';
 
 /**
  * What a panel holds and what the Inbox holds, derived from the one snapshot
@@ -83,6 +83,32 @@ export function itemsInTheInbox(items: readonly Item[], filings: readonly Filing
 export function itemsThatAreFiled(items: readonly Item[], filings: readonly Filing[]): Item[] {
   const filed = new Set(filings.map((filing) => filing.itemId));
   return items.filter((item) => stillOpen(item) && filed.has(item.id));
+}
+
+/**
+ * The filings that file: every one onto a panel that takes items filed onto it.
+ *
+ * **A filing onto a Filter is no filing at all** ("Add a Filter panel that shows
+ * every filed item due in a window", issue 463). Nothing offers one and the
+ * server refuses one, so the only way to make one is against a release that
+ * predates Filters - which reads a Filter as an empty panel of items and
+ * accepts it. Counting it would take the item out of the Inbox and hand it to a
+ * panel that draws what it gathers rather than what is filed on it, leaving the
+ * item on no screen at all.
+ *
+ * A filing whose panel the snapshot does not carry still files, which is the
+ * behaviour that was already there: the Inbox is the absence of a filing, and a
+ * missing panel is not a reason to decide the filing never happened.
+ */
+export function filingsThatFile(
+  filings: readonly Filing[],
+  panels: readonly Panel[],
+): Filing[] {
+  const gathering = new Set(
+    panels.filter((panel) => panel.kind === 'filter').map((panel) => panel.id),
+  );
+  if (gathering.size === 0) return filings.slice();
+  return filings.filter((filing) => !gathering.has(filing.panelId));
 }
 
 /**

@@ -66,7 +66,21 @@ export const WRITE_HERE = 'Write here…';
 export const WHAT_A_PANEL_HOLDS = [
   { kind: 'items' as const, label: 'Items', says: 'Holds whatever you file into it.' },
   { kind: 'text' as const, label: 'Text', says: 'A box you write in.' },
+  { kind: 'filter' as const, label: 'Filter', says: 'Gathers what matches a rule.' },
 ];
+
+/**
+ * What a Filter says before anybody has told it what to show ("Add a Filter
+ * panel that shows every filed item due in a window", issue 463).
+ *
+ * **It names the way in rather than only reporting.** A Filter with no
+ * conditions gathers nothing, so an empty box saying so would be a dead end -
+ * the same reason an empty panel of items says how one arrives.
+ */
+export const NOTHING_CHOSEN_TO_SHOW = 'Choose what this shows from its menu.';
+
+/** What a Filter that has conditions says while nothing filed anywhere meets them. */
+export const NOTHING_MATCHES_YET = 'Nothing matches this yet.';
 
 /** What that says instead, while nobody has filed anything in this workspace. */
 export const NOTHING_FILED_HERE_YET_AND_HOW =

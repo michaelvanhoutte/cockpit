@@ -98,6 +98,29 @@ async function aPanelOfText(name = 'What matters'): Promise<{ dashboardId: strin
   return { dashboardId, panelId };
 }
 
+/** A panel of items on a dashboard of its own, for the cases that need one beside a filter. */
+async function aPanelOfItems(name = 'Reading list'): Promise<{ dashboardId: string; panelId: string }> {
+  const dashboardId = await aDashboard();
+  const panelId = nextId();
+  expect((await addPanel(dashboardId, name, { panelId })).status).toBe(200);
+  return { dashboardId, panelId };
+}
+
+/** A panel that gathers what it shows, on a dashboard of its own, with nothing chosen yet. */
+async function aFilter(name = 'Due soon'): Promise<{ dashboardId: string; panelId: string }> {
+  const dashboardId = await aDashboard();
+  const panelId = nextId();
+  expect((await addPanel(dashboardId, `${name} ${seq}`, { panelId, kind: 'filter' })).status).toBe(200);
+  return { dashboardId, panelId };
+}
+
+/** The one condition there is today: due today, or already past. */
+const DUE_TODAY = { field: 'dueDate', window: 'today', orOverdue: true };
+
+function setFilter(panelId: string, conditions: unknown[]) {
+  return send('set_panel_filter', { workspaceId: WORKSPACE_ID, panelId, conditions });
+}
+
 /** One panel as the snapshot hands it back. */
 async function panelNow(panelId: string): Promise<Panel> {
   const found = (await snapshot()).panels.find((panel) => panel.id === panelId);
@@ -919,7 +942,7 @@ describe('Panels', () => {
    * arrangement used to fail at seventeen panels. Forty rather than seventeen,
    * so the case goes on being about the limit if the batch size moves.
    */
-  describe('a panel holds either the items filed into it or the text written in it', () => {
+  describe('a panel holds the items filed into it, the text written in it, or what a rule gathers', () => {
     /**
      * Decided when the panel is made and never after, so this is the only place
      * it is read. The first row is what a client that has never heard of kinds
@@ -930,6 +953,7 @@ describe('Panels', () => {
       { situation: 'nothing said about what it holds', kind: undefined, holds: 'items' },
       { situation: 'asked for a panel of items', kind: 'items', holds: 'items' },
       { situation: 'asked for a panel of text', kind: 'text', holds: 'text' },
+      { situation: 'asked for a panel that gathers what it shows', kind: 'filter', holds: 'filter' },
     ])('$situation', async ({ kind, holds }) => {
       const dashboardId = await aDashboard();
       const panelId = nextId();
@@ -952,6 +976,90 @@ describe('Panels', () => {
       );
 
       expect(await panelsOn(dashboardId)).toHaveLength(0);
+    });
+
+    it('keeps a panel’s kind through every change there is a command for', async () => {
+      // There is no command that changes a kind, so what this holds is that the
+      // ones that exist do not change it by accident: the stored kind of a
+      // filter is `items` (STORED_PANEL_KINDS), and it would be a panel of items
+      // from here on if any of these wrote it back.
+      const { panelId } = await aFilter();
+
+      expect((await send('rename_panel', { workspaceId: WORKSPACE_ID, panelId, name: aName() })).status).toBe(200);
+      expect((await setFilter(panelId, [DUE_TODAY])).status).toBe(200);
+
+      expect(await panelNow(panelId)).toMatchObject({ kind: 'filter' });
+    });
+  });
+
+  describe('a panel that gathers what it shows says so until somebody chooses what that is', () => {
+    it('arrives with nothing chosen, and keeps what was chosen for it', async () => {
+      const { panelId } = await aFilter();
+
+      expect(await panelNow(panelId)).toMatchObject({ kind: 'filter', filter: { conditions: [] } });
+
+      expect((await setFilter(panelId, [DUE_TODAY])).status).toBe(200);
+      expect((await panelNow(panelId)).filter).toEqual({ conditions: [DUE_TODAY] });
+
+      // Saved whole, so taking the last one out puts it back to saying nothing
+      // has been chosen rather than leaving the old answer standing.
+      expect((await setFilter(panelId, [])).status).toBe(200);
+      expect((await panelNow(panelId)).filter).toEqual({ conditions: [] });
+    });
+
+    it('shows nothing chosen where what is stored cannot be read, and the workspace still opens', async () => {
+      // The only way to store one is a release this one does not have; written
+      // straight into the store, because no request can drive it here.
+      const { panelId } = await aFilter();
+      await inTheStore((sql) =>
+        sql.exec('UPDATE panels SET filter_conditions = ? WHERE id = ?', '{not json', panelId),
+      );
+
+      expect(await panelNow(panelId)).toMatchObject({ kind: 'filter', filter: { conditions: [] } });
+    });
+
+    it.each([
+      {
+        situation: 'a panel of items, which gathers nothing',
+        panel: async () => (await aPanelOfItems()).panelId,
+        conditions: [DUE_TODAY],
+        status: 400,
+      },
+      {
+        situation: 'a panel of text, which gathers nothing either',
+        panel: async () => (await aPanelOfText()).panelId,
+        conditions: [DUE_TODAY],
+        status: 400,
+      },
+      {
+        situation: 'a window nothing knows about',
+        panel: async () => (await aFilter()).panelId,
+        conditions: [{ field: 'dueDate', window: 'fortnight', orOverdue: true }],
+        status: 400,
+      },
+      {
+        situation: 'a condition about nothing the product has',
+        panel: async () => (await aFilter()).panelId,
+        conditions: [{ field: 'weather', window: 'today', orOverdue: true }],
+        status: 400,
+      },
+    ])('refuses what it shows being set against $situation', async ({ panel, conditions, status }) => {
+      const panelId = await panel();
+
+      expect((await setFilter(panelId, conditions)).status).toBe(status);
+
+      // And nothing of it is stored: a refusal that half-landed would leave a
+      // panel gathering something nobody asked for.
+      expect((await panelNow(panelId)).filter).toEqual(
+        (await panelNow(panelId)).kind === 'filter' ? { conditions: [] } : null,
+      );
+    });
+
+    it('refuses what a panel that has been deleted shows', async () => {
+      const { panelId } = await aFilter();
+      expect((await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId })).status).toBe(200);
+
+      expect((await setFilter(panelId, [DUE_TODAY])).status).toBe(404);
     });
   });
 
