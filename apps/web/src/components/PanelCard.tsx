@@ -57,6 +57,8 @@ export interface PanelCardProps {
   items: readonly Item[];
   /** The account's live Types - what a Filter's funnel reads a Type condition's values back against. */
   itemTypes: readonly ItemType[];
+  /** The workspace's own Panels - what a Filter's funnel reads a Panel condition's values back against. */
+  panelsInWorkspace: readonly Panel[];
   /** True while this panel is the one being renamed, which happens in its own header. */
   renaming: string | null;
   onRenamingChange: (name: string) => void;
@@ -115,6 +117,7 @@ export function PanelCard({
   workspaceId,
   items,
   itemTypes,
+  panelsInWorkspace,
   nothingFiledYet,
   renaming,
   onRenamingChange,
@@ -137,7 +140,7 @@ export function PanelCard({
   const text = panelHoldsText(panel);
   const filter = panelGathers(panel) ? (panel.filter ?? NO_CONDITIONS) : null;
   /** What the funnel reads back on hover, and the whole of what a Filter's state is. */
-  const shows = filter ? saysWhatItShows(filter.conditions, itemTypes) : null;
+  const shows = filter ? saysWhatItShows(filter.conditions, itemTypes, panelsInWorkspace) : null;
   // Read once, said the many ways it is asked below: whether the menu is
   // open to being asked at all, whether the header is a tab stop or a name
   // and a role, whether a plain click starts a drag or does nothing.

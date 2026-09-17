@@ -119,10 +119,8 @@ export type DueWindow = z.infer<typeof dueWindowSchema>;
  * One condition on a Filter, on its Due date.
  *
  * **`field` is written down though `dueConditionSchema` alone would not need
- * it**, so the Priority and Type conditions below are another member of a
- * union here rather than a reshaping of every stored Filter — and a Panel
- * condition ("Filter a Filter panel by panel, and name the Filters a panel's
- * deletion affects", issue 465) will be a fourth, the same way.
+ * it**, so the Priority, Type and Panel conditions below are other members of
+ * a union here rather than a reshaping of every stored Filter.
  *
  * `orOverdue` widens the four periods to take in what is already past — ticked
  * by default, because "due today" without it hides exactly the work that most
@@ -183,14 +181,40 @@ export const typeConditionSchema = z.object({
 export type TypeCondition = z.infer<typeof typeConditionSchema>;
 
 /**
- * One row of a Filter's question: a Due date, a Priority or a Type condition
- * today, a Panel condition to come ("Filter a Filter panel by panel, and name
- * the Filters a panel's deletion affects", issue 465).
+ * One condition on a Filter, on which Panel an Item is filed on ("Filter a
+ * Filter panel by panel, and name the Filters a panel's deletion affects",
+ * issue 465). Goals are Panels you file into, so this is what lets a Filter
+ * ask "on Q3 goals" the way it already asks "of this Type".
+ *
+ * **Panel ids, never Panels**, for the reason a Type condition holds Type ids:
+ * a stored condition survives a Panel being renamed untouched. A value naming
+ * a Panel since deleted is ignored rather than refused, the same choice and
+ * the same reason `typeConditionSchema` makes for a Type — and a Panel left
+ * with none live matches nothing rather than widening to every Panel, which is
+ * the one thing a deleted choice must never silently become.
+ *
+ * **Only an items Panel is ever offered as a value** (`FilterQuestion.tsx`) —
+ * never a Filter, which cannot look at itself or another Filter, and never a
+ * Panel of text, which nothing is ever filed onto. Matching does not have to
+ * enforce that itself: a Panel's kind is decided when it is made and never
+ * after (`panelKindSchema`), so an id once offered stays an items Panel until
+ * it is deleted.
+ */
+export const panelConditionSchema = z.object({
+  field: z.literal('panel'),
+  values: z.array(z.string().min(1)).max(CONDITION_VALUES_LIMIT),
+});
+export type PanelCondition = z.infer<typeof panelConditionSchema>;
+
+/**
+ * One row of a Filter's question: a Due date, a Priority, a Type or a Panel
+ * condition.
  */
 export const filterConditionSchema = z.discriminatedUnion('field', [
   dueConditionSchema,
   priorityConditionSchema,
   typeConditionSchema,
+  panelConditionSchema,
 ]);
 export type FilterCondition = z.infer<typeof filterConditionSchema>;
 
