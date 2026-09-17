@@ -3,17 +3,22 @@ import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   DUE_WINDOWS,
+  panelTakesItems,
   prioritySchema,
   type DueCondition,
   type DueWindow,
   type FilterCondition,
   type ItemType,
+  type Panel,
   type Priority,
 } from '@cockpit/shared';
 import { isAPeriod } from '../filters';
 import { MenuContent, menuItemClass } from './Menu';
 import { NO_TYPES } from '../itemTypes';
 import { PRIORITY_LABELS } from '../priority';
+
+/** What a Panel condition's value picker says when the Workspace has no items Panel to offer at all. */
+const NO_PANELS_TO_CHOOSE = 'No panels to choose from yet.';
 
 /**
  * What a Filter shows, asked in a form of its own ("Add a Filter panel that
@@ -22,9 +27,9 @@ import { PRIORITY_LABELS } from '../priority';
  *
  * **One row per condition, and all of them have to hold.** The rows are a list
  * rather than a sentence with clauses because that is what the question grows
- * into - a Panel condition is one more row in a sibling issue ("Filter a
- * Filter panel by panel, and name the Filters a panel's deletion affects",
- * issue 465), and each is another row here rather than another form.
+ * into - Due date, Priority, Type and, since "Filter a Filter panel by panel,
+ * and name the Filters a panel's deletion affects" (issue 465), Panel, each
+ * its own row rather than another form.
  *
  * **Saved whole, including saved empty.** Taking the last row out and saving is
  * a real answer: the Filter goes back to saying it has nothing chosen, which is
@@ -39,6 +44,7 @@ export function FilterQuestion({
   panelName,
   conditions,
   itemTypes,
+  panels,
   open,
   onSave,
   onCancel,
@@ -51,6 +57,14 @@ export function FilterQuestion({
   conditions: readonly FilterCondition[];
   /** The account's live Types, what a Type condition offers to choose from. */
   itemTypes: readonly ItemType[];
+  /**
+   * The Workspace's own Panels, what a Panel condition offers to choose from -
+   * filtered here to the ones an Item can be filed onto (`panelTakesItems`),
+   * so a Filter or a Panel of text never reaches the checkboxes: nothing is
+   * ever filed onto either, and a Filter naming itself or another Filter
+   * could never match anything (`panel.ts`, `panelConditionSchema`).
+   */
+  panels: readonly Panel[];
   open: boolean;
   onSave: (conditions: FilterCondition[]) => void;
   onCancel: () => void;
@@ -120,6 +134,7 @@ export function FilterQuestion({
                       at={at}
                       row={row}
                       itemTypes={itemTypes}
+                      panels={panels}
                       onChange={(next) => change(at, next)}
                       onRemove={() => setRows(rows.filter((_, index) => index !== at))}
                     />
@@ -179,20 +194,22 @@ export function FilterQuestion({
 }
 
 /** The fields a condition can be about, in the order *+ Add a condition* offers them. */
-const FIELD_ORDER: readonly FilterCondition['field'][] = ['dueDate', 'priority', 'type'];
+const FIELD_ORDER: readonly FilterCondition['field'][] = ['dueDate', 'priority', 'type', 'panel'];
 
 /** What each field is called on the add menu and beside its row. */
 const FIELD_LABELS: Record<FilterCondition['field'], string> = {
   dueDate: 'Due date',
   priority: 'Priority',
   type: 'Type',
+  panel: 'Panel',
 };
 
 /** A fresh row for a field just added - nothing chosen yet, except Due date, which has always defaulted to *today*. */
 function defaultConditionFor(field: FilterCondition['field']): FilterCondition {
   if (field === 'dueDate') return { field: 'dueDate', window: 'today', orOverdue: true };
   if (field === 'priority') return { field: 'priority', values: [] };
-  return { field: 'type', values: [] };
+  if (field === 'type') return { field: 'type', values: [] };
+  return { field: 'panel', values: [] };
 }
 
 /** One row, dispatched to the control its field takes. */
@@ -200,12 +217,14 @@ function ConditionRow({
   at,
   row,
   itemTypes,
+  panels,
   onChange,
   onRemove,
 }: {
   at: number;
   row: FilterCondition;
   itemTypes: readonly ItemType[];
+  panels: readonly Panel[];
   onChange: (row: FilterCondition) => void;
   onRemove: () => void;
 }) {
@@ -229,6 +248,21 @@ function ConditionRow({
         values={row.values}
         options={itemTypes.map((type) => ({ id: type.id, label: type.name }))}
         empty={NO_TYPES}
+        onChange={(values) => onChange({ ...row, values })}
+        onRemove={onRemove}
+      />
+    );
+  }
+  if (row.field === 'panel') {
+    return (
+      <ValuesCondition
+        at={at}
+        label={FIELD_LABELS.panel}
+        values={row.values}
+        options={panels
+          .filter(panelTakesItems)
+          .map((panel) => ({ id: panel.id, label: panel.name }))}
+        empty={NO_PANELS_TO_CHOOSE}
         onChange={(values) => onChange({ ...row, values })}
         onRemove={onRemove}
       />
@@ -309,14 +343,18 @@ function DueConditionRow({
 }
 
 /**
- * A Priority or a Type row: a checkbox per value on offer, any of which the
- * condition matches ("Filter a Filter panel by priority and type", issue 464).
+ * A Priority, a Type or a Panel row: a checkbox per value on offer, any of
+ * which the condition matches ("Filter a Filter panel by priority and type",
+ * issue 464; "Filter a Filter panel by panel, and name the Filters a panel's
+ * deletion affects", issue 465).
  *
- * **One shape for both.** Priority's options are the three levels the schema
- * carries; a Type's are the account's live Types, and a value naming one since
- * deleted stops being offered here the moment it is - which is also why
- * nothing here needs to know about a deleted Type at all: `itemTypes` already
- * carries only the live ones, so a value not among them simply draws no
+ * **One shape for all three.** Priority's options are the three levels the
+ * schema carries; a Type's are the account's live Types; a Panel's are the
+ * Workspace's own items Panels - never a Filter or a Panel of text, nothing
+ * being filed onto either. A value naming a Type or a Panel since deleted
+ * stops being offered here the moment it is - which is also why nothing here
+ * needs to know about a deleted one at all: `itemTypes` and `panels` already
+ * carry only the live ones, so a value not among them simply draws no
  * checkbox, matching what it now means (`filters.ts`).
  *
  * **Checkboxes, not a `select`.** The question is which of several values

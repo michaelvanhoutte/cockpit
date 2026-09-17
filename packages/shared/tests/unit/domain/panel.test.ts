@@ -19,6 +19,7 @@ import {
 const DUE_TODAY: FilterCondition = { field: 'dueDate', window: 'today', orOverdue: true };
 const PRIORITY_HIGH: FilterCondition = { field: 'priority', values: ['high'] };
 const TYPE_OKR: FilterCondition = { field: 'type', values: ['type-okr'] };
+const PANEL_Q3: FilterCondition = { field: 'panel', values: ['panel-q3'] };
 
 describe('Panels', () => {
   describe('a panel that gathers what it shows says so however its conditions were stored', () => {
@@ -28,13 +29,15 @@ describe('Panels', () => {
       });
     });
 
-    it('reads back a Priority and a Type condition beside a Due date one', () => {
-      // The three fields together, each carrying its own value shape - a
+    it('reads back a Priority, a Type and a Panel condition beside a Due date one', () => {
+      // The four fields together, each carrying its own value shape - a
       // discriminated union rather than a reshaping of every stored Filter
-      // ("Filter a Filter panel by priority and type", issue 464).
+      // ("Filter a Filter panel by priority and type", issue 464; "Filter a
+      // Filter panel by panel, and name the Filters a panel's deletion
+      // affects", issue 465).
       expect(
-        panelFilterFrom(panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH, TYPE_OKR])),
-      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH, TYPE_OKR] });
+        panelFilterFrom(panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH, TYPE_OKR, PANEL_Q3])),
+      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH, TYPE_OKR, PANEL_Q3] });
     });
 
     it('is not a filter at all where nothing was stored', () => {

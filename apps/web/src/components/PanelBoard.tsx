@@ -23,7 +23,7 @@ import type {
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { filingsThatFile, itemsOnPanel } from '../filing';
-import { dayOf, itemsMatchingFilter } from '../filters';
+import { dayOf, filtersUsingPanel, itemsMatchingFilter } from '../filters';
 import { FilterQuestion } from './FilterQuestion';
 import { browserStore } from '../lastVisited';
 import { useChosenLayout } from '../panels/chosenLayout';
@@ -982,6 +982,7 @@ export function PanelBoard({
                               : itemsOnPanel(items, filings, panel.id)
                           }
                           itemTypes={itemTypes}
+                          panelsInWorkspace={panelsInWorkspace}
                           // What is filed anywhere, which a filing onto a
                           // Filter is not (`filingsThatFile`): a workspace
                           // whose only filing is one of those has still never
@@ -1077,6 +1078,7 @@ export function PanelBoard({
           panelName={beingFiltered.name}
           conditions={(beingFiltered.filter ?? NO_CONDITIONS).conditions}
           itemTypes={itemTypes}
+          panels={panelsInWorkspace}
           onSave={(conditions) => setFilter(beingFiltered.id, conditions)}
           onCancel={() => {
             setFiltering(null);
@@ -1091,15 +1093,12 @@ export function PanelBoard({
       {beingDeleted && (
         <DeleteQuestion
           open
-          // What goes with it, which for a panel of text is the text: the
-          // layouts are an arrangement anybody can make again, and the words
-          // are not (the Deleting rule - "naming what is going and what goes
-          // with it").
-          question={`Delete ${beingDeleted.name}? ${
-            panelHoldsText(beingDeleted)
-              ? 'The text in it goes too, and it goes from every layout of this dashboard.'
-              : 'It goes from every layout of this dashboard.'
-          }`}
+          // What goes with it, which for a panel of text is the text and for
+          // every panel is any live Filter that would be left showing less
+          // (the Deleting rule - "naming what is going and what goes with
+          // it"; "Filter a Filter panel by panel, and name the Filters a
+          // panel's deletion affects", issue 465).
+          question={deletePanelQuestion(beingDeleted, panelsInWorkspace)}
           confirmLabel={`Yes, delete ${beingDeleted.name}`}
           canConfirm={!command.isPending}
           refusal={refusalFor('delete_panel', beingDeleted.id)}
@@ -1130,6 +1129,40 @@ export function PanelBoard({
 
     </div>
   );
+}
+
+/** Several names, joined the way a sentence lists things that all apply rather than choose between them - one alone, two joined by *and*, three or more comma-led into it. */
+function andList(names: readonly string[]): string {
+  if (names.length === 1) return names[0]!;
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * What deleting this Panel takes with it, said before it happens - the text in
+ * it, for a panel of text (issue 116's own rule, "naming what is going and
+ * what goes with it"), and every live Filter of the Workspace that looks at
+ * it ("Filter a Filter panel by panel, and name the Filters a panel's
+ * deletion affects", issue 465).
+ *
+ * **Named rather than counted**, unlike `ManageTypes.tsx`'s own delete
+ * question: a Filter is a handful at most, kept on a dashboard somebody
+ * built, and "2 filters" gives nobody enough to decide whether deleting is
+ * fine. **Which will be left showing nothing is said explicitly** - a Filter
+ * still holding another live Panel goes on working, and one left with none is
+ * about to go quiet, which is the one distinction that matters here.
+ */
+function deletePanelQuestion(panel: Panel, panelsInWorkspace: readonly Panel[]): string {
+  const goesWith = panelHoldsText(panel)
+    ? 'The text in it goes too, and it goes from every layout of this dashboard.'
+    : 'It goes from every layout of this dashboard.';
+  const affected = filtersUsingPanel(panel.id, panelsInWorkspace);
+  if (affected.length === 0) return `Delete ${panel.name}? ${goesWith}`;
+  const uses = affected.length === 1 ? 'uses' : 'use';
+  const names = andList(affected.map((one) => one.filter.name));
+  const emptied = affected.filter((one) => one.leftEmpty).map((one) => one.filter.name);
+  const emptyClause =
+    emptied.length > 0 ? ` ${andList(emptied)} will then show nothing.` : '';
+  return `Delete ${panel.name}? ${goesWith} ${names} ${uses} it as a Panel condition.${emptyClause}`;
 }
 
 /**
