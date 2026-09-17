@@ -19,6 +19,7 @@ import {
   NOTHING_CHOSEN_TO_SHOW,
   NOTHING_FILED_HERE,
   NOTHING_FILED_HERE_YET_AND_HOW,
+  NOTHING_MATCHES_YET,
   NOTHING_WRITTEN_HERE,
 } from '../../../src/whatThingsAre';
 import { CommandRefused } from '../../../src/api/client';
@@ -191,6 +192,13 @@ function anItem(id: string, title: string): Item {
 
 function showBoard({
   panels = [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read')],
+  /**
+   * Every panel of the workspace, which the page passes unfiltered where
+   * `panels` above is this dashboard's alone. This dashboard's, unless a case is
+   * about a Panel on another one - which only a Filter can be, filings being
+   * the one thing read workspace-wide.
+   */
+  panelsInWorkspace = panels,
   // Just this one dashboard unless a case wants another to move to - most
   // cases here are about drag-and-drop mechanics, not about moving a panel
   // off the dashboard.
@@ -215,6 +223,7 @@ function showBoard({
   pending = false,
 }: {
   panels?: Panel[];
+  panelsInWorkspace?: Panel[];
   dashboards?: Dashboard[];
   layouts?: Layout[];
   screenSizes?: ScreenSize[];
@@ -248,6 +257,7 @@ function showBoard({
         dashboard={DASHBOARD}
         dashboards={dashboards}
         panels={drawing}
+        panelsInWorkspace={panelsInWorkspace}
         layouts={layouts}
         screenSizes={screenSizes}
         items={items}
@@ -1887,6 +1897,28 @@ describe('Onboarding', () => {
       fireEvent.drop(rows, { dataTransfer: carrying });
 
       expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('gathers nothing from a filing onto a filter on another dashboard', async () => {
+      // A board is handed this dashboard's panels to draw and the workspace's
+      // to answer filings with, because whether a filing files is a fact about
+      // the Panel it names: a Filter on the next dashboard along still gathers
+      // rather than holds. Without the second list this row would be drawn
+      // here while the Inbox - which always reads workspace-wide - went on
+      // holding it, the same Item in two places at once.
+      const bart = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
+      const here = aFilter('due', 'Due soon', [DUE_TODAY]);
+      const elsewhere = { ...aFilter('over-there', 'Due elsewhere'), dashboardId: 'research' };
+      showBoard({
+        panels: [here],
+        panelsInWorkspace: [here, elsewhere],
+        items: [{ ...bart, dueDate: TODAY }],
+        filings: [{ panelId: elsewhere.id, itemId: bart.id, position: 0 }],
+      });
+
+      const due = await screen.findByRole('region', { name: 'Due soon' });
+      expect(within(due).queryByText(/Reply to Bart/)).toBeNull();
+      expect(within(due).getByText(NOTHING_MATCHES_YET)).toBeVisible();
     });
 
     it('offers a row the usual menu without taking it off a panel it was never filed on', async () => {

@@ -50,6 +50,10 @@ export function DashboardPage() {
           // empty dashboard, worst of all while offline, where no answer is
           // coming to repair it.
           panels={(data.panels ?? []).filter((panel) => panel.dashboardId === dashboard.id)}
+          // Unfiltered, and deliberately beside the line above: whether a
+          // filing files is a fact about the Panel it names rather than about
+          // the dashboard being drawn (`panelsInWorkspace`, PanelBoard.tsx).
+          panelsInWorkspace={data.panels ?? []}
           layouts={data.layouts ?? []}
           screenSizes={data.screenSizes ?? []}
           items={data.items}

@@ -96,9 +96,18 @@ export function itemsThatAreFiled(items: readonly Item[], filings: readonly Fili
  * panel that draws what it gathers rather than what is filed on it, leaving the
  * item on no screen at all.
  *
+ * **The workspace's panels, never one dashboard's**, which is what the
+ * parameter is named for: a filing names a Panel and says nothing about which
+ * dashboard is on screen, so a caller passing the panels it happens to be
+ * drawing recognises only the Filters that share a dashboard with them - and
+ * the Inbox, which always reads workspace-wide, then disagrees with it about
+ * the same Item. The board did exactly that until the review on issue 463.
+ *
  * A filing whose panel the snapshot does not carry still files, which is the
  * behaviour that was already there: the Inbox is the absence of a filing, and a
- * missing panel is not a reason to decide the filing never happened.
+ * missing panel is not a reason to decide the filing never happened. That is
+ * why the rule above cannot be enforced here - a short list and a stale one
+ * look the same.
  *
  * **The list itself where there is no Filter to leave out**, rather than a copy
  * of it: every workspace that has never made one is every workspace today, and
@@ -106,9 +115,9 @@ export function itemsThatAreFiled(items: readonly Item[], filings: readonly Fili
  */
 export function filingsThatFile(
   filings: readonly Filing[],
-  panels: readonly Panel[],
+  panelsInWorkspace: readonly Panel[],
 ): readonly Filing[] {
-  const gathering = new Set(panels.filter(panelGathers).map((panel) => panel.id));
+  const gathering = new Set(panelsInWorkspace.filter(panelGathers).map((panel) => panel.id));
   if (gathering.size === 0) return filings;
   return filings.filter((filing) => !gathering.has(filing.panelId));
 }

@@ -148,17 +148,21 @@ function sortsBefore(one: Item, other: Item): number {
  *
  * **No conditions gathers nothing**, which is what lets a Filter say it has
  * nothing chosen instead of quietly showing every filed Item in the Workspace.
+ *
+ * **The Workspace's Panels, never the drawing dashboard's** - the rule
+ * `filingsThatFile` states, and the caller's to keep, since this cannot tell a
+ * short list from a stale one.
  */
 export function itemsMatchingFilter(
   items: readonly Item[],
   filings: readonly Filing[],
-  panels: readonly Panel[],
+  panelsInWorkspace: readonly Panel[],
   filter: PanelFilter,
   on: Day,
 ): Item[] {
   if (filter.conditions.length === 0) return [];
   return inFilterOrder(
-    itemsThatAreFiled(items, filingsThatFile(filings, panels)).filter((item) =>
+    itemsThatAreFiled(items, filingsThatFile(filings, panelsInWorkspace)).filter((item) =>
       filter.conditions.every((condition) => holdsFor(condition, item, on)),
     ),
   );

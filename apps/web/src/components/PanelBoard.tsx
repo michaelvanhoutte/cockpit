@@ -82,6 +82,7 @@ export function PanelBoard({
   dashboard,
   dashboards,
   panels,
+  panelsInWorkspace,
   layouts,
   screenSizes,
   items,
@@ -91,7 +92,21 @@ export function PanelBoard({
   dashboard: Dashboard;
   /** Every dashboard of the workspace, in tab order - what "Move to another dashboard" offers. */
   dashboards: readonly Dashboard[];
+  /** This dashboard's panels - what is drawn, arranged and dragged about. */
   panels: readonly Panel[];
+  /**
+   * Every panel of the workspace, which is a different question from the one
+   * above and is asked only about filings.
+   *
+   * **Whether a filing files is a fact about the Panel it names, not about the
+   * dashboard on screen** (`filingsThatFile`): a Filter on another dashboard
+   * still gathers rather than holds, so a board given this dashboard's panels
+   * alone would count a filing onto it as real - and the Item would sit in the
+   * Inbox, which reads the workspace-wide list, while a Filter here gathered it
+   * as though it had been filed. Found by the review on "Add a Filter panel
+   * that shows every filed item due in a window" (issue 463).
+   */
+  panelsInWorkspace: readonly Panel[];
   layouts: readonly Layout[];
   /** Every screen size the account has, whether or not this dashboard has defined one at it. */
   screenSizes: readonly ScreenSize[];
@@ -250,8 +265,11 @@ export function PanelBoard({
   /**
    * The filings that file, read once for the whole board rather than per panel:
    * every panel below asks it, and a Filter asks it again for each of its rows.
+   *
+   * Against the workspace's panels rather than this dashboard's, for the reason
+   * `panelsInWorkspace` carries.
    */
-  const filed = filingsThatFile(filings, panels);
+  const filed = filingsThatFile(filings, panelsInWorkspace);
 
   const refusal =
     command.error instanceof CommandRefused
@@ -948,7 +966,7 @@ export function PanelBoard({
                               ? itemsMatchingFilter(
                                   items,
                                   filings,
-                                  panels,
+                                  panelsInWorkspace,
                                   panel.filter ?? NO_CONDITIONS,
                                   today,
                                 )
