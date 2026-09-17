@@ -6,9 +6,9 @@ import type {
   ItemType,
   PanelFilter,
   Panel,
-  Priority,
 } from '@cockpit/shared';
 import { filingsThatFile, itemsThatAreFiled } from './filing';
+import { PRIORITY_LABELS } from './priority';
 
 /**
  * What a Filter shows, worked out here rather than asked for ("Add a Filter
@@ -216,13 +216,6 @@ const WINDOW_READS: Record<DueWindow, string> = {
   none: 'No due date',
 };
 
-/** Priority's own reads, the order a Filter reads them in matching `BY_PRIORITY` above. */
-const PRIORITY_READS: Record<Priority, string> = {
-  high: 'High',
-  normal: 'Normal',
-  low: 'Low',
-};
-
 /** Several names, read as a sentence lists them: one alone, two joined by *or*, three or more comma-led into it. */
 function orList(names: readonly string[]): string {
   if (names.length === 0) return 'nothing';
@@ -256,7 +249,7 @@ export function saysWhatItShows(
 
 function sentenceFor(condition: FilterCondition, itemTypes: readonly ItemType[]): string {
   if (condition.field === 'priority') {
-    return `Priority is ${orList(condition.values.map((value) => PRIORITY_READS[value]))}`;
+    return `Priority is ${orList(condition.values.map((value) => PRIORITY_LABELS[value]))}`;
   }
   if (condition.field === 'type') {
     const names = condition.values

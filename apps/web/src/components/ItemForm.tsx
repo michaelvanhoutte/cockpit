@@ -23,6 +23,7 @@ import { useItemForm, useOpenItem } from '../itemForm';
 import { useUndo } from '../undo';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
+import { PRIORITY_LABELS } from '../priority';
 
 /** What the two boxes, the priority control and the due date hold, before anything is sent. */
 interface Draft {
@@ -34,14 +35,6 @@ interface Draft {
 }
 
 const DESCRIPTION_LIMIT = 60_000;
-
-/** Priority's option text, keyed so a level added to the schema fails to
- *  compile here rather than drifting silently out of step with it. */
-const PRIORITY_LABELS: Record<Priority, string> = {
-  low: 'Low',
-  normal: 'Normal',
-  high: 'High',
-};
 
 /** A byte count as a person reads it - the units this product's own cap is stated in (issue 441). */
 function formatFileSize(bytes: number): string {

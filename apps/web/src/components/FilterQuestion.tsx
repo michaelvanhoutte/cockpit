@@ -13,6 +13,7 @@ import {
 import { isAPeriod } from '../filters';
 import { MenuContent, menuItemClass } from './Menu';
 import { NO_TYPES } from '../itemTypes';
+import { PRIORITY_LABELS } from '../priority';
 
 /**
  * What a Filter shows, asked in a form of its own ("Add a Filter panel that
@@ -243,13 +244,6 @@ const WINDOW_LABELS: Record<DueWindow, string> = {
   month: 'This month',
   quarter: 'This quarter',
   none: 'Not set',
-};
-
-/** Priority's option text, keyed so a level added to the schema fails to compile here rather than drifting silently out of step with it. */
-const PRIORITY_LABELS: Record<Priority, string> = {
-  low: 'Low',
-  normal: 'Normal',
-  high: 'High',
 };
 
 /**

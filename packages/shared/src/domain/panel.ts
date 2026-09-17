@@ -215,15 +215,37 @@ export const NO_CONDITIONS: PanelFilter = { conditions: [] };
  * will not open because one Panel holds a shape this release does not
  * understand is a far worse answer than a Panel saying it has nothing chosen —
  * which is a state the product already draws and already explains.
+ *
+ * **A duplicate field is dropped, keeping the first, rather than read back
+ * whole.** Before `setPanelFilterSchema`'s own refusal ("Filter a Filter panel
+ * by priority and type", issue 464) a Filter could be saved with the same
+ * field twice — *+ Add a condition* offered a Due date with nothing stopping
+ * a second one — and a Panel stored that way before the refusal shipped is
+ * real data, not a hypothetical one. Reading it back deduplicated is what
+ * keeps the question's rows keyed one per field (`FilterQuestion.tsx`) and
+ * keeps a later, unrelated save of that same Panel from being refused for a
+ * duplicate the person saving never chose — the same defensive reasoning this
+ * function already applies to a shape it cannot read at all.
  */
 export function panelFilterFrom(stored: string | null): PanelFilter | null {
   if (stored === null) return null;
   try {
     const read = panelFilterSchema.safeParse(JSON.parse(stored));
-    return read.success ? read.data : NO_CONDITIONS;
+    if (!read.success) return NO_CONDITIONS;
+    return { conditions: uniqueByField(read.data.conditions) };
   } catch {
     return NO_CONDITIONS;
   }
+}
+
+/** The first condition stored for each field, in order — what `panelFilterFrom` reads a Filter back as. */
+function uniqueByField(conditions: readonly FilterCondition[]): FilterCondition[] {
+  const seen = new Set<FilterCondition['field']>();
+  return conditions.filter((condition) => {
+    if (seen.has(condition.field)) return false;
+    seen.add(condition.field);
+    return true;
+  });
 }
 
 /** What a Filter's conditions are stored as — the one writer, so nothing else has to know the format. */

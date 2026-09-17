@@ -41,6 +41,21 @@ describe('Panels', () => {
       expect(panelFilterFrom(null)).toBeNull();
     });
 
+    it('drops a field stored twice, keeping the first, where it was saved before a Filter refused that', () => {
+      // *+ Add a condition* offered a Due date with nothing stopping a second
+      // one before "a field appears once on a Filter" was refused server-side
+      // ("Filter a Filter panel by priority and type", issue 464) - a Panel
+      // saved that way before the refusal shipped is real data, not a
+      // hypothetical one, so reading it back keeps the rows this release can
+      // ever draw one of per field, and lets an unrelated later save of the
+      // same Panel go through rather than be refused for a duplicate nobody
+      // just chose.
+      const week = { field: 'dueDate', window: 'week', orOverdue: false } as const;
+      expect(
+        panelFilterFrom(panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH, week])),
+      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH] });
+    });
+
     it.each([
       { situation: 'text that is not what was stored at all', stored: '{oops' },
       { situation: 'a shape from some other release', stored: '{"rules":[]}' },
