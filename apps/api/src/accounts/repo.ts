@@ -827,11 +827,15 @@ export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: str
  * on; a decision history that went on handing its captured text to every
  * future classification call would not have honoured that.
  *
- * **Capped in the query, not in the render** - unlike `CORRECTIONS_LIMIT`
- * (`ai/prompts/clean-up-a-note.v7.ts`), which caps a list already read whole.
- * Ordered by `decidedAt` descending to take the most recent
- * `DECISION_HISTORY_LIMIT` and then reversed, so the query does the
- * narrowing and the caller still gets oldest first.
+ * **Capped in the query, by count** - unlike the text-learning prompt's own
+ * corrections and what stood, each bounded by date instead ("Cap the
+ * text-learning prompt to the last 30 days, and drop rules and pinned
+ * examples as inputs", issue 451; `store.ts`'s `textLearningContext`), since
+ * a Panel still existing is what routing keys staleness off and writing
+ * style has no panel or project of its own to. Ordered by `decidedAt`
+ * descending to take the most recent `DECISION_HISTORY_LIMIT` and then
+ * reversed, so the query does the narrowing and the caller still gets oldest
+ * first.
  */
 const DECISION_HISTORY_LIMIT = 50;
 
@@ -1079,13 +1083,15 @@ export function rewriteHistoryForItem(db: AccountDb, tenantId: string, itemId: s
 /**
  * Every correction this account has ever made, oldest first - what a title or
  * description proposal reads whole, with no retrieval step ("Learn how you
- * write from the titles you correct", issue 394), capped only in the render
- * (`CORRECTIONS_LIMIT`, `ai/prompts/clean-up-a-note.v7.ts`) rather than here -
- * unlike `decisionHistoryForWorkspace` above, which caps in the query itself
- * ("Cap the routing prompt to the last 50 decisions on panels that still
- * exist, and drop the correction override", issue 450). Per account rather
- * than per Workspace, deliberately unlike
- * that function (`docs/text-learning.md`, "Scope: per account").
+ * write from the titles you correct", issue 394). Read whole here, and
+ * narrowed to the last 30 days by `textLearningContext` (`store.ts`) before a
+ * proposal ever sees it ("Cap the text-learning prompt to the last 30 days,
+ * and drop rules and pinned examples as inputs", issue 451) - unlike
+ * `decisionHistoryForWorkspace` above, which caps in the query itself by
+ * count ("Cap the routing prompt to the last 50 decisions on panels that
+ * still exist, and drop the correction override", issue 450). Per account
+ * rather than per Workspace, deliberately unlike that function (`docs/
+ * text-learning.md`, "Scope: per account").
  *
  * **Carries `itemId`, unlike the columns a prompt actually renders.** It is
  * what `textLearningContext` (`store.ts`) derives its corrected-item set from

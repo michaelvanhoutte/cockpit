@@ -140,8 +140,9 @@ export interface Account {
   textLearningContext(): Promise<{
     rules: string | null;
     rulesSetAt: string | null;
-    corrections: TextCorrectionEntry[];
     stood: WhatStood;
+    promptCorrections: TextCorrectionEntry[];
+    promptStood: WhatStood | null;
     pinnedExamples: PinnedExampleEntry[];
   }>;
   /**

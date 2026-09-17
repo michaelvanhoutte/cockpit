@@ -431,7 +431,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // property of which Workspace a note landed in ("Learn how you write from
   // the titles you correct", issue 394; `docs/text-learning.md`, "Scope: per
   // account").
-  const { rules, corrections, stood, pinnedExamples } = await account.textLearningContext();
+  const { promptCorrections, promptStood } = await account.textLearningContext();
 
   let read;
   try {
@@ -440,10 +440,8 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
       panels,
       history,
       recentlyCaptured,
-      corrections,
-      stood,
-      rules,
-      pinnedExamples,
+      promptCorrections,
+      promptStood,
     );
   } catch (error) {
     await recordHistory(() =>
@@ -695,7 +693,7 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
   // way `panels`, `history` and `recentlyCaptured` each do ("Learn how you
   // write from the titles you correct", issue 394; `docs/text-learning.md`,
   // "Scope: per account").
-  const { rules, corrections, stood, pinnedExamples } = await account.textLearningContext();
+  const { promptCorrections, promptStood } = await account.textLearningContext();
 
   for (const candidate of candidates) {
     try {
@@ -714,10 +712,8 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
         panels,
         history,
         recentlyCaptured,
-        corrections,
-        stood,
-        rules,
-        pinnedExamples,
+        promptCorrections,
+        promptStood,
       );
       if (!('proposal' in read)) {
         say(candidate.id, `nothing was refreshed: ${read.discarded}`);
@@ -775,9 +771,9 @@ export async function enqueueReproposeTexts(env: Env, accountName: string): Prom
 /**
  * Runs one re-read: every Item in the account with a captured note whose
  * texts nobody has settled gets its title and description proposed again,
- * against the corrections and rules as they stand right now - which is what
- * makes this worth firing on every correction rather than only when the
- * Inbox is opened.
+ * against the corrections as they stand right now - which is what makes this
+ * worth firing on every correction rather than only when the Inbox is
+ * opened.
  *
  * **Only the two texts are written.** The model's own answer still names a
  * Panel, `cleanUpNote` asking for nothing narrower, but only `title` and
@@ -815,7 +811,7 @@ export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<
 
   // Read once for the whole re-read, the same as `reproposePanels`: per
   // account rather than per candidate, since it does not vary across them.
-  const { rules, corrections, stood, pinnedExamples } = await account.textLearningContext();
+  const { promptCorrections, promptStood } = await account.textLearningContext();
 
   for (const candidate of candidates) {
     // Queued the moment this loop reaches it, rather than at `enqueueReproposeTexts`
@@ -848,10 +844,8 @@ export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<
         panels,
         history,
         recentlyCaptured,
-        corrections,
-        stood,
-        rules,
-        pinnedExamples,
+        promptCorrections,
+        promptStood,
       );
       if (!('proposal' in read)) {
         await recordHistory(() =>

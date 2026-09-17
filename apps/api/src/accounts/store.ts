@@ -104,6 +104,9 @@ import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } fro
 import {
   correctionStillVisible,
   deriveWhatStood,
+  deriveWhatStoodForPrompt,
+  textLearningWindowCutoff,
+  withinTextLearningWindow,
   type TextCorrectionEntry,
   type WhatStood,
 } from '../domain/text-corrections.js';
@@ -398,31 +401,31 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
 
   /**
    * What a title or description proposal reads about how this account
-   * writes: the rules it has written for itself, every correction it has
-   * ever made, and how many of its other proposals simply stood ("Learn how
-   * you write from the titles you correct", issue 394; "Show what Cockpit is
-   * told, and say how you want it changed", issue 398; `docs/text-
-   * learning.md`, "What goes into the prompt"). Per account rather than per
-   * Workspace, deliberately unlike `routingContext` above (`docs/text-
-   * learning.md`, "Scope: per account").
+   * writes, and what the window that shows how it is doing reads back
+   * ("Learn how you write from the titles you correct", issue 394; "Show
+   * what Cockpit is told, and say how you want it changed", issue 398;
+   * `docs/text-learning.md`, "What goes into the prompt"). Per account rather
+   * than per Workspace, deliberately unlike `routingContext` above (`docs/
+   * text-learning.md`, "Scope: per account").
    *
-   * **Read by the enrichment job for the prompt, and by the HTTP layer for
-   * the window that shows how it is doing** - the second reader picks
-   * `rules`, `rulesSetAt`, `stood.proposedTotal`, `stood.correctedTotal` and
-   * `pinnedExamples` back out and leaves `corrections`/`stood.sample`
-   * unread, since that window shows neither list (`docs/text-learning.md`'s
-   * two evidence lists are their own later step).
-   *
-   * **`pinnedExamples` rides along on this same read** ("Pin an example of
-   * how you want a note written", issue 397) - the enrichment job needs it
-   * beside `rules`/`corrections`/`stood` for the very same prompt call, and
-   * the window needs it beside the same three for the very same screen.
+   * **Two different views over the same underlying rows, not one.** The HTTP
+   * layer's window reads `rules`, `rulesSetAt`, `stood.proposedTotal`,
+   * `stood.correctedTotal` and `pinnedExamples` back out, all-time and
+   * unbounded, exactly as before this issue - a screen this issue never asked
+   * to touch. The enrichment job reads `promptCorrections`/`promptStood`
+   * instead: the same corrections and the same judgeable items, narrowed to
+   * the last 30 days and, for `promptStood`, gated at a floor of 3 unchanged
+   * texts below which it is `null` ("Cap the text-learning prompt to the last
+   * 30 days, and drop rules and pinned examples as inputs", issue 451).
+   * `rules`/`pinnedExamples` are no longer read into the prompt at all - only
+   * the window still reads them.
    */
   textLearningContext(accountName: string): Answer<{
     rules: string | null;
     rulesSetAt: string | null;
-    corrections: TextCorrectionEntry[];
     stood: WhatStood;
+    promptCorrections: TextCorrectionEntry[];
+    promptStood: WhatStood | null;
     pinnedExamples: PinnedExampleEntry[];
   }> {
     return this.#answer(accountName, (db) => {
@@ -435,11 +438,25 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         corrections.filter(correctionStillVisible).map((entry) => entry.itemId),
       );
       const rules = getTextLearningRules(db, accountName);
+      const items = judgeableItemsForAccount(db, accountName);
+      const cutoff = textLearningWindowCutoff(new Date());
+      const promptCorrections = corrections.filter((entry) => withinTextLearningWindow(entry.recordedAt, cutoff));
+      // Windowed the same way `promptCorrections` is, not the all-time
+      // `correctedItemIds` above - `deriveWhatStoodForPrompt` needs to agree
+      // with exactly what `promptCorrections` shows, or a text corrected
+      // today whose proposal is otherwise stale would read as corrected in
+      // one section and uncounted in the other (issue 451's own review
+      // found this reintroducing the disagreement `correctedItemIds` above
+      // already exists to prevent).
+      const promptCorrectedItemIds = new Set(
+        promptCorrections.filter(correctionStillVisible).map((entry) => entry.itemId),
+      );
       return {
         rules: rules?.rules ?? null,
         rulesSetAt: rules?.rulesSetAt ?? null,
-        corrections,
-        stood: deriveWhatStood(judgeableItemsForAccount(db, accountName), correctedItemIds),
+        stood: deriveWhatStood(items, correctedItemIds),
+        promptCorrections,
+        promptStood: deriveWhatStoodForPrompt(items, promptCorrectedItemIds, cutoff),
         pinnedExamples: pinnedExamplesForAccount(db, accountName),
       };
     });

@@ -1026,9 +1026,12 @@ const routes = app
   })
   .openapi(textLearningStatusRoute, async (c) => {
     const account = await openAccount(c.env, c.get('visitor').accountName);
-    // `corrections` and `stood.sample` are read by the prompt and left
-    // unread here - this window shows neither list (`docs/text-
-    // learning.md`'s two evidence lists are their own later step). The
+    // `promptCorrections`/`promptStood` are what the prompt reads and are
+    // left unread here - this window shows neither list (`docs/text-
+    // learning.md`'s two evidence lists are their own later step), and
+    // `stood` here is the all-time, unwindowed ratio rather than the
+    // prompt's own bounded one ("Cap the text-learning prompt to the last 30
+    // days, and drop rules and pinned examples as inputs", issue 451). The
     // built-in guidance is not read back here either - it never changes at
     // runtime, so the window imports `TEXT_LEARNING_GUIDANCE` from
     // `@cockpit/shared` directly rather than round-tripping it.

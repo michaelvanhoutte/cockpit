@@ -8,10 +8,11 @@ import { expect, expectNoSidewaysScroll, openInbox, press, test, uniqueTitle } f
  * you want it changed", issue 398).
  *
  * It is not re-proving the write rules, which
- * apps/api/tests/integration/http/note-cleanup.test.ts and
- * apps/api/tests/unit/ai/prompts/clean-up-a-note.v7.test.ts own against a
- * real store and the prompt itself. One walk for the capability, saying it
- * works for a person.
+ * apps/api/tests/integration/http/text-learning-rules.test.ts owns against a
+ * real store. One walk for the capability, saying it works for a person. A
+ * rule no longer reaches the prompt at all ("Cap the text-learning prompt to
+ * the last 30 days, and drop rules and pinned examples as inputs", issue
+ * 451).
  */
 test.describe('Capture', () => {
   test.describe('what Cockpit is told is read on an account settings screen, and changed with a rule', () => {

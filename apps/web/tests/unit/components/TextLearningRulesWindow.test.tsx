@@ -13,12 +13,12 @@ vi.mock('../../../src/api/loadFailure', async (importOriginal) => ({
 
 /**
  * F1: what this screen draws, and nothing about what the server stores.
- * That a rule really is kept, and read ahead of everything else in the
- * prompt, is proved a tier down
- * (apps/api/tests/integration/http/note-cleanup.test.ts,
- * apps/api/tests/unit/ai/prompts/clean-up-a-note.v7.test.ts) - this is only
- * the window ("Show what Cockpit is told, and say how you want it changed",
- * issue 398).
+ * That a rule really is kept and read back correctly is proved a tier down
+ * (apps/api/tests/integration/http/text-learning-rules.test.ts) - this is
+ * only the window ("Show what Cockpit is told, and say how you want it
+ * changed", issue 398). A rule no longer reaches the prompt at all ("Cap the
+ * text-learning prompt to the last 30 days, and drop rules and pinned
+ * examples as inputs", issue 451).
  */
 
 /** Whatever the status query answers with. */
@@ -137,10 +137,10 @@ describe('What Cockpit is told', () => {
 
   /**
    * "Pin an example of how you want a note written" (issue 397): add, edit
-   * and delete land on this same window. Whether a pinned example actually
-   * reaches or leaves the prompt is proved a tier down
-   * (apps/api/tests/unit/ai/prompts/clean-up-a-note.v7.test.ts) - this is
-   * only what the window draws and sends.
+   * and delete land on this same window. A pinned example no longer reaches
+   * the prompt at all ("Cap the text-learning prompt to the last 30 days,
+   * and drop rules and pinned examples as inputs", issue 451) - this is only
+   * what the window draws and sends.
    */
   describe('pinned examples', () => {
     const EXAMPLE = {
