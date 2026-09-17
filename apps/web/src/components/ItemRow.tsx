@@ -38,6 +38,13 @@ const PRIORITY_MARKS: Record<Priority, { label: string; className: string }> = {
 const DUE_DATE_FORMAT = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' });
 
 /**
+ * No other Panel or Filter to name - the common case, so a row with nothing
+ * to say allocates nothing for it rather than a fresh empty array every
+ * render.
+ */
+const EMPTY_ALSO_IN: readonly string[] = [];
+
+/**
  * What a due date reads as on the row, or `null` for none and for anything
  * that is not really a date - drawn plainly, with no colour for how close it
  * is ("Deadlines on actions, panels and dashboards, with colour escalation",
@@ -65,6 +72,7 @@ export function ItemRow({
   mayBeADuplicate,
   onSettleNotADuplicate,
   selecting,
+  alsoIn = EMPTY_ALSO_IN,
 }: {
   item: Item;
   /**
@@ -168,6 +176,17 @@ export function ItemRow({
     /** Everything a selection put on screen, gone - what ending one does. */
     onEndSelection: () => void;
   };
+  /**
+   * Every other live Panel or Filter this Item shows on, named - "also in
+   * Today, Q3 goals" ("Say which other panels an item is also in, after its
+   * title", issue 466). Empty in the Inbox, where an Item is on no Panel and
+   * matches no Filter, and on a row that shows nowhere else.
+   *
+   * Resolved by the list rather than by the row itself, the same reason
+   * `routingProposal` above is: naming every other Panel needs the whole
+   * snapshot the row is not given wholesale.
+   */
+  alsoIn?: readonly string[];
 }) {
   const command = useCommand();
   const send = useSendCommand();
@@ -302,9 +321,13 @@ export function ItemRow({
    * on the way out leaves no answer to go stale behind a label that changes.
    */
   const [labelCutOff, setLabelCutOff] = useState(false);
+  /** The same, for the "also in…" text beside the label - answered and forgotten the same way, on its own hover. */
+  const [alsoInCutOff, setAlsoInCutOff] = useState(false);
 
   /** The best label this Item has, worked out once for the two places the row draws it. */
   const label = itemLabel(item);
+  /** What "also in…" reads, whole - the same sentence the tooltip spells out when the row has cut it. */
+  const alsoInText = alsoIn.length > 0 ? `also in ${alsoIn.join(', ')}` : null;
 
   /**
    * The priority mark's label and colour, or nothing for an unset priority -
@@ -610,6 +633,30 @@ export function ItemRow({
             >
               {label}
             </span>
+            {/* Every other live Panel or Filter this Item shows on, straight
+                after its title ("Say which other panels an item is also in,
+                after its title", issue 466) - absent wherever `alsoIn` is
+                empty, an Inbox row included.
+
+                `shrink-[99]` against the title's own default shrink is what
+                makes this the one that gives way first as the row narrows:
+                both are flex children of the same row, so without it the two
+                would shrink in step and a long "also in…" would eat into the
+                title exactly as fast as the title eats into it. */}
+            {alsoInText && (
+              <span
+                className="shrink-[99] min-w-0 truncate italic text-ink-faint"
+                onPointerEnter={(event) =>
+                  setAlsoInCutOff(
+                    isCutOff(event.currentTarget.scrollWidth, event.currentTarget.clientWidth),
+                  )
+                }
+                onPointerLeave={() => setAlsoInCutOff(false)}
+                title={alsoInCutOff ? alsoInText : undefined}
+              >
+                {alsoInText}
+              </span>
+            )}
             {/* That there is something written about this Item, not what it says
                 - the description is paragraphs and this is a row. A mark rather
                 than a snippet, so the row keeps the height "Create an item on a

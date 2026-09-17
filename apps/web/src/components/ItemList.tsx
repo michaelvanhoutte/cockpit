@@ -19,6 +19,7 @@ import {
   ordersForFilingSeveral,
   orderWithItemAt,
 } from '../filing';
+import { alsoShownOn, dayOf, panelAndFilterIdsByItem } from '../filters';
 import { useOpenItem } from '../itemForm';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
@@ -109,6 +110,23 @@ export function ItemList({
   const filed = useMemo(
     () => filingsThatFile(data?.filings ?? [], data?.panels ?? []),
     [data?.filings, data?.panels],
+  );
+  /** The day it is where this person is looking, for a Filter's own Due condition - read once for the whole list, the same reason `PanelBoard.tsx`'s own `today` is. */
+  const today = dayOf(new Date());
+  /**
+   * Every live Panel or Filter each Item of the workspace shows on - what
+   * "also in Today, Q3 goals" reads off, after a row's own title ("Say which
+   * other panels an item is also in, after its title", issue 466).
+   *
+   * Memoized on the snapshot for the reason `flagged` below already is: a
+   * dashboard draws one `ItemList` per Panel, and working this out per row
+   * would mean scanning every Filter against every Item once for every row
+   * that Filter's own Panel draws.
+   */
+  const alsoInByItem = useMemo(
+    () =>
+      panelAndFilterIdsByItem(data?.items ?? [], data?.filings ?? [], data?.panels ?? [], types, today),
+    [data?.items, data?.filings, data?.panels, types, today],
   );
   const command = useCommand();
   const send = useSendCommand();
@@ -930,6 +948,7 @@ export function ItemList({
                   // picker makes with this workspace's Inbox chosen - the row
                   // decides whether to offer it at all.
                   onMoveHere={() => move(item, null, 0, workspaceId)}
+                  alsoIn={alsoShownOn(item.id, alsoInByItem, data?.panels ?? [], panelId)}
                   mayBeADuplicate={flagged.has(item.id)}
                   onSettleNotADuplicate={flagged.has(item.id)
                     ? settleNotADuplicateFor(item)
