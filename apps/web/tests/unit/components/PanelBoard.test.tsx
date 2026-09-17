@@ -248,12 +248,18 @@ function openMenu(panel: string) {
 
 /**
  * What a panel offers is in the panel's own menu, opened by right-click on
- * its header rather than a button - the same way a dashboard's or a
- * workspace's own tab opens its (`WorkspaceTabs.test.tsx`, `menuOf`).
+ * its header - one of the ways a dashboard's or a workspace's own tab opens
+ * its too (`WorkspaceTabs.test.tsx`, `menuOf`), and (unlike a tab) also from
+ * the visible button on the header, proven separately below.
  */
 async function choose(user: ReturnType<typeof userEvent.setup>, panel: string, entry: string) {
   openMenu(panel);
   await user.click(await screen.findByRole('menuitem', { name: entry }));
+}
+
+/** The visible "..." button on a panel's header, its own way into the same menu. */
+function menuButtonOf(panelName: string) {
+  return screen.getByRole('button', { name: `Actions for ${panelName}` });
 }
 
 /**
@@ -573,7 +579,7 @@ describe('Panels', () => {
       expect(seamsAreOpen()).toBe(false);
     });
 
-    it('names the header for what it opens, since nothing else does now the button is gone', () => {
+    it('names the header for what it opens, since right-click and the menu key still land there rather than on the button', () => {
       // Found in review: a bare header nested in a section computes to
       // ARIA's `generic` role, which prohibits a name - `role="group"` is
       // what makes the label and the popup hint legal as well as present,
@@ -608,6 +614,81 @@ describe('Panels', () => {
       expect(header).not.toHaveAttribute('role');
       expect(header).not.toHaveAttribute('aria-label');
       expect(header).not.toHaveAttribute('aria-haspopup');
+    });
+  });
+
+  describe('a panel also carries a visible button for the same menu, unlike a tab', () => {
+    it('opens it on a click, with the same entries a right-click offers', async () => {
+      const { user } = showBoard();
+
+      await user.click(menuButtonOf('Project Falcon'));
+
+      // `findByRole`, not `getByRole`: unlike `openMenu`'s synchronous
+      // `fireEvent.contextMenu`, `user.click` runs across several
+      // microtasks, so the portalled menu content is not guaranteed mounted
+      // in the same tick the click resolves in (found in review).
+      expect(await screen.findByRole('menuitem', { name: 'Rename' })).toBeVisible();
+    });
+
+    it('names itself for what it opens, the same name the header carries', () => {
+      showBoard();
+
+      expect(menuButtonOf('Project Falcon')).toHaveAttribute('aria-haspopup', 'menu');
+    });
+
+    it('opens on Enter while it is the one focused, not the header underneath it', async () => {
+      // Found in review: Enter bubbles from the button to the header's own
+      // `opensOnKey`, which centres on `event.currentTarget` - the header,
+      // once it is the one running - and its `preventDefault` swallows the
+      // key before the browser can turn it into this button's own click.
+      // Centring is what tells the two apart, so the header and the button
+      // are given distinct rectangles and the real `contextmenu` this opens
+      // with is read back off `document`, past both of `SurfaceMenu`'s own
+      // fakes for the same event.
+      const { user } = showBoard();
+      const header = handleOf('Project Falcon');
+      const button = menuButtonOf('Project Falcon');
+      header.getBoundingClientRect = () =>
+        ({ x: 0, y: 0, width: 400, height: 40 }) as DOMRect;
+      button.getBoundingClientRect = () =>
+        ({ x: 380, y: 10, width: 20, height: 20 }) as DOMRect;
+      const openedAt: number[] = [];
+      document.addEventListener('contextmenu', (event) => openedAt.push(event.clientX), {
+        once: true,
+      });
+      button.focus();
+
+      await user.keyboard('{Enter}');
+
+      expect(openedAt).toEqual([390]);
+    });
+
+    it('leaves the header’s own drag alone, rather than being read as a press on it', () => {
+      // The button sits inside the header, which is the drag handle -
+      // `onPointerDown`'s own `closest('button, ...')` guard is what this
+      // proves against a real element rather than only by reading the guard.
+      // A bare `pointerDown` with no matching `pointerUp`, the same as
+      // the touch guard just above: a full `user.click` cycle clears any
+      // lift on its own `pointerup` regardless of whether the guard ran,
+      // which would pass even with the guard deleted (found in review).
+      showBoard();
+      const lifted = () => screen.getByRole('region', { name: 'Project Falcon' }).className;
+
+      fireEvent.pointerDown(menuButtonOf('Project Falcon'), {
+        button: 0,
+        pointerId: 1,
+        pointerType: 'mouse',
+      });
+
+      expect(lifted()).not.toContain('opacity-40');
+    });
+
+    it('is gone while the name is being edited in place, the same as the rest of the menu', async () => {
+      const { user } = showBoard();
+
+      await choose(user, 'Project Falcon', 'Rename');
+
+      expect(screen.queryByRole('button', { name: 'Actions for Project Falcon' })).toBeNull();
     });
   });
 

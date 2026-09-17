@@ -3,7 +3,7 @@ import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { ItemList } from './ItemList';
 import { PanelAddItemForm } from './PanelAddItemForm';
 import { PanelText } from '../panels/PanelText';
-import { SurfaceMenu, opensOnKey, opensOnActivate } from './Menu';
+import { SurfaceMenu, SurfaceMenuButton, opensOnKey, opensOnActivate } from './Menu';
 import { NOTHING_FILED_HERE, NOTHING_FILED_HERE_YET_AND_HOW } from '../whatThingsAre';
 
 /**
@@ -264,10 +264,11 @@ export function PanelCard({
           onKeyDown={opensOnKey(isRenaming)}
           onClick={opensOnActivate(isRenaming)}
           // A tab's own accessible name and role are its `Link`'s, free; a
-          // header has neither on its own, and the kebab button this replaced
-          // carried both (`aria-label="Actions for X"` on a real `button`) -
-          // said here instead, since nothing else names this stop as the
-          // panel's menu trigger. `role="group"` is what makes saying so
+          // header has neither on its own. The visible button below now
+          // carries an `aria-label` of its own, but the header is still its
+          // own independent way into the same menu - right-click and the
+          // menu key both land here, not on the button - so it keeps a name
+          // of its own too. `role="group"` is what makes saying so
           // legal: a bare header, nested in a section, computes to ARIA's
           // `generic` - the one role a name is prohibited on (WAI-ARIA 1.2
           // §5.2.8.6) - and `button` very nearly replaced it (found in
@@ -304,7 +305,17 @@ export function PanelCard({
           // the app's usual outward one: a control the width of its own row,
           // right at the panel's edge, would otherwise have the ring itself
           // clipped by the sheet around it.
-          className={`flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
+          //
+          // `group` so the button below can read *this* element's own
+          // `data-state` - Radix writes that here, on the `ContextMenu.Trigger`,
+          // never on the button (`SurfaceMenuButton`'s own doc comment).
+          //
+          // `relative` for that same button: it is positioned absolute
+          // (below) rather than laid out in this flex row, which is what it
+          // takes for the button not to change this element's own height
+          // (found bisecting a real CI-only regression - see the button's
+          // own comment).
+          className={`group relative flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
             isRenaming ? '' : 'cursor-grab active:cursor-grabbing'
           }`}
         >
@@ -343,15 +354,16 @@ export function PanelCard({
               </button>
             </form>
           ) : (
-            <div className="flex min-w-0 items-center gap-2">
-              {/* The same heading the Inbox's carries in the band above it
+            <>
+              <div className="flex min-w-0 flex-1 items-center gap-2 pr-11">
+                {/* The same heading the Inbox's carries in the band above it
                   (components/InboxPanel.tsx): small, uppercase and in the accent,
                   because a header on the sheet has no fill or rule to say it is a
                   header and the letterform has to do it alone. */}
-              <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep">
-                {panel.name}
-              </h3>
-              {/* How much is on it, said the way the Inbox says it - until the
+                <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep">
+                  {panel.name}
+                </h3>
+                {/* How much is on it, said the way the Inbox says it - until the
                   panel is too narrow to say both, and then this is the one
                   that goes: the count is the one thing the list underneath
                   already shows, where the name is this header's only word.
@@ -361,15 +373,15 @@ export function PanelCard({
                   the count another seventeen, so below this the name is being
                   truncated to make room for a number the list underneath
                   spells out. */}
-              {/* How much is on it, which a panel of text has no answer to:
+                {/* How much is on it, which a panel of text has no answer to:
                   it holds no items, and drawing a nought beside its name would
                   be reporting on something it is not. */}
-              {!text && (
-                <span className="shrink-0 text-xs tabular-nums text-ink-faint @max-[200px]:hidden">
-                  {items.length}
-                </span>
-              )}
-              {/* That the text is read rather than written in, said out loud
+                {!text && (
+                  <span className="shrink-0 text-xs tabular-nums text-ink-faint @max-[200px]:hidden">
+                    {items.length}
+                  </span>
+                )}
+                {/* That the text is read rather than written in, said out loud
                   because nothing else on the panel says it: a box with no
                   cursor in it looks exactly like one nobody has clicked yet.
 
@@ -379,12 +391,37 @@ export function PanelCard({
                   dropped it would show prose, no cursor and no reason - and
                   the name being truncated to keep it is the better trade,
                   a truncated name still being recognisable. */}
-              {text && panel.readOnly && (
-                <span className="shrink-0 text-xs font-normal normal-case tracking-normal text-ink-faint">
-                  read-only
-                </span>
-              )}
-            </div>
+                {text && panel.readOnly && (
+                  <span className="shrink-0 text-xs font-normal normal-case tracking-normal text-ink-faint">
+                    read-only
+                  </span>
+                )}
+              </div>
+              {/* The button `SurfaceMenu`'s own doc comment explains: a
+                  panel's header is also its drag handle, so right-click and
+                  the menu key answer a target mostly asked to do something
+                  else, and this is what a pointer or a touchscreen actually
+                  reaches for.
+
+                  **Positioned absolute, not laid out in the flex row.** It
+                  used to be a flex sibling, which stretched the header from
+                  36px to 56px to fit its own 36px - taller than the row's
+                  own `min-height:160px` floor ever left room to notice by
+                  eye, but tall enough to push every row below it down by
+                  that much. `filing.test.ts`'s cross-panel drag walks read a
+                  target row's centre and drop there; CI (never this file's
+                  own local runs) put that centre inside the *next* panel's
+                  header often enough to fail two of them four times running,
+                  bisected on CI itself by removing the button, then by
+                  keeping it but pinning the header back to 36px this way
+                  (found in review of the PR this shipped in). The name and
+                  count reserve the same 44px with `pr-11` on the div beside
+                  this, so the button never sits over truncatable text. */}
+              <SurfaceMenuButton
+                label={`Actions for ${panel.name}`}
+                className="absolute top-1/2 right-2 -translate-y-1/2"
+              />
+            </>
           )}
         </header>
       </SurfaceMenu>

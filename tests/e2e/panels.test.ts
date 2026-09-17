@@ -462,8 +462,8 @@ test.describe('Panels', () => {
 
       // The count goes, because the list underneath already shows what is on
       // the panel; the name keeps the room, being the header's only word now
-      // - the menu opens from the header itself, at any width, and takes none
-      // of its own.
+      // - the header's own button for the menu keeps its width at any
+      // screen size, so what the name gains here is only the count's own.
       await expect(count).toBeHidden();
       await expect(panel.getByRole('heading', { name: waiting })).toBeVisible();
 
