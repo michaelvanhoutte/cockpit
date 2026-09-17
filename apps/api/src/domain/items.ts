@@ -9,6 +9,7 @@ import {
   type SetDescriptionCommand,
   type SetDismissedCommand,
   type SetDoneCommand,
+  type SetDueDateCommand,
   type SetNextActionCommand,
   type SetPriorityCommand,
   type SetTitleCommand,
@@ -157,6 +158,11 @@ export function applySetNextAction(item: Item, cmd: SetNextActionCommand): Item 
 export function applySetPriority(item: Item, cmd: SetPriorityCommand): Item | null {
   if (isStale(item, cmd.issuedAt)) return null;
   return { ...item, priority: cmd.priority, updatedAt: cmd.issuedAt };
+}
+
+export function applySetDueDate(item: Item, cmd: SetDueDateCommand): Item | null {
+  if (isStale(item, cmd.issuedAt)) return null;
+  return { ...item, dueDate: cmd.dueDate, updatedAt: cmd.issuedAt };
 }
 
 export function applySetTitle(item: Item, cmd: SetTitleCommand): Item | null {

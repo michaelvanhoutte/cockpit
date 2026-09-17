@@ -305,6 +305,17 @@ describe('Triage', () => {
         }),
       },
       {
+        situation: 'giving it a due date',
+        name: 'set_due_date',
+        change: (requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-08-12T10:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId: goneItemId,
+          dueDate: '2026-09-30',
+        }),
+      },
+      {
         situation: 'renaming it',
         name: 'set_title',
         change: (requestId) => ({

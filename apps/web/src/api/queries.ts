@@ -257,7 +257,7 @@ const CHANGES_THE_TYPES = new Set<ClientCommandName>([
  * refused. Removing one is here for the same reason from the other end: it
  * changes the order the next filing will send.
  *
- * The three fields the item form edits are here because what is built on them
+ * The four fields the item form edits are here because what is built on them
  * is a *read*: the form closes on Save and the item can be opened again at
  * once, and a form fills its boxes from the copy the cache holds and never
  * refills them (`ItemForm.tsx`) - so a form reopened inside the re-read opens
@@ -280,6 +280,7 @@ const NOT_DONE_UNTIL_READ_BACK = new Set<ClientCommandName>([
   'set_title',
   'set_description',
   'set_priority',
+  'set_due_date',
 ]);
 
 /**

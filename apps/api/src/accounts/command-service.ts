@@ -104,6 +104,7 @@ import {
   applySetDescription,
   applySetDismissed,
   applySetDone,
+  applySetDueDate,
   applySetNextAction,
   applySetPriority,
   applySetTitle,
@@ -2039,6 +2040,7 @@ export function runCommand<N extends CommandName>(
         | CommandPayload<'set_dismissed'>
         | CommandPayload<'set_next_action'>
         | CommandPayload<'set_priority'>
+        | CommandPayload<'set_due_date'>
         | CommandPayload<'set_title'>
         | CommandPayload<'set_description'>;
       const existing = getItem(db, tenantId, cmd.itemId);
@@ -2059,7 +2061,9 @@ export function runCommand<N extends CommandName>(
                 ? applySetTitle(existing, cmd as CommandPayload<'set_title'>)
                 : name === 'set_description'
                   ? applySetDescription(existing, cmd as CommandPayload<'set_description'>)
-                  : applySetPriority(existing, cmd as CommandPayload<'set_priority'>);
+                  : name === 'set_priority'
+                    ? applySetPriority(existing, cmd as CommandPayload<'set_priority'>)
+                    : applySetDueDate(existing, cmd as CommandPayload<'set_due_date'>);
 
       if (updated === null) {
         // Stale by last-write-wins: log the command, change nothing.
