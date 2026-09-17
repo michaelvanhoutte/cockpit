@@ -3,6 +3,8 @@ import {
   NO_CONDITIONS,
   panelFilterAsStored,
   panelFilterFrom,
+  panelGathers,
+  panelHoldsText,
   panelTakesItems,
   type FilterCondition,
 } from '../../../src/domain/panel.js';
@@ -51,12 +53,35 @@ describe('Panels', () => {
   });
 
   describe('nothing is filed onto a panel of text or onto one that gathers what it shows', () => {
+    // All three together, because the point of their being functions is that
+    // they cannot come to disagree: a kind added later has one row here rather
+    // than three chances to be answered two different ways.
     it.each([
-      { situation: 'holds the items filed into it', kind: 'items' as const, takes: true },
-      { situation: 'holds the text written in it', kind: 'text' as const, takes: false },
-      { situation: 'gathers what matches a rule', kind: 'filter' as const, takes: false },
-    ])('a panel that $situation', ({ kind, takes }) => {
+      {
+        situation: 'holds the items filed into it',
+        kind: 'items' as const,
+        takes: true,
+        text: false,
+        gathers: false,
+      },
+      {
+        situation: 'holds the text written in it',
+        kind: 'text' as const,
+        takes: false,
+        text: true,
+        gathers: false,
+      },
+      {
+        situation: 'gathers what matches a rule',
+        kind: 'filter' as const,
+        takes: false,
+        text: false,
+        gathers: true,
+      },
+    ])('a panel that $situation', ({ kind, takes, text, gathers }) => {
       expect(panelTakesItems({ kind })).toBe(takes);
+      expect(panelHoldsText({ kind })).toBe(text);
+      expect(panelGathers({ kind })).toBe(gathers);
     });
   });
 });

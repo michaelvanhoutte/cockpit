@@ -1,4 +1,4 @@
-import type { Filing, Item, Panel } from '@cockpit/shared';
+import { panelGathers, type Filing, type Item, type Panel } from '@cockpit/shared';
 
 /**
  * What a panel holds and what the Inbox holds, derived from the one snapshot
@@ -99,15 +99,17 @@ export function itemsThatAreFiled(items: readonly Item[], filings: readonly Fili
  * A filing whose panel the snapshot does not carry still files, which is the
  * behaviour that was already there: the Inbox is the absence of a filing, and a
  * missing panel is not a reason to decide the filing never happened.
+ *
+ * **The list itself where there is no Filter to leave out**, rather than a copy
+ * of it: every workspace that has never made one is every workspace today, and
+ * half a dozen call sites ask this on each render.
  */
 export function filingsThatFile(
   filings: readonly Filing[],
   panels: readonly Panel[],
-): Filing[] {
-  const gathering = new Set(
-    panels.filter((panel) => panel.kind === 'filter').map((panel) => panel.id),
-  );
-  if (gathering.size === 0) return filings.slice();
+): readonly Filing[] {
+  const gathering = new Set(panels.filter(panelGathers).map((panel) => panel.id));
+  if (gathering.size === 0) return filings;
   return filings.filter((filing) => !gathering.has(filing.panelId));
 }
 

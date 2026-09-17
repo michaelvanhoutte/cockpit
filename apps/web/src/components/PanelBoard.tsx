@@ -1,7 +1,14 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { GRID_COLUMNS, MIN_ROW_HEIGHT, NO_CONDITIONS, uuidv7 } from '@cockpit/shared';
+import {
+  GRID_COLUMNS,
+  MIN_ROW_HEIGHT,
+  NO_CONDITIONS,
+  panelGathers,
+  panelHoldsText,
+  uuidv7,
+} from '@cockpit/shared';
 import type {
   Dashboard,
   Filing,
@@ -225,6 +232,10 @@ export function PanelBoard({
    * from the next snapshot, and a question about one that is no longer there
    * closes itself instead of asking about a name nothing holds.
    */
+  const beingDeleted = panels.find((panel) => panel.id === deleting);
+  const beingMoved = panels.find((panel) => panel.id === movingPanel);
+  const beingFiltered = panels.find((panel) => panel.id === filtering);
+
   /**
    * The day it is where this person is looking, read once for the whole board
    * so two Filters drawn side by side cannot land either side of midnight.
@@ -236,9 +247,11 @@ export function PanelBoard({
    */
   const today = dayOf(new Date());
 
-  const beingDeleted = panels.find((panel) => panel.id === deleting);
-  const beingMoved = panels.find((panel) => panel.id === movingPanel);
-  const beingFiltered = panels.find((panel) => panel.id === filtering);
+  /**
+   * The filings that file, read once for the whole board rather than per panel:
+   * every panel below asks it, and a Filter asks it again for each of its rows.
+   */
+  const filed = filingsThatFile(filings, panels);
 
   const refusal =
     command.error instanceof CommandRefused
@@ -449,6 +462,7 @@ export function PanelBoard({
     setRenaming(null);
     setDeleting(null);
     setMovingPanel(null);
+    setFiltering(null);
     const box = row.getBoundingClientRect();
     sizingFrom.current = {
       rowIndex,
@@ -535,6 +549,7 @@ export function PanelBoard({
     setRenaming(null);
     setDeleting(null);
     setMovingPanel(null);
+    setFiltering(null);
     draggingNow.current = panelId;
     setDragging({ id: panelId, from: shown, preview: shown });
     // **After the drag has begun, and allowed to fail.** Capture is what keeps
@@ -929,7 +944,7 @@ export function PanelBoard({
                           panel={panel}
                           workspaceId={workspaceId}
                           items={
-                            panel.kind === 'filter'
+                            panelGathers(panel)
                               ? itemsMatchingFilter(
                                   items,
                                   filings,
@@ -943,13 +958,14 @@ export function PanelBoard({
                           // Filter is not (`filingsThatFile`): a workspace
                           // whose only filing is one of those has still never
                           // filed anything, and the lesson has to stay up.
-                          nothingFiledYet={filingsThatFile(filings, panels).length === 0}
+                          nothingFiledYet={filed.length === 0}
                           renaming={renaming?.id === panel.id ? renaming.name : null}
                           onRenamingChange={(name) => setRenaming({ id: panel.id, name })}
                           onStartRenaming={() => {
                             command.reset();
                             setDeleting(null);
                             setMovingPanel(null);
+                            setFiltering(null);
                             setRenaming({ id: panel.id, name: panel.name });
                           }}
                           onRename={renamePanel}
@@ -961,6 +977,7 @@ export function PanelBoard({
                             command.reset();
                             setRenaming(null);
                             setMovingPanel(null);
+                            setFiltering(null);
                             askedFrom.current = openedFrom;
                             setDeleting(panel.id);
                           }}
@@ -969,6 +986,7 @@ export function PanelBoard({
                             command.reset();
                             setRenaming(null);
                             setDeleting(null);
+                            setFiltering(null);
                             askedFrom.current = openedFrom;
                             setMovingPanel(panel.id);
                           }}
@@ -1022,6 +1040,11 @@ export function PanelBoard({
 
       {beingFiltered && (
         <FilterQuestion
+          // Keyed on the Panel, so the rows it opens on are that Panel's: the
+          // question reads what is stored once and is the person's from then
+          // on (`FilterQuestion`), which only holds while one Filter cannot
+          // hand its half-finished rows to the next.
+          key={beingFiltered.id}
           open
           panelName={beingFiltered.name}
           conditions={(beingFiltered.filter ?? NO_CONDITIONS).conditions}
@@ -1044,7 +1067,7 @@ export function PanelBoard({
           // are not (the Deleting rule - "naming what is going and what goes
           // with it").
           question={`Delete ${beingDeleted.name}? ${
-            beingDeleted.kind === 'text'
+            panelHoldsText(beingDeleted)
               ? 'The text in it goes too, and it goes from every layout of this dashboard.'
               : 'It goes from every layout of this dashboard.'
           }`}

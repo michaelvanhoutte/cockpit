@@ -186,10 +186,17 @@ export type SetPanelFormatCommand = z.infer<typeof setPanelFormatSchema>;
  * two people editing it is the later save standing rather than a merge nobody
  * asked for. An empty list is a real answer — the Filter goes back to saying it
  * has nothing chosen.
+ *
+ * **Capped**, as `panelTextSchema` caps the other free-form thing a Panel
+ * stores: this list is written into a column every snapshot of the Workspace
+ * then carries to every device on it, and nothing downstream bounds it the way
+ * an `order` is bounded by the Items it names. Far past any question built a
+ * row at a time.
  */
+export const CONDITIONS_LIMIT = 50;
 export const setPanelFilterSchema = commandEnvelopeSchema.extend({
   panelId: z.uuid(),
-  conditions: z.array(filterConditionSchema),
+  conditions: z.array(filterConditionSchema).max(CONDITIONS_LIMIT),
 });
 export type SetPanelFilterCommand = z.infer<typeof setPanelFilterSchema>;
 

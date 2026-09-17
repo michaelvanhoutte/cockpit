@@ -427,10 +427,16 @@ export const panels = sqliteTable(
      * (`panelFilterFrom`), where drizzle's own JSON mode would throw and take
      * the whole Workspace read with it.
      *
-     * Nullable and carrying no CHECK, for the reason `items.texts_settled_at`
-     * carries none: SQLite attaches CHECKs only when a table is created, and
-     * `panels` cannot be rebuilt while filings, placements and an Item's
-     * proposed Panel point at it under RESTRICT.
+     * **Nullable because NULL is the answer**: it means "not a Filter", so
+     * every Panel that already existed is right without being rewritten.
+     *
+     * **No CHECK, and not because one could not be added.** `0016-text-panels`
+     * gave this same table three columns each carrying its own, which is what
+     * `ADD COLUMN` allows where a rebuild would be needed to change a
+     * constraint already on it. It carries none because what a condition may
+     * say is the product's to extend (architecture.md, "A CHECK for what is
+     * true by definition, never for what the product tunes"), and because the
+     * read has to survive a shape it cannot parse rather than refuse it.
      */
     filterConditions: text('filter_conditions'),
     createdAt: text('created_at').notNull(),

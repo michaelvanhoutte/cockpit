@@ -44,16 +44,16 @@ export function FilterQuestion({
   /**
    * The rows as they are being edited, which the caller does not hold.
    *
-   * Keyed on the Panel and on whether the dialog is open, so reopening it starts
-   * from what is stored rather than from what was abandoned last time - a
-   * question you cancelled out of has to be cancelled, not remembered.
+   * **Read once, when the question opens.** The board draws this only while a
+   * Filter is being edited and keys it on that Panel, so it is mounted fresh
+   * each time and a question you cancelled out of is cancelled rather than
+   * remembered. Not re-read from `conditions` afterwards either: the same
+   * Filter saved from another device would otherwise take the rows somebody is
+   * halfway through adding out from under them, where the rule everywhere else
+   * here is that the later save stands - and a refusal leaves what was chosen
+   * on the form.
    */
   const [rows, setRows] = useState<FilterCondition[]>([...conditions]);
-  const [openedOn, setOpenedOn] = useState<readonly FilterCondition[]>(conditions);
-  if (openedOn !== conditions) {
-    setOpenedOn(conditions);
-    setRows([...conditions]);
-  }
 
   const change = (at: number, row: FilterCondition) =>
     setRows(rows.map((was, index) => (index === at ? row : was)));

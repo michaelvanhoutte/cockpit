@@ -66,6 +66,28 @@ export function panelTakesItems(panel: { kind: PanelKind }): boolean {
 }
 
 /**
+ * Whether a Panel holds the text written in it (issue 250).
+ *
+ * Its own function beside `panelTakesItems`, for that one's own reason: the
+ * three questions used to be two answers to one comparison, and adding the
+ * Filter moved what `panelTakesItems` means out from under
+ * `refuseUnlessPanelOfText`, which had been asking it. A named question cannot
+ * drift that way.
+ */
+export function panelHoldsText(panel: { kind: PanelKind }): boolean {
+  return panel.kind === 'text';
+}
+
+/**
+ * Whether a Panel gathers what is filed elsewhere rather than holding what is
+ * filed onto it — a Filter ("Add a Filter panel that shows every filed item due
+ * in a window", issue 463). The third of the three, for the reason above.
+ */
+export function panelGathers(panel: { kind: PanelKind }): boolean {
+  return panel.kind === 'filter';
+}
+
+/**
  * How a Panel of text's words are drawn: as the characters that were typed, or
  * as what they mean ("Format what a panel says, without making every
  * dashboard pay for an editor", issue 251); architecture.md §4.4 — not a

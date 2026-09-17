@@ -100,6 +100,16 @@ export function ItemList({
   // `?? []` for the reason the filings elsewhere carry one: a stored snapshot
   // can predate the field, and a row with no type is drawn rather than hidden.
   const types = data?.itemTypes ?? [];
+  /**
+   * The filings that file - the one reading this list asks whenever it needs to
+   * know whether an Item is in the Inbox, so the four places below cannot come
+   * to different answers about the same row ("Add a Filter panel that shows
+   * every filed item due in a window", issue 463).
+   */
+  const filed = useMemo(
+    () => filingsThatFile(data?.filings ?? [], data?.panels ?? []),
+    [data?.filings, data?.panels],
+  );
   const command = useCommand();
   const send = useSendCommand();
   const latestSnapshot = useLatestSnapshot();
@@ -306,16 +316,10 @@ export function ItemList({
    * render.
    */
   const flagged = useMemo(
-    () =>
-      itemsThatMayBeDuplicates(
-        data?.items ?? [],
-        // Which items are in the Inbox is half of the rule a pair is offered
-        // by, and a filing onto a Filter leaves an item there
-        // (`filingsThatFile`).
-        filingsThatFile(data?.filings ?? [], data?.panels ?? []),
-        data?.duplicates ?? [],
-      ),
-    [data?.items, data?.filings, data?.panels, data?.duplicates],
+    // Which items are in the Inbox is half of the rule a pair is offered by,
+    // and a filing onto a Filter leaves an item there (`filed` above).
+    () => itemsThatMayBeDuplicates(data?.items ?? [], filed, data?.duplicates ?? []),
+    [data?.items, filed, data?.duplicates],
   );
 
   /**
@@ -374,7 +378,7 @@ export function ItemList({
       data?.items ?? [],
       // The same reading `flagged` above is built from, so this settles only
       // what that mark actually offered.
-      filingsThatFile(data?.filings ?? [], data?.panels ?? []),
+      filed,
       data?.duplicates ?? [],
     ).map((other) => other.id);
     if (others.length === 0) return undefined;
@@ -787,7 +791,7 @@ export function ItemList({
     // nowhere, so moving it to the Inbox is a change that changes nothing -
     // and it would still offer to be undone, which is worse than doing nothing
     // at all.
-    if (!panelId && !(data?.filings ?? []).some((filing) => filing.itemId === itemId)) return;
+    if (!panelId && !filed.some((filing) => filing.itemId === itemId)) return;
 
 
     const moving = items.find((item) => item.id === itemId) ?? data?.items.find((i) => i.id === itemId);
@@ -798,7 +802,10 @@ export function ItemList({
     // Inbox, and there is no answer that leaves it there - the Inbox is what is
     // filed nowhere. What is left is a row arriving from another panel, where
     // moving it and adding it are two different things somebody has to mean.
-    const onAPanelAlready = (data?.filings ?? []).some((filing) => filing.itemId === itemId);
+    // `filed` rather than every filing: a row the Inbox is drawing came from
+    // the Inbox, whatever a filing onto a Filter says about it, and there is no
+    // answer to "move or add" that would leave it there.
+    const onAPanelAlready = filed.some((filing) => filing.itemId === itemId);
     if (panelId && wasAt === -1 && onAPanelAlready) {
       command.reset();
       setAsking({ item: moving, at: gap });

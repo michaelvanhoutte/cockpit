@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
-import { PANEL_TEXT_LIMIT } from '@cockpit/shared';
+import { CONDITIONS_LIMIT, PANEL_TEXT_LIMIT } from '@cockpit/shared';
 import type { Layout, Panel, WorkspaceSnapshot } from '@cockpit/shared';
 import {
   TASK_TYPE_ID,
@@ -1041,6 +1041,15 @@ describe('Panels', () => {
         situation: 'a condition about nothing the product has',
         panel: async () => (await aFilter()).panelId,
         conditions: [{ field: 'weather', window: 'today', orOverdue: true }],
+        status: 400,
+      },
+      {
+        // The column is read and shipped on every snapshot of the workspace,
+        // so what one command may put in it is bounded here rather than left
+        // to whatever a caller sends.
+        situation: 'more conditions than the command will take',
+        panel: async () => (await aFilter()).panelId,
+        conditions: Array.from({ length: CONDITIONS_LIMIT + 1 }, () => DUE_TODAY),
         status: 400,
       },
     ])('refuses what it shows being set against $situation', async ({ panel, conditions, status }) => {

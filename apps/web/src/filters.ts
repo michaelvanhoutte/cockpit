@@ -26,6 +26,11 @@ function asDay(year: number, month: number, day: number): Day {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+function partsOf(day: Day): { year: number; month: number; date: number } {
+  const [year, month, date] = day.split('-').map(Number);
+  return { year: year ?? 0, month: month ?? 1, date: date ?? 1 };
+}
+
 /**
  * Calendar arithmetic through UTC though the day it starts from is local.
  *
@@ -34,11 +39,6 @@ function asDay(year: number, month: number, day: number): Day {
  * doing it in UTC is what keeps the hour a clock change introduces from moving
  * a boundary by a day.
  */
-function partsOf(day: Day): { year: number; month: number; date: number } {
-  const [year, month, date] = day.split('-').map(Number);
-  return { year: year ?? 0, month: month ?? 1, date: date ?? 1 };
-}
-
 function daysAfter(day: Day, days: number): Day {
   const { year, month, date } = partsOf(day);
   const moved = new Date(Date.UTC(year, month - 1, date + days));
@@ -61,9 +61,9 @@ function lastDayOf(year: number, month: number): Day {
  * from Saturday morning.
  */
 function spanOf(window: DueWindow, on: Day): { from: Day; to: Day } | null {
-  const { year, month } = partsOf(on);
   if (!isAPeriod(window)) return null;
   if (window === 'today') return { from: on, to: on };
+  const { year, month } = partsOf(on);
   if (window === 'week') {
     const since = new Date(`${on}T00:00:00.000Z`).getUTCDay();
     const from = daysAfter(on, -((since + 6) % 7));
@@ -97,14 +97,7 @@ function holdsFor(condition: FilterCondition, item: Item, on: Day): boolean {
   return due >= span.from && due <= span.to;
 }
 
-/**
- * Where an Item sorts on a Filter: by due date, then by priority, then oldest
- * first - and anything with no due date last, whatever else it has.
- *
- * **No due date goes last rather than first**, though an undated Item may well
- * be old: a Filter is read top-down for what is closest, and a row that cannot
- * say when it is wanted has nothing to be at the top of the list about.
- */
+/** The priorities in the order a Filter reads them, highest first. */
 const BY_PRIORITY = { high: 0, normal: 1, low: 2 };
 
 /**
@@ -120,6 +113,14 @@ export function inFilterOrder(items: readonly Item[]): Item[] {
   return items.slice().sort(sortsBefore);
 }
 
+/**
+ * Where an Item sorts on a Filter: by due date, then by priority, then oldest
+ * first - and anything with no due date last, whatever else it has.
+ *
+ * **No due date goes last rather than first**, though an undated Item may well
+ * be old: a Filter is read top-down for what is closest, and a row that cannot
+ * say when it is wanted has nothing to be at the top of the list about.
+ */
 function sortsBefore(one: Item, other: Item): number {
   const dueOne = one.dueDate ?? null;
   const dueOther = other.dueDate ?? null;
@@ -177,9 +178,11 @@ const WINDOW_READS: Record<DueWindow, string> = {
  * back on hover, so what a Panel is gathering can be asked of the Panel rather
  * than of the question that set it.
  *
- * Every condition, joined, because all of them have to hold. *Or overdue* is
- * said only where it widens something: on *overdue* itself and on *not set* it
- * is stored but means nothing.
+ * **Joined with *and*, not with a comma**, because all of them have to hold: a
+ * comma reads as a list of alternatives, which is the one thing a Filter cannot
+ * be told to do (`docs/ideas.md`, "A Filter that reaches further than one rule
+ * at a time"). *Or overdue* is said only where it widens something: on
+ * *overdue* itself and on *not set* it is stored but means nothing.
  */
 export function saysWhatItShows(conditions: readonly FilterCondition[]): string {
   if (conditions.length === 0) return 'Nothing chosen yet';
@@ -189,5 +192,5 @@ export function saysWhatItShows(conditions: readonly FilterCondition[]): string 
       const widened = condition.orOverdue && isAPeriod(condition.window);
       return widened ? `${reads} or overdue` : reads;
     })
-    .join(', ');
+    .join(' and ');
 }

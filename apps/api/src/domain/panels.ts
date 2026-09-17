@@ -169,6 +169,11 @@ export function panelFromCommand(cmd: AddPanelCommand, tenantId: string): PanelR
     dashboardId: cmd.dashboardId,
     name: cmd.name,
     foldedName: foldName(cmd.name),
+    // The literal rather than `panelGathers`, uniquely here: this is where the
+    // wire's kind is translated into the stored one, so what makes it right is
+    // that the other branch type-checks as a `StoredPanelKind` - a wire kind
+    // added without a home in the column is a compile error at this line, which
+    // a predicate returning a boolean would not catch.
     kind: cmd.kind === 'filter' ? 'items' : cmd.kind,
     filterConditions: cmd.kind === 'filter' ? panelFilterAsStored([]) : null,
     // The characters as typed, until somebody asks for formatting: it is what

@@ -57,6 +57,8 @@ import {
   isPaletteTheme,
   nearestScreenSize,
   panelFilterAsStored,
+  panelGathers,
+  panelHoldsText,
   panelTakesItems,
 } from '@cockpit/shared';
 import { foldName } from '../domain/names.js';
@@ -409,7 +411,7 @@ function dashboardTheChangeIsAbout(
 function refuseAPanelNothingIsFiledOn(panel: { name: string; kind: PanelKind } | null) {
   if (panel && !panelTakesItems(panel)) {
     throw new PanelHoldsSomethingElseError(
-      panel.kind === 'filter'
+      panelGathers(panel)
         ? `${panel.name} gathers what it shows, so nothing is filed on it`
         : `${panel.name} holds text, so nothing is filed on it`,
     );
@@ -425,7 +427,7 @@ function refuseAPanelNothingIsFiledOn(panel: { name: string; kind: PanelKind } |
  * to answer differently about the same panel.
  */
 function refuseUnlessPanelOfText(panel: { name: string; kind: PanelKind }) {
-  if (panel.kind !== 'text') {
+  if (!panelHoldsText(panel)) {
     throw new PanelHoldsSomethingElseError(`${panel.name} holds items, not text`);
   }
 }
@@ -439,7 +441,7 @@ function refuseUnlessPanelOfText(panel: { name: string; kind: PanelKind }) {
  * another is a stale client rather than a state to accept quietly.
  */
 function refuseUnlessAFilter(panel: { name: string; kind: PanelKind }) {
-  if (panel.kind !== 'filter') {
+  if (!panelGathers(panel)) {
     throw new PanelHoldsSomethingElseError(`${panel.name} is not a filter`);
   }
 }

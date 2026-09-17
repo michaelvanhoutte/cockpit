@@ -240,23 +240,32 @@ function showBoard({
     error: error ?? null,
     variables,
   } as never);
-  const { unmount } = render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const board = (drawing: Panel[]) => (
+    <QueryClientProvider client={client}>
       <PanelBoard
         workspaceId="ws-work"
         dashboard={DASHBOARD}
         dashboards={dashboards}
-        panels={panels}
+        panels={drawing}
         layouts={layouts}
         screenSizes={screenSizes}
         items={items}
         filings={filings}
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const { unmount, rerender } = render(board(panels));
   // `unmount` because a panel of text sends what is unsent on the way out, and
-  // switching dashboard is what takes it off screen.
-  return { mutate, unmount, user: userEvent.setup() };
+  // switching dashboard is what takes it off screen. `redrawnWith` is the next
+  // snapshot arriving under a board already on screen - a change made on
+  // another device, which is not the same as this one being re-opened.
+  return {
+    mutate,
+    unmount,
+    redrawnWith: (next: Panel[]) => rerender(board(next)),
+    user: userEvent.setup(),
+  };
 }
 
 /**
@@ -1802,6 +1811,20 @@ describe('Onboarding', () => {
 
       expect(await screen.findByRole('combobox', { name: /Due date is/ })).toHaveValue('today');
       expect(screen.getByRole('checkbox', { name: 'or overdue' })).toBeChecked();
+    });
+
+    it('keeps the rows being added when the same filter is saved on another device', async () => {
+      // The question is read once and is the person's from then on: a snapshot
+      // arriving under it would otherwise take a half-finished row away with
+      // no way back, where everywhere else here the later save stands.
+      const { user, redrawnWith } = showBoard({ panels: [aFilter('due', 'Due soon')] });
+      await choose(user, 'Due soon', 'Filter…');
+      await user.click(await screen.findByRole('button', { name: '+ Add a condition' }));
+      await user.selectOptions(screen.getByRole('combobox', { name: /Due date is/ }), 'month');
+
+      redrawnWith([aFilter('due', 'Due soon', [DUE_TODAY])]);
+
+      expect(screen.getByRole('combobox', { name: /Due date is/ })).toHaveValue('month');
     });
 
     it('saves with nothing left, which puts it back to saying nothing has been chosen', async () => {

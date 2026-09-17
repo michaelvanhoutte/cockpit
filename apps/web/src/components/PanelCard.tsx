@@ -1,4 +1,4 @@
-import { NO_CONDITIONS, type Item, type Panel } from '@cockpit/shared';
+import { NO_CONDITIONS, panelGathers, panelHoldsText, type Item, type Panel } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { saysWhatItShows } from '../filters';
 import { ItemList } from './ItemList';
@@ -124,8 +124,8 @@ export function PanelCard({
 }: PanelCardProps) {
   // What this panel is made of, and so what its well holds, what its header
   // says beside its name and what its menu offers.
-  const text = panel.kind === 'text';
-  const filter = panel.kind === 'filter' ? (panel.filter ?? NO_CONDITIONS) : null;
+  const text = panelHoldsText(panel);
+  const filter = panelGathers(panel) ? (panel.filter ?? NO_CONDITIONS) : null;
   /** What the funnel reads back on hover, and the whole of what a Filter's state is. */
   const shows = filter ? saysWhatItShows(filter.conditions) : null;
   // Read once, said the many ways it is asked below: whether the menu is

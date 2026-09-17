@@ -295,9 +295,12 @@ describe('Panels', () => {
       { situation: 'overdue', conditions: [due('overdue')], reads: 'Overdue' },
       { situation: 'no due date', conditions: [due('none')], reads: 'No due date' },
       {
+        // *And*, because that is what two conditions mean - a comma would read
+        // as a list of alternatives, which is the one thing a Filter cannot be
+        // asked for.
         situation: 'two conditions, both of which hold',
         conditions: [due('week', false), due('none')],
-        reads: 'Due this week, No due date',
+        reads: 'Due this week and No due date',
       },
     ])('reads $situation', ({ conditions, reads }) => {
       expect(saysWhatItShows(conditions)).toBe(reads);
