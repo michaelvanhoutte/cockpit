@@ -23,7 +23,7 @@ import type {
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { filingsThatFile, itemsOnPanel } from '../filing';
-import { dayOf, filtersUsingPanel, itemsMatchingFilter } from '../filters';
+import { dayOf, filtersUsingPanel, itemsMatchingFilter, joinedBy } from '../filters';
 import { FilterQuestion } from './FilterQuestion';
 import { browserStore } from '../lastVisited';
 import { useChosenLayout } from '../panels/chosenLayout';
@@ -1131,18 +1131,13 @@ export function PanelBoard({
   );
 }
 
-/** Several names, joined the way a sentence lists things that all apply rather than choose between them - one alone, two joined by *and*, three or more comma-led into it. */
-function andList(names: readonly string[]): string {
-  if (names.length === 1) return names[0]!;
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
-}
-
 /**
  * What deleting this Panel takes with it, said before it happens - the text in
- * it, for a panel of text (issue 116's own rule, "naming what is going and
- * what goes with it"), and every live Filter of the Workspace that looks at
- * it ("Filter a Filter panel by panel, and name the Filters a panel's
- * deletion affects", issue 465).
+ * it, for a panel of text ("Ask before deleting in a dialog, from the row's
+ * own menu", issue 116's own "naming what is going and what goes with it"
+ * rule), and every live Filter of the Workspace that looks at it ("Filter a
+ * Filter panel by panel, and name the Filters a panel's deletion affects",
+ * issue 465).
  *
  * **Named rather than counted**, unlike `ManageTypes.tsx`'s own delete
  * question: a Filter is a handful at most, kept on a dashboard somebody
@@ -1158,10 +1153,10 @@ function deletePanelQuestion(panel: Panel, panelsInWorkspace: readonly Panel[]):
   const affected = filtersUsingPanel(panel.id, panelsInWorkspace);
   if (affected.length === 0) return `Delete ${panel.name}? ${goesWith}`;
   const uses = affected.length === 1 ? 'uses' : 'use';
-  const names = andList(affected.map((one) => one.filter.name));
+  const names = joinedBy(affected.map((one) => one.filter.name), 'and');
   const emptied = affected.filter((one) => one.leftEmpty).map((one) => one.filter.name);
   const emptyClause =
-    emptied.length > 0 ? ` ${andList(emptied)} will then show nothing.` : '';
+    emptied.length > 0 ? ` ${joinedBy(emptied, 'and')} will then show nothing.` : '';
   return `Delete ${panel.name}? ${goesWith} ${names} ${uses} it as a Panel condition.${emptyClause}`;
 }
 

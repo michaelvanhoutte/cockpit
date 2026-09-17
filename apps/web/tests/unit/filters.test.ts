@@ -547,6 +547,17 @@ describe('Panels', () => {
         panels: [wiki],
         reads: 'Filed on wiki',
       },
+      {
+        // Left out rather than named, the same as a deleted one: nothing is
+        // ever filed onto a Panel of text, so a value naming one - stored by
+        // a release that never enforced this - matches nothing, and the
+        // sentence must not claim otherwise.
+        situation: 'a value among the values names a live Panel of text',
+        conditions: [panel(wiki.id, 'journal')],
+        itemTypes: [],
+        panels: [wiki, aPanel('journal', 'text')],
+        reads: 'Filed on wiki',
+      },
     ])('reads $situation', ({ conditions, itemTypes, panels = [], reads }) => {
       expect(saysWhatItShows(conditions, itemTypes, panels)).toBe(reads);
     });
@@ -590,6 +601,18 @@ describe('Panels', () => {
     it('never names a Filter that does not condition on this Panel at all', () => {
       const other = { ...aPanel('over', 'filter'), filter: { conditions: [due('today')] } };
       expect(filtersUsingPanel('wiki', [FALCON, other])).toEqual([]);
+    });
+
+    it('says a Filter left holding only a live Panel of text would be left showing nothing', () => {
+      // A Panel of text still exists, so a naive "is this id still live"
+      // check would call the condition still holding one - but nothing is
+      // ever filed onto a Panel of text, so this Filter is about to show
+      // nothing exactly as if that id were dead too.
+      const journal = aPanel('journal', 'text');
+      const gathers = aFilterOnPanels('due', 'wiki', 'journal');
+      expect(filtersUsingPanel('wiki', [FALCON, journal, gathers])).toEqual([
+        { filter: gathers, leftEmpty: true },
+      ]);
     });
   });
 });

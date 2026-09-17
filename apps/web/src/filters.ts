@@ -256,11 +256,21 @@ const WINDOW_READS: Record<DueWindow, string> = {
   none: 'No due date',
 };
 
-/** Several names, read as a sentence lists them: one alone, two joined by *or*, three or more comma-led into it. */
-function orList(names: readonly string[]): string {
+/**
+ * Several names, read as a sentence lists them with the given conjunction:
+ * one alone, two joined by it, three or more comma-led into it.
+ *
+ * **One function for *and* and *or*, not two.** A Filter's own sentence
+ * always joins with *or* (`sentenceFor`, below); a Panel's delete question
+ * joins the Filters it would affect with *and* (`PanelBoard.tsx`,
+ * `deletePanelQuestion`) - the same shape, differing only in the word, so
+ * the one place this is written handles both rather than drifting into two
+ * near-identical copies.
+ */
+export function joinedBy(names: readonly string[], conjunction: 'and' | 'or'): string {
   if (names.length === 0) return 'nothing';
   if (names.length === 1) return names[0]!;
-  return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
+  return `${names.slice(0, -1).join(', ')} ${conjunction} ${names[names.length - 1]}`;
 }
 
 /**
@@ -295,19 +305,26 @@ function sentenceFor(
   panels: readonly Panel[],
 ): string {
   if (condition.field === 'priority') {
-    return `Priority is ${orList(condition.values.map((value) => PRIORITY_LABELS[value]))}`;
+    return `Priority is ${joinedBy(condition.values.map((value) => PRIORITY_LABELS[value]), 'or')}`;
   }
   if (condition.field === 'type') {
     const names = condition.values
       .map((id) => itemTypes.find((type) => type.id === id)?.name)
       .filter((name): name is string => name !== undefined);
-    return `Type is ${orList(names)}`;
+    return `Type is ${joinedBy(names, 'or')}`;
   }
   if (condition.field === 'panel') {
+    // Read against the same items-Panels-only set matching itself reads
+    // against (`itemsMatchingFilter`'s own `livePanelIds`) - a value naming a
+    // Panel that still exists but no longer takes items (kept, say, only as
+    // a stale row on some other Filter's own Panel condition) matches
+    // nothing, so it is left out of the sentence too rather than named as if
+    // it still could.
+    const liveItemsPanels = panels.filter(panelTakesItems);
     const names = condition.values
-      .map((id) => panels.find((panel) => panel.id === id)?.name)
+      .map((id) => liveItemsPanels.find((panel) => panel.id === id)?.name)
       .filter((name): name is string => name !== undefined);
-    return `Filed on ${orList(names)}`;
+    return `Filed on ${joinedBy(names, 'or')}`;
   }
   const reads = WINDOW_READS[condition.window];
   const widened = condition.orOverdue && isAPeriod(condition.window);
@@ -335,7 +352,12 @@ export function filtersUsingPanel(
   panelId: string,
   panelsInWorkspace: readonly Panel[],
 ): { filter: Panel; leftEmpty: boolean }[] {
-  const liveIds = new Set(panelsInWorkspace.map((panel) => panel.id));
+  // Items Panels alone, the same live set a Panel condition is matched and
+  // read back against (`itemsMatchingFilter`'s own `livePanelIds`,
+  // `sentenceFor`'s own `liveItemsPanels`) - a value naming a Panel that
+  // still exists but no longer takes items matches nothing, so it must not
+  // count as "still holding one" here either.
+  const liveIds = new Set(panelsInWorkspace.filter(panelTakesItems).map((panel) => panel.id));
   const affected: { filter: Panel; leftEmpty: boolean }[] = [];
   for (const candidate of panelsInWorkspace.filter(panelGathers)) {
     const condition = (candidate.filter ?? NO_CONDITIONS).conditions.find(
