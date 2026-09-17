@@ -907,6 +907,11 @@ describe('Triage', () => {
       const row = screen.getByRole('listitem');
       expect(row.className).toContain('bg-over-deep');
       expect(row.className).toContain('text-white');
+      // `hover:bg-accent-tint/40`, a `:hover` variant, outranks a plain class
+      // regardless of source order - left on this row, hovering would paint
+      // it pale while its text stayed forced white underneath (found in
+      // review), so this row does not carry it at all.
+      expect(row.className).not.toContain('hover:bg-accent-tint');
     });
 
     it('falls back to when the item was made, for a due date carried from before this shipped', () => {
@@ -933,6 +938,10 @@ describe('Triage', () => {
       // `due-tint` is the class the intensity actually reads through; a
       // picked row not wearing it is what leaves it inert here.
       expect(row.className).not.toContain('due-tint');
+      // The meta line forced itself white for an overdue item regardless of
+      // being picked - unreadable over the picked row's own light background
+      // (found in review).
+      expect(screen.getByText(/Own/).parentElement?.className).not.toContain('text-white');
     });
   });
 });

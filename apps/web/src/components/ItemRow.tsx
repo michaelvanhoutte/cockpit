@@ -302,6 +302,14 @@ export function ItemRow({
    * deadline as it approaches, and mark it red once passed", issue 473) -
    * `Date.now()` the same way `waited` above reads the real clock, with the
    * ramp itself proved without one in `dueDate.test.ts`.
+   *
+   * `dueColor === -1 && !selecting?.picked` is what actually reads as
+   * overdue below, at all three places that colour something by it: a row
+   * picked out does not, even past its own due date, since being picked
+   * wins over the row's due colour. `!selecting?.picked` is not optional on
+   * the meta line and the type name - unlike the row's own background, they
+   * have no ternary of their own already excluding a picked row, and forced
+   * themselves white over its light background without it (found in review).
    */
   const dueColor = dueColorOf(item.dueDate, item.dueDateSetAt, item.createdAt, Date.now());
 
@@ -540,16 +548,27 @@ export function ItemRow({
       // somebody had ticked. What the swipe would do is the band below instead,
       // which can say it in words.
       //
-      // **A row picked out wins over its own due colour**, `-1` (past its own
-      // due date) included: being picked is a transient thing somebody is
-      // doing to the row right now, and a due date is not. `due-tint`
-      // (styles.css) reads `--due` rather than carrying the `color-mix`
-      // formula itself, written once there rather than once per row per
-      // render - and is the default branch's own class even with no due
-      // date, since its fallback to 0 where the custom property is unset is
-      // already transparent, the same as no class at all.
-      className={`group relative touch-pan-y border-b border-black/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
-        selecting?.picked ? 'bg-accent-tint' : dueColor === -1 ? 'bg-over-deep text-white' : 'due-tint'
+      // **A row picked out wins over its own due colour**, overdue included:
+      // being picked is a transient thing somebody is doing to the row right
+      // now, and a due date is not - `picked` is checked first below, on
+      // purpose, rather than folded into the `-1` comparison. `due-tint`
+      // (styles.css) reads `--due` rather than carrying the
+      // `color-mix` formula itself, written once there rather than once per
+      // row per render - and is the default branch's own class even with no
+      // due date, since its fallback to 0 where the custom property is unset
+      // is already transparent, the same as no class at all.
+      //
+      // **`hover:bg-accent-tint/40` moved off the shared prefix and into the
+      // two branches that want it.** As a `:hover` variant it outranks a
+      // plain class regardless of source order, so left unconditional it
+      // painted an overdue row's own dark red pale on hover while its text
+      // stayed forced white underneath it - unreadable (found in review).
+      className={`group relative touch-pan-y border-b border-black/5 last:border-b-0 pointer-coarse:select-none ${
+        selecting?.picked
+          ? 'bg-accent-tint hover:bg-accent-tint/40'
+          : dueColor === -1 && !selecting?.picked
+            ? 'bg-over-deep text-white'
+            : 'due-tint hover:bg-accent-tint/40'
       }`}
       // Set regardless of which of the three classes above actually reads
       // it: `due-tint` is the only one that does, so `-1` on an overdue row
@@ -671,9 +690,9 @@ export function ItemRow({
               what the row wears - everything else here has none of its own or
               sits on its own light chip - so both swap it for white once the
               row has gone `over-deep` (issue 473). */}
-          <span className={`flex min-w-0 gap-1 text-xs ${dueColor === -1 ? 'text-white' : 'text-ink-faint'}`}>
+          <span className={`flex min-w-0 gap-1 text-xs ${dueColor === -1 && !selecting?.picked ? 'text-white' : 'text-ink-faint'}`}>
             {itemType && (
-              <span className={`shrink-0 ${dueColor === -1 ? 'text-white' : 'text-accent-deep'}`}>{itemType.name}</span>
+              <span className={`shrink-0 ${dueColor === -1 && !selecting?.picked ? 'text-white' : 'text-accent-deep'}`}>{itemType.name}</span>
             )}
             <span className="truncate">
               {itemType ? '· ' : ''}
