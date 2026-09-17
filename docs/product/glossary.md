@@ -20,6 +20,7 @@
 - **Capture** — creating an Item directly in the app instead of receiving it from a source.
 - **Done** — finished with, recorded as the time it happened. An Item is either yours to deal with or done; there is nothing in between, and a Type says what kind of thing it is rather than where it stands.
 - **Priority** — low / normal / high importance, independent of the Focus horizon.
+- **Due date** — a calendar date an Item is due by, or none. Drawn plainly on the row when set; colouring it by proximity is a separate, unbuilt idea (`docs/ideas.md`).
 - **Next action** — the short, always-editable label describing what to actually do about an Item.
 - **Focus horizon** — Today / This Week / This Month / This Quarter, date-anchored so it escalates to overdue.
 - **Triage / process** — dealing with what arrived: associating an Item, filing it where it belongs, and finishing with it or dismissing it.

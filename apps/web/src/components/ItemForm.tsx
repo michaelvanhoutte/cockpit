@@ -23,11 +23,13 @@ import { useUndo } from '../undo';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
 
-/** What the two boxes and the priority control hold, before anything is sent. */
+/** What the two boxes, the priority control and the due date hold, before anything is sent. */
 interface Draft {
   title: string;
   description: string;
   priority: Priority | null;
+  /** ISO calendar date (`2026-09-30`), or `null` for none - the empty string the date input shows for "unset" is never stored in the draft. */
+  dueDate: string | null;
 }
 
 const DESCRIPTION_LIMIT = 60_000;
@@ -79,8 +81,18 @@ interface PendingAttachment {
 export function whatChanged(
   was: Draft,
   now: Draft,
-): { title?: string; description?: string | null; priority?: Priority | null } {
-  const changed: { title?: string; description?: string | null; priority?: Priority | null } = {};
+): {
+  title?: string;
+  description?: string | null;
+  priority?: Priority | null;
+  dueDate?: string | null;
+} {
+  const changed: {
+    title?: string;
+    description?: string | null;
+    priority?: Priority | null;
+    dueDate?: string | null;
+  } = {};
   const title = now.title.trim();
   const description = now.description.trim();
 
@@ -88,6 +100,8 @@ export function whatChanged(
   if (description !== was.description.trim()) changed.description = description || null;
   // An enum, not text - nothing to trim, and no third state to collapse into.
   if (now.priority !== was.priority) changed.priority = now.priority;
+  // A calendar date or null - nothing to trim either.
+  if (now.dueDate !== was.dueDate) changed.dueDate = now.dueDate;
   return changed;
 }
 
@@ -430,7 +444,12 @@ function TheForm({
    */
   useEffect(() => {
     if (item && editing === null) {
-      const from = { title: item.title, description: item.description ?? '', priority: item.priority };
+      const from = {
+        title: item.title,
+        description: item.description ?? '',
+        priority: item.priority,
+        dueDate: item.dueDate,
+      };
       setEditing({ was: from, now: { ...from } });
     }
   }, [item, editing]);
@@ -482,7 +501,7 @@ function TheForm({
      * would close on it and take what was typed with it.
      */
     const landed = async (
-      what: 'title' | 'description' | 'priority',
+      what: 'title' | 'description' | 'priority' | 'dueDate',
       change: CommandArgs,
     ): Promise<boolean> => {
       const answer = await send(change);
@@ -519,6 +538,16 @@ function TheForm({
         !(await landed('priority', {
           name: 'set_priority',
           payload: { ...envelope(), priority: changed.priority },
+        }))
+      ) {
+        setRefusal('That item changed somewhere else. Copy what you want to keep and reopen it.');
+        return;
+      }
+      if (
+        changed.dueDate !== undefined &&
+        !(await landed('dueDate', {
+          name: 'set_due_date',
+          payload: { ...envelope(), dueDate: changed.dueDate },
         }))
       ) {
         setRefusal('That item changed somewhere else. Copy what you want to keep and reopen it.');
@@ -638,6 +667,17 @@ function TheForm({
                       </option>
                     ))}
                   </select>
+                </label>
+
+                <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                  Due date
+                  <input
+                    type="date"
+                    disabled={saving}
+                    value={draft.dueDate ?? ''}
+                    onChange={(e) => setDraft({ ...draft, dueDate: e.target.value || null })}
+                    className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                  />
                 </label>
 
                 {/* Formatted, with the Markdown behind it one button away

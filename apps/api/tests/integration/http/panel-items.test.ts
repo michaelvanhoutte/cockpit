@@ -822,6 +822,7 @@ describe('Capture', () => {
       { situation: 'dismissed', command: 'set_dismissed', body: { dismissed: true } },
       { situation: 'given a next action', command: 'set_next_action', body: { nextAction: 'Ring' } },
       { situation: 'given a priority', command: 'set_priority', body: { priority: 'high' } },
+      { situation: 'given a due date', command: 'set_due_date', body: { dueDate: '2026-09-30' } },
     ])('logs it against the account when one is $situation', async ({ command, body }) => {
       const itemId = await anItemBelongingNowhere('Where does this go');
       expect((await send(command, { workspaceId: 'ws-personal', itemId, ...body })).status).toBe(200);

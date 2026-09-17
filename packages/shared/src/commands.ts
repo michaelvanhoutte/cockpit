@@ -378,6 +378,12 @@ export const setPrioritySchema = commandEnvelopeSchema.extend({
 });
 export type SetPriorityCommand = z.infer<typeof setPrioritySchema>;
 
+export const setDueDateSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  dueDate: z.iso.date().nullable(),
+});
+export type SetDueDateCommand = z.infer<typeof setDueDateSchema>;
+
 /** set_title / set_description — two commands rather than one save ("Edit an item's title and description on a form of its own", issue 159; architecture.md §4.4). */
 export const setTitleSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
@@ -593,6 +599,7 @@ export const commandSchemas = {
   associate: associateSchema,
   set_next_action: setNextActionSchema,
   set_priority: setPrioritySchema,
+  set_due_date: setDueDateSchema,
   set_title: setTitleSchema,
   set_description: setDescriptionSchema,
   add_attachment: addAttachmentSchema,

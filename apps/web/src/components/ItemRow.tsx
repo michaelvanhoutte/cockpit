@@ -30,6 +30,26 @@ const PRIORITY_MARKS: Record<Priority, { label: string; className: string }> = {
   high: { label: 'High priority', className: 'bg-priority-high' },
 };
 
+/**
+ * `Intl.DateTimeFormat` construction resolves locale data and is worth paying
+ * for once rather than once per row per render (the same reasoning
+ * `AdminPage.tsx`'s `SIGNED_IN_FORMAT` gives).
+ */
+const DUE_DATE_FORMAT = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' });
+
+/**
+ * What a due date reads as on the row, or `null` for none and for anything
+ * that is not really a date - drawn plainly, with no colour for how close it
+ * is (out of scope, issue 37). Defensive the same way `usableInstant`
+ * (`AdminPage.tsx`) is: `dueDate` is store-validated, but a row does not
+ * crash on a value it did not itself write.
+ */
+function dueDateLabel(dueDate: string | null): string | null {
+  if (dueDate === null) return null;
+  const parsed = new Date(dueDate);
+  return Number.isNaN(parsed.getTime()) ? null : DUE_DATE_FORMAT.format(parsed);
+}
+
 export function ItemRow({
   item,
   itemType,
@@ -295,6 +315,7 @@ export function ItemRow({
    * cache is never re-validated against the schema the way a fresh fetch is.
    */
   const priorityMark = item.priority ? PRIORITY_MARKS[item.priority] : undefined;
+  const dueDateText = dueDateLabel(item.dueDate);
 
   /**
    * The finger resting on this row, waiting to become a selection ("Start a
@@ -661,6 +682,11 @@ export function ItemRow({
                 Any workspace
               </span>
             )}
+            {/* The due date, when one is set - nothing drawn for an item with
+                none, the same convention priority's own mark follows. Plain
+                text rather than a coloured mark: colouring by proximity is
+                out of scope (issue 37). */}
+            {dueDateText && <span className="shrink-0">Due {dueDateText}</span>}
             {/* Cockpit's own proposal, not yet taken - a click is the whole of
                 accepting it, and `title` is where "in your own terms rather
                 than the model's" lives, the reason written for this hover and

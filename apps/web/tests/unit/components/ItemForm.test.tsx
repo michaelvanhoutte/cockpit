@@ -196,63 +196,89 @@ describe('Item editing', () => {
     it.each([
       {
         situation: 'the title edited and nothing else',
-        draft: { title: 'Part 12', description: '', priority: null },
+        draft: { title: 'Part 12', description: '', priority: null, dueDate: null },
         asks: { title: 'Part 12' },
       },
       {
         situation: 'the description written and nothing else',
-        draft: { title: 'Part 11', description: 'Tolerances', priority: null },
+        draft: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null },
         asks: { description: 'Tolerances' },
       },
       {
         situation: 'both',
-        draft: { title: 'Part 12', description: 'Tolerances', priority: null },
+        draft: { title: 'Part 12', description: 'Tolerances', priority: null, dueDate: null },
         asks: { title: 'Part 12', description: 'Tolerances' },
       },
       {
         situation: 'neither',
-        draft: { title: 'Part 11', description: '', priority: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null },
         asks: {},
       },
       // Adding a space to the end of a title is not a change to the title: the
       // space would not be stored either.
       {
         situation: 'a title with a space added to the end',
-        draft: { title: 'Part 11 ', description: '', priority: null },
+        draft: { title: 'Part 11 ', description: '', priority: null, dueDate: null },
         asks: {},
       },
       // Emptied is cleared, and there is no third state to send.
       {
         situation: 'a description emptied',
-        stored: { title: 'Part 11', description: 'Tolerances', priority: null },
-        draft: { title: 'Part 11', description: '   ', priority: null },
+        stored: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null },
+        draft: { title: 'Part 11', description: '   ', priority: null, dueDate: null },
         asks: { description: null },
       },
       {
         situation: 'a description that was never there and is still empty',
-        draft: { title: 'Part 11', description: '', priority: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null },
         asks: {},
       },
       {
         situation: 'the priority changed and nothing else',
-        draft: { title: 'Part 11', description: '', priority: 'high' as const },
+        draft: { title: 'Part 11', description: '', priority: 'high' as const, dueDate: null },
         asks: { priority: 'high' },
       },
       {
         situation: 'the priority cleared to none',
-        stored: { title: 'Part 11', description: '', priority: 'low' as const },
-        draft: { title: 'Part 11', description: '', priority: null },
+        stored: { title: 'Part 11', description: '', priority: 'low' as const, dueDate: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null },
         asks: { priority: null },
       },
       {
         situation: 'a priority left as it was',
-        stored: { title: 'Part 11', description: '', priority: 'normal' as const },
-        draft: { title: 'Part 11', description: '', priority: 'normal' as const },
+        stored: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null },
+        draft: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null },
+        asks: {},
+      },
+      {
+        situation: 'a due date set on an item that had none',
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30' },
+        asks: { dueDate: '2026-09-30' },
+      },
+      {
+        situation: 'a due date changed to another date',
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30' },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-15' },
+        asks: { dueDate: '2026-10-15' },
+      },
+      {
+        situation: 'a due date cleared',
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30' },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null },
+        asks: { dueDate: null },
+      },
+      {
+        situation: 'a due date left as it was',
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30' },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30' },
         asks: {},
       },
     ])('$situation', ({ stored, draft, asks }) => {
       expect(
-        whatChanged(stored ?? { title: 'Part 11', description: '', priority: null }, draft),
+        whatChanged(
+          stored ?? { title: 'Part 11', description: '', priority: null, dueDate: null },
+          draft,
+        ),
       ).toEqual(asks);
     });
 
@@ -366,6 +392,61 @@ describe('Item editing', () => {
       await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
       expect(sent().map((change) => change.name)).toEqual(['set_priority']);
       expect(sent()[0]).toMatchObject({ payload: { priority: null } });
+    });
+  });
+
+  /**
+   * "Show and set an item's due date" (issue 462): a fourth field beside
+   * title, description and priority, sent only on Save and only when it
+   * moved - the same rule the boxes above already follow.
+   */
+  describe('due date is edited from the form', () => {
+    const dueDateBox = () => screen.getByLabelText('Due date');
+
+    it('opens with the item’s own due date filled in', async () => {
+      await theForm(anItem({ dueDate: '2026-09-30' }));
+
+      expect(dueDateBox()).toHaveValue('2026-09-30');
+    });
+
+    it('opens empty for an item with no due date', async () => {
+      await theForm(anItem({ dueDate: null }));
+
+      expect(dueDateBox()).toHaveValue('');
+    });
+
+    it('sends only a due date change when only the due date changed', async () => {
+      const user = await theForm(anItem({ dueDate: null }));
+
+      fireEvent.change(dueDateBox(), { target: { value: '2026-09-30' } });
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+      expect(sent().map((change) => change.name)).toEqual(['set_due_date']);
+      expect(sent()[0]).toMatchObject({ payload: { dueDate: '2026-09-30' } });
+    });
+
+    it('sends a due date change alongside whichever other fields changed', async () => {
+      const user = await theForm(anItem({ dueDate: null }));
+
+      await user.clear(titleBox());
+      await user.type(titleBox(), 'Part 12');
+      fireEvent.change(dueDateBox(), { target: { value: '2026-09-30' } });
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+      expect(sent().map((change) => change.name)).toEqual(['set_title', 'set_due_date']);
+    });
+
+    it('sends a due date change of null when cleared on an item that has one', async () => {
+      const user = await theForm(anItem({ dueDate: '2026-09-30' }));
+
+      fireEvent.change(dueDateBox(), { target: { value: '' } });
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+      expect(sent().map((change) => change.name)).toEqual(['set_due_date']);
+      expect(sent()[0]).toMatchObject({ payload: { dueDate: null } });
     });
   });
 

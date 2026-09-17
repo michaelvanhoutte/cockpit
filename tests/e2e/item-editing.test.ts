@@ -14,6 +14,7 @@ const form = (page: Page) => page.getByRole('dialog');
 const titleBox = (page: Page) => form(page).getByRole('textbox', { name: 'Title' });
 const descriptionBox = (page: Page) => form(page).getByRole('textbox', { name: 'Description' });
 const priorityBox = (page: Page) => form(page).getByLabel('Priority');
+const dueDateBox = (page: Page) => form(page).getByLabel('Due date');
 
 /**
  * The description's editor is fetched behind the form (architecture,
@@ -204,6 +205,44 @@ test.describe('Item editing', () => {
       // that alone, whether or not the clear actually landed.
       await expect(priorityBox(page)).toHaveCount(0);
       await expect(itemRow(page, thought).getByLabel('High priority')).toHaveCount(0);
+    });
+  });
+
+  /**
+   * F3, because this is the capability: a person sets or clears an item's due
+   * date and finds the row showing it accordingly. What the form sends is
+   * proved without a browser in apps/web/tests/unit/components/ItemForm.test.tsx,
+   * and that a save waits for the re-read before the row can be trusted is
+   * proved in apps/web/tests/unit/api/queries.test.tsx. Neither can say the
+   * row itself actually changes on screen ("Show and set an item's due date",
+   * issue 462).
+   */
+  test.describe('setting a due date shows it on the row, and clearing it removes it', () => {
+    test('shows the date chosen, and nothing once it is cleared', async ({ page, isMobile }) => {
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Renew the passport');
+      await capture(page, thought, isMobile);
+
+      await openItem(page, thought, isMobile);
+      await dueDateBox(page).fill('2026-09-30');
+      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+
+      await expect(itemRow(page, thought).getByText('Due Sep 30, 2026')).toBeVisible();
+
+      // And it is still there on the way back in, holding the date rather
+      // than only having drawn it once.
+      await openItem(page, thought, isMobile);
+      await expect(dueDateBox(page)).toHaveValue('2026-09-30');
+
+      await dueDateBox(page).fill('');
+      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+
+      // The dialog gone first, the same as the cancel walk above asserts -
+      // otherwise the list sits behind Radix's aria-hidden while the dialog
+      // is still up mid-save, and the row would read as unset from that
+      // alone, whether or not the clear actually landed.
+      await expect(dueDateBox(page)).toHaveCount(0);
+      await expect(itemRow(page, thought).getByText('Due Sep 30, 2026')).toHaveCount(0);
     });
   });
 
