@@ -1,16 +1,28 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { DUE_WINDOWS, type DueWindow, type FilterCondition } from '@cockpit/shared';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import {
+  DUE_WINDOWS,
+  prioritySchema,
+  type DueCondition,
+  type DueWindow,
+  type FilterCondition,
+  type ItemType,
+  type Priority,
+} from '@cockpit/shared';
 import { isAPeriod } from '../filters';
+import { MenuContent, menuItemClass } from './Menu';
+import { NO_TYPES } from '../itemTypes';
 
 /**
  * What a Filter shows, asked in a form of its own ("Add a Filter panel that
- * shows every filed item due in a window", issue 463).
+ * shows every filed item due in a window", issue 463; "Filter a Filter panel
+ * by priority and type", issue 464).
  *
  * **One row per condition, and all of them have to hold.** The rows are a list
  * rather than a sentence with clauses because that is what the question grows
- * into - a Priority, a Type and a Panel are conditions of their own in the
- * sibling issues, and each is another row here rather than another form.
+ * into - a Panel condition is one more row in a sibling issue (465), and each
+ * is another row here rather than another form.
  *
  * **Saved whole, including saved empty.** Taking the last row out and saving is
  * a real answer: the Filter goes back to saying it has nothing chosen, which is
@@ -24,6 +36,7 @@ import { isAPeriod } from '../filters';
 export function FilterQuestion({
   panelName,
   conditions,
+  itemTypes,
   open,
   onSave,
   onCancel,
@@ -34,6 +47,8 @@ export function FilterQuestion({
   panelName: string;
   /** What the Filter shows now, which the rows open on. */
   conditions: readonly FilterCondition[];
+  /** The account's live Types, what a Type condition offers to choose from. */
+  itemTypes: readonly ItemType[];
   open: boolean;
   onSave: (conditions: FilterCondition[]) => void;
   onCancel: () => void;
@@ -57,6 +72,15 @@ export function FilterQuestion({
 
   const change = (at: number, row: FilterCondition) =>
     setRows(rows.map((was, index) => (index === at ? row : was)));
+
+  /**
+   * The fields the question does not already have a row for - what
+   * *+ Add a condition* offers, and the whole of how "a field already on the
+   * filter is not offered a second time" (issue 464) is kept on this side: a
+   * field with a row already is left off the menu rather than shown and
+   * refused.
+   */
+  const available = FIELD_ORDER.filter((field) => !rows.some((row) => row.field === field));
 
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
@@ -89,10 +113,11 @@ export function FilterQuestion({
             ) : (
               <ul className="flex flex-col gap-3">
                 {rows.map((row, at) => (
-                  <li key={at} className="rounded-md border border-black/10 p-3">
-                    <DueCondition
+                  <li key={row.field} className="rounded-md border border-black/10 p-3">
+                    <ConditionRow
                       at={at}
                       row={row}
+                      itemTypes={itemTypes}
                       onChange={(next) => change(at, next)}
                       onRemove={() => setRows(rows.filter((_, index) => index !== at))}
                     />
@@ -101,17 +126,27 @@ export function FilterQuestion({
               </ul>
             )}
 
-            <button
-              type="button"
-              onClick={() =>
-                // A Due date, because it is the only condition there is. The
-                // choice of which kind arrives with the second one.
-                setRows([...rows, { field: 'dueDate', window: 'today', orOverdue: true }])
-              }
-              className="mt-3 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
-            >
-              + Add a condition
-            </button>
+            {available.length > 0 && (
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger
+                  type="button"
+                  className="mt-3 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
+                >
+                  + Add a condition
+                </DropdownMenu.Trigger>
+                <MenuContent>
+                  {available.map((field) => (
+                    <DropdownMenu.Item
+                      key={field}
+                      className={menuItemClass}
+                      onSelect={() => setRows([...rows, defaultConditionFor(field)])}
+                    >
+                      {FIELD_LABELS[field]}
+                    </DropdownMenu.Item>
+                  ))}
+                </MenuContent>
+              </DropdownMenu.Root>
+            )}
 
             {refusal && (
               <p role="alert" className="pt-3 text-sm text-over">
@@ -141,6 +176,65 @@ export function FilterQuestion({
   );
 }
 
+/** The fields a condition can be about, in the order *+ Add a condition* offers them. */
+const FIELD_ORDER: readonly FilterCondition['field'][] = ['dueDate', 'priority', 'type'];
+
+/** What each field is called on the add menu and beside its row. */
+const FIELD_LABELS: Record<FilterCondition['field'], string> = {
+  dueDate: 'Due date',
+  priority: 'Priority',
+  type: 'Type',
+};
+
+/** A fresh row for a field just added - nothing chosen yet, except Due date, which has always defaulted to *today*. */
+function defaultConditionFor(field: FilterCondition['field']): FilterCondition {
+  if (field === 'dueDate') return { field: 'dueDate', window: 'today', orOverdue: true };
+  if (field === 'priority') return { field: 'priority', values: [] };
+  return { field: 'type', values: [] };
+}
+
+/** One row, dispatched to the control its field takes. */
+function ConditionRow({
+  at,
+  row,
+  itemTypes,
+  onChange,
+  onRemove,
+}: {
+  at: number;
+  row: FilterCondition;
+  itemTypes: readonly ItemType[];
+  onChange: (row: FilterCondition) => void;
+  onRemove: () => void;
+}) {
+  if (row.field === 'priority') {
+    return (
+      <ValuesCondition
+        at={at}
+        label={FIELD_LABELS.priority}
+        values={row.values}
+        options={prioritySchema.options.map((value) => ({ id: value, label: PRIORITY_LABELS[value] }))}
+        onChange={(values) => onChange({ ...row, values: values as Priority[] })}
+        onRemove={onRemove}
+      />
+    );
+  }
+  if (row.field === 'type') {
+    return (
+      <ValuesCondition
+        at={at}
+        label={FIELD_LABELS.type}
+        values={row.values}
+        options={itemTypes.map((type) => ({ id: type.id, label: type.name }))}
+        empty={NO_TYPES}
+        onChange={(values) => onChange({ ...row, values })}
+        onRemove={onRemove}
+      />
+    );
+  }
+  return <DueConditionRow at={at} row={row} onChange={onChange} onRemove={onRemove} />;
+}
+
 /** What each window is called on the form, in the order the question offers them. */
 const WINDOW_LABELS: Record<DueWindow, string> = {
   overdue: 'Overdue',
@@ -149,6 +243,13 @@ const WINDOW_LABELS: Record<DueWindow, string> = {
   month: 'This month',
   quarter: 'This quarter',
   none: 'Not set',
+};
+
+/** Priority's option text, keyed so a level added to the schema fails to compile here rather than drifting silently out of step with it. */
+const PRIORITY_LABELS: Record<Priority, string> = {
+  low: 'Low',
+  normal: 'Normal',
+  high: 'High',
 };
 
 /**
@@ -164,15 +265,15 @@ const WINDOW_LABELS: Record<DueWindow, string> = {
  * grows a row per condition is a list, and the keyboard and the phone both
  * already know what to do with one.
  */
-function DueCondition({
+function DueConditionRow({
   at,
   row,
   onChange,
   onRemove,
 }: {
   at: number;
-  row: FilterCondition;
-  onChange: (row: FilterCondition) => void;
+  row: DueCondition;
+  onChange: (row: DueCondition) => void;
   onRemove: () => void;
 }) {
   return (
@@ -205,6 +306,73 @@ function DueCondition({
         onClick={onRemove}
         aria-label={`Remove condition ${at + 1}`}
         className="ml-auto rounded-md px-2 py-1 text-sm text-ink-faint hover:bg-accent-tint hover:text-accent-deep"
+      >
+        Remove
+      </button>
+    </div>
+  );
+}
+
+/**
+ * A Priority or a Type row: a checkbox per value on offer, any of which the
+ * condition matches ("Filter a Filter panel by priority and type", issue 464).
+ *
+ * **One shape for both.** Priority's options are the three levels the schema
+ * carries; a Type's are the account's live Types, and a value naming one since
+ * deleted stops being offered here the moment it is - which is also why
+ * nothing here needs to know about a deleted Type at all: `itemTypes` already
+ * carries only the live ones, so a value not among them simply draws no
+ * checkbox, matching what it now means (`filters.ts`).
+ *
+ * **Checkboxes, not a `select`.** The question is which of several values
+ * matches, so the answer is a set rather than one choice from a list - the
+ * shape a `select` cannot hold at all.
+ */
+function ValuesCondition({
+  at,
+  label,
+  values,
+  options,
+  empty,
+  onChange,
+  onRemove,
+}: {
+  at: number;
+  label: string;
+  values: readonly string[];
+  options: readonly { id: string; label: string }[];
+  /** What to say instead of any checkboxes where there is nothing to offer - a Type condition where the account has no Types at all. */
+  empty?: string;
+  onChange: (values: string[]) => void;
+  onRemove: () => void;
+}) {
+  const toggle = (id: string) =>
+    onChange(values.includes(id) ? values.filter((held) => held !== id) : [...values, id]);
+
+  return (
+    <div className="flex flex-wrap items-start gap-3">
+      <fieldset className="flex min-w-0 flex-wrap items-center gap-3">
+        <legend className="text-sm text-ink-soft">{label}</legend>
+        {options.length === 0 && empty ? (
+          <span className="text-sm text-ink-faint">{empty}</span>
+        ) : (
+          options.map((option) => (
+            <label key={option.id} className="flex items-center gap-1.5 text-sm text-ink-soft">
+              <input
+                type="checkbox"
+                checked={values.includes(option.id)}
+                onChange={() => toggle(option.id)}
+              />
+              {option.label}
+            </label>
+          ))
+        )}
+      </fieldset>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Remove condition ${at + 1}`}
+        className="ml-auto shrink-0 rounded-md px-2 py-1 text-sm text-ink-faint hover:bg-accent-tint hover:text-accent-deep"
       >
         Remove
       </button>

@@ -17,6 +17,8 @@ import {
  */
 
 const DUE_TODAY: FilterCondition = { field: 'dueDate', window: 'today', orOverdue: true };
+const PRIORITY_HIGH: FilterCondition = { field: 'priority', values: ['high'] };
+const TYPE_OKR: FilterCondition = { field: 'type', values: ['type-okr'] };
 
 describe('Panels', () => {
   describe('a panel that gathers what it shows says so however its conditions were stored', () => {
@@ -24,6 +26,15 @@ describe('Panels', () => {
       expect(panelFilterFrom(panelFilterAsStored([DUE_TODAY]))).toEqual({
         conditions: [DUE_TODAY],
       });
+    });
+
+    it('reads back a Priority and a Type condition beside a Due date one', () => {
+      // The three fields together, each carrying its own value shape - a
+      // discriminated union rather than a reshaping of every stored Filter
+      // ("Filter a Filter panel by priority and type", issue 464).
+      expect(
+        panelFilterFrom(panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH, TYPE_OKR])),
+      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH, TYPE_OKR] });
     });
 
     it('is not a filter at all where nothing was stored', () => {
@@ -34,6 +45,8 @@ describe('Panels', () => {
       { situation: 'text that is not what was stored at all', stored: '{oops' },
       { situation: 'a shape from some other release', stored: '{"rules":[]}' },
       { situation: 'a window this release has never heard of', stored: '{"conditions":[{"field":"dueDate","window":"fortnight"}]}' },
+      { situation: 'a priority level this release has never heard of', stored: '{"conditions":[{"field":"priority","values":["urgent"]}]}' },
+      { situation: 'a field this release has never heard of', stored: '{"conditions":[{"field":"assignee","values":[]}]}' },
       { situation: 'a list of something that is not a condition', stored: '{"conditions":["today"]}' },
       { situation: 'nothing but a number', stored: '7' },
     ])('shows nothing chosen where it holds $situation', ({ stored }) => {

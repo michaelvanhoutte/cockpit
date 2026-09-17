@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { workspaceNameSchema } from './item.js';
+import { prioritySchema, workspaceNameSchema } from './item.js';
 
 /**
  * Panels and the layouts that arrange them ("Panels on a dashboard, with
@@ -116,11 +116,12 @@ export const dueWindowSchema = z.enum(DUE_WINDOWS);
 export type DueWindow = z.infer<typeof dueWindowSchema>;
 
 /**
- * One condition on a Filter: today, always a Due date.
+ * One condition on a Filter, on its Due date.
  *
- * **`field` is written down though there is only one value for it**, so the
- * Priority, Type and Panel conditions of the sibling issues become another
- * member of a union here rather than a reshaping of every stored Filter.
+ * **`field` is written down though `dueConditionSchema` alone would not need
+ * it**, so the Priority and Type conditions below are another member of a
+ * union here rather than a reshaping of every stored Filter — and a Panel
+ * condition (issue 465) will be a fourth, the same way.
  *
  * `orOverdue` widens the four periods to take in what is already past — ticked
  * by default, because "due today" without it hides exactly the work that most
@@ -135,8 +136,60 @@ export const dueConditionSchema = z.object({
 });
 export type DueCondition = z.infer<typeof dueConditionSchema>;
 
-/** One row of a Filter's question. A union of one today, per `dueConditionSchema` above. */
-export const filterConditionSchema = dueConditionSchema;
+/**
+ * The most values a Priority or Type condition holds at once ("Filter a
+ * Filter panel by priority and type", issue 464).
+ *
+ * Bounded for the reason `CONDITIONS_LIMIT` (`commands.ts`) bounds the whole
+ * list: this is written into the same uncapped column. Three is already every
+ * Priority there is; a Type condition could in principle ask for more, and
+ * this is a generous cap on a workspace's Types rather than a claim about how
+ * many anyone would choose.
+ */
+export const CONDITION_VALUES_LIMIT = 50;
+
+/**
+ * One condition on a Filter, on its Priority ("Filter a Filter panel by
+ * priority and type", issue 464).
+ *
+ * **Matches any value it holds, never all of them** — *Priority is High or
+ * Normal* is one condition met by either, the same way a Type condition below
+ * reads. An Item with no Priority matches no Priority condition, whatever it
+ * asks for: absence is not one of the values on offer.
+ */
+export const priorityConditionSchema = z.object({
+  field: z.literal('priority'),
+  values: z.array(prioritySchema).max(CONDITION_VALUES_LIMIT),
+});
+export type PriorityCondition = z.infer<typeof priorityConditionSchema>;
+
+/**
+ * One condition on a Filter, on its Type ("Filter a Filter panel by priority
+ * and type", issue 464).
+ *
+ * **Type ids rather than Types**, so a stored condition survives a Type being
+ * renamed or recoloured untouched. A value naming a Type since deleted is
+ * ignored when the condition is matched or read back
+ * (`apps/web/src/filters.ts`) rather than refused on the way in — the same
+ * choice `panelFilterFrom` makes for a shape this release cannot read at all,
+ * and for the same reason: a Filter stored before a Type was deleted is not a
+ * broken Filter.
+ */
+export const typeConditionSchema = z.object({
+  field: z.literal('type'),
+  values: z.array(z.string().min(1)).max(CONDITION_VALUES_LIMIT),
+});
+export type TypeCondition = z.infer<typeof typeConditionSchema>;
+
+/**
+ * One row of a Filter's question: a Due date, a Priority or a Type condition
+ * today, a Panel condition to come (issue 465).
+ */
+export const filterConditionSchema = z.discriminatedUnion('field', [
+  dueConditionSchema,
+  priorityConditionSchema,
+  typeConditionSchema,
+]);
 export type FilterCondition = z.infer<typeof filterConditionSchema>;
 
 /**

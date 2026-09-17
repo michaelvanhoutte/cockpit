@@ -1,4 +1,13 @@
-import type { DueWindow, Filing, FilterCondition, Item, PanelFilter, Panel } from '@cockpit/shared';
+import type {
+  DueWindow,
+  Filing,
+  FilterCondition,
+  Item,
+  ItemType,
+  PanelFilter,
+  Panel,
+  Priority,
+} from '@cockpit/shared';
 import { filingsThatFile, itemsThatAreFiled } from './filing';
 
 /**
@@ -83,8 +92,35 @@ export function isAPeriod(window: DueWindow): boolean {
   return window !== 'overdue' && window !== 'none';
 }
 
-/** Whether one condition holds for one Item, on the day the person is looking. */
-function holdsFor(condition: FilterCondition, item: Item, on: Day): boolean {
+/**
+ * Whether one condition holds for one Item, on the day the person is looking.
+ *
+ * **Priority and Type both match on "any of"**, never on all of them at once
+ * - *Priority is High or Normal* is one condition an Item meets by holding
+ * either. An Item with no Priority, or no Type, matches neither ("Filter a
+ * Filter panel by priority and type", issue 464) - absence is not among the
+ * values on offer, the same way *not set* has to be asked for on a Due date.
+ *
+ * **A Type condition's values are read against the live Types alone.** A
+ * value naming a Type since deleted is ignored rather than refused
+ * (`typeConditionSchema`'s own comment), so it simply cannot be what an Item
+ * matches on - and where deleting leaves a condition with no live value left,
+ * every Item's Type fails to be among them and the condition matches nothing,
+ * never widening to stand for every Type.
+ */
+function holdsFor(
+  condition: FilterCondition,
+  item: Item,
+  on: Day,
+  liveTypeIds: ReadonlySet<string>,
+): boolean {
+  if (condition.field === 'priority') {
+    return item.priority !== null && condition.values.includes(item.priority);
+  }
+  if (condition.field === 'type') {
+    if (item.typeId === null) return false;
+    return condition.values.some((id) => liveTypeIds.has(id) && id === item.typeId);
+  }
   const due = item.dueDate ?? null;
   if (condition.window === 'none') return due === null;
   if (due === null) return false;
@@ -103,11 +139,11 @@ const BY_PRIORITY = { high: 0, normal: 1, low: 2 };
 /**
  * A Filter's rows, in the order it draws them.
  *
- * Its own function because it is its own rule, and because nothing a Filter can
- * be told today mixes dated rows with undated ones - a Due date condition asks
- * for one or the other - so *no due date last* is a claim about the ordering
- * rather than about any one Filter's contents until the Priority and Type
- * conditions land beside it.
+ * Its own function because it is its own rule. A Filter with only a Priority
+ * or a Type condition mixes dated and undated Items freely - unlike a Due
+ * date condition, neither says anything about whether an Item has one - which
+ * is exactly what *no due date last* already handles rather than assumes
+ * away.
  */
 export function inFilterOrder(items: readonly Item[]): Item[] {
   return items.slice().sort(sortsBefore);
@@ -157,13 +193,16 @@ export function itemsMatchingFilter(
   items: readonly Item[],
   filings: readonly Filing[],
   panelsInWorkspace: readonly Panel[],
+  /** The account's live Types, which is what a Type condition's values are read against. */
+  itemTypes: readonly ItemType[],
   filter: PanelFilter,
   on: Day,
 ): Item[] {
   if (filter.conditions.length === 0) return [];
+  const liveTypeIds = new Set(itemTypes.map((type) => type.id));
   return inFilterOrder(
     itemsThatAreFiled(items, filingsThatFile(filings, panelsInWorkspace)).filter((item) =>
-      filter.conditions.every((condition) => holdsFor(condition, item, on)),
+      filter.conditions.every((condition) => holdsFor(condition, item, on, liveTypeIds)),
     ),
   );
 }
@@ -177,6 +216,20 @@ const WINDOW_READS: Record<DueWindow, string> = {
   none: 'No due date',
 };
 
+/** Priority's own reads, the order a Filter reads them in matching `BY_PRIORITY` above. */
+const PRIORITY_READS: Record<Priority, string> = {
+  high: 'High',
+  normal: 'Normal',
+  low: 'Low',
+};
+
+/** Several names, read as a sentence lists them: one alone, two joined by *or*, three or more comma-led into it. */
+function orList(names: readonly string[]): string {
+  if (names.length === 0) return 'nothing';
+  if (names.length === 1) return names[0]!;
+  return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
+}
+
 /**
  * What a Filter shows, as a sentence - the funnel beside its name reads this
  * back on hover, so what a Panel is gathering can be asked of the Panel rather
@@ -187,14 +240,31 @@ const WINDOW_READS: Record<DueWindow, string> = {
  * be told to do (`docs/ideas.md`, "A Filter that reaches further than one rule
  * at a time"). *Or overdue* is said only where it widens something: on
  * *overdue* itself and on *not set* it is stored but means nothing.
+ *
+ * **A Type condition's values are read against `itemTypes`**, the same live
+ * list matching itself reads against (`itemsMatchingFilter`), so a value
+ * naming a Type since deleted is left out of the sentence exactly as it is
+ * left out of what the condition matches.
  */
-export function saysWhatItShows(conditions: readonly FilterCondition[]): string {
+export function saysWhatItShows(
+  conditions: readonly FilterCondition[],
+  itemTypes: readonly ItemType[] = [],
+): string {
   if (conditions.length === 0) return 'Nothing chosen yet';
-  return conditions
-    .map((condition) => {
-      const reads = WINDOW_READS[condition.window];
-      const widened = condition.orOverdue && isAPeriod(condition.window);
-      return widened ? `${reads} or overdue` : reads;
-    })
-    .join(' and ');
+  return conditions.map((condition) => sentenceFor(condition, itemTypes)).join(' and ');
+}
+
+function sentenceFor(condition: FilterCondition, itemTypes: readonly ItemType[]): string {
+  if (condition.field === 'priority') {
+    return `Priority is ${orList(condition.values.map((value) => PRIORITY_READS[value]))}`;
+  }
+  if (condition.field === 'type') {
+    const names = condition.values
+      .map((id) => itemTypes.find((type) => type.id === id)?.name)
+      .filter((name): name is string => name !== undefined);
+    return `Type is ${orList(names)}`;
+  }
+  const reads = WINDOW_READS[condition.window];
+  const widened = condition.orOverdue && isAPeriod(condition.window);
+  return widened ? `${reads} or overdue` : reads;
 }
