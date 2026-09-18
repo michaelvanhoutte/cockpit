@@ -147,7 +147,9 @@ export default function ManageConnections({
     window.location.assign(connectTeamsPath(workspaceId));
   };
 
-  const refusal = refusalFrom(command);
+  // Named apart from the imported `refusal` above, which builds an Error from
+  // a failed read rather than the string this reads off a failed command.
+  const commandRefusal = refusalFrom(command);
 
   return (
     <ManageWindow
@@ -225,7 +227,7 @@ export default function ManageConnections({
             confirmLabel={`Yes, disconnect ${beingDisconnected.displayName}`}
             confirmText="Disconnect"
             canConfirm={!command.isPending}
-            refusal={refusal}
+            refusal={commandRefusal}
             returnFocusTo={askedFrom.current}
             onCancel={stopAsking}
             onConfirm={() =>
