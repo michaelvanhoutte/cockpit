@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { SourceAccount } from '@cockpit/shared';
-import { ManageConnections } from '../../../src/components/ManageConnections';
+import ManageConnections from '../../../src/components/ManageConnections';
 import { useCommand } from '../../../src/api/queries';
 
 /**
@@ -21,10 +21,22 @@ vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
   refusalFrom: (command: { error: unknown }) =>
     command.error ? 'That did not reach the server. Try again.' : null,
-  sourceAccountsQuery: (workspaceId: string) => ({
-    queryKey: ['sourceAccounts', workspaceId],
-    queryFn: () => Promise.resolve({ sourceAccounts: held.sourceAccounts }),
-  }),
+}));
+
+// `ManageConnections` reads its own list straight off `api.v1.workspaces…` -
+// this window's sole reason to be its own chunk (`WorkspaceTabs.tsx`,
+// `bundle:budget`) - so the boundary this test mocks moved with it.
+vi.mock('../../../src/api/client', () => ({
+  api: {
+    v1: {
+      workspaces: {
+        ':workspaceId': {
+          connections: { $get: () => Promise.resolve(new Response(JSON.stringify({ sourceAccounts: held.sourceAccounts }))) },
+        },
+      },
+    },
+  },
+  refusal: (what: string, status: number) => new Error(`${what} failed: ${status}`),
 }));
 
 const ADA: SourceAccount = {

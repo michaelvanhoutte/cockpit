@@ -9,8 +9,6 @@ import {
   userDeletedSchema,
   type AccountHoldings,
   signedInSchema,
-  sourceAccountListSchema,
-  type SourceAccountList,
   workspaceListSchema,
   workspaceSnapshotSchema,
   userAddedSchema,
@@ -56,8 +54,12 @@ export class NotSignedIn extends Error {
   }
 }
 
-/** Every read's refusal, in one place, so 401 cannot be handled in only some of them. */
-function refusal(what: string, status: number): Error {
+/**
+ * Every read's refusal, in one place, so 401 cannot be handled in only some
+ * of them. Exported for `ManageConnections.tsx`'s own fetch, kept out of this
+ * module for the reason its doc comment gives.
+ */
+export function refusal(what: string, status: number): Error {
   const message = `${what} failed: ${status}`;
   return status === 401 ? new NotSignedIn(message) : new Error(message);
 }
@@ -259,30 +261,6 @@ export async function fetchRewriteHistoryForWorkspace(workspaceId: string): Prom
   });
   if (!res.ok) throw refusal('rewrite history', res.status);
   return rewriteHistoryResponseSchema.parse(await res.json());
-}
-
-/**
- * The source accounts one Workspace has connected, oldest first ("Connect a
- * Microsoft Teams source account", issue 485).
- */
-export async function fetchSourceAccounts(workspaceId: string): Promise<SourceAccountList> {
-  const res = await api.v1.workspaces[':workspaceId'].connections.$get({ param: { workspaceId } });
-  if (!res.ok) throw refusal('connections', res.status);
-  return sourceAccountListSchema.parse(await res.json());
-}
-
-/**
- * Connecting a Teams account is a navigation, not a request: the browser
- * leaves for Microsoft and comes back to a page, so there is nothing here to
- * await and nothing to parse - the same shape `SIGN_IN_PATH` above has, and
- * the same reason.
- *
- * It comes back to `/w/<workspaceId>?connections=connected|refused`, which is
- * what reopens the window over the Workspace it was started from
- * (`components/ManageConnections.tsx`).
- */
-export function connectTeamsPath(workspaceId: string): string {
-  return `/v1/workspaces/${encodeURIComponent(workspaceId)}/connections/teams/connect`;
 }
 
 /** Every rewrite attempt for one item, most recent first - the table opened from that item's own menu (issue 444). */

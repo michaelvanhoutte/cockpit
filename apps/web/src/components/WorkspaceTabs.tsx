@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { WORKSPACE_THEMES, themeOf, uuidv7 } from '@cockpit/shared';
@@ -15,9 +15,15 @@ import { litForChrome } from '../chrome';
 import { useConnections } from '../connections';
 import { useTabDrag } from '../tabDrag';
 import { DeleteQuestion } from './DeleteQuestion';
-import { ManageConnections } from './ManageConnections';
 import { SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
 import { RowForm } from './RowForm';
+
+/**
+ * A Workspace's connections, fetched only once *Manage connections…* is
+ * chosen from its tab menu - never on a cold open, the same boundary
+ * `PanelBoard.tsx`'s `FilterQuestion` draws around its own dialog.
+ */
+const ManageConnections = lazy(() => import('./ManageConnections'));
 
 /**
  * The workspaces across the top, and everything that can be done to one
@@ -473,14 +479,20 @@ export function WorkspaceTabs({
           tab's window while `?connections=refused` stands would otherwise tell
           it a connection nobody started there had failed. */}
       {connectionsFor && (
-        <ManageConnections
-          workspaceId={connectionsFor.id}
-          workspaceName={connectionsFor.name}
-          outcome={connectionsFor.id === params.workspaceId ? outcome : undefined}
-          open
-          onClose={closeConnections}
-          returnFocusTo={askedFrom.current}
-        />
+        // No fallback: the chunk is small, and there is nothing on screen yet
+        // for a placeholder to stand in for - the window itself is the first
+        // thing this ever draws, the same reason `PanelBoard.tsx`'s own
+        // `FilterQuestion` has none either.
+        <Suspense fallback={null}>
+          <ManageConnections
+            workspaceId={connectionsFor.id}
+            workspaceName={connectionsFor.name}
+            outcome={connectionsFor.id === params.workspaceId ? outcome : undefined}
+            open
+            onClose={closeConnections}
+            returnFocusTo={askedFrom.current}
+          />
+        </Suspense>
       )}
 
       {beingDeleted && (

@@ -1,12 +1,63 @@
 import { useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { connectorNamed, uuidv7, type SourceAccount } from '@cockpit/shared';
-import { connectTeamsPath } from '../api/client';
-import { refusalFrom, sourceAccountsQuery, useCommand } from '../api/queries';
+import { queryOptions, useQuery } from '@tanstack/react-query';
+import {
+  connectorNamed,
+  sourceAccountListSchema,
+  uuidv7,
+  type SourceAccount,
+  type SourceAccountList,
+} from '@cockpit/shared';
+import { api, refusal } from '../api/client';
+import { refusalFrom, useCommand } from '../api/queries';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
 import { RowMenu } from './Menu';
+
+/**
+ * The source accounts one Workspace has connected, oldest first. Kept here
+ * rather than in `api/client.ts`/`api/queries.ts` with every other read - the
+ * one thing this window alone asks for is the one thing worth this chunk's
+ * own weight rather than the initial bundle's (`bundle:budget`).
+ */
+async function fetchSourceAccounts(workspaceId: string): Promise<SourceAccountList> {
+  const res = await api.v1.workspaces[':workspaceId'].connections.$get({ param: { workspaceId } });
+  if (!res.ok) throw refusal('connections', res.status);
+  return sourceAccountListSchema.parse(await res.json());
+}
+
+/**
+ * **Never served from a copy.** The window says what is connected *now*, and
+ * the two moments it is read are the two where a copy would be wrong: coming
+ * back from Microsoft, where the row was made a redirect ago, and reopening
+ * it after a disconnect made in another tab. The issue asks for exactly
+ * this - "Reopening Manage Connections always shows current stored state,
+ * never an optimistic guess."
+ *
+ * The query key (`['sourceAccounts', workspaceId]`) is matched by
+ * `api/queries.ts`'s own `afterChanging` invalidation on
+ * `disconnect_source_account`, which lives there beside every other
+ * command's invalidation rather than here.
+ */
+const sourceAccountsQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: ['sourceAccounts', workspaceId],
+    queryFn: () => fetchSourceAccounts(workspaceId),
+    staleTime: 0,
+  });
+
+/**
+ * Connecting a Teams account is a navigation, not a request: the browser
+ * leaves for Microsoft and comes back to a page, so there is nothing here to
+ * await and nothing to parse - the same shape `SIGN_IN_PATH` (`api/client.ts`)
+ * has, and the same reason.
+ *
+ * It comes back to `/w/<workspaceId>?connections=connected|refused`, which is
+ * what reopens this window over the Workspace it was started from.
+ */
+function connectTeamsPath(workspaceId: string): string {
+  return `/v1/workspaces/${encodeURIComponent(workspaceId)}/connections/teams/connect`;
+}
 
 /**
  * Where a Workspace's source accounts are managed ("Connect a Microsoft Teams
@@ -24,7 +75,7 @@ import { RowMenu } from './Menu';
  * disconnecting waits for the row to be gone. An optimistic row is the one
  * thing this window must not draw - it would say a credential exists.
  */
-export function ManageConnections({
+export default function ManageConnections({
   workspaceId,
   workspaceName,
   /** How the last connect attempt went, where the browser has just come back from one. */
