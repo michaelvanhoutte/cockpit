@@ -96,8 +96,8 @@ export function DescriptionBox({ value, onChange, editable, resetKey }: Descript
   const showing: View = failed ? 'source' : view;
 
   return (
-    <div className="mt-4">
-      <div className="flex items-center justify-between gap-2">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center justify-between gap-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
           Description
         </span>
@@ -117,12 +117,16 @@ export function DescriptionBox({ value, onChange, editable, resetKey }: Descript
 
       {showing === 'source' ? (
         <textarea
-          rows={12}
           aria-label="Description"
           disabled={!editable}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className="mt-1 w-full resize-y rounded-md border border-black/10 bg-white px-3 py-2 font-mono text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+          // Fills whatever height the form has rather than a fixed row
+          // count, the description's own resize handle having been folded
+          // into the dialog's own once the two shared a box ("Give the
+          // item's form more room, and put clutter out of the way", issue
+          // 480).
+          className="mt-1 min-h-0 flex-1 resize-none rounded-md border border-black/10 bg-white px-3 py-2 font-mono text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
         />
       ) : (
         <WhateverTheEditorDoes onFailure={() => setFailed(true)}>
@@ -132,13 +136,14 @@ export function DescriptionBox({ value, onChange, editable, resetKey }: Descript
               initial={value}
               onChange={onChange}
               editable={editable}
+              fill
             />
           </Suspense>
         </WhateverTheEditorDoes>
       )}
 
       {failed && (
-        <p role="alert" className="mt-1 text-xs font-normal normal-case tracking-normal text-over">
+        <p role="alert" className="mt-1 shrink-0 text-xs font-normal normal-case tracking-normal text-over">
           Formatting could not be loaded. The description is still here, as Markdown, and still
           saves.{' '}
           {/* Offered rather than taken, which is the difference between this and
@@ -205,19 +210,18 @@ function NewerVersion() {
  */
 function Arriving({ value }: { value: string }) {
   return (
-    <div className="mt-1">
+    <div className="mt-1 flex min-h-0 flex-1 flex-col">
       <textarea
-        rows={12}
         readOnly
         aria-label="Description"
         value={value}
-        className="w-full resize-y rounded-md border border-black/10 bg-black/5 px-3 py-2 font-mono text-sm font-normal normal-case tracking-normal text-ink-soft outline-none"
+        className="min-h-0 flex-1 resize-none rounded-md border border-black/10 bg-black/5 px-3 py-2 font-mono text-sm font-normal normal-case tracking-normal text-ink-soft outline-none"
       />
       {/* A status rather than a paragraph: it is a live region, so a screen
           reader is told the editor arrived rather than having to go and look. */}
       <p
         role="status"
-        className="pt-1 text-xs font-normal normal-case tracking-normal text-ink-faint"
+        className="shrink-0 pt-1 text-xs font-normal normal-case tracking-normal text-ink-faint"
       >
         Formatting is on its way…
       </p>

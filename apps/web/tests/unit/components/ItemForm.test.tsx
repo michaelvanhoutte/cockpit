@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Attachment, Filing, Item, PossibleDuplicate, WorkspaceSnapshot } from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../../../src/api/client';
 import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
+import { dueComingFriday, dueSevenDaysOut, dueToday } from '../../../src/dueDateShortcuts';
 import { UndoWhatJustHappened } from '../../../src/undo';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
@@ -448,6 +449,39 @@ describe('Item editing', () => {
       await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
       expect(sent().map((change) => change.name)).toEqual(['set_due_date']);
       expect(sent()[0]).toMatchObject({ payload: { dueDate: null } });
+    });
+  });
+
+  /**
+   * "Give the item's form more room, and put clutter out of the way" (issue
+   * 480): one-click alongside typing one directly. What each shortcut
+   * actually computes - the coming Friday never a past one, seven days out -
+   * is tests/unit/dueDateShortcuts.test.ts's own claim; what is asked here is
+   * that pressing one fills the field with it, overriding whatever was
+   * already there, and that typing afterwards still wins.
+   */
+  describe('setting a due date has one-click shortcuts alongside typing one directly', () => {
+    const dueDateBox = () => screen.getByLabelText('Due date');
+
+    it.each([
+      { situation: 'Today', button: 'Today', shortcut: dueToday },
+      { situation: 'Fri', button: 'Fri', shortcut: dueComingFriday },
+      { situation: '+7d', button: '+7d', shortcut: dueSevenDaysOut },
+    ])('$situation fills the field, overriding a due date already there', async ({ button, shortcut }) => {
+      const user = await theForm(anItem({ dueDate: '2020-01-01' }));
+
+      await user.click(screen.getByRole('button', { name: button }));
+
+      expect(dueDateBox()).toHaveValue(shortcut(new Date()));
+    });
+
+    it('typing over a shortcut still wins', async () => {
+      const user = await theForm(anItem({ dueDate: null }));
+
+      await user.click(screen.getByRole('button', { name: '+7d' }));
+      fireEvent.change(dueDateBox(), { target: { value: '2026-01-01' } });
+
+      expect(dueDateBox()).toHaveValue('2026-01-01');
     });
   });
 
@@ -960,7 +994,7 @@ describe('Item editing', () => {
     it('keeps it shut until it is asked for, and never lets it be typed in', async () => {
       const user = await theForm();
 
-      expect(screen.queryByText('Ask Novy about part 11')).not.toBeVisible();
+      expect(screen.queryByText('Ask Novy about part 11')).toBeNull();
 
       await user.click(screen.getByText('What was captured'));
 
@@ -983,11 +1017,15 @@ describe('Item editing', () => {
    * full, with a way to copy it.
    */
   describe("an item's own id is shown in full, with a way to copy it", () => {
-    it('shows the id whole, and copies exactly it', async () => {
+    it('stays off the form until asked for, then shows the id whole and copies exactly it', async () => {
       const user = await theForm();
 
       const writeText = vi.fn(() => Promise.resolve());
       Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+      expect(screen.queryByText('item-1')).toBeNull();
+
+      await user.click(screen.getByRole('button', { name: 'ID' }));
 
       expect(screen.getByText('item-1')).toBeInTheDocument();
 

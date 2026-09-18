@@ -244,6 +244,32 @@ test.describe('Item editing', () => {
       await expect(dueDateBox(page)).toHaveCount(0);
       await expect(itemRow(page, thought).getByText('Due Sep 30, 2026')).toHaveCount(0);
     });
+
+    /**
+     * The one-click shortcuts beside the field itself ("Give the item's form
+     * more room, and put clutter out of the way", issue 480) - what each one
+     * computes is tests/unit/dueDateShortcuts.test.ts's own claim; what is
+     * asked here is that a real press on a real button actually reaches the
+     * field, the same way typing into it does above.
+     */
+    test('a one-click shortcut fills the field too, and reaches the row the same way', async ({
+      page,
+      isMobile,
+    }) => {
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('One-click due date');
+      await capture(page, thought, isMobile);
+
+      await openItem(page, thought, isMobile);
+      await press(form(page).getByRole('button', { name: 'Today' }), isMobile);
+      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+
+      await expect(dueDateBox(page)).toHaveCount(0);
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      await openItem(page, thought, isMobile);
+      await expect(dueDateBox(page)).toHaveValue(today);
+    });
   });
 
   /**
@@ -543,6 +569,66 @@ test.describe('Item editing', () => {
       }
     });
 
+    /**
+     * The default used to double as its own ceiling - a drag could shrink the
+     * box but never grow it - which is what "Give the item's form more room,
+     * and put clutter out of the way" (issue 480) puts a real ceiling above.
+     */
+    test('grows past the old default size, up to a real ceiling above it', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'resizing is a pointer gesture');
+
+      // Taller than the suite's own default viewport, so the ceiling's own
+      // headroom above the default height is not itself clamped away by the
+      // screen before the drag ever gets there - the default's own height
+      // already sits close to a laptop-sized screen by design.
+      await page.setViewportSize({ width: 1280, height: 1000 });
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Grow past the old default');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      const before = (await form(page).boundingBox())!;
+      const grip = { x: before.x + before.width - 6, y: before.y + before.height - 6 };
+      await page.mouse.move(grip.x, grip.y);
+      await page.mouse.down();
+      // Dragged outward on both axes - past where the old default, which
+      // used to double as its own ceiling, would have stopped it.
+      await page.mouse.move(grip.x + 250, grip.y + 150, { steps: 8 });
+      await page.mouse.up();
+      const grown = (await form(page).boundingBox())!;
+
+      expect(grown.width, 'grew past the old default width').toBeGreaterThan(before.width + 100);
+      expect(grown.height, 'grew past the old default height').toBeGreaterThan(before.height + 100);
+    });
+
+    test('shrinks to a floor, and no further', async ({ page, isMobile }) => {
+      test.skip(isMobile, 'resizing is a pointer gesture');
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Shrink to the floor');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      const before = (await form(page).boundingBox())!;
+      const grip = { x: before.x + before.width - 6, y: before.y + before.height - 6 };
+      await page.mouse.move(grip.x, grip.y);
+      await page.mouse.down();
+      // Dragged far past where the floor sits, so the assertion is about the
+      // floor holding rather than about how far the drag reached.
+      await page.mouse.move(grip.x - 1000, grip.y - 1000, { steps: 8 });
+      await page.mouse.up();
+      const shrunk = (await form(page).boundingBox())!;
+
+      expect(shrunk.width, 'shrank to the floor, not any smaller').toBeGreaterThanOrEqual(318);
+      expect(shrunk.width).toBeLessThanOrEqual(322);
+      expect(shrunk.height, 'shrank to the floor, not any smaller').toBeGreaterThanOrEqual(286);
+      expect(shrunk.height).toBeLessThanOrEqual(290);
+    });
+
     test('remembers a dragged size across items and a reopen, clamped to whatever screen it opens on next', async ({
       page,
       isMobile,
@@ -669,6 +755,57 @@ test.describe('Item editing', () => {
         reopened.height,
         'the untouched axis is the full default, not the short screen’s clamp of it',
       ).toBeGreaterThan(600);
+    });
+  });
+
+  /**
+   * F3, because whether the description's own box actually grows and shrinks
+   * on screen as the dialog is dragged is a claim about a real layout that
+   * nothing below the browser can make - the frame not reacting to what is
+   * *typed or loaded* into it is `apps/web/tests/unit/components/ItemForm.test.tsx`'s
+   * own claim, and is a different thing from the description reacting to the
+   * frame ("Give the item's form more room, and put clutter out of the way",
+   * issue 480).
+   */
+  test.describe('the description fills whatever room the form has', () => {
+    test('grows and shrinks with the dialog, rather than a fixed size', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'resizing is a pointer gesture');
+
+      // Taller than the suite's own default viewport, the same reason the
+      // resize block's own growth test sets one: the default height already
+      // sits close to a laptop-sized screen, so there is no room for a drag
+      // to grow it further without one.
+      await page.setViewportSize({ width: 1280, height: 1000 });
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Description fills the form');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+      await theEditorIsThere(page);
+
+      // The gap between the toolbar and the footer is the room the
+      // description has, measured without depending on how much text is in
+      // it - a fixed-height box would leave that gap unmoved by a drag.
+      const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
+      const saveButton = form(page).getByRole('button', { name: 'Save' });
+      const gap = async () => {
+        const toolbarBox = (await toolbar.boundingBox())!;
+        const saveBox = (await saveButton.boundingBox())!;
+        return saveBox.y - (toolbarBox.y + toolbarBox.height);
+      };
+      const before = await gap();
+
+      const box = (await form(page).boundingBox())!;
+      const grip = { x: box.x + box.width - 6, y: box.y + box.height - 6 };
+      await page.mouse.move(grip.x, grip.y);
+      await page.mouse.down();
+      await page.mouse.move(grip.x + 60, grip.y + 150, { steps: 8 });
+      await page.mouse.up();
+
+      expect(await gap(), 'grew with the dialog').toBeGreaterThan(before + 100);
     });
   });
 });
