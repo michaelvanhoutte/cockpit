@@ -39,7 +39,7 @@
     "@vitest/coverage-istanbul": "4.1.10",
     "drizzle-kit": "^0.31.10",
     "typescript": "^5.9.0",
-    "vitest": "^4.1.10",
+    "vitest": "^4.1.11",
     "wrangler": "^4.128.0"
   }
 }
