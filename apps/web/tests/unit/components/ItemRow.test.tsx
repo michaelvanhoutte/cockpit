@@ -976,6 +976,20 @@ describe('Triage', () => {
       expect(screen.getByTitle(/^Waiting /).className).not.toContain('text-ink-faint');
     });
 
+    it('drops the "also in…" text back to white too, once overdue', () => {
+      // Sits in the same title row as the three marks above, and was missed
+      // when it merged into this branch after they were converted (found in
+      // review).
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-09-17T09:00:00.000Z'));
+      aRow({
+        item: anItem({ dueDate: '2026-09-16', dueDateSetAt: '2026-09-01T00:00:00.000Z' }),
+        alsoIn: ['Today'],
+      });
+
+      expect(screen.getByText('also in Today').className).not.toContain('text-ink-faint');
+    });
+
     it('falls back to when the item was made, for a due date carried from before this shipped', () => {
       vi.useFakeTimers();
       vi.setSystemTime(Date.parse('2026-09-11T00:00:00.000Z'));

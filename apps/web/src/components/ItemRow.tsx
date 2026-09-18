@@ -667,7 +667,7 @@ export function ItemRow({
                 title exactly as fast as the title eats into it. */}
             {alsoInText && (
               <span
-                className="shrink-[99] min-w-0 truncate italic text-ink-faint"
+                className={`shrink-[99] min-w-0 truncate italic ${dueColor === -1 ? '' : 'text-ink-faint'}`}
                 onPointerEnter={(event) =>
                   setAlsoInCutOff(
                     isCutOff(event.currentTarget.scrollWidth, event.currentTarget.clientWidth),
