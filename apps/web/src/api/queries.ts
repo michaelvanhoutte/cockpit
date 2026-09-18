@@ -426,6 +426,17 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
     ]);
   }
 
+  if (args.name === 'set_item_form_presentation') {
+    // Every workspace, the same reason `CHANGES_THE_TYPES` above reads
+    // `['snapshot']` unprefixed rather than by the envelope's own
+    // `workspaceId` - which for this command is `ACCOUNT_WIDE`, an id no
+    // snapshot is ever actually cached under (found in review: the generic
+    // branch below would otherwise invalidate a key nothing matches, and the
+    // presentation would read stale in this tab until the SSE echo caught
+    // up).
+    return queryClient.invalidateQueries({ queryKey: ['snapshot'] });
+  }
+
   const reread = [
     queryClient.invalidateQueries(
       everyWorkspaceCanSee(args)

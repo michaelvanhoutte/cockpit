@@ -70,6 +70,7 @@ import {
   getAttachment,
   getAttachmentForDownload,
   getItem,
+  getItemFormPresentation,
   getRoutingSummary,
   getTextLearningRules,
   getWorkspace,
@@ -172,6 +173,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         attachments: listAttachmentsInWorkspace(db, accountName, workspaceId),
         itemTypes: listItemTypes(db, accountName),
         screenSizes: listScreenSizes(db, accountName),
+        itemFormPresentation: getItemFormPresentation(db, accountName),
         routingSummary: getRoutingSummary(db, accountName, workspaceId),
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
       };

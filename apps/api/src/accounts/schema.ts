@@ -12,6 +12,7 @@ import { sql } from 'drizzle-orm';
 import {
   associationKindSchema,
   GRID_COLUMNS,
+  ITEM_FORM_PRESENTATIONS,
   ITEM_TYPE_COLORS,
   MAX_ROW_HEIGHT,
   MAX_SCREEN_WIDTH,
@@ -24,6 +25,7 @@ import {
 } from '@cockpit/shared';
 import type {
   AssociationKind,
+  ItemFormPresentation,
   ItemReading,
   PanelFormat,
   Priority,
@@ -1352,6 +1354,31 @@ export const accountTextRules = sqliteTable(
     rulesSetAt: text('rules_set_at'),
   },
   (t) => [check('account_text_rules_rules_set_at_is_timestamp', isTimestamp('rules_set_at'))],
+);
+
+/**
+ * One row per account: whether the Item's form is drawn centered or docked to
+ * the side ("Let the item's form dock to the side of the screen instead of
+ * opening as a dialog", issue 481).
+ *
+ * **The same shape `accountTextRules` above takes**, for the same reasons:
+ * `tenant_id` is the primary key because there is exactly one choice per
+ * account, and the row does not exist until something is written - a freshly
+ * made account, and every account before this issue, reads as `null`, which
+ * `getItemFormPresentation` (`repo.ts`) resolves to `'centered'`, the only
+ * presentation there was before this issue.
+ */
+export const accountItemFormPresentation = sqliteTable(
+  'account_item_form_presentation',
+  {
+    tenantId: text('tenant_id').primaryKey(),
+    presentation: text('presentation').$type<ItemFormPresentation>(),
+  },
+  // Bare, the same as `items_priority_is_known` above is for its own nullable
+  // enum column: SQLite's three-valued logic already answers a NULL
+  // `presentation` as satisfying `IN (...)`, so nothing has to spell out "or
+  // null" beside it.
+  (t) => [check('account_item_form_presentation_is_known', oneOf('presentation', ITEM_FORM_PRESENTATIONS))],
 );
 
 /**

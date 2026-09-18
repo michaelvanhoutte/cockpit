@@ -2,6 +2,7 @@ import { and, eq, exists, notExists, sql } from 'drizzle-orm';
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import {
+  accountItemFormPresentation,
   accountTextRules,
   associations,
   attachments,
@@ -2004,6 +2005,25 @@ export function runCommand<N extends CommandName>(
           .onConflictDoUpdate({
             target: accountTextRules.tenantId,
             set: { rules, rulesSetAt: rules === null ? null : cmd.issuedAt },
+          })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_item_form_presentation': {
+      const cmd = payload as CommandPayload<'set_item_form_presentation'>;
+      db.transaction((tx) => {
+        // Upserted, for the same reason `set_text_learning_rules` above is:
+        // the row may not exist yet, which is every account's starting
+        // condition (`schema.ts`'s own comment on `accountItemFormPresentation`).
+        // Account-scoped, so `cmd.workspaceId` is `ACCOUNT_WIDE` and never
+        // read here, the same as `set_text_learning_rules`.
+        tx.insert(accountItemFormPresentation)
+          .values({ tenantId, presentation: cmd.presentation })
+          .onConflictDoUpdate({
+            target: accountItemFormPresentation.tenantId,
+            set: { presentation: cmd.presentation },
           })
           .run();
         tx.insert(commands).values(commandRow).run();

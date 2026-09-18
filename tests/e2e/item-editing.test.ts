@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
-import { capture, expect, itemRow, openInbox, press, test, uniqueTitle } from './support/app';
+import { capture, captureBox, expect, itemRow, openInbox, press, test, uniqueTitle } from './support/app';
 
 /** Opens one row's form the way both devices can: from the row's own menu. */
 async function openItem(page: Page, row: string, isMobile: boolean): Promise<void> {
@@ -904,6 +904,192 @@ test.describe('Item editing', () => {
       await press(form(page).getByRole('button', { name: 'ID' }), isMobile);
       await expect(page.getByRole('group')).toHaveCount(1);
       await expect(page.getByRole('group').getByRole('button', { name: 'Copy' })).toBeVisible();
+    });
+  });
+
+  /**
+   * The account's own answer to the choice just sent - waited on before
+   * anything that depends on it having landed, the same convention
+   * `panels.test.ts`'s own `answerTo` follows.
+   *
+   * `timeout` is shortened in the cleanup path below: a `finally` block
+   * cannot let an assertion already thrown in `try` propagate until its own
+   * promise settles, so a wait with nothing to observe (found in review: the
+   * "put it back" press failing without ever sending its own request) must
+   * not sit for the default timeout and report that instead of the real
+   * failure.
+   */
+  function answeredThePresentation(page: Page, timeout?: number): Promise<unknown> {
+    return page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === '/v1/commands/set_item_form_presentation',
+      // Not `{ timeout }`: with `exactOptionalPropertyTypes`, an options
+      // object naming `timeout` at all has to hold a real number, never
+      // `undefined` itself - so the default case passes no options object
+      // rather than one carrying the key with nothing in it.
+      timeout === undefined ? undefined : { timeout },
+    );
+  }
+
+  /**
+   * "Let the item's form dock to the side of the screen instead of opening
+   * as a dialog" (issue 481): an account-wide choice, so this walk restores
+   * it to centered in a `finally` - the same reason `deleteWorkspace` puts a
+   * workspace back, but guarded here because a failure partway through would
+   * otherwise leave every other item-form walk sharing this account finding
+   * it docked (found in review).
+   */
+  test.describe('the form can be docked to the side of the screen, an account-wide choice', () => {
+    test('docks to the side, leaves the page behind it clickable, is remembered on reopening, and is resizable', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'docking is its own, separate discussion on a phone, by design');
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Dock to the side');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      // Whatever the shared account already has - centered, on a run where
+      // nothing else has touched this yet.
+      if (await form(page).getByRole('button', { name: 'Center' }).count()) {
+        const already = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
+        await already;
+      }
+
+      try {
+        const centered = (await form(page).boundingBox())!;
+
+        const docking = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
+        await docking;
+
+        const viewport = page.viewportSize()!;
+        const docked = (await form(page).boundingBox())!;
+        // Flush against the right edge and full height - unlike centered,
+        // which sits away from every edge.
+        expect(Math.round(docked.x + docked.width)).toBe(viewport.width);
+        expect(Math.round(docked.y)).toBe(0);
+        expect(Math.round(docked.height)).toBe(viewport.height);
+        expect(Math.round(docked.x)).not.toBe(Math.round(centered.x));
+
+        // Non-modal: the page behind it can still be worked, which a real
+        // click - not merely filling a value in - is what actually proves,
+        // since a click Playwright judges blocked by a covering overlay
+        // throws rather than landing.
+        await captureBox(page).click({ timeout: 5_000 });
+        await captureBox(page).fill('Still usable behind the docked form');
+        await expect(captureBox(page)).toHaveValue('Still usable behind the docked form');
+        await captureBox(page).fill('');
+
+        // Resized by dragging its own left edge, unlike the centered
+        // presentation's bottom-right corner - dragged toward the right edge
+        // it is docked to, which is what narrows it (the default viewport is
+        // wide enough that it opens at its own ceiling already, so widening it
+        // further has nowhere to go).
+        const handle = form(page).getByRole('separator', { name: 'Resize the form' });
+        const grip = (await handle.boundingBox())!;
+        await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(grip.x + 200, grip.y, { steps: 8 });
+        await page.mouse.up();
+        const narrowed = (await form(page).boundingBox())!;
+        expect(narrowed.width, 'dragging toward the edge it is docked to narrowed it').toBeLessThan(
+          docked.width - 100,
+        );
+
+        // Both the choice and the width it was dragged to are the account's
+        // and this device's own, so they are there again on a fresh page
+        // load - not only on the tab that just made them, which the open
+        // form's own already-warm cache would answer from regardless of what
+        // the account and this browser actually hold.
+        //
+        // **Reloaded rather than reopened through `openInbox`.** `openInbox`
+        // signs in again, and signing in leaves the application and comes
+        // back through the logon page - which clears everything this browser
+        // remembers (`session/forget.ts`), the dragged width included. The
+        // still-valid cookie is what a real reload keeps, landing straight
+        // back on the same authenticated workspace without passing through
+        // that page at all (found in review: the first version of this walk
+        // reopened through `openInbox` after the reload, and had the drag it
+        // had just proven immediately forgotten by its own next step).
+        await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+        await page.reload();
+        await expect(captureBox(page)).toBeVisible();
+        await openItem(page, thought, isMobile);
+        await expect(form(page).getByRole('button', { name: 'Center' })).toBeVisible();
+        const reopened = (await form(page).boundingBox())!;
+        expect(Math.round(reopened.width)).toBe(Math.round(narrowed.width));
+      } finally {
+        // Put back, so every other item-form walk sharing this account goes
+        // on finding the centered presentation it was written against -
+        // best effort, so a failure above is reported as itself rather than
+        // masked by a cleanup step failing on whatever broke it.
+        if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
+          const recentering = answeredThePresentation(page, 5_000).catch(() => {});
+          await press(form(page).getByRole('button', { name: 'Center' }), isMobile).catch(() => {});
+          await recentering;
+        }
+        await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile).catch(() => {});
+      }
+    });
+
+    /**
+     * "Out of scope" for a phone means "falls back to centered", not
+     * "renders anyway" (found in review, on the pull request itself): a
+     * jsdom unit test proved the class name changes, but the real product
+     * behaviour - a docked account's own form actually redrawing itself once
+     * the window it is open in gets too narrow - is a real window and a real
+     * layout, so it belongs here, driven in an actual browser.
+     */
+    test('falls back to centered once the window is too narrow to dock, without moving the account off docked', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'the viewport is fixed on a phone project already');
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Narrow the window while docked');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
+        const already = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
+        await already;
+      }
+
+      const full = page.viewportSize()!;
+      try {
+        const docking = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
+        await docking;
+        const docked = (await form(page).boundingBox())!;
+        expect(Math.round(docked.x + docked.width)).toBe(full.width);
+
+        // Narrowed live, with the form already open - the same reactive
+        // width the docked resize clamp already answers to, not only a
+        // fresh open's own read of it.
+        await page.setViewportSize({ width: 375, height: 700 });
+        const narrow = (await form(page).boundingBox())!;
+        expect(Math.round(narrow.x + narrow.width), 'no longer flush against the edge').not.toBe(375);
+
+        // The account is still docked - only what is drawn fell back - so
+        // the control still offers to undock it, not to dock what already
+        // is.
+        await expect(form(page).getByRole('button', { name: 'Center' })).toBeVisible();
+      } finally {
+        await page.setViewportSize(full);
+        if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
+          const recentering = answeredThePresentation(page, 5_000).catch(() => {});
+          await press(form(page).getByRole('button', { name: 'Center' }), isMobile).catch(() => {});
+          await recentering;
+        }
+        await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile).catch(() => {});
+      }
     });
   });
 });
