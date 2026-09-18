@@ -1,7 +1,8 @@
 name: Contract
 
-# The tier that talks to the real models - Claude, and the Workers AI model that
-# reads what a note means (docs/testing-strategy.md, "Third parties"):
+# The tier that talks to the real third parties - Claude, the Workers AI model
+# that reads what a note means, and the Bot Framework's published signing keys
+# (docs/testing-strategy.md, "Third parties"):
 # everything below it runs against a fake, and this is what says the fake still
 # resembles the thing. Scheduled rather than per pull request,
 # because every run spends real money and the model is not deterministic - a
@@ -29,6 +30,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
+      # The connector's own contract suite: what Microsoft publishes for
+      # checking a saved Teams message, asked of Microsoft ("Save a Teams
+      # message to Cockpit", issue 486). No secret - the Bot Framework's
+      # signing keys are published to anyone - and first, because a failure
+      # here costs nothing and a failure below costs the model's time.
+      - run: pnpm --filter @cockpit/connector-teams test:contract
       # A missing secret presents as a workflow that goes green having done
       # nothing, which is the failure docs/deployment.md records for
       # `CLAUDE_CODE_OAUTH_TOKEN`. Each suite itself refuses to run without its

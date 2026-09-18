@@ -87,6 +87,23 @@ export interface Env {
   MS_CLIENT_ID?: string;
   MS_CLIENT_SECRET?: string;
   /**
+   * The Azure Bot resource's own Microsoft App ID, which is the audience of
+   * every call the Bot Framework signs for this Cockpit ("Save a Teams message
+   * to Cockpit", issue 486).
+   *
+   * Optional for the reason the pair above is, and its absence is what makes
+   * the Teams ingress not exist at all rather than exist and refuse everything
+   * (`connectors/registry.ts`): a deployment with no bot behind it answers 404
+   * at that address and works in every other way.
+   *
+   * **Separate from `MS_CLIENT_ID`, even where an operator registers both
+   * against the same Entra application.** They are the audiences of two
+   * different tokens - one an identity a person signs in with, the other a
+   * channel's own call - and a single value would make widening one of them
+   * silently widen the other.
+   */
+  MS_BOT_APP_ID?: string;
+  /**
    * What a connected source account's credential is sealed with: 32 random
    * bytes, base64 (`src/connectors/credential-crypto.ts`).
    *

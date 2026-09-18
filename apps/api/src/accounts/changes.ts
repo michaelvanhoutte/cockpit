@@ -106,6 +106,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     PANEL_FILTERS,
     ITEM_DUE_DATE_SET_AT,
     CONNECTOR_ACCOUNTS,
+    ITEM_SOURCE_CONNECTOR,
   ];
 }
 
@@ -917,6 +918,41 @@ const CONNECTOR_ACCOUNTS: Change = {
       sql: 'CREATE UNIQUE INDEX `connector_accounts_one_per_account` ON `connector_accounts` (`tenant_id`,`workspace_id`,`connector_id`,`external_account_key`)',
     },
   ],
+};
+
+/**
+ * Which connector an Item came in through, for an Item the store's own
+ * `source` column cannot name ("Save a Teams message to Cockpit", issue 486).
+ *
+ * **One added column instead of a wider CHECK**, which is the same wall issue
+ * 463 hit on `panels`: `items_source_is_known` holds `source` to the five
+ * values it was created with, and widening a CHECK means rebuilding a table
+ * that filings, associations, attachments and an Item's proposed Panel all
+ * point at under RESTRICT. So a message saved from Teams keeps `internal` in
+ * `source`, names `teams` here, and the read coalesces the two
+ * (`itemColumns`, repo.ts).
+ *
+ * The failure-mode questions the `scoping` skill asks of a change that cannot
+ * put state back:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **Interrupted partway.** It cannot be. One statement, and a change's
+ *   statements and the record that they ran commit in one `transactionSync`
+ *   (store.ts) - load-bearing rather than a nicety, SQLite having no
+ *   `ADD COLUMN IF NOT EXISTS` for a half-applied change to re-run over.
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** there can be none. Every Item
+ *   takes NULL, which means "it came in as its `source` column says".
+ * - **Rolled back after it has run:** an older release reads a saved Teams
+ *   message as an ordinary capture that happens to carry a link, a sender and
+ *   a time - nothing it has not been able to read since `0001-account-schema`.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const ITEM_SOURCE_CONNECTOR: Change = {
+  name: '0038-item-source-connector',
+  statements: [{ sql: 'ALTER TABLE `items` ADD `source_connector` text' }],
 };
 
 /**

@@ -129,14 +129,14 @@ apps/api/tests/
   system/          # L3: backend, full deps, no browser
 packages/shared/tests/unit/                      # L1
 apps/api/tests/contract/                         # the live contract tests ("Third-party dependencies"): scheduled only
-packages/connectors/*/tests/contract/            # the same, per connector, when connectors land
+packages/connectors/*/tests/{unit,contract}/     # a connector's own logic, and the same live tier per connector
 apps/web/tests/
   unit/            # F1: no real dependencies
   service/         # F2: this service's frontend + backend only
 tests/e2e/         # F3: full stack, real browser — repo root, because it belongs to no package
 ```
 
-Level separation and one-command-per-level runnability are what is mandatory. Per the levels-are-roles rule, levels with no reason to exist yet stay absent — `system/`, `service/` and the connector `contract/` folders are unbuilt today. `apps/api/tests/contract/` is built, and is deliberately excluded from the config every other tier runs under: `pnpm test` is `vitest run` over everything under `tests/`, and a tier that spends real money on every run must not be reachable by an ordinary test command.
+Level separation and one-command-per-level runnability are what is mandatory. Per the levels-are-roles rule, levels with no reason to exist yet stay absent — `system/` and `service/` are unbuilt today. `packages/connectors/teams/tests/` holds both of its folders as of "Save a Teams message to Cockpit" (issue 486): its `contract/` asks Microsoft whether it still publishes the signing keys, the issuer and the algorithm the connector checks a saved message against, and needs no credential, those keys being published to anyone. `apps/api/tests/contract/` is built, and is deliberately excluded from the config every other tier runs under: `pnpm test` is `vitest run` over everything under `tests/`, and a tier that spends real money on every run must not be reachable by an ordinary test command.
 
 **F3 gets its own stack and a database rebuilt per run.** The browser tier does not share the database the application is developed against: it starts a second copy of the application on its own ports, against its own storage, rebuilt before every run — the register restored from a migrated-and-seeded template, each account's own store created empty by the run's first request, since nothing outside the Worker can write to a Durable Object. Two things follow: test data never accumulates in the development database, and development never decides whether a test passes. The restore is a file copy rather than a re-run of the migrations because that is three orders of magnitude cheaper (5ms against 7s, nearly all process startup), which is what makes "fresh every run" affordable enough to be unconditional. The limit: specs within one run still share that storage, so a test asserts on rows it created rather than on totals.
 
@@ -148,7 +148,7 @@ Level separation and one-command-per-level runnability are what is mandatory. Pe
 
 **F3 runs every spec on more than one screen.** A capability is claimed to work *for a user*, and the user is on a phone as often as a desktop, so each spec runs under a desktop viewport with a mouse and a phone viewport with touch rather than one standing in for the other. Not a browser matrix: both are Chromium, and a second engine is a separate decision. Where an interaction exists on only one form factor (a swipe, a hover-revealed control) it is a different capability and gets its own spec. This cannot be pushed down the pyramid, which looks like a violation of "the testing pyramid is a cost model" (§1) and is not: the F1 runner is jsdom, which has no layout engine and reports every element as zero-sized, so viewport-dependent rendering and the touch event path are physically unprovable below a real browser.
 
-Each level gets its own runner command (`test:unit`, `test:integration`, `test:system`, `test:f-unit`, `test:f-service`, `test:e2e`, `test:contract`), plus `test:fast` and `test:all`. CI runs `test:all` on merge and `test:contract` on schedule (`.github/workflows/contract.yml`, nightly and on demand). `test:contract` is `@cockpit/api`'s alone today and is in neither `test:fast` nor `test:all`, both of which have to stay free of anything that costs money to run.
+Each level gets its own runner command (`test:unit`, `test:integration`, `test:system`, `test:f-unit`, `test:f-service`, `test:e2e`, `test:contract`), plus `test:fast` and `test:all`. CI runs `test:all` on merge and `test:contract` on schedule (`.github/workflows/contract.yml`, nightly and on demand). `test:contract` is `@cockpit/api`'s and `@cockpit/connector-teams`'s today, and is in neither `test:fast` nor `test:all`, both of which have to stay free of anything that costs money or reaches a third party.
 
 ### 9.1 Tests are named in the product's language, not the implementation's
 

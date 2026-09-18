@@ -1,4 +1,5 @@
 import {
+  isStoredSource,
   textsFromCapture,
   type AssociateCommand,
   type Association,
@@ -13,6 +14,8 @@ import {
   type SetNextActionCommand,
   type SetPriorityCommand,
   type SetTitleCommand,
+  type Source,
+  type StoredSource,
 } from '@cockpit/shared';
 
 /**
@@ -30,6 +33,29 @@ export function isStale(item: Item, issuedAt: string): boolean {
   return issuedAt < item.updatedAt;
 }
 
+/** An Item as its row holds it: the one source field written as the two columns there are. */
+export type StoredItem = Omit<Item, 'source'> & {
+  source: StoredSource;
+  sourceConnector: Source | null;
+};
+
+/**
+ * An Item written the way the store can hold it ("Save a Teams message to
+ * Cockpit", issue 486).
+ *
+ * **A source the `source` column's CHECK does not know goes in
+ * `source_connector` instead**, that column having been created with five
+ * values and belonging to a table four others point at under RESTRICT
+ * (`STORED_SOURCES` in the contract, `0038-item-source-connector`). The read
+ * coalesces them back into one (`itemColumns`, accounts/repo.ts), so this is
+ * the only place either half is seen.
+ */
+export function asStored(item: Item): StoredItem {
+  return isStoredSource(item.source)
+    ? { ...item, source: item.source, sourceConnector: null }
+    : { ...item, source: 'internal', sourceConnector: item.source };
+}
+
 export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
   const texts = textsFromCapture(cmd.message);
   return {
@@ -43,11 +69,17 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
      * Workspace it named, as it always did.
      */
     workspaceDecided: cmd.workspaceDecided ?? true,
-    source: 'internal',
-    sourceId: null,
-    sourceLink: null,
-    sender: null,
-    sourceTimestamp: null,
+    /**
+     * Where it came from, for a front door that carried it in from somewhere
+     * else ("Save a Teams message to Cockpit", issue 486) - and `internal`
+     * with nothing beside it for every front door that captures what somebody
+     * typed here.
+     */
+    source: cmd.capturedFrom?.source ?? 'internal',
+    sourceId: cmd.capturedFrom?.sourceId ?? null,
+    sourceLink: cmd.capturedFrom?.sourceLink ?? null,
+    sender: cmd.capturedFrom?.sender ?? null,
+    sourceTimestamp: cmd.capturedFrom?.sourceTimestamp ?? null,
     // What was said names the Item, and is kept beside it exactly as it was
     // said. Which of the two texts it becomes is `textsFromCapture`, and why an
     // Item has both is on the field in packages/shared/src/domain/item.ts.

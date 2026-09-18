@@ -34,6 +34,14 @@ export interface Claims {
   emailVerified?: boolean;
   /** What Google calls them, which it gives for the `profile` scope. */
   name?: string;
+  /**
+   * The directory and the person inside it, which Microsoft puts on a token
+   * and Google does not - what a connected Teams account is keyed on
+   * (src/connectors/teams.ts), and so what an inbound saved message has to
+   * name to find it ("Save a Teams message to Cockpit", issue 486).
+   */
+  tenant?: string;
+  object?: string;
 }
 
 let keys: CryptoKeyPair | null = null;
@@ -161,9 +169,18 @@ export async function identityToken({
   subject = `google|${email}`,
   emailVerified = true,
   name,
+  tenant,
+  object,
 }: Claims): Promise<string> {
   const { privateKey } = await signingKeys();
-  return new SignJWT({ nonce, email, email_verified: emailVerified, ...(name ? { name } : {}) })
+  return new SignJWT({
+    nonce,
+    email,
+    email_verified: emailVerified,
+    ...(name ? { name } : {}),
+    ...(tenant ? { tid: tenant } : {}),
+    ...(object ? { oid: object } : {}),
+  })
     .setProtectedHeader({ alg: 'RS256' })
     .setIssuer(ISSUER)
     .setAudience(CLIENT_ID)

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "REPLACE_WITH_THE_AZURE_BOT_APP_ID",
+  "packageName": "com.cockpit.teams",
+  "developer": {
+    "name": "Cockpit",
+    "websiteUrl": "https://REPLACE_WITH_APP_ORIGIN",
+    "privacyUrl": "https://REPLACE_WITH_APP_ORIGIN/privacy",
+    "termsOfUseUrl": "https://REPLACE_WITH_APP_ORIGIN/terms"
+  },
+  "name": {
+    "short": "Cockpit",
+    "full": "Cockpit"
+  },
+  "description": {
+    "short": "Save a Teams message to your Cockpit inbox.",
+    "full": "Adds a Save to Cockpit action to a message's More actions menu. The message, who sent it, when, and a link back to it are filed in the Cockpit workspace that has this Teams account connected."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#2F5D8C",
+  "composeExtensions": [
+    {
+      "botId": "REPLACE_WITH_THE_AZURE_BOT_APP_ID",
+      "commands": [
+        {
+          "id": "saveToCockpit",
+          "type": "action",
+          "context": ["message"],
+          "title": "Save to Cockpit",
+          "description": "File this message in your Cockpit inbox.",
+          "fetchTask": false,
+          "parameters": [
+            {
+              "name": "saved",
+              "title": "Saved",
+              "description": "Nothing to fill in: the message itself is what is saved.",
+              "inputType": "text"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": ["REPLACE_WITH_APP_ORIGIN"]
+}

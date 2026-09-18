@@ -20,7 +20,7 @@ import {
   PANEL_FORMATS,
   STORED_PANEL_KINDS,
   prioritySchema,
-  sourceSchema,
+  storedSourceSchema,
 } from '@cockpit/shared';
 import type {
   AssociationKind,
@@ -29,6 +29,7 @@ import type {
   Priority,
   Source,
   StoredPanelKind,
+  StoredSource,
 } from '@cockpit/shared';
 
 /**
@@ -765,7 +766,21 @@ export const items = sqliteTable(
     capturedMessage: text('captured_message'),
 
     // -- source-owned columns --
-    source: text('source').$type<Source>().notNull(),
+    source: text('source').$type<StoredSource>().notNull(),
+    /**
+     * Which connector carried this Item in, for one whose source the column
+     * above cannot hold ("Save a Teams message to Cockpit", issue 486).
+     *
+     * **`source` keeps `internal` for such an Item and this says what it
+     * really is**, because `items_source_is_known` was created with five
+     * values and widening a CHECK means rebuilding a table that four others
+     * point at under RESTRICT (`STORED_SOURCES` in the contract, and
+     * `0038-item-source-connector`). The read coalesces the two, so nothing
+     * above this file sees the split.
+     *
+     * Nullable and carries no CHECK, for the reason `texts_settled_at` gives.
+     */
+    sourceConnector: text('source_connector').$type<Source>(),
     sourceId: text('source_id'),
     sourceLink: text('source_link'),
     sender: text('sender'),
@@ -900,7 +915,10 @@ export const items = sqliteTable(
     // picks out nothing within one account, so the index has to carry `id`
     // too for the `id > ?` range and the walk's own order to use it.
     index('items_tenant_id').on(t.tenantId, t.id),
-    check('items_source_is_known', oneOf('source', sourceSchema.options)),
+    // `STORED_SOURCES`, not `sourceSchema`: the five this column was created
+    // with are the five it may hold, and a sixth lives in `source_connector`
+    // beside it (the contract's own note on `STORED_SOURCES`).
+    check('items_source_is_known', oneOf('source', storedSourceSchema.options)),
     check('items_status_is_known', oneOf('status', DEAD_STATUSES)),
     check('items_focus_horizon_is_known', oneOf('focus_horizon', DEAD_FOCUS_HORIZONS)),
     check('items_priority_is_known', oneOf('priority', prioritySchema.options)),

@@ -25,6 +25,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.72.1",
     "@cockpit/connector-sdk": "workspace:*",
+    "@cockpit/connector-teams": "workspace:*",
     "@cockpit/shared": "workspace:*",
     "@hono/zod-openapi": "^1.5.2",
     "drizzle-orm": "^0.45.2",

@@ -13,7 +13,8 @@ cockpit/
 │   └── api/           # the Worker: Hono HTTP API + SSE, D1 via Drizzle, and the built SPA
 ├── packages/
 │   ├── shared/        # THE contract: domain types, Zod schemas, commands, API shapes
-│   ├── connector-sdk/ # the connector SPI (connectors land as packages/connectors/*)
+│   ├── connector-sdk/ # the connector SPI
+│   ├── connectors/    # one package per source, importing only the SPI: teams/ today
 │   └── config/        # shared tsconfig / prettier
 ├── tools/             # workspace packages that serve the build, not the product: the Test Explorer
 ├── docs/              # product docs by area, architecture, testing strategy, deployment, options docs
@@ -25,7 +26,7 @@ cockpit/
 
 One Worker per environment serves both the API and the SPA on one origin, so `apps/api` is the deployment and `apps/web/dist` is its static-asset payload.
 
-Not yet in place, deliberately and in build order: app login ("App login: hand-rolled Google OIDC + own sessions" in [docs/architecture.md](docs/architecture.md)), the connectors ("Connectors: plugin-shaped, host-blind"), and the task-creator merge.
+Not yet in place, deliberately and in build order: the rest of the connectors ("Connectors: plugin-shaped, host-blind" in [docs/architecture.md](docs/architecture.md)) beyond saving a Teams message, and the task-creator merge.
 
 ## Environments
 

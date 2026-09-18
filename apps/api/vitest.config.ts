@@ -149,6 +149,13 @@ export default defineConfig({
            */
           MS_CLIENT_ID: 'cockpit-test',
           MS_CLIENT_SECRET: 'a-secret-that-proves-nothing-here',
+          /**
+           * The Azure Bot this Cockpit's saved messages would be signed for
+           * ("Save a Teams message to Cockpit", issue 486). Set here so the
+           * ingress address exists at all; the case about an environment with
+           * no bot behind it takes it off `env` for itself.
+           */
+          MS_BOT_APP_ID: '11111111-2222-3333-4444-555555555555',
           CONNECTOR_CREDENTIAL_KEY: 'Y29ja3BpdC10ZXN0LWNvbm5lY3Rvci1rZXktMDAwMDA=',
         },
       },

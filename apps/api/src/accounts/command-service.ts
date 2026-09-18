@@ -113,6 +113,7 @@ import {
   applySetNextAction,
   applySetPriority,
   applySetTitle,
+  asStored,
   associationFromCommand,
   captureItem,
   decideWorkspace,
@@ -1521,7 +1522,7 @@ export function runCommand<N extends CommandName>(
         // A retried capture whose command ID was lost still may not duplicate the item.
         // `status` is the dead column being satisfied rather than used: it is
         // NOT NULL with a CHECK and nothing reads it (schema.ts).
-        tx.insert(items).values({ ...item, status: DEAD_STATUS_VALUE }).onConflictDoNothing().run();
+        tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE }).onConflictDoNothing().run();
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1867,7 +1868,11 @@ export function runCommand<N extends CommandName>(
       } else {
         db.transaction((tx) => {
           tx.update(items)
-            .set(updated)
+            // `asStored`, like the capture above: an Item whose source the
+            // `source` column cannot hold is two columns, and a whole-row
+            // write that named only one of them would put `teams` where the
+            // CHECK refuses it (domain/items.ts).
+            .set(asStored(updated))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
           tx.insert(commands).values(commandRow).run();
@@ -1907,7 +1912,11 @@ export function runCommand<N extends CommandName>(
         const updated = applyProposedPanel(existing, cmd);
         db.transaction((tx) => {
           tx.update(items)
-            .set(updated)
+            // `asStored`, like the capture above: an Item whose source the
+            // `source` column cannot hold is two columns, and a whole-row
+            // write that named only one of them would put `teams` where the
+            // CHECK refuses it (domain/items.ts).
+            .set(asStored(updated))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
           tx.insert(commands).values(commandRow).run();
@@ -2258,7 +2267,11 @@ export function runCommand<N extends CommandName>(
           (existing.textsSettledAt === null || textCorrectionExistsFor(db, tenantId, correction.itemId));
         db.transaction((tx) => {
           tx.update(items)
-            .set(updated)
+            // `asStored`, like the capture above: an Item whose source the
+            // `source` column cannot hold is two columns, and a whole-row
+            // write that named only one of them would put `teams` where the
+            // CHECK refuses it (domain/items.ts).
+            .set(asStored(updated))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
           if (correction) {

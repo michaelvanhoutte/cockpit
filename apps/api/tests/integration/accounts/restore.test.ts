@@ -487,10 +487,9 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0036-item-due-date-set-at` adds it; `0035-panel-filters`, the other of
-    // the two, alters a different table.
-    items: ['due_date_set_at'],
-    panels: ['filter_conditions'],
+    // `0038-item-source-connector` adds it; `0037-connector-accounts`, the
+    // other of the two, creates a table of its own and alters none.
+    items: ['source_connector'],
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */

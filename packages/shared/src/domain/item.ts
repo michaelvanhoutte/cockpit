@@ -7,8 +7,33 @@ import { z } from 'zod';
  */
 
 /** Where an Item came from. 'internal' means created inside Cockpit. */
-export const sourceSchema = z.enum(['internal', 'mail', 'slack', 'notion', 'whatsapp']);
+export const sourceSchema = z.enum(['internal', 'mail', 'slack', 'notion', 'whatsapp', 'teams']);
 export type Source = z.infer<typeof sourceSchema>;
+
+/**
+ * The five sources the store's own `source` column has ever held, and the only
+ * five it may hold.
+ *
+ * **Teams is not one of them**, the same shape `STORED_PANEL_KINDS` has and for
+ * the same reason: widening the column's CHECK would mean rebuilding `items`,
+ * which filings, associations, attachments and an Item's proposed Panel all
+ * point at under RESTRICT. So an Item saved from Teams keeps `internal` in that
+ * column, names its connector in `source_connector` beside it, and the read is
+ * where the wire's source becomes `teams` (`0038-item-source-connector`,
+ * apps/api/src/accounts/changes.ts).
+ *
+ * It is also what makes rolling the release back survivable: an older release
+ * reads such an Item as an ordinary capture carrying a link back to where it
+ * came from, rather than as a source it has never heard of.
+ */
+export const STORED_SOURCES = ['internal', 'mail', 'slack', 'notion', 'whatsapp'] as const;
+export const storedSourceSchema = z.enum(STORED_SOURCES);
+export type StoredSource = z.infer<typeof storedSourceSchema>;
+
+/** Whether the store's `source` column can hold this source as it stands. */
+export function isStoredSource(source: Source): source is StoredSource {
+  return (STORED_SOURCES as readonly string[]).includes(source);
+}
 
 export const prioritySchema = z.enum(['low', 'normal', 'high']);
 export type Priority = z.infer<typeof prioritySchema>;
@@ -31,6 +56,24 @@ export const itemTitleSchema = z
 
 /** A description is as long as it needs to be and holds line breaks (architecture.md §4.4). */
 export const itemDescriptionSchema = z.string().trim().max(60_000);
+
+/**
+ * Where a capture came from, when it came from somewhere else - the
+ * source-owned slice of an Item, said by whatever front door carried it in
+ * ("Save a Teams message to Cockpit", issue 486).
+ *
+ * **`sourceId` is what makes the same save land once.** It names the thing at
+ * the source rather than the delivery that carried it, so a push delivered
+ * twice and a person pressing save twice both end as one Item.
+ */
+export const capturedFromSchema = z.object({
+  source: sourceSchema,
+  sourceId: z.string().trim().min(1).max(500),
+  sourceLink: z.url().max(2_000).optional(),
+  sender: z.string().trim().min(1).max(TITLE_LENGTH).optional(),
+  sourceTimestamp: z.iso.datetime().optional(),
+});
+export type CapturedFrom = z.infer<typeof capturedFromSchema>;
 
 /**
  * One other way a captured note could be read, offered beside the reading

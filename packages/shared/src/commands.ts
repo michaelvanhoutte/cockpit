@@ -6,6 +6,7 @@ import {
 } from './domain/attachment.js';
 import {
   associationKindSchema,
+  capturedFromSchema,
   dashboardNameSchema,
   itemDescriptionSchema,
   itemReadingSchema,
@@ -289,6 +290,17 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
    * it always said (architecture.md §4.4).
    */
   workspaceDecided: z.boolean().optional(),
+  /**
+   * Where this came from, for a front door that carried it in from somewhere
+   * else ("Save a Teams message to Cockpit", issue 486). Absent is a capture
+   * made inside Cockpit, which is every front door that existed before it.
+   *
+   * **Written by an ingress route, and dropped from anything a client posts**
+   * (`apps/api/src/http/app.ts`): what it says is read off a push the host has
+   * already proved genuine, so a browser sending its own would be a browser
+   * writing somebody else's name and link onto an Item of its own.
+   */
+  capturedFrom: capturedFromSchema.optional(),
 });
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
 

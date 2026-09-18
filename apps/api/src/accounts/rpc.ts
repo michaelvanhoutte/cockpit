@@ -219,6 +219,22 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * account", issue 485). `missing` where there is no such Workspace.
    */
   sourceAccounts(accountName: string, workspaceId: string): Awaitable<Answer<SourceAccount[]>>;
+  /**
+   * The connection one Workspace holds to an account at a source, by the key
+   * that source names it with, or null ("Save a Teams message to Cockpit",
+   * issue 486) - identifiers only, and never the credential sealed in it.
+   */
+  connectionUnder(
+    accountName: string,
+    workspaceId: string,
+    connectorId: string,
+    externalAccountKey: string,
+  ): Awaitable<Answer<{ id: string } | null>>;
+  /** The sealed credential of one connection, for the connector about to use it (issue 486). */
+  sealedCredential(
+    accountName: string,
+    sourceAccountId: string,
+  ): Awaitable<Answer<{ sealedCredential: string; credentialNonce: string } | null>>;
   changesSince(
     accountName: string,
     since: string,

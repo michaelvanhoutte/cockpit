@@ -153,10 +153,12 @@ export async function startFromEmpty(): Promise<void> {
     await runInDurableObject(storeNamed(name), (_instance, state) => state.storage.deleteAll());
   }
   await abortAllDurableObjects();
-  // Children before parents: `sessions` points at `users`, which points at
-  // `tenants`, and the foreign keys are real.
+  // Children before parents: `sessions` points at `users` and
+  // `connector_directory` at `tenants`, which `users` also points at, and every
+  // one of those foreign keys is real.
   await env.DB.prepare('DELETE FROM sessions').run();
   await env.DB.prepare('DELETE FROM users').run();
+  await env.DB.prepare('DELETE FROM connector_directory').run();
   await env.DB.prepare('DELETE FROM tenants').run();
   signedIn.clear();
 }
