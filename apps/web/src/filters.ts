@@ -25,7 +25,7 @@ import { PRIORITY_LABELS } from './priority';
  */
 
 /** A calendar day, as an Item's due date is stored: `2026-09-17`. */
-type Day = string;
+export type Day = string;
 
 /** The day it is where the person is looking, which is what every window is measured from. */
 export function dayOf(now: Date): Day {
@@ -48,11 +48,29 @@ function partsOf(day: Day): { year: number; month: number; date: number } {
  * "six days later" is a question about a calendar and not about a moment, and
  * doing it in UTC is what keeps the hour a clock change introduces from moving
  * a boundary by a day.
+ *
+ * Exported for the due date field's own one-click shortcuts
+ * (`dueDateShortcuts.ts`), which move a day the same way a Filter's window
+ * does.
  */
-function daysAfter(day: Day, days: number): Day {
+export function daysAfter(day: Day, days: number): Day {
   const { year, month, date } = partsOf(day);
   const moved = new Date(Date.UTC(year, month - 1, date + days));
   return asDay(moved.getUTCFullYear(), moved.getUTCMonth() + 1, moved.getUTCDate());
+}
+
+/**
+ * Which day of the week a calendar day falls on (`0` Sunday to `6`
+ * Saturday), read the same way `daysAfter` moves one - through UTC, so the
+ * local day already read off the clock is never shifted by the hour a
+ * `Date` constructed straight from it would carry.
+ *
+ * Exported for the due date field's own one-click shortcuts
+ * (`dueDateShortcuts.ts`), which need the coming Friday the same way `week`
+ * below needs the day the current week started on.
+ */
+export function weekdayOf(day: Day): number {
+  return new Date(`${day}T00:00:00.000Z`).getUTCDay();
 }
 
 /** The last day of a month, which `Date.UTC` gives as day zero of the next one. */
@@ -75,7 +93,7 @@ function spanOf(window: DueWindow, on: Day): { from: Day; to: Day } | null {
   if (window === 'today') return { from: on, to: on };
   const { year, month } = partsOf(on);
   if (window === 'week') {
-    const since = new Date(`${on}T00:00:00.000Z`).getUTCDay();
+    const since = weekdayOf(on);
     const from = daysAfter(on, -((since + 6) % 7));
     return { from, to: daysAfter(from, 6) };
   }

@@ -131,17 +131,23 @@
 }
 
 /**
- * How big the item form gets to be: the size it opens at with nothing
- * remembered, and the ceiling a remembered or dragged size is clamped to for
- * as long as it stays open (components/ItemForm.tsx). Named once so the
- * floor a drag can shrink to - `min(18rem, --item-form-h)` there - can be
- * written against the same formula as the ceiling without a second copy of
- * it, which is what kept a screen too short for even 18rem from being able to
- * push the dialog under the status bar the ceiling already allows for.
+ * How big the item form gets to be. `-w`/`-h` are the size it opens at with
+ * nothing remembered; `-max-w`/`-max-h` are the ceiling a remembered or
+ * dragged size is clamped to for as long as it stays open
+ * (components/ItemForm.tsx) - a real ceiling above that default, room enough
+ * to drag into rather than the default doubling as its own limit ("Give the
+ * item's form more room, and put clutter out of the way", issue 480). Named
+ * once so the floor a drag can shrink to - `min(18rem, --item-form-max-h)`
+ * there - can be written against the same formula as the ceiling without a
+ * second copy of it, which is what kept a screen too short for even 18rem
+ * from being able to push the dialog under the status bar the ceiling
+ * already allows for.
  */
 :root {
-  --item-form-w: min(42rem, calc(100vw - 2rem));
+  --item-form-w: min(48rem, calc(100vw - 2rem));
   --item-form-h: min(44rem, calc(100vh - 2rem - 2 * max(var(--edge-top), var(--edge-bottom))));
+  --item-form-max-w: min(72rem, calc(100vw - 2rem));
+  --item-form-max-h: min(56rem, calc(100vh - 2rem - 2 * max(var(--edge-top), var(--edge-bottom))));
 }
 
 body {

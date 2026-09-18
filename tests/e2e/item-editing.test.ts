@@ -99,11 +99,14 @@ test.describe('Item editing', () => {
       // what capture wrote it from: one title, in the one place it is edited.
       await expect(titleBox(page)).toHaveValue(thought);
       // And what was captured is behind the disclosure as a record, which can
-      // never be edited. Scoped to the disclosure's own group, because the
+      // never be edited. Scoped to the disclosure's own group rather than
+      // the form - the panel is portalled to the end of the document, not a
+      // descendant of the dialog, which is what lets it escape its
+      // `overflow-hidden` - and to that group specifically, because the
       // description's editor writes paragraphs of its own the moment it
       // arrives, which is a race against this line.
       await press(form(page).getByText('What was captured'), isMobile);
-      await expect(form(page).getByRole('group').getByRole('paragraph')).toHaveText(thought);
+      await expect(page.getByRole('group').getByRole('paragraph')).toHaveText(thought);
 
       const named = uniqueTitle('Part 11');
       await titleBox(page).fill(named);
@@ -243,6 +246,32 @@ test.describe('Item editing', () => {
       // alone, whether or not the clear actually landed.
       await expect(dueDateBox(page)).toHaveCount(0);
       await expect(itemRow(page, thought).getByText('Due Sep 30, 2026')).toHaveCount(0);
+    });
+
+    /**
+     * The one-click shortcuts beside the field itself ("Give the item's form
+     * more room, and put clutter out of the way", issue 480) - what each one
+     * computes is tests/unit/dueDateShortcuts.test.ts's own claim; what is
+     * asked here is that a real press on a real button actually reaches the
+     * field, the same way typing into it does above.
+     */
+    test('a one-click shortcut fills the field too, and reaches the row the same way', async ({
+      page,
+      isMobile,
+    }) => {
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('One-click due date');
+      await capture(page, thought, isMobile);
+
+      await openItem(page, thought, isMobile);
+      await press(form(page).getByRole('button', { name: 'Today' }), isMobile);
+      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+
+      await expect(dueDateBox(page)).toHaveCount(0);
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      await openItem(page, thought, isMobile);
+      await expect(dueDateBox(page)).toHaveValue(today);
     });
   });
 
@@ -543,6 +572,66 @@ test.describe('Item editing', () => {
       }
     });
 
+    /**
+     * The default used to double as its own ceiling - a drag could shrink the
+     * box but never grow it - which is what "Give the item's form more room,
+     * and put clutter out of the way" (issue 480) puts a real ceiling above.
+     */
+    test('grows past the old default size, up to a real ceiling above it', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'resizing is a pointer gesture');
+
+      // Taller than the suite's own default viewport, so the ceiling's own
+      // headroom above the default height is not itself clamped away by the
+      // screen before the drag ever gets there - the default's own height
+      // already sits close to a laptop-sized screen by design.
+      await page.setViewportSize({ width: 1280, height: 1000 });
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Grow past the old default');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      const before = (await form(page).boundingBox())!;
+      const grip = { x: before.x + before.width - 6, y: before.y + before.height - 6 };
+      await page.mouse.move(grip.x, grip.y);
+      await page.mouse.down();
+      // Dragged outward on both axes - past where the old default, which
+      // used to double as its own ceiling, would have stopped it.
+      await page.mouse.move(grip.x + 250, grip.y + 150, { steps: 8 });
+      await page.mouse.up();
+      const grown = (await form(page).boundingBox())!;
+
+      expect(grown.width, 'grew past the old default width').toBeGreaterThan(before.width + 100);
+      expect(grown.height, 'grew past the old default height').toBeGreaterThan(before.height + 100);
+    });
+
+    test('shrinks to a floor, and no further', async ({ page, isMobile }) => {
+      test.skip(isMobile, 'resizing is a pointer gesture');
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Shrink to the floor');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      const before = (await form(page).boundingBox())!;
+      const grip = { x: before.x + before.width - 6, y: before.y + before.height - 6 };
+      await page.mouse.move(grip.x, grip.y);
+      await page.mouse.down();
+      // Dragged far past where the floor sits, so the assertion is about the
+      // floor holding rather than about how far the drag reached.
+      await page.mouse.move(grip.x - 1000, grip.y - 1000, { steps: 8 });
+      await page.mouse.up();
+      const shrunk = (await form(page).boundingBox())!;
+
+      expect(shrunk.width, 'shrank to the floor, not any smaller').toBeGreaterThanOrEqual(318);
+      expect(shrunk.width).toBeLessThanOrEqual(322);
+      expect(shrunk.height, 'shrank to the floor, not any smaller').toBeGreaterThanOrEqual(286);
+      expect(shrunk.height).toBeLessThanOrEqual(290);
+    });
+
     test('remembers a dragged size across items and a reopen, clamped to whatever screen it opens on next', async ({
       page,
       isMobile,
@@ -669,6 +758,152 @@ test.describe('Item editing', () => {
         reopened.height,
         'the untouched axis is the full default, not the short screen’s clamp of it',
       ).toBeGreaterThan(600);
+    });
+  });
+
+  /**
+   * F3, because whether the description's own box actually grows and shrinks
+   * on screen as the dialog is dragged is a claim about a real layout that
+   * nothing below the browser can make - the frame not reacting to what is
+   * *typed or loaded* into it is `apps/web/tests/unit/components/ItemForm.test.tsx`'s
+   * own claim, and is a different thing from the description reacting to the
+   * frame ("Give the item's form more room, and put clutter out of the way",
+   * issue 480).
+   */
+  test.describe('the description fills whatever room the form has', () => {
+    test('grows and shrinks with the dialog, rather than a fixed size', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'resizing is a pointer gesture');
+
+      // Taller than the suite's own default viewport, the same reason the
+      // resize block's own growth test sets one: the default height already
+      // sits close to a laptop-sized screen, so there is no room for a drag
+      // to grow it further without one.
+      await page.setViewportSize({ width: 1280, height: 1000 });
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Description fills the form');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+      await theEditorIsThere(page);
+
+      // The gap between the toolbar and the footer is the room the
+      // description has, measured without depending on how much text is in
+      // it - a fixed-height box would leave that gap unmoved by a drag.
+      const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
+      const saveButton = form(page).getByRole('button', { name: 'Save' });
+      const gap = async () => {
+        const toolbarBox = (await toolbar.boundingBox())!;
+        const saveBox = (await saveButton.boundingBox())!;
+        return saveBox.y - (toolbarBox.y + toolbarBox.height);
+      };
+      const before = await gap();
+
+      const box = (await form(page).boundingBox())!;
+      const grip = { x: box.x + box.width - 6, y: box.y + box.height - 6 };
+      await page.mouse.move(grip.x, grip.y);
+      await page.mouse.down();
+      await page.mouse.move(grip.x + 60, grip.y + 150, { steps: 8 });
+      await page.mouse.up();
+
+      expect(await gap(), 'grew with the dialog').toBeGreaterThan(before + 100);
+    });
+  });
+
+  /**
+   * F3, because whether the two-column split actually answers to a real
+   * drag rather than to the viewport is a claim about real layout, the same
+   * reason the resize and description-fill walks above are. A broken
+   * `@container` setup would leave every other walk in this file green -
+   * none of them ever narrow the dialog through the breakpoint - while the
+   * split silently never collapsed at all ("Give the item's form more room,
+   * and put clutter out of the way", issue 480).
+   */
+  test.describe('the two-column layout answers to the dialog’s own width, not the window’s', () => {
+    test('stacks into one column once the dialog is dragged narrower than the split needs', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'resizing is a pointer gesture');
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Collapses to one column');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+      await theEditorIsThere(page);
+
+      // Priority and the description's own toolbar sit on the same row when
+      // there is room for two columns - both near the top of their own
+      // column - and one column drops below the other's whole height once
+      // there is not. The toolbar, not the description box itself: the box
+      // sits below its own toolbar, which is otherwise close enough to
+      // Priority's own row to read as "the same row" even stacked.
+      const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
+      const sideBySide = async () => {
+        const priority = (await priorityBox(page).boundingBox())!;
+        const description = (await toolbar.boundingBox())!;
+        return Math.abs(priority.y - description.y) < 40;
+      };
+      expect(await sideBySide(), 'two columns at the dialog’s own default width').toBe(true);
+
+      const box = (await form(page).boundingBox())!;
+      const grip = { x: box.x + box.width - 6, y: box.y + box.height - 6 };
+      await page.mouse.move(grip.x, grip.y);
+      await page.mouse.down();
+      // Dragged well past the container-query breakpoint, on a viewport
+      // that never itself narrows - the window staying wide throughout is
+      // what tells the two apart.
+      await page.mouse.move(grip.x - 400, grip.y, { steps: 8 });
+      await page.mouse.up();
+
+      expect(await sideBySide(), 'one column once the dialog itself is narrow').toBe(false);
+    });
+  });
+
+  /**
+   * F3, because whether a press elsewhere actually dismisses one of these -
+   * and only this, never the form under it - is a claim about a real Radix
+   * `Popover` mounted through a real portal, which nothing below the
+   * browser can prove ("Give the item's form more room, and put clutter out
+   * of the way", issue 480).
+   */
+  test.describe('the footer disclosures close on a press elsewhere, and only one is open at a time', () => {
+    test('a press on the title closes it without closing the form, and only one stays open at a time', async ({
+      page,
+      isMobile,
+    }) => {
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Footer disclosures dismiss');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      // Each disclosure's own panel is portalled to the end of the
+      // document, not a descendant of the dialog - which is what lets it
+      // escape the dialog's own `overflow-hidden` - so it is found on the
+      // page rather than scoped to `form(page)`.
+      await press(form(page).getByRole('button', { name: 'What was captured' }), isMobile);
+      await expect(page.getByRole('group')).toBeVisible();
+
+      // A press elsewhere in the form - the title field - closes the panel
+      // without closing the form under it.
+      await press(titleBox(page), isMobile);
+      await expect(titleBox(page)).toHaveValue(thought);
+      await expect(page.getByRole('group')).toHaveCount(0);
+
+      // Opening the other one closes this one - Radix's own dismissable
+      // layer answers the press that lands on the new trigger by closing
+      // what was open, the same as it would a press anywhere else outside
+      // the panel, rather than also treating that same press as the new
+      // trigger's own - so switching is two presses, not one, and this
+      // asks for both rather than assuming either alone opens the other.
+      await press(form(page).getByRole('button', { name: 'What was captured' }), isMobile);
+      await press(form(page).getByRole('button', { name: 'ID' }), isMobile);
+      await expect(page.getByRole('group')).toHaveCount(0);
+      await press(form(page).getByRole('button', { name: 'ID' }), isMobile);
+      await expect(page.getByRole('group')).toHaveCount(1);
+      await expect(page.getByRole('group').getByRole('button', { name: 'Copy' })).toBeVisible();
     });
   });
 });
