@@ -1528,6 +1528,74 @@ export const rewriteHistory = sqliteTable(
 );
 
 /**
+ * A source account one Workspace has connected ("Connect a Microsoft Teams
+ * source account", issue 485) - who it is at the source, and the credential
+ * it was connected with, sealed.
+ *
+ * **The one table in this store that is really deleted, cascade and all.**
+ * Everything else is tombstoned or left where it is, because the history of
+ * what was filed where is the product; a credential is the opposite - what
+ * makes disconnecting mean anything is that it stops existing, so the row
+ * goes when it is disconnected and goes again with the Workspace that made
+ * it (`delete_workspace`, command-service.ts). The foreign key is still
+ * RESTRICT like every other, and unreached: a deleted Workspace is
+ * tombstoned rather than removed, so the cascade is the handler's own and
+ * visible where it is written rather than inherited from the schema.
+ *
+ * **`encrypted_credential` and `credential_nonce` are the only two columns
+ * nothing outside `connectors/` ever reads.** They are never in a snapshot,
+ * never on the wire, and the command that wrote them is logged without them
+ * (`forTheLog`, command-service.ts) - a command log holding the credential
+ * would make disconnecting a lie.
+ *
+ * **No CHECK on `connector_id`.** Which connectors exist is a set the
+ * product will extend, the same category this file's header puts panel kinds
+ * in - guarded by the contract alone, because a CHECK here would cost
+ * rebuilding this table the day a second connector lands.
+ */
+export const connectorAccounts = sqliteTable(
+  'connector_accounts',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    /** Which source this is an account at - `teams` today (`@cockpit/shared`). */
+    connectorId: text('connector_id').notNull(),
+    /**
+     * Which account at that source, in the source's own terms - tenant and
+     * object id for Microsoft (`src/connectors/teams.ts`). What the unique
+     * index below is on, and so what makes connecting the same account again
+     * a refresh rather than a second row.
+     */
+    externalAccountKey: text('external_account_key').notNull(),
+    displayName: text('display_name').notNull(),
+    encryptedCredential: text('encrypted_credential').notNull(),
+    credentialNonce: text('credential_nonce').notNull(),
+    connectedAt: text('connected_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    // What the window reads: one Workspace's accounts, oldest first.
+    index('connector_accounts_tenant_workspace').on(t.tenantId, t.workspaceId, t.connectedAt),
+    // One row per account per connector per Workspace, which is the rule
+    // rather than a tidiness: the same person's Teams account connected twice
+    // is one connection refreshed. Scoped to the Workspace, because a
+    // connection belongs to the Workspace that made it and two Workspaces may
+    // each connect the same account.
+    uniqueIndex('connector_accounts_one_per_account').on(
+      t.tenantId,
+      t.workspaceId,
+      t.connectorId,
+      t.externalAccountKey,
+    ),
+    check('connector_accounts_connected_at_is_timestamp', isTimestamp('connected_at')),
+    check('connector_accounts_updated_at_is_timestamp', isTimestamp('updated_at')),
+  ],
+);
+
+/**
  * The command log (architecture, "Mutations are commands, not object PUTs"):
  * idempotency check for retries and the audit trail. command_id is the
  * client-generated ID; a replayed command is a no-op.

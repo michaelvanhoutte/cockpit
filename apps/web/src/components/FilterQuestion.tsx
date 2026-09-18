@@ -43,7 +43,7 @@ const NO_PANELS_TO_CHOOSE = 'No panels to choose from yet.';
  * **Exported as a default, and lazy-loaded from `PanelBoard.tsx`.** A Filter's
  * own question is opened by choosing *Filter…* from a Panel's menu, never on
  * a cold open, so its own code - the four rows, the add menu, the checkboxes
- * - is fetched only then rather than spent out of the 200KB an open dashboard
+ * - is fetched only then rather than spent out of the 201KB an open dashboard
  * already pays for (`docs/architecture.md`, "Performance budgets"; the same
  * boundary `DescriptionBox.tsx`'s own `RichDescription` and `PanelText.tsx`'s
  * `DrawnText` already draw for the same reason).

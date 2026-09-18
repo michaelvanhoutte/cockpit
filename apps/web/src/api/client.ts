@@ -54,8 +54,12 @@ export class NotSignedIn extends Error {
   }
 }
 
-/** Every read's refusal, in one place, so 401 cannot be handled in only some of them. */
-function refusal(what: string, status: number): Error {
+/**
+ * Every read's refusal, in one place, so 401 cannot be handled in only some
+ * of them. Exported for `ManageConnections.tsx`'s own fetch, kept out of this
+ * module for the reason its doc comment gives.
+ */
+export function refusal(what: string, status: number): Error {
   const message = `${what} failed: ${status}`;
   return status === 401 ? new NotSignedIn(message) : new Error(message);
 }
@@ -276,6 +280,11 @@ const commandSenders = {
     api.v1.commands.rename_workspace.$post({ json: p }),
   delete_workspace: (p: CommandPayload<'delete_workspace'>) =>
     api.v1.commands.delete_workspace.$post({ json: p }),
+  // Only the disconnect: connecting is a navigation through Microsoft, and
+  // the command it ends in is written by the callback route rather than sent
+  // from here (`connectSourceAccountSchema`, @cockpit/shared).
+  disconnect_source_account: (p: CommandPayload<'disconnect_source_account'>) =>
+    api.v1.commands.disconnect_source_account.$post({ json: p }),
   reorder_workspaces: (p: CommandPayload<'reorder_workspaces'>) =>
     api.v1.commands.reorder_workspaces.$post({ json: p }),
   set_workspace_theme: (p: CommandPayload<'set_workspace_theme'>) =>

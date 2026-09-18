@@ -19,6 +19,7 @@ import {
   type RewriteAttemptStatus,
   type RoutingSummary,
   type ScreenSize,
+  type SourceAccount,
   type StoredPanelKind,
   type Workspace,
 } from '@cockpit/shared';
@@ -35,6 +36,7 @@ import {
   associations,
   attachments,
   commands,
+  connectorAccounts,
   dashboards,
   decisionHistory,
   duplicateSettlements,
@@ -1993,4 +1995,59 @@ export function replaceDuplicatesOf(
       .onConflictDoNothing()
       .run();
   }
+}
+
+/**
+ * The source accounts one Workspace has connected, oldest first ("Connect a
+ * Microsoft Teams source account", issue 485).
+ *
+ * **The two sealed columns are not selected**, which is the whole shape of
+ * this read: what the window shows is who is connected, and the credential is
+ * opened only by the connector that is about to use it. A read that carried
+ * it would put it in a snapshot, in a cache and on a wire, all for nothing.
+ */
+export function sourceAccountsIn(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): SourceAccount[] {
+  return db
+    .select({
+      id: connectorAccounts.id,
+      connectorId: connectorAccounts.connectorId,
+      displayName: connectorAccounts.displayName,
+      connectedAt: connectorAccounts.connectedAt,
+    })
+    .from(connectorAccounts)
+    .where(
+      and(
+        eq(connectorAccounts.tenantId, tenantId),
+        eq(connectorAccounts.workspaceId, workspaceId),
+      ),
+    )
+    // The id breaks the tie, because `connected_at` does not: two tabs
+    // connecting two accounts at once share a millisecond, and a list whose
+    // order moves between reads is one whose rows jump under the pointer.
+    .orderBy(asc(connectorAccounts.connectedAt), asc(connectorAccounts.id))
+    .all();
+}
+
+/**
+ * One connected source account by its id, or `undefined` - what
+ * `command-service.ts` checks before disconnecting, so a disconnect naming a
+ * row that is no longer there is a 404 rather than a delete that quietly
+ * matches nothing.
+ */
+export function getSourceAccount(
+  db: AccountDb,
+  tenantId: string,
+  sourceAccountId: string,
+): { id: string; workspaceId: string } | undefined {
+  return db
+    .select({ id: connectorAccounts.id, workspaceId: connectorAccounts.workspaceId })
+    .from(connectorAccounts)
+    .where(
+      and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.id, sourceAccountId)),
+    )
+    .get();
 }

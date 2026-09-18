@@ -7,7 +7,7 @@ import { takeTheNewVersion } from '../updating';
  *
  * **This component is the async boundary the budget requires.** The editor's
  * own file is 115KB compressed and the Markdown core it shares with a panel's
- * renderer another 21KB, against a 200KB gate the entry already spends 183KB of
+ * renderer another 21KB, against a 201KB gate the entry already spends 200KB of
  * (architecture, "Performance budgets"), so it is fetched only once a form is
  * open and never on the cold-open path. Everything here - the states, the
  * toggle, the fallback - exists because that fetch can be slow, and can fail.

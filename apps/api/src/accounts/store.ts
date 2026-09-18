@@ -7,6 +7,7 @@ import type {
   ItemType,
   Panel,
   ServerEvent,
+  SourceAccount,
   Workspace,
 } from '@cockpit/shared';
 import { panelTakesItems } from '@cockpit/shared';
@@ -55,6 +56,7 @@ import {
   PinnedExampleNotFoundError,
   ScreenSizeNameTakenError,
   ScreenSizeNotFoundError,
+  SourceAccountNotFoundError,
   UnknownThemeError,
   WorkspaceNameTakenError,
   WorkspaceNotFoundError,
@@ -95,6 +97,7 @@ import {
   replaceDuplicatesOf,
   rewriteHistoryForItem,
   rewriteHistoryForWorkspace,
+  sourceAccountsIn,
   textCorrectionsForAccount,
   unfiledItemsInWorkspace,
 } from './repo.js';
@@ -528,6 +531,26 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     return this.#answer(accountName, (db) => rewriteHistoryForItem(db, accountName, itemId));
   }
 
+  /**
+   * The source accounts one Workspace has connected, oldest first ("Connect a
+   * Microsoft Teams source account", issue 485) - without the credential
+   * sealed in each, which `sourceAccountsIn` (repo.ts) says why it never
+   * carries.
+   *
+   * Its own read rather than a slice of the Workspace's snapshot, the same
+   * reason `itemTypes` above is its own: the window that shows it is opened
+   * now and then, and every other device on the Workspace would otherwise
+   * carry this on every read of it.
+   */
+  sourceAccounts(accountName: string, workspaceId: string): Answer<SourceAccount[]> {
+    return this.#answer(accountName, (db) => {
+      // Asked rather than assumed, so a Workspace deleted in another tab is a
+      // 404 rather than an empty list that reads as "nothing connected".
+      if (!getWorkspace(db, accountName, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
+      return sourceAccountsIn(db, accountName, workspaceId);
+    });
+  }
+
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */
   changesSince(
     accountName: string,
@@ -857,7 +880,8 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof PanelNotFoundError ||
         error instanceof LayoutNotFoundError ||
         error instanceof ScreenSizeNotFoundError ||
-        error instanceof PinnedExampleNotFoundError
+        error instanceof PinnedExampleNotFoundError ||
+        error instanceof SourceAccountNotFoundError
       ) {
         return { status: 'missing', what: error.message };
       }

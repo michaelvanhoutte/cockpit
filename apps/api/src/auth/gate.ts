@@ -50,10 +50,10 @@ export function sessionCookieName(url: string): string {
 }
 
 /**
- * The same name, per stack, for every cookie this application sets - which is
- * both of them: the sign-in and the sign-in being attempted. Written once,
- * because two copies of this rule is two chances for one cookie to be shared
- * between stacks while the other is not.
+ * The same name, per stack, for every cookie this application sets - the
+ * session, the sign-in being attempted, and the connect attempt too. Written
+ * once, because two copies of this rule is two chances for one cookie to be
+ * shared between stacks while another is not.
  */
 function perStack(name: string, url: string): string {
   const { port } = new URL(url);
@@ -283,16 +283,62 @@ export function forgetSessionCookie(c: Context): void {
 const ATTEMPT_COOKIE = 'cockpit_sign_in';
 const ATTEMPT_LIFETIME_S = 10 * 60;
 
+/**
+ * The same, for a Workspace connecting a source account ("Connect a Microsoft
+ * Teams source account", issue 485).
+ *
+ * **A cookie of its own rather than the one above**, for one reason: signing
+ * in to Cockpit in a second tab while the first is away at Microsoft would
+ * otherwise overwrite the connection's attempt, and the connection would come
+ * back looking like one that never began. Two names, one set of rules.
+ *
+ * It carries the Workspace as well as the three secrets, because the reply
+ * from Microsoft says nothing about which Workspace asked - and taking that
+ * from the address the browser came back to would let a page somebody else
+ * made choose the Workspace a connection lands in.
+ *
+ * **And the account, because the Workspace alone does not name one.** Every
+ * account is handed a workspace under the same id (`0015-first-workspace`,
+ * accounts/changes.ts), so a sign-out and a different sign-in while somebody
+ * was away at Microsoft would otherwise land the credential in whoever is
+ * signed in when the reply arrives.
+ */
+const CONNECT_COOKIE = 'cockpit_connect';
+
+/** What a connection attempt has to carry back, on top of what any attempt does. */
+export interface ConnectAttempt extends Attempt {
+  readonly workspaceId: string;
+  readonly accountName: string;
+}
+
 function attemptCookieName(url: string): string {
   return perStack(ATTEMPT_COOKIE, url);
 }
 
-export function rememberAttempt(c: Context, attempt: Attempt): void {
-  setCookie(c, attemptCookieName(c.req.url), JSON.stringify(attempt), {
+function connectCookieName(url: string): string {
+  return perStack(CONNECT_COOKIE, url);
+}
+
+/** The rules every attempt cookie is kept under, written once for both of them. */
+function attemptCookieOptions(url: string) {
+  return {
     httpOnly: true,
     sameSite: 'Lax',
-    secure: new URL(c.req.url).protocol === 'https:',
+    secure: new URL(url).protocol === 'https:',
     path: '/',
+  } as const;
+}
+
+export function rememberAttempt(c: Context, attempt: Attempt): void {
+  setCookie(c, attemptCookieName(c.req.url), JSON.stringify(attempt), {
+    ...attemptCookieOptions(c.req.url),
+    maxAge: ATTEMPT_LIFETIME_S,
+  });
+}
+
+export function rememberConnectAttempt(c: Context, attempt: ConnectAttempt): void {
+  setCookie(c, connectCookieName(c.req.url), JSON.stringify(attempt), {
+    ...attemptCookieOptions(c.req.url),
     maxAge: ATTEMPT_LIFETIME_S,
   });
 }
@@ -303,16 +349,47 @@ export function rememberAttempt(c: Context, attempt: Attempt): void {
  * whose cookie has been tampered with.
  */
 export function attemptHeld(c: Context): Attempt | null {
-  const held = getCookie(c, attemptCookieName(c.req.url));
+  const held = readAttempt(getCookie(c, attemptCookieName(c.req.url)));
+  return held && { state: held.state, nonce: held.nonce, codeVerifier: held.codeVerifier };
+}
+
+/**
+ * The same, for a connection - and the account and Workspace it was started
+ * from. A cookie missing either of those is no attempt at all, which is also
+ * how one written by an older release is refused rather than half-believed.
+ */
+export function connectAttemptHeld(c: Context): ConnectAttempt | null {
+  const held = readAttempt(getCookie(c, connectCookieName(c.req.url)));
+  if (!held) return null;
+  const { workspaceId, accountName } = held.also;
+  if (typeof workspaceId !== 'string' || !workspaceId) return null;
+  if (typeof accountName !== 'string' || !accountName) return null;
+  return {
+    state: held.state,
+    nonce: held.nonce,
+    codeVerifier: held.codeVerifier,
+    workspaceId,
+    accountName,
+  };
+}
+
+/**
+ * The three secrets a cookie is carrying, and whatever else was written
+ * beside them for the caller that knows what it put there - or `null`, the
+ * same answer for a cookie that was never set, one whose ten minutes ran out,
+ * and one that has been tampered with.
+ */
+function readAttempt(held: string | undefined): (Attempt & { also: Record<string, unknown> }) | null {
   if (!held) return null;
   try {
     const parsed: unknown = JSON.parse(held);
     if (!parsed || typeof parsed !== 'object') return null;
-    const { state, nonce, codeVerifier } = parsed as Record<string, unknown>;
+    const also = parsed as Record<string, unknown>;
+    const { state, nonce, codeVerifier } = also;
     if (typeof state !== 'string' || typeof nonce !== 'string' || typeof codeVerifier !== 'string') {
       return null;
     }
-    return { state, nonce, codeVerifier };
+    return { state, nonce, codeVerifier, also };
   } catch {
     return null;
   }
@@ -324,10 +401,9 @@ export function attemptHeld(c: Context): Attempt | null {
  * finds nothing to check itself against the second time.
  */
 export function forgetAttempt(c: Context): void {
-  deleteCookie(c, attemptCookieName(c.req.url), {
-    httpOnly: true,
-    sameSite: 'Lax',
-    secure: new URL(c.req.url).protocol === 'https:',
-    path: '/',
-  });
+  deleteCookie(c, attemptCookieName(c.req.url), attemptCookieOptions(c.req.url));
+}
+
+export function forgetConnectAttempt(c: Context): void {
+  deleteCookie(c, connectCookieName(c.req.url), attemptCookieOptions(c.req.url));
 }

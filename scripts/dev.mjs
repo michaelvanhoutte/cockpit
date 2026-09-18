@@ -163,6 +163,19 @@ if (running.api) {
         'GOOGLE_CLIENT_ID:cockpit-local',
         '--var',
         'GOOGLE_CLIENT_SECRET:no-secret-is-needed-to-talk-to-the-stub',
+        // The same three a deployment holds for connecting a source account
+        // ("Connect a Microsoft Teams source account", issue 485). The issuer
+        // above stands in for Microsoft as well as for Google, which is what
+        // `OIDC_ISSUER` being a per-flow fallback buys (apps/api/src/auth/
+        // issuer.ts) - so there is no second stub to start and no second
+        // address to print. The key is 32 bytes of base64 and seals nothing
+        // that leaves this machine.
+        '--var',
+        'MS_CLIENT_ID:cockpit-local',
+        '--var',
+        'MS_CLIENT_SECRET:no-secret-is-needed-to-talk-to-the-stub',
+        '--var',
+        'CONNECTOR_CREDENTIAL_KEY:Y29ja3BpdC1sb2NhbC1jb25uZWN0b3Ita2V5LTAwMDA=',
         // Production sets this and staging deliberately does not, which is what
         // decides where "Continue as guest" works ("Sign in as a guest, without
         // a password", issue 354). Set here so the control can be driven

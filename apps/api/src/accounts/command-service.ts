@@ -7,6 +7,7 @@ import {
   associations,
   attachments,
   commands,
+  connectorAccounts,
   dashboards,
   DEAD_STATUS_VALUE,
   decisionHistory,
@@ -33,6 +34,7 @@ import {
   getPanel,
   getPinnedExample,
   getScreenSize,
+  getSourceAccount,
   getWorkspace,
   isItemFiled,
   lastWorkspacePosition,
@@ -182,6 +184,19 @@ export class WorkspaceNotFoundError extends Error {
   constructor(workspaceId: string) {
     super(`workspace ${workspaceId} not found`);
     this.name = 'WorkspaceNotFoundError';
+  }
+}
+
+/**
+ * A disconnect naming a source account this account no longer has ("Connect a
+ * Microsoft Teams source account", issue 485) - most likely another tab's
+ * disconnect winning the race, which is the same reason
+ * `PinnedExampleNotFoundError` exists one list along.
+ */
+export class SourceAccountNotFoundError extends Error {
+  constructor(sourceAccountId: string) {
+    super(`source account ${sourceAccountId} not found`);
+    this.name = 'SourceAccountNotFoundError';
   }
 }
 
@@ -668,6 +683,25 @@ function refuseAStaleOrder(db: AccountDb, tenantId: string, cmd: Arriving & { pa
 }
 
 /**
+ * The command as the log keeps it, which is the command itself for all but
+ * one of them.
+ *
+ * **`connect_source_account` is logged without its sealed credential**
+ * ("Connect a Microsoft Teams source account", issue 485). The log is an
+ * audit trail that outlives what it refers to, and a credential left in it
+ * would still be there after the row holding it was disconnected - which
+ * would make disconnecting a lie, since deleting the credential outright is
+ * the whole of what it promises. What the entry still says is that a Teams
+ * account was connected, which account, and when.
+ */
+function forTheLog<N extends CommandName>(name: N, payload: CommandPayload<N>): object {
+  if (name !== 'connect_source_account') return payload;
+  const { sealedCredential: _sealed, credentialNonce: _nonce, ...rest } =
+    payload as CommandPayload<'connect_source_account'>;
+  return rest;
+}
+
+/**
  * The one write path (architecture, "Mutations are commands, not object
  * PUTs"): idempotency check on the client-generated command ID, pure domain
  * handler, then the data change and the command-log entry written inside one
@@ -693,7 +727,7 @@ export function runCommand<N extends CommandName>(
     tenantId,
     workspaceId: payload.workspaceId,
     name,
-    payload: JSON.stringify(payload),
+    payload: JSON.stringify(forTheLog(name, payload)),
     issuedAt: payload.issuedAt,
     receivedAt: new Date().toISOString(),
   };
@@ -1392,6 +1426,22 @@ export function runCommand<N extends CommandName>(
           .set({ deletedAt: cmd.issuedAt })
           .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.id, cmd.workspaceId)))
           .run();
+        // **The one exception to the tombstone above, in the same act**
+        // ("Connect a Microsoft Teams source account", issue 485). Everything
+        // else this Workspace held is kept because the history of it is the
+        // product; a connection is a credential, and what makes deleting a
+        // Workspace mean anything is that the credentials it connected stop
+        // existing rather than sitting in a tombstoned Workspace nobody can
+        // see. Inside the same transaction, so there is no moment where the
+        // Workspace is gone and its credentials are not.
+        tx.delete(connectorAccounts)
+          .where(
+            and(
+              eq(connectorAccounts.tenantId, tenantId),
+              eq(connectorAccounts.workspaceId, cmd.workspaceId),
+            ),
+          )
+          .run();
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -2020,6 +2070,85 @@ export function runCommand<N extends CommandName>(
         // `pinnedTextExamples` for why nothing here needs a `deletedAt`.
         tx.delete(pinnedTextExamples)
           .where(and(eq(pinnedTextExamples.tenantId, tenantId), eq(pinnedTextExamples.id, cmd.exampleId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'connect_source_account': {
+      const cmd = payload as CommandPayload<'connect_source_account'>;
+      // The Workspace is what the connection belongs to, so one that has been
+      // deleted while somebody was away at Microsoft is a 404 rather than a
+      // row nothing can reach - the same check every other Workspace-scoped
+      // command makes, and the reason this is a command at all rather than a
+      // write the callback route does itself.
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
+      db.transaction((tx) => {
+        tx.insert(connectorAccounts)
+          .values({
+            id: cmd.sourceAccountId,
+            tenantId,
+            workspaceId: cmd.workspaceId,
+            connectorId: cmd.connectorId,
+            externalAccountKey: cmd.externalAccountKey,
+            displayName: cmd.displayName,
+            encryptedCredential: cmd.sealedCredential,
+            credentialNonce: cmd.credentialNonce,
+            connectedAt: cmd.issuedAt,
+            updatedAt: cmd.issuedAt,
+          })
+          // **Named at the account, not at the id, and that is the rule
+          // rather than a detail**: connecting the same tenant+account again
+          // refreshes the row that is already there ("Connect a Microsoft
+          // Teams source account", issue 485) - a fresh
+          // credential, a name that may have changed, and the same id it has
+          // always had, so nothing pointing at it has to move. `connectedAt`
+          // is deliberately left alone: when this Workspace first connected
+          // that account is not changed by connecting it again.
+          .onConflictDoUpdate({
+            target: [
+              connectorAccounts.tenantId,
+              connectorAccounts.workspaceId,
+              connectorAccounts.connectorId,
+              connectorAccounts.externalAccountKey,
+            ],
+            set: {
+              displayName: cmd.displayName,
+              encryptedCredential: cmd.sealedCredential,
+              credentialNonce: cmd.credentialNonce,
+              updatedAt: cmd.issuedAt,
+            },
+          })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'disconnect_source_account': {
+      const cmd = payload as CommandPayload<'disconnect_source_account'>;
+      // Deleted for real, so a disconnect naming a row that has already gone
+      // is a 404 whether the replay carries the original request id (caught
+      // above) or a fresh one (caught here).
+      //
+      // **The Workspace has to be the row's own**, and a mismatch is the same
+      // 404 rather than a delete that quietly matches nothing: the id is the
+      // one handle a request holds on a connection, so this is what stops one
+      // Workspace disconnecting another's by naming it.
+      const held = getSourceAccount(db, tenantId, cmd.sourceAccountId);
+      if (!held || held.workspaceId !== cmd.workspaceId) {
+        throw new SourceAccountNotFoundError(cmd.sourceAccountId);
+      }
+      db.transaction((tx) => {
+        tx.delete(connectorAccounts)
+          .where(
+            and(
+              eq(connectorAccounts.tenantId, tenantId),
+              eq(connectorAccounts.id, cmd.sourceAccountId),
+              eq(connectorAccounts.workspaceId, cmd.workspaceId),
+            ),
+          )
           .run();
         tx.insert(commands).values(commandRow).run();
       });

@@ -7,6 +7,7 @@ import type {
   ItemType,
   Panel,
   ServerEvent,
+  SourceAccount,
   Workspace,
 } from '@cockpit/shared';
 import type { AccountSnapshot, Answer } from './answer.js';
@@ -212,6 +213,12 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     model: string,
     readings: readonly { itemId: string; reading: number[] }[],
   ): Awaitable<Answer<{ remembered: string[] }>>;
+  /**
+   * The source accounts one Workspace has connected, oldest first, and never
+   * the credential sealed in each ("Connect a Microsoft Teams source
+   * account", issue 485). `missing` where there is no such Workspace.
+   */
+  sourceAccounts(accountName: string, workspaceId: string): Awaitable<Answer<SourceAccount[]>>;
   changesSince(
     accountName: string,
     since: string,
