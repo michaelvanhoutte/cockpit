@@ -1089,12 +1089,16 @@ function TheForm({
                 would paint a beat before the rest of the form does (found in
                 review). */}
             {/* Each `onOpenChange` reads `was` rather than assuming which one
-                is open: opening the other closes this one in a single press,
-                which is a genuinely open `Popover` (this one) and a closing
-                one (the other) reaching this state in whichever order the
-                two dismissable layers happen to settle in - a plain
-                `isOpen ? key : null` closes unconditionally and can win a
-                race against the other's own open, leaving neither open
+                is open. A real press on the other one's trigger only closes
+                this one - Radix answers that first press as a dismissal of
+                whichever `Popover` is open rather than also that trigger's
+                own open action, so switching takes two presses, not one -
+                but a *programmatic* open and close (`fireEvent`, in
+                `apps/web/tests/unit/components/ItemForm.test.tsx`'s own
+                mutual-exclusion case) can still fire both from what looks
+                like a single interaction, in either order. A plain
+                `isOpen ? key : null` closes unconditionally and can stomp a
+                same-tick open from the other one, leaving neither open
                 (found in review, once written the naive way). */}
             <div className="flex items-center gap-1.5">
               {draft && item?.capturedMessage && (
