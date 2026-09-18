@@ -42,8 +42,9 @@ export function ManageConnections({
 }) {
   const { data, error, refetch, isFetching } = useQuery({
     ...sourceAccountsQuery(workspaceId),
-    // Not while it is shut: the window stays mounted between openings, and a
-    // list read on every render of the shell is a request nobody asked for.
+    // Said rather than assumed: the tabs only render this while it is open
+    // (`WorkspaceTabs.tsx`), and a list read for a shut window would be a
+    // request nobody asked for.
     enabled: open,
   });
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
@@ -77,9 +78,9 @@ export function ManageConnections({
   };
 
   /**
-   * Closing forgets what was refused, for the reason `ManageTypes` gives: this
-   * stays mounted between openings, so a refusal merely hidden comes back the
-   * next time over a row nobody has touched.
+   * Closing drops the disconnect being asked about as well as shutting the
+   * window, so what the tabs unmount is never a question left half-answered
+   * over a row nobody has touched.
    */
   const close = () => {
     stopAsking();

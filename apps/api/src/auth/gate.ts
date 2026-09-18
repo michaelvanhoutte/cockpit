@@ -296,12 +296,19 @@ const ATTEMPT_LIFETIME_S = 10 * 60;
  * from Microsoft says nothing about which Workspace asked - and taking that
  * from the address the browser came back to would let a page somebody else
  * made choose the Workspace a connection lands in.
+ *
+ * **And the account, because the Workspace alone does not name one.** Every
+ * account is handed a workspace under the same id (`0015-first-workspace`,
+ * accounts/changes.ts), so a sign-out and a different sign-in while somebody
+ * was away at Microsoft would otherwise land the credential in whoever is
+ * signed in when the reply arrives.
  */
 const CONNECT_COOKIE = 'cockpit_connect';
 
 /** What a connection attempt has to carry back, on top of what any attempt does. */
 export interface ConnectAttempt extends Attempt {
   readonly workspaceId: string;
+  readonly accountName: string;
 }
 
 function attemptCookieName(url: string): string {
@@ -346,13 +353,24 @@ export function attemptHeld(c: Context): Attempt | null {
   return held && { state: held.state, nonce: held.nonce, codeVerifier: held.codeVerifier };
 }
 
-/** The same, for a connection - and the Workspace it was started from. */
+/**
+ * The same, for a connection - and the account and Workspace it was started
+ * from. A cookie missing either of those is no attempt at all, which is also
+ * how one written by an older release is refused rather than half-believed.
+ */
 export function connectAttemptHeld(c: Context): ConnectAttempt | null {
   const held = readAttempt(getCookie(c, connectCookieName(c.req.url)));
   if (!held) return null;
-  const { workspaceId } = held.also;
+  const { workspaceId, accountName } = held.also;
   if (typeof workspaceId !== 'string' || !workspaceId) return null;
-  return { state: held.state, nonce: held.nonce, codeVerifier: held.codeVerifier, workspaceId };
+  if (typeof accountName !== 'string' || !accountName) return null;
+  return {
+    state: held.state,
+    nonce: held.nonce,
+    codeVerifier: held.codeVerifier,
+    workspaceId,
+    accountName,
+  };
 }
 
 /**

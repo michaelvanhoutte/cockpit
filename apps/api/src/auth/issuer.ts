@@ -192,13 +192,13 @@ export async function exchangeCode(
   // Read as text and parsed here, rather than `response.json()`, so the answer
   // can be kept exactly as it arrived - see `ExchangedTokens` above.
   const asIssued = await response.text();
-  let body: { id_token?: unknown };
+  let idToken: unknown;
   try {
-    body = JSON.parse(asIssued) as { id_token?: unknown };
+    // Read inside the `try` as well as parsed there: `null` is valid JSON, and
+    // reading a property off it throws rather than answering `undefined`.
+    idToken = (JSON.parse(asIssued) as { id_token?: unknown } | null)?.id_token;
   } catch {
     return null;
   }
-  return typeof body.id_token === 'string' && body.id_token
-    ? { idToken: body.id_token, asIssued }
-    : null;
+  return typeof idToken === 'string' && idToken ? { idToken, asIssued } : null;
 }

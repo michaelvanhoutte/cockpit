@@ -2006,7 +2006,10 @@ export function sourceAccountsIn(
         eq(connectorAccounts.workspaceId, workspaceId),
       ),
     )
-    .orderBy(asc(connectorAccounts.connectedAt))
+    // The id breaks the tie, because `connected_at` does not: two tabs
+    // connecting two accounts at once share a millisecond, and a list whose
+    // order moves between reads is one whose rows jump under the pointer.
+    .orderBy(asc(connectorAccounts.connectedAt), asc(connectorAccounts.id))
     .all();
 }
 

@@ -302,6 +302,30 @@ describe('Connector management', () => {
       expect(await storedRows()).toHaveLength(1);
     });
 
+    /**
+     * The session decides whose store a connection lands in, and every account
+     * is handed a workspace under the same id (`0015-first-workspace`) - so a
+     * sign-out and a different sign-in while somebody is away at the source
+     * must not seal their credential into whoever is signed in when the reply
+     * arrives.
+     */
+    it('refuses a reply that comes back signed in as another account', async () => {
+      await issuerIsReachable();
+      const session = await signInAs();
+      const somebodyElse = await signInAs(OTHER_USER_ID);
+      const { asked, attempt } = await startConnecting(WORKSPACE_ID, session);
+      issuerWillIdentify({ ...ADA, nonce: asked.searchParams.get('nonce')! });
+
+      const back = await comeBack(
+        { code: 'a-code', state: asked.searchParams.get('state')! },
+        `${somebodyElse}; ${attempt}`,
+      );
+
+      expect(back.headers.get('location')).toBe('/');
+      expect(await storedRows()).toEqual([]);
+      expect(await listed(WORKSPACE_ID, OTHER_USER_ID)).toEqual([]);
+    });
+
     it('refuses a reply carrying another connection’s proof, and stores nothing', async () => {
       await issuerIsReachable();
       const session = await signInAs();

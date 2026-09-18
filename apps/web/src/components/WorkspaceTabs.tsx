@@ -468,12 +468,15 @@ export function WorkspaceTabs({
       {/* The Workspace's own connections, over the workspace rather than
           instead of it - the same window every other list is managed in. Drawn
           for whichever Workspace was asked, which is not always the one you
-          are in: the entry is on every tab's menu. */}
+          are in: the entry is on every tab's menu. The outcome belongs to the
+          Workspace the address named, and goes no further: opening another
+          tab's window while `?connections=refused` stands would otherwise tell
+          it a connection nobody started there had failed. */}
       {connectionsFor && (
         <ManageConnections
           workspaceId={connectionsFor.id}
           workspaceName={connectionsFor.name}
-          outcome={outcome}
+          outcome={connectionsFor.id === params.workspaceId ? outcome : undefined}
           open
           onClose={closeConnections}
           returnFocusTo={askedFrom.current}

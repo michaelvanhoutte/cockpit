@@ -1512,16 +1512,26 @@ const routes = app
       if (!(await account.workspaces()).some((workspace) => workspace.id === workspaceId)) {
         return refuseConnection(c, workspaceId, 'no such workspace');
       }
-      if (!(await whatConnectingNeeds(c.env))) {
+      const needed = await whatConnectingNeeds(c.env);
+      if (!needed) {
         return refuseConnection(c, workspaceId, 'this environment cannot connect a source account');
       }
 
       const endpoints = await endpointsFor(teamsIssuerFor(c.env));
-      const attempt = { ...newAttempt(), workspaceId };
+      // The account goes in the attempt as well as the Workspace, because the
+      // Workspace alone does not name one (`ConnectAttempt`, auth/gate.ts).
+      const attempt = {
+        ...newAttempt(),
+        workspaceId,
+        accountName: c.get('visitor').accountName,
+      };
       rememberConnectAttempt(c, attempt);
+      // `needed.clientId`, never `c.env.MS_CLIENT_ID` again: the two have to be
+      // character-for-character the same value the callback exchanges with, and
+      // a secret stored with a stray newline is otherwise two ids.
       const url = await authorizationUrl(
         endpoints,
-        c.env.MS_CLIENT_ID!,
+        needed.clientId,
         connectCallbackUrl(c),
         attempt,
       );
@@ -1554,6 +1564,17 @@ const routes = app
     // screen is told so in the window they started from, unlike a cancelled
     // sign-in, which simply leaves you where you already were.
     if (wrong) return refuseConnection(c, attempt?.workspaceId, wrong);
+
+    // **The account that started it has to be the account that comes back.**
+    // The session is what decides whose store the row lands in, and every
+    // account is handed a workspace under the same id
+    // (`0015-first-workspace`), so without this a sign-out and a different
+    // sign-in while somebody was away at Microsoft would seal their credential
+    // into whoever is signed in now. Sent nowhere in particular, because the
+    // Workspace the attempt names is not this visitor's to be shown.
+    if (attempt!.accountName !== c.get('visitor').accountName) {
+      return refuseConnection(c, undefined, 'the connection was started by another account');
+    }
 
     try {
       const needed = await whatConnectingNeeds(c.env);
