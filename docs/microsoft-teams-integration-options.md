@@ -101,16 +101,38 @@ Subscribe to:
 
 **Decision:** Reject for our use case.
 
+### 6. Message extension action (explicit save-to-Cockpit)
+
+Instead of relying on Teams' native **Save this message**, ship a Teams message extension with an action command (`context: "message"`). It appears under a message's `⋯ → More actions` menu, e.g. **Save to Cockpit**. Invoking it sends the app a `composeExtension/submitAction` payload containing that one message — no subscription or polling involved.
+
+**Pros**
+- Same explicit, high-signal semantics as native Save, without depending on the unexposed Saved-list Graph API.
+- Teams calls the app directly only when invoked; no standing webhook needed for this capability.
+- Confirmed available on Microsoft 365 Business Basic: Microsoft's own Teams platform docs list Basic, Standard, Enterprise E1/E3/E5, Developer, and Education as eligible plans for building and testing Teams apps (learn.microsoft.com/en-us/microsoftteams/platform/concepts/build-and-test/prepare-your-o365-tenant). No Copilot or premium add-on license is required.
+- Needs only a standard Entra ID app registration, same as the other options.
+
+**Cons**
+- Requires shipping a custom Teams app (manifest with the action command) and the tenant's custom-app-upload / org-wide app policy must allow it. This is an admin-controlled toggle in the Teams admin center, not a license gate, but it is a setup step per tenant.
+- Only captures messages flagged from the point the app is installed onward; like native Save, it does not retroactively surface history.
+- The action's messaging endpoint must be a reachable public HTTPS endpoint, the same infrastructure already required for the webhook-based options above.
+- Still requires a work/school (Entra ID) account — a personal Microsoft account cannot sideload a custom Teams app or use delegated Graph auth against Teams resources.
+
+**Decision:** Preferred mechanism for explicit "save this for later," replacing the rejected native-Save approach.
+
 ## Selected approach
 
 **Graph change notifications, event-driven and user-scoped**, rather than polling the Teams environment.
 
 - **DMs and chats:** one user-level subscription to `/users/{user-id}/chats/getAllMessages`, filtering the incoming messages for the ones still needing attention.
 - **Channel @mentions:** a subscription per monitored channel (`/teams/{team-id}/channels/{channel-id}/messages`), keeping a message only when its structured `mentions` collection names the current user. Every message in the selected channel arrives, but its history is never re-polled.
-- **Saved messages:** not integrated, there being no supported Graph API for the user's Saved list.
+- **Explicit save:** a message extension action command (`Save to Cockpit`) instead of native Teams Save, since the native Saved list has no supported Graph API.
 - **Tenant-wide subscriptions:** deliberately avoided, their permission and data scope being unnecessarily broad for a personal integration.
 
-The main thing to validate before implementation is Microsoft's licensing and tenant-consent impact for the user-level subscription model.
+**Licensing and account requirements**, validated against Microsoft's own docs:
+
+- Graph delegated access to Teams chat messages requires a work/school (Entra ID) account; personal Microsoft accounts are not supported.
+- Building, sideloading, and running a custom Teams app (needed for the message extension action) is confirmed available on Microsoft 365 Business Basic — no Standard, Premium, or Copilot-tier license is required.
+- The free Microsoft 365 Developer Program sandbox is not self-serve for everyone: as of this writing it's gated to active Visual Studio Professional/Enterprise subscribers, ISV Success Program/MAICPP partners, or Premier/Unified Support customers. Absent one of those, a paid tenant (Microsoft 365 Business Basic with Teams) is the practical route for a development/test tenant.
 
 ## Resulting architecture
 
@@ -145,3 +167,6 @@ Microsoft Teams
 - Microsoft Graph — Change notifications for Teams chat messages: https://learn.microsoft.com/en-us/graph/teams-changenotifications-chatmessage
 - Microsoft Graph — Teams API licensing/payment models: https://learn.microsoft.com/en-us/graph/teams-licenses
 - Microsoft Support — Save a chat or channel message: https://support.microsoft.com/en-us/teams/chat/save-a-chat-or-channel-message-in-microsoft-teams
+- Microsoft Teams platform — Message extension action commands: https://learn.microsoft.com/en-us/microsoftteams/platform/messaging-extensions/how-to/action-commands/define-action-command
+- Microsoft Teams platform — Prepare your Microsoft 365 tenant (eligible plans for custom app development): https://learn.microsoft.com/en-us/microsoftteams/platform/concepts/build-and-test/prepare-your-o365-tenant
+- Microsoft 365 Developer Program FAQ (sandbox eligibility): https://learn.microsoft.com/en-us/office/developer-program/microsoft-365-developer-program-faq
