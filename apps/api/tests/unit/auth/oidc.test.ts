@@ -217,6 +217,54 @@ describe('Sign-in', () => {
     });
   });
 
+  /**
+   * A multi-tenant issuer names itself with a placeholder where a tenant goes,
+   * so which issuer signed a token is only knowable from the token ("Connect a
+   * Microsoft Teams source account", issue 485). Here rather than beside the
+   * connector, because this is the check itself and getting it wrong is
+   * believing somebody else's issuer.
+   */
+  describe('an identity from a multi-tenant issuer is believed only from one of its own tenants', () => {
+    const MULTI_TENANT = 'https://login.microsoftonline.test/{tenantid}/v2.0';
+
+    function verdictForIssuer(token: string) {
+      return identityFrom(token, keys, { issuer: MULTI_TENANT, clientId: CLIENT_ID, nonce: attempt.nonce }, NOW);
+    }
+
+    it('believes one naming a tenant where the tenant goes', async () => {
+      const token = await identityToken({
+        issuer: 'https://login.microsoftonline.test/a-real-tenant/v2.0',
+      });
+
+      await expect(verdictForIssuer(token)).resolves.toMatchObject({ identified: true });
+    });
+
+    /**
+     * Each of these would be read as a tenant by a check loose enough to
+     * accept it: a path with a `/` in it puts somebody else's issuer inside
+     * the pattern, and an empty one makes the pattern match its own frame.
+     */
+    it.each([
+      { situation: 'another issuer entirely', issuer: 'https://not-microsoft.test/a-tenant/v2.0' },
+      {
+        situation: 'a path smuggling another issuer through where a tenant goes',
+        issuer: 'https://login.microsoftonline.test/a-tenant/evil/v2.0',
+      },
+      {
+        situation: 'no tenant at all',
+        issuer: 'https://login.microsoftonline.test//v2.0',
+      },
+      {
+        situation: 'the template itself rather than a tenant',
+        issuer: 'https://login.microsoftonline.test/{tenantid}/v2.0/elsewhere',
+      },
+    ])('refuses one naming $situation', async ({ issuer }) => {
+      await expect(verdictForIssuer(await identityToken({ issuer }))).resolves.toMatchObject({
+        identified: false,
+      });
+    });
+  });
+
   describe('the browser is sent away with what proves the sign-in, never with what spends it', () => {
     it('asks the issuer for an identity, answering this attempt', async () => {
       const url = new URL(await authorizationUrl(endpoints, CLIENT_ID, 'https://app.test/back', attempt));

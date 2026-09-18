@@ -330,7 +330,13 @@
       "key": "Connector management",
       "label": "Connector management",
       "parent": "Workspaces",
-      "sourcePatterns": []
+      "sourcePatterns": [
+        "apps/api/src/connectors/credential-crypto.ts",
+        "apps/api/src/connectors/teams.ts",
+        "packages/shared/src/domain/source-account.ts",
+        "apps/web/src/components/ManageConnections.tsx",
+        "apps/web/src/connections.ts"
+      ]
     },
     {
       "key": "Across the app",

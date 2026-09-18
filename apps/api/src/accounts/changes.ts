@@ -105,6 +105,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     REWRITE_HISTORY,
     PANEL_FILTERS,
     ITEM_DUE_DATE_SET_AT,
+    CONNECTOR_ACCOUNTS,
   ];
 }
 
@@ -857,6 +858,65 @@ const PANEL_FILTERS: Change = {
 const ITEM_DUE_DATE_SET_AT: Change = {
   name: '0036-item-due-date-set-at',
   statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `due_date_set_at` text' }],
+};
+
+/**
+ * The source accounts a Workspace has connected ("Connect a Microsoft Teams
+ * source account", issue 485) - see `schema.ts` for what each column carries
+ * and why, the two sealed ones especially.
+ *
+ * **A brand new table, created whole with its CHECKs and both indexes**, the
+ * same shape `ATTACHMENTS` above uses and for the same reason: a table
+ * created here carries them from the start, where a column added to an
+ * existing one cannot.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It adds a table and writes to no existing row.
+ * - **If it stops halfway:** it cannot. The statements and the record that
+ *   they ran commit together (`up-to-date.ts`), so a failure leaves neither
+ *   the table nor its indexes and the change is retried whole.
+ * - **The second time it runs:** it does not, having been recorded - and an
+ *   unfinished run left nothing for a fresh `CREATE TABLE` to conflict with.
+ * - **Rows that already break the new rule:** there can be none. The table
+ *   starts empty, and nothing sweeps anything into it; a Workspace has the
+ *   connections it made from this shipping forward.
+ * - **Rolled back after it has run:** an older release names none of these
+ *   columns and offers no way to connect anything, so the table simply sits
+ *   there unread. The reverse - a release naming a table that is gone - is
+ *   what dropping this would cause, which is why that would need a release of
+ *   its own (deployment, "Migrations and rollback").
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const CONNECTOR_ACCOUNTS: Change = {
+  name: '0037-connector-accounts',
+  statements: [
+    {
+      sql: `CREATE TABLE \`connector_accounts\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`workspace_id\` text NOT NULL,
+	\`connector_id\` text NOT NULL,
+	\`external_account_key\` text NOT NULL,
+	\`display_name\` text NOT NULL,
+	\`encrypted_credential\` text NOT NULL,
+	\`credential_nonce\` text NOT NULL,
+	\`connected_at\` text NOT NULL,
+	\`updated_at\` text NOT NULL,
+	FOREIGN KEY (\`workspace_id\`) REFERENCES \`workspaces\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "connector_accounts_connected_at_is_timestamp" CHECK(connected_at IS NULL OR (datetime(connected_at) IS NOT NULL AND substr(connected_at, 11, 1) = 'T' AND substr(connected_at, -1) = 'Z' AND length(connected_at) >= 20 AND date(connected_at) = substr(connected_at, 1, 10))),
+	CONSTRAINT "connector_accounts_updated_at_is_timestamp" CHECK(updated_at IS NULL OR (datetime(updated_at) IS NOT NULL AND substr(updated_at, 11, 1) = 'T' AND substr(updated_at, -1) = 'Z' AND length(updated_at) >= 20 AND date(updated_at) = substr(updated_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `connector_accounts_tenant_workspace` ON `connector_accounts` (`tenant_id`,`workspace_id`,`connected_at`)',
+    },
+    {
+      sql: 'CREATE UNIQUE INDEX `connector_accounts_one_per_account` ON `connector_accounts` (`tenant_id`,`workspace_id`,`connector_id`,`external_account_key`)',
+    },
+  ],
 };
 
 /**

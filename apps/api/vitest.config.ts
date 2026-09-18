@@ -134,6 +134,22 @@ export default defineConfig({
           GOOGLE_CLIENT_ID: 'cockpit-test',
           GOOGLE_CLIENT_SECRET: 'a-secret-that-proves-nothing-here',
           APP_ORIGIN: 'http://cockpit.test',
+          /**
+           * What a deployment holds for connecting a source account
+           * ("Connect a Microsoft Teams source account", issue 485), set here
+           * so the flow runs as it runs anywhere else - against the same
+           * faked issuer signing in uses, since `OIDC_ISSUER` above stands in
+           * for both (`src/auth/issuer.ts`). The client id is the same
+           * `cockpit-test` because the issuer mints one audience.
+           *
+           * The key is 32 bytes of base64 and nothing about it is secret: it
+           * seals credentials that only exist inside a test run. The case
+           * about an environment that cannot connect anything takes these off
+           * `env` for itself, the same way the guest-sign-in case does.
+           */
+          MS_CLIENT_ID: 'cockpit-test',
+          MS_CLIENT_SECRET: 'a-secret-that-proves-nothing-here',
+          CONNECTOR_CREDENTIAL_KEY: 'Y29ja3BpdC10ZXN0LWNvbm5lY3Rvci1rZXktMDAwMDA=',
         },
       },
     }),

@@ -1,10 +1,11 @@
 import { createRemoteJWKSet, type JWTVerifyGetKey } from 'jose';
 import type { Env } from '../env.js';
-import type { IssuerEndpoints } from './oidc.js';
+import { TENANT_PLACEHOLDER, type IssuerEndpoints } from './oidc.js';
 
 /**
- * The half of signing in that talks to Google: where it answers, which keys it
- * is signing with today, and spending a code for an identity.
+ * The half of an OpenID Connect flow that talks to the issuer: where it
+ * answers, which keys it is signing with today, and spending a code for an
+ * identity.
  *
  * It is here rather than in oidc.ts so that everything deciding *what to
  * believe* stays pure and provable at L1. What is left in this file is I/O with
@@ -12,9 +13,20 @@ import type { IssuerEndpoints } from './oidc.js';
  * tests/integration/http/sign-in.test.ts does against the stub.
  */
 
+/** Who signs people in to Cockpit itself. */
+const GOOGLE = 'https://accounts.google.com';
+
 /**
- * Google, unless something says otherwise.
+ * Who says whose Microsoft account a Workspace is connecting ("Connect a
+ * Microsoft Teams source account", issue 485) - the multi-tenant endpoint,
+ * because whose tenant somebody connects is theirs to choose.
  *
+ * Its discovery document names itself with `{tenantid}` where a real tenant
+ * goes, which is why `discover` below and `oidc.ts` both know that spelling.
+ */
+const MICROSOFT = 'https://login.microsoftonline.com/common/v2.0';
+
+/**
  * **`OIDC_ISSUER` is how local development and the browser suite point at the
  * stub issuer**, which is what lets them run the same flow this file runs
  * against Google - one sign-in path everywhere, rather than a bypass in the
@@ -22,11 +34,22 @@ import type { IssuerEndpoints } from './oidc.js';
  * it (apps/api/wrangler.jsonc), and the day one did, it would be signing people
  * in against whatever it named: it is configuration with the weight of a
  * secret, and docs/deployment.md says so where the secrets are listed.
+ *
+ * **It stands in for both issuers**, which is the whole reason it is a
+ * fallback per flow rather than a constant: one stub answering both flows is
+ * what lets a worktree drive connecting a Teams account without a second
+ * issuer to start and a second variable to keep in step.
  */
-const GOOGLE = 'https://accounts.google.com';
+function whoToBelieve(env: Env, unlessOverridden: string): string {
+  return env.OIDC_ISSUER?.trim() || unlessOverridden;
+}
 
 export function issuerFor(env: Env): string {
-  return env.OIDC_ISSUER?.trim() || GOOGLE;
+  return whoToBelieve(env, GOOGLE);
+}
+
+export function teamsIssuerFor(env: Env): string {
+  return whoToBelieve(env, MICROSOFT);
 }
 
 /**
@@ -64,10 +87,28 @@ async function discover(issuer: string): Promise<IssuerEndpoints> {
   };
   // An issuer that names somebody else as itself is the one thing here worth
   // refusing outright: every later check is made against this name.
-  if (endpoints.issuer !== issuer) {
+  if (!namesItself(issuer, endpoints.issuer)) {
     throw new Error(`${issuer} calls itself ${endpoints.issuer}`);
   }
   return endpoints;
+}
+
+/**
+ * Whether what an issuer calls itself is a name for the issuer we asked.
+ *
+ * Identical, all but for a multi-tenant endpoint, whose document names itself
+ * with `{tenantid}` where a real tenant goes - so `common` is answered by a
+ * template rather than by its own address, and a template from the address we
+ * asked is accepted. Which tenant actually signed a token is then read off the
+ * token (`claimsFrom`, oidc.ts), which is the only place it is knowable.
+ */
+function namesItself(asked: string, declared: string): boolean {
+  if (declared === asked) return true;
+  return declared.includes(TENANT_PLACEHOLDER) && sameOrigin(asked, declared);
+}
+
+function sameOrigin(one: string, other: string): boolean {
+  return URL.canParse(one) && URL.canParse(other) && new URL(one).origin === new URL(other).origin;
 }
 
 function asUrl(value: unknown, field: string): string {
@@ -96,6 +137,20 @@ export function keysOf(endpoints: IssuerEndpoints): JWTVerifyGetKey {
 }
 
 /**
+ * What an issuer answers when a code is spent.
+ *
+ * `asIssued` is the answer as it arrived, kept whole because it is what a
+ * connected source account's credential *is* ("Connect a Microsoft Teams
+ * source account", issue 485): picking fields out of it here would decide,
+ * today, which of them a connector may use later. Signing in reads `idToken`
+ * and throws the rest away.
+ */
+export interface ExchangedTokens {
+  readonly idToken: string;
+  readonly asIssued: string;
+}
+
+/**
  * Spends the code for an identity token, or answers `null`.
  *
  * The verifier goes with it, which is what proves this is the same sign-in the
@@ -110,7 +165,7 @@ export async function exchangeCode(
   endpoints: IssuerEndpoints,
   credentials: { clientId: string; clientSecret: string },
   reply: { code: string; codeVerifier: string; redirectUri: string },
-): Promise<string | null> {
+): Promise<ExchangedTokens | null> {
   const response = await fetch(endpoints.tokenEndpoint, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -134,6 +189,16 @@ export async function exchangeCode(
     return null;
   }
 
-  const body = (await response.json()) as { id_token?: unknown };
-  return typeof body.id_token === 'string' && body.id_token ? body.id_token : null;
+  // Read as text and parsed here, rather than `response.json()`, so the answer
+  // can be kept exactly as it arrived - see `ExchangedTokens` above.
+  const asIssued = await response.text();
+  let idToken: unknown;
+  try {
+    // Read inside the `try` as well as parsed there: `null` is valid JSON, and
+    // reading a property off it throws rather than answering `undefined`.
+    idToken = (JSON.parse(asIssued) as { id_token?: unknown } | null)?.id_token;
+  } catch {
+    return null;
+  }
+  return typeof idToken === 'string' && idToken ? { idToken, asIssued } : null;
 }

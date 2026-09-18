@@ -396,6 +396,17 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
     return queryClient.invalidateQueries({ queryKey: ['textLearningStatus'] });
   }
 
+  if (args.name === 'disconnect_source_account') {
+    // Its own query, outside any workspace snapshot - the same reason the
+    // text-learning window's reads are, one branch up. Waited for rather than
+    // dropped, so the row is gone from the list by the time the window stops
+    // saying the disconnect is in flight ("Connect a Microsoft Teams source
+    // account", issue 485).
+    return queryClient.invalidateQueries({
+      queryKey: ['sourceAccounts', args.payload.workspaceId],
+    });
+  }
+
   if (args.name === 'delete_workspace') {
     // Dropped, not re-read. There is nothing to revalidate: the snapshot of a
     // deleted workspace is a 404 for good, so invalidating it would fetch one

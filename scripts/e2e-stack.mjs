@@ -214,6 +214,15 @@ const api = start(
     'GOOGLE_CLIENT_ID:cockpit-e2e',
     '--var',
     'GOOGLE_CLIENT_SECRET:no-secret-is-needed-to-talk-to-the-stub',
+    // Connecting a source account, against the same stub issuer - see
+    // scripts/dev.mjs, which passes the same three for the same reason
+    // ("Connect a Microsoft Teams source account", issue 485).
+    '--var',
+    'MS_CLIENT_ID:cockpit-e2e',
+    '--var',
+    'MS_CLIENT_SECRET:no-secret-is-needed-to-talk-to-the-stub',
+    '--var',
+    'CONNECTOR_CREDENTIAL_KEY:Y29ja3BpdC1lMmUtY29ubmVjdG9yLWtleS0wMDAwMDA=',
     // Set, because a walk about continuing as a guest needs the environment to
     // offer it. That it is *absent* somewhere - which is what refuses the route
     // on staging - is held one tier down, where taking a variable away is a

@@ -572,6 +572,44 @@ export const proposeItemPanelSchema = commandEnvelopeSchema
 export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
 
 /**
+ * connect_source_account — a Workspace's Teams sign-in, once Microsoft has
+ * said who it was and the credential has been sealed ("Connect a Microsoft
+ * Teams source account", issue 485).
+ *
+ * **Written by the callback route, never posted as JSON by a client** - the
+ * same standing `add_attachment` above has, and for a sharper reason: the
+ * payload carries a sealed credential, so a route a browser could post to
+ * would be a route a browser could put its own credential through.
+ *
+ * `externalAccountKey` is what makes connecting the same account twice a
+ * refresh rather than a second row, and it is derived from the identity
+ * Microsoft returned rather than sent by anybody
+ * (`apps/api/src/connectors/teams.ts`).
+ */
+export const connectSourceAccountSchema = commandEnvelopeSchema.extend({
+  sourceAccountId: z.uuid(),
+  connectorId: z.string().min(1),
+  externalAccountKey: z.string().min(1),
+  displayName: z.string().min(1),
+  /** The credential as it is stored: sealed bytes, and the nonce they were sealed under. */
+  sealedCredential: z.string().min(1),
+  credentialNonce: z.string().min(1),
+});
+export type ConnectSourceAccountCommand = z.infer<typeof connectSourceAccountSchema>;
+
+/**
+ * disconnect_source_account - the row and the credential sealed in it, gone
+ * for good ("Connect a Microsoft Teams source account", issue 485). No
+ * tombstone, for the reason `delete_pinned_example` has none and one of its
+ * own: what makes disconnecting mean anything is that the credential stops
+ * existing.
+ */
+export const disconnectSourceAccountSchema = commandEnvelopeSchema.extend({
+  sourceAccountId: z.string().min(1),
+});
+export type DisconnectSourceAccountCommand = z.infer<typeof disconnectSourceAccountSchema>;
+
+/**
  * set_duplicate_settled — a flagged pair settled as not a duplicate, or that
  * settling taken back ("Say a flagged pair is not a duplicate", issue 408;
  * `docs/routing-learning.md`, "Cockpit may replace what it proposed and never
@@ -648,6 +686,8 @@ export const commandSchemas = {
   delete_pinned_example: deletePinnedExampleSchema,
   propose_item_texts: proposeItemTextsSchema,
   propose_item_panel: proposeItemPanelSchema,
+  connect_source_account: connectSourceAccountSchema,
+  disconnect_source_account: disconnectSourceAccountSchema,
   set_duplicate_settled: setDuplicateSettledSchema,
 } as const;
 
@@ -659,14 +699,20 @@ export type CommandPayload<N extends CommandName> = z.infer<(typeof commandSchem
  * the ones with no endpoint and no sender (architecture.md §4.4, "two commands
  * carry no client and no route").
  */
-export type SelfSentCommandName = 'propose_item_texts' | 'propose_item_panel';
+export type SelfSentCommandName =
+  | 'propose_item_texts'
+  | 'propose_item_panel'
+  // Sent by the callback Microsoft returns to, which is a navigation rather
+  // than a request a page makes - and which carries a sealed credential no
+  // browser may ever hand over (see `connectSourceAccountSchema` above).
+  | 'connect_source_account';
 
 /**
  * The commands a client sends, which is every command with a generic JSON
- * endpoint. `add_attachment` is excluded alongside the two self-sent
- * commands above for a different reason: a client does trigger it, but
- * never by posting this payload as JSON - the upload route builds it itself
- * once a file's bytes have already streamed to R2 (see `addAttachmentSchema`
+ * endpoint. `add_attachment` is excluded alongside the self-sent commands
+ * above for a different reason: a client does trigger it, but never by
+ * posting this payload as JSON - the upload route builds it itself once a
+ * file's bytes have already streamed to R2 (see `addAttachmentSchema`
  * above).
  */
 export type ClientCommandName = Exclude<CommandName, SelfSentCommandName | 'add_attachment'>;

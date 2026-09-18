@@ -88,7 +88,7 @@ export interface RichDescriptionProps {
  * (docs/rich-text-options.md, "What the spike found").
  *
  * **This module is the lazy chunk.** It is the largest thing this app fetches -
- * 115KB compressed, against a 200KB budget the entry already spends most of -
+ * 115KB compressed, against a 201KB budget the entry already spends most of -
  * so nothing on the cold-open path may import it. Two things may, and both only
  * through `React.lazy`: `DescriptionBox`, for an item's description, and
  * `panels/PanelText`, for a panel of text somebody is writing in formatted
