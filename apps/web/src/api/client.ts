@@ -9,6 +9,8 @@ import {
   userDeletedSchema,
   type AccountHoldings,
   signedInSchema,
+  sourceAccountListSchema,
+  type SourceAccountList,
   workspaceListSchema,
   workspaceSnapshotSchema,
   userAddedSchema,
@@ -259,6 +261,30 @@ export async function fetchRewriteHistoryForWorkspace(workspaceId: string): Prom
   return rewriteHistoryResponseSchema.parse(await res.json());
 }
 
+/**
+ * The source accounts one Workspace has connected, oldest first ("Connect a
+ * Microsoft Teams source account", issue 485).
+ */
+export async function fetchSourceAccounts(workspaceId: string): Promise<SourceAccountList> {
+  const res = await api.v1.workspaces[':workspaceId'].connections.$get({ param: { workspaceId } });
+  if (!res.ok) throw refusal('connections', res.status);
+  return sourceAccountListSchema.parse(await res.json());
+}
+
+/**
+ * Connecting a Teams account is a navigation, not a request: the browser
+ * leaves for Microsoft and comes back to a page, so there is nothing here to
+ * await and nothing to parse - the same shape `SIGN_IN_PATH` above has, and
+ * the same reason.
+ *
+ * It comes back to `/w/<workspaceId>?connections=connected|refused`, which is
+ * what reopens the window over the Workspace it was started from
+ * (`components/ManageConnections.tsx`).
+ */
+export function connectTeamsPath(workspaceId: string): string {
+  return `/v1/workspaces/${encodeURIComponent(workspaceId)}/connections/teams/connect`;
+}
+
 /** Every rewrite attempt for one item, most recent first - the table opened from that item's own menu (issue 444). */
 export async function fetchRewriteHistoryForItem(itemId: string): Promise<RewriteHistoryResponse> {
   const res = await api.v1.items[':itemId']['rewrite-history'].$get({
@@ -276,6 +302,11 @@ const commandSenders = {
     api.v1.commands.rename_workspace.$post({ json: p }),
   delete_workspace: (p: CommandPayload<'delete_workspace'>) =>
     api.v1.commands.delete_workspace.$post({ json: p }),
+  // Only the disconnect: connecting is a navigation through Microsoft, and
+  // the command it ends in is written by the callback route rather than sent
+  // from here (`connectSourceAccountSchema`, @cockpit/shared).
+  disconnect_source_account: (p: CommandPayload<'disconnect_source_account'>) =>
+    api.v1.commands.disconnect_source_account.$post({ json: p }),
   reorder_workspaces: (p: CommandPayload<'reorder_workspaces'>) =>
     api.v1.commands.reorder_workspaces.$post({ json: p }),
   set_workspace_theme: (p: CommandPayload<'set_workspace_theme'>) =>

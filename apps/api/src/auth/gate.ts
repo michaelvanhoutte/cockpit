@@ -283,16 +283,55 @@ export function forgetSessionCookie(c: Context): void {
 const ATTEMPT_COOKIE = 'cockpit_sign_in';
 const ATTEMPT_LIFETIME_S = 10 * 60;
 
+/**
+ * The same, for a Workspace connecting a source account ("Connect a Microsoft
+ * Teams source account", issue 485).
+ *
+ * **A cookie of its own rather than the one above**, for one reason: signing
+ * in to Cockpit in a second tab while the first is away at Microsoft would
+ * otherwise overwrite the connection's attempt, and the connection would come
+ * back looking like one that never began. Two names, one set of rules.
+ *
+ * It carries the Workspace as well as the three secrets, because the reply
+ * from Microsoft says nothing about which Workspace asked - and taking that
+ * from the address the browser came back to would let a page somebody else
+ * made choose the Workspace a connection lands in.
+ */
+const CONNECT_COOKIE = 'cockpit_connect';
+
+/** What a connection attempt has to carry back, on top of what any attempt does. */
+export interface ConnectAttempt extends Attempt {
+  readonly workspaceId: string;
+}
+
 function attemptCookieName(url: string): string {
   return perStack(ATTEMPT_COOKIE, url);
 }
 
-export function rememberAttempt(c: Context, attempt: Attempt): void {
-  setCookie(c, attemptCookieName(c.req.url), JSON.stringify(attempt), {
+function connectCookieName(url: string): string {
+  return perStack(CONNECT_COOKIE, url);
+}
+
+/** The rules every attempt cookie is kept under, written once for both of them. */
+function attemptCookieOptions(url: string) {
+  return {
     httpOnly: true,
     sameSite: 'Lax',
-    secure: new URL(c.req.url).protocol === 'https:',
+    secure: new URL(url).protocol === 'https:',
     path: '/',
+  } as const;
+}
+
+export function rememberAttempt(c: Context, attempt: Attempt): void {
+  setCookie(c, attemptCookieName(c.req.url), JSON.stringify(attempt), {
+    ...attemptCookieOptions(c.req.url),
+    maxAge: ATTEMPT_LIFETIME_S,
+  });
+}
+
+export function rememberConnectAttempt(c: Context, attempt: ConnectAttempt): void {
+  setCookie(c, connectCookieName(c.req.url), JSON.stringify(attempt), {
+    ...attemptCookieOptions(c.req.url),
     maxAge: ATTEMPT_LIFETIME_S,
   });
 }
@@ -303,16 +342,36 @@ export function rememberAttempt(c: Context, attempt: Attempt): void {
  * whose cookie has been tampered with.
  */
 export function attemptHeld(c: Context): Attempt | null {
-  const held = getCookie(c, attemptCookieName(c.req.url));
+  const held = readAttempt(getCookie(c, attemptCookieName(c.req.url)));
+  return held && { state: held.state, nonce: held.nonce, codeVerifier: held.codeVerifier };
+}
+
+/** The same, for a connection - and the Workspace it was started from. */
+export function connectAttemptHeld(c: Context): ConnectAttempt | null {
+  const held = readAttempt(getCookie(c, connectCookieName(c.req.url)));
+  if (!held) return null;
+  const { workspaceId } = held.also;
+  if (typeof workspaceId !== 'string' || !workspaceId) return null;
+  return { state: held.state, nonce: held.nonce, codeVerifier: held.codeVerifier, workspaceId };
+}
+
+/**
+ * The three secrets a cookie is carrying, and whatever else was written
+ * beside them for the caller that knows what it put there - or `null`, the
+ * same answer for a cookie that was never set, one whose ten minutes ran out,
+ * and one that has been tampered with.
+ */
+function readAttempt(held: string | undefined): (Attempt & { also: Record<string, unknown> }) | null {
   if (!held) return null;
   try {
     const parsed: unknown = JSON.parse(held);
     if (!parsed || typeof parsed !== 'object') return null;
-    const { state, nonce, codeVerifier } = parsed as Record<string, unknown>;
+    const also = parsed as Record<string, unknown>;
+    const { state, nonce, codeVerifier } = also;
     if (typeof state !== 'string' || typeof nonce !== 'string' || typeof codeVerifier !== 'string') {
       return null;
     }
-    return { state, nonce, codeVerifier };
+    return { state, nonce, codeVerifier, also };
   } catch {
     return null;
   }
@@ -324,10 +383,9 @@ export function attemptHeld(c: Context): Attempt | null {
  * finds nothing to check itself against the second time.
  */
 export function forgetAttempt(c: Context): void {
-  deleteCookie(c, attemptCookieName(c.req.url), {
-    httpOnly: true,
-    sameSite: 'Lax',
-    secure: new URL(c.req.url).protocol === 'https:',
-    path: '/',
-  });
+  deleteCookie(c, attemptCookieName(c.req.url), attemptCookieOptions(c.req.url));
+}
+
+export function forgetConnectAttempt(c: Context): void {
+  deleteCookie(c, connectCookieName(c.req.url), attemptCookieOptions(c.req.url));
 }

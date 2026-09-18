@@ -1,4 +1,4 @@
-import { jwtVerify, type JWTVerifyGetKey } from 'jose';
+import { jwtVerify, type JWTPayload, type JWTVerifyGetKey } from 'jose';
 
 /**
  * The OpenID Connect code flow, as much of it as is ours: where to send the
@@ -158,14 +158,88 @@ export function replyBelongsTo(
 }
 
 /**
+ * What a multi-tenant issuer writes where a tenant it does not know yet would
+ * go. Microsoft's `common` discovery document names itself
+ * `https://login.microsoftonline.com/{tenantid}/v2.0` while every token it
+ * signs names one real tenant, so the two are compared as a pattern rather
+ * than as a string in that one case (`claimsFrom` below, `issuer.ts`).
+ */
+export const TENANT_PLACEHOLDER = '{tenantid}';
+
+/**
  * What an identity token is worth: signed by the issuer's current key, issued
  * by the issuer we asked, for this application, unexpired, and answering the
- * nonce this attempt sent.
+ * nonce this attempt sent - the claims where all five hold, and why not
+ * otherwise.
  *
- * All five are `jwtVerify`'s to enforce rather than this function's to
+ * Four of the five are `jwtVerify`'s to enforce rather than this function's to
  * re-implement, which is why the key set is a parameter: the tests hand in a
  * local one and mint tokens against it, so every refusal below is provable
  * without a network.
+ *
+ * **Shared by signing in and by connecting a source account**, which believe
+ * a token for the same five reasons and then read different claims out of it
+ * (`identityFrom` below, and `connectors/teams.ts`).
+ */
+export async function claimsFrom(
+  idToken: string,
+  keys: JWTVerifyGetKey,
+  expected: { issuer: string; clientId: string; nonce: string },
+  now: Date,
+): Promise<JWTPayload | Refusal> {
+  // `jose` takes a fixed issuer or a list of them, never a pattern, so where
+  // the issuer is a template the name is checked below instead of here - and
+  // where it is not, it stays `jose`'s exactly as it always was.
+  const templated = expected.issuer.includes(TENANT_PLACEHOLDER);
+  let claims;
+  try {
+    ({ payload: claims } = await jwtVerify(idToken, keys, {
+      ...(templated ? {} : { issuer: expected.issuer }),
+      audience: expected.clientId,
+      currentDate: now,
+    }));
+  } catch {
+    // Which of them it failed is deliberately not distinguished: there is
+    // nothing to do differently, and nothing to learn from the difference.
+    return 'the identity could not be read';
+  }
+
+  if (templated && !issuedByATenantOf(expected.issuer, claims.iss)) {
+    return 'the identity could not be read';
+  }
+
+  if (typeof claims.nonce !== 'string' || !timingSafeEquals(claims.nonce, expected.nonce)) {
+    return 'the identity answers a different sign-in';
+  }
+  return claims;
+}
+
+/**
+ * Whether a token naming itself `iss` was signed by one tenant of the
+ * multi-tenant issuer `template`.
+ *
+ * **One path segment, and a non-empty one.** The template is split on the
+ * placeholder and both ends have to match exactly, so nothing but a tenant
+ * id can stand in the middle - a `/` there would let another issuer's path
+ * be read as a tenant of this one.
+ *
+ * Any tenant is accepted, which is what a multi-tenant application means:
+ * whose Microsoft account somebody connects is theirs to choose, and this
+ * asks for an identity rather than for access to anything in that tenant.
+ */
+function issuedByATenantOf(template: string, iss: unknown): boolean {
+  if (typeof iss !== 'string') return false;
+  const at = template.indexOf(TENANT_PLACEHOLDER);
+  const before = template.slice(0, at);
+  const after = template.slice(at + TENANT_PLACEHOLDER.length);
+  if (!iss.startsWith(before) || !iss.endsWith(after)) return false;
+  const tenant = iss.slice(before.length, iss.length - after.length);
+  return tenant.length > 0 && !tenant.includes('/');
+}
+
+/**
+ * Who the issuer says this is, from a token it has already been proved to
+ * have signed for this sign-in.
  */
 export async function identityFrom(
   idToken: string,
@@ -173,22 +247,8 @@ export async function identityFrom(
   expected: { issuer: string; clientId: string; nonce: string },
   now: Date,
 ): Promise<Verdict> {
-  let claims;
-  try {
-    ({ payload: claims } = await jwtVerify(idToken, keys, {
-      issuer: expected.issuer,
-      audience: expected.clientId,
-      currentDate: now,
-    }));
-  } catch {
-    // Which of the five it failed is deliberately not distinguished: there is
-    // nothing to do differently, and nothing to learn from the difference.
-    return { identified: false, refusal: 'the identity could not be read' };
-  }
-
-  if (typeof claims.nonce !== 'string' || !timingSafeEquals(claims.nonce, expected.nonce)) {
-    return { identified: false, refusal: 'the identity answers a different sign-in' };
-  }
+  const claims = await claimsFrom(idToken, keys, expected, now);
+  if (typeof claims === 'string') return { identified: false, refusal: claims };
 
   const subject = claims.sub;
   const email = claims.email;

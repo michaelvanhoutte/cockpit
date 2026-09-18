@@ -12,8 +12,10 @@ import {
   workspacesQuery,
 } from '../api/queries';
 import { litForChrome } from '../chrome';
+import { useConnections } from '../connections';
 import { useTabDrag } from '../tabDrag';
 import { DeleteQuestion } from './DeleteQuestion';
+import { ManageConnections } from './ManageConnections';
 import { SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
 import { RowForm } from './RowForm';
 
@@ -81,6 +83,21 @@ export function WorkspaceTabs({
   const [saveRefusal, setSaveRefusal] = useState<string | null>(null);
   /** The workspace whose delete is waiting to be confirmed. */
   const [deleting, setDeleting] = useState<string | null>(null);
+  /**
+   * The workspace whose connections are open, where the menu opened them
+   * ("Connect a Microsoft Teams source account", issue 485).
+   *
+   * **The address can open it too**, and that is the one thing this window
+   * needs which the others do not: connecting leaves the application for
+   * Microsoft, so the window that started it is long gone by the time the
+   * browser comes back, and what comes back is a redirect to the Workspace
+   * carrying how it went (`connections.ts`).
+   */
+  const [openedFromTheMenu, setOpenedFromTheMenu] = useState<string | null>(null);
+  const { outcome, forget } = useConnections();
+  const connectionsFor = workspaces.find(
+    (ws) => ws.id === (openedFromTheMenu ?? (outcome ? params.workspaceId : undefined)),
+  );
   /**
    * The tab the form or the question was opened from, so the focus can go back
    * to it. A ref rather than state: nothing on screen depends on it, and it is
@@ -307,6 +324,23 @@ export function WorkspaceTabs({
     askedFrom.current = openedFrom;
     setDeleting(ws.id);
   };
+  const startConnections = (ws: Workspace, openedFrom: HTMLElement | null) => {
+    closeForm();
+    setDeleting(null);
+    command.reset();
+    askedFrom.current = openedFrom;
+    setOpenedFromTheMenu(ws.id);
+  };
+  /**
+   * Both ways of having opened it are closed together, and the address one is
+   * the reason: a window shut only in state would reopen on the next render
+   * while `?connections=` was still in the address, and Back would put it up
+   * again saying a connection had just been made.
+   */
+  const closeConnections = () => {
+    setOpenedFromTheMenu(null);
+    if (outcome) forget();
+  };
   const closeForm = () => {
     setEditing(null);
     setSaveRefusal(null);
@@ -318,6 +352,10 @@ export function WorkspaceTabs({
     // form is what renames, and two ways to reach the same box is one more
     // thing to choose between.
     { label: 'Edit…', onSelect: (from) => startEditing(ws, from) },
+    // On the tab rather than in the header's menu, because a connection
+    // belongs to one Workspace and no other Workspace ever sees it ("Connect a
+    // Microsoft Teams source account", issue 485).
+    { label: 'Manage connections…', onSelect: (from) => startConnections(ws, from) },
     { label: 'Delete', destructive: true, onSelect: (from) => startDeleting(ws, from) },
   ];
 
@@ -424,6 +462,21 @@ export function WorkspaceTabs({
           returnFocusTo={askedFrom.current}
           onCancel={closeForm}
           onSave={() => void saveForm()}
+        />
+      )}
+
+      {/* The Workspace's own connections, over the workspace rather than
+          instead of it - the same window every other list is managed in. Drawn
+          for whichever Workspace was asked, which is not always the one you
+          are in: the entry is on every tab's menu. */}
+      {connectionsFor && (
+        <ManageConnections
+          workspaceId={connectionsFor.id}
+          workspaceName={connectionsFor.name}
+          outcome={outcome}
+          open
+          onClose={closeConnections}
+          returnFocusTo={askedFrom.current}
         />
       )}
 

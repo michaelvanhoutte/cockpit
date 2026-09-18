@@ -6,6 +6,7 @@ import type {
   ItemType,
   Panel,
   ServerEvent,
+  SourceAccount,
   Workspace,
 } from '@cockpit/shared';
 import type { Env } from '../env.js';
@@ -225,6 +226,12 @@ export interface Account {
   ): Promise<{ remembered: string[] }>;
   /** The account's live types, in the order they were put in. */
   itemTypes(): Promise<ItemType[]>;
+  /**
+   * The source accounts one Workspace has connected, oldest first, and never
+   * the credential sealed in each ("Connect a Microsoft Teams source
+   * account", issue 485).
+   */
+  sourceAccounts(workspaceId: string): Promise<SourceAccount[]>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
   applyChange<N extends CommandName>(
     name: N,
@@ -285,6 +292,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.itemsToRead(accountName, model, after, limit)),
     rememberWhatTheseItemsMean: async (model, readings) =>
       unwrap(await store.rememberWhatTheseItemsMean(accountName, model, readings)),
+    sourceAccounts: async (workspaceId) =>
+      unwrap(await store.sourceAccounts(accountName, workspaceId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
   };

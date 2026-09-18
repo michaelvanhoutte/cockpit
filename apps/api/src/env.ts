@@ -68,6 +68,38 @@ export interface Env {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   /**
+   * The application Microsoft knows this Cockpit as, and the secret that
+   * proves it, for connecting a Workspace's Teams account ("Connect a
+   * Microsoft Teams source account", issue 485).
+   *
+   * Both optional in the type, unlike Google's above, and the difference is
+   * what each one's absence means: without Google's, nobody can sign in at
+   * all, while without these a deployment simply connects nothing and works
+   * in every other way - the same standing `BACKUP_TOKEN` below has. The
+   * connect route refuses where either is missing rather than sending
+   * somebody to Microsoft to be turned away there.
+   *
+   * Both are secrets set per environment (`wrangler secret put`,
+   * docs/deployment.md, "Secrets and access"), the client id included: no
+   * Entra registration exists yet, so a placeholder in wrangler.jsonc would
+   * be configuration nobody chose.
+   */
+  MS_CLIENT_ID?: string;
+  MS_CLIENT_SECRET?: string;
+  /**
+   * What a connected source account's credential is sealed with: 32 random
+   * bytes, base64 (`src/connectors/credential-crypto.ts`).
+   *
+   * Optional for the reason the two above are, and refused rather than worked
+   * around: an environment with no key stores no credential at all, because
+   * the alternative - storing one in the clear - is the thing this exists to
+   * make impossible. **Losing it makes every stored credential unreadable**,
+   * which is a disconnect-and-connect-again for whoever holds one rather
+   * than lost work, and docs/deployment.md says so where it says how to make
+   * one.
+   */
+  CONNECTOR_CREDENTIAL_KEY?: string;
+  /**
    * Where this environment is reached by the people using it, which is where a
    * sign-in comes back to. Not this Worker's own address: in development the
    * browser is on Vite and only `/v1` reaches here.

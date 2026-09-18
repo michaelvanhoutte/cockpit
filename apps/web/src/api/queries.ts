@@ -19,6 +19,7 @@ import {
   fetchRewriteHistoryForItem,
   fetchRewriteHistoryForWorkspace,
   fetchSnapshot,
+  fetchSourceAccounts,
   fetchTextLearningStatus,
   fetchWorkspaces,
   sendCommand,
@@ -194,6 +195,25 @@ export const rewriteHistoryForWorkspaceQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: ['rewriteHistory', 'workspace', workspaceId],
     queryFn: () => fetchRewriteHistoryForWorkspace(workspaceId),
+    staleTime: 0,
+  });
+
+/**
+ * The source accounts one Workspace has connected ("Connect a Microsoft Teams
+ * source account", issue 485).
+ *
+ * **Never served from a copy.** The window says what is connected *now*, and
+ * the two moments it is read are the two where a copy would be wrong: coming
+ * back from Microsoft, where the row was made a redirect ago, and reopening
+ * it after a disconnect made in another tab. The issue asks for exactly
+ * this - "Reopening Manage Connections always shows current stored state,
+ * never an optimistic guess" - and it is what `registeredUsersQuery` above
+ * does for the same reason.
+ */
+export const sourceAccountsQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: ['sourceAccounts', workspaceId],
+    queryFn: () => fetchSourceAccounts(workspaceId),
     staleTime: 0,
   });
 
@@ -394,6 +414,17 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
     // long enough that a second press of Delete on a row already gone comes
     // back a `PinnedExampleNotFoundError` the person reads as a bug.
     return queryClient.invalidateQueries({ queryKey: ['textLearningStatus'] });
+  }
+
+  if (args.name === 'disconnect_source_account') {
+    // Its own query, outside any workspace snapshot - the same reason the
+    // text-learning window's reads are, one branch up. Waited for rather than
+    // dropped, so the row is gone from the list by the time the window stops
+    // saying the disconnect is in flight ("Connect a Microsoft Teams source
+    // account", issue 485).
+    return queryClient.invalidateQueries({
+      queryKey: ['sourceAccounts', args.payload.workspaceId],
+    });
   }
 
   if (args.name === 'delete_workspace') {

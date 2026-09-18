@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-router';
 import { NotSignedIn } from './api/client';
 import { snapshotQuery, workspacesQuery } from './api/queries';
+import { connectionsSearch } from './connections';
 import { itemFormSearch } from './itemForm';
 import {
   INBOX,
@@ -183,10 +184,15 @@ const welcomeRoute = createRoute({
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: 'app',
-  // Which Item's form is open, on every address under the shell rather than on
-  // one of them (`itemForm.ts`). The form is drawn by the Layout, over whatever
-  // page the address below it resolves to.
-  validateSearch: itemFormSearch,
+  // What every address under the shell may carry, joined here because the
+  // layout route is the only place one can be declared: which Item's form is
+  // open (`itemForm.tsx`), and how a trip out to Microsoft and back went
+  // (`connections.ts`). Both are drawn by the Layout and by the tabs, over
+  // whatever page the address below resolves to.
+  validateSearch: (search: Record<string, unknown>) => ({
+    ...itemFormSearch(search),
+    ...connectionsSearch(search),
+  }),
   component: Layout,
 });
 
@@ -207,7 +213,7 @@ const indexRoute = createRoute({
 export const workspaceRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/w/$workspaceId',
-  beforeLoad: async ({ context, params }) => {
+  beforeLoad: async ({ context, params, search }) => {
     await workspaceMustExist(context.queryClient, params.workspaceId);
     const { dashboards } = await snapshotOf(context.queryClient, params.workspaceId);
     const view = viewToOpen(
@@ -215,11 +221,16 @@ export const workspaceRoute = createRoute({
       dashboards,
       roomForTheInbox(),
     );
+    // The search goes with it, which is what lets something outside the app
+    // land on a workspace and say what happened: a connection coming back
+    // from Microsoft arrives at this address, and this is the only address
+    // between there and the view that draws the window (`connections.ts`).
     throw view.on === 'inbox'
-      ? redirect({ to: '/w/$workspaceId/inbox', params: { workspaceId: params.workspaceId } })
+      ? redirect({ to: '/w/$workspaceId/inbox', params: { workspaceId: params.workspaceId }, search })
       : redirect({
           to: '/w/$workspaceId/d/$dashboardId',
           params: { workspaceId: params.workspaceId, dashboardId: view.dashboardId },
+          search,
         });
   },
 });
