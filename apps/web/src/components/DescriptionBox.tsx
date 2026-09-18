@@ -129,17 +129,27 @@ export function DescriptionBox({ value, onChange, editable, resetKey }: Descript
           className="mt-1 min-h-0 flex-1 resize-none rounded-md border border-black/10 bg-white px-3 py-2 font-mono text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
         />
       ) : (
-        <WhateverTheEditorDoes onFailure={() => setFailed(true)}>
-          <Suspense fallback={<Arriving value={value} />}>
-            <RichDescription
-              key={generation}
-              initial={value}
-              onChange={onChange}
-              editable={editable}
-              fill
-            />
-          </Suspense>
-        </WhateverTheEditorDoes>
+        // `RichDescription`'s own `fill` skips its usual border/background/
+        // focus ring, on the assumption a caller asking for it already sits
+        // inside a box of its own - true for `fill`'s other caller,
+        // `PanelText`'s own well, and not true here, which left the
+        // formatted view boxless while the Source `textarea` right beside it
+        // (above) kept its (found in review). Supplied here instead, so
+        // `Arriving` below drops the matching border/background it used to
+        // carry on its own rather than drawing two.
+        <div className="mt-1 flex min-h-0 flex-1 flex-col rounded-md border border-black/10 bg-white focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40">
+          <WhateverTheEditorDoes onFailure={() => setFailed(true)}>
+            <Suspense fallback={<Arriving value={value} />}>
+              <RichDescription
+                key={generation}
+                initial={value}
+                onChange={onChange}
+                editable={editable}
+                fill
+              />
+            </Suspense>
+          </WhateverTheEditorDoes>
+        </div>
       )}
 
       {failed && (
@@ -210,12 +220,15 @@ function NewerVersion() {
  */
 function Arriving({ value }: { value: string }) {
   return (
-    <div className="mt-1 flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Borderless: the formatted view's own box (above) now supplies it,
+          which this sits inside of as the `Suspense` fallback - a border
+          here too drew two. */}
       <textarea
         readOnly
         aria-label="Description"
         value={value}
-        className="min-h-0 flex-1 resize-none rounded-md border border-black/10 bg-black/5 px-3 py-2 font-mono text-sm font-normal normal-case tracking-normal text-ink-soft outline-none"
+        className="min-h-0 flex-1 resize-none rounded-md bg-black/5 px-3 py-2 font-mono text-sm font-normal normal-case tracking-normal text-ink-soft outline-none"
       />
       {/* A status rather than a paragraph: it is a live region, so a screen
           reader is told the editor arrived rather than having to go and look. */}

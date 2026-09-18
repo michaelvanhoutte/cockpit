@@ -99,11 +99,14 @@ test.describe('Item editing', () => {
       // what capture wrote it from: one title, in the one place it is edited.
       await expect(titleBox(page)).toHaveValue(thought);
       // And what was captured is behind the disclosure as a record, which can
-      // never be edited. Scoped to the disclosure's own group, because the
+      // never be edited. Scoped to the disclosure's own group rather than
+      // the form - the panel is portalled to the end of the document, not a
+      // descendant of the dialog, which is what lets it escape its
+      // `overflow-hidden` - and to that group specifically, because the
       // description's editor writes paragraphs of its own the moment it
       // arrives, which is a race against this line.
       await press(form(page).getByText('What was captured'), isMobile);
-      await expect(form(page).getByRole('group').getByRole('paragraph')).toHaveText(thought);
+      await expect(page.getByRole('group').getByRole('paragraph')).toHaveText(thought);
 
       const named = uniqueTitle('Part 11');
       await titleBox(page).fill(named);
@@ -806,6 +809,101 @@ test.describe('Item editing', () => {
       await page.mouse.up();
 
       expect(await gap(), 'grew with the dialog').toBeGreaterThan(before + 100);
+    });
+  });
+
+  /**
+   * F3, because whether the two-column split actually answers to a real
+   * drag rather than to the viewport is a claim about real layout, the same
+   * reason the resize and description-fill walks above are. A broken
+   * `@container` setup would leave every other walk in this file green -
+   * none of them ever narrow the dialog through the breakpoint - while the
+   * split silently never collapsed at all ("Give the item's form more room,
+   * and put clutter out of the way", issue 480).
+   */
+  test.describe('the two-column layout answers to the dialog’s own width, not the window’s', () => {
+    test('stacks into one column once the dialog is dragged narrower than the split needs', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'resizing is a pointer gesture');
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Collapses to one column');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+      await theEditorIsThere(page);
+
+      // Priority and the description's own toolbar sit on the same row when
+      // there is room for two columns - both near the top of their own
+      // column - and one column drops below the other's whole height once
+      // there is not. The toolbar, not the description box itself: the box
+      // sits below its own toolbar, which is otherwise close enough to
+      // Priority's own row to read as "the same row" even stacked.
+      const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
+      const sideBySide = async () => {
+        const priority = (await priorityBox(page).boundingBox())!;
+        const description = (await toolbar.boundingBox())!;
+        return Math.abs(priority.y - description.y) < 40;
+      };
+      expect(await sideBySide(), 'two columns at the dialog’s own default width').toBe(true);
+
+      const box = (await form(page).boundingBox())!;
+      const grip = { x: box.x + box.width - 6, y: box.y + box.height - 6 };
+      await page.mouse.move(grip.x, grip.y);
+      await page.mouse.down();
+      // Dragged well past the container-query breakpoint, on a viewport
+      // that never itself narrows - the window staying wide throughout is
+      // what tells the two apart.
+      await page.mouse.move(grip.x - 400, grip.y, { steps: 8 });
+      await page.mouse.up();
+
+      expect(await sideBySide(), 'one column once the dialog itself is narrow').toBe(false);
+    });
+  });
+
+  /**
+   * F3, because whether a press elsewhere actually dismisses one of these -
+   * and only this, never the form under it - is a claim about a real Radix
+   * `Popover` mounted through a real portal, which nothing below the
+   * browser can prove ("Give the item's form more room, and put clutter out
+   * of the way", issue 480).
+   */
+  test.describe('the footer disclosures close on a press elsewhere, and only one is open at a time', () => {
+    test('a press on the title closes it without closing the form, and only one stays open at a time', async ({
+      page,
+      isMobile,
+    }) => {
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Footer disclosures dismiss');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      // Each disclosure's own panel is portalled to the end of the
+      // document, not a descendant of the dialog - which is what lets it
+      // escape the dialog's own `overflow-hidden` - so it is found on the
+      // page rather than scoped to `form(page)`.
+      await press(form(page).getByRole('button', { name: 'What was captured' }), isMobile);
+      await expect(page.getByRole('group')).toBeVisible();
+
+      // A press elsewhere in the form - the title field - closes the panel
+      // without closing the form under it.
+      await press(titleBox(page), isMobile);
+      await expect(titleBox(page)).toHaveValue(thought);
+      await expect(page.getByRole('group')).toHaveCount(0);
+
+      // Opening the other one closes this one - Radix's own dismissable
+      // layer answers the press that lands on the new trigger by closing
+      // what was open, the same as it would a press anywhere else outside
+      // the panel, rather than also treating that same press as the new
+      // trigger's own - so switching is two presses, not one, and this
+      // asks for both rather than assuming either alone opens the other.
+      await press(form(page).getByRole('button', { name: 'What was captured' }), isMobile);
+      await press(form(page).getByRole('button', { name: 'ID' }), isMobile);
+      await expect(page.getByRole('group')).toHaveCount(0);
+      await press(form(page).getByRole('button', { name: 'ID' }), isMobile);
+      await expect(page.getByRole('group')).toHaveCount(1);
+      await expect(page.getByRole('group').getByRole('button', { name: 'Copy' })).toBeVisible();
     });
   });
 });

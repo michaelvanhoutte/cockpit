@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import * as Popover from '@radix-ui/react-popover';
 import { useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -71,42 +72,45 @@ interface PendingAttachment {
  * inline, so opening one never moves Cancel and Save out from under a hand
  * about to press them.
  *
- * **Dismissed by Escape or a press outside the dialog, but not by a listener
- * of its own** - `TheForm`'s own `Dialog.Root` already reaches `onOpenChange`
- * for both, once, and closes this panel there instead of the form under it
- * while one is open (found in review: correctness, since an unhandled
- * Escape would otherwise discard whatever was being typed).
+ * **A Radix `Popover`, not a hand-rolled one** (found in review, twice): the
+ * panel used to be an in-flow `absolute` child of `Dialog.Content`, which is
+ * `overflow-hidden` - a press anywhere else *inside* the dialog never counted
+ * as "outside" for a listener scoped to it, and a captured message long
+ * enough to need the room got its own top clipped off with no way to scroll
+ * to it. `Popover.Portal` renders this outside that box entirely, so Radix's
+ * own dismissable layer (a press anywhere outside this panel, `Escape`
+ * closing only the innermost open layer rather than the form under it, both
+ * for free) and its collision-aware positioning both actually hold.
  */
 function FooterDisclosure({
   label,
   open,
-  onToggle,
+  onOpenChange,
   children,
 }: {
   label: string;
   open: boolean;
-  onToggle: () => void;
+  onOpenChange: (open: boolean) => void;
   children: ReactNode;
 }) {
   return (
-    <div className="relative">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={onToggle}
-        className="rounded-md border border-black/10 px-2 py-1 text-xs font-medium text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink"
-      >
+    <Popover.Root open={open} onOpenChange={onOpenChange}>
+      <Popover.Trigger className="rounded-md border border-black/10 px-2 py-1 text-xs font-medium text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink">
         {label}
-      </button>
-      {open && (
-        <div
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
           role="group"
-          className="absolute bottom-full left-0 z-10 mb-2 max-h-64 w-72 max-w-[80vw] overflow-y-auto rounded-md border border-black/10 bg-surface p-3 shadow-raised"
+          side="top"
+          align="start"
+          sideOffset={8}
+          collisionPadding={16}
+          className="z-10 max-h-64 w-72 max-w-[80vw] overflow-y-auto rounded-md border border-black/10 bg-surface p-3 shadow-raised"
         >
           {children}
-        </div>
-      )}
-    </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
@@ -504,8 +508,6 @@ function TheForm({
    * item's form more room, and put clutter out of the way", issue 480).
    */
   const [footerOpen, setFooterOpen] = useState<'captured' | 'id' | null>(null);
-  const toggleFooter = (which: 'captured' | 'id') =>
-    setFooterOpen((was) => (was === which ? null : which));
 
   /**
    * The boxes start from the Item and are then the person's own, and what they
@@ -640,21 +642,16 @@ function TheForm({
     <Dialog.Root
       open
       onOpenChange={(stillOpen) => {
-        if (stillOpen) return;
-        // Escape and a press outside both land here before they land
-        // anywhere else - which is what a footer disclosure being open
-        // rides on to close only itself rather than discarding the form
-        // under it (found in review, and cheaper than a listener of its
-        // own per disclosure).
-        if (footerOpen) {
-          setFooterOpen(null);
-          return;
-        }
-        // The close control and a genuine Escape/outside-press both discard
-        // from here on: Cancel means cancel (functional definition, "Editing
+        // Escape, the close control and a press outside all land here, and all
+        // three discard: Cancel means cancel (functional definition, "Editing
         // more than one field at a time"). Save is what writes, and it is
         // sitting in the form unpressed.
-        if (!saving) onClose();
+        //
+        // A footer disclosure's own Escape or outside-press never reaches
+        // here at all - Radix's dismissable layers close only the innermost
+        // open one, so a `Popover` open over this `Dialog` answers for
+        // itself (`FooterDisclosure`).
+        if (!stillOpen && !saving) onClose();
       }}
     >
       <Dialog.Portal>
@@ -724,7 +721,17 @@ function TheForm({
             </p>
           ) : (
             draft && (
-              <div className="mt-4 flex min-h-0 flex-1 flex-col">
+              // `overflow-y-auto` is the fallback the two-column body below
+              // otherwise has none of: title and the banner both refuse to
+              // shrink (`shrink-0`), so a short dialog with a tall banner (or
+              // a stacked layout under `@lg` with a long attachments list)
+              // could squeeze the two-column region to nothing with no way
+              // to scroll it into view (found in review). `-mx-1 … px-1` is
+              // the same trick the region it replaces already needed:
+              // `overflow-y-auto` computes `overflow-x` as non-`visible` too,
+              // which would otherwise clip a flush `w-full` child's own
+              // `focus:ring-2`.
+              <div className="-mx-1 mt-4 flex min-h-0 flex-1 flex-col overflow-y-auto px-1">
                 <label className="block shrink-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
                   Title
                   <input
@@ -847,8 +854,12 @@ function TheForm({
                       that region's half of splitting it in two: a full
                       Attachments list must still reach its own "Add" button
                       rather than being clipped by the dialog's own
-                      `overflow-hidden` with nothing to scroll it into view. */}
-                  <div className="flex min-h-0 flex-col gap-4 overflow-y-auto @lg:w-60 @lg:shrink-0">
+                      `overflow-hidden` with nothing to scroll it into view.
+                      `-mx-1 … px-1` for the same reason the wrapper around
+                      this whole section now carries it too - `overflow-y-auto`
+                      would otherwise clip the Priority/Due date fields' own
+                      `focus:ring-2` at the edges they're flush against. */}
+                  <div className="-mx-1 flex min-h-0 flex-col gap-4 overflow-y-auto px-1 @lg:w-60 @lg:shrink-0">
                     {/* Priority and due date share a row (issue 480). */}
                     <div className="flex gap-3">
                       <label className="block flex-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">
@@ -1031,8 +1042,18 @@ function TheForm({
                       cold-open path, which is why this is a component and not a
                       box: the states around that fetch are the bulk of it.
                       Fills whatever height the form has, rather than shrinking
-                      to fit only what it holds (issue 480). */}
-                  <div className="flex min-h-0 flex-1 flex-col">
+                      to fit only what it holds (issue 480).
+                      `min-h-40` rather than `min-h-0`: below `@lg`, this column
+                      and the sidebar beside it (issue 480, its own comment)
+                      compete for the same vertical space, and a `flex-1 1 0%`
+                      column has nothing to shrink *from* - a tall enough
+                      Attachments list took the sidebar down to its own floor
+                      and left this at a genuine zero, rather than merely
+                      short, with no way to reach the description at all
+                      (found in review). A floor a couple of lines tall keeps
+                      it visible; the wrapper above scrolls the rest into
+                      view. */}
+                  <div className="flex min-h-40 flex-1 flex-col">
                     <DescriptionBox
                       resetKey={readingPicked}
                       value={draft.description}
@@ -1067,12 +1088,22 @@ function TheForm({
                 (`draft`'s own `useEffect`) - without this these two buttons
                 would paint a beat before the rest of the form does (found in
                 review). */}
+            {/* Each `onOpenChange` reads `was` rather than assuming which one
+                is open: opening the other closes this one in a single press,
+                which is a genuinely open `Popover` (this one) and a closing
+                one (the other) reaching this state in whichever order the
+                two dismissable layers happen to settle in - a plain
+                `isOpen ? key : null` closes unconditionally and can win a
+                race against the other's own open, leaving neither open
+                (found in review, once written the naive way). */}
             <div className="flex items-center gap-1.5">
               {draft && item?.capturedMessage && (
                 <FooterDisclosure
                   label="What was captured"
                   open={footerOpen === 'captured'}
-                  onToggle={() => toggleFooter('captured')}
+                  onOpenChange={(isOpen) =>
+                    setFooterOpen((was) => (isOpen ? 'captured' : was === 'captured' ? null : was))
+                  }
                 >
                   {/* A record, not a control: it can never be edited, so there
                       is no box to put a cursor in. */}
@@ -1087,7 +1118,9 @@ function TheForm({
                 <FooterDisclosure
                   label="ID"
                   open={footerOpen === 'id'}
-                  onToggle={() => toggleFooter('id')}
+                  onOpenChange={(isOpen) =>
+                    setFooterOpen((was) => (isOpen ? 'id' : was === 'id' ? null : was))
+                  }
                 >
                   <div className="flex items-center gap-2">
                     <code className="min-w-0 flex-1 truncate rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
