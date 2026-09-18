@@ -802,6 +802,44 @@ describe('Panels', () => {
       ).toBeVisible();
     });
 
+    it('names a live Filter that looks at it, and that it would then show nothing', async () => {
+      const project = aPanel('reading', 'To read');
+      const due = aFilter('due', 'Due soon', [{ field: 'panel', values: ['reading'] }]);
+      const { user } = showBoard({
+        panels: [project],
+        panelsInWorkspace: [project, due],
+      });
+
+      await choose(user, 'To read', 'Delete');
+
+      expect(
+        screen.getByText(
+          'Delete To read? It goes from every layout of this dashboard. Due soon uses it as a Panel condition. Due soon will then show nothing.',
+        ),
+      ).toBeVisible();
+    });
+
+    it('names two live Filters that look at it, saying only the one left with nothing would show nothing', async () => {
+      const project = aPanel('reading', 'To read');
+      const other = aPanel('other', 'Somewhere else');
+      const emptied = aFilter('due', 'Due soon', [{ field: 'panel', values: ['reading'] }]);
+      const keptGoing = aFilter('over', 'Overdue', [
+        { field: 'panel', values: ['reading', 'other'] },
+      ]);
+      const { user } = showBoard({
+        panels: [project],
+        panelsInWorkspace: [project, other, emptied, keptGoing],
+      });
+
+      await choose(user, 'To read', 'Delete');
+
+      expect(
+        screen.getByText(
+          'Delete To read? It goes from every layout of this dashboard. Due soon and Overdue use it as a Panel condition. Due soon will then show nothing.',
+        ),
+      ).toBeVisible();
+    });
+
     it.each([
       { situation: 'cancelled', answer: 'Cancel' },
       { situation: 'dismissed with Escape', answer: null },
@@ -1955,9 +1993,10 @@ describe('Onboarding', () => {
     });
 
     /**
-     * What a Priority or a Type condition sends, and what its checkboxes offer,
-     * is worked out here; that either one actually gathers or excludes an item
-     * is settled against items and filings alone in tests/unit/filters.test.ts.
+     * What a Priority, a Type or a Panel condition sends, and what its
+     * checkboxes offer, is worked out here; that any of them actually gathers
+     * or excludes an item is settled against items and filings alone in
+     * tests/unit/filters.test.ts.
      */
     it('sends a Priority condition’s chosen levels', async () => {
       const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
@@ -2004,6 +2043,37 @@ describe('Onboarding', () => {
       );
     });
 
+    it('sends a Panel condition’s chosen panels, offered only from the workspace’s items panels', async () => {
+      const project = aPanel('project', 'Project Falcon');
+      const notes = aPanelOfText('notes', 'Notes');
+      const due = aFilter('due', 'Due soon');
+      const { mutate, user } = showBoard({
+        panels: [due],
+        panelsInWorkspace: [due, project, notes],
+      });
+
+      await choose(user, 'Due soon', 'Filter…');
+      await addCondition(user, 'Panel');
+      // Never a Filter - not itself, and not any other - and never a panel of
+      // text: nothing is ever filed onto either ("Filter a Filter panel by
+      // panel, and name the Filters a panel's deletion affects", issue 465).
+      expect(screen.queryByRole('checkbox', { name: 'Due soon' })).toBeNull();
+      expect(screen.queryByRole('checkbox', { name: 'Notes' })).toBeNull();
+      await user.click(screen.getByRole('checkbox', { name: 'Project Falcon' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_panel_filter',
+          payload: expect.objectContaining({
+            panelId: 'due',
+            conditions: [{ field: 'panel', values: ['project'] }],
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+
     it('does not offer a field already on the filter, from its own add menu', async () => {
       const { user } = showBoard({ panels: [aFilter('due', 'Due soon', [DUE_TODAY])] });
 
@@ -2013,6 +2083,7 @@ describe('Onboarding', () => {
       expect(screen.queryByRole('menuitem', { name: 'Due date' })).toBeNull();
       expect(screen.getByRole('menuitem', { name: 'Priority' })).toBeVisible();
       expect(screen.getByRole('menuitem', { name: 'Type' })).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: 'Panel' })).toBeVisible();
     });
 
     it('stops offering to add once every field is already on the filter', async () => {
@@ -2022,11 +2093,18 @@ describe('Onboarding', () => {
             DUE_TODAY,
             { field: 'priority', values: ['high'] },
             { field: 'type', values: [] },
+            { field: 'panel', values: [] },
           ]),
         ],
       });
 
       await choose(user, 'Due soon', 'Filter…');
+      // The question is fetched only once opened (`FilterQuestion.tsx`, the
+      // lazy boundary the performance budget draws around it) - waited for
+      // here through a row it is certain to draw, so the assertion below
+      // reads an add menu that is truly absent rather than a question still
+      // in flight.
+      await screen.findByRole('button', { name: 'Remove condition 1' });
 
       expect(screen.queryByRole('button', { name: '+ Add a condition' })).toBeNull();
     });

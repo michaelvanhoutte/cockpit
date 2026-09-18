@@ -1013,12 +1013,20 @@ describe('Panels', () => {
       expect((await panelNow(panelId)).filter).toEqual({ conditions: [] });
     });
 
-    it('accepts a Priority and a Type condition beside a Due date one', async () => {
-      // The three fields together, each carrying its own value shape - what
+    it('accepts a Priority, a Type and a Panel condition beside a Due date one', async () => {
+      // The four fields together, each carrying its own value shape - what
       // extends `filterConditionSchema` from a Due date alone to a union
-      // ("Filter a Filter panel by priority and type", issue 464).
+      // ("Filter a Filter panel by priority and type", issue 464; "Filter a
+      // Filter panel by panel, and name the Filters a panel's deletion
+      // affects", issue 465).
+      const { panelId: itemsPanelId } = await aPanelOfItems();
       const { panelId } = await aFilter();
-      const conditions = [DUE_TODAY, PRIORITY_HIGH_OR_NORMAL, TYPE_TASK];
+      const conditions = [
+        DUE_TODAY,
+        PRIORITY_HIGH_OR_NORMAL,
+        TYPE_TASK,
+        { field: 'panel', values: [itemsPanelId] },
+      ];
 
       expect((await setFilter(panelId, conditions)).status).toBe(200);
       expect((await panelNow(panelId)).filter).toEqual({ conditions });
@@ -1070,6 +1078,12 @@ describe('Panels', () => {
         situation: 'a Type condition naming nothing at all',
         panel: async () => (await aFilter()).panelId,
         conditions: [{ field: 'type', values: [''] }],
+        status: 400,
+      },
+      {
+        situation: 'a Panel condition naming nothing at all',
+        panel: async () => (await aFilter()).panelId,
+        conditions: [{ field: 'panel', values: [''] }],
         status: 400,
       },
       {

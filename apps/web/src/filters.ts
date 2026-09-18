@@ -7,6 +7,7 @@ import type {
   PanelFilter,
   Panel,
 } from '@cockpit/shared';
+import { NO_CONDITIONS, panelGathers, panelTakesItems } from '@cockpit/shared';
 import { filingsThatFile, itemsThatAreFiled } from './filing';
 import { PRIORITY_LABELS } from './priority';
 
@@ -95,24 +96,31 @@ export function isAPeriod(window: DueWindow): boolean {
 /**
  * Whether one condition holds for one Item, on the day the person is looking.
  *
- * **Priority and Type both match on "any of"**, never on all of them at once
- * - *Priority is High or Normal* is one condition an Item meets by holding
- * either. An Item with no Priority, or no Type, matches neither ("Filter a
- * Filter panel by priority and type", issue 464) - absence is not among the
- * values on offer, the same way *not set* has to be asked for on a Due date.
+ * **Priority, Type and Panel all match on "any of"**, never on all of them at
+ * once - *Priority is High or Normal* is one condition an Item meets by
+ * holding either. An Item with no Priority, or no Type, matches neither
+ * ("Filter a Filter panel by priority and type", issue 464) - absence is not
+ * among the values on offer, the same way *not set* has to be asked for on a
+ * Due date. A Panel condition asks a different question of an Item that can
+ * hold several answers at once - filed on any of the chosen Panels, rather
+ * than holding one of several values - so it reads `filedPanelIds` instead of
+ * a single field off the Item.
  *
- * **A Type condition's values are read against the live Types alone.** A
- * value naming a Type since deleted is ignored rather than refused
- * (`typeConditionSchema`'s own comment), so it simply cannot be what an Item
- * matches on - and where deleting leaves a condition with no live value left,
- * every Item's Type fails to be among them and the condition matches nothing,
- * never widening to stand for every Type.
+ * **A Type or a Panel condition's values are read against what is still live
+ * alone.** A value naming a Type or a Panel since deleted is ignored rather
+ * than refused (`typeConditionSchema`'s and `panelConditionSchema`'s own
+ * comments), so it simply cannot be what an Item matches on - and where
+ * deleting leaves a condition with no live value left, every Item fails to
+ * match and the condition matches nothing, never widening to stand for every
+ * Type or every Panel.
  */
 function holdsFor(
   condition: FilterCondition,
   item: Item,
   on: Day,
   liveTypeIds: ReadonlySet<string>,
+  livePanelIds: ReadonlySet<string>,
+  filedPanelIds: ReadonlySet<string>,
 ): boolean {
   if (condition.field === 'priority') {
     return item.priority !== null && condition.values.includes(item.priority);
@@ -120,6 +128,9 @@ function holdsFor(
   if (condition.field === 'type') {
     if (item.typeId === null) return false;
     return condition.values.some((id) => liveTypeIds.has(id) && id === item.typeId);
+  }
+  if (condition.field === 'panel') {
+    return condition.values.some((id) => livePanelIds.has(id) && filedPanelIds.has(id));
   }
   const due = item.dueDate ?? null;
   if (condition.window === 'none') return due === null;
@@ -200,11 +211,122 @@ export function itemsMatchingFilter(
 ): Item[] {
   if (filter.conditions.length === 0) return [];
   const liveTypeIds = new Set(itemTypes.map((type) => type.id));
+  // What a Panel condition's values are read against - every items Panel of
+  // the Workspace still there to be chosen, the same live-or-ignored rule a
+  // Type condition's values already read against `liveTypeIds`.
+  const livePanelIds = new Set(panelsInWorkspace.filter(panelTakesItems).map((panel) => panel.id));
+  const filed = filingsThatFile(filings, panelsInWorkspace);
+  const filedPanelIdsByItem = panelIdsFiledOnto(filed);
   return inFilterOrder(
-    itemsThatAreFiled(items, filingsThatFile(filings, panelsInWorkspace)).filter((item) =>
-      filter.conditions.every((condition) => holdsFor(condition, item, on, liveTypeIds)),
+    itemsThatAreFiled(items, filed).filter((item) =>
+      filter.conditions.every((condition) =>
+        holdsFor(
+          condition,
+          item,
+          on,
+          liveTypeIds,
+          livePanelIds,
+          filedPanelIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS,
+        ),
+      ),
     ),
   );
+}
+
+/** Nothing filed anywhere - handed to `holdsFor` for an Item no filing names, so nothing has to be allocated for it. */
+const EMPTY_PANEL_IDS: ReadonlySet<string> = new Set();
+
+/**
+ * Puts `value` in the Set kept for `key`, starting one where this is the
+ * first - the one allocate-or-add shape `panelIdsFiledOnto` and
+ * `panelAndFilterIdsByItem` both build a `Map<string, Set<string>>` with,
+ * written once rather than duplicated in each (found in review).
+ */
+function addToSetMap<K, V>(map: Map<K, Set<V>>, key: K, value: V): void {
+  const held = map.get(key);
+  if (held) held.add(value);
+  else map.set(key, new Set([value]));
+}
+
+/** Every Item's own filed-onto Panel ids, gathered once for the whole Filter rather than rescanned per condition. */
+function panelIdsFiledOnto(filings: readonly Filing[]): Map<string, Set<string>> {
+  const byItem = new Map<string, Set<string>>();
+  for (const filing of filings) {
+    addToSetMap(byItem, filing.itemId, filing.panelId);
+  }
+  return byItem;
+}
+
+/**
+ * Every live Panel an Item is filed on, and every live Filter it matches,
+ * keyed by Item id - the ids only, in no particular order ("Say which other
+ * panels an item is also in, after its title", issue 466).
+ *
+ * **The inverse of `itemsMatchingFilter`**, and built once for the whole
+ * Workspace rather than asking `itemsMatchingFilter` once per Filter per
+ * row: a dashboard's own list of rows already pays for `itemsMatchingFilter`
+ * once per Filter it draws (`PanelBoard.tsx`), and this is that same one
+ * pass, reused, plus the filed-onto pass `itemsMatchingFilter` already runs
+ * for its own Panel condition (`panelIdsFiledOnto`).
+ *
+ * An Item filed nowhere and matching nothing - every Inbox row - is simply
+ * absent from the map rather than holding an empty Set, which is what lets a
+ * caller read `?? EMPTY_IDS` instead of allocating one for every row that has
+ * nothing to say.
+ */
+export function panelAndFilterIdsByItem(
+  items: readonly Item[],
+  filings: readonly Filing[],
+  panelsInWorkspace: readonly Panel[],
+  itemTypes: readonly ItemType[],
+  on: Day,
+): Map<string, Set<string>> {
+  const byItem = new Map<string, Set<string>>();
+  for (const [itemId, panelIds] of panelIdsFiledOnto(filingsThatFile(filings, panelsInWorkspace))) {
+    for (const panelId of panelIds) addToSetMap(byItem, itemId, panelId);
+  }
+  for (const filter of panelsInWorkspace.filter(panelGathers)) {
+    const matches = itemsMatchingFilter(
+      items,
+      filings,
+      panelsInWorkspace,
+      itemTypes,
+      filter.filter ?? NO_CONDITIONS,
+      on,
+    );
+    for (const item of matches) addToSetMap(byItem, item.id, filter.id);
+  }
+  return byItem;
+}
+
+/** Nothing filed or matched - handed back for an Item `panelAndFilterIdsByItem` holds nothing for. */
+const EMPTY_IDS: ReadonlySet<string> = new Set();
+
+/**
+ * "Also in" - every other live Panel or Filter one Item shows on, named and
+ * in Panel order ("Say which other panels an item is also in, after its
+ * title", issue 466).
+ *
+ * **Never the Panel or Filter the row itself is drawn on** - `drawnPanelId`
+ * is what a row on the Inbox has none of, which is also the one place
+ * `byItem` never holds anything for an Item to begin with.
+ *
+ * **In `panelsInWorkspace`'s own order, not filed-then-matched**: that is the
+ * one list a filed Panel and a matched Filter both live in, so reading names
+ * off it is what keeps two rows of the same Item agreeing on which name
+ * comes first, rather than each ordering by how it happened to find them.
+ */
+export function alsoShownOn(
+  itemId: string,
+  byItem: ReadonlyMap<string, ReadonlySet<string>>,
+  panelsInWorkspace: readonly Panel[],
+  drawnPanelId: string | null,
+): string[] {
+  const ids = byItem.get(itemId) ?? EMPTY_IDS;
+  if (ids.size === 0) return [];
+  return panelsInWorkspace
+    .filter((panel) => panel.id !== drawnPanelId && ids.has(panel.id))
+    .map((panel) => panel.name);
 }
 
 const WINDOW_READS: Record<DueWindow, string> = {
@@ -216,11 +338,21 @@ const WINDOW_READS: Record<DueWindow, string> = {
   none: 'No due date',
 };
 
-/** Several names, read as a sentence lists them: one alone, two joined by *or*, three or more comma-led into it. */
-function orList(names: readonly string[]): string {
+/**
+ * Several names, read as a sentence lists them with the given conjunction:
+ * one alone, two joined by it, three or more comma-led into it.
+ *
+ * **One function for *and* and *or*, not two.** A Filter's own sentence
+ * always joins with *or* (`sentenceFor`, below); a Panel's delete question
+ * joins the Filters it would affect with *and* (`PanelBoard.tsx`,
+ * `deletePanelQuestion`) - the same shape, differing only in the word, so
+ * the one place this is written handles both rather than drifting into two
+ * near-identical copies.
+ */
+export function joinedBy(names: readonly string[], conjunction: 'and' | 'or'): string {
   if (names.length === 0) return 'nothing';
   if (names.length === 1) return names[0]!;
-  return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
+  return `${names.slice(0, -1).join(', ')} ${conjunction} ${names[names.length - 1]}`;
 }
 
 /**
@@ -234,30 +366,88 @@ function orList(names: readonly string[]): string {
  * at a time"). *Or overdue* is said only where it widens something: on
  * *overdue* itself and on *not set* it is stored but means nothing.
  *
- * **A Type condition's values are read against `itemTypes`**, the same live
- * list matching itself reads against (`itemsMatchingFilter`), so a value
- * naming a Type since deleted is left out of the sentence exactly as it is
- * left out of what the condition matches.
+ * **A Type or a Panel condition's values are read against `itemTypes` and
+ * `panels`**, the same live lists matching itself reads against
+ * (`itemsMatchingFilter`), so a value naming a Type or a Panel since deleted
+ * is left out of the sentence exactly as it is left out of what the condition
+ * matches.
  */
 export function saysWhatItShows(
   conditions: readonly FilterCondition[],
   itemTypes: readonly ItemType[] = [],
+  panels: readonly Panel[] = [],
 ): string {
   if (conditions.length === 0) return 'Nothing chosen yet';
-  return conditions.map((condition) => sentenceFor(condition, itemTypes)).join(' and ');
+  return conditions.map((condition) => sentenceFor(condition, itemTypes, panels)).join(' and ');
 }
 
-function sentenceFor(condition: FilterCondition, itemTypes: readonly ItemType[]): string {
+function sentenceFor(
+  condition: FilterCondition,
+  itemTypes: readonly ItemType[],
+  panels: readonly Panel[],
+): string {
   if (condition.field === 'priority') {
-    return `Priority is ${orList(condition.values.map((value) => PRIORITY_LABELS[value]))}`;
+    return `Priority is ${joinedBy(condition.values.map((value) => PRIORITY_LABELS[value]), 'or')}`;
   }
   if (condition.field === 'type') {
     const names = condition.values
       .map((id) => itemTypes.find((type) => type.id === id)?.name)
       .filter((name): name is string => name !== undefined);
-    return `Type is ${orList(names)}`;
+    return `Type is ${joinedBy(names, 'or')}`;
+  }
+  if (condition.field === 'panel') {
+    // Read against the same items-Panels-only set matching itself reads
+    // against (`itemsMatchingFilter`'s own `livePanelIds`) - a value naming a
+    // Panel that still exists but no longer takes items (kept, say, only as
+    // a stale row on some other Filter's own Panel condition) matches
+    // nothing, so it is left out of the sentence too rather than named as if
+    // it still could.
+    const liveItemsPanels = panels.filter(panelTakesItems);
+    const names = condition.values
+      .map((id) => liveItemsPanels.find((panel) => panel.id === id)?.name)
+      .filter((name): name is string => name !== undefined);
+    return `Filed on ${joinedBy(names, 'or')}`;
   }
   const reads = WINDOW_READS[condition.window];
   const widened = condition.orOverdue && isAPeriod(condition.window);
   return widened ? `${reads} or overdue` : reads;
+}
+
+/**
+ * What deleting one Panel does to the Workspace's own Filters ("Filter a
+ * Filter panel by panel, and name the Filters a panel's deletion affects",
+ * issue 465) - every live Filter whose Panel condition names it, and whether
+ * that condition is left holding another live Panel or none at all.
+ *
+ * **`panelsInWorkspace` alone, never a separate list of Filters.** A Filter is
+ * a Panel (`panelGathers`), and the store never returns a deleted one at all
+ * (`docs/architecture.md`, soft deletion) - so scanning the Workspace's live
+ * Panels for the ones that gather is the same rule `filtersUsingPanel`'s own
+ * caller already leans on to keep a deleted Filter from ever being named.
+ *
+ * **`leftEmpty` excludes the Panel about to go as well as every id already
+ * dead**, so a condition naming two Panels, one already deleted and the other
+ * the one now going, reads as left empty rather than as still holding
+ * something nobody can see.
+ */
+export function filtersUsingPanel(
+  panelId: string,
+  panelsInWorkspace: readonly Panel[],
+): { filter: Panel; leftEmpty: boolean }[] {
+  // Items Panels alone, the same live set a Panel condition is matched and
+  // read back against (`itemsMatchingFilter`'s own `livePanelIds`,
+  // `sentenceFor`'s own `liveItemsPanels`) - a value naming a Panel that
+  // still exists but no longer takes items matches nothing, so it must not
+  // count as "still holding one" here either.
+  const liveIds = new Set(panelsInWorkspace.filter(panelTakesItems).map((panel) => panel.id));
+  const affected: { filter: Panel; leftEmpty: boolean }[] = [];
+  for (const candidate of panelsInWorkspace.filter(panelGathers)) {
+    const condition = (candidate.filter ?? NO_CONDITIONS).conditions.find(
+      (one) => one.field === 'panel',
+    );
+    if (!condition || !condition.values.includes(panelId)) continue;
+    const stillHasOne = condition.values.some((id) => id !== panelId && liveIds.has(id));
+    affected.push({ filter: candidate, leftEmpty: !stillHasOne });
+  }
+  return affected;
 }

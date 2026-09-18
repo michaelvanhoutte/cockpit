@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import { Component, Fragment, Suspense, lazy, useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   GRID_COLUMNS,
@@ -23,8 +23,7 @@ import type {
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { filingsThatFile, itemsOnPanel } from '../filing';
-import { dayOf, itemsMatchingFilter } from '../filters';
-import { FilterQuestion } from './FilterQuestion';
+import { dayOf, filtersUsingPanel, itemsMatchingFilter, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
 import { useChosenLayout } from '../panels/chosenLayout';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
@@ -45,6 +44,41 @@ import { arrangedWith, placementFor } from '../panels/dragging';
 import type { DrawnRow } from '../panels/dragging';
 import { MovePanelToDashboardPicker } from './MovePanelToDashboardPicker';
 import { PANEL_GAP, PanelCard } from './PanelCard';
+
+/**
+ * A Filter's own question, fetched only once *Filter…* is chosen from a
+ * Panel's menu - never on a cold open, the same boundary `PanelText.tsx`
+ * draws around `RichDescription` and `DrawnText` (`FilterQuestion.tsx`'s own
+ * doc comment).
+ */
+const FilterQuestion = lazy(() => import('./FilterQuestion'));
+
+/**
+ * What happens when the Filter question's chunk does not arrive. The same
+ * boundary `PanelText.tsx`'s `WhateverTheChunkDoes` and `DescriptionBox.tsx`'s
+ * `WhateverTheEditorDoes` already draw, and for the same reason: without it
+ * the whole board goes down with the one dialog that failed to fetch.
+ */
+class WhateverFilteringDoes extends Component<
+  { children: ReactNode; onFailure: () => void },
+  { broken: boolean }
+> {
+  state = { broken: false };
+
+  static getDerivedStateFromError() {
+    return { broken: true };
+  }
+
+  componentDidCatch() {
+    this.props.onFailure();
+  }
+
+  render() {
+    // Null for the render that catches; the failure is reported up, and the
+    // next render closes the dialog instead.
+    return this.state.broken ? null : this.props.children;
+  }
+}
 
 /**
  * A dashboard's panels, on the rows one of its layouts arranges them into
@@ -982,6 +1016,7 @@ export function PanelBoard({
                               : itemsOnPanel(items, filings, panel.id)
                           }
                           itemTypes={itemTypes}
+                          panelsInWorkspace={panelsInWorkspace}
                           // What is filed anywhere, which a filing onto a
                           // Filter is not (`filingsThatFile`): a workspace
                           // whose only filing is one of those has still never
@@ -1067,39 +1102,45 @@ export function PanelBoard({
       )}
 
       {beingFiltered && (
-        <FilterQuestion
-          // Keyed on the Panel, so the rows it opens on are that Panel's: the
-          // question reads what is stored once and is the person's from then
-          // on (`FilterQuestion`), which only holds while one Filter cannot
-          // hand its half-finished rows to the next.
-          key={beingFiltered.id}
-          open
-          panelName={beingFiltered.name}
-          conditions={(beingFiltered.filter ?? NO_CONDITIONS).conditions}
-          itemTypes={itemTypes}
-          onSave={(conditions) => setFilter(beingFiltered.id, conditions)}
-          onCancel={() => {
-            setFiltering(null);
-            command.reset();
-          }}
-          refusal={refusalFor('set_panel_filter', beingFiltered.id)}
-          busy={command.isPending}
-          returnFocusTo={askedFrom.current}
-        />
+        // No fallback: the chunk is small, and there is nothing on screen yet
+        // for a placeholder to stand in for - the dialog itself is the first
+        // thing this ever draws, the same reason DescriptionBox.tsx's own
+        // `Arriving` has no counterpart here.
+        <WhateverFilteringDoes onFailure={() => setFiltering(null)}>
+          <Suspense fallback={null}>
+            <FilterQuestion
+              // Keyed on the Panel, so the rows it opens on are that Panel's: the
+              // question reads what is stored once and is the person's from then
+              // on (`FilterQuestion`), which only holds while one Filter cannot
+              // hand its half-finished rows to the next.
+              key={beingFiltered.id}
+              open
+              panelName={beingFiltered.name}
+              conditions={(beingFiltered.filter ?? NO_CONDITIONS).conditions}
+              itemTypes={itemTypes}
+              panels={panelsInWorkspace}
+              onSave={(conditions) => setFilter(beingFiltered.id, conditions)}
+              onCancel={() => {
+                setFiltering(null);
+                command.reset();
+              }}
+              refusal={refusalFor('set_panel_filter', beingFiltered.id)}
+              busy={command.isPending}
+              returnFocusTo={askedFrom.current}
+            />
+          </Suspense>
+        </WhateverFilteringDoes>
       )}
 
       {beingDeleted && (
         <DeleteQuestion
           open
-          // What goes with it, which for a panel of text is the text: the
-          // layouts are an arrangement anybody can make again, and the words
-          // are not (the Deleting rule - "naming what is going and what goes
-          // with it").
-          question={`Delete ${beingDeleted.name}? ${
-            panelHoldsText(beingDeleted)
-              ? 'The text in it goes too, and it goes from every layout of this dashboard.'
-              : 'It goes from every layout of this dashboard.'
-          }`}
+          // What goes with it, which for a panel of text is the text and for
+          // every panel is any live Filter that would be left showing less
+          // (the Deleting rule - "naming what is going and what goes with
+          // it"; "Filter a Filter panel by panel, and name the Filters a
+          // panel's deletion affects", issue 465).
+          question={deletePanelQuestion(beingDeleted, panelsInWorkspace)}
           confirmLabel={`Yes, delete ${beingDeleted.name}`}
           canConfirm={!command.isPending}
           refusal={refusalFor('delete_panel', beingDeleted.id)}
@@ -1130,6 +1171,35 @@ export function PanelBoard({
 
     </div>
   );
+}
+
+/**
+ * What deleting this Panel takes with it, said before it happens - the text in
+ * it, for a panel of text ("Ask before deleting in a dialog, from the row's
+ * own menu", issue 116's own "naming what is going and what goes with it"
+ * rule), and every live Filter of the Workspace that looks at it ("Filter a
+ * Filter panel by panel, and name the Filters a panel's deletion affects",
+ * issue 465).
+ *
+ * **Named rather than counted**, unlike `ManageTypes.tsx`'s own delete
+ * question: a Filter is a handful at most, kept on a dashboard somebody
+ * built, and "2 filters" gives nobody enough to decide whether deleting is
+ * fine. **Which will be left showing nothing is said explicitly** - a Filter
+ * still holding another live Panel goes on working, and one left with none is
+ * about to go quiet, which is the one distinction that matters here.
+ */
+function deletePanelQuestion(panel: Panel, panelsInWorkspace: readonly Panel[]): string {
+  const goesWith = panelHoldsText(panel)
+    ? 'The text in it goes too, and it goes from every layout of this dashboard.'
+    : 'It goes from every layout of this dashboard.';
+  const affected = filtersUsingPanel(panel.id, panelsInWorkspace);
+  if (affected.length === 0) return `Delete ${panel.name}? ${goesWith}`;
+  const uses = affected.length === 1 ? 'uses' : 'use';
+  const names = joinedBy(affected.map((one) => one.filter.name), 'and');
+  const emptied = affected.filter((one) => one.leftEmpty).map((one) => one.filter.name);
+  const emptyClause =
+    emptied.length > 0 ? ` ${joinedBy(emptied, 'and')} will then show nothing.` : '';
+  return `Delete ${panel.name}? ${goesWith} ${names} ${uses} it as a Panel condition.${emptyClause}`;
 }
 
 /**

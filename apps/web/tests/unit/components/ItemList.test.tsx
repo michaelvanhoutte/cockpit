@@ -235,7 +235,13 @@ async function showList({
   items = [BART],
   openDashboardId = null as string | null,
   panelId = null as string | null,
-}: { items?: Item[]; openDashboardId?: string | null; panelId?: string | null } = {}) {
+  gathered = false,
+}: {
+  items?: Item[];
+  openDashboardId?: string | null;
+  panelId?: string | null;
+  gathered?: boolean;
+} = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -245,6 +251,7 @@ async function showList({
           items={items}
           openDashboardId={openDashboardId}
           panelId={panelId}
+          gathered={gathered}
           emptyMessage="Nothing to deal with."
         />
       </UndoWhatJustHappened>
@@ -559,6 +566,77 @@ describe('Panels', () => {
       await showList({ items: [proposed], panelId: 'p-falcon' });
 
       expect(screen.queryByText(/^→/)).toBeNull();
+    });
+  });
+
+  /**
+   * "Say which other panels an item is also in, after its title" (issue 466):
+   * *which* other live Panel or Filter an item shows on is
+   * `filters.test.ts`'s own "a row names every other live Panel..."; what is
+   * asked here is that a list reads the snapshot it already holds and hands a
+   * row the right answer for where *this* list is drawn.
+   */
+  describe('a row is told every other Panel or Filter its item is also on', () => {
+    it('names the other Panel an item is filed on, not the one this list is drawn on', async () => {
+      held.filings = [
+        { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+        { panelId: 'p-anna', itemId: BART.id, position: 0 },
+      ];
+
+      await showList({ panelId: 'p-falcon' });
+
+      expect(screen.getByText('also in Anna')).toBeInTheDocument();
+    });
+
+    it('names a Filter the item matches, alongside the Panel this list is drawn on', async () => {
+      held.panels = [
+        ...held.panels,
+        {
+          id: 'p-gather',
+          tenantId: 'tenant',
+          dashboardId: TODAY.id,
+          name: 'Needs filing',
+          kind: 'filter' as const,
+          format: 'plain' as const,
+          body: '',
+          readOnly: false,
+          filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }] },
+        },
+      ];
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+
+      await showList({ panelId: 'p-falcon' });
+
+      expect(screen.getByText('also in Needs filing')).toBeInTheDocument();
+    });
+
+    it('drawn on the Filter itself, names the Panel filed on rather than the Filter', async () => {
+      const gathers = {
+        id: 'p-gather',
+        tenantId: 'tenant',
+        dashboardId: TODAY.id,
+        name: 'Needs filing',
+        kind: 'filter' as const,
+        format: 'plain' as const,
+        body: '',
+        readOnly: false,
+        filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }] },
+      };
+      held.panels = [...held.panels, gathers];
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+
+      await showList({ panelId: 'p-gather', gathered: true });
+
+      expect(screen.getByText('also in Falcon')).toBeInTheDocument();
+      expect(screen.queryByText(/Needs filing/)).toBeNull();
+    });
+
+    it('has nothing to say for an Inbox row, which is on no Panel and matches no Filter', async () => {
+      held.filings = [];
+
+      await showList();
+
+      expect(screen.queryByText(/^also in/)).toBeNull();
     });
   });
 

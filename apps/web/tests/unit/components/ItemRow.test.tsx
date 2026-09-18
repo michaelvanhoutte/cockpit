@@ -76,6 +76,7 @@ function aRow({
   onAcceptRouting,
   mayBeADuplicate,
   onSettleNotADuplicate,
+  alsoIn,
 }: {
   settles?: boolean;
   onMoveTo?: (from: HTMLElement | null) => void;
@@ -92,6 +93,7 @@ function aRow({
   onAcceptRouting?: () => void;
   mayBeADuplicate?: boolean;
   onSettleNotADuplicate?: () => void;
+  alsoIn?: readonly string[];
 } = {}) {
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (settles) options?.onSuccess?.();
@@ -112,6 +114,7 @@ function aRow({
         {...(onAcceptRouting ? { onAcceptRouting } : {})}
         {...(mayBeADuplicate === undefined ? {} : { mayBeADuplicate })}
         {...(onSettleNotADuplicate ? { onSettleNotADuplicate } : {})}
+        {...(alsoIn ? { alsoIn } : {})}
       />
     </UndoWhatJustHappened>
   );
@@ -186,6 +189,35 @@ const past = SWIPE_THRESHOLD_PX + 10;
 async function choose(user: ReturnType<typeof userEvent.setup>, option: string) {
   await user.click(screen.getByLabelText('Item actions'));
   await user.click(await screen.findByText(option));
+}
+
+/**
+ * Hovers a label that is drawn in the width given.
+ *
+ * The widths are put on the element because jsdom has no layout engine and
+ * reports every element as zero-sized, so what this proves is the wiring -
+ * that the hover measures the label itself and hands the two widths to the
+ * rule. The rule is tests/unit/cutOff.test.ts, and that a real browser really
+ * does cut a long title in a narrow column is tests/e2e/inbox.test.ts.
+ *
+ * Shared by every truncatable text the row draws - the title and, since
+ * "Say which other panels an item is also in, after its title" (issue 466),
+ * the "also in…" text beside it - because both use the same mechanism.
+ */
+async function hoverLabel(
+  user: ReturnType<typeof userEvent.setup>,
+  label: HTMLElement,
+  drawn: { scrollWidth: number; clientWidth: number },
+) {
+  Object.defineProperty(label, 'scrollWidth', {
+    value: drawn.scrollWidth,
+    configurable: true,
+  });
+  Object.defineProperty(label, 'clientWidth', {
+    value: drawn.clientWidth,
+    configurable: true,
+  });
+  await user.hover(label);
 }
 
 describe('Triage', () => {
@@ -621,31 +653,6 @@ describe('Item editing', () => {
   });
 
   describe('a row spells out a label it had to cut, and stays quiet about one it drew whole', () => {
-    /**
-     * Hovers a label that is drawn in the width given.
-     *
-     * The widths are put on the element because jsdom has no layout engine and
-     * reports every element as zero-sized, so what this proves is the wiring -
-     * that the hover measures the label itself and hands the two widths to the
-     * rule. The rule is tests/unit/cutOff.test.ts, and that a real browser
-     * really does cut a long title in a narrow column is
-     * tests/e2e/inbox.test.ts.
-     */
-    async function hoverLabel(
-      user: ReturnType<typeof userEvent.setup>,
-      label: HTMLElement,
-      drawn: { scrollWidth: number; clientWidth: number },
-    ) {
-      Object.defineProperty(label, 'scrollWidth', {
-        value: drawn.scrollWidth,
-        configurable: true,
-      });
-      Object.defineProperty(label, 'clientWidth', {
-        value: drawn.clientWidth,
-        configurable: true,
-      });
-      await user.hover(label);
-    }
 
     it.each([
       { situation: 'a title wider than the row', scrollWidth: 340, clientWidth: 120, spelled: true },
@@ -712,6 +719,41 @@ describe('Item editing', () => {
       // the label cannot pick it up - the tooltip is the title, not the title
       // and a pilcrow.
       expect(label).toHaveAttribute('title', 'Make appointment with Novy');
+    });
+  });
+
+  /**
+   * "Say which other panels an item is also in, after its title" (issue 466):
+   * which names a row is handed is `ItemList`'s to resolve
+   * (`filters.test.ts`'s own "a row names every other live Panel..."); what is
+   * asked here is that the row draws them, straight after the title, in
+   * italics, and cuts them before it cuts the title - the same
+   * truncation-then-hover mechanism the title itself already uses.
+   */
+  describe('a row names every other Panel it is also in, straight after its title', () => {
+    it('draws nothing when it is on nowhere else', () => {
+      aRow();
+
+      expect(screen.queryByText(/^also in/)).toBeNull();
+    });
+
+    it('names them in italics, after the title', () => {
+      aRow({ alsoIn: ['Today', 'Q3 goals'] });
+
+      expect(screen.getByText('also in Today, Q3 goals')).toHaveClass('italic');
+    });
+
+    it('spells out the whole list on hover once the row has cut it, and stays quiet otherwise', async () => {
+      const user = userEvent.setup();
+      aRow({ alsoIn: ['Today', 'Q3 goals'] });
+      const also = screen.getByText('also in Today, Q3 goals');
+
+      await hoverLabel(user, also, { scrollWidth: 340, clientWidth: 120 });
+      expect(also).toHaveAttribute('title', 'also in Today, Q3 goals');
+
+      await user.unhover(also);
+      await hoverLabel(user, also, { scrollWidth: 120, clientWidth: 120 });
+      expect(also).not.toHaveAttribute('title');
     });
   });
 

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { DueCondition, Filing, FilterCondition, Item, ItemType, Panel, Priority } from '@cockpit/shared';
 import { filingsThatFile, itemsInTheInbox } from '../../src/filing';
-import { dayOf, inFilterOrder, itemsMatchingFilter, saysWhatItShows } from '../../src/filters';
+import {
+  alsoShownOn,
+  dayOf,
+  filtersUsingPanel,
+  inFilterOrder,
+  itemsMatchingFilter,
+  panelAndFilterIdsByItem,
+  saysWhatItShows,
+} from '../../src/filters';
 
 /**
  * F1: what a Filter gathers is a view over the snapshot evaluated in the
@@ -271,6 +279,60 @@ describe('Panels', () => {
     });
   });
 
+  describe('a Panel condition matches an item filed on any of its live Panels, and matches nothing once none are', () => {
+    const wiki = aPanel('wiki');
+    const notes = aPanel('notes');
+
+    it.each([
+      {
+        situation: 'one Panel chosen, and the item is filed on it',
+        values: ['wiki'],
+        panels: [wiki],
+        filedOn: 'wiki',
+        drawn: true,
+      },
+      {
+        situation: 'two Panels chosen, and the item is filed on one of them',
+        values: ['wiki', 'notes'],
+        panels: [wiki, notes],
+        filedOn: 'notes',
+        drawn: true,
+      },
+      {
+        situation: 'one of two chosen Panels has since been deleted, and the item is filed on the live one',
+        // Not among the Panels handed in - the same as it reads once deleted,
+        // whatever the condition still names.
+        values: ['wiki', 'gone'],
+        panels: [wiki],
+        filedOn: 'wiki',
+        drawn: true,
+      },
+      {
+        situation: 'every Panel the condition names has since been deleted',
+        values: ['gone-one', 'gone-two'],
+        panels: [] as Panel[],
+        // Filed somewhere live, so it is not simply absent for being in the
+        // inbox - just not on a Panel the condition still names.
+        filedOn: 'falcon',
+        drawn: false,
+      },
+      {
+        situation: 'the item is filed on a Panel the condition does not name',
+        values: ['wiki'],
+        panels: [wiki, notes],
+        filedOn: 'notes',
+        drawn: false,
+      },
+    ])('an item where $situation', ({ values, panels, filedOn, drawn }) => {
+      const item = anItem('a', {});
+      expect(
+        shown([item], [filed(filedOn, item.id)], [{ field: 'panel', values }], {
+          panels: [FALCON, GATHERS, ...panels],
+        }),
+      ).toEqual(drawn ? [item.id] : []);
+    });
+  });
+
   describe('a due window follows the calendar of whoever is looking', () => {
     /**
      * Every case is measured from the same Thursday, so what changes between
@@ -406,9 +468,12 @@ describe('Panels', () => {
   describe('a filter reads its conditions back as a sentence', () => {
     const okr = aType('type-okr', 'OKR');
     const task = aType('type-task', 'Task');
+    const wiki = aPanel('wiki', 'items');
+    const notes = aPanel('notes', 'items');
 
     const priority = (...values: Priority[]): FilterCondition => ({ field: 'priority', values });
     const type = (...values: string[]): FilterCondition => ({ field: 'type', values });
+    const panel = (...values: string[]): FilterCondition => ({ field: 'panel', values });
 
     it.each([
       { situation: 'nothing chosen', conditions: [] as FilterCondition[], itemTypes: [] as ItemType[], reads: 'Nothing chosen yet' },
@@ -462,8 +527,182 @@ describe('Panels', () => {
         itemTypes: [],
         reads: 'Due this week and No due date',
       },
-    ])('reads $situation', ({ conditions, itemTypes, reads }) => {
-      expect(saysWhatItShows(conditions, itemTypes)).toBe(reads);
+      {
+        situation: 'panel is one Panel',
+        conditions: [panel(wiki.id)],
+        itemTypes: [],
+        panels: [wiki, notes],
+        reads: 'Filed on wiki',
+      },
+      {
+        situation: 'panel is several Panels',
+        conditions: [panel(wiki.id, notes.id)],
+        itemTypes: [],
+        panels: [wiki, notes],
+        reads: 'Filed on wiki or notes',
+      },
+      {
+        // Left out rather than named: there is no live Panel to read its name
+        // off, the same reason matching ignores it (`filters.ts`).
+        situation: 'a Panel among the values has since been deleted',
+        conditions: [panel(wiki.id, 'panel-deleted')],
+        itemTypes: [],
+        panels: [wiki],
+        reads: 'Filed on wiki',
+      },
+      {
+        // Left out rather than named, the same as a deleted one: nothing is
+        // ever filed onto a Panel of text, so a value naming one - stored by
+        // a release that never enforced this - matches nothing, and the
+        // sentence must not claim otherwise.
+        situation: 'a value among the values names a live Panel of text',
+        conditions: [panel(wiki.id, 'journal')],
+        itemTypes: [],
+        panels: [wiki, aPanel('journal', 'text')],
+        reads: 'Filed on wiki',
+      },
+    ])('reads $situation', ({ conditions, itemTypes, panels = [], reads }) => {
+      expect(saysWhatItShows(conditions, itemTypes, panels)).toBe(reads);
+    });
+  });
+
+  describe('deleting a Panel is asked about wherever a live Filter of its Workspace looks at it', () => {
+    /** A Filter, gathering by these Panel ids unless a case says otherwise. */
+    function aFilterOnPanels(id: string, ...values: string[]): Panel {
+      const condition: FilterCondition = { field: 'panel', values };
+      return { ...aPanel(id, 'filter'), filter: { conditions: [condition] } };
+    }
+    const notes = aPanel('notes');
+
+    it('names no Filter where none use it', () => {
+      expect(filtersUsingPanel('wiki', [FALCON, GATHERS])).toEqual([]);
+    });
+
+    it('names the one live Filter that uses it, still holding another live Panel', () => {
+      const gathers = aFilterOnPanels('due', 'wiki', 'notes');
+      expect(filtersUsingPanel('wiki', [FALCON, notes, gathers])).toEqual([
+        { filter: gathers, leftEmpty: false },
+      ]);
+    });
+
+    it('says the one live Filter that uses it would be left showing nothing', () => {
+      const gathers = aFilterOnPanels('due', 'wiki');
+      expect(filtersUsingPanel('wiki', [FALCON, gathers])).toEqual([
+        { filter: gathers, leftEmpty: true },
+      ]);
+    });
+
+    it('names two live Filters, only one of which would be left showing nothing', () => {
+      const emptied = aFilterOnPanels('due', 'wiki');
+      const keptGoing = aFilterOnPanels('over', 'wiki', 'notes');
+      expect(filtersUsingPanel('wiki', [FALCON, notes, emptied, keptGoing])).toEqual([
+        { filter: emptied, leftEmpty: true },
+        { filter: keptGoing, leftEmpty: false },
+      ]);
+    });
+
+    it('never names a Filter that does not condition on this Panel at all', () => {
+      const other = { ...aPanel('over', 'filter'), filter: { conditions: [due('today')] } };
+      expect(filtersUsingPanel('wiki', [FALCON, other])).toEqual([]);
+    });
+
+    it('says a Filter left holding only a live Panel of text would be left showing nothing', () => {
+      // A Panel of text still exists, so a naive "is this id still live"
+      // check would call the condition still holding one - but nothing is
+      // ever filed onto a Panel of text, so this Filter is about to show
+      // nothing exactly as if that id were dead too.
+      const journal = aPanel('journal', 'text');
+      const gathers = aFilterOnPanels('due', 'wiki', 'journal');
+      expect(filtersUsingPanel('wiki', [FALCON, journal, gathers])).toEqual([
+        { filter: gathers, leftEmpty: true },
+      ]);
+    });
+  });
+
+  describe('a row names every other live Panel its Item shows on, never the one it is drawn on', () => {
+    /** What a row for this item, drawn on `drawnPanelId`, would say after its title. */
+    function alsoInFor(
+      itemId: string,
+      items: readonly Item[],
+      filings: readonly Filing[],
+      panelsInWorkspace: readonly Panel[],
+      drawnPanelId: string | null,
+      itemTypes: readonly ItemType[] = [],
+    ): string[] {
+      return alsoShownOn(
+        itemId,
+        panelAndFilterIdsByItem(items, filings, panelsInWorkspace, itemTypes, TODAY),
+        panelsInWorkspace,
+        drawnPanelId,
+      );
+    }
+
+    it('names the other Panel, for an item filed on two', () => {
+      const today = aPanel('today');
+      const q3 = aPanel('q3-goals');
+      const item = anItem('a');
+
+      expect(
+        alsoInFor('a', [item], [filed('today', 'a'), filed('q3-goals', 'a')], [today, q3], 'today'),
+      ).toEqual(['q3-goals']);
+    });
+
+    it('names a Filter the item matches, alongside a Panel it is filed on', () => {
+      const today = aPanel('today');
+      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')] } };
+      const item = anItem('a', { dueDate: TODAY });
+
+      expect(
+        alsoInFor('a', [item], [filed('today', 'a')], [today, dueSoon], 'today'),
+      ).toEqual(['due-soon']);
+    });
+
+    it('drawn on a Filter itself, names the Panels filed on and every other Filter matched, never itself', () => {
+      const today = aPanel('today');
+      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')] } };
+      const highPriority = {
+        ...aPanel('high-priority', 'filter'),
+        filter: { conditions: [{ field: 'priority' as const, values: ['high'] as Priority[] }] },
+      };
+      const item = anItem('a', { dueDate: TODAY, priority: 'high' });
+      const panels = [today, dueSoon, highPriority];
+
+      expect(alsoInFor('a', [item], [filed('today', 'a')], panels, 'due-soon')).toEqual([
+        'today',
+        'high-priority',
+      ]);
+    });
+
+    it('never names a Panel since deleted from the Workspace', () => {
+      const today = aPanel('today');
+      const item = anItem('a');
+      // Filed onto "today" and onto "gone", which the Workspace no longer
+      // carries at all - not even to say it was deleted.
+      const filings = [filed('today', 'a'), filed('gone', 'a')];
+
+      expect(alsoInFor('a', [item], filings, [today], null)).toEqual(['today']);
+    });
+
+    it('has nothing to say for an item filed on the one Panel it is drawn on, matching no Filter', () => {
+      const today = aPanel('today');
+      const item = anItem('a');
+
+      expect(alsoInFor('a', [item], [filed('today', 'a')], [today], 'today')).toEqual([]);
+    });
+
+    it('names them in Panel order, not in the order it found them', () => {
+      // The Filter is found after the filed Panel (`panelAndFilterIdsByItem`
+      // walks filings before Filters), and still reads before it here,
+      // because both are read back in `panelsInWorkspace`'s own order.
+      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')] } };
+      const today = aPanel('today');
+      const item = anItem('a', { dueDate: TODAY });
+      const panels = [dueSoon, today];
+
+      expect(alsoInFor('a', [item], [filed('today', 'a')], panels, null)).toEqual([
+        'due-soon',
+        'today',
+      ]);
     });
   });
 });
