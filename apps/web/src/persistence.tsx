@@ -28,6 +28,12 @@ export const persister: Persister = {
 export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * `v9` because a snapshot gained the account's item-form presentation ("Let
+ * the item's form dock to the side of the screen instead of opening as a
+ * dialog", issue 481). A restored snapshot from before this moved would
+ * answer `undefined` where the type says `'centered'` or `'docked'`, which
+ * `ItemForm.tsx` reads directly rather than through the schema's own default.
+ *
  * `v8` because an Item gained `textsProposedAt`, when Cockpit proposed its two
  * texts ("Learn how you write from the titles you correct", issue 394).
  * Nothing reads it from a restored snapshot yet, which is exactly why this
@@ -73,7 +79,7 @@ export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * the right way round: a cold open is a moment, a shell painted from a shape
  * the code no longer expects is a week.
  */
-export const CACHE_BUSTER = 'v8';
+export const CACHE_BUSTER = 'v9';
 
 /**
  * What is worth keeping on disk, which is everything the app paints itself from

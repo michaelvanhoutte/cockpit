@@ -89,7 +89,7 @@ beforeEach(async () => {
 });
 
 describe('Item editing', () => {
-  describe('the account remembers one of two presentations for the item’s form, defaulting to centered', () => {
+  describe('the account remembers whether the item’s form opens centered or docked, defaulting to centered', () => {
     it('reads centered for an account that has never chosen, with no row written for it', async () => {
       expect(await rowFor(ACCOUNT_NAME)).toBeNull();
 
@@ -114,7 +114,7 @@ describe('Item editing', () => {
       expect(rows).toHaveLength(1);
     });
 
-    it('is refused for anything other than the two known presentations', async () => {
+    it('is refused for anything other than centered or docked', async () => {
       const response = await asUser('http://cockpit.test/v1/commands/set_item_form_presentation', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },

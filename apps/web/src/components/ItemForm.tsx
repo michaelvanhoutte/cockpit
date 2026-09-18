@@ -249,13 +249,31 @@ function TheForm({
    */
   const [fixedPresentation, setFixedPresentation] = useState<ItemFormPresentation | null>(null);
   useEffect(() => {
-    if (fixedPresentation === null && data) setFixedPresentation(data.itemFormPresentation);
+    // `?? DEFAULT_ITEM_FORM_PRESENTATION` rather than trusting `data` to
+    // always carry the field: a snapshot restored from a stored copy older
+    // than this field (persistence.tsx's own `CACHE_BUSTER`) is read but
+    // never re-validated, so it can answer `undefined` here - which must
+    // still lock to a real value, not `undefined` itself, or the lock this
+    // effect exists for falls through to `data` again on the next render
+    // (found in review).
+    if (fixedPresentation === null && data) {
+      setFixedPresentation(data.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION);
+    }
   }, [data, fixedPresentation]);
   const presentation = fixedPresentation ?? data?.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION;
   const docked = presentation === 'docked';
 
-  /** Flips the account's own choice, and this open form along with it. */
+  /**
+   * Flips the account's own choice, and this open form along with it.
+   *
+   * **Reverted on refusal.** The flip is drawn before the round trip lands -
+   * the same as everywhere else in this file that answers a press at once
+   * rather than waiting on the network - so a request that fails must put
+   * `fixedPresentation` back rather than leave this form showing a
+   * presentation the account never actually adopted (found in review).
+   */
   const togglePresentation = async () => {
+    const was = presentation;
     const next: ItemFormPresentation = docked ? 'centered' : 'docked';
     setFixedPresentation(next);
     try {
@@ -269,6 +287,7 @@ function TheForm({
         },
       });
     } catch (failure) {
+      setFixedPresentation(was);
       setRefusal(failure instanceof Error ? failure.message : 'That could not be saved');
     }
   };
@@ -612,6 +631,16 @@ function TheForm({
   const draggingDock = dockDragPreview !== null;
   useEffect(() => {
     if (!draggingDock) return;
+    // Centered has no way to reach this drag's own handle mid-gesture, but
+    // the account-wide toggle does - pressing "Center" from another input
+    // while this one is still captured by the handle (found in review, a
+    // multi-pointer device only). Discarding rather than letting it run on
+    // is the same call `Cancel` makes for the boxes above: a size dragged to
+    // for a presentation just left is not one worth keeping.
+    if (!docked) {
+      clearDockDrag();
+      return;
+    }
     const pointerId = dockResizingFrom.current?.pointerId;
     const ownsPointer = (event: PointerEvent) => event.pointerId === pointerId;
     const onMove = (event: PointerEvent) => {
@@ -646,7 +675,7 @@ function TheForm({
       window.removeEventListener('pointercancel', onCancel);
       window.removeEventListener('keydown', onKey);
     };
-  }, [draggingDock, commitDockHandle, clearDockDrag]);
+  }, [draggingDock, docked, commitDockHandle, clearDockDrag]);
 
   /** What the docked presentation is drawn at: the drag's own number while one is running, the stored preference otherwise, both brought inside the window's current bounds. */
   const dockedWidthPx = clampItemFormDockedWidth(
@@ -841,6 +870,15 @@ function TheForm({
             // request to close the *form*, which is the one part "non-modal"
             // does not already cover on its own.
             if (docked) event.preventDefault();
+          }}
+          onEscapeKeyDown={(event) => {
+            // Radix's own Escape handling runs in the capture phase, ahead
+            // of the drag effect's own `keydown` listener below - so without
+            // this, Escape pressed mid-drag closes the whole form and
+            // discards the draft instead of merely cancelling the resize
+            // (found in review). The drag effect's listener still cancels
+            // the drag itself once this stops it from also closing the form.
+            if (draggingDock) event.preventDefault();
           }}
           // An explicit size rather than one that grows and shrinks with what
           // is inside it - the editor's async-loading placeholder is a fixed

@@ -1220,6 +1220,7 @@ describe('Item editing', () => {
     // device or tab while this form is open must not move it - only a press
     // on this form's own control does that (the case above).
     it('a choice made elsewhere does not move a form already open', async () => {
+      held.items = [anItem()];
       const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       const shell = () => (
         <QueryClientProvider client={client}>
