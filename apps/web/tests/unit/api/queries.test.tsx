@@ -91,6 +91,7 @@ const snapshot: WorkspaceSnapshot = {
   attachments: [],
   itemTypes: [],
     screenSizes: [],
+    itemFormPresentation: 'centered',
     duplicates: [],
   filings: [],
   routingSummary: null,

@@ -2,6 +2,7 @@ import { alias } from 'drizzle-orm/sqlite-core';
 import { and, asc, desc, eq, exists, gt, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
 import type { Column } from 'drizzle-orm';
 import {
+  DEFAULT_ITEM_FORM_PRESENTATION,
   REWRITE_HISTORY_LIMIT,
   panelFilterFrom,
   type Association,
@@ -9,6 +10,7 @@ import {
   type Dashboard,
   type Filing,
   type Item,
+  type ItemFormPresentation,
   type ItemType,
   type Layout,
   type LayoutRow,
@@ -28,6 +30,7 @@ import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-correcti
 import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import {
+  accountItemFormPresentation,
   accountTextRules,
   associations,
   attachments,
@@ -1325,6 +1328,22 @@ export function getTextLearningRules(
       .where(eq(accountTextRules.tenantId, tenantId))
       .get() ?? null
   );
+}
+
+/**
+ * How this account has the Item's form drawn ("Let the item's form dock to
+ * the side of the screen instead of opening as a dialog", issue 481),
+ * resolved to `DEFAULT_ITEM_FORM_PRESENTATION` for an account that has never
+ * written one - every account's starting condition, the same convention
+ * `getTextLearningRules` above follows for the row it reads.
+ */
+export function getItemFormPresentation(db: AccountDb, tenantId: string): ItemFormPresentation {
+  const row = db
+    .select({ presentation: accountItemFormPresentation.presentation })
+    .from(accountItemFormPresentation)
+    .where(eq(accountItemFormPresentation.tenantId, tenantId))
+    .get();
+  return row?.presentation ?? DEFAULT_ITEM_FORM_PRESENTATION;
 }
 
 /**

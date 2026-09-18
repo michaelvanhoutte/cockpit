@@ -1,9 +1,19 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Popover from '@radix-ui/react-popover';
 import { useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ACCOUNT_WIDE,
+  DEFAULT_ITEM_FORM_PRESENTATION,
   MAX_ATTACHMENT_SIZE,
   TITLE_LENGTH,
   attachmentContentTypeSchema,
@@ -13,6 +23,7 @@ import {
   uuidv7,
   type Attachment,
   type Item,
+  type ItemFormPresentation,
   type Priority,
 } from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../api/client';
@@ -25,6 +36,12 @@ import { useItemForm, useOpenItem } from '../itemForm';
 import { useUndo } from '../undo';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
+import {
+  clampItemFormDockedWidth,
+  readItemFormDockedWidth,
+  writeItemFormDockedWidth,
+} from '../itemFormDockedWidth';
+import { useScreenWidth } from '../panels/useScreenWidth';
 import { PRIORITY_LABELS } from '../priority';
 
 /** What the two boxes, the priority control and the due date hold, before anything is sent. */
@@ -215,6 +232,47 @@ function TheForm({
   const offerToUndo = useUndo();
   const openItem = useOpenItem();
   const item = data?.items.find((candidate) => candidate.id === itemId);
+
+  /**
+   * Centered or docked to the side ("Let the item's form dock to the side of
+   * the screen instead of opening as a dialog", issue 481) - an account-wide
+   * choice, read from the same snapshot `item` above is.
+   *
+   * **Locked once read, the same reason the dragged size above is read into
+   * `remembered` rather than applied live.** The account's own choice can
+   * change while this form is open - from the control below, or from another
+   * device entirely - and only the first of those two is supposed to move
+   * this open form; the second must leave it exactly where it was until it is
+   * closed and reopened. `fixedPresentation` is what tells those apart:
+   * pressing the control sets it directly, so this render picks it up at
+   * once, while a change arriving over `data` alone never touches it.
+   */
+  const [fixedPresentation, setFixedPresentation] = useState<ItemFormPresentation | null>(null);
+  useEffect(() => {
+    if (fixedPresentation === null && data) setFixedPresentation(data.itemFormPresentation);
+  }, [data, fixedPresentation]);
+  const presentation = fixedPresentation ?? data?.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION;
+  const docked = presentation === 'docked';
+
+  /** Flips the account's own choice, and this open form along with it. */
+  const togglePresentation = async () => {
+    const next: ItemFormPresentation = docked ? 'centered' : 'docked';
+    setFixedPresentation(next);
+    try {
+      await send({
+        name: 'set_item_form_presentation',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: ACCOUNT_WIDE,
+          presentation: next,
+        },
+      });
+    } catch (failure) {
+      setRefusal(failure instanceof Error ? failure.message : 'That could not be saved');
+    }
+  };
+
   /** This Item's own files, out of the workspace's whole list ("Attach a file to an item", issue 441). */
   const attachments: Attachment[] =
     data?.attachments.filter((attachment) => attachment.itemId === itemId) ?? [];
@@ -409,7 +467,10 @@ function TheForm({
   const known = useRef<Size | null>(null);
   const inProgress = useRef(false);
   useEffect(() => {
-    if (!contentEl) return;
+    // The native corner handle only exists on the centered presentation
+    // (`sm:resize`, below) - docked is resized by its own edge handle
+    // further down, which does not go through this at all.
+    if (!contentEl || docked) return;
     const measure = (): Size | null => {
       const box = contentEl.getBoundingClientRect();
       return box.width > 0 && box.height > 0
@@ -457,7 +518,7 @@ function TheForm({
       contentEl.removeEventListener('mousedown', onDown);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [contentEl]);
+  }, [contentEl, docked]);
   /**
    * Remembers whatever a drag left `known` holding, on the way out.
    *
@@ -483,6 +544,115 @@ function TheForm({
       if (known.current) rememberItemFormSize(browserStore(), known.current);
     };
   }, []);
+
+  /**
+   * How wide the docked presentation is dragged to - a per-device preference,
+   * the same as the centered presentation's own dragged size
+   * (`itemFormDockedWidth.ts`'s own header says why it is per-device rather
+   * than the account's). Read once, from a lazy initializer: an effect would
+   * paint the default width first and jump to the stored one a frame later.
+   *
+   * **The drag itself follows the Inbox column's own edge-drag**
+   * (`pages/Layout.tsx`, "Let the Inbox column be resized horizontally",
+   * issue 331) rather than the centered presentation's native corner handle
+   * above: docked has one edge to drag, not a corner, and stays non-modal
+   * throughout, so a native `resize` (which the browser would still apply to
+   * the whole box, corner included) is the wrong shape for it.
+   */
+  const [dockedWidth, setDockedWidth] = useState<number | null>(() =>
+    readItemFormDockedWidth(browserStore()),
+  );
+  const [dockDragPreview, setDockDragPreview] = useState<number | null>(null);
+  const dockResizingFrom = useRef<
+    { startWidth: number; startX: number; latest: number; pointerId: number } | null
+  >(null);
+  const screenWidth = useScreenWidth();
+  /** Read by the drag's own `pointermove` handler, which is declared once per
+   *  drag rather than once per render - the same reason the Inbox column's
+   *  own `availableRowWidthRef` is a ref rather than a closed-over value. */
+  const screenWidthRef = useRef(screenWidth);
+  screenWidthRef.current = screenWidth;
+
+  const clearDockDrag = useCallback(() => {
+    dockResizingFrom.current = null;
+    setDockDragPreview(null);
+  }, []);
+
+  const takeDockHandle = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0 || dockResizingFrom.current || !contentEl) return;
+      event.preventDefault();
+      const startWidth = contentEl.getBoundingClientRect().width;
+      dockResizingFrom.current = {
+        startWidth,
+        startX: event.clientX,
+        latest: startWidth,
+        pointerId: event.pointerId,
+      };
+      setDockDragPreview(startWidth);
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Allowed to fail, as the Inbox column's own capture is: the moves
+        // still arrive while the pointer is over the handle, nearly all of
+        // the gesture.
+      }
+    },
+    [contentEl],
+  );
+
+  const commitDockHandle = useCallback(() => {
+    const held = dockResizingFrom.current;
+    clearDockDrag();
+    if (!held || held.latest === held.startWidth) return;
+    setDockedWidth(held.latest);
+    writeItemFormDockedWidth(browserStore(), held.latest);
+  }, [clearDockDrag]);
+
+  const draggingDock = dockDragPreview !== null;
+  useEffect(() => {
+    if (!draggingDock) return;
+    const pointerId = dockResizingFrom.current?.pointerId;
+    const ownsPointer = (event: PointerEvent) => event.pointerId === pointerId;
+    const onMove = (event: PointerEvent) => {
+      if (!ownsPointer(event)) return;
+      const held = dockResizingFrom.current;
+      if (!held) return;
+      // Docked to the *right* edge, so dragging its left edge left is what
+      // widens it - the opposite sign the Inbox column's own left-edge
+      // handle uses for a column that grows to the right instead.
+      held.latest = clampItemFormDockedWidth(
+        held.startWidth - (event.clientX - held.startX),
+        screenWidthRef.current,
+      );
+      setDockDragPreview(held.latest);
+    };
+    const onUp = (event: PointerEvent) => {
+      if (ownsPointer(event)) commitDockHandle();
+    };
+    const onCancel = (event: PointerEvent) => {
+      if (ownsPointer(event)) clearDockDrag();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') clearDockDrag();
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [draggingDock, commitDockHandle, clearDockDrag]);
+
+  /** What the docked presentation is drawn at: the drag's own number while one is running, the stored preference otherwise, both brought inside the window's current bounds. */
+  const dockedWidthPx = clampItemFormDockedWidth(
+    dockDragPreview ?? dockedWidth ?? DEFAULT_SIZE.width,
+    screenWidth,
+  );
 
   /** What the boxes hold, and what they were filled from. */
   const [editing, setEditing] = useState<{ was: Draft; now: Draft } | null>(null);
@@ -641,6 +811,10 @@ function TheForm({
   return (
     <Dialog.Root
       open
+      // Non-modal only while docked: the whole point of that presentation is
+      // that the page behind it stays usable, which Radix's own modal
+      // behaviour (an inert background, a focus trap) would undo.
+      modal={!docked}
       onOpenChange={(stillOpen) => {
         // Escape, the close control and a press outside all land here, and all
         // three discard: Cancel means cancel (functional definition, "Editing
@@ -655,10 +829,19 @@ function TheForm({
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/30" />
+        {/* No scrim while docked - the page behind stays visible as well as
+            clickable, which a dimming overlay over it would contradict. */}
+        {!docked && <Dialog.Overlay className="fixed inset-0 bg-black/30" />}
         <Dialog.Content
           ref={setContentEl}
           aria-describedby={undefined}
+          onInteractOutside={(event) => {
+            // Non-modal already keeps a press on the page behind from
+            // reaching it; this stops Radix reading that same press as a
+            // request to close the *form*, which is the one part "non-modal"
+            // does not already cover on its own.
+            if (docked) event.preventDefault();
+          }}
           // An explicit size rather than one that grows and shrinks with what
           // is inside it - the editor's async-loading placeholder is a fixed
           // 12 rows, usually taller than the real editor once it swaps in, so
@@ -702,11 +885,54 @@ function TheForm({
           // `sm:` viewport breakpoint would keep two columns forced onto a
           // dialog dragged down near its floor on an otherwise wide screen,
           // squeezing the description to almost nothing.
-          className="@container fixed left-1/2 top-1/2 flex h-[var(--item-form-h)] max-h-[var(--item-form-max-h)] min-h-[min(18rem,var(--item-form-max-h))] w-[var(--item-form-w)] max-w-[var(--item-form-max-w)] min-w-[min(20rem,var(--item-form-max-w))] -translate-x-1/2 -translate-y-1/2 flex-col resize-none overflow-hidden rounded-lg border border-black/10 bg-surface p-5 shadow-lg sm:resize"
+          //
+          // **Docked keeps the same `@container` two-column body**, per the
+          // issue this presentation shipped in: "everything else about the
+          // docked presentation matches today's form exactly" - only the
+          // positioning, the sizing and the modality below it are its own.
+          className={
+            docked
+              ? '@container fixed right-0 top-0 flex h-full flex-col overflow-hidden rounded-l-lg border border-black/10 bg-surface p-5 shadow-lg'
+              : '@container fixed left-1/2 top-1/2 flex h-[var(--item-form-h)] max-h-[var(--item-form-max-h)] min-h-[min(18rem,var(--item-form-max-h))] w-[var(--item-form-w)] max-w-[var(--item-form-max-w)] min-w-[min(20rem,var(--item-form-max-w))] -translate-x-1/2 -translate-y-1/2 flex-col resize-none overflow-hidden rounded-lg border border-black/10 bg-surface p-5 shadow-lg sm:resize'
+          }
           style={
-            remembered ? { width: `${remembered.width}px`, height: `${remembered.height}px` } : undefined
+            docked
+              ? { width: `${dockedWidthPx}px` }
+              : remembered
+                ? { width: `${remembered.width}px`, height: `${remembered.height}px` }
+                : undefined
           }
         >
+          {docked && (
+            // Dragged to resize, the same idiom the Inbox column's own edge
+            // uses (`pages/Layout.tsx`) rather than the centered
+            // presentation's native corner handle above - docked has one
+            // edge to drag, not a corner.
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize the form"
+              onPointerDown={takeDockHandle}
+              className="absolute inset-y-0 left-0 z-10 w-2 cursor-col-resize touch-none"
+            />
+          )}
+          {/* The account-wide choice between this presentation and the
+              centered one, switched from the form itself ("Let the item's
+              form dock to the side of the screen instead of opening as a
+              dialog", issue 481). Its own row above the title rather than
+              floated over a corner, which the title box below would
+              otherwise run under - full width, like the row it sits above. */}
+          <div className="flex shrink-0 justify-end">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void togglePresentation()}
+              className="rounded-md border border-black/10 bg-surface px-2 py-1 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+            >
+              {docked ? 'Center' : 'Dock'}
+            </button>
+          </div>
+
           {/* Said rather than shown. A dialog has to name itself, and this one
               is opened by a row whose label is now the title box directly under
               it - so drawing it would put the same words on the form twice,

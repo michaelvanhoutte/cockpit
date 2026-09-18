@@ -26,6 +26,7 @@ const held = vi.hoisted(() => ({
   filings: [] as Filing[],
   duplicates: [] as PossibleDuplicate[],
   attachments: [] as Attachment[],
+  itemFormPresentation: 'centered' as 'centered' | 'docked',
   send: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
   close: vi.fn(),
   open: vi.fn(),
@@ -86,13 +87,22 @@ vi.mock('../../../src/description/RichDescription', () => ({
 vi.mock('../../../src/api/queries', () => ({
   useSendCommand: () => held.send,
   snapshotQuery: (workspaceId: string) => ({
-    queryKey: ['snapshot', workspaceId, held.items, held.filings, held.duplicates, held.attachments],
+    queryKey: [
+      'snapshot',
+      workspaceId,
+      held.items,
+      held.filings,
+      held.duplicates,
+      held.attachments,
+      held.itemFormPresentation,
+    ],
     queryFn: (): Promise<WorkspaceSnapshot> =>
       Promise.resolve({
         items: held.items,
         filings: held.filings,
         duplicates: held.duplicates,
         attachments: held.attachments,
+        itemFormPresentation: held.itemFormPresentation,
       } as unknown as WorkspaceSnapshot),
   }),
 }));
@@ -186,6 +196,7 @@ beforeEach(() => {
   held.filings = [];
   held.duplicates = [];
   held.attachments = [];
+  held.itemFormPresentation = 'centered';
   held.openItemId = 'item-1';
   vi.mocked(uploadAttachment).mockClear();
   vi.mocked(uploadAttachment).mockResolvedValue({ ok: true as const, applied: true });
@@ -1140,6 +1151,94 @@ describe('Item editing', () => {
       expect(await sizeOf(anItem({ description: null }))).toEqual(
         await sizeOf(anItem({ description: 'Tolerances, and the sign-off date' })),
       );
+    });
+  });
+
+  /**
+   * "Let the item's form dock to the side of the screen instead of opening
+   * as a dialog" (issue 481). The docked presentation's own non-modality and
+   * its resizing are a real pointer and a real layout, so they are proved in
+   * tests/e2e/item-editing.test.ts instead; what is asked here is which
+   * presentation the form opens at, what pressing the control sends and
+   * switches, and that a choice made elsewhere leaves an open form alone.
+   */
+  describe('the form is centered or docked to the side, an account-wide choice', () => {
+    const dockButton = () => screen.getByRole('button', { name: 'Dock' });
+    const centerButton = () => screen.getByRole('button', { name: 'Center' });
+
+    it('opens centered where the account has never chosen, offering to dock it', async () => {
+      await theForm();
+
+      expect(dockButton()).toBeVisible();
+      expect(screen.getByRole('dialog')).toHaveClass('left-1/2');
+    });
+
+    it('opens docked where the account has chosen it, offering to center it', async () => {
+      held.itemFormPresentation = 'docked';
+      const user = await theForm();
+
+      expect(centerButton()).toBeVisible();
+      expect(screen.getByRole('dialog')).toHaveClass('right-0');
+      // Still the same form otherwise - the fields are #480's own component,
+      // reused rather than reproven.
+      await user.type(descriptionBox(), 'Tolerances');
+      expect(descriptionBox()).toHaveValue('Tolerances');
+    });
+
+    it('docking sends the choice account-wide, and switches this open form at once', async () => {
+      const user = await theForm();
+
+      await user.click(dockButton());
+
+      expect(sent()).toContainEqual(
+        expect.objectContaining({
+          name: 'set_item_form_presentation',
+          payload: expect.objectContaining({ workspaceId: 'account', presentation: 'docked' }),
+        }),
+      );
+      expect(centerButton()).toBeVisible();
+      expect(screen.getByRole('dialog')).toHaveClass('right-0');
+    });
+
+    it('centering switches an open docked form back, the same way', async () => {
+      held.itemFormPresentation = 'docked';
+      const user = await theForm();
+
+      await user.click(centerButton());
+
+      expect(sent()).toContainEqual(
+        expect.objectContaining({
+          name: 'set_item_form_presentation',
+          payload: expect.objectContaining({ presentation: 'centered' }),
+        }),
+      );
+      expect(dockButton()).toBeVisible();
+      expect(screen.getByRole('dialog')).toHaveClass('left-1/2');
+    });
+
+    // Against the live account this inverts: a choice made from another
+    // device or tab while this form is open must not move it - only a press
+    // on this form's own control does that (the case above).
+    it('a choice made elsewhere does not move a form already open', async () => {
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const shell = () => (
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(shell());
+      await screen.findByLabelText('Title');
+      expect(dockButton()).toBeVisible();
+
+      // The account's choice moves underneath, alongside a change to the item
+      // itself - proof that the new snapshot was actually read, not only that
+      // nothing happened to be re-rendered.
+      held.items = [anItem({ title: 'Renamed elsewhere' })];
+      held.itemFormPresentation = 'docked';
+      rerender(shell());
+
+      await waitFor(() => expect(screen.getByRole('heading')).toHaveTextContent('Renamed elsewhere'));
+      expect(dockButton()).toBeVisible();
     });
   });
 });

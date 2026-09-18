@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
-import { capture, expect, itemRow, openInbox, press, test, uniqueTitle } from './support/app';
+import { capture, captureBox, expect, itemRow, openInbox, press, test, uniqueTitle } from './support/app';
 
 /** Opens one row's form the way both devices can: from the row's own menu. */
 async function openItem(page: Page, row: string, isMobile: boolean): Promise<void> {
@@ -904,6 +904,85 @@ test.describe('Item editing', () => {
       await press(form(page).getByRole('button', { name: 'ID' }), isMobile);
       await expect(page.getByRole('group')).toHaveCount(1);
       await expect(page.getByRole('group').getByRole('button', { name: 'Copy' })).toBeVisible();
+    });
+  });
+
+  /**
+   * "Let the item's form dock to the side of the screen instead of opening
+   * as a dialog" (issue 481): an account-wide choice, so this walk restores
+   * it to centered at the end - the same reason `deleteWorkspace` puts a
+   * workspace back - or every other item-form walk sharing this account
+   * would go on finding it docked.
+   */
+  test.describe('the form can be docked to the side of the screen, an account-wide choice', () => {
+    test('docks to the side, leaves the page behind it clickable, is remembered on reopening, and is resizable', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'docking is its own, separate discussion on a phone, by design');
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Dock to the side');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      // Whatever the shared account already has - centered, on a run where
+      // nothing else has touched this yet.
+      if (await form(page).getByRole('button', { name: 'Center' }).count()) {
+        await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
+      }
+      const centered = (await form(page).boundingBox())!;
+
+      await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
+
+      const viewport = page.viewportSize()!;
+      const docked = (await form(page).boundingBox())!;
+      // Flush against the right edge and full height - unlike centered,
+      // which sits away from every edge.
+      expect(Math.round(docked.x + docked.width)).toBe(viewport.width);
+      expect(Math.round(docked.y)).toBe(0);
+      expect(Math.round(docked.height)).toBe(viewport.height);
+      expect(Math.round(docked.x)).not.toBe(Math.round(centered.x));
+
+      // Non-modal: the page behind it can still be worked, which a real
+      // click - not merely filling a value in - is what actually proves,
+      // since a click Playwright judges blocked by a covering overlay
+      // throws rather than landing.
+      await captureBox(page).click({ timeout: 5_000 });
+      await captureBox(page).fill('Still usable behind the docked form');
+      await expect(captureBox(page)).toHaveValue('Still usable behind the docked form');
+      await captureBox(page).fill('');
+
+      // Resized by dragging its own left edge, unlike the centered
+      // presentation's bottom-right corner - dragged toward the right edge
+      // it is docked to, which is what narrows it (the default viewport is
+      // wide enough that it opens at its own ceiling already, so widening it
+      // further has nowhere to go).
+      const handle = form(page).getByRole('separator', { name: 'Resize the form' });
+      const grip = (await handle.boundingBox())!;
+      await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(grip.x + 200, grip.y, { steps: 8 });
+      await page.mouse.up();
+      const narrowed = (await form(page).boundingBox())!;
+      expect(narrowed.width, 'dragging toward the edge it is docked to narrowed it').toBeLessThan(
+        docked.width - 100,
+      );
+
+      // The choice is the account's, so it is there again on a fresh page
+      // load - not only on the tab that just made it, which the open form's
+      // own already-warm cache would answer from regardless of what the
+      // account actually holds.
+      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+      await page.reload();
+      await openInbox(page, isMobile);
+      await openItem(page, thought, isMobile);
+      await expect(form(page).getByRole('button', { name: 'Center' })).toBeVisible();
+
+      // Put back, so every other item-form walk sharing this account goes
+      // on finding the centered presentation it was written against.
+      await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
+      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
     });
   });
 });
