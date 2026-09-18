@@ -19,6 +19,13 @@ const apiProxy = {
 };
 
 export default defineConfig({
+  // esbuild's default minifier is faster but noticeably less aggressive; at
+  // the entry's own 200KB budget (architecture, "Performance budgets") that
+  // gap was already the difference between passing and failing the gate
+  // (found in review, "Give the item's form more room, and put clutter out
+  // of the way", issue 480) - terser trades a few seconds of build time for
+  // several KB back.
+  build: { minify: 'terser' },
   plugins: [
     react(),
     tailwindcss(),

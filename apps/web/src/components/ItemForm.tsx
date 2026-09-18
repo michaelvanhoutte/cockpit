@@ -70,6 +70,12 @@ interface PendingAttachment {
  * way", issue 480). Floats over the form rather than growing the footer
  * inline, so opening one never moves Cancel and Save out from under a hand
  * about to press them.
+ *
+ * **Dismissed by Escape or a press outside the dialog, but not by a listener
+ * of its own** - `TheForm`'s own `Dialog.Root` already reaches `onOpenChange`
+ * for both, once, and closes this panel there instead of the form under it
+ * while one is open (found in review: correctness, since an unhandled
+ * Escape would otherwise discard whatever was being typed).
  */
 function FooterDisclosure({
   label,
@@ -82,36 +88,8 @@ function FooterDisclosure({
   onToggle: () => void;
   children: ReactNode;
 }) {
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  // Closed the way any other floating panel in the app is: a press outside
-  // it, or Escape - not only by finding and re-pressing the same small
-  // button (found in review).
-  useEffect(() => {
-    if (!open) return;
-    const closeIfOutside = (event: PointerEvent) => {
-      if (!wrapperRef.current?.contains(event.target as Node)) onToggle();
-    };
-    // On `window`, in the capture phase, the same reason the description's
-    // own link-address Escape is (`RichDescription.tsx`): Radix listens for
-    // Escape on the document in the capture phase to close the whole
-    // dialog, which runs before a plain bubble-phase listener here ever
-    // would - closing this panel rather than the form under it needs to win
-    // that race.
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.stopPropagation();
-      onToggle();
-    };
-    document.addEventListener('pointerdown', closeIfOutside);
-    window.addEventListener('keydown', closeOnEscape, true);
-    return () => {
-      document.removeEventListener('pointerdown', closeIfOutside);
-      window.removeEventListener('keydown', closeOnEscape, true);
-    };
-  }, [open, onToggle]);
-
   return (
-    <div ref={wrapperRef} className="relative">
+    <div className="relative">
       <button
         type="button"
         aria-expanded={open}
@@ -526,6 +504,8 @@ function TheForm({
    * item's form more room, and put clutter out of the way", issue 480).
    */
   const [footerOpen, setFooterOpen] = useState<'captured' | 'id' | null>(null);
+  const toggleFooter = (which: 'captured' | 'id') =>
+    setFooterOpen((was) => (was === which ? null : which));
 
   /**
    * The boxes start from the Item and are then the person's own, and what they
@@ -660,11 +640,21 @@ function TheForm({
     <Dialog.Root
       open
       onOpenChange={(stillOpen) => {
-        // Escape, the close control and a press outside all land here, and all
-        // three discard: Cancel means cancel (functional definition, "Editing
+        if (stillOpen) return;
+        // Escape and a press outside both land here before they land
+        // anywhere else - which is what a footer disclosure being open
+        // rides on to close only itself rather than discarding the form
+        // under it (found in review, and cheaper than a listener of its
+        // own per disclosure).
+        if (footerOpen) {
+          setFooterOpen(null);
+          return;
+        }
+        // The close control and a genuine Escape/outside-press both discard
+        // from here on: Cancel means cancel (functional definition, "Editing
         // more than one field at a time"). Save is what writes, and it is
         // sitting in the form unpressed.
-        if (!stillOpen && !saving) onClose();
+        if (!saving) onClose();
       }}
     >
       <Dialog.Portal>
@@ -1082,7 +1072,7 @@ function TheForm({
                 <FooterDisclosure
                   label="What was captured"
                   open={footerOpen === 'captured'}
-                  onToggle={() => setFooterOpen((was) => (was === 'captured' ? null : 'captured'))}
+                  onToggle={() => toggleFooter('captured')}
                 >
                   {/* A record, not a control: it can never be edited, so there
                       is no box to put a cursor in. */}
@@ -1097,7 +1087,7 @@ function TheForm({
                 <FooterDisclosure
                   label="ID"
                   open={footerOpen === 'id'}
-                  onToggle={() => setFooterOpen((was) => (was === 'id' ? null : 'id'))}
+                  onToggle={() => toggleFooter('id')}
                 >
                   <div className="flex items-center gap-2">
                     <code className="min-w-0 flex-1 truncate rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
