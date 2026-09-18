@@ -176,6 +176,17 @@ if (running.api) {
         'MS_CLIENT_SECRET:no-secret-is-needed-to-talk-to-the-stub',
         '--var',
         'CONNECTOR_CREDENTIAL_KEY:Y29ja3BpdC1sb2NhbC1jb25uZWN0b3Ita2V5LTAwMDA=',
+        // The bot a saved Teams message would be signed for, and where the
+        // keys to check it against are published ("Save a Teams message to
+        // Cockpit", issue 486). The same stub signs them, which is the only
+        // way that path is drivable at all on a laptop: there is no Teams to
+        // press a button in, and Microsoft will not sign a call for anybody.
+        // Mint one at `<issuer>/botframework/token?aud=cockpit-local-bot` and
+        // post it at `/ingress/teams/messages`.
+        '--var',
+        'MS_BOT_APP_ID:cockpit-local-bot',
+        '--var',
+        `BOT_FRAMEWORK_METADATA_URL:${issuer.origin}/botframework/.well-known/openidconfiguration`,
         // Production sets this and staging deliberately does not, which is what
         // decides where "Continue as guest" works ("Sign in as a guest, without
         // a password", issue 354). Set here so the control can be driven

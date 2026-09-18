@@ -129,6 +129,18 @@ export interface Env {
    */
   OIDC_ISSUER?: string;
   /**
+   * Where the keys a pushed Teams message is checked against are published.
+   * Unset everywhere but local development, which points it at the same stub
+   * the sign-in flow uses (scripts/lib/stub-issuer.mjs) - so the one path
+   * nobody can drive on a laptop, Teams having no local anything, is drivable
+   * ("Save a Teams message to Cockpit", issue 486).
+   *
+   * **A deployment that set this would believe whoever it pointed at**, which
+   * is exactly the standing `OIDC_ISSUER` above already has and is why both
+   * are absent from every environment block.
+   */
+  BOT_FRAMEWORK_METADATA_URL?: string;
+  /**
    * Whether this environment offers a way in without a Google account at all
    * ("Sign in as a guest, without a password", issue 354). Set on production,
    * and on the two local stacks so the control can be driven at all;

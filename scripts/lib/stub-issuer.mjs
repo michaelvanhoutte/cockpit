@@ -27,6 +27,12 @@ import { readFileSync } from 'node:fs';
 // browser suite's own stack, and no deployed environment sets OIDC_ISSUER.
 //
 
+/** The directory a locally connected Microsoft account belongs to. */
+const LOCAL_TENANT = 'cockpit-local-tenant';
+
+/** What the Bot Framework calls itself, and what a channel call has to name. */
+const CHANNEL_ISSUER = 'https://api.botframework.com';
+
 /**
  * The addresses to offer, read out of the seed rather than written down again.
  *
@@ -81,6 +87,42 @@ export async function startStubIssuer({ port, seedPath }) {
       // private key, and refuses a public KeyObject it has already made.
       const jwk = publicKey.export({ format: 'jwk' });
       return json(response, { keys: [{ ...jwk, kid, alg: 'RS256', use: 'sig' }] });
+    }
+
+    // The Bot Framework's half: the keys a saved Teams message is checked
+    // against, and a way to mint the call itself ("Save a Teams message to
+    // Cockpit", issue 486). Here rather than in a second script for the reason
+    // Microsoft's sign-in is here: it is the same key, the same signing, and
+    // one address to print.
+    if (url.pathname === '/botframework/.well-known/openidconfiguration') {
+      return json(response, {
+        issuer: CHANNEL_ISSUER,
+        jwks_uri: `${issuer}/botframework/keys`,
+        id_token_signing_alg_values_supported: ['RS256'],
+      });
+    }
+    if (url.pathname === '/botframework/keys') {
+      const jwk = publicKey.export({ format: 'jwk' });
+      return json(response, { keys: [{ ...jwk, kid, alg: 'RS256', use: 'sig' }] });
+    }
+    // A channel token, for driving the ingress by hand: `?aud=<the bot's app
+    // id>&serviceUrl=<the address the call claims to come from>`. Teams mints
+    // this for itself; locally there is no Teams, so this stands in for the one
+    // thing a person cannot produce.
+    if (url.pathname === '/botframework/token') {
+      const now = Math.floor(Date.now() / 1000);
+      return json(response, {
+        token: jwt(
+          { alg: 'RS256', kid, typ: 'JWT' },
+          {
+            iss: CHANNEL_ISSUER,
+            aud: url.searchParams.get('aud') ?? 'cockpit-local-bot',
+            serviceurl: url.searchParams.get('serviceUrl') ?? 'https://smba.trafficmanager.net/emea/',
+            iat: now,
+            exp: now + 600,
+          },
+        ),
+      });
     }
 
     if (url.pathname === '/authorize') return authorize(url, response);
@@ -184,6 +226,14 @@ export async function startStubIssuer({ port, seedPath }) {
         // Stable for an address, and unlike an address it never changes - which
         // is the distinction the application relies on.
         sub: `stub|${held.email}`,
+        // The directory and the person inside it, which Microsoft puts on a
+        // token and Google does not. Signing in reads neither, and connecting
+        // a Teams account keys on the pair (apps/api/src/connectors/teams.ts) -
+        // so without them a locally connected account would be keyed on
+        // something a saved message can never name, and the one path this stub
+        // exists to make drivable would not be.
+        tid: LOCAL_TENANT,
+        oid: `stub|${held.email}`,
         email: held.email,
         email_verified: true,
         ...(held.name ? { name: held.name } : {}),

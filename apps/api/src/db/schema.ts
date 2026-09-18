@@ -219,6 +219,13 @@ export const users = sqliteTable(
  *
  * It holds no credential, no display name and nothing a person wrote: the
  * source's own key, and where to go and ask.
+ *
+ * **A register backup does not carry it**, the same as a sign-in: what a
+ * backup holds is which accounts and people exist (`registerContents`,
+ * accounts/register.ts). So a restored environment lists its connections and
+ * files nothing pushed to them until each is connected again - one press,
+ * and the only way to lose nothing would be to rebuild this from every
+ * account's store as it is restored.
  */
 export const connectorDirectory = sqliteTable(
   'connector_directory',

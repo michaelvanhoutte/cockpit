@@ -37,12 +37,19 @@ export interface TeamsConnectorConfig {
    * must reach no network (docs/testing-strategy.md, "Third parties").
    */
   readonly keys?: JWTVerifyGetKey;
+  /**
+   * Which metadata document names those keys. Defaults to Microsoft's own, and
+   * is pointed at the local stub by `pnpm dev` for the same reason `OIDC_ISSUER`
+   * points signing in at one: there is no Teams to press a button in on a
+   * laptop, and a path nobody can drive locally is one nobody checks.
+   */
+  readonly metadataUrl?: string;
   /** Read once per call, so a token is judged against the time it arrived. */
   readonly now?: () => Date;
 }
 
 export function createTeamsConnector(config: TeamsConnectorConfig): Connector {
-  const keys = config.keys ?? botFrameworkKeys();
+  const keys = config.keys ?? botFrameworkKeys(config.metadataUrl ?? OPEN_ID_METADATA_URL);
   const now = config.now ?? (() => new Date());
 
   return {
@@ -137,11 +144,11 @@ async function bodyOf(request: Request): Promise<unknown> {
  * a call whose key is not in the set is refused rather than fetched for on
  * every request.
  */
-function botFrameworkKeys(): JWTVerifyGetKey {
+function botFrameworkKeys(metadataUrl: string): JWTVerifyGetKey {
   let keys: Promise<JWTVerifyGetKey> | null = null;
   return async (header, input) => {
     keys ??= (async () => {
-      const answer = await fetch(OPEN_ID_METADATA_URL);
+      const answer = await fetch(metadataUrl);
       if (!answer.ok) throw new Error(`the Bot Framework's keys could not be read: ${answer.status}`);
       const metadata = (await answer.json()) as { jwks_uri?: unknown };
       if (typeof metadata.jwks_uri !== 'string') {

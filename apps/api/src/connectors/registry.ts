@@ -18,7 +18,16 @@ export function connectors(env: Env): Connector[] {
   return [
     // gmailConnector, slackConnector, notionConnector - each lands as its own
     // packages/connectors/* package importing only @cockpit/connector-sdk.
-    ...(env.MS_BOT_APP_ID ? [createTeamsConnector({ appId: env.MS_BOT_APP_ID })] : []),
+    ...(env.MS_BOT_APP_ID
+      ? [
+          createTeamsConnector({
+            appId: env.MS_BOT_APP_ID,
+            ...(env.BOT_FRAMEWORK_METADATA_URL
+              ? { metadataUrl: env.BOT_FRAMEWORK_METADATA_URL }
+              : {}),
+          }),
+        ]
+      : []),
   ];
 }
 

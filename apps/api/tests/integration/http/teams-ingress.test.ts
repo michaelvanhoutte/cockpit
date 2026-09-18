@@ -286,15 +286,16 @@ describe('Capture', () => {
   describe('a Cockpit with no bot behind it offers no address to save to', () => {
     it('answers as it does for a source it has never heard of', async () => {
       await connectTeams();
-      const configured = env.MS_BOT_APP_ID;
-      delete (env as { MS_BOT_APP_ID?: string }).MS_BOT_APP_ID;
+      const environment = env as { MS_BOT_APP_ID?: string };
+      const configured = environment.MS_BOT_APP_ID;
+      delete environment.MS_BOT_APP_ID;
       try {
         const answer = await saveFromTeams();
 
         expect(answer.status).toBe(404);
         expect(await itemsIn()).toEqual([]);
       } finally {
-        (env as { MS_BOT_APP_ID?: string }).MS_BOT_APP_ID = configured;
+        if (configured !== undefined) environment.MS_BOT_APP_ID = configured;
       }
     });
   });
