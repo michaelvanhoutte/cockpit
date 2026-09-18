@@ -108,7 +108,7 @@ export function ManageConnections({
       ref={list}
     >
       <p className="mt-2 text-sm text-ink-faint">
-        The accounts this workspace is connected to. Only this workspace can see them.
+        The accounts this workspace is connected to. No other workspace sees them.
       </p>
 
       {/* Above the list, where every other management window puts the control

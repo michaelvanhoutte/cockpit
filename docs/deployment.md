@@ -590,6 +590,10 @@ wrangler secret put MS_CLIENT_SECRET --env staging
 wrangler secret put CONNECTOR_CREDENTIAL_KEY     # openssl rand -base64 32
 ```
 
+**Once these are set, the shared guest account can connect a Teams account
+too** — every concurrent guest sees it and can disconnect it, the same as
+anything else the guest account holds (`docs/product/glossary.md`, "Guest").
+
 ### `/health` answers without a sign-in
 
 Two things depend on reaching `/health` unauthenticated and both break silently
