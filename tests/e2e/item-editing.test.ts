@@ -907,12 +907,24 @@ test.describe('Item editing', () => {
     });
   });
 
-  /** The account's own answer to the choice just sent - waited on before anything that depends on it having landed, the same convention `panels.test.ts`'s own `answerTo` follows. */
-  function answeredThePresentation(page: Page): Promise<unknown> {
+  /**
+   * The account's own answer to the choice just sent - waited on before
+   * anything that depends on it having landed, the same convention
+   * `panels.test.ts`'s own `answerTo` follows.
+   *
+   * `timeout` is shortened in the cleanup path below: a `finally` block
+   * cannot let an assertion already thrown in `try` propagate until its own
+   * promise settles, so a wait with nothing to observe (found in review: the
+   * "put it back" press failing without ever sending its own request) must
+   * not sit for the default timeout and report that instead of the real
+   * failure.
+   */
+  function answeredThePresentation(page: Page, timeout?: number): Promise<unknown> {
     return page.waitForResponse(
       (response) =>
         response.request().method() === 'POST' &&
         new URL(response.url()).pathname === '/v1/commands/set_item_form_presentation',
+      { timeout },
     );
   }
 
@@ -1013,7 +1025,7 @@ test.describe('Item editing', () => {
         // best effort, so a failure above is reported as itself rather than
         // masked by a cleanup step failing on whatever broke it.
         if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
-          const recentering = answeredThePresentation(page).catch(() => {});
+          const recentering = answeredThePresentation(page, 5_000).catch(() => {});
           await press(form(page).getByRole('button', { name: 'Center' }), isMobile).catch(() => {});
           await recentering;
         }
