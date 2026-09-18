@@ -31,7 +31,10 @@ vi.mock('../../../src/api/client', () => ({
     v1: {
       workspaces: {
         ':workspaceId': {
-          connections: { $get: () => Promise.resolve(new Response(JSON.stringify({ sourceAccounts: held.sourceAccounts }))) },
+          connections: {
+            $get: () =>
+              Promise.resolve(new Response(JSON.stringify({ sourceAccounts: held.sourceAccounts }))),
+          },
         },
       },
     },

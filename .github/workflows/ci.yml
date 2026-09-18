@@ -198,7 +198,7 @@ jobs:
         if: ${{ !cancelled() && steps.classify.outputs.product_changed != 'false' }}
         run: pnpm build
       # The bundle gate (docs/architecture.md, "Performance budgets"): what a
-      # cold open fetches stays under 200KB compressed, and so does any one
+      # cold open fetches stays under 201KB compressed, and so does any one
       # chunk fetched later, charged separately. Its own step rather than
       # part of Build because it measures what that step emitted, and gating
       # it separately from the classifier's condition would build twice to
