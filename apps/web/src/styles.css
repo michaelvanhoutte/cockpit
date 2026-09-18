@@ -70,11 +70,12 @@
   /*
    * An item's priority, graduated the way the level itself reads - grey
    * for unremarkable, up through the app's own amber, to a red well past
-   * `over`'s saturation. A dot rather than a wash: the planned deadline
-   * colouring ("Deadline colors", docs/ideas.md) recolours the whole card,
-   * so a small mark reusing warm hues here was never the same channel to
-   * collide with, the same way `status-waiting` above already reuses `due`'s
-   * amber for a status that has nothing to do with a deadline.
+   * `over`'s saturation. A dot rather than a wash: the deadline colouring
+   * ("Colour an action's own deadline as it approaches, and mark it red once
+   * passed", issue 473) recolours the whole row, so a small mark reusing warm
+   * hues here was never the same channel to collide with, the same way
+   * `status-waiting` above already reuses `due`'s amber for a status that has
+   * nothing to do with a deadline.
    */
   --color-priority-low: #8b8d94;
   --color-priority-normal: #c98a4b;
@@ -201,4 +202,15 @@ body {
   box-shadow:
     inset 0 1px 3px rgb(93 82 148 / 0.16),
     inset 0 0 0 1px rgb(93 82 148 / 0.1);
+}
+
+/*
+ * An item row's ease-in tint toward `due`, as it approaches its own due date
+ * ("Colour an action's own deadline as it approaches, and mark it red once
+ * passed", issue 473) - the formula written once here rather than once per
+ * row per render, with only the fraction itself (`--due`, 0-1) set from the
+ * row's own inline style.
+ */
+@utility due-tint {
+  background-color: color-mix(in srgb, var(--color-due) calc(var(--due, 0) * 100%), transparent);
 }

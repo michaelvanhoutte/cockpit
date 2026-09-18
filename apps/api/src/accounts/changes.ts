@@ -104,6 +104,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ATTACHMENTS,
     REWRITE_HISTORY,
     PANEL_FILTERS,
+    ITEM_DUE_DATE_SET_AT,
   ];
 }
 
@@ -829,6 +830,33 @@ const REWRITE_HISTORY: Change = {
 const PANEL_FILTERS: Change = {
   name: '0035-panel-filters',
   statements: [{ sql: 'ALTER TABLE `panels` ADD COLUMN `filter_conditions` text' }],
+};
+
+/**
+ * When an Item's due date was last set ("Colour an action's own deadline as
+ * it approaches, and mark it red once passed", issue 473) - one nullable
+ * column and nothing else, the same shape `PANEL_FILTERS` above is.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** it cannot. One statement, and a change's
+ *   statements and the record that they ran commit in one `transactionSync`
+ *   (store.ts) — SQLite has no `ADD COLUMN IF NOT EXISTS` for a half-applied
+ *   change to re-run over.
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** there can be none. Every Item
+ *   takes NULL, which is what an Item that carried a due date before this
+ *   shipped gets too — the ramp falls back to `createdAt` for those rather
+ *   than a backfill.
+ * - **Rolled back after it has run:** an older release reads the column back
+ *   out of existence and colours nothing; `set_due_date` writes to it are
+ *   simply unread until the release goes forward again.
+ */
+const ITEM_DUE_DATE_SET_AT: Change = {
+  name: '0036-item-due-date-set-at',
+  statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `due_date_set_at` text' }],
 };
 
 /**

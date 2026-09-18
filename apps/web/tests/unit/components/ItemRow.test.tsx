@@ -50,6 +50,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
     completedAt: null,
     priority: null,
     dueDate: null,
+    dueDateSetAt: null,
     unseen: false,
     deletedAt: null,
     createdAt: '2026-08-12T10:00:00.000Z',
@@ -896,6 +897,127 @@ describe('Triage', () => {
       ).not.toThrow();
 
       expect(screen.getByText('Make appointment with Novy')).toBeInTheDocument();
+    });
+  });
+});
+
+describe('Triage', () => {
+  /**
+   * "Colour an action's own deadline as it approaches, and mark it red once
+   * passed" (issue 473). The ramp itself is proved without a clock in
+   * `dueDate.test.ts`; what is asked here is that the row reads it and draws
+   * it - `Date.now()` is what the test replaces, the same as the age above.
+   */
+  describe('an action’s row is coloured by how close its due date is, and turns red once it has passed', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('draws no colour for an item with no due date', () => {
+      aRow({ item: anItem({ dueDate: null }) });
+
+      const row = screen.getByRole('listitem');
+      expect(row.className).not.toContain('bg-over-deep');
+      // `due-tint` is still the row's own class either way - zero intensity,
+      // fully transparent, is what keeps a due-date-less row looking plain.
+      expect(row.getAttribute('style')).toContain('--due: 0');
+    });
+
+    it('tints the row toward `due` while the deadline is still ahead', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-09-11T00:00:00.000Z'));
+      aRow({
+        item: anItem({
+          dueDate: '2026-09-21',
+          dueDateSetAt: '2026-09-01T00:00:00.000Z',
+          createdAt: '2026-08-01T00:00:00.000Z',
+        }),
+      });
+
+      const row = screen.getByRole('listitem');
+      expect(row.className).toContain('due-tint');
+      // Half the 20-day window elapsed, squared for the ease-in: 0.25.
+      expect(row.getAttribute('style')).toContain('--due: 0.25');
+      expect(row.className).not.toContain('bg-over-deep');
+    });
+
+    it('turns `over-deep` with white text once the due date has passed, whatever the item otherwise carries', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-09-17T09:00:00.000Z'));
+      aRow({ item: anItem({ dueDate: '2026-09-16', dueDateSetAt: '2026-09-01T00:00:00.000Z' }) });
+
+      const row = screen.getByRole('listitem');
+      expect(row.className).toContain('bg-over-deep');
+      expect(row.className).toContain('text-white');
+      // `hover:bg-accent-tint/40`, a `:hover` variant, outranks a plain class
+      // regardless of source order - left on this row, hovering would paint
+      // it pale while its text stayed forced white underneath (found in
+      // review), so this row does not carry it at all.
+      expect(row.className).not.toContain('hover:bg-accent-tint');
+    });
+
+    it('drops the description mark and the waited badge back to white too, once overdue', () => {
+      // Both read white the same way the meta line and the type name do -
+      // by dropping their own muted colour and inheriting the row's, rather
+      // than restating `text-white` themselves - and were left wearing their
+      // muted colour by mistake in a pass that scoped the drop down for the
+      // bundle budget (found in review).
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-09-17T09:00:00.000Z'));
+      aRow({
+        item: anItem({
+          description: 'Some detail',
+          dueDate: '2026-09-16',
+          dueDateSetAt: '2026-09-01T00:00:00.000Z',
+        }),
+      });
+
+      expect(screen.getByTitle('Has a description').className).not.toContain('text-ink-faint');
+      expect(screen.getByTitle(/^Waiting /).className).not.toContain('text-ink-faint');
+    });
+
+    it('drops the "also in…" text back to white too, once overdue', () => {
+      // Sits in the same title row as the three marks above, and was missed
+      // when it merged into this branch after they were converted (found in
+      // review).
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-09-17T09:00:00.000Z'));
+      aRow({
+        item: anItem({ dueDate: '2026-09-16', dueDateSetAt: '2026-09-01T00:00:00.000Z' }),
+        alsoIn: ['Today'],
+      });
+
+      expect(screen.getByText('also in Today').className).not.toContain('text-ink-faint');
+    });
+
+    it('falls back to when the item was made, for a due date carried from before this shipped', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-09-11T00:00:00.000Z'));
+      aRow({
+        item: anItem({ dueDate: '2026-09-21', dueDateSetAt: null, createdAt: '2026-09-01T00:00:00.000Z' }),
+      });
+
+      expect(screen.getByRole('listitem').getAttribute('style')).toContain('--due: 0.25');
+    });
+
+    it('leaves a picked row in its own colour rather than its due date’s, overdue included', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-09-17T09:00:00.000Z'));
+      aRow({
+        item: anItem({ dueDate: '2026-09-16', dueDateSetAt: '2026-09-01T00:00:00.000Z' }),
+        selecting: { picked: true, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() },
+      });
+
+      const row = screen.getByRole('listitem');
+      expect(row.className).toContain('bg-accent-tint');
+      expect(row.className).not.toContain('bg-over-deep');
+      // `due-tint` is the class the intensity actually reads through; a
+      // picked row not wearing it is what leaves it inert here.
+      expect(row.className).not.toContain('due-tint');
+      // The meta line forced itself white for an overdue item regardless of
+      // being picked - unreadable over the picked row's own light background
+      // (found in review).
+      expect(screen.getByText(/Own/).parentElement?.className).not.toContain('text-white');
     });
   });
 });

@@ -51,6 +51,7 @@ function anItemOf(type: ItemType | null, at: number): Item {
     completedAt: null,
     priority: null,
     dueDate: null,
+    dueDateSetAt: null,
     unseen: false,
     deletedAt: null,
     createdAt: `2026-08-31T08:00:0${at}.000Z`,

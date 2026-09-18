@@ -62,6 +62,7 @@ function anItem(
     completedAt: holding.completedAt ?? null,
     priority: holding.priority ?? null,
     dueDate: holding.dueDate ?? null,
+    dueDateSetAt: null,
     unseen: false,
     deletedAt: null,
     createdAt: holding.createdAt ?? '2026-08-31T08:00:00.000Z',

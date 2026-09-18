@@ -6,6 +6,7 @@ import {
   applySetDescription,
   applySetDismissed,
   applySetDone,
+  applySetDueDate,
   applySetTitle,
   captureItem,
   decideWorkspace,
@@ -48,6 +49,9 @@ const titled = (item: Item, at: string, title: string) =>
 
 const described = (item: Item, at: string, description: string) =>
   applySetDescription(item, { ...request, issuedAt: at, itemId: item.id, description })!;
+
+const dueDated = (item: Item, at: string, dueDate: string | null) =>
+  applySetDueDate(item, { ...request, issuedAt: at, itemId: item.id, dueDate });
 
 describe('Capture', () => {
   describe('a thought captured in the app arrives yours to deal with', () => {
@@ -210,6 +214,34 @@ describe('Offline', () => {
       { situation: 'dismissing it', act: (i: Item) => dismissed(i, LATER, true) },
     ])('leaves the item alone rather than undoing the newer change when $situation', ({ act }) => {
       expect(act(anItem({ updatedAt: LATEST }))).toBeNull();
+    });
+  });
+});
+
+describe('Triage', () => {
+  /**
+   * L1: what a row's colour ramps from is a pure decision over the command
+   * and the item ("Colour an action's own deadline as it approaches, and mark
+   * it red once passed", issue 473). That the row itself reads it and draws
+   * it is proved without a real clock in apps/web/tests/unit/dueDate.test.ts.
+   */
+  describe('setting an item’s due date records when it was set, for the row’s own colour to ramp from', () => {
+    it('records the moment a due date is given, alongside the date itself', () => {
+      const item = dueDated(anItem(), LATER, '2026-09-30');
+      expect(item?.dueDate).toBe('2026-09-30');
+      expect(item?.dueDateSetAt).toBe(LATER);
+    });
+
+    it('restarts the ramp when a due date is edited to another one', () => {
+      const pushedOut = dueDated(dueDated(anItem(), LATER, '2026-09-30')!, LATEST, '2026-10-15');
+      expect(pushedOut?.dueDate).toBe('2026-10-15');
+      expect(pushedOut?.dueDateSetAt).toBe(LATEST);
+    });
+
+    it('clears both the date and when it was set, together', () => {
+      const cleared = dueDated(dueDated(anItem(), LATER, '2026-09-30')!, LATEST, null);
+      expect(cleared?.dueDate).toBeNull();
+      expect(cleared?.dueDateSetAt).toBeNull();
     });
   });
 });

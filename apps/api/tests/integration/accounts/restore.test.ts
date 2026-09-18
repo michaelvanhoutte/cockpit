@@ -487,8 +487,9 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0035-panel-filters` adds it; `0034-rewrite-history`, the other of the
-    // two, creates a table and alters none.
+    // `0036-item-due-date-set-at` adds it; `0035-panel-filters`, the other of
+    // the two, alters a different table.
+    items: ['due_date_set_at'],
     panels: ['filter_conditions'],
   };
 

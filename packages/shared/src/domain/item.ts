@@ -94,6 +94,8 @@ export const itemSchema = z.object({
   completedAt: z.iso.datetime().nullable(),
   priority: prioritySchema.nullable(),
   dueDate: z.iso.date().nullable(),
+  /** When `dueDate` was last set, non-null exactly when `dueDate` is - what a row's own colour ramps from ("Colour an action's own deadline as it approaches, and mark it red once passed", issue 473). Null on an item that carried a due date before this shipped; the ramp falls back to `createdAt` for those. */
+  dueDateSetAt: z.iso.datetime().nullable(),
   unseen: z.boolean(),
   /** Tombstone, never a hard delete (architecture.md §4.2). */
   deletedAt: z.iso.datetime().nullable(),

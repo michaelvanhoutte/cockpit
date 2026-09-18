@@ -30,4 +30,4 @@ Types are managed in a window of their own, opened from the header's menu becaus
 
 **An Item is either yours to deal with or finished with**, and nothing in between. Being finished with one is a time, so it says *when*; dismissing one is the tombstone that makes it reversible. What kind of thing an Item is belongs to its **Type**, and a due date is a field.
 
-Focus horizons, deadline colors and the AI layer beyond the note cleanup and Readings above are designed, not built: see "Focus horizons and deadline colors" and "AI layer" in `docs/ideas.md`.
+Focus horizons and the AI layer beyond the note cleanup and Readings above are designed, not built: see "Focus horizons" and "AI layer" in `docs/ideas.md`. Deadline colors have shipped: a row is tinted by how close its due date is, and turns solid red once it has passed.
