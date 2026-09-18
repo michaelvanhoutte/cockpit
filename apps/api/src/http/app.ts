@@ -1642,13 +1642,45 @@ const routes = app
       // message to Cockpit", issue 486) - and it is a hint rather than the
       // authority, so writing it before the row it points at would be pointing
       // at something that may never arrive.
-      await rememberConnection(
-        c.env,
-        { accountName: c.get('visitor').accountName, workspaceId: attempt!.workspaceId },
-        TEAMS,
-        account.key,
-        connectedAt,
-      );
+      //
+      // **Its own failure never reaches the outer `catch`.** By this point
+      // `connect_source_account` above has already committed - a DO
+      // transaction and this D1 write can't share one - so a transient
+      // failure here must not fall into `refuseConnection` below, which
+      // would tell the user nothing was saved when the connection is
+      // already live (found in review, PR 491). Retried once first, since
+      // the write upserts on the same four key columns reconnecting the
+      // same account would anyway; a repair by hand is exactly a reconnect.
+      try {
+        await rememberConnection(
+          c.env,
+          { accountName: c.get('visitor').accountName, workspaceId: attempt!.workspaceId },
+          TEAMS,
+          account.key,
+          connectedAt,
+        );
+      } catch (firstError) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        try {
+          await rememberConnection(
+            c.env,
+            { accountName: c.get('visitor').accountName, workspaceId: attempt!.workspaceId },
+            TEAMS,
+            account.key,
+            connectedAt,
+          );
+        } catch (secondError) {
+          console.error(
+            JSON.stringify({
+              level: 'error',
+              message:
+                'a source account connected, but is not yet reachable for a saved message - reconnecting the same account repairs it',
+              cause: secondError instanceof Error ? secondError.message : String(secondError),
+              firstAttempt: firstError instanceof Error ? firstError.message : String(firstError),
+            }),
+          );
+        }
+      }
       return backToConnections(c, attempt!.workspaceId, 'connected');
     } catch (error) {
       return refuseConnection(

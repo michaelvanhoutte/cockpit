@@ -379,6 +379,33 @@ describe('Connector management', () => {
     });
   });
 
+  describe('a saved-message index write that fails does not undo the connection itself', () => {
+    /**
+     * `connect_source_account` above has already committed by the time
+     * `rememberConnection` runs (found in review, PR 491): a transient
+     * failure writing the register's own index must not report "refused"
+     * for an account that is, in fact, connected - and reconnecting the
+     * same account is exactly the repair, since both writes upsert on the
+     * same four key columns.
+     */
+    it('still reports connected, and the account still shows up, when the register index cannot be written', async () => {
+      await env.DB.prepare(
+        'ALTER TABLE connector_directory RENAME TO connector_directory_out_of_reach',
+      ).run();
+      try {
+        const res = await connect(ADA);
+        expect(res.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=connected`);
+      } finally {
+        await env.DB.prepare(
+          'ALTER TABLE connector_directory_out_of_reach RENAME TO connector_directory',
+        ).run();
+      }
+
+      expect(await storedRows()).toHaveLength(1);
+      expect((await listed()).map((one) => one.displayName)).toEqual(['Ada Lovelace']);
+    });
+  });
+
   describe('disconnecting removes the source account and the credential it held', () => {
     async function disconnect(
       sourceAccountId: string,
