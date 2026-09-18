@@ -1185,6 +1185,27 @@ describe('Item editing', () => {
       expect(descriptionBox()).toHaveValue('Tolerances');
     });
 
+    // Phone is its own, separate discussion, by the issue's own text - but
+    // "out of scope" has to mean "falls back to centered" rather than
+    // "renders the docked layout anyway" (found in review: a fixed-width
+    // panel with no scrim, on a screen too narrow to spare the room).
+    it('renders centered on a screen too narrow to dock, though the account is still docked', async () => {
+      const original = window.innerWidth;
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 });
+      try {
+        held.itemFormPresentation = 'docked';
+        await theForm();
+
+        expect(screen.getByRole('dialog')).toHaveClass('left-1/2');
+        // The control still names the account's real choice, not what a
+        // narrow screen happens to be falling back to - pressing it has to
+        // go on undocking the account rather than "docking" what already is.
+        expect(centerButton()).toBeVisible();
+      } finally {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: original });
+      }
+    });
+
     it('docking sends the choice account-wide, and switches this open form at once', async () => {
       const user = await theForm();
 

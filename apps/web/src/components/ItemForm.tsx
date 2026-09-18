@@ -217,6 +217,12 @@ const RESIZE_CORNER = 16;
  *  the axis that did move. */
 const DEFAULT_SIZE: Size = { width: 768, height: 704 };
 
+/** The narrowest a screen still counts as "a desk", the same breakpoint the
+ *  centered dialog's own native resize handle is already gated on, below -
+ *  no room to grow into and, for docking, no room to be worth pinning a
+ *  panel to the side of at all. */
+const DESKTOP_MIN_WIDTH = 640;
+
 function TheForm({
   itemId,
   workspaceId,
@@ -261,7 +267,18 @@ function TheForm({
     }
   }, [data, fixedPresentation]);
   const presentation = fixedPresentation ?? data?.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION;
-  const docked = presentation === 'docked';
+  const chosenDocked = presentation === 'docked';
+  const screenWidth = useScreenWidth();
+  /**
+   * What is actually drawn - the account's own choice, brought inside a
+   * screen that has room for it. Docking is out of scope for a phone by the
+   * issue's own text, but "out of scope" has to mean "falls back to
+   * centered", not "renders anyway": without this, an account docked from a
+   * desktop opened this form on a phone at the docked width's own floor -
+   * 320px, non-modal, the page behind it still interactive - in place of
+   * today's near-full-screen centered dialog (found in review).
+   */
+  const docked = chosenDocked && screenWidth >= DESKTOP_MIN_WIDTH;
 
   /**
    * Flips the account's own choice, and this open form along with it.
@@ -274,7 +291,12 @@ function TheForm({
    */
   const togglePresentation = async () => {
     const was = presentation;
-    const next: ItemFormPresentation = docked ? 'centered' : 'docked';
+    // `chosenDocked`, not the viewport-gated `docked`: on a narrow screen
+    // where an already-docked account renders centered, the control still
+    // has to flip the account's real choice back to centered rather than
+    // reading its own fallback rendering as "not docked yet" and asking to
+    // dock what is already docked.
+    const next: ItemFormPresentation = chosenDocked ? 'centered' : 'docked';
     setFixedPresentation(next);
     try {
       await send({
@@ -504,7 +526,7 @@ function TheForm({
     // handle interactive at all, which is why the width check matches its
     // own breakpoint.
     const onDown = (e: MouseEvent) => {
-      if (e.button !== 0 || e.target !== contentEl || window.innerWidth < 640) return;
+      if (e.button !== 0 || e.target !== contentEl || window.innerWidth < DESKTOP_MIN_WIDTH) return;
       const box = contentEl.getBoundingClientRect();
       const inCorner =
         e.clientX >= box.right - RESIZE_CORNER &&
@@ -585,7 +607,6 @@ function TheForm({
   const dockResizingFrom = useRef<
     { startWidth: number; startX: number; latest: number; pointerId: number } | null
   >(null);
-  const screenWidth = useScreenWidth();
   /** Read by the drag's own `pointermove` handler, which is declared once per
    *  drag rather than once per render - the same reason the Inbox column's
    *  own `availableRowWidthRef` is a ref rather than a closed-over value. */
@@ -967,7 +988,7 @@ function TheForm({
               onClick={() => void togglePresentation()}
               className="rounded-md border border-black/10 bg-surface px-2 py-1 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
             >
-              {docked ? 'Center' : 'Dock'}
+              {chosenDocked ? 'Center' : 'Dock'}
             </button>
           </div>
 
