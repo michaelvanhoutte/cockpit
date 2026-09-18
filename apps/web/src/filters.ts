@@ -236,15 +236,97 @@ export function itemsMatchingFilter(
 /** Nothing filed anywhere - handed to `holdsFor` for an Item no filing names, so nothing has to be allocated for it. */
 const EMPTY_PANEL_IDS: ReadonlySet<string> = new Set();
 
+/**
+ * Puts `value` in the Set kept for `key`, starting one where this is the
+ * first - the one allocate-or-add shape `panelIdsFiledOnto` and
+ * `panelAndFilterIdsByItem` both build a `Map<string, Set<string>>` with,
+ * written once rather than duplicated in each (found in review).
+ */
+function addToSetMap<K, V>(map: Map<K, Set<V>>, key: K, value: V): void {
+  const held = map.get(key);
+  if (held) held.add(value);
+  else map.set(key, new Set([value]));
+}
+
 /** Every Item's own filed-onto Panel ids, gathered once for the whole Filter rather than rescanned per condition. */
 function panelIdsFiledOnto(filings: readonly Filing[]): Map<string, Set<string>> {
   const byItem = new Map<string, Set<string>>();
   for (const filing of filings) {
-    const held = byItem.get(filing.itemId);
-    if (held) held.add(filing.panelId);
-    else byItem.set(filing.itemId, new Set([filing.panelId]));
+    addToSetMap(byItem, filing.itemId, filing.panelId);
   }
   return byItem;
+}
+
+/**
+ * Every live Panel an Item is filed on, and every live Filter it matches,
+ * keyed by Item id - the ids only, in no particular order ("Say which other
+ * panels an item is also in, after its title", issue 466).
+ *
+ * **The inverse of `itemsMatchingFilter`**, and built once for the whole
+ * Workspace rather than asking `itemsMatchingFilter` once per Filter per
+ * row: a dashboard's own list of rows already pays for `itemsMatchingFilter`
+ * once per Filter it draws (`PanelBoard.tsx`), and this is that same one
+ * pass, reused, plus the filed-onto pass `itemsMatchingFilter` already runs
+ * for its own Panel condition (`panelIdsFiledOnto`).
+ *
+ * An Item filed nowhere and matching nothing - every Inbox row - is simply
+ * absent from the map rather than holding an empty Set, which is what lets a
+ * caller read `?? EMPTY_IDS` instead of allocating one for every row that has
+ * nothing to say.
+ */
+export function panelAndFilterIdsByItem(
+  items: readonly Item[],
+  filings: readonly Filing[],
+  panelsInWorkspace: readonly Panel[],
+  itemTypes: readonly ItemType[],
+  on: Day,
+): Map<string, Set<string>> {
+  const byItem = new Map<string, Set<string>>();
+  for (const [itemId, panelIds] of panelIdsFiledOnto(filingsThatFile(filings, panelsInWorkspace))) {
+    for (const panelId of panelIds) addToSetMap(byItem, itemId, panelId);
+  }
+  for (const filter of panelsInWorkspace.filter(panelGathers)) {
+    const matches = itemsMatchingFilter(
+      items,
+      filings,
+      panelsInWorkspace,
+      itemTypes,
+      filter.filter ?? NO_CONDITIONS,
+      on,
+    );
+    for (const item of matches) addToSetMap(byItem, item.id, filter.id);
+  }
+  return byItem;
+}
+
+/** Nothing filed or matched - handed back for an Item `panelAndFilterIdsByItem` holds nothing for. */
+const EMPTY_IDS: ReadonlySet<string> = new Set();
+
+/**
+ * "Also in" - every other live Panel or Filter one Item shows on, named and
+ * in Panel order ("Say which other panels an item is also in, after its
+ * title", issue 466).
+ *
+ * **Never the Panel or Filter the row itself is drawn on** - `drawnPanelId`
+ * is what a row on the Inbox has none of, which is also the one place
+ * `byItem` never holds anything for an Item to begin with.
+ *
+ * **In `panelsInWorkspace`'s own order, not filed-then-matched**: that is the
+ * one list a filed Panel and a matched Filter both live in, so reading names
+ * off it is what keeps two rows of the same Item agreeing on which name
+ * comes first, rather than each ordering by how it happened to find them.
+ */
+export function alsoShownOn(
+  itemId: string,
+  byItem: ReadonlyMap<string, ReadonlySet<string>>,
+  panelsInWorkspace: readonly Panel[],
+  drawnPanelId: string | null,
+): string[] {
+  const ids = byItem.get(itemId) ?? EMPTY_IDS;
+  if (ids.size === 0) return [];
+  return panelsInWorkspace
+    .filter((panel) => panel.id !== drawnPanelId && ids.has(panel.id))
+    .map((panel) => panel.name);
 }
 
 const WINDOW_READS: Record<DueWindow, string> = {

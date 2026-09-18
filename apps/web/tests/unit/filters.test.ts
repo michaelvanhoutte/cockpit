@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { DueCondition, Filing, FilterCondition, Item, ItemType, Panel, Priority } from '@cockpit/shared';
 import { filingsThatFile, itemsInTheInbox } from '../../src/filing';
 import {
+  alsoShownOn,
   dayOf,
   filtersUsingPanel,
   inFilterOrder,
   itemsMatchingFilter,
+  panelAndFilterIdsByItem,
   saysWhatItShows,
 } from '../../src/filters';
 
@@ -612,6 +614,93 @@ describe('Panels', () => {
       const gathers = aFilterOnPanels('due', 'wiki', 'journal');
       expect(filtersUsingPanel('wiki', [FALCON, journal, gathers])).toEqual([
         { filter: gathers, leftEmpty: true },
+      ]);
+    });
+  });
+
+  describe('a row names every other live Panel its Item shows on, never the one it is drawn on', () => {
+    /** What a row for this item, drawn on `drawnPanelId`, would say after its title. */
+    function alsoInFor(
+      itemId: string,
+      items: readonly Item[],
+      filings: readonly Filing[],
+      panelsInWorkspace: readonly Panel[],
+      drawnPanelId: string | null,
+      itemTypes: readonly ItemType[] = [],
+    ): string[] {
+      return alsoShownOn(
+        itemId,
+        panelAndFilterIdsByItem(items, filings, panelsInWorkspace, itemTypes, TODAY),
+        panelsInWorkspace,
+        drawnPanelId,
+      );
+    }
+
+    it('names the other Panel, for an item filed on two', () => {
+      const today = aPanel('today');
+      const q3 = aPanel('q3-goals');
+      const item = anItem('a');
+
+      expect(
+        alsoInFor('a', [item], [filed('today', 'a'), filed('q3-goals', 'a')], [today, q3], 'today'),
+      ).toEqual(['q3-goals']);
+    });
+
+    it('names a Filter the item matches, alongside a Panel it is filed on', () => {
+      const today = aPanel('today');
+      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')] } };
+      const item = anItem('a', { dueDate: TODAY });
+
+      expect(
+        alsoInFor('a', [item], [filed('today', 'a')], [today, dueSoon], 'today'),
+      ).toEqual(['due-soon']);
+    });
+
+    it('drawn on a Filter itself, names the Panels filed on and every other Filter matched, never itself', () => {
+      const today = aPanel('today');
+      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')] } };
+      const highPriority = {
+        ...aPanel('high-priority', 'filter'),
+        filter: { conditions: [{ field: 'priority' as const, values: ['high'] as Priority[] }] },
+      };
+      const item = anItem('a', { dueDate: TODAY, priority: 'high' });
+      const panels = [today, dueSoon, highPriority];
+
+      expect(alsoInFor('a', [item], [filed('today', 'a')], panels, 'due-soon')).toEqual([
+        'today',
+        'high-priority',
+      ]);
+    });
+
+    it('never names a Panel since deleted from the Workspace', () => {
+      const today = aPanel('today');
+      const item = anItem('a');
+      // Filed onto "today" and onto "gone", which the Workspace no longer
+      // carries at all - not even to say it was deleted.
+      const filings = [filed('today', 'a'), filed('gone', 'a')];
+
+      expect(alsoInFor('a', [item], filings, [today], null)).toEqual(['today']);
+    });
+
+    it('has nothing to say for an item filed on the one Panel it is drawn on, matching no Filter', () => {
+      const today = aPanel('today');
+      const item = anItem('a');
+
+      expect(alsoInFor('a', [item], [filed('today', 'a')], [today], 'today')).toEqual([]);
+    });
+
+    it('names them in Panel order, not in the order it found them', () => {
+      // The Filter is found after the filed Panel (`panelAndFilterIdsByItem`
+      // walks filings before Filters), and still reads before it here,
+      // because both are read back in `panelsInWorkspace`'s own order.
+      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')] } };
+      const today = aPanel('today');
+      const item = anItem('a', { dueDate: TODAY });
+      const panels = [dueSoon, today];
+
+      expect(alsoInFor('a', [item], [filed('today', 'a')], panels, null)).toEqual([
+        'due-soon',
+        'today',
       ]);
     });
   });
