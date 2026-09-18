@@ -46,6 +46,6 @@
       ]
     }
   ],
-  "permissions": ["identity", "messageTeamMembers"],
+  "permissions": ["identity"],
   "validDomains": ["REPLACE_WITH_APP_ORIGIN"]
 }

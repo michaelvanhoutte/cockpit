@@ -8,6 +8,7 @@ import {
   applySetDone,
   applySetDueDate,
   applySetTitle,
+  asStored,
   captureItem,
   decideWorkspace,
 } from '../../../src/domain/items.js';
@@ -71,6 +72,44 @@ describe('Capture', () => {
       expect(item.title).toBe('Make appointment with Novy');
       expect(item.description).toBeNull();
       expect(item.capturedMessage).toBe('Make appointment with Novy');
+    });
+  });
+});
+
+describe('Capture', () => {
+  /**
+   * L1: which of the store's two source columns an Item is written to is a
+   * decision over the Item alone ("Save a Teams message to Cockpit", issue
+   * 486). That the read puts the two back together is a query, and is proved
+   * against a real store in apps/api/tests/integration/http/teams-ingress.test.ts.
+   */
+  describe('an item is written where the store can hold it, whatever it came in through', () => {
+    it.each([
+      { source: 'internal' as const, column: 'internal', connector: null },
+      { source: 'mail' as const, column: 'mail', connector: null },
+      { source: 'whatsapp' as const, column: 'whatsapp', connector: null },
+      // The one the column's own CHECK was not created with, which is the
+      // whole reason there are two columns.
+      { source: 'teams' as const, column: 'internal', connector: 'teams' },
+    ])('writes $source as $column, naming $connector beside it', ({ source, column, connector }) => {
+      const stored = asStored(anItem({ source }));
+
+      expect([stored.source, stored.sourceConnector]).toEqual([column, connector]);
+    });
+
+    /**
+     * The three whole-row writes in `runCommand` go through this, so an edit
+     * to a saved Teams message must leave it a saved Teams message: without
+     * the split it would clear `source_connector` and the Item would quietly
+     * become an ordinary capture that happens to carry a link.
+     */
+    it('keeps a message saved from Teams named as one when it is edited', () => {
+      const saved = anItem({ source: 'teams' });
+
+      const edited = asStored(titled(saved, LATER, 'Review the Q3 plan'));
+
+      expect(edited.title).toBe('Review the Q3 plan');
+      expect([edited.source, edited.sourceConnector]).toEqual(['internal', 'teams']);
     });
   });
 });

@@ -34,6 +34,10 @@ host does the rest ("Save a Teams message to Cockpit", issue 486).
 - **The reply is a `composeExtension` result, not an empty 200.** `type:
   "message"` says something to whoever clicked without putting a card into the
   conversation everybody else is reading.
+- **The manifest asks for `identity` and nothing else.** A tenant admin weighs
+  what the uploaded app may do, and saving a message needs only the payload the
+  action already carries — `messageTeamMembers`, which an earlier draft asked
+  for, would have let this app message every member of a team.
 
 ## Setting it up (once, by hand)
 

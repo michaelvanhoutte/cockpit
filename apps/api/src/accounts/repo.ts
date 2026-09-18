@@ -2023,12 +2023,6 @@ export function sourceAccountsIn(
 }
 
 /**
- * One connected source account by its id, or `undefined` - what
- * `command-service.ts` checks before disconnecting, so a disconnect naming a
- * row that is no longer there is a 404 rather than a delete that quietly
- * matches nothing.
- */
-/**
  * The connection one Workspace holds to this account at this source, by the
  * key the source names it with - what a push is matched against ("Save a Teams
  * message to Cockpit", issue 486).
@@ -2082,6 +2076,12 @@ export function sealedCredentialOf(
     .get();
 }
 
+/**
+ * One connected source account by its id, or `undefined` - what
+ * `command-service.ts` checks before disconnecting, so a disconnect naming a
+ * row that is no longer there is a 404 rather than a delete that quietly
+ * matches nothing.
+ */
 export function getSourceAccount(
   db: AccountDb,
   tenantId: string,

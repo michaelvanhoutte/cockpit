@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ConnectedAccountHost, PushHost, SourceItem } from '@cockpit/connector-sdk';
 import { createTeamsConnector } from '../../src/index.js';
 import {
@@ -7,6 +7,7 @@ import {
   TENANT,
   channelKeys,
   channelToken,
+  publishedKeySet,
   saveToCockpitCall,
 } from './bot-framework.js';
 
@@ -143,6 +144,50 @@ describe('Capture', () => {
       expect(asked.keysAskedAbout).toEqual([]);
       expect(asked.filed).toEqual([]);
       expect(asked.credentialsOpened).toEqual([]);
+    });
+  });
+
+  /**
+   * The application builds its connector list from the environment on every
+   * request (`apps/api/src/connectors/registry.ts`), so "once per isolate" is
+   * a claim about where the key set is held rather than about this function -
+   * and the cost of getting it wrong is two round trips to Microsoft before
+   * any call can be judged, forged ones included.
+   */
+  describe('the channel’s published keys are read once, not once per call', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('reads the metadata once however many connectors are built from it', async () => {
+      const asked: string[] = [];
+      // A different address per run, the key set being held per address: a
+      // shared one would make this pass on whatever an earlier case fetched.
+      const metadataUrl = `https://login.botframework.test/${crypto.randomUUID()}/openidconfiguration`;
+      const keysUrl = `${metadataUrl}/keys`;
+      const published = await publishedKeySet();
+      vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        asked.push(url);
+        if (url === metadataUrl) return Response.json({ jwks_uri: keysUrl });
+        if (url === keysUrl) return Response.json(published);
+        throw new Error(`nothing here may reach ${url}`);
+      });
+      const host = hostThatHasConnected(CONNECTED).host;
+
+      for (const _ of [1, 2, 3]) {
+        const connector = createTeamsConnector({ appId: BOT_APP_ID, metadataUrl });
+        await connector.handleWebhook!(
+          new Request('https://cockpit.test/ingress/teams/messages', {
+            method: 'POST',
+            headers: { authorization: `Bearer ${await channelToken()}` },
+            body: JSON.stringify(saveToCockpitCall()),
+          }),
+          host,
+        );
+      }
+
+      expect(asked.filter((url) => url === metadataUrl)).toHaveLength(1);
     });
   });
 

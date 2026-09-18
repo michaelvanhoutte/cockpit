@@ -143,10 +143,23 @@ async function bodyOf(request: Request): Promise<unknown> {
  * its own - so a key Microsoft rotates to is picked up without a deploy, and
  * a call whose key is not in the set is refused rather than fetched for on
  * every request.
+ *
+ * **Held per address rather than per connector**, which is what makes "once per
+ * isolate" true: the application builds its connector list from the environment
+ * on every request (`apps/api/src/connectors/registry.ts`), so a cache living in
+ * `createTeamsConnector`'s own closure would be a new cache each time - two
+ * round trips to Microsoft before any call could be judged, forged calls
+ * included, which is an unauthenticated way to make this Cockpit hammer
+ * somebody else's endpoint.
  */
+const keysByMetadataUrl = new Map<string, JWTVerifyGetKey>();
+
 function botFrameworkKeys(metadataUrl: string): JWTVerifyGetKey {
+  const held = keysByMetadataUrl.get(metadataUrl);
+  if (held) return held;
+
   let keys: Promise<JWTVerifyGetKey> | null = null;
-  return async (header, input) => {
+  const getKey: JWTVerifyGetKey = async (header, input) => {
     keys ??= (async () => {
       const answer = await fetch(metadataUrl);
       if (!answer.ok) throw new Error(`the Bot Framework's keys could not be read: ${answer.status}`);
@@ -163,6 +176,8 @@ function botFrameworkKeys(metadataUrl: string): JWTVerifyGetKey {
     });
     return (await keys)(header, input);
   };
+  keysByMetadataUrl.set(metadataUrl, getKey);
+  return getKey;
 }
 
 export { SAVE_COMMAND_ID, OPEN_ID_METADATA_URL, BOT_FRAMEWORK_ISSUER } from './activity.js';

@@ -11,7 +11,13 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.d.ts', '**/index.ts'],
+      // **`index.ts` is not excluded here, unlike every other package**: there
+      // it is a barrel worth no coverage, and here it is the connector itself -
+      // the handler, the refusal each answer maps to, and the key fetch. The
+      // Test Explorer names it as a source of the Capture concept
+      // (tools/test-explorer/concepts.json), so leaving it out would report
+      // that concept's coverage with its entry point silently missing.
+      exclude: ['src/**/*.d.ts'],
       reporter: ['json'],
     },
   },

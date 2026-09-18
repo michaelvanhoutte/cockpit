@@ -1868,10 +1868,7 @@ export function runCommand<N extends CommandName>(
       } else {
         db.transaction((tx) => {
           tx.update(items)
-            // `asStored`, like the capture above: an Item whose source the
-            // `source` column cannot hold is two columns, and a whole-row
-            // write that named only one of them would put `teams` where the
-            // CHECK refuses it (domain/items.ts).
+            // Both source columns, as the capture above (`asStored`, domain/items.ts).
             .set(asStored(updated))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
@@ -1912,10 +1909,7 @@ export function runCommand<N extends CommandName>(
         const updated = applyProposedPanel(existing, cmd);
         db.transaction((tx) => {
           tx.update(items)
-            // `asStored`, like the capture above: an Item whose source the
-            // `source` column cannot hold is two columns, and a whole-row
-            // write that named only one of them would put `teams` where the
-            // CHECK refuses it (domain/items.ts).
+            // Both source columns, as the capture above (`asStored`, domain/items.ts).
             .set(asStored(updated))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
@@ -2267,10 +2261,7 @@ export function runCommand<N extends CommandName>(
           (existing.textsSettledAt === null || textCorrectionExistsFor(db, tenantId, correction.itemId));
         db.transaction((tx) => {
           tx.update(items)
-            // `asStored`, like the capture above: an Item whose source the
-            // `source` column cannot hold is two columns, and a whole-row
-            // write that named only one of them would put `teams` where the
-            // CHECK refuses it (domain/items.ts).
+            // Both source columns, as the capture above (`asStored`, domain/items.ts).
             .set(asStored(updated))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();

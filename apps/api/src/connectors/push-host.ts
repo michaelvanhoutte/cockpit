@@ -108,9 +108,17 @@ function connectedHost(
      * front door seeds them (`textsFromCapture`) and cleaned up by the same job
      * afterwards - so a connector's `title` is what it made of the message
      * rather than a write of its own.
+     *
+     * **An item the source cannot name is refused here**, rather than derived
+     * from the empty string: `sourceId` is what both ids are made of, so
+     * without one every such item would be the same item, and the second would
+     * be dropped as a replay of the first.
      */
     async emitItem(item: SourceItem): Promise<void> {
       const sourceId = item.sourceId ?? '';
+      if (!sourceId) {
+        throw new Error(`the ${connectorId} connector emitted an item its source does not name`);
+      }
       const itemId = await derivedUuid(`item:${connectorId}:${sourceId}`);
       const result = await account.applyChange('capture_item', {
         commandId: await derivedUuid(`capture:${connectorId}:${sourceId}`),

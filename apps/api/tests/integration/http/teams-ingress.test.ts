@@ -136,6 +136,36 @@ describe('Capture', () => {
       });
     });
 
+    /**
+     * The one thing L1 cannot ask: a saved message keeps `internal` in the
+     * store's own `source` column and names `teams` beside it, so every
+     * whole-row write has to carry both halves or the Item quietly becomes an
+     * ordinary capture. `asStored` is proved over the Item in
+     * tests/unit/domain/items.test.ts; that the write through a real store
+     * agrees is here.
+     */
+    it('is still a message from Teams after somebody has edited it', async () => {
+      await connectTeams();
+      await saveFromTeams();
+      const [saved] = await itemsIn();
+
+      const edited = await asUser('http://cockpit.test/v1/commands/set_title', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: '0195c0f6-0000-7000-8000-000000000004',
+          issuedAt: new Date().toISOString(),
+          workspaceId: WORKSPACE_ID,
+          itemId: saved!.id,
+          title: 'Review the Q3 plan',
+        }),
+      });
+
+      expect(edited.status).toBe(200);
+      const [after] = await itemsIn();
+      expect([after!.title, after!.source]).toEqual(['Review the Q3 plan', 'teams']);
+    });
+
     it('leaves it out of the workspaces that connected nothing', async () => {
       await connectTeams();
 

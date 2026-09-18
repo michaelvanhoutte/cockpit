@@ -35,8 +35,16 @@ async function impostorPair(): Promise<CryptoKeyPair> {
 
 /** The keys the channel publishes - and the only ones it does. */
 export async function channelKeys(): Promise<JWTVerifyGetKey> {
+  return createLocalJWKSet(await publishedKeySet());
+}
+
+/**
+ * The same keys as the document Microsoft publishes them in, for the one case
+ * that drives the fetch itself rather than being handed the set.
+ */
+export async function publishedKeySet(): Promise<{ keys: Record<string, unknown>[] }> {
   const { publicKey } = await signingPair();
-  return createLocalJWKSet({ keys: [{ ...(await exportJWK(publicKey)), alg: 'RS256', use: 'sig' }] });
+  return { keys: [{ ...(await exportJWK(publicKey)), alg: 'RS256', use: 'sig' }] };
 }
 
 export interface TokenWanted {

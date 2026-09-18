@@ -159,7 +159,12 @@ export async function savedMessageFrom(
       // Scoped by the conversation, message ids being unique only within one.
       sourceId: `${conversation}:${messageId}`,
       sourceLink: deepLink(message, conversation, messageId, tenant),
-      sender: text(message.from?.user?.displayName) || null,
+      // **Cut to what an Item may carry** (`capturedFrom` in the contract),
+      // Entra allowing a display name half as long again as a title. What the
+      // host refuses it cannot file, and a save the host refuses is one Teams
+      // redelivers forever - so the trimming belongs on this side of the SPI,
+      // where the shape emitted is the connector's own business.
+      sender: cutTo(text(message.from?.user?.displayName), TITLE_LENGTH) || null,
       sourceTimestamp: timestamp(message.createdDateTime),
       title: oneLine(said),
       capturedMessage: said,
@@ -195,6 +200,11 @@ function sameAddress(a: string, b: string): boolean {
  * app rather than in a browser tab that then has to redirect. The fallback is
  * the documented shape of that same link, for a payload that arrives without
  * one.
+ *
+ * **It has to parse as well as start with `https://`**, for the reason `sender`
+ * above is cut: an Item's `sourceLink` is a URL the host refuses if it is not
+ * one, and a refusal here would be a save Teams redelivers for ever rather than
+ * a save that arrives without its way back.
  */
 function deepLink(
   message: MessagePayload,
@@ -203,7 +213,7 @@ function deepLink(
   tenant: string,
 ): string | null {
   const given = text(message.linkToMessage);
-  if (given.startsWith('https://')) return given;
+  if (given.startsWith('https://') && URL.canParse(given)) return given;
   return `https://teams.microsoft.com/l/message/${encodeURIComponent(conversation)}/${encodeURIComponent(messageId)}?tenantId=${encodeURIComponent(tenant)}`;
 }
 
@@ -241,8 +251,18 @@ function plainText(body: MessagePayload['body']): string {
  * normalizes what it emits and may not import the application's contract.
  */
 function oneLine(said: string): string {
-  const line = said.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ').trim();
-  return line.length > TITLE_LENGTH ? line.slice(0, TITLE_LENGTH) : line;
+  return cutTo(said.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ').trim(), TITLE_LENGTH);
+}
+
+/**
+ * As much of what was said as the contract's own limit holds, never half of a
+ * character - the rule `cutTo` in packages/shared already keeps, said again
+ * here because a connector may not import the application's contract.
+ */
+function cutTo(said: string, limit: number): string {
+  if (said.length <= limit) return said;
+  const lead = said.charCodeAt(limit - 1);
+  return said.slice(0, lead >= 0xd800 && lead <= 0xdbff ? limit - 1 : limit).trim();
 }
 
 /** When the message was sent, as an instant, or null where Teams said nothing usable. */

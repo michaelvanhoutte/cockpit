@@ -162,6 +162,36 @@ describe('Capture', () => {
       );
     });
 
+    /**
+     * What the host refuses it cannot file, and a save the host cannot file is
+     * one Teams redelivers forever - so what is emitted is cut and checked
+     * here, where the shapes the contract allows are still this package's own
+     * business (`capturedFrom`, packages/shared).
+     */
+    it('cuts a sender longer than a title to what an item may carry', async () => {
+      const activity = saveToCockpitCall() as {
+        value: { messagePayload: { from: { user: { displayName: string } } } };
+      };
+      activity.value.messagePayload.from.user.displayName = 'Grace '.repeat(60);
+
+      const answer = await read({ activity });
+
+      expect(typeof answer === 'string' ? -1 : (answer.item.sender?.length ?? -1)).toBe(200);
+    });
+
+    it('builds the way back itself for a link that is not one', async () => {
+      const activity = saveToCockpitCall() as {
+        value: { messagePayload: { linkToMessage: unknown } };
+      };
+      activity.value.messagePayload.linkToMessage = 'https://';
+
+      const answer = await read({ activity });
+
+      expect(typeof answer === 'string' ? answer : answer.item.sourceLink).toBe(
+        `https://teams.microsoft.com/l/message/${encodeURIComponent(CONVERSATION)}/${MESSAGE_ID}?tenantId=${TENANT}`,
+      );
+    });
+
     it('captures what was written rather than the markup it arrived in', async () => {
       const activity = saveToCockpitCall() as { value: { messagePayload: { body: unknown } } };
       activity.value.messagePayload.body = {

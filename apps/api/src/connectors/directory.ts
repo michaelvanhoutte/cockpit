@@ -27,6 +27,11 @@ export interface ConnectionPointer {
   readonly workspaceId: string;
 }
 
+/** A pointer as it was read, carrying what makes it the row that was read. */
+export interface ConnectionAsRead extends ConnectionPointer {
+  readonly connectedAt: string;
+}
+
 /**
  * Records where a connection now lives, or moves the one already there.
  *
@@ -73,16 +78,22 @@ export async function rememberConnection(
  * land. Every row is still answered rather than only the first, because the
  * caller confirms each against its own store and a stale one must not hide a
  * live one behind it.
+ *
+ * **The Workspace's own id breaks a tie**, two connects landing in the same
+ * millisecond being a state that can really arrive: without it the order among
+ * equal timestamps is SQLite's scan order, so which Workspace a save lands in
+ * would be undefined exactly where the rule above is what decides it.
  */
 export async function connectionsFor(
   env: Env,
   connectorId: string,
   externalAccountKey: string,
-): Promise<ConnectionPointer[]> {
+): Promise<ConnectionAsRead[]> {
   const rows = await createDb(env.DB)
     .select({
       accountName: connectorDirectory.accountId,
       workspaceId: connectorDirectory.workspaceId,
+      connectedAt: connectorDirectory.connectedAt,
     })
     .from(connectorDirectory)
     .where(
@@ -91,7 +102,7 @@ export async function connectionsFor(
         eq(connectorDirectory.externalAccountKey, externalAccountKey),
       ),
     )
-    .orderBy(desc(connectorDirectory.connectedAt))
+    .orderBy(desc(connectorDirectory.connectedAt), desc(connectorDirectory.workspaceId))
     .all();
   return rows;
 }
@@ -104,10 +115,16 @@ export async function connectionsFor(
  * disconnect knows the connection's id and not the source's own key for it,
  * and because a row that is wrong has to be harmless whatever failed to tidy
  * it up.
+ *
+ * **Only the row that was read**, which is what `connectedAt` in the condition
+ * is for: connecting again writes the same four key columns with a new
+ * `connected_at`, so a sweep that matched on the key alone would delete the row
+ * a reconnect had just put there while this push was deciding - leaving a live
+ * connection no save can find, and nothing anywhere saying so.
  */
 export async function forgetConnection(
   env: Env,
-  pointer: ConnectionPointer,
+  pointer: ConnectionAsRead,
   connectorId: string,
   externalAccountKey: string,
 ): Promise<void> {
@@ -119,6 +136,7 @@ export async function forgetConnection(
         eq(connectorDirectory.externalAccountKey, externalAccountKey),
         eq(connectorDirectory.accountId, pointer.accountName),
         eq(connectorDirectory.workspaceId, pointer.workspaceId),
+        eq(connectorDirectory.connectedAt, pointer.connectedAt),
       ),
     )
     .run();
