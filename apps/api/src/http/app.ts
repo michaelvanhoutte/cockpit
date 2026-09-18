@@ -1551,7 +1551,8 @@ const routes = app
    *
    * **Nothing is stored until Microsoft has said who this is and the
    * credential has been sealed**, and the storing itself is one command
-   * (issue 485). So the two ends are the only ends there are: a row that is
+   * ("Connect a Microsoft Teams source account", issue 485). So the two ends
+   * are the only ends there are: a row that is
    * there and visible, or nothing at all and a refusal in the window.
    */
   .get('/v1/connections/teams/callback', async (c) => {

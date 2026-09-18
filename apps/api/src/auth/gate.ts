@@ -50,10 +50,10 @@ export function sessionCookieName(url: string): string {
 }
 
 /**
- * The same name, per stack, for every cookie this application sets - which is
- * both of them: the sign-in and the sign-in being attempted. Written once,
- * because two copies of this rule is two chances for one cookie to be shared
- * between stacks while the other is not.
+ * The same name, per stack, for every cookie this application sets - the
+ * session, the sign-in being attempted, and the connect attempt too. Written
+ * once, because two copies of this rule is two chances for one cookie to be
+ * shared between stacks while another is not.
  */
 function perStack(name: string, url: string): string {
   const { port } = new URL(url);

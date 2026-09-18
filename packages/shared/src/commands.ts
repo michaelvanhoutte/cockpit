@@ -599,9 +599,10 @@ export type ConnectSourceAccountCommand = z.infer<typeof connectSourceAccountSch
 
 /**
  * disconnect_source_account - the row and the credential sealed in it, gone
- * for good (issue 485). No tombstone, for the reason `delete_pinned_example`
- * has none and one of its own: what makes disconnecting mean anything is that
- * the credential stops existing.
+ * for good ("Connect a Microsoft Teams source account", issue 485). No
+ * tombstone, for the reason `delete_pinned_example` has none and one of its
+ * own: what makes disconnecting mean anything is that the credential stops
+ * existing.
  */
 export const disconnectSourceAccountSchema = commandEnvelopeSchema.extend({
   sourceAccountId: z.string().min(1),

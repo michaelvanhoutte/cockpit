@@ -2081,7 +2081,8 @@ export function runCommand<N extends CommandName>(
           })
           // **Named at the account, not at the id, and that is the rule
           // rather than a detail**: connecting the same tenant+account again
-          // refreshes the row that is already there (issue 485) - a fresh
+          // refreshes the row that is already there ("Connect a Microsoft
+          // Teams source account", issue 485) - a fresh
           // credential, a name that may have changed, and the same id it has
           // always had, so nothing pointing at it has to move. `connectedAt`
           // is deliberately left alone: when this Workspace first connected
