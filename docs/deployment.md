@@ -439,6 +439,7 @@ wrangler secret put <NAME> --env staging
 | `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/operator/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. **A deployed one has to be long and random** (`openssl rand -base64 32`): it is the whole of the authentication in front of every account's data, so how hard it is to guess is the only thing standing there. Anything will do locally, as long as it is the same string the commands send — see below for where they read it from. |
 | `ANTHROPIC_API_KEY` | what Cockpit reads a captured note with ("Clean up a captured note into a clear title and a fuller message", issue 296). Issued in the Anthropic Console; the application's own credential rather than anybody's, so it has no settings screen. **An environment without one works** — every capture succeeds and the Item keeps the title capture wrote — which is exactly why `/health` reports whether it is set: without that, a deployment nobody put a key in enriches nothing for months with every check green, the failure `CLAUDE_CODE_OAUTH_TOKEN` below already records. |
 | `MS_CLIENT_ID`, `MS_CLIENT_SECRET` | the Entra application a Workspace connects its Teams account through ("Connect a Microsoft Teams source account", issue 485) — see "An Entra application" below for what to register. **The client id is a secret here only for want of a registration**: nothing has been registered yet, so a placeholder in `wrangler.jsonc` would be configuration nobody chose; it moves beside `GOOGLE_CLIENT_ID` the day one exists. An environment with neither refuses Connect and works in every other way. |
+| `MS_BOT_APP_ID` | the Azure Bot resource whose calls this Cockpit believes — the audience of every Bot Framework token a saved Teams message arrives with ("Save a Teams message to Cockpit", issue 486), and see "An Azure Bot" below. An environment without it has no `/ingress/teams/` address at all, which is a 404 rather than a route that refuses everything. |
 | `CONNECTOR_CREDENTIAL_KEY` | what a connected source account's credential is sealed with — 32 random bytes, base64 (`openssl rand -base64 32`), one per environment, invented the way `BACKUP_TOKEN` is. An environment without one stores no credential at all rather than storing one in the clear, which is the point of it. **Losing or rotating it makes every stored credential unreadable**: nobody loses work, and everybody holding a connection disconnects and connects again. |
 | `ANTHROPIC_WORKSPACE_ID` | which Anthropic workspace the key belongs to, sent as the `anthropic-workspace-id` header. **Needed when the key is scoped to the organisation rather than to one workspace**, which answers `400 invalid_request_error` without it — a failure that surfaces as a broken integration rather than as a credential's scope, and cost a round trip to diagnose once. Not a secret, and it is put in the secret store anyway rather than in `wrangler.jsonc`: it is half of a credential and means nothing without the other half, so the two are set by one command and read from one place. Leave it unset for a workspace-scoped key; the header is only sent when there is one. Beware the word collision — Anthropic's *workspace* is a billing grouping and has nothing to do with Cockpit's Workspaces. |
 
@@ -589,6 +590,33 @@ wrangler secret put MS_CLIENT_SECRET --env staging
 ```bash
 wrangler secret put CONNECTOR_CREDENTIAL_KEY     # openssl rand -base64 32
 ```
+
+### An Azure Bot
+
+**Also not registered anywhere yet**, and it is a second registration rather
+than more scopes on the one above: a message extension's *action* command needs
+a real bot behind it, the bot-less form supporting search commands only ("Save a
+Teams message to Cockpit", issue 486;
+`packages/connectors/teams/README.md` for the protocol's own quirks). Per
+environment:
+
+1. **An Azure Bot resource** with a Microsoft App ID, whose **messaging
+   endpoint** is `<APP_ORIGIN>/ingress/teams/messages` and whose **Microsoft
+   Teams channel** is enabled.
+2. **Its App ID into the platform**, which is what makes the address exist:
+
+```bash
+wrangler secret put MS_BOT_APP_ID                # production
+wrangler secret put MS_BOT_APP_ID --env staging
+```
+
+3. **The Teams app itself**, from `packages/connectors/teams/teams-app/`: fill
+   in the App ID, the origin and the two icons, zip it, and upload it in Teams.
+   The tenant's custom-app-upload policy has to allow that — an admin toggle,
+   not a licence.
+
+Saving a message needs no Graph scope and no consent prompt: what is saved
+arrives in the call itself.
 
 **Once these are set, the shared guest account can connect a Teams account
 too** — every concurrent guest sees it and can disconnect it, the same as

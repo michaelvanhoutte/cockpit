@@ -97,6 +97,8 @@ import {
   signInWithGoogle,
 } from '../auth/register.js';
 import { getConnector } from '../connectors/registry.js';
+import { pushHostFor } from '../connectors/push-host.js';
+import { rememberConnection } from '../connectors/directory.js';
 import type { Env } from '../env.js';
 
 type AppEnv = GatedEnv;
@@ -1248,7 +1250,11 @@ const routes = app
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c, 'delete_workspace', c.req.valid('json')), 200))
   .openapi(commandRoute('capture_item'), async (c) => {
-    const captured = c.req.valid('json');
+    // **Where a capture says it came from is dropped from anything a client
+    // posts** ("Save a Teams message to Cockpit", issue 486): only an ingress
+    // route may say that, having proved the push genuine first, so a browser
+    // cannot write somebody else's name and link onto an Item.
+    const { capturedFrom: _saidByTheClient, ...captured } = c.req.valid('json');
     const result = await change(c, 'capture_item', captured);
     // **After the Item is written, and only where it was actually written.** A
     // replayed capture answers `applied: false` and enqueues nothing, so a
@@ -1620,9 +1626,10 @@ const routes = app
       // request and never in a command payload a log would keep (`forTheLog`,
       // accounts/command-service.ts).
       const sealed = await seal(exchanged.asIssued, needed.key);
+      const connectedAt = new Date().toISOString();
       await change(c, 'connect_source_account', {
         commandId: uuidv7(),
-        issuedAt: new Date().toISOString(),
+        issuedAt: connectedAt,
         workspaceId: attempt!.workspaceId,
         sourceAccountId: uuidv7(),
         connectorId: TEAMS,
@@ -1630,6 +1637,50 @@ const routes = app
         displayName: account.displayName,
         ...sealed,
       });
+      // **After the connection is stored, and only then.** The register's index
+      // is what lets a saved message find this Workspace later ("Save a Teams
+      // message to Cockpit", issue 486) - and it is a hint rather than the
+      // authority, so writing it before the row it points at would be pointing
+      // at something that may never arrive.
+      //
+      // **Its own failure never reaches the outer `catch`.** By this point
+      // `connect_source_account` above has already committed - a DO
+      // transaction and this D1 write can't share one - so a transient
+      // failure here must not fall into `refuseConnection` below, which
+      // would tell the user nothing was saved when the connection is
+      // already live (found in review, PR 491). Retried once first, since
+      // the write upserts on the same four key columns reconnecting the
+      // same account would anyway; a repair by hand is exactly a reconnect.
+      try {
+        await rememberConnection(
+          c.env,
+          { accountName: c.get('visitor').accountName, workspaceId: attempt!.workspaceId },
+          TEAMS,
+          account.key,
+          connectedAt,
+        );
+      } catch (firstError) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        try {
+          await rememberConnection(
+            c.env,
+            { accountName: c.get('visitor').accountName, workspaceId: attempt!.workspaceId },
+            TEAMS,
+            account.key,
+            connectedAt,
+          );
+        } catch (secondError) {
+          console.error(
+            JSON.stringify({
+              level: 'error',
+              message:
+                'a source account connected, but is not yet reachable for a saved message - reconnecting the same account repairs it',
+              cause: secondError instanceof Error ? secondError.message : String(secondError),
+              firstAttempt: firstError instanceof Error ? firstError.message : String(firstError),
+            }),
+          );
+        }
+      }
       return backToConnections(c, attempt!.workspaceId, 'connected');
     } catch (error) {
       return refuseConnection(
@@ -1829,14 +1880,31 @@ const routes = app
     ),
   )
   // --- generic webhook ingress: no source-specific routes here ---------------
+  /**
+   * Where a source pushes ("Save a Teams message to Cockpit", issue 486).
+   *
+   * **Outside the sign-in gate, and that is what makes the connector's own
+   * verification the only door.** Nobody is signed in: a saved message arrives
+   * from Microsoft rather than from a browser, so what stands here instead is
+   * the connector proving the call genuine and the host matching what it names
+   * to a stored connection (`connectors/push-host.ts`).
+   *
+   * The request goes through verbatim, headers and body alike - a signature is
+   * over what was sent, so anything read or rewritten on the way would be a
+   * second copy to keep in step.
+   */
   .post('/ingress/:connectorId/*', async (c) => {
-    const connector = getConnector(c.req.param('connectorId'));
+    const connector = getConnector(c.env, c.req.param('connectorId'));
     if (!connector?.handleWebhook) {
       return c.json({ error: 'unknown connector' }, 404);
     }
-    // Host-side wiring (state store, credentials, emit) lands with the first
-    // real connector; until then ingress only proves the routing shape.
-    return c.json({ error: 'connector ingress not yet wired' }, 501);
+    return connector.handleWebhook(
+      c.req.raw,
+      pushHostFor(connector.manifest.id, {
+        env: c.env,
+        waitUntil: (work) => c.executionCtx.waitUntil(work),
+      }),
+    );
   })
   // --- the operator's backup routes ------------------------------------------
   // Behind the secret in `auth/operator.ts` and outside the sign-in gate, because

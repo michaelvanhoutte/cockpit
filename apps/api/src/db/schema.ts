@@ -1,19 +1,21 @@
-import { check, index, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { check, index, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import type { Role } from '@cockpit/shared';
 
 /**
- * The register, in D1: which accounts exist, who the users are and which of
- * them are currently signed in - and nothing else. An account's own data - its
- * workspaces, dashboards, items, associations and change log - lives in that
- * account's store (src/accounts/schema.ts), never here.
+ * The register, in D1: which accounts exist, who the users are, which of them
+ * are currently signed in, and which account a source's own name for somebody
+ * points at - and nothing else. An account's own data - its workspaces,
+ * dashboards, items, associations and change log - lives in that account's
+ * store (src/accounts/schema.ts), never here.
  *
- * The three tables here are the register precisely because they are all
- * questions asked *before* any account is known: which people can sign in,
- * whether this cookie belongs to one of them, and which account that person
- * owns. There is nowhere else to ask them, and the split is then enforced by
- * the platform rather than by discipline - a Worker cannot join D1 to a Durable
- * Object at all.
+ * Every table here is the register precisely because it answers a question
+ * asked *before* any account is known: which people can sign in, whether this
+ * cookie belongs to one of them, which account that person owns, and whose a
+ * pushed message is ("Save a Teams message to Cockpit", issue 486). There is
+ * nowhere else to ask them, and the split is then enforced by the platform
+ * rather than by discipline - a Worker cannot join D1 to a Durable Object at
+ * all.
  *
  * The split is the account storage decision
  * ([account-storage-options.md](../../../../docs/account-storage-options.md)):
@@ -197,6 +199,62 @@ export const users = sqliteTable(
     // deploy, which `ALTER TABLE ADD COLUMN` cannot survive.
     uniqueIndex('users_email').on(table.email),
     uniqueIndex('users_google_subject').on(table.googleSubject),
+  ],
+);
+
+/**
+ * Which account and Workspace a source's own name for somebody points at
+ * ("Save a Teams message to Cockpit", issue 486).
+ *
+ * **In the register because it is the question asked before any account is
+ * known**, which is exactly what the tables above have in common: one
+ * inbound address receives a saved message for every connected account at
+ * once, and a Worker cannot join a Durable Object to anything. Without this,
+ * matching a push would mean waking every account's store in turn.
+ *
+ * **A hint, never the authority.** The connection itself lives in the
+ * account's own store, and a row here is confirmed against it before anything
+ * is written - so a row left behind by a disconnect resolves to nothing rather
+ * than to somebody's Workspace (`connectors/directory.ts`).
+ *
+ * It holds no credential, no display name and nothing a person wrote: the
+ * source's own key, and where to go and ask.
+ *
+ * **A register backup does not carry it**, the same as a sign-in: what a
+ * backup holds is which accounts and people exist (`registerContents`,
+ * accounts/register.ts). So a restored environment lists its connections and
+ * files nothing pushed to them until each is connected again - one press,
+ * and the only way to lose nothing would be to rebuild this from every
+ * account's store as it is restored.
+ */
+export const connectorDirectory = sqliteTable(
+  'connector_directory',
+  {
+    /** Which source - `teams` today (`@cockpit/shared`). */
+    connectorId: text('connector_id').notNull(),
+    /** Which account at that source, in the source's own terms (tenant and object id for Microsoft). */
+    externalAccountKey: text('external_account_key').notNull(),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => tenants.id),
+    workspaceId: text('workspace_id').notNull(),
+    connectedAt: text('connected_at').notNull(),
+  },
+  (table) => [
+    // One row per connection, matching the store's own uniqueness exactly
+    // (`connector_accounts_one_per_account`), so connecting the same account
+    // again refreshes this row the way it refreshes that one.
+    primaryKey({
+      columns: [table.connectorId, table.externalAccountKey, table.accountId, table.workspaceId],
+    }),
+    // What a push reads: every Workspace that has connected this account at
+    // this source, most recently connected first.
+    index('connector_directory_account_at_source').on(
+      table.connectorId,
+      table.externalAccountKey,
+      table.connectedAt,
+    ),
+    check('connector_directory_connected_at_is_timestamp', isTimestamp('connected_at')),
   ],
 );
 

@@ -26,6 +26,7 @@ beforeEach(async () => {
   // parents, because the foreign keys between the three are real.
   await env.DB.prepare('DELETE FROM sessions').run();
   await env.DB.prepare('DELETE FROM users').run();
+  await env.DB.prepare('DELETE FROM connector_directory').run();
   await env.DB.prepare('DELETE FROM tenants').run();
 });
 

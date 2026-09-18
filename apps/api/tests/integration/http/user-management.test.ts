@@ -718,6 +718,30 @@ describe('User management', () => {
         expect(results, table).toHaveLength(0);
       }
     });
+
+    /**
+     * The same wall one table further along: where a saved message from a
+     * source would land is held in the register too, under a foreign key on
+     * the account ("Save a Teams message to Cockpit", issue 486), so an
+     * account that had ever connected anything could not be removed at all.
+     * Written straight into D1 because connecting is a walk through an issuer,
+     * and what this asks about is the row rather than the walk.
+     */
+    it('deletes somebody whose workspaces had connected a source account', async () => {
+      await env.DB.prepare(
+        `INSERT INTO connector_directory (connector_id, external_account_key, account_id, workspace_id, connected_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+        .bind('teams', 'a-tenant:a-person', OTHER_ACCOUNT_NAME, 'ws-1', '2026-09-11T00:00:00.000Z')
+        .run();
+
+      expect((await remove(OTHER_USER_ID)).status).toBe(200);
+
+      expect((await listedBy(USER_ID)).map((user) => user.id)).toEqual([USER_ID]);
+      expect(
+        (await env.DB.prepare('SELECT account_id FROM connector_directory').all()).results,
+      ).toEqual([]);
+    });
   });
 
   describe('a name given back carries nothing of the person who had it', () => {

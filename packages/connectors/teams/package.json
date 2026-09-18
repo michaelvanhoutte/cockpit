@@ -1,0 +1,30 @@
+{
+  "name": "@cockpit/connector-teams",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Microsoft Teams connector: a Save to Cockpit message action, verified as a genuine Bot Framework call before anything in it is believed.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:fast": "pnpm test:unit",
+    "test:all": "pnpm test:unit",
+    "test:contract": "vitest run --config vitest.contract.config.ts",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@cockpit/connector-sdk": "workspace:*",
+    "jose": "^6.2.12"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260812.1",
+    "@cockpit/config": "workspace:*",
+    "@vitest/coverage-v8": "4.1.10",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.10"
+  }
+}

@@ -232,6 +232,25 @@ export interface Account {
    * account", issue 485).
    */
   sourceAccounts(workspaceId: string): Promise<SourceAccount[]>;
+  /**
+   * The connection one Workspace holds to an account at a source, by the key
+   * that source names it with, or null ("Save a Teams message to Cockpit",
+   * issue 486). What an inbound push is matched against, before anything
+   * sealed is read.
+   */
+  connectionUnder(
+    workspaceId: string,
+    connectorId: string,
+    externalAccountKey: string,
+  ): Promise<{ id: string } | null>;
+  /**
+   * The sealed credential of one connection, opened by the Worker that holds
+   * the key (issue 486) - read only for a push already matched to that one
+   * connection.
+   */
+  sealedCredential(
+    sourceAccountId: string,
+  ): Promise<{ sealedCredential: string; credentialNonce: string } | null>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
   applyChange<N extends CommandName>(
     name: N,
@@ -294,6 +313,10 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.rememberWhatTheseItemsMean(accountName, model, readings)),
     sourceAccounts: async (workspaceId) =>
       unwrap(await store.sourceAccounts(accountName, workspaceId)),
+    connectionUnder: async (workspaceId, connectorId, externalAccountKey) =>
+      unwrap(await store.connectionUnder(accountName, workspaceId, connectorId, externalAccountKey)),
+    sealedCredential: async (sourceAccountId) =>
+      unwrap(await store.sealedCredential(accountName, sourceAccountId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
   };

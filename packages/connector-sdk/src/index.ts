@@ -56,26 +56,70 @@ export interface SourceStateChange {
 }
 
 /**
- * Everything the host offers a connector. A connector may use nothing else:
- * no direct database access, no application imports, no global fetch of
- * host endpoints.
+ * What the host offers once it knows *whose* connection this is - the slice a
+ * push gets, and the slice a sync gets on top of its own.
+ *
+ * Nothing here is reachable before that: a connection is what an account's
+ * credential is sealed under, so handing any of it out unattributed would be
+ * opening one account's secret on another account's say-so.
  */
-export interface ConnectorHost {
-  /** Opaque private state per connector+account: cursors, sync bookkeeping. */
-  getState(): Promise<unknown>;
-  setState(state: unknown): Promise<void>;
-
-  /** Decrypted credentials for the connected account. */
+export interface ConnectedAccountHost {
+  /**
+   * Decrypted credentials for this one connected account, opened on the first
+   * call and never before ("Save a Teams message to Cockpit", issue 486).
+   */
   getCredentials(): Promise<Record<string, string>>;
 
   /** Normalized output lands here; the host owns persistence and dedup. */
   emitItem(item: SourceItem): Promise<void>;
-  emitSourceStateChange(change: SourceStateChange): Promise<void>;
 
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void;
+}
+
+/**
+ * Everything the host offers a connector pulling from a source. A connector may
+ * use nothing else: no direct database access, no application imports, no
+ * global fetch of host endpoints.
+ */
+export interface ConnectorHost extends ConnectedAccountHost {
+  /** Opaque private state per connector+account: cursors, sync bookkeeping. */
+  getState(): Promise<unknown>;
+  setState(state: unknown): Promise<void>;
+
+  emitSourceStateChange(change: SourceStateChange): Promise<void>;
 
   /** Rate-limit/backoff helper so connectors don't roll their own. */
   sleep(ms: number): Promise<void>;
+}
+
+/**
+ * What the host offers a connector handling a push, *before* it knows whose
+ * push it is ("Save a Teams message to Cockpit", issue 486).
+ *
+ * **One inbound address serves every connected account of a source**, and
+ * nothing in the delivery is the host's to read: the connector is what proves
+ * the call genuine and what says, in the source's own terms, which account it
+ * names. So the step between the two halves is here rather than in any one
+ * connector - a push-based connector after this one resolves its account the
+ * same way rather than inventing the step again.
+ *
+ * Generic by the SDK's own test: a shared address that has to be attributed
+ * before it can be acted on is a property of being pushed to, not of Teams.
+ */
+export interface PushHost {
+  /**
+   * The connection this account at the source belongs to, or `null` where no
+   * Workspace has connected it.
+   *
+   * `externalAccountKey` is the same key the connection was stored under when
+   * somebody connected the account, in the source's own terms - a plain
+   * identifier, compared against plain identifiers. **Nothing account-scoped
+   * exists until this has answered**, which is what keeps a push that matches
+   * nothing from ever reaching a stored credential.
+   */
+  forAccount(externalAccountKey: string): Promise<ConnectedAccountHost | null>;
+
+  log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void;
 }
 
 export interface Connector {
@@ -86,7 +130,12 @@ export interface Connector {
 
   /**
    * Optional push ingress. The host routes POST /ingress/:connectorId/* here
-   * verbatim; signature verification is the connector's job.
+   * verbatim; proving the call genuine is the connector's job, and so is the
+   * Response, every source expecting its own acknowledgement.
+   *
+   * The host it is handed knows no account yet: `host.forAccount` is how the
+   * connector turns the identity it read out of a verified call into the one
+   * connection this push belongs to.
    */
-  handleWebhook?(request: Request, host: ConnectorHost): Promise<Response>;
+  handleWebhook?(request: Request, host: PushHost): Promise<Response>;
 }

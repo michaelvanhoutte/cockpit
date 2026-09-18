@@ -64,6 +64,7 @@ import {
   runCommand,
 } from './command-service.js';
 import {
+  connectionUnder,
   decisionHistoryForWorkspace,
   everyMeaning,
   forgetMeaning,
@@ -97,6 +98,7 @@ import {
   replaceDuplicatesOf,
   rewriteHistoryForItem,
   rewriteHistoryForWorkspace,
+  sealedCredentialOf,
   sourceAccountsIn,
   textCorrectionsForAccount,
   unfiledItemsInWorkspace,
@@ -549,6 +551,44 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       if (!getWorkspace(db, accountName, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
       return sourceAccountsIn(db, accountName, workspaceId);
     });
+  }
+
+  /**
+   * The connection one Workspace holds to an account at a source, by the key
+   * that source names it with - what an inbound push is matched against ("Save
+   * a Teams message to Cockpit", issue 486). Null where this Workspace holds
+   * no such connection, which is what a push naming nobody gets.
+   *
+   * **No Workspace check, unlike `sourceAccounts` above.** Nobody typed this
+   * Workspace's id: it comes from the directory the connection itself wrote,
+   * so a Workspace that has gone is "no such connection" rather than a 404
+   * anybody could tell apart from one.
+   */
+  connectionUnder(
+    accountName: string,
+    workspaceId: string,
+    connectorId: string,
+    externalAccountKey: string,
+  ): Answer<{ id: string } | null> {
+    return this.#answer(
+      accountName,
+      (db) => connectionUnder(db, accountName, workspaceId, connectorId, externalAccountKey) ?? null,
+    );
+  }
+
+  /**
+   * The sealed credential of one connection, for the connector about to use it
+   * (issue 486) - opened by nothing here, this being the store rather than the
+   * Worker that holds the key.
+   */
+  sealedCredential(
+    accountName: string,
+    sourceAccountId: string,
+  ): Answer<{ sealedCredential: string; credentialNonce: string } | null> {
+    return this.#answer(
+      accountName,
+      (db) => sealedCredentialOf(db, accountName, sourceAccountId) ?? null,
+    );
   }
 
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */

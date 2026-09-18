@@ -19,6 +19,7 @@ import {
   type RewriteAttemptStatus,
   type RoutingSummary,
   type ScreenSize,
+  type Source,
   type SourceAccount,
   type StoredPanelKind,
   type Workspace,
@@ -567,7 +568,15 @@ const itemColumns = {
   tenantId: items.tenantId,
   workspaceId: items.workspaceId,
   workspaceDecided: items.workspaceDecided,
-  source: items.source,
+  /**
+   * Where the Item came from, which is two columns and one answer ("Save a
+   * Teams message to Cockpit", issue 486): `source_connector` where the
+   * source is one the `source` column's own CHECK cannot hold, and `source`
+   * everywhere else. Coalesced here, so nothing above this file has to know
+   * that a CHECK on a table with four children is why there are two
+   * (`STORED_SOURCES` in the contract).
+   */
+  source: sql<Source>`coalesce(${items.sourceConnector}, ${items.source})`.as('source'),
   sourceId: items.sourceId,
   sourceLink: items.sourceLink,
   sender: items.sender,
@@ -2030,6 +2039,60 @@ export function sourceAccountsIn(
     // order moves between reads is one whose rows jump under the pointer.
     .orderBy(asc(connectorAccounts.connectedAt), asc(connectorAccounts.id))
     .all();
+}
+
+/**
+ * The connection one Workspace holds to this account at this source, by the
+ * key the source names it with - what a push is matched against ("Save a Teams
+ * message to Cockpit", issue 486).
+ *
+ * **Identifiers only, and the credential columns deliberately not among
+ * them.** Whether a push belongs to anybody is answered before anything sealed
+ * is so much as read, which is what `sealedCredentialOf` below is for and why
+ * it is a second read rather than two columns on this one.
+ */
+export function connectionUnder(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+  connectorId: string,
+  externalAccountKey: string,
+): { id: string } | undefined {
+  return db
+    .select({ id: connectorAccounts.id })
+    .from(connectorAccounts)
+    .where(
+      and(
+        eq(connectorAccounts.tenantId, tenantId),
+        eq(connectorAccounts.workspaceId, workspaceId),
+        eq(connectorAccounts.connectorId, connectorId),
+        eq(connectorAccounts.externalAccountKey, externalAccountKey),
+      ),
+    )
+    .get();
+}
+
+/**
+ * The sealed credential of one connection, for the connector that is about to
+ * use it (issue 486). The only read in the application that names those two
+ * columns, and the only path to them is a push already matched to this row by
+ * `connectionUnder` above.
+ */
+export function sealedCredentialOf(
+  db: AccountDb,
+  tenantId: string,
+  sourceAccountId: string,
+): { sealedCredential: string; credentialNonce: string } | undefined {
+  return db
+    .select({
+      sealedCredential: connectorAccounts.encryptedCredential,
+      credentialNonce: connectorAccounts.credentialNonce,
+    })
+    .from(connectorAccounts)
+    .where(
+      and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.id, sourceAccountId)),
+    )
+    .get();
 }
 
 /**
