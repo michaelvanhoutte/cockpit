@@ -1036,5 +1036,60 @@ test.describe('Item editing', () => {
         await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile).catch(() => {});
       }
     });
+
+    /**
+     * "Out of scope" for a phone means "falls back to centered", not
+     * "renders anyway" (found in review, on the pull request itself): a
+     * jsdom unit test proved the class name changes, but the real product
+     * behaviour - a docked account's own form actually redrawing itself once
+     * the window it is open in gets too narrow - is a real window and a real
+     * layout, so it belongs here, driven in an actual browser.
+     */
+    test('falls back to centered once the window is too narrow to dock, without moving the account off docked', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'the viewport is fixed on a phone project already');
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Narrow the window while docked');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
+        const already = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
+        await already;
+      }
+
+      const full = page.viewportSize()!;
+      try {
+        const docking = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
+        await docking;
+        const docked = (await form(page).boundingBox())!;
+        expect(Math.round(docked.x + docked.width)).toBe(full.width);
+
+        // Narrowed live, with the form already open - the same reactive
+        // width the docked resize clamp already answers to, not only a
+        // fresh open's own read of it.
+        await page.setViewportSize({ width: 375, height: 700 });
+        const narrow = (await form(page).boundingBox())!;
+        expect(Math.round(narrow.x + narrow.width), 'no longer flush against the edge').not.toBe(375);
+
+        // The account is still docked - only what is drawn fell back - so
+        // the control still offers to undock it, not to dock what already
+        // is.
+        await expect(form(page).getByRole('button', { name: 'Center' })).toBeVisible();
+      } finally {
+        await page.setViewportSize(full);
+        if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
+          const recentering = answeredThePresentation(page, 5_000).catch(() => {});
+          await press(form(page).getByRole('button', { name: 'Center' }), isMobile).catch(() => {});
+          await recentering;
+        }
+        await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile).catch(() => {});
+      }
+    });
   });
 });
