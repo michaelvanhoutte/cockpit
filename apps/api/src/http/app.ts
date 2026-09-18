@@ -1337,6 +1337,9 @@ const routes = app
   .openapi(commandRoute('set_text_learning_rules'), async (c) =>
     c.json(await change(c, 'set_text_learning_rules', c.req.valid('json')), 200),
   )
+  .openapi(commandRoute('set_item_form_presentation'), async (c) =>
+    c.json(await change(c, 'set_item_form_presentation', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('pin_text_example'), async (c) =>
     c.json(await change(c, 'pin_text_example', c.req.valid('json')), 200),
   )

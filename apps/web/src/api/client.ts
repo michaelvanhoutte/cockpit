@@ -356,6 +356,8 @@ const commandSenders = {
     api.v1.commands.set_duplicate_settled.$post({ json: p }),
   set_text_learning_rules: (p: CommandPayload<'set_text_learning_rules'>) =>
     api.v1.commands.set_text_learning_rules.$post({ json: p }),
+  set_item_form_presentation: (p: CommandPayload<'set_item_form_presentation'>) =>
+    api.v1.commands.set_item_form_presentation.$post({ json: p }),
   pin_text_example: (p: CommandPayload<'pin_text_example'>) =>
     api.v1.commands.pin_text_example.$post({ json: p }),
   edit_pinned_example: (p: CommandPayload<'edit_pinned_example'>) =>

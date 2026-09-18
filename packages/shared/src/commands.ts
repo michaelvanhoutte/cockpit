@@ -14,6 +14,7 @@ import {
   prioritySchema,
   workspaceNameSchema,
 } from './domain/item.js';
+import { itemFormPresentationSchema } from './domain/item-form-presentation.js';
 import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
 import {
   filterConditionSchema,
@@ -506,6 +507,18 @@ export const setTextLearningRulesSchema = commandEnvelopeSchema.extend({
 export type SetTextLearningRulesCommand = z.infer<typeof setTextLearningRulesSchema>;
 
 /**
+ * set_item_form_presentation — whether the account has the Item's form drawn
+ * centered or docked to the side ("Let the item's form dock to the side of the
+ * screen instead of opening as a dialog", issue 481). Account-scoped, the same
+ * convention `set_text_learning_rules` above uses: `workspaceId` on the
+ * envelope is `ACCOUNT_WIDE`.
+ */
+export const setItemFormPresentationSchema = commandEnvelopeSchema.extend({
+  presentation: itemFormPresentationSchema,
+});
+export type SetItemFormPresentationCommand = z.infer<typeof setItemFormPresentationSchema>;
+
+/**
  * pin_text_example — a worked example of a note and the title and message
  * chosen for it, added by hand rather than corrected after the fact ("Pin an
  * example of how you want a note written", issue 397). Account-scoped, the
@@ -693,6 +706,7 @@ export const commandSchemas = {
   remove_attachment: removeAttachmentSchema,
   set_routing_summary_correction: setRoutingSummaryCorrectionSchema,
   set_text_learning_rules: setTextLearningRulesSchema,
+  set_item_form_presentation: setItemFormPresentationSchema,
   pin_text_example: pinTextExampleSchema,
   edit_pinned_example: editPinnedExampleSchema,
   delete_pinned_example: deletePinnedExampleSchema,

@@ -106,6 +106,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     PANEL_FILTERS,
     ITEM_DUE_DATE_SET_AT,
     CONNECTOR_ACCOUNTS,
+    ITEM_FORM_PRESENTATION,
     ITEM_SOURCE_CONNECTOR,
   ];
 }
@@ -916,6 +917,42 @@ const CONNECTOR_ACCOUNTS: Change = {
     },
     {
       sql: 'CREATE UNIQUE INDEX `connector_accounts_one_per_account` ON `connector_accounts` (`tenant_id`,`workspace_id`,`connector_id`,`external_account_key`)',
+    },
+  ],
+};
+
+/**
+ * Whether the account has the Item's form drawn centered or docked to the
+ * side ("Let the item's form dock to the side of the screen instead of
+ * opening as a dialog", issue 481) - see `schema.ts` for what the column
+ * carries and why. The same shape `ACCOUNT_TEXT_RULES` above is.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"). It adds a table and writes to no existing row.
+ * - **If it stops halfway:** it cannot. The statement and the record that it
+ *   ran commit together (`up-to-date.ts`), so a failure leaves neither the
+ *   table nor the row and the change is retried whole.
+ * - **The second time it runs:** only an unfinished change runs again, and an
+ *   unfinished one left nothing behind.
+ * - **Rows that already break the new rule:** none. The table starts empty,
+ *   and reads a missing row as centered (`getItemFormPresentation`) - the only
+ *   presentation there was before this issue, and what every account already
+ *   has.
+ * - **Rolled back after it has run:** an older release reads and writes
+ *   neither the table nor the command, so the worst a rollback costs is a
+ *   choice nobody reads until the release goes forward again.
+ */
+const ITEM_FORM_PRESENTATION: Change = {
+  name: '0037-item-form-presentation',
+  statements: [
+    {
+      sql: `CREATE TABLE \`account_item_form_presentation\` (
+	\`tenant_id\` text PRIMARY KEY NOT NULL,
+	\`presentation\` text,
+	CONSTRAINT "account_item_form_presentation_is_known" CHECK(presentation IN ('centered', 'docked'))
+) STRICT`,
     },
   ],
 };

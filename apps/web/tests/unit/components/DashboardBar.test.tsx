@@ -105,6 +105,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         attachments: [],
         itemTypes: [],
         screenSizes: held.screenSizes,
+        itemFormPresentation: 'centered',
         duplicates: held.duplicates,
         filings: [],
         routingSummary: null,
