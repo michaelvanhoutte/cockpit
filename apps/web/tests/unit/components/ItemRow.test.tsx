@@ -914,6 +914,26 @@ describe('Triage', () => {
       expect(row.className).not.toContain('hover:bg-accent-tint');
     });
 
+    it('drops the description mark and the waited badge back to white too, once overdue', () => {
+      // Both read white the same way the meta line and the type name do -
+      // by dropping their own muted colour and inheriting the row's, rather
+      // than restating `text-white` themselves - and were left wearing their
+      // muted colour by mistake in a pass that scoped the drop down for the
+      // bundle budget (found in review).
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-09-17T09:00:00.000Z'));
+      aRow({
+        item: anItem({
+          description: 'Some detail',
+          dueDate: '2026-09-16',
+          dueDateSetAt: '2026-09-01T00:00:00.000Z',
+        }),
+      });
+
+      expect(screen.getByTitle('Has a description').className).not.toContain('text-ink-faint');
+      expect(screen.getByTitle(/^Waiting /).className).not.toContain('text-ink-faint');
+    });
+
     it('falls back to when the item was made, for a due date carried from before this shipped', () => {
       vi.useFakeTimers();
       vi.setSystemTime(Date.parse('2026-09-11T00:00:00.000Z'));

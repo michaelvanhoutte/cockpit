@@ -303,15 +303,18 @@ export function ItemRow({
    * `Date.now()` the same way `waited` above reads the real clock, with the
    * ramp itself proved without one in `dueDate.test.ts`.
    *
-   * `dueColor === -1 && !selecting?.picked` is what actually reads as
-   * overdue below, at all three places that colour something by it: a row
-   * picked out does not, even past its own due date, since being picked
-   * wins over the row's due colour. `!selecting?.picked` is not optional on
-   * the meta line and the type name - unlike the row's own background, they
-   * have no ternary of their own already excluding a picked row, and forced
-   * themselves white over its light background without it (found in review).
+   * `null` while picked, rather than whatever `dueColorOf` would otherwise
+   * say: a row picked out reads as its own colour regardless of its due
+   * date, even an overdue one, since being picked wins over it. Folded in
+   * here rather than checked separately at each mark and line that colours
+   * itself by `dueColor === -1` below - two of them once forced themselves
+   * white over a picked row's own light background by checking that alone,
+   * with nothing excluding a picked row the way the row's own background
+   * just below already did (found in review, twice).
    */
-  const dueColor = dueColorOf(item.dueDate, item.dueDateSetAt, item.createdAt, Date.now());
+  const dueColor = selecting?.picked
+    ? null
+    : dueColorOf(item.dueDate, item.dueDateSetAt, item.createdAt, Date.now());
 
   /**
    * The finger resting on this row, waiting to become a selection ("Start a
@@ -566,7 +569,7 @@ export function ItemRow({
       className={`group relative touch-pan-y border-b border-black/5 last:border-b-0 pointer-coarse:select-none ${
         selecting?.picked
           ? 'bg-accent-tint hover:bg-accent-tint/40'
-          : dueColor === -1 && !selecting?.picked
+          : dueColor === -1
             ? 'bg-over-deep text-white'
             : 'due-tint hover:bg-accent-tint/40'
       }`}
@@ -637,7 +640,7 @@ export function ItemRow({
                 titled rather than lettered because it has nothing to spell. */}
             {item.description && (
               <span
-                className="shrink-0 text-ink-faint"
+                className={`shrink-0 ${dueColor === -1 ? '' : 'text-ink-faint'}`}
                 title="Has a description"
                 aria-label="Has a description"
                 role="img"
@@ -655,7 +658,7 @@ export function ItemRow({
                 choice already made. */}
             {itemHasOpenReadings(item) && (
               <span
-                className="shrink-0 text-ink-faint"
+                className={`shrink-0 ${dueColor === -1 ? '' : 'text-ink-faint'}`}
                 title="Reads more than one way"
                 aria-label="Reads more than one way"
                 role="img"
@@ -670,7 +673,7 @@ export function ItemRow({
                 word. */}
             {mayBeADuplicate && (
               <span
-                className="shrink-0 text-ink-faint"
+                className={`shrink-0 ${dueColor === -1 ? '' : 'text-ink-faint'}`}
                 title="Possible duplicate"
                 aria-label="Possible duplicate"
                 role="img"
@@ -685,14 +688,17 @@ export function ItemRow({
               or an action, and see which it is", issue 155). Its own element, so
               it is a thing on the row rather than part of a sentence.
 
-              This line and the type name inside it are the only two pieces of
-              text on the row that set their own muted colour regardless of
-              what the row wears - everything else here has none of its own or
-              sits on its own light chip - so both swap it for white once the
-              row has gone `over-deep` (issue 473). */}
-          <span className={`flex min-w-0 gap-1 text-xs ${dueColor === -1 && !selecting?.picked ? 'text-white' : 'text-ink-faint'}`}>
+              This line sets its own muted colour normally, the same as the
+              three marks above and the waited badge further on - so all of
+              them drop it once the row has gone `over-deep text-white`
+              (issue 473), reading the row's own white by inheriting it
+              rather than fighting it. The type name nested inside restates
+              `'text-white'` instead of also dropping to inherit it - the two
+              read the same on screen, and only one of the two measured under
+              the bundle budget. */}
+          <span className={`flex min-w-0 gap-1 text-xs ${dueColor === -1 ? '' : 'text-ink-faint'}`}>
             {itemType && (
-              <span className={`shrink-0 ${dueColor === -1 && !selecting?.picked ? 'text-white' : 'text-accent-deep'}`}>{itemType.name}</span>
+              <span className={`shrink-0 ${dueColor === -1 ? 'text-white' : 'text-accent-deep'}`}>{itemType.name}</span>
             )}
             <span className="truncate">
               {itemType ? '· ' : ''}
@@ -741,7 +747,7 @@ export function ItemRow({
             sideways as the numbers change under it, and `title` because `14d` is
             short enough to be worth spelling out on hover. */}
         {waited && (
-          <span className="shrink-0 text-xs tabular-nums text-ink-faint" title={`Waiting ${waited}`}>
+          <span className={`shrink-0 text-xs tabular-nums ${dueColor === -1 ? '' : 'text-ink-faint'}`} title={`Waiting ${waited}`}>
             {waited}
           </span>
         )}
