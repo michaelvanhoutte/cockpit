@@ -924,7 +924,11 @@ test.describe('Item editing', () => {
       (response) =>
         response.request().method() === 'POST' &&
         new URL(response.url()).pathname === '/v1/commands/set_item_form_presentation',
-      { timeout },
+      // Not `{ timeout }`: with `exactOptionalPropertyTypes`, an options
+      // object naming `timeout` at all has to hold a real number, never
+      // `undefined` itself - so the default case passes no options object
+      // rather than one carrying the key with nothing in it.
+      timeout === undefined ? undefined : { timeout },
     );
   }
 
