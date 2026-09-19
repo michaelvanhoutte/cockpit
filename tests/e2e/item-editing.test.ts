@@ -1388,5 +1388,69 @@ test.describe('Item editing', () => {
         await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile).catch(() => {});
       }
     });
+
+    /**
+     * A docked form is a companion beside the dashboards, so the page gives
+     * up the room it takes rather than being covered by it: what the form
+     * hides of the page is what the page is for. Real layout, so here.
+     */
+    test('the page beside a docked form is left whole, follows the form as it is dragged, and takes the room back', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'docking is its own, separate discussion on a phone, by design');
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('The page makes room');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
+        const already = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
+        await already;
+      }
+
+      // The page's own right edge: its header, which spans the whole shell.
+      const shellRight = async () => {
+        const box = (await page.locator('header').first().boundingBox())!;
+        return Math.round(box.x + box.width);
+      };
+      const viewportWidth = page.viewportSize()!.width;
+      try {
+        expect(await shellRight(), 'the whole window while the form is centered').toBe(viewportWidth);
+
+        const docking = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
+        await docking;
+        const docked = (await form(page).boundingBox())!;
+        expect(await shellRight(), 'ends where the docked form begins').toBe(Math.round(docked.x));
+
+        // Dragged narrower, the page takes the room back as the form gives it.
+        const grip = (await form(page).getByRole('separator', { name: 'Resize the form' }).boundingBox())!;
+        await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(grip.x + 200, grip.y, { steps: 8 });
+        await page.mouse.up();
+        const narrowed = (await form(page).boundingBox())!;
+        expect(narrowed.x, 'the form is narrower').toBeGreaterThan(docked.x + 100);
+        await expect
+          .poll(shellRight, { message: 'follows the form’s new edge' })
+          .toBe(Math.round(narrowed.x));
+
+        // Centered again, the page has the whole window back.
+        const centering = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
+        await centering;
+        await expect.poll(shellRight, { message: 'the whole window again' }).toBe(viewportWidth);
+      } finally {
+        if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
+          const recentering = answeredThePresentation(page, 5_000).catch(() => {});
+          await press(form(page).getByRole('button', { name: 'Center' }), isMobile).catch(() => {});
+          await recentering;
+        }
+        await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile).catch(() => {});
+      }
+    });
   });
 });
