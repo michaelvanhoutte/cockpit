@@ -729,9 +729,12 @@ function TheForm({
    * Says how much of the right edge the docked form covers, so the bar that
    * offers to undo a field it has just written (`undo.tsx`) is centred in the
    * page left over rather than laid across the form's own footer - which
-   * docked is where every such offer is about.
+   * docked is where every such offer is about. It is also the room the shell
+   * gives the form (`pages/Layout.tsx`), so it is written before the frame
+   * is painted: a passive effect ran a frame after the form's own width
+   * during a drag, and the page's edge trailed the form's.
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!docked) return;
     const root = document.documentElement;
     root.style.setProperty('--docked-form-w', `${dockedWidthPx}px`);

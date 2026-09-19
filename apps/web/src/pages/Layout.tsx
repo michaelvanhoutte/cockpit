@@ -484,6 +484,11 @@ function TheShell() {
       style={
         {
           backgroundColor: theme.ground,
+          // The docked item's form's width, which `ItemForm.tsx` sets while
+          // it is docked, so the form sits beside the shell rather than over
+          // it ("Let the item's form dock to the side of the screen instead
+          // of opening as a dialog", issue 481).
+          paddingRight: 'var(--docked-form-w, 0px)',
           '--ground': theme.ground,
           '--tint': theme.color,
         } as React.CSSProperties
