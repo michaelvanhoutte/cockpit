@@ -908,6 +908,12 @@ function TheForm({
    * write succeeding cannot wipe out a message that is still true.
    */
   const unwritten = useRef(new Set<Field>());
+  /**
+   * Whether a close has already been refused for what is unwritten now, so the
+   * next one may leave anyway. Rearmed whenever `unwritten` drains, so each
+   * refusal gets its own warning before it can be overridden.
+   */
+  const closeRefused = useRef(false);
   const commitFields = (fields: readonly Field[]): Promise<void> => {
     const undoneAtCall = undoneCount.current;
     const turn = inTurn.current.then(async () => {
@@ -919,7 +925,10 @@ function TheForm({
       for (const field of unwritten.current) {
         if (changed[field] === undefined) unwritten.current.delete(field);
       }
-      if (wasUnwritten > 0 && unwritten.current.size === 0) setRefusal(null);
+      if (wasUnwritten > 0 && unwritten.current.size === 0) {
+        closeRefused.current = false;
+        setRefusal(null);
+      }
       const pending = fields.filter((field) => changed[field] !== undefined);
       if (pending.length === 0) return;
       const envelope = () => ({
@@ -961,6 +970,7 @@ function TheForm({
         }
         setRefusal(stopped);
       } else if (unwritten.current.size === 0) {
+        closeRefused.current = false;
         setRefusal(null);
       }
       if (committed.length === 0 || undoneCount.current !== undoneAtCall) return;
@@ -1028,15 +1038,25 @@ function TheForm({
    * that are not ours to hold back (the back button, another item opening)
    * write on the way out and cannot wait.
    */
-  const closeRefused = useRef(false);
+  const closing = useRef(false);
   const closeDocked = async () => {
-    await commitFields(FIELDS);
-    if (unwritten.current.size > 0 && !closeRefused.current) {
-      closeRefused.current = true;
-      setRefusal((was) => `${was ?? 'That could not be saved.'} Close again to leave without it.`);
-      return;
+    // A press while one is still waiting on its write is the same press, not
+    // the second one that leaves: that has to come after the refusal is seen.
+    if (closing.current) return;
+    closing.current = true;
+    try {
+      await commitFields(FIELDS);
+      if (unwritten.current.size > 0 && !closeRefused.current) {
+        closeRefused.current = true;
+        setRefusal(
+          (was) => `${was ?? 'That could not be saved.'} Close again to leave without it.`,
+        );
+        return;
+      }
+      onClose();
+    } finally {
+      closing.current = false;
     }
-    onClose();
   };
   const dockedNow = useRef(docked);
   dockedNow.current = docked;

@@ -1537,6 +1537,46 @@ describe('Item editing', () => {
       await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
     });
 
+    it('does not take a second press, made while the first is still waiting on its write, for the one that leaves', async () => {
+      const user = await dockedForm();
+      await user.type(titleBox(), ' now');
+      const waiting: ((error: Error) => void)[] = [];
+      held.send.mockImplementation((() =>
+        new Promise((_, reject) => {
+          waiting.push(reject);
+        })) as unknown as () => Promise<{ ok: true; applied: boolean }>);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      await waitFor(() => expect(waiting).toHaveLength(1));
+      waiting.forEach((fail) => fail(new Error('offline')));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/offline.*Close again/);
+      expect(held.close).not.toHaveBeenCalled();
+      expect(held.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('warns again for a later refusal, once an earlier one has cleared', async () => {
+      const user = await dockedForm();
+      await user.type(titleBox(), ' now');
+      held.send.mockRejectedValue(new Error('offline'));
+      await user.click(screen.getByRole('button', { name: 'Close' }));
+      expect(await screen.findByRole('alert')).toHaveTextContent(/Close again/);
+
+      held.send.mockResolvedValue({ ok: true as const, applied: true });
+      await user.type(titleBox(), '!');
+      await user.tab();
+      await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+
+      held.send.mockRejectedValue(new Error('offline'));
+      await user.selectOptions(priorityBox(), 'high');
+      expect(await screen.findByRole('alert')).toHaveTextContent('offline');
+      await user.click(screen.getByRole('button', { name: 'Close' }));
+
+      await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Close again/));
+      expect(held.close).not.toHaveBeenCalled();
+    });
+
     it('keeps saying a write did not land while that field is still unwritten, whatever else is written', async () => {
       const user = await dockedForm();
       held.send.mockResolvedValueOnce({ ok: true as const, applied: false });
