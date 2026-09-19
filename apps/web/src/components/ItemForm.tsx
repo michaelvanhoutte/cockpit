@@ -1050,10 +1050,11 @@ function TheForm({
       closing.current = false;
     }
   };
-  // Tells the rows a plain click now follows this form ("Let a docked item's
-  // form follow the row you click", issue 481). Cleared on unmount, so a form
-  // that closes - or is replaced by another Item's - leaves nothing claiming a
-  // dock; the replacement reports again in the same commit.
+  // Tells the rows a plain click now follows this form (issue 481, "Let the
+  // item's form dock to the side of the screen instead of opening as a
+  // dialog"). Cleared on unmount, so a form that closes - or is replaced by
+  // another Item's - leaves nothing claiming a dock; the replacement reports
+  // again in the same commit.
   const reportDocked = useReportDocked();
   useEffect(() => {
     reportDocked(docked);

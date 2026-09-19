@@ -1297,7 +1297,7 @@ test.describe('Item editing', () => {
     });
 
     /**
-     * "Let a docked item's form follow the row you click" (issue 481): the
+     * "Let the item's form dock to the side of the screen instead of opening as a dialog" (issue 481): the
      * click lands on a real row beside a real dock, and what is typed in the
      * form on the way out is written by the real unmount - neither of which
      * jsdom can say.

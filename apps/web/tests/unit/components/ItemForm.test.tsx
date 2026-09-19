@@ -1210,7 +1210,7 @@ describe('Item editing', () => {
       expect(screen.getByRole('dialog')).toHaveClass('left-1/2');
     });
 
-    // "Let a docked item's form follow the row you click" (issue 481): the rows
+    // "Let the item's form dock to the side of the screen instead of opening as a dialog" (issue 481): the rows
     // only follow a form that is really docked, so it says so - and says so no
     // longer once it is not, whether centered, too narrow to dock, or gone.
     it('tells the rows it is docked, and that it no longer is once it is gone', async () => {
@@ -1300,7 +1300,8 @@ describe('Item editing', () => {
     // Following a docked form to another row remounts it: the presentation
     // this open form was locked to must survive that, where the snapshot the
     // new one would re-read may not yet carry a choice just made - which drew
-    // the next item's form centered and modal (found in CI, issue 481).
+    // the next item's form centered and modal (found in CI, "Let the item's form dock to the side of
+    // the screen instead of opening as a dialog", issue 481).
     it('stays docked when it is swapped to another item, whatever the snapshot says by then', async () => {
       held.items = [anItem(), anItem({ id: 'item-2', title: 'Part 12' })];
       held.itemFormPresentation = 'docked';

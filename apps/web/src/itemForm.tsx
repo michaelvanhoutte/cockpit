@@ -69,9 +69,10 @@ export function useOpenItem(): (itemId: string) => void {
 
 /**
  * The Item shown in a docked form, if one is docked open - what a plain click
- * on a row follows ("Let a docked item's form follow the row you click", issue
+ * on a row follows ("Let the item's form dock to the side of the screen instead of opening as a dialog", issue
  * 481). `openId` is null whenever nothing is docked open, which is what tells a
- * row that its plain click still opens nothing (issue 456).
+ * row that its plain click still opens nothing ("Require a double-click to open a row again, now that a plain click
+ * opens it", issue 456).
  *
  * **A context, for the reason `OpenItem` is one**: rows are drawn outside the
  * router in tests, and only the shell knows both the address and whether the

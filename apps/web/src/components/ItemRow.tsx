@@ -660,7 +660,7 @@ export function ItemRow({
       // it, the row it had just picked out was toggled straight back off.
       //
       // **Except while a form is docked open, where a plain click shows that
-      // row in it** ("Let a docked item's form follow the row you click", issue
+      // row in it** ("Let the item's form dock to the side of the screen instead of opening as a dialog", issue
       // 481): the dock is there to be read alongside the lists, and a click is
       // how a row is asked for. Not over a selection already held, whose plain
       // click still only ends it, and not with a modifier, which still picks.

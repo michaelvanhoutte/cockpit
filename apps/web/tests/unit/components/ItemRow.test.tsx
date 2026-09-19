@@ -919,7 +919,7 @@ describe('Item editing', () => {
     });
   });
 
-  /** "Let a docked item's form follow the row you click", issue 481. */
+  /** "Let the item's form dock to the side of the screen instead of opening as a dialog", issue 481. */
   describe("a docked item's form follows the row that is clicked", () => {
     it('shows the row in the dock on a plain click', async () => {
       const user = userEvent.setup();
