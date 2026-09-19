@@ -94,15 +94,15 @@ export interface DockedItem {
 const NO_DOCK: DockedItem = { openId: null, show: () => {} };
 export const DockedItemContext = createContext<DockedItem>(NO_DOCK);
 const ReportDocked = createContext<(docked: boolean) => void>(() => {});
-const TakeQuietOpening = createContext<(itemId: string) => boolean>(() => false);
+const QuietOpening = createContext<(itemId: string) => boolean>(() => false);
 
 export function useDockedItem(): DockedItem {
   return useContext(DockedItemContext);
 }
 
-/** Whether the form for this Item was asked for with `keepFocus`; true once, for the form that reads it. */
+/** Whether the form for this Item was last asked for with `keepFocus`. */
 export function useQuietOpening(): (itemId: string) => boolean {
-  return useContext(TakeQuietOpening);
+  return useContext(QuietOpening);
 }
 
 /** How the form says it is really docked open, for as long as it is. */
@@ -115,14 +115,17 @@ export function OpensItemForms({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as ItemFormSearch;
   const [docked, setDocked] = useState(false);
+  const quietFor = useRef<string | null>(null);
   const open = useCallback(
-    (itemId: string) => void navigate({ to: '.', search: (was) => ({ ...was, item: itemId }) }),
+    (itemId: string) => {
+      quietFor.current = null;
+      void navigate({ to: '.', search: (was) => ({ ...was, item: itemId }) });
+    },
     [navigate],
   );
   // Replacing rather than pushing: following the rows is one open form
   // changing its Item, so Back leaves the page rather than stepping back
   // through every row that was looked at.
-  const quietFor = useRef<string | null>(null);
   const show = useCallback(
     (itemId: string, options?: { keepFocus?: boolean }) => {
       quietFor.current = options?.keepFocus ? itemId : null;
@@ -130,11 +133,11 @@ export function OpensItemForms({ children }: { children: ReactNode }) {
     },
     [navigate],
   );
-  const takeQuietOpening = useCallback((itemId: string) => {
-    const quiet = quietFor.current === itemId;
-    if (quiet) quietFor.current = null;
-    return quiet;
-  }, []);
+  // A read that changes nothing, because `useState` runs an initializer twice
+  // under StrictMode and a read that consumed the flag would leave the second,
+  // committed one seeing none. What clears it is the next request to open a
+  // form (`open`, `show`), so it never outlives the switch it was made for.
+  const isQuietOpening = useCallback((itemId: string) => quietFor.current === itemId, []);
   const dock = useMemo(
     () => ({ openId: docked ? (search.item ?? null) : null, show }),
     [docked, search.item, show],
@@ -142,9 +145,9 @@ export function OpensItemForms({ children }: { children: ReactNode }) {
   return (
     <OpenItem.Provider value={open}>
       <ReportDocked.Provider value={setDocked}>
-        <TakeQuietOpening.Provider value={takeQuietOpening}>
+        <QuietOpening.Provider value={isQuietOpening}>
           <DockedItemContext.Provider value={dock}>{children}</DockedItemContext.Provider>
-        </TakeQuietOpening.Provider>
+        </QuietOpening.Provider>
       </ReportDocked.Provider>
     </OpenItem.Provider>
   );

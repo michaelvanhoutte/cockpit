@@ -32,25 +32,28 @@ const captureOneNote = (dock: DockedItem) => {
   return { itemId: command.payload.itemId as string, land: () => options.onSuccess() };
 };
 
-describe('capturing while a form is docked open', () => {
+describe('Capture', () => {
   beforeEach(() => held.mutate.mockReset());
 
-  it('moves the dock to the new note once it has landed, keeping the keyboard where it is', () => {
-    const show = vi.fn();
-    const { itemId, land } = captureOneNote({ openId: 'item-open', show });
+  describe('capturing while a form is docked open', () => {
 
-    expect(show).not.toHaveBeenCalled();
-    land();
+    it('moves the dock to the new note once it has landed, keeping the keyboard where it is', () => {
+      const show = vi.fn();
+      const { itemId, land } = captureOneNote({ openId: 'item-open', show });
 
-    expect(show).toHaveBeenCalledExactlyOnceWith(itemId, { keepFocus: true });
-  });
+      expect(show).not.toHaveBeenCalled();
+      land();
 
-  it('leaves everything alone where no form is docked open', () => {
-    const show = vi.fn();
-    const { land } = captureOneNote({ openId: null, show });
+      expect(show).toHaveBeenCalledExactlyOnceWith(itemId, { keepFocus: true });
+    });
 
-    land();
+    it('leaves everything alone where no form is docked open', () => {
+      const show = vi.fn();
+      const { land } = captureOneNote({ openId: null, show });
 
-    expect(show).not.toHaveBeenCalled();
+      land();
+
+      expect(show).not.toHaveBeenCalled();
+    });
   });
 });

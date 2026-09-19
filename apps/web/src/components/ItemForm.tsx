@@ -230,8 +230,8 @@ function TheForm({
   const send = useSendCommand();
   const offerToUndo = useUndo();
   const openItem = useOpenItem();
-  const takeQuietOpening = useQuietOpening();
-  const [openedQuietly] = useState(() => takeQuietOpening(itemId));
+  const isQuietOpening = useQuietOpening();
+  const [openedQuietly] = useState(() => isQuietOpening(itemId));
   const item = data?.items.find((candidate) => candidate.id === itemId);
   const atSource = item ? openableAtSource(item) : null;
 
