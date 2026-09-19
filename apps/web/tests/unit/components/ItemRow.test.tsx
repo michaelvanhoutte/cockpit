@@ -483,12 +483,11 @@ describe('Triage', () => {
   describe('an Inbox row says where it came from and how long it has waited', () => {
     it('carries neither the mark nor the word the status had', () => {
       mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
-      const { container } = render(<ItemRow item={anItem({})} workspaceId="ws-work" />);
+      render(<ItemRow item={anItem({})} workspaceId="ws-work" />);
 
       // The dot at the head of the row and the word under the title were the
       // status's two places, and both went to the type ("An item is either
       // yours to deal with or finished with", issue 154).
-      expect(container.querySelector('li span[aria-hidden="true"]')).toBeNull();
       expect(screen.queryByText('To process')).toBeNull();
       expect(screen.getByText(/Own/)).toBeInTheDocument();
     });
@@ -991,28 +990,19 @@ describe('Triage', () => {
       { situation: 'an action', itemType: aType('Action', '#6f62b5') },
       { situation: 'a thought', itemType: aType('Thought', '#3a72c8') },
       { situation: 'one made by using it', itemType: aType('Question', '#c06a45') },
-    ])('says the type in words and in its own colour for $situation', ({ itemType }) => {
-      const { container, unmount } = aRowOf(itemType);
+    ])('says the type in words for $situation', ({ itemType }) => {
+      const { unmount } = aRowOf(itemType);
 
+      // The word is the whole of it: the coloured dot that used to head the row
+      // gave its place to the priority flag.
       expect(screen.getByText(itemType.name)).toBeInTheDocument();
-      // Anywhere in the row rather than a child of it: the row's contents moved
-      // inside a wrapper that slides under a finger, and where the mark is
-      // nested is not what this rule is about. At rest it is the only
-      // undecorated mark a row has - the band a swipe uncovers is drawn only
-      // while one is happening.
-      const mark = container.querySelector('li span[aria-hidden="true"]');
-      // The colour is the dot's, and the word is what carries it to anyone not
-      // looking at colours - neither alone would be the whole mark.
-      expect(mark).not.toBeNull();
-      expect((mark as HTMLElement).style.backgroundColor).not.toBe('');
       unmount();
     });
 
-    it('draws an item with no type without one, rather than hiding it', () => {
-      const { container } = aRowOf(undefined);
+    it('draws an item with no type, rather than hiding it', () => {
+      aRowOf(undefined);
 
       expect(screen.getByText('Make appointment with Novy')).toBeInTheDocument();
-      expect(container.querySelector('li span[aria-hidden="true"]')).toBeNull();
     });
   });
 
@@ -1033,7 +1023,17 @@ describe('Triage', () => {
       expect(screen.getByTitle(named)).toBeInTheDocument();
     });
 
-    it('draws no mark for an item with no priority', () => {
+    // Drawn even for none, so every title starts at the same place whether or
+    // not its row has a level; decorative, because there is nothing to name.
+    it('draws a faint, unnamed flag for an item with no priority, so titles line up', () => {
+      const { container } = render(<ItemRow item={anItem({ priority: null })} workspaceId="ws-work" />);
+
+      const flag = container.querySelector('li span[aria-hidden="true"]');
+      expect(flag).not.toBeNull();
+      expect(flag).toHaveTextContent('⚑');
+    });
+
+    it('draws no named mark for an item with no priority', () => {
       aRow({ item: anItem({ priority: null }) });
 
       expect(screen.queryByLabelText('High priority')).toBeNull();

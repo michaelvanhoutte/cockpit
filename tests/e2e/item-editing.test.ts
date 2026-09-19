@@ -222,6 +222,27 @@ test.describe('Item editing', () => {
       await expect(priorityBox(page)).toHaveCount(0);
       await expect(itemRow(page, thought).getByLabel('High priority')).toHaveCount(0);
     });
+
+    // Layout, which JSDOM cannot measure: the flag column is always there, so
+    // a title is where the others are with or without a level.
+    test('keeps every title on the same left edge, with a level or without', async ({
+      page,
+      isMobile,
+    }) => {
+      await openInbox(page, isMobile);
+      const plain = uniqueTitle('No level here');
+      const flagged = uniqueTitle('Level here');
+      await capture(page, plain, isMobile);
+      await capture(page, flagged, isMobile);
+      await openItem(page, flagged, isMobile);
+      await priorityBox(page).selectOption('high');
+      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+      await expect(itemRow(page, flagged).getByLabel('High priority')).toBeVisible();
+
+      const left = async (title: string) =>
+        Math.round((await itemRow(page, title).getByText(title).boundingBox())!.x);
+      expect(await left(flagged)).toBe(await left(plain));
+    });
   });
 
   /**

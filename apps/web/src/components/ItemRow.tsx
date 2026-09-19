@@ -752,28 +752,27 @@ export function ItemRow({
         className="flex items-center gap-1.5 px-4 py-2"
         style={gone === 0 ? undefined : { transform: `translateX(${gone}px)` }}
       >
-        {/* What kind of thing it is, before anything is read. Decorative on
-            purpose: the word it stands for is on the line below, so announcing
-            the colour as well would say the type twice. An item with no type has
-            no dot rather than a grey one - absent reads as absent, where a
-            neutral colour reads as a type you cannot name. */}
-        {itemType && (
-          <span
-            aria-hidden="true"
-            className="mt-0.5 size-2 shrink-0 self-start rounded-full"
-            style={{ backgroundColor: itemType.color }}
-          />
-        )}
-        {/* Priority, when it is set - nothing drawn for an item with none, the
-            same convention the type dot above follows. Named rather than
-            decorative: unlike the type dot, the level is not echoed in words
-            anywhere else on the row. */}
-        {priorityMark && (
+        {/* The priority flag, the row's one leading mark - always drawn, so every
+            title starts in the same place whether or not its row has a level
+            (the type's coloured dot that used to sit beside it made titles
+            step right by a flag's width). An item with none gets a faint grey
+            flag, decorative because there is nothing to name; the level is
+            named rather than decorative where there is one, since it is not
+            echoed in words anywhere else on the row, unlike the type. The type
+            is spelled out on the line below. */}
+        {priorityMark ? (
           <span
             className={`mt-0.5 flex size-4 shrink-0 items-center justify-center self-start rounded-full text-[9px] leading-none text-white ${priorityMark.className}`}
             title={priorityMark.label}
             aria-label={priorityMark.label}
             role="img"
+          >
+            ⚑
+          </span>
+        ) : (
+          <span
+            aria-hidden="true"
+            className="mt-0.5 flex size-4 shrink-0 items-center justify-center self-start rounded-full bg-black/5 text-[9px] leading-none text-black/15"
           >
             ⚑
           </span>
