@@ -161,6 +161,14 @@ export function ItemForm() {
   useEffect(() => {
     if (!open) setFixedPresentation(null);
   }, [open]);
+  // A write arriving after the form has closed - a refused Dock or Center
+  // reverting itself - is dropped, as it was when this state died with the
+  // form, rather than left to lock the next one to a stale choice.
+  const stillOpen = useRef(open);
+  stillOpen.current = open;
+  const lockTo = useCallback((next: ItemFormPresentation | null) => {
+    if (stillOpen.current) setFixedPresentation(next);
+  }, []);
 
   if (!openItemId || !workspaceId) return null;
   // Keyed on the item, so going from one item's form straight to another's -
@@ -174,7 +182,7 @@ export function ItemForm() {
       workspaceId={workspaceId}
       onClose={close}
       fixedPresentation={fixedPresentation}
-      setFixedPresentation={setFixedPresentation}
+      setFixedPresentation={lockTo}
     />
   );
 }
@@ -1050,9 +1058,9 @@ function TheForm({
       closing.current = false;
     }
   };
-  // Tells the rows a plain click now follows this form (issue 481, "Let the
-  // item's form dock to the side of the screen instead of opening as a
-  // dialog"). Cleared on unmount, so a form that closes - or is replaced by
+  // Tells the rows a plain click now follows this form ("Let the item's form
+  // dock to the side of the screen instead of opening as a dialog", issue
+  // 481). Cleared on unmount, so a form that closes - or is replaced by
   // another Item's - leaves nothing claiming a dock; the replacement reports
   // again in the same commit.
   const reportDocked = useReportDocked();

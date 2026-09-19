@@ -1324,6 +1324,43 @@ describe('Item editing', () => {
       expect(screen.getByRole('dialog')).toHaveClass('right-0');
     });
 
+    it('is not locked to a choice reverting itself after the form has closed', async () => {
+      held.items = [anItem()];
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const shell = () => (
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>
+      );
+      let refuse: (reason: Error) => void = () => {};
+      held.send.mockImplementation(((change: { name: string }) =>
+        change.name === 'set_item_form_presentation'
+          ? new Promise((_, reject) => {
+              refuse = reject;
+            })
+          : Promise.resolve({ ok: true as const, applied: true })) as unknown as () => Promise<{
+        ok: true;
+        applied: boolean;
+      }>);
+      const user = userEvent.setup();
+      const { rerender } = render(shell());
+      await screen.findByLabelText('Title');
+
+      await user.click(dockButton());
+      held.openItemId = undefined;
+      rerender(shell());
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      await act(async () => refuse(new Error('Too many requests')));
+
+      // The account moved on elsewhere in the meantime.
+      held.itemFormPresentation = 'docked';
+      held.openItemId = 'item-1';
+      rerender(shell());
+
+      await screen.findByLabelText('Title');
+      expect(centerButton()).toBeVisible();
+    });
+
     it('reads the account afresh for the next form, once none is open', async () => {
       held.items = [anItem()];
       held.itemFormPresentation = 'docked';
