@@ -64,8 +64,7 @@ const DESCRIPTION_LIMIT = 60_000;
  */
 export const DUE_DATE_SETTLES_MS = 600;
 
-const CHANGED_ELSEWHERE =
-  'That item changed somewhere else. Copy what you want to keep and reopen it.';
+const CHANGED_ELSEWHERE = 'That item changed somewhere else. Copy what you want to keep and reopen it.';
 
 /** The due date field's one-click shortcuts, in the order they are offered (issue 480). */
 const DUE_DATE_SHORTCUTS: { label: string; dueDate: (now: Date) => string }[] = [
@@ -229,8 +228,7 @@ function TheForm({
       setFixedPresentation(data.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION);
     }
   }, [data, fixedPresentation]);
-  const presentation =
-    fixedPresentation ?? data?.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION;
+  const presentation = fixedPresentation ?? data?.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION;
   const chosenDocked = presentation === 'docked';
   const screenWidth = useScreenWidth();
   /**
@@ -1021,9 +1019,7 @@ function TheForm({
       await commitFields(FIELDS);
       if (unwritten.current.size > 0 && !closeRefused.current) {
         closeRefused.current = true;
-        setRefusal(
-          (was) => `${was ?? 'That could not be saved.'} Close again to leave without it.`,
-        );
+        setRefusal((was) => `${was ?? 'That could not be saved.'} Close again to leave without it.`);
         return;
       }
       onClose();
@@ -1269,7 +1265,7 @@ function TheForm({
                       type="button"
                       role="tab"
                       aria-selected={tab === which}
-                      aria-controls={`${formId}-${which}`}
+                      aria-controls={tab === which ? `${formId}-${which}` : undefined}
                       tabIndex={tab === which ? 0 : -1}
                       onClick={() => setTab(which)}
                       className={`-mb-px border-b-2 px-1 pb-1.5 text-sm font-medium ${
@@ -1329,9 +1325,7 @@ function TheForm({
                                 className="rounded-md border border-black/10 bg-surface px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
                               >
                                 <span className="block font-medium text-ink">{reading.title}</span>
-                                <span className="block text-xs text-ink-faint">
-                                  {reading.meaning}
-                                </span>
+                                <span className="block text-xs text-ink-faint">{reading.meaning}</span>
                               </button>
                             ))}
                           </div>
@@ -1363,9 +1357,7 @@ function TheForm({
                                   onClick={() => openItem(other.id)}
                                   className="flex-1 rounded-md border border-black/10 bg-surface px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
                                 >
-                                  <span className="block font-medium text-ink">
-                                    {itemLabel(other)}
-                                  </span>
+                                  <span className="block font-medium text-ink">{itemLabel(other)}</span>
                                 </button>
                                 {/* About this pair, not about either note ("Say a
                                   flagged pair is not a duplicate", issue 408) - it
@@ -1687,9 +1679,7 @@ function TheForm({
                           </code>
                           <button
                             type="button"
-                            onClick={() =>
-                              void navigator.clipboard.writeText(item.id).catch(() => {})
-                            }
+                            onClick={() => void navigator.clipboard.writeText(item.id).catch(() => {})}
                             className="shrink-0 rounded-md border border-black/10 px-2 py-1 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
                           >
                             Copy
