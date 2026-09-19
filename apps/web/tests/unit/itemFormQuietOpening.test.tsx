@@ -70,7 +70,7 @@ const switching = async (keepFocus: boolean, settle = false) => {
 
 describe('Item editing', () => {
   describe('a form opened by a switch that keeps the keyboard where it is', () => {
-    it('is told so on the render that is committed, and again if React reads it a second time', async () => {
+    it('is told so on the render that is committed, and again if asked a second time before it settles', async () => {
       await switching(true);
 
       expect(screen.getByText('opened quietly')).toBeInTheDocument();

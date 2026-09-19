@@ -1177,7 +1177,7 @@ describe('Item editing', () => {
     // A note that really is gone stays gone: an unrelated refetch of the
     // snapshot - any command, any collaborator's change - must not flicker it
     // back to "Opening…" (found in review).
-    it('does not go back to opening on a later refetch, for a note that is really gone', async () => {
+    it('does not go back to opening on a later re-read, for a note that is really gone', async () => {
       held.items = [anItem()];
       held.openItemId = 'item-2';
       held.quietly = true;
