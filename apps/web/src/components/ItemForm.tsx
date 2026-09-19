@@ -205,7 +205,7 @@ export function ItemForm() {
  *  padding around the buttons that sit closest to it. */
 const RESIZE_CORNER = 16;
 
-/** The dialog's own default size, unclamped - `48rem`/`44rem`
+/** The dialog's own default size, unclamped - `56rem`/`46rem`
  *  (`--item-form-w`/`-h`, styles.css) at the browser default root size. The
  *  fallback of last resort for an axis a drag never touched and nothing was
  *  ever remembered for: the *current* render is not it, because on a screen
@@ -216,7 +216,7 @@ const RESIZE_CORNER = 16;
  *  `--item-form-max-w`/`-h` - a real ceiling above this default, issue 480)
  *  to answer that question fresh on every open the way it already does for
  *  the axis that did move. */
-const DEFAULT_SIZE: Size = { width: 768, height: 704 };
+const DEFAULT_SIZE: Size = { width: 896, height: 736 };
 
 /** The narrowest a screen still counts as "a desk", the same breakpoint the
  *  centered dialog's own native resize handle is already gated on, below -
@@ -1167,10 +1167,21 @@ function TheForm({
                       this whole section now carries it too - `overflow-y-auto`
                       would otherwise clip the Priority/Due date fields' own
                       `focus:ring-2` at the edges they're flush against. */}
-                  <div className="-mx-1 flex min-h-0 flex-col gap-4 overflow-y-auto px-1 @lg:w-60 @lg:shrink-0">
+                  {/* **`contents` until the two columns exist.** Stacked, this
+                      wrapper draws nothing of its own, so its two halves - the
+                      short fields and the attachments - join the description
+                      as siblings and are put in the order a person reads them
+                      (fields, description, then files) with `order-*`, rather
+                      than the files coming ahead of the text they are only
+                      attached to. From `@lg` it is the sidebar again, and each
+                      child's order is put back to the source order. */}
+                  <div className="-mx-1 contents min-h-0 flex-col gap-4 overflow-y-auto px-1 @lg:flex @lg:w-72 @lg:shrink-0">
                     {/* Priority and due date share a row (issue 480). */}
-                    <div className="flex gap-3">
-                      <label className="block flex-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                    <div className="order-1 flex gap-3 @lg:order-none">
+                      {/* A width of its own rather than half the row: the
+                          longest label, "Normal", was clipped to "Nor" at the
+                          half a 240px sidebar left it. */}
+                      <label className="block w-30 shrink-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
                         Priority
                         <select
                           disabled={saving}
@@ -1192,7 +1203,7 @@ function TheForm({
                         </select>
                       </label>
 
-                      <div className="flex-1">
+                      <div className="min-w-0 flex-1">
                         <label className="block text-xs font-semibold uppercase tracking-wide text-ink-faint">
                           Due date
                           <input
@@ -1229,7 +1240,7 @@ function TheForm({
                         ("Attach a file to an item", issue 441) - added by button
                         or drag-and-drop, drawn as a chip, opened or downloaded by
                         a click on it. */}
-                    <div>
+                    <div className="order-3 @lg:order-none">
                       <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
                         Attachments
                       </p>
@@ -1352,16 +1363,16 @@ function TheForm({
                       Fills whatever height the form has, rather than shrinking
                       to fit only what it holds (issue 480).
                       `min-h-40` rather than `min-h-0`: below `@lg`, this column
-                      and the sidebar beside it (issue 480, its own comment)
-                      compete for the same vertical space, and a `flex-1 1 0%`
-                      column has nothing to shrink *from* - a tall enough
-                      Attachments list took the sidebar down to its own floor
-                      and left this at a genuine zero, rather than merely
-                      short, with no way to reach the description at all
+                      and the fields and files stacked around it (issue 480,
+                      its own comment) compete for the same vertical space, and
+                      a `flex-1 1 0%` column has nothing to shrink *from* - a
+                      tall enough Attachments list took the sidebar down to its
+                      own floor and left this at a genuine zero, rather than
+                      merely short, with no way to reach the description at all
                       (found in review). A floor a couple of lines tall keeps
                       it visible; the wrapper above scrolls the rest into
                       view. */}
-                  <div className="flex min-h-40 flex-1 flex-col">
+                  <div className="order-2 flex min-h-40 flex-1 flex-col @lg:order-none">
                     <DescriptionBox
                       resetKey={readingPicked}
                       value={draft.description}

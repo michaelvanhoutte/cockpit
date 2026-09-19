@@ -875,6 +875,89 @@ test.describe('Item editing', () => {
 
       expect(await sideBySide(), 'one column once the dialog itself is narrow').toBe(false);
     });
+
+    /**
+     * Stacked, the files used to come ahead of the description - the order
+     * the two columns happened to be written in - which put text a person is
+     * here to write below a list of files they are only attaching to it
+     * (found using the docked form, which is narrow enough to stack).
+     */
+    test('reads the fields, then the description, then the files, once stacked', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'resizing is a pointer gesture');
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Stacked order');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+      await theEditorIsThere(page);
+
+      const box = (await form(page).boundingBox())!;
+      const grip = { x: box.x + box.width - 6, y: box.y + box.height - 6 };
+      await page.mouse.move(grip.x, grip.y);
+      await page.mouse.down();
+      await page.mouse.move(grip.x - 400, grip.y, { steps: 8 });
+      await page.mouse.up();
+
+      const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
+      const files = form(page).getByText('Attachments', { exact: true });
+      const priority = (await priorityBox(page).boundingBox())!;
+      const description = (await toolbar.boundingBox())!;
+      const attached = (await files.boundingBox())!;
+      expect(priority.y, 'the short fields come first').toBeLessThan(description.y);
+      expect(description.y, 'then the description, ahead of the files').toBeLessThan(attached.y);
+    });
+  });
+
+  /**
+   * F3, because a size that is enough is a claim about real text in a real
+   * font in a real box: "Normal", the longest priority, was clipped to
+   * "Nor" at the half of a 240px sidebar it was given, which no jsdom
+   * layout can measure.
+   */
+  test.describe('the form opens big enough for what is in it', () => {
+    test('opens wide, and wide enough for the priority to say its longest choice in full', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'a phone opens the form at the screen’s own size');
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Opens big enough');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      const box = (await form(page).boundingBox())!;
+      expect(Math.round(box.width), 'the default width, up from the 768px it opened at').toBe(896);
+
+      // The room a choice has is the box less its own padding, border and
+      // the native arrow - measured against the widest label it has to hold,
+      // in the font the box is actually drawn in.
+      const { widest, room } = await priorityBox(page).evaluate((element) => {
+        const select = element as HTMLSelectElement;
+        const style = getComputedStyle(select);
+        const probe = document.createElement('span');
+        probe.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;font:${style.font}`;
+        document.body.appendChild(probe);
+        let widest = 0;
+        for (const option of Array.from(select.options)) {
+          probe.textContent = option.text;
+          widest = Math.max(widest, probe.getBoundingClientRect().width);
+        }
+        probe.remove();
+        const room =
+          select.getBoundingClientRect().width -
+          parseFloat(style.paddingLeft) -
+          parseFloat(style.paddingRight) -
+          parseFloat(style.borderLeftWidth) -
+          parseFloat(style.borderRightWidth);
+        return { widest, room };
+      });
+      const ARROW = 24;
+      expect(room - ARROW, 'the widest priority fits beside the native arrow').toBeGreaterThanOrEqual(widest);
+    });
   });
 
   /**

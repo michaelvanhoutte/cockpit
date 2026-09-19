@@ -144,8 +144,8 @@
  * already allows for.
  */
 :root {
-  --item-form-w: min(48rem, calc(100vw - 2rem));
-  --item-form-h: min(44rem, calc(100vh - 2rem - 2 * max(var(--edge-top), var(--edge-bottom))));
+  --item-form-w: min(56rem, calc(100vw - 2rem));
+  --item-form-h: min(46rem, calc(100vh - 2rem - 2 * max(var(--edge-top), var(--edge-bottom))));
   --item-form-max-w: min(72rem, calc(100vw - 2rem));
   --item-form-max-h: min(56rem, calc(100vh - 2rem - 2 * max(var(--edge-top), var(--edge-bottom))));
 }
