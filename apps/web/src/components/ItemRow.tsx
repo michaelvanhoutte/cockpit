@@ -14,6 +14,7 @@ import { isCutOff } from '../cutOff';
 import { dueColorOf, dueDateLabel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { HOLD_MS, stillHolding } from '../hold';
+import { openableAtSource } from '../itemSource';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
@@ -306,6 +307,7 @@ export function ItemRow({
 
   /** The best label this Item has, worked out once for the two places the row draws it. */
   const label = itemLabel(item);
+  const atSource = openableAtSource(item);
   /** What "also in…" reads, whole - the same sentence the tooltip spells out when the row has cut it. */
   const alsoInText = alsoIn.length > 0 ? `also in ${alsoIn.join(', ')}` : null;
 
@@ -405,7 +407,7 @@ export function ItemRow({
       // row, so no pointerup ever arrived to end it and the row stayed shifted
       // sideways. The tick is a control for the same reason: picking a row out
       // is not a gesture across it.
-      if ((event.target as Element).closest('button, input')) return;
+      if ((event.target as Element).closest('a, button, input')) return;
       // One finger swipes; a second one landing on the row is ignored rather
       // than taken for the first - and must not reset `held` out from under
       // it: a second finger touching down after the first's hold has already
@@ -518,7 +520,7 @@ export function ItemRow({
         if (!selecting) return;
         const hit = event.target as Node;
         if (!event.currentTarget.contains(hit)) return;
-        if ((hit as Element).closest?.('button')) return;
+        if ((hit as Element).closest?.('a, button')) return;
         if (held.current) return;
         if (event.shiftKey || event.ctrlKey || event.metaKey) {
           selecting.onPick(event.shiftKey);
@@ -551,7 +553,7 @@ export function ItemRow({
       onDoubleClick={(event) => {
         const hit = event.target as Node;
         if (!event.currentTarget.contains(hit)) return;
-        if ((hit as Element).closest?.('button')) return;
+        if ((hit as Element).closest?.('a, button')) return;
         onOpen?.();
       }}
       onDragStart={(event) => {
@@ -752,6 +754,23 @@ export function ItemRow({
               {item.source === 'internal' ? 'Own' : item.source}
               {item.sender ? ` · ${item.sender}` : ''}
             </span>
+            {/* The way back to the original, where the source gave one ("Open an
+                Item at its source", issue 487). A real link in a new tab, and
+                one of the controls the row's own handlers step aside for -
+                `closest('a, …')` above - so following it neither picks the row
+                nor opens its form. */}
+            {atSource && (
+              <a
+                href={atSource.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`Open in ${atSource.name}`}
+                aria-label={`Open in ${atSource.name}`}
+                className="shrink-0 underline"
+              >
+                Open ↗
+              </a>
+            )}
             {/* That this row is not this workspace's own ("Capture something
                 before you know which workspace it belongs to", issue 165). Said
                 in words rather than as a colour or an icon, because it is the one
@@ -832,6 +851,16 @@ export function ItemRow({
                 }}
               >
                 Open
+              </DropdownMenu.Item>
+            )}
+            {/* An `<a>` rather than a select handler, so it is a real link the
+                browser opens in a new tab and not a script opening one; Radix
+                closes the menu on its own selection either way. */}
+            {atSource && (
+              <DropdownMenu.Item asChild className={menuItemClass}>
+                <a href={atSource.link} target="_blank" rel="noopener noreferrer">
+                  Open in {atSource.name}
+                </a>
               </DropdownMenu.Item>
             )}
             {/* The common case in one press ("Capture something before you know

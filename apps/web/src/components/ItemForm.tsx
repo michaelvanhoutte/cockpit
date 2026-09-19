@@ -33,6 +33,7 @@ import { possibleDuplicatesOf } from '../duplicates';
 import { dueComingFriday, dueSevenDaysOut, dueToday } from '../dueDateShortcuts';
 import { filingsThatFile } from '../filing';
 import { useItemForm, useOpenItem } from '../itemForm';
+import { openableAtSource } from '../itemSource';
 import { useUndo } from '../undo';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
@@ -238,6 +239,7 @@ function TheForm({
   const offerToUndo = useUndo();
   const openItem = useOpenItem();
   const item = data?.items.find((candidate) => candidate.id === itemId);
+  const atSource = item ? openableAtSource(item) : null;
 
   /**
    * Centered or docked to the side ("Let the item's form dock to the side of
@@ -1032,6 +1034,27 @@ function TheForm({
                     className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
                   />
                 </label>
+
+                {/* Where this came from, and the way back to it ("Open an Item
+                    at its source", issue 487). Only for an Item that has both a
+                    source and a link to it, the same test the row and its menu
+                    apply. A record with one link in it, so no more prominent
+                    than the row's own. */}
+                {atSource && (
+                  <p className="mt-2 shrink-0 text-xs text-ink-faint">
+                    From {atSource.name}
+                    {item.sender ? ` - ${item.sender}` : ''}
+                    {' · '}
+                    <a
+                      href={atSource.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent-deep underline"
+                    >
+                      Open in {atSource.name}
+                    </a>
+                  </p>
+                )}
 
                 {/* Readings and duplicates both need a decision, so both sit
                     in one banner directly under the title rather than being

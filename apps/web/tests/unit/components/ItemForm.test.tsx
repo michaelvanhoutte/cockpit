@@ -1014,6 +1014,34 @@ describe('Item editing', () => {
     });
   });
 
+  /** "Open an Item at its source", issue 487. */
+  describe('the form says where an item came from and offers the way back to it', () => {
+    const link = 'https://teams.example/l/message/1';
+
+    it('names the source and sender, and opens the original in a new tab', async () => {
+      await theForm(anItem({ source: 'teams', sender: 'Anna', sourceLink: link }));
+
+      expect(screen.getByText(/From Microsoft Teams - Anna/)).toBeInTheDocument();
+      const opener = screen.getByRole('link', { name: 'Open in Microsoft Teams' });
+      expect(opener).toHaveAttribute('href', link);
+      expect(opener).toHaveAttribute('target', '_blank');
+    });
+
+    it.each([
+      { situation: 'an item of your own', item: { sender: 'Anna', sourceLink: link } },
+      { situation: 'a source that never gave a link', item: { source: 'teams' as const, sender: 'Anna' } },
+      {
+        situation: 'a link that is not a web address',
+        item: { source: 'teams' as const, sender: 'Anna', sourceLink: 'javascript:alert(1)' },
+      },
+    ])('says nothing for $situation', async ({ item }) => {
+      await theForm(anItem(item));
+
+      expect(screen.queryByText(/^From /)).toBeNull();
+      expect(screen.queryByRole('link')).toBeNull();
+    });
+  });
+
   describe('what was captured is there when you look for it, and not before', () => {
     it('keeps it shut until it is asked for, and never lets it be typed in', async () => {
       const user = await theForm();

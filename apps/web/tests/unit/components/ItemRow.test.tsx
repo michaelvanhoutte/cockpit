@@ -1077,6 +1077,100 @@ describe('Capture', () => {
       expect(onMoveHere).toHaveBeenCalled();
     });
   });
+
+  /**
+   * F1: which surfaces carry the link, and that following it leaves the row's
+   * own handling alone ("Open an Item at its source", issue 487). That a click
+   * on a real anchor opens a new tab is the browser's, so what is asserted is
+   * that it is one, with `target="_blank"`.
+   */
+  describe('an item that came from somewhere offers to open it there, and one that did not does not', () => {
+    const teams = { source: 'teams' as const, sourceLink: 'https://teams.example/l/message/1' };
+
+    it.each([
+      { situation: 'from Teams with a link', item: teams, offered: true },
+      { situation: 'from Teams with no link', item: { source: 'teams' as const }, offered: false },
+      { situation: 'an item of your own', item: {}, offered: false },
+      // A stored link is any URL the schema parses; only a web address is ever
+      // drawn as one.
+      {
+        situation: 'from Teams with a link that is not a web address',
+        item: { source: 'teams' as const, sourceLink: 'javascript:alert(1)' },
+        offered: false,
+      },
+    ])('$situation', async ({ item, offered }) => {
+      const user = userEvent.setup();
+      aRow({ item: anItem(item), onOpen: vi.fn() });
+
+      expect(screen.queryByRole('link', { name: 'Open in Microsoft Teams' }) !== null).toBe(offered);
+
+      await user.click(screen.getByLabelText('Item actions'));
+
+      expect(screen.queryByRole('menuitem', { name: 'Open in Microsoft Teams' }) !== null).toBe(offered);
+    });
+
+    it.each([
+      { where: 'the row', find: () => screen.getByRole('link', { name: 'Open in Microsoft Teams' }) },
+      {
+        where: 'the menu',
+        find: async () => {
+          await userEvent.setup().click(screen.getByLabelText('Item actions'));
+          return screen.findByRole('menuitem', { name: 'Open in Microsoft Teams' });
+        },
+      },
+    ])('opens the original in a new tab from $where', async ({ find }) => {
+      aRow({ item: anItem(teams) });
+
+      const link = await find();
+
+      expect(link).toHaveAttribute('href', teams.sourceLink);
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    });
+
+    it('does not also pick the row out or open its form when the row\'s own link is followed', async () => {
+      const user = userEvent.setup();
+      const onPick = vi.fn();
+      const onEndSelection = vi.fn();
+      const onOpen = vi.fn();
+      aRow({
+        item: anItem(teams),
+        onOpen,
+        selecting: { picked: false, revealed: true, onPick, onEndSelection },
+      });
+      const link = screen.getByRole('link', { name: 'Open in Microsoft Teams' });
+
+      await user.click(link);
+      await user.keyboard('{Control>}');
+      await user.click(link);
+      await user.dblClick(link);
+
+      expect(onPick).not.toHaveBeenCalled();
+      expect(onEndSelection).not.toHaveBeenCalled();
+      expect(onOpen).not.toHaveBeenCalled();
+    });
+
+    it('is not the start of a swipe when a finger lands on the row\'s own link', () => {
+      const { mutate } = aRow({ item: anItem(teams) });
+      const link = screen.getByRole('link', { name: 'Open in Microsoft Teams' });
+
+      fireEvent.pointerDown(link, { pointerType: 'touch', pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerUp(link, { pointerType: 'touch', pointerId: 1, clientX: -past, clientY: 0 });
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('does not also open the form when the menu\'s Open in the source is chosen', async () => {
+      const user = userEvent.setup();
+      const onOpen = vi.fn();
+      aRow({ item: anItem(teams), onOpen });
+
+      await user.click(screen.getByLabelText('Item actions'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Open in Microsoft Teams' }));
+
+      expect(onOpen).not.toHaveBeenCalled();
+    });
+  });
 });
 
 /**
