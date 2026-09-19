@@ -223,6 +223,15 @@ const api = start(
     'MS_CLIENT_SECRET:no-secret-is-needed-to-talk-to-the-stub',
     '--var',
     'CONNECTOR_CREDENTIAL_KEY:Y29ja3BpdC1lMmUtY29ubmVjdG9yLWtleS0wMDAwMDA=',
+    // The bot a saved Teams message is signed for, and the stub's own keys to
+    // check it against - scripts/dev.mjs passes the same pair for the same
+    // reason ("Save a Teams message to Cockpit", issue 486). It is what lets a
+    // walk have an Item that came from Teams to open at its source ("Open an
+    // Item at its source", issue 487).
+    '--var',
+    'MS_BOT_APP_ID:cockpit-e2e-bot',
+    '--var',
+    `BOT_FRAMEWORK_METADATA_URL:${issuer.origin}/botframework/.well-known/openidconfiguration`,
     // Set, because a walk about continuing as a guest needs the environment to
     // offer it. That it is *absent* somewhere - which is what refuses the route
     // on staging - is held one tier down, where taking a variable away is a
