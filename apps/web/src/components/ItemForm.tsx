@@ -725,7 +725,7 @@ function TheForm({
    * Says how much of the right edge the docked form covers, so the bar that
    * offers to undo a field it has just written (`undo.tsx`) is centred in the
    * page left over rather than laid across the form's own footer - which
-   * docked is where every such offer is about (issue 483).
+   * docked is where every such offer is about.
    */
   useEffect(() => {
     if (!docked) return;
@@ -852,45 +852,13 @@ function TheForm({
     };
 
     try {
-      if (
-        changed.title !== undefined &&
-        !(await landed('title', {
-          name: 'set_title',
-          payload: { ...envelope(), title: changed.title },
-        }))
-      ) {
-        setRefusal('That item changed somewhere else. Copy what you want to keep and reopen it.');
-        return;
-      }
-      if (
-        changed.description !== undefined &&
-        !(await landed('description', {
-          name: 'set_description',
-          payload: { ...envelope(), description: changed.description },
-        }))
-      ) {
-        setRefusal('That item changed somewhere else. Copy what you want to keep and reopen it.');
-        return;
-      }
-      if (
-        changed.priority !== undefined &&
-        !(await landed('priority', {
-          name: 'set_priority',
-          payload: { ...envelope(), priority: changed.priority },
-        }))
-      ) {
-        setRefusal('That item changed somewhere else. Copy what you want to keep and reopen it.');
-        return;
-      }
-      if (
-        changed.dueDate !== undefined &&
-        !(await landed('dueDate', {
-          name: 'set_due_date',
-          payload: { ...envelope(), dueDate: changed.dueDate },
-        }))
-      ) {
-        setRefusal('That item changed somewhere else. Copy what you want to keep and reopen it.');
-        return;
+      for (const field of FIELDS) {
+        const value = changed[field];
+        if (value === undefined) continue;
+        if (!(await landed(field, fieldCommand(field, envelope(), value)))) {
+          setRefusal(CHANGED_ELSEWHERE);
+          return;
+        }
       }
       onClose();
     } catch (failure) {
