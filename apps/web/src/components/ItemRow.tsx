@@ -12,7 +12,7 @@ import {
 } from '@cockpit/shared';
 import { useCommand, useSendCommand } from '../api/queries';
 import { isCutOff } from '../cutOff';
-import { dueColorOf, dueDateLabel } from '../dueDate';
+import { deadlineOf, dueDateLabel, type DeadlineLevel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { HOLD_MS, stillHolding } from '../hold';
 import { openableAtSource } from '../itemSource';
@@ -37,6 +37,19 @@ const PRIORITY_MARKS: Record<Priority, { label: string; className: string }> = {
   low: { label: 'Low priority', className: 'bg-priority-low' },
   normal: { label: 'Normal priority', className: 'bg-priority-normal' },
   high: { label: 'High priority', className: 'bg-priority-high' },
+};
+
+/**
+ * What each stage of a deadline's pill looks like: a quiet outline within a
+ * week, a soft fill within two days, solid amber on the day, red once passed.
+ * The colours are `--color-due-*` and `--color-over-deep` (styles.css); the red
+ * is the one the swipe reveal already writes white on.
+ */
+const DEADLINE_PILLS: Record<DeadlineLevel, string> = {
+  week: 'border border-due text-due-ink',
+  near: 'bg-due-soft text-due-ink',
+  today: 'bg-due text-due-deep',
+  over: 'bg-over-deep text-white',
 };
 
 /**
@@ -335,23 +348,12 @@ export function ItemRow({
   const priorityMark = item.priority ? PRIORITY_MARKS[item.priority] : undefined;
   const dueDateText = dueDateLabel(item.dueDate);
   /**
-   * How this row is tinted by its own due date ("Colour an action's own
-   * deadline as it approaches, and mark it red once passed", issue 473) -
-   * `Date.now()` the same way `waited` above reads the real clock, with the
-   * ramp itself proved without one in `dueDate.test.ts`.
-   *
-   * `null` while picked, rather than whatever `dueColorOf` would otherwise
-   * say: a row picked out reads as its own colour regardless of its due
-   * date, even an overdue one, since being picked wins over it. Folded in
-   * here rather than checked separately at each mark and line that colours
-   * itself by `dueColor === -1` below - two of them once forced themselves
-   * white over a picked row's own light background by checking that alone,
-   * with nothing excluding a picked row the way the row's own background
-   * just below already did (found in review, twice).
+   * The pill this row wears for how near its due date is - `Date.now()` the
+   * same way `waited` above reads the real clock, with the ladder itself
+   * proved without one in `dueDate.test.ts`. Only the pill carries it: the row
+   * stays ordinary, however overdue.
    */
-  const dueColor = selecting?.picked
-    ? null
-    : dueColorOf(item.dueDate, item.dueDateSetAt, item.createdAt, Date.now());
+  const deadline = deadlineOf(item.dueDate, Date.now());
 
   /**
    * The finger resting on this row, waiting to become a selection ("Start a
@@ -733,36 +735,12 @@ export function ItemRow({
       // somebody had ticked. What the swipe would do is the band below instead,
       // which can say it in words.
       //
-      // **A row picked out wins over its own due colour**, overdue included:
-      // being picked is a transient thing somebody is doing to the row right
-      // now, and a due date is not - `picked` is checked first below, on
-      // purpose, rather than folded into the `-1` comparison. `due-tint`
-      // (styles.css) reads `--due` rather than carrying the
-      // `color-mix` formula itself, written once there rather than once per
-      // row per render - and is the default branch's own class even with no
-      // due date, since its fallback to 0 where the custom property is unset
-      // is already transparent, the same as no class at all.
-      //
-      // **`hover:bg-accent-tint/40` moved off the shared prefix and into the
-      // two branches that want it.** As a `:hover` variant it outranks a
-      // plain class regardless of source order, so left unconditional it
-      // painted an overdue row's own dark red pale on hover while its text
-      // stayed forced white underneath it - unreadable (found in review).
-      //
-      // **An overdue row has a hover of its own, not the shared one**: the
-      // solid red is the whole row, so it lightens (`over-row-hover`) rather
-      // than swapping to a tint the white text could not be read on.
-      className={`group relative touch-pan-y border-b border-black/5 last:border-b-0 pointer-coarse:select-none ${
-        selecting?.picked
-          ? 'bg-accent-tint hover:bg-accent-tint/40'
-          : dueColor === -1
-            ? 'bg-over-row text-white hover:bg-over-row-hover'
-            : 'due-tint hover:bg-accent-tint/40'
+      // **The row's own colour says only whether it is picked.** How near its
+      // deadline is belongs to the pill on the title line, which is why an
+      // overdue row is no longer filled red.
+      className={`group relative touch-pan-y border-b border-black/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
+        selecting?.picked ? 'bg-accent-tint' : ''
       }`}
-      // Set regardless of which of the three classes above actually reads
-      // it: `due-tint` is the only one that does, so `-1` on an overdue row
-      // is as inert here as it is on the picked branch above.
-      style={{ '--due': dueColor ?? 0 } as React.CSSProperties}
     >
       <WhatLettingGoWouldDo across={gone} />
       {/* The row itself, which is what moves: the band above has to stay where
@@ -818,6 +796,17 @@ export function ItemRow({
             >
               {label}
             </span>
+            {/* How near the deadline is, said in words on a pill whose fill gets
+                louder as it closes (`dueDate.ts`'s `deadlineOf`) - the row
+                itself stays as it is. Nothing while it is over a week off. Words
+                as well as colour, so it reads without telling the colours apart. */}
+            {deadline && (
+              <span
+                className={`shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium leading-none ${DEADLINE_PILLS[deadline.level]}`}
+              >
+                {deadline.label}
+              </span>
+            )}
             {/* Every other live Panel or Filter this Item shows on, straight
                 after its title ("Say which other panels an item is also in,
                 after its title", issue 466) - absent wherever `alsoIn` is
@@ -830,7 +819,7 @@ export function ItemRow({
                 title exactly as fast as the title eats into it. */}
             {alsoInText && (
               <span
-                className={`shrink-[99] min-w-0 truncate italic ${dueColor === -1 ? '' : 'text-ink-faint'}`}
+                className="shrink-[99] min-w-0 truncate italic text-ink-faint"
                 onPointerEnter={(event) =>
                   setAlsoInCutOff(
                     isCutOff(event.currentTarget.scrollWidth, event.currentTarget.clientWidth),
@@ -850,7 +839,7 @@ export function ItemRow({
                 titled rather than lettered because it has nothing to spell. */}
             {item.description && (
               <span
-                className={`shrink-0 ${dueColor === -1 ? '' : 'text-ink-faint'}`}
+                className="shrink-0 text-ink-faint"
                 title="Has a description"
                 aria-label="Has a description"
                 role="img"
@@ -868,7 +857,7 @@ export function ItemRow({
                 choice already made. */}
             {itemHasOpenReadings(item) && (
               <span
-                className={`shrink-0 ${dueColor === -1 ? '' : 'text-ink-faint'}`}
+                className="shrink-0 text-ink-faint"
                 title="Reads more than one way"
                 aria-label="Reads more than one way"
                 role="img"
@@ -883,7 +872,7 @@ export function ItemRow({
                 word. */}
             {mayBeADuplicate && (
               <span
-                className={`shrink-0 ${dueColor === -1 ? '' : 'text-ink-faint'}`}
+                className="shrink-0 text-ink-faint"
                 title="Possible duplicate"
                 aria-label="Possible duplicate"
                 role="img"
@@ -896,19 +885,10 @@ export function ItemRow({
               two marks the status used to hold - the dot at the head of the row
               and the first word here - are what the type took ("Capture a thought
               or an action, and see which it is", issue 155). Its own element, so
-              it is a thing on the row rather than part of a sentence.
-
-              This line sets its own muted colour normally, the same as the
-              three marks above and the waited badge further on - so all of
-              them drop it once the row has gone `over-row text-white`
-              (issue 473), reading the row's own white by inheriting it
-              rather than fighting it. The type name nested inside restates
-              `'text-white'` instead of also dropping to inherit it - the two
-              read the same on screen, and only one of the two measured under
-              the bundle budget. */}
-          <span className={`flex min-w-0 gap-1 text-xs ${dueColor === -1 ? '' : 'text-ink-faint'}`}>
+              it is a thing on the row rather than part of a sentence. */}
+          <span className="flex min-w-0 gap-1 text-xs text-ink-faint">
             {itemType && (
-              <span className={`shrink-0 ${dueColor === -1 ? 'text-white' : 'text-accent-deep'}`}>{itemType.name}</span>
+              <span className="shrink-0 text-accent-deep">{itemType.name}</span>
             )}
             <span className="truncate">
               {itemType ? '· ' : ''}
@@ -946,8 +926,8 @@ export function ItemRow({
             )}
             {/* The due date, when one is set - nothing drawn for an item with
                 none, the same convention priority's own mark follows. The
-                text itself stays plain; it is the row around it that
-                colours by proximity (issue 473). */}
+                text itself stays plain; how near it is is the pill on the
+                title line. */}
             {dueDateText && <span className="shrink-0">Due {dueDateText}</span>}
             {/* Cockpit's own proposal, not yet taken - a click is the whole of
                 accepting it, and `title` is where "in your own terms rather
@@ -975,7 +955,7 @@ export function ItemRow({
             sideways as the numbers change under it, and `title` because `14d` is
             short enough to be worth spelling out on hover. */}
         {waited && (
-          <span className={`shrink-0 text-xs tabular-nums ${dueColor === -1 ? '' : 'text-ink-faint'}`} title={`Waiting ${waited}`}>
+          <span className="shrink-0 text-xs tabular-nums text-ink-faint" title={`Waiting ${waited}`}>
             {waited}
           </span>
         )}
