@@ -1296,7 +1296,8 @@ describe('Item editing', () => {
 
     // A switch that is not a click on a row - a capture moving the dock - must
     // leave the keyboard in the box the person is typing in.
-    it('takes the keyboard for the title, unless it was opened keeping it where it is', async () => {
+    it('takes the keyboard for the title, unless a docked form was opened keeping it where it is', async () => {
+      held.itemFormPresentation = 'docked';
       await theForm();
       expect(titleBox()).toHaveFocus();
 
@@ -1304,6 +1305,20 @@ describe('Item editing', () => {
       held.quietly = true;
       await theForm();
       expect(titleBox()).not.toHaveFocus();
+    });
+
+    // Centering it is a switch to a modal dialog, which mounts its content
+    // afresh: the keyboard has to go into it the ordinary way then, or it is
+    // left outside a dialog that has hidden the page (found in review).
+    it('takes the keyboard for the title once a quietly opened form is centered', async () => {
+      held.itemFormPresentation = 'docked';
+      held.quietly = true;
+      const user = await theForm();
+      expect(titleBox()).not.toHaveFocus();
+
+      await user.click(centerButton());
+
+      await waitFor(() => expect(titleBox()).toHaveFocus());
     });
 
     it('tells the rows nothing is docked while the form is centered', async () => {

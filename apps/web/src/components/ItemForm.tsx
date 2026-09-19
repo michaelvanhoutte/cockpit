@@ -1127,7 +1127,7 @@ function TheForm({
           aria-describedby={undefined}
           onOpenAutoFocus={(event) => {
             // A switch that keeps the keyboard where it is (`show`, `keepFocus`).
-            if (openedQuietly) event.preventDefault();
+            if (openedQuietly && docked) event.preventDefault();
           }}
           onInteractOutside={(event) => {
             // Non-modal already keeps a press on the page behind from
@@ -1267,7 +1267,7 @@ function TheForm({
                 <label className="block shrink-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
                   Title
                   <input
-                    autoFocus={!openedQuietly}
+                    autoFocus={!(openedQuietly && docked)}
                     // Both boxes are closed while a save is in flight, for the
                     // reason Cancel and Save are: what is sent is worked out
                     // before the round trip, so a keystroke landing during it
