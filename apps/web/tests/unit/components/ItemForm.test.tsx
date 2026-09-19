@@ -1027,38 +1027,63 @@ describe('Item editing', () => {
       expect(opener).toHaveAttribute('target', '_blank');
     });
 
-    it.each([
-      { situation: 'an item of your own', item: { sender: 'Anna', sourceLink: link } },
-      { situation: 'a source that never gave a link', item: { source: 'teams' as const, sender: 'Anna' } },
-      {
-        situation: 'a link that is not a web address',
-        item: { source: 'teams' as const, sender: 'Anna', sourceLink: 'javascript:alert(1)' },
-      },
-    ])('says nothing for $situation', async ({ item }) => {
-      await theForm(anItem(item));
+    it('says nothing for an item of your own', async () => {
+      await theForm(anItem({ sender: 'Anna', sourceLink: link }));
 
       expect(screen.queryByText(/^From /)).toBeNull();
       expect(screen.queryByRole('link')).toBeNull();
     });
+
+    it.each([
+      { situation: 'a source that never gave a link', sourceLink: null },
+      { situation: 'a link that is not a web address', sourceLink: 'javascript:alert(1)' },
+    ])('names the source but offers no link for $situation', async ({ sourceLink }) => {
+      await theForm(anItem({ source: 'teams' as const, sender: 'Anna', sourceLink }));
+
+      expect(screen.getByText(/From Microsoft Teams - Anna/)).toBeInTheDocument();
+      expect(screen.queryByRole('link')).toBeNull();
+    });
   });
 
-  describe('what was captured is there when you look for it, and not before', () => {
-    it('keeps it shut until it is asked for, and never lets it be typed in', async () => {
+  describe('the technical record is on a tab of its own, and not on the form', () => {
+    it('shows the form first, and the captured message only once Details is asked for', async () => {
       const user = await theForm();
 
+      expect(screen.getByRole('tab', { name: 'Item', selected: true })).toBeInTheDocument();
       expect(screen.queryByText('Ask Novy about part 11')).toBeNull();
 
-      await user.click(screen.getByText('What was captured'));
+      await user.click(screen.getByRole('tab', { name: 'Details' }));
 
       expect(screen.getByText('Ask Novy about part 11')).toBeVisible();
       // A record, not a control: there is no box to put a cursor in.
-      expect(screen.queryByLabelText('What was captured')).toBeNull();
+      expect(screen.queryByLabelText('Captured message')).toBeNull();
     });
 
-    it('says nothing about it where nothing was captured', async () => {
-      await theForm(anItem({ capturedMessage: null }));
+    it('says nothing about a captured message where nothing was captured', async () => {
+      const user = await theForm(anItem({ capturedMessage: null }));
 
-      expect(screen.queryByText('What was captured')).toBeNull();
+      await user.click(screen.getByRole('tab', { name: 'Details' }));
+
+      expect(screen.queryByText('Captured message')).toBeNull();
+    });
+
+    it('keeps what was typed on the form while Details is showing', async () => {
+      const user = await theForm();
+
+      await user.type(screen.getByLabelText('Title'), ' extra');
+      await user.click(screen.getByRole('tab', { name: 'Details' }));
+      await user.click(screen.getByRole('tab', { name: 'Item' }));
+
+      expect(screen.getByLabelText('Title')).toHaveValue(`${anItem().title} extra`);
+    });
+
+    it('moves between the tabs with the arrow keys', async () => {
+      const user = await theForm();
+
+      screen.getByRole('tab', { name: 'Item' }).focus();
+      await user.keyboard('{ArrowRight}');
+
+      expect(screen.getByRole('tab', { name: 'Details', selected: true })).toHaveFocus();
     });
   });
 
@@ -1069,7 +1094,7 @@ describe('Item editing', () => {
    * full, with a way to copy it.
    */
   describe("an item's own id is shown in full, with a way to copy it", () => {
-    it('stays off the form until asked for, then shows the id whole and copies exactly it', async () => {
+    it('stays off the form until Details is asked for, then shows the id whole and copies exactly it', async () => {
       const user = await theForm();
 
       const writeText = vi.fn(() => Promise.resolve());
@@ -1077,32 +1102,13 @@ describe('Item editing', () => {
 
       expect(screen.queryByText('item-1')).toBeNull();
 
-      await user.click(screen.getByRole('button', { name: 'ID' }));
+      await user.click(screen.getByRole('tab', { name: 'Details' }));
 
       expect(screen.getByText('item-1')).toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: 'Copy' }));
 
       expect(writeText).toHaveBeenCalledWith('item-1');
-    });
-
-    /**
-     * Sharing one corner of the footer, the two disclosures share one slot
-     * to open in rather than stacking - opening one is what closes the
-     * other, proved here as wiring; that a press elsewhere in the *form*
-     * also closes one is `tests/e2e/item-editing.test.ts`'s own claim, since
-     * it needs a real Radix `Popover` mounted through a real portal.
-     */
-    it('opening the other footer disclosure closes this one', async () => {
-      const user = await theForm();
-
-      await user.click(screen.getByRole('button', { name: 'ID' }));
-      expect(screen.getByText('item-1')).toBeInTheDocument();
-
-      await user.click(screen.getByText('What was captured'));
-
-      expect(screen.queryByText('item-1')).toBeNull();
-      expect(screen.getByText('Ask Novy about part 11')).toBeVisible();
     });
   });
 

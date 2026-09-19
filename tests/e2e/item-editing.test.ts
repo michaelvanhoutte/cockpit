@@ -113,15 +113,13 @@ test.describe('Item editing', () => {
       // The title box holds what the row was showing, which is the whole of
       // what capture wrote it from: one title, in the one place it is edited.
       await expect(titleBox(page)).toHaveValue(thought);
-      // And what was captured is behind the disclosure as a record, which can
-      // never be edited. Scoped to the disclosure's own group rather than
-      // the form - the panel is portalled to the end of the document, not a
-      // descendant of the dialog, which is what lets it escape its
-      // `overflow-hidden` - and to that group specifically, because the
+      // And what was captured is on the Details tab as a record, which can
+      // never be edited. Scoped to that tab's own panel, because the
       // description's editor writes paragraphs of its own the moment it
       // arrives, which is a race against this line.
-      await press(form(page).getByText('What was captured'), isMobile);
-      await expect(page.getByRole('group').getByRole('paragraph')).toHaveText(thought);
+      await press(form(page).getByRole('tab', { name: 'Details' }), isMobile);
+      await expect(form(page).getByRole('tabpanel').getByText(thought)).toBeVisible();
+      await press(form(page).getByRole('tab', { name: 'Item' }), isMobile);
 
       const named = uniqueTitle('Part 11');
       await titleBox(page).fill(named);
@@ -988,48 +986,27 @@ test.describe('Item editing', () => {
     });
   });
 
-  /**
-   * F3, because whether a press elsewhere actually dismisses one of these -
-   * and only this, never the form under it - is a claim about a real Radix
-   * `Popover` mounted through a real portal, which nothing below the
-   * browser can prove ("Give the item's form more room, and put clutter out
-   * of the way", issue 480).
-   */
-  test.describe('the footer disclosures close on a press elsewhere, and only one is open at a time', () => {
-    test('a press on the title closes it without closing the form, and only one stays open at a time', async ({
+  // F3 only for what JSDOM cannot compute: the form's panel being really
+  // hidden by CSS while Details shows, and really back on returning. What each
+  // tab holds is `ItemForm.test.tsx`'s claim.
+  test.describe('the Details tab takes the place of the fields, and gives it back', () => {
+    test('hides the fields while Details shows and shows them again on Item', async ({
       page,
       isMobile,
     }) => {
       await openInbox(page, isMobile);
-      const thought = uniqueTitle('Footer disclosures dismiss');
+      const thought = uniqueTitle('Details tab');
       await capture(page, thought, isMobile);
       await openItem(page, thought, isMobile);
 
-      // Each disclosure's own panel is portalled to the end of the
-      // document, not a descendant of the dialog - which is what lets it
-      // escape the dialog's own `overflow-hidden` - so it is found on the
-      // page rather than scoped to `form(page)`.
-      await press(form(page).getByRole('button', { name: 'What was captured' }), isMobile);
-      await expect(page.getByRole('group')).toBeVisible();
+      const files = form(page).getByText('Attachments', { exact: true });
+      await expect(files).toBeVisible();
 
-      // A press elsewhere in the form - the title field - closes the panel
-      // without closing the form under it.
-      await press(titleBox(page), isMobile);
-      await expect(titleBox(page)).toHaveValue(thought);
-      await expect(page.getByRole('group')).toHaveCount(0);
+      await press(form(page).getByRole('tab', { name: 'Details' }), isMobile);
+      await expect(files).toBeHidden();
 
-      // Opening the other one closes this one - Radix's own dismissable
-      // layer answers the press that lands on the new trigger by closing
-      // what was open, the same as it would a press anywhere else outside
-      // the panel, rather than also treating that same press as the new
-      // trigger's own - so switching is two presses, not one, and this
-      // asks for both rather than assuming either alone opens the other.
-      await press(form(page).getByRole('button', { name: 'What was captured' }), isMobile);
-      await press(form(page).getByRole('button', { name: 'ID' }), isMobile);
-      await expect(page.getByRole('group')).toHaveCount(0);
-      await press(form(page).getByRole('button', { name: 'ID' }), isMobile);
-      await expect(page.getByRole('group')).toHaveCount(1);
-      await expect(page.getByRole('group').getByRole('button', { name: 'Copy' })).toBeVisible();
+      await press(form(page).getByRole('tab', { name: 'Item' }), isMobile);
+      await expect(files).toBeVisible();
     });
   });
 

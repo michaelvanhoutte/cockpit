@@ -1,14 +1,13 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
 } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import * as Popover from '@radix-ui/react-popover';
 import { useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -17,6 +16,7 @@ import {
   MAX_ATTACHMENT_SIZE,
   TITLE_LENGTH,
   attachmentContentTypeSchema,
+  connectorNamed,
   itemHasOpenReadings,
   itemLabel,
   prioritySchema,
@@ -64,8 +64,7 @@ const DESCRIPTION_LIMIT = 60_000;
  */
 export const DUE_DATE_SETTLES_MS = 600;
 
-const CHANGED_ELSEWHERE =
-  'That item changed somewhere else. Copy what you want to keep and reopen it.';
+const CHANGED_ELSEWHERE = 'That item changed somewhere else. Copy what you want to keep and reopen it.';
 
 /** The due date field's one-click shortcuts, in the order they are offered (issue 480). */
 const DUE_DATE_SHORTCUTS: { label: string; dueDate: (now: Date) => string }[] = [
@@ -91,56 +90,6 @@ function formatFileSize(bytes: number): string {
 interface PendingAttachment {
   id: string;
   filename: string;
-}
-
-/**
- * A small button in the form's footer that reveals a panel of its own above
- * it, for what stays off the form until asked for - what was captured, the
- * item's own id ("Give the item's form more room, and put clutter out of the
- * way", issue 480). Floats over the form rather than growing the footer
- * inline, so opening one never moves Cancel and Save out from under a hand
- * about to press them.
- *
- * **A Radix `Popover`, not a hand-rolled one** (found in review, twice): the
- * panel used to be an in-flow `absolute` child of `Dialog.Content`, which is
- * `overflow-hidden` - a press anywhere else *inside* the dialog never counted
- * as "outside" for a listener scoped to it, and a captured message long
- * enough to need the room got its own top clipped off with no way to scroll
- * to it. `Popover.Portal` renders this outside that box entirely, so Radix's
- * own dismissable layer (a press anywhere outside this panel, `Escape`
- * closing only the innermost open layer rather than the form under it, both
- * for free) and its collision-aware positioning both actually hold.
- */
-function FooterDisclosure({
-  label,
-  open,
-  onOpenChange,
-  children,
-}: {
-  label: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  children: ReactNode;
-}) {
-  return (
-    <Popover.Root open={open} onOpenChange={onOpenChange}>
-      <Popover.Trigger className="rounded-md border border-black/10 px-2 py-1 text-xs font-medium text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink">
-        {label}
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          role="group"
-          side="top"
-          align="start"
-          sideOffset={8}
-          collisionPadding={16}
-          className="z-10 max-h-64 w-72 max-w-[80vw] overflow-y-auto rounded-md border border-black/10 bg-surface p-3 shadow-raised"
-        >
-          {children}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
-  );
 }
 
 /**
@@ -198,16 +147,16 @@ export function whatChanged(
  */
 export function ItemForm() {
   const { openItemId, close } = useItemForm();
-  const { workspaceId } = useParams({ strict: false }) as { workspaceId?: string };
+  const { workspaceId } = useParams({ strict: false }) as {
+    workspaceId?: string;
+  };
 
   if (!openItemId || !workspaceId) return null;
   // Keyed on the item, so going from one item's form straight to another's -
   // a pasted link, a step through history - starts the boxes again from the
   // item now named. Without it the draft is kept across the change and Save
   // writes the first item's text onto the second.
-  return (
-    <TheForm key={openItemId} itemId={openItemId} workspaceId={workspaceId} onClose={close} />
-  );
+  return <TheForm key={openItemId} itemId={openItemId} workspaceId={workspaceId} onClose={close} />;
 }
 
 /** How far into the dialog's own corner a `mousedown` still counts as taking
@@ -378,11 +327,17 @@ function TheForm({
       otherItemId: otherId,
     });
     try {
-      await send({ name: 'set_duplicate_settled', payload: { ...envelope(), settled: true } });
+      await send({
+        name: 'set_duplicate_settled',
+        payload: { ...envelope(), settled: true },
+      });
       offerToUndo({
         what: `"${itemLabel(other)}" is not a duplicate`,
         undo: () =>
-          send({ name: 'set_duplicate_settled', payload: { ...envelope(), settled: false } }),
+          send({
+            name: 'set_duplicate_settled',
+            payload: { ...envelope(), settled: false },
+          }),
       });
     } catch (failure) {
       setRefusal(failure instanceof Error ? failure.message : 'That could not be settled');
@@ -425,7 +380,13 @@ function TheForm({
       const attachmentId = uuidv7();
       setPendingAttachments((was) => [...was, { id: attachmentId, filename: file.name }]);
       try {
-        await uploadAttachment({ itemId, workspaceId, attachmentId, commandId: uuidv7(), file });
+        await uploadAttachment({
+          itemId,
+          workspaceId,
+          attachmentId,
+          commandId: uuidv7(),
+          file,
+        });
       } catch (failure) {
         setAttachmentError(
           failure instanceof Error ? failure.message : `"${file.name}" could not be attached`,
@@ -436,7 +397,10 @@ function TheForm({
     }
     // Once for the whole batch, not once per file - a drop of several files
     // has no reason to re-read the whole workspace that many times.
-    if (accepted.length > 0) await queryClient.invalidateQueries({ queryKey: ['snapshot', workspaceId] });
+    if (accepted.length > 0)
+      await queryClient.invalidateQueries({
+        queryKey: ['snapshot', workspaceId],
+      });
   };
 
   const removeAttachment = async (attachment: Attachment) => {
@@ -625,9 +589,12 @@ function TheForm({
     readItemFormDockedWidth(browserStore()),
   );
   const [dockDragPreview, setDockDragPreview] = useState<number | null>(null);
-  const dockResizingFrom = useRef<
-    { startWidth: number; startX: number; latest: number; pointerId: number } | null
-  >(null);
+  const dockResizingFrom = useRef<{
+    startWidth: number;
+    startX: number;
+    latest: number;
+    pointerId: number;
+  } | null>(null);
   /** Read by the drag's own `pointermove` handler, which is declared once per
    *  drag rather than once per render - the same reason the Inbox column's
    *  own `availableRowWidthRef` is a ref rather than a closed-over value. */
@@ -772,13 +739,14 @@ function TheForm({
   const [readingPicked, setReadingPicked] = useState(0);
 
   /**
-   * Which of the two footer disclosures - what was captured, the item's own
-   * id - is open, or neither. Both stay off the form until asked for and
-   * share one slot rather than one flag each, so opening one closes the
-   * other instead of stacking two panels over the same corner ("Give the
+   * Which tab is showing: the form itself, or the item's technical record -
+   * what was captured, its id, when it was made. The record used to be two
+   * buttons in the footer; a tab is where a person looks for it ("Give the
    * item's form more room, and put clutter out of the way", issue 480).
+   * Starts on the form each time it opens.
    */
-  const [footerOpen, setFooterOpen] = useState<'captured' | 'id' | null>(null);
+  const [tab, setTab] = useState<'item' | 'details'>('item');
+  const formId = useId();
 
   /**
    * The boxes start from the Item and are then the person's own, and what they
@@ -1051,9 +1019,7 @@ function TheForm({
       await commitFields(FIELDS);
       if (unwritten.current.size > 0 && !closeRefused.current) {
         closeRefused.current = true;
-        setRefusal(
-          (was) => `${was ?? 'That could not be saved.'} Close again to leave without it.`,
-        );
+        setRefusal((was) => `${was ?? 'That could not be saved.'} Close again to leave without it.`);
         return;
       }
       onClose();
@@ -1085,11 +1051,6 @@ function TheForm({
         // three discard: Cancel means cancel (functional definition, "Editing
         // more than one field at a time"). Save is what writes, and it is
         // sitting in the form unpressed.
-        //
-        // A footer disclosure's own Escape or outside-press never reaches
-        // here at all - Radix's dismissable layers close only the innermost
-        // open one, so a `Popover` open over this `Dialog` answers for
-        // itself (`FooterDisclosure`).
         if (stillOpen || saving) return;
         if (docked) void closeDocked();
         else onClose();
@@ -1175,7 +1136,10 @@ function TheForm({
             docked
               ? { width: `${dockedWidthPx}px` }
               : remembered
-                ? { width: `${remembered.width}px`, height: `${remembered.height}px` }
+                ? {
+                    width: `${remembered.width}px`,
+                    height: `${remembered.height}px`,
+                  }
                 : undefined
           }
         >
@@ -1253,124 +1217,171 @@ function TheForm({
                   />
                 </label>
 
-                {/* Where this came from, and the way back to it ("Open an Item
-                    at its source", issue 487). Only for an Item that has both a
-                    source and a link to it, the same test the row and its menu
-                    apply. A record with one link in it, so no more prominent
-                    than the row's own. */}
-                {atSource && (
+                {/* Where this came from, and - where the source gave a link -
+                    the way back to it ("Open an Item at its source", issue
+                    487): the same test the row and its menu apply. Above the
+                    tabs so it shows on both. */}
+                {item.source !== 'internal' && (
                   <p className="mt-2 shrink-0 text-xs text-ink-faint">
-                    From {atSource.name}
+                    From {connectorNamed(item.source)}
                     {item.sender ? ` - ${item.sender}` : ''}
-                    {' · '}
-                    <a
-                      href={atSource.link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-accent-deep underline"
-                    >
-                      Open in {atSource.name}
-                    </a>
+                    {atSource && (
+                      <>
+                        {' · '}
+                        <a
+                          href={atSource.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-accent-deep underline"
+                        >
+                          Open in {atSource.name}
+                        </a>
+                      </>
+                    )}
                   </p>
                 )}
 
-                {/* Readings and duplicates both need a decision, so both sit
+                {/* Two tabs, the form and its technical record ("Give the
+                    item's form more room, and put clutter out of the way",
+                    issue 480). The form's panel stays mounted while the record
+                    shows, only hidden, so the editor and whatever is half
+                    typed are still there when the person comes back. */}
+                <div
+                  role="tablist"
+                  aria-label="Item"
+                  className="mt-3 flex shrink-0 gap-4 border-b border-black/10"
+                  onKeyDown={(e) => {
+                    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+                    e.preventDefault();
+                    const next = tab === 'item' ? 'details' : 'item';
+                    setTab(next);
+                    document.getElementById(`${formId}-${next}-tab`)?.focus();
+                  }}
+                >
+                  {(['item', 'details'] as const).map((which) => (
+                    <button
+                      key={which}
+                      id={`${formId}-${which}-tab`}
+                      type="button"
+                      role="tab"
+                      aria-selected={tab === which}
+                      aria-controls={tab === which ? `${formId}-${which}` : undefined}
+                      tabIndex={tab === which ? 0 : -1}
+                      onClick={() => setTab(which)}
+                      className={`-mb-px border-b-2 px-1 pb-1.5 text-sm font-medium ${
+                        tab === which
+                          ? 'border-accent text-ink'
+                          : 'border-transparent text-ink-faint hover:text-ink'
+                      }`}
+                    >
+                      {which === 'item' ? 'Item' : 'Details'}
+                    </button>
+                  ))}
+                </div>
+
+                <div
+                  role="tabpanel"
+                  id={`${formId}-item`}
+                  aria-labelledby={`${formId}-item-tab`}
+                  className={tab === 'item' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
+                >
+                  {/* Readings and duplicates both need a decision, so both sit
                     in one banner directly under the title rather than being
                     buried below attachments ("Give the item's form more
                     room, and put clutter out of the way", issue 480). Drawn
                     only where there is a decision to make - neither shows no
                     banner at all. */}
-                {(openReadings || saidAgain.length > 0) && (
-                  <div className="mt-3 flex max-h-48 shrink-0 flex-col gap-3 overflow-y-auto rounded-md border border-accent-soft/40 bg-accent-tint/50 p-3">
-                    {/* The other ways this note could genuinely be read,
+                  {(openReadings || saidAgain.length > 0) && (
+                    <div className="mt-3 flex max-h-48 shrink-0 flex-col gap-3 overflow-y-auto rounded-md border border-accent-soft/40 bg-accent-tint/50 p-3">
+                      {/* The other ways this note could genuinely be read,
                         offered beside the one already sitting in the two
                         boxes above ("Offer the other readings when a
                         captured note says two things", issue 297). Taking one
                         only fills the boxes - it still has to be saved, the
                         same as typing it in by hand would. */}
-                    {openReadings && (
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                          Reads more than one way
-                        </p>
-                        <div className="mt-1 flex flex-col gap-1.5">
-                          {openReadings.map((reading) => (
-                            <button
-                              key={reading.title}
-                              type="button"
-                              disabled={saving}
-                              onClick={() => {
-                                setDraft({
-                                  ...draft,
-                                  title: reading.title,
-                                  description: reading.description,
-                                });
-                                setReadingPicked((was) => was + 1);
-                                // A choice, not typing: nothing else will
-                                // blur to commit it, so docked it is written
-                                // now, as one thing to undo.
-                                if (docked) void commitFields(['title', 'description']);
-                              }}
-                              className="rounded-md border border-black/10 bg-surface px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
-                            >
-                              <span className="block font-medium text-ink">{reading.title}</span>
-                              <span className="block text-xs text-ink-faint">{reading.meaning}</span>
-                            </button>
-                          ))}
+                      {openReadings && (
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                            Reads more than one way
+                          </p>
+                          <div className="mt-1 flex flex-col gap-1.5">
+                            {openReadings.map((reading) => (
+                              <button
+                                key={reading.title}
+                                type="button"
+                                disabled={saving}
+                                onClick={() => {
+                                  setDraft({
+                                    ...draft,
+                                    title: reading.title,
+                                    description: reading.description,
+                                  });
+                                  setReadingPicked((was) => was + 1);
+                                  // A choice, not typing: nothing else will
+                                  // blur to commit it, so docked it is written
+                                  // now, as one thing to undo.
+                                  if (docked) void commitFields(['title', 'description']);
+                                }}
+                                className="rounded-md border border-black/10 bg-surface px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                              >
+                                <span className="block font-medium text-ink">{reading.title}</span>
+                                <span className="block text-xs text-ink-faint">{reading.meaning}</span>
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
-                    {/* The notes this one may be saying again, each opening
+                      {/* The notes this one may be saying again, each opening
                         its own form ("Flag a captured note that says what
                         another one already said", issue 407). Offered rather
                         than acted on, the way a proposed Panel is: nothing
                         here merges, files or deletes anything, and the two
                         notes go on being two notes until somebody decides
                         otherwise. */}
-                    {saidAgain.length > 0 && (
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                          Possible duplicate of
-                        </p>
-                        <div className="mt-1 flex flex-col gap-1.5">
-                          {saidAgain.map((other) => (
-                            <div key={other.id} className="flex items-stretch gap-1.5">
-                              <button
-                                type="button"
-                                disabled={saving}
-                                // Opening the other one is a change of address, so the
-                                // back button comes back here (`useOpenItem`,
-                                // src/itemForm.tsx) - which is what makes this a link
-                                // between two notes rather than a jump out of one.
-                                onClick={() => openItem(other.id)}
-                                className="flex-1 rounded-md border border-black/10 bg-surface px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
-                              >
-                                <span className="block font-medium text-ink">{itemLabel(other)}</span>
-                              </button>
-                              {/* About this pair, not about either note ("Say a
+                      {saidAgain.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                            Possible duplicate of
+                          </p>
+                          <div className="mt-1 flex flex-col gap-1.5">
+                            {saidAgain.map((other) => (
+                              <div key={other.id} className="flex items-stretch gap-1.5">
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  // Opening the other one is a change of address, so the
+                                  // back button comes back here (`useOpenItem`,
+                                  // src/itemForm.tsx) - which is what makes this a link
+                                  // between two notes rather than a jump out of one.
+                                  onClick={() => openItem(other.id)}
+                                  className="flex-1 rounded-md border border-black/10 bg-surface px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                                >
+                                  <span className="block font-medium text-ink">{itemLabel(other)}</span>
+                                </button>
+                                {/* About this pair, not about either note ("Say a
                                   flagged pair is not a duplicate", issue 408) - it
                                   is the settling that is offered undo, not a change
                                   to what is drawn here. */}
-                              <button
-                                type="button"
-                                disabled={saving}
-                                onClick={() => void settleNotADuplicate(other.id, other)}
-                                title="Not a duplicate"
-                                aria-label="Not a duplicate"
-                                className="rounded-md border border-black/10 bg-surface px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          ))}
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => void settleNotADuplicate(other.id, other)}
+                                  title="Not a duplicate"
+                                  aria-label="Not a duplicate"
+                                  className="rounded-md border border-black/10 bg-surface px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+                      )}
+                    </div>
+                  )}
 
-                {/* Title/priority/due date/attachments beside the
+                  {/* Title/priority/due date/attachments beside the
                     description rather than stacked above it, so the
                     description gets whatever height the form has instead of
                     whatever is left over (issue 480). Stacks back into one
@@ -1378,8 +1389,8 @@ function TheForm({
                     above) - answering to the box actually being dragged and
                     remembered, not to the viewport, which can stay wide while
                     the box itself is dragged down to its own floor. */}
-                <div className="mt-4 flex min-h-0 flex-1 flex-col">
-                  {/* **Three cells written in the order a person reads them -
+                  <div className="mt-4 flex min-h-0 flex-1 flex-col">
+                    {/* **Three cells written in the order a person reads them -
                       the short fields, the description, then the files - which
                       is also the order Tab and a screen reader take, so what is
                       drawn and what is announced never disagree.** Stacked they
@@ -1394,234 +1405,306 @@ function TheForm({
                       rather than being clipped by the dialog's `overflow-hidden`
                       (`-mx-1 … px-1` keeps that scroll from clipping the
                       buttons' `focus:ring-2`). */}
-                  <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(10rem,1fr)_auto] gap-4 @lg:grid-cols-[18rem_minmax(0,1fr)] @lg:grid-rows-[auto_minmax(0,1fr)]">
-                    {/* Priority and due date share a row (issue 480). */}
-                    <div className="flex gap-3 @lg:col-start-1 @lg:row-start-1">
-                      <label className="block flex-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                        Priority
-                        <select
-                          disabled={saving}
-                          value={draft.priority ?? ''}
-                          onChange={(e) => {
-                            setDraft({
-                              ...draft,
-                              priority: (e.target.value || null) as Priority | null,
-                            });
-                            if (docked) void commitFields(['priority']);
-                          }}
-                          className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-                        >
-                          <option value="">None</option>
-                          {prioritySchema.options.map((value) => (
-                            <option key={value} value={value}>
-                              {PRIORITY_LABELS[value]}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <div className="min-w-0 flex-1">
-                        <label className="block text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                          Due date
-                          <input
-                            type="date"
+                    <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(10rem,1fr)_auto] gap-4 @lg:grid-cols-[18rem_minmax(0,1fr)] @lg:grid-rows-[auto_minmax(0,1fr)]">
+                      {/* Priority and due date share a row (issue 480). */}
+                      <div className="flex gap-3 @lg:col-start-1 @lg:row-start-1">
+                        <label className="block flex-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                          Priority
+                          <select
                             disabled={saving}
-                            value={draft.dueDate ?? ''}
+                            value={draft.priority ?? ''}
                             onChange={(e) => {
                               setDraft({
                                 ...draft,
-                                dueDate: e.target.value || null,
+                                priority: (e.target.value || null) as Priority | null,
                               });
-                              if (!docked) return;
-                              if (dueDateSettles.current) clearTimeout(dueDateSettles.current);
-                              // Empty settles like any other value: a native date
-                              // input also reports '' while one segment of a
-                              // complete date is being retyped, which is not a
-                              // clear.
-                              dueDateSettles.current = setTimeout(
-                                () => void settleDueDate(),
-                                DUE_DATE_SETTLES_MS,
-                              );
-                            }}
-                            onBlur={() => {
-                              if (docked) void settleDueDate();
+                              if (docked) void commitFields(['priority']);
                             }}
                             className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-                          />
+                          >
+                            <option value="">None</option>
+                            {prioritySchema.options.map((value) => (
+                              <option key={value} value={value}>
+                                {PRIORITY_LABELS[value]}
+                              </option>
+                            ))}
+                          </select>
                         </label>
-                        {/* One-click alongside typing one directly (issue
+
+                        <div className="min-w-0 flex-1">
+                          <label className="block text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                            Due date
+                            <input
+                              type="date"
+                              disabled={saving}
+                              value={draft.dueDate ?? ''}
+                              onChange={(e) => {
+                                setDraft({
+                                  ...draft,
+                                  dueDate: e.target.value || null,
+                                });
+                                if (!docked) return;
+                                if (dueDateSettles.current) clearTimeout(dueDateSettles.current);
+                                // Empty settles like any other value: a native date
+                                // input also reports '' while one segment of a
+                                // complete date is being retyped, which is not a
+                                // clear.
+                                dueDateSettles.current = setTimeout(
+                                  () => void settleDueDate(),
+                                  DUE_DATE_SETTLES_MS,
+                                );
+                              }}
+                              onBlur={() => {
+                                if (docked) void settleDueDate();
+                              }}
+                              className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                            />
+                          </label>
+                          {/* One-click alongside typing one directly (issue
                             480): today, the coming Friday - never a past one
                             - and seven days out, each measured from the
                             moment the button is pressed and each overriding
                             whatever the field already holds, the same as
                             typing over it would. */}
-                        <div className="mt-1.5 flex flex-wrap gap-1.5">
-                          {DUE_DATE_SHORTCUTS.map(({ label, dueDate }) => (
-                            <button
-                              key={label}
-                              type="button"
-                              disabled={saving}
-                              onClick={() => {
-                                setDraft({
-                                  ...draft,
-                                  dueDate: dueDate(new Date()),
-                                });
-                                if (docked) void settleDueDate();
-                              }}
-                              className="rounded-md border border-black/10 px-2 py-0.5 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
-                            >
-                              {label}
-                            </button>
-                          ))}
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {DUE_DATE_SHORTCUTS.map(({ label, dueDate }) => (
+                              <button
+                                key={label}
+                                type="button"
+                                disabled={saving}
+                                onClick={() => {
+                                  setDraft({
+                                    ...draft,
+                                    dueDate: dueDate(new Date()),
+                                  });
+                                  if (docked) void settleDueDate();
+                                }}
+                                className="rounded-md border border-black/10 px-2 py-0.5 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Formatted, with the Markdown behind it one button away
+                      {/* Formatted, with the Markdown behind it one button away
                         ("Format a description, and edit its source", issue 160).
                         The editor is fetched behind this form rather than on the
                         cold-open path, which is why this is a component and not a
                         box: the states around that fetch are the bulk of it.
                         Fills whatever height the form has, rather than shrinking
                         to fit only what it holds (issue 480). */}
-                    <div
-                      className="flex min-h-0 flex-col @lg:col-start-2 @lg:row-span-2 @lg:row-start-1"
-                      // Left for something outside the description - the Source
-                      // toggle and the editor trade the cursor between them
-                      // without leaving it.
-                      onBlur={(e) => {
-                        if (docked && !e.currentTarget.contains(e.relatedTarget)) {
-                          void commitFields(['description']);
-                        }
-                      }}
-                    >
-                      <DescriptionBox
-                        resetKey={readingPicked}
-                        value={draft.description}
-                        onChange={(description) => setDraft({ ...draft, description })}
-                        editable={!saving}
-                      />
-                    </div>
+                      <div
+                        className="flex min-h-0 flex-col @lg:col-start-2 @lg:row-span-2 @lg:row-start-1"
+                        // Left for something outside the description - the Source
+                        // toggle and the editor trade the cursor between them
+                        // without leaving it.
+                        onBlur={(e) => {
+                          if (docked && !e.currentTarget.contains(e.relatedTarget)) {
+                            void commitFields(['description']);
+                          }
+                        }}
+                      >
+                        <DescriptionBox
+                          resetKey={readingPicked}
+                          value={draft.description}
+                          onChange={(description) => setDraft({ ...draft, description })}
+                          editable={!saving}
+                        />
+                      </div>
 
-                    {/* A screenshot, a scan or a clip the note is really about
+                      {/* A screenshot, a scan or a clip the note is really about
                         ("Attach a file to an item", issue 441) - added by button
                         or drag-and-drop, drawn as a chip, opened or downloaded by
                         a click on it. */}
-                    <div className="@lg:col-start-1 @lg:row-start-2 @lg:-mx-1 @lg:min-h-0 @lg:overflow-y-auto @lg:px-1">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                        Attachments
-                      </p>
-                      <div
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          if (!saving) setAttachmentsDragOver(true);
-                        }}
-                        // `dragleave` fires on every child boundary crossed, not
-                        // only on truly leaving the drop zone - checked against
-                        // where the pointer actually went, so passing over a
-                        // chip or the Add button mid-drag does not flicker the
-                        // highlight off.
-                        onDragLeave={(e) => {
-                          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-                            setAttachmentsDragOver(false);
-                          }
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          setAttachmentsDragOver(false);
-                          if (!saving && e.dataTransfer.files.length > 0) {
-                            void attachFiles(e.dataTransfer.files);
-                          }
-                        }}
-                        className={`mt-1 flex flex-col gap-1.5 rounded-md border border-dashed px-3 py-2 ${
-                          attachmentsDragOver ? 'border-accent bg-accent-tint' : 'border-black/10'
-                        }`}
-                      >
-                        {attachments.map((attachment) => (
-                          <div
-                            key={attachment.id}
-                            className="flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm"
-                          >
-                            <a
-                              href={attachmentUrl(attachment.id)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="flex min-w-0 flex-1 items-center gap-2"
-                            >
-                              {attachment.contentType.startsWith('image/') ? (
-                                <img
-                                  src={attachmentUrl(attachment.id)}
-                                  alt={attachment.filename}
-                                  className="h-8 w-8 shrink-0 rounded object-cover"
-                                />
-                              ) : (
-                                <span className="shrink-0 text-lg" aria-hidden="true">
-                                  📄
-                                </span>
-                              )}
-                              <span className="min-w-0">
-                                <span className="block truncate font-medium text-ink">
-                                  {attachment.filename}
-                                </span>
-                                <span className="block text-xs text-ink-faint">
-                                  {formatFileSize(attachment.size)}
-                                </span>
-                              </span>
-                            </a>
-                            <button
-                              type="button"
-                              disabled={saving}
-                              onClick={() => void removeAttachment(attachment)}
-                              title="Remove"
-                              aria-label={`Remove ${attachment.filename}`}
-                              className="shrink-0 rounded-md border border-black/10 px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ))}
-                        {pendingAttachments.map((pending) => (
-                          <div
-                            key={`pending-${pending.id}`}
-                            className="flex items-center gap-2 rounded-md border border-black/10 px-3 py-2 text-sm text-ink-faint"
-                          >
-                            <span aria-hidden="true">⏳</span>
-                            <span className="min-w-0 flex-1 truncate">{pending.filename}</span>
-                            <span>Attaching…</span>
-                          </div>
-                        ))}
-                        {attachments.length === 0 && pendingAttachments.length === 0 && (
-                          <p className="text-sm text-ink-faint">Drag a file here, or</p>
-                        )}
-                        <button
-                          type="button"
-                          disabled={saving}
-                          onClick={() => attachmentInputRef.current?.click()}
-                          className="self-start rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50"
-                        >
-                          Add
-                        </button>
-                        <input
-                          ref={attachmentInputRef}
-                          type="file"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => {
-                            if (e.target.files && e.target.files.length > 0) {
-                              void attachFiles(e.target.files);
-                            }
-                            e.target.value = '';
-                          }}
-                        />
-                      </div>
-                      {attachmentError && (
-                        <p role="alert" className="mt-1 text-sm text-over">
-                          {attachmentError}
+                      <div className="@lg:col-start-1 @lg:row-start-2 @lg:-mx-1 @lg:min-h-0 @lg:overflow-y-auto @lg:px-1">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                          Attachments
                         </p>
-                      )}
+                        <div
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            if (!saving) setAttachmentsDragOver(true);
+                          }}
+                          // `dragleave` fires on every child boundary crossed, not
+                          // only on truly leaving the drop zone - checked against
+                          // where the pointer actually went, so passing over a
+                          // chip or the Add button mid-drag does not flicker the
+                          // highlight off.
+                          onDragLeave={(e) => {
+                            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                              setAttachmentsDragOver(false);
+                            }
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            setAttachmentsDragOver(false);
+                            if (!saving && e.dataTransfer.files.length > 0) {
+                              void attachFiles(e.dataTransfer.files);
+                            }
+                          }}
+                          className={`mt-1 flex flex-col gap-1.5 rounded-md border border-dashed px-3 py-2 ${
+                            attachmentsDragOver ? 'border-accent bg-accent-tint' : 'border-black/10'
+                          }`}
+                        >
+                          {attachments.map((attachment) => (
+                            <div
+                              key={attachment.id}
+                              className="flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm"
+                            >
+                              <a
+                                href={attachmentUrl(attachment.id)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex min-w-0 flex-1 items-center gap-2"
+                              >
+                                {attachment.contentType.startsWith('image/') ? (
+                                  <img
+                                    src={attachmentUrl(attachment.id)}
+                                    alt={attachment.filename}
+                                    className="h-8 w-8 shrink-0 rounded object-cover"
+                                  />
+                                ) : (
+                                  <span className="shrink-0 text-lg" aria-hidden="true">
+                                    📄
+                                  </span>
+                                )}
+                                <span className="min-w-0">
+                                  <span className="block truncate font-medium text-ink">
+                                    {attachment.filename}
+                                  </span>
+                                  <span className="block text-xs text-ink-faint">
+                                    {formatFileSize(attachment.size)}
+                                  </span>
+                                </span>
+                              </a>
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => void removeAttachment(attachment)}
+                                title="Remove"
+                                aria-label={`Remove ${attachment.filename}`}
+                                className="shrink-0 rounded-md border border-black/10 px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+                          {pendingAttachments.map((pending) => (
+                            <div
+                              key={`pending-${pending.id}`}
+                              className="flex items-center gap-2 rounded-md border border-black/10 px-3 py-2 text-sm text-ink-faint"
+                            >
+                              <span aria-hidden="true">⏳</span>
+                              <span className="min-w-0 flex-1 truncate">{pending.filename}</span>
+                              <span>Attaching…</span>
+                            </div>
+                          ))}
+                          {attachments.length === 0 && pendingAttachments.length === 0 && (
+                            <p className="text-sm text-ink-faint">Drag a file here, or</p>
+                          )}
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => attachmentInputRef.current?.click()}
+                            className="self-start rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                          >
+                            Add
+                          </button>
+                          <input
+                            ref={attachmentInputRef}
+                            type="file"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files.length > 0) {
+                                void attachFiles(e.target.files);
+                              }
+                              e.target.value = '';
+                            }}
+                          />
+                        </div>
+                        {attachmentError && (
+                          <p role="alert" className="mt-1 text-sm text-over">
+                            {attachmentError}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
+
+                {tab === 'details' && (
+                  <div
+                    role="tabpanel"
+                    id={`${formId}-details`}
+                    aria-labelledby={`${formId}-details-tab`}
+                    className="mt-4 min-h-0 flex-1 overflow-y-auto"
+                  >
+                    <dl className="flex flex-col gap-4 text-sm">
+                      {item.capturedMessage && (
+                        <div>
+                          <dt className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                            Captured message
+                          </dt>
+                          {/* A record, not a control: it can never be edited,
+                              so there is no box to put a cursor in. */}
+                          <dd className="mt-1 whitespace-pre-wrap text-ink-soft">
+                            {item.capturedMessage}
+                          </dd>
+                        </div>
+                      )}
+                      <div>
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                          Source
+                        </dt>
+                        <dd className="mt-1 text-ink-soft">
+                          {item.source === 'internal' ? 'Cockpit' : connectorNamed(item.source)}
+                          {item.sender ? ` - ${item.sender}` : ''}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                          ID
+                        </dt>
+                        {/* The item's own id, in full - what a rewrite-history
+                            row identifies this item by, since its title is the
+                            very thing a rewrite changes ("See the history of
+                            what Cockpit proposed for the Inbox's items", issue
+                            444). */}
+                        <dd className="mt-1 flex items-center gap-2">
+                          <code className="min-w-0 flex-1 truncate rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
+                            {item.id}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => void navigator.clipboard.writeText(item.id).catch(() => {})}
+                            className="shrink-0 rounded-md border border-black/10 px-2 py-1 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
+                          >
+                            Copy
+                          </button>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                          Created
+                        </dt>
+                        <dd className="mt-1 text-ink-soft">
+                          {new Date(item.createdAt).toLocaleString()}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                          Last changed
+                        </dt>
+                        <dd className="mt-1 text-ink-soft">
+                          {new Date(item.updatedAt).toLocaleString()}
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                )}
               </div>
             )
           )}
@@ -1639,69 +1722,7 @@ function TheForm({
             </p>
           )}
 
-          <div className="flex shrink-0 items-center justify-between gap-2 pt-4">
-            {/* What was captured and the item's own id, both out of the way
-                until asked for, behind a footer button apiece rather than
-                sitting inline on the form (issue 480). Gated on `draft`, not
-                only on `item`: `item` reads from the snapshot the instant it
-                arrives, a render before the boxes above are filled from it
-                (`draft`'s own `useEffect`) - without this these two buttons
-                would paint a beat before the rest of the form does (found in
-                review). */}
-            {/* Each `onOpenChange` reads `was` rather than assuming which one
-                is open. A real press on the other one's trigger only closes
-                this one - Radix answers that first press as a dismissal of
-                whichever `Popover` is open rather than also that trigger's
-                own open action, so switching takes two presses, not one -
-                but a *programmatic* open and close (`fireEvent`, in
-                `apps/web/tests/unit/components/ItemForm.test.tsx`'s own
-                mutual-exclusion case) can still fire both from what looks
-                like a single interaction, in either order. A plain
-                `isOpen ? key : null` closes unconditionally and can stomp a
-                same-tick open from the other one, leaving neither open
-                (found in review, once written the naive way). */}
-            <div className="flex items-center gap-1.5">
-              {draft && item?.capturedMessage && (
-                <FooterDisclosure
-                  label="What was captured"
-                  open={footerOpen === 'captured'}
-                  onOpenChange={(isOpen) =>
-                    setFooterOpen((was) => (isOpen ? 'captured' : was === 'captured' ? null : was))
-                  }
-                >
-                  {/* A record, not a control: it can never be edited, so there
-                      is no box to put a cursor in. */}
-                  <p className="whitespace-pre-wrap text-sm text-ink-soft">{item.capturedMessage}</p>
-                </FooterDisclosure>
-              )}
-              {draft && item && (
-                // The item's own id, in full - what a rewrite-history row
-                // identifies this item by, since its title is the very
-                // thing a rewrite changes ("See the history of what Cockpit
-                // proposed for the Inbox's items", issue 444).
-                <FooterDisclosure
-                  label="ID"
-                  open={footerOpen === 'id'}
-                  onOpenChange={(isOpen) =>
-                    setFooterOpen((was) => (isOpen ? 'id' : was === 'id' ? null : was))
-                  }
-                >
-                  <div className="flex items-center gap-2">
-                    <code className="min-w-0 flex-1 truncate rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
-                      {item.id}
-                    </code>
-                    <button
-                      type="button"
-                      onClick={() => void navigator.clipboard.writeText(item.id).catch(() => {})}
-                      className="shrink-0 rounded-md border border-black/10 px-2 py-1 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </FooterDisclosure>
-              )}
-            </div>
-
+          <div className="flex shrink-0 items-center justify-end gap-2 pt-4">
             {docked ? (
               // Nothing to save and nothing to discard: each field was written
               // as it was left (`commitFields`), and closing keeps whatever is
