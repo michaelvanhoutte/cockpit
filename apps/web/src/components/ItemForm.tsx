@@ -40,7 +40,7 @@ import {
   type Draft,
   type Field,
 } from '../itemFieldCommands';
-import { useItemForm, useOpenItem, useReportDocked } from '../itemForm';
+import { useItemForm, useOpenItem, useQuietOpening, useReportDocked } from '../itemForm';
 import { openableAtSource } from '../itemSource';
 import { useUndo } from '../undo';
 import { browserStore } from '../lastVisited';
@@ -230,6 +230,8 @@ function TheForm({
   const send = useSendCommand();
   const offerToUndo = useUndo();
   const openItem = useOpenItem();
+  const takeQuietOpening = useQuietOpening();
+  const [openedQuietly] = useState(() => takeQuietOpening(itemId));
   const item = data?.items.find((candidate) => candidate.id === itemId);
   const atSource = item ? openableAtSource(item) : null;
 
@@ -1104,6 +1106,10 @@ function TheForm({
         <Dialog.Content
           ref={setContentEl}
           aria-describedby={undefined}
+          onOpenAutoFocus={(event) => {
+            // A switch that keeps the keyboard where it is (`show`, `keepFocus`).
+            if (openedQuietly) event.preventDefault();
+          }}
           onInteractOutside={(event) => {
             // Non-modal already keeps a press on the page behind from
             // reaching it; this stops Radix reading that same press as a
@@ -1242,7 +1248,7 @@ function TheForm({
                 <label className="block shrink-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
                   Title
                   <input
-                    autoFocus
+                    autoFocus={!openedQuietly}
                     // Both boxes are closed while a save is in flight, for the
                     // reason Cancel and Save are: what is sent is worked out
                     // before the round trip, so a keystroke landing during it

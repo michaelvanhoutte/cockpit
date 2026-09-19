@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -82,14 +83,26 @@ export function useOpenItem(): (itemId: string) => void {
  */
 export interface DockedItem {
   openId: string | null;
-  show: (itemId: string) => void;
+  /**
+   * `keepFocus` leaves the keyboard where it is instead of moving it into the
+   * form, for a switch that was not a click on a row: what a capture moves the
+   * dock to must not take the keyboard from the capture box, or capturing
+   * several notes in a row would break.
+   */
+  show: (itemId: string, options?: { keepFocus?: boolean }) => void;
 }
 const NO_DOCK: DockedItem = { openId: null, show: () => {} };
 export const DockedItemContext = createContext<DockedItem>(NO_DOCK);
 const ReportDocked = createContext<(docked: boolean) => void>(() => {});
+const TakeQuietOpening = createContext<(itemId: string) => boolean>(() => false);
 
 export function useDockedItem(): DockedItem {
   return useContext(DockedItemContext);
+}
+
+/** Whether the form for this Item was asked for with `keepFocus`; true once, for the form that reads it. */
+export function useQuietOpening(): (itemId: string) => boolean {
+  return useContext(TakeQuietOpening);
 }
 
 /** How the form says it is really docked open, for as long as it is. */
@@ -109,11 +122,19 @@ export function OpensItemForms({ children }: { children: ReactNode }) {
   // Replacing rather than pushing: following the rows is one open form
   // changing its Item, so Back leaves the page rather than stepping back
   // through every row that was looked at.
+  const quietFor = useRef<string | null>(null);
   const show = useCallback(
-    (itemId: string) =>
-      void navigate({ to: '.', replace: true, search: (was) => ({ ...was, item: itemId }) }),
+    (itemId: string, options?: { keepFocus?: boolean }) => {
+      quietFor.current = options?.keepFocus ? itemId : null;
+      void navigate({ to: '.', replace: true, search: (was) => ({ ...was, item: itemId }) });
+    },
     [navigate],
   );
+  const takeQuietOpening = useCallback((itemId: string) => {
+    const quiet = quietFor.current === itemId;
+    if (quiet) quietFor.current = null;
+    return quiet;
+  }, []);
   const dock = useMemo(
     () => ({ openId: docked ? (search.item ?? null) : null, show }),
     [docked, search.item, show],
@@ -121,7 +142,9 @@ export function OpensItemForms({ children }: { children: ReactNode }) {
   return (
     <OpenItem.Provider value={open}>
       <ReportDocked.Provider value={setDocked}>
-        <DockedItemContext.Provider value={dock}>{children}</DockedItemContext.Provider>
+        <TakeQuietOpening.Provider value={takeQuietOpening}>
+          <DockedItemContext.Provider value={dock}>{children}</DockedItemContext.Provider>
+        </TakeQuietOpening.Provider>
       </ReportDocked.Provider>
     </OpenItem.Provider>
   );

@@ -1,5 +1,7 @@
+import { useRef } from 'react';
 import { uuidv7 } from '@cockpit/shared';
 import { CommandRefused } from './api/client';
+import { useDockedItem } from './itemForm';
 import { useCommand } from './api/queries';
 
 /**
@@ -93,6 +95,11 @@ export function useCapture(): {
   busy: boolean;
 } {
   const command = useCommand();
+  const dock = useDockedItem();
+  // Read when the answer arrives, not when it was asked for: a dock closed in
+  // between is not one to move.
+  const dockNow = useRef(dock);
+  dockNow.current = dock;
 
   const ask = (what: WhatToCapture, answers: CaptureAnswers) => {
     answers.asking?.();
@@ -114,7 +121,13 @@ export function useCapture(): {
         },
       },
       {
-        onSuccess: () => answers.captured?.(what.typeId, itemId),
+        onSuccess: () => {
+          // With a form docked open, it moves to what was just captured ("Let
+          // the item's form dock to the side of the screen instead of opening
+          // as a dialog", issue 481), leaving the keyboard in the capture box.
+          if (dockNow.current.openId !== null) dockNow.current.show(itemId, { keepFocus: true });
+          answers.captured?.(what.typeId, itemId);
+        },
         /**
          * **The note goes back in the box**, which is the other half of
          * emptying it before the answer comes. A workspace deleted in another

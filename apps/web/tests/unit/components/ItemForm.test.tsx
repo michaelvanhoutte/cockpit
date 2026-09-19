@@ -31,6 +31,7 @@ const held = vi.hoisted(() => ({
   close: vi.fn(),
   open: vi.fn(),
   reportDocked: vi.fn(),
+  quietly: false,
   openItemId: 'item-1' as string | undefined,
 }));
 
@@ -42,6 +43,7 @@ vi.mock('../../../src/itemForm', () => ({
   useItemForm: () => ({ openItemId: held.openItemId, close: held.close }),
   useOpenItem: () => held.open,
   useReportDocked: () => held.reportDocked,
+  useQuietOpening: () => () => held.quietly,
 }));
 
 /**
@@ -196,6 +198,7 @@ beforeEach(() => {
   held.close.mockClear();
   held.open.mockClear();
   held.reportDocked.mockClear();
+  held.quietly = false;
   held.filings = [];
   held.duplicates = [];
   held.attachments = [];
@@ -1222,6 +1225,18 @@ describe('Item editing', () => {
       cleanup();
 
       expect(held.reportDocked).toHaveBeenLastCalledWith(false);
+    });
+
+    // A switch that is not a click on a row - a capture moving the dock - must
+    // leave the keyboard in the box the person is typing in.
+    it('takes the keyboard for the title, unless it was opened keeping it where it is', async () => {
+      await theForm();
+      expect(titleBox()).toHaveFocus();
+
+      cleanup();
+      held.quietly = true;
+      await theForm();
+      expect(titleBox()).not.toHaveFocus();
     });
 
     it('tells the rows nothing is docked while the form is centered', async () => {

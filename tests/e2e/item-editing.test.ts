@@ -1345,6 +1345,44 @@ test.describe('Item editing', () => {
     });
 
     /**
+     * A capture moves the dock to the new note and leaves the keyboard in the
+     * capture box, so a run of notes can be typed one after another: real
+     * focus, and a real dialog that would otherwise take it.
+     */
+    test('follows a capture, and leaves the keyboard in the capture box', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'docking is its own, separate discussion on a phone, by design');
+
+      await openInbox(page, isMobile);
+      const first = uniqueTitle('Capture follow first');
+      const second = uniqueTitle('Capture follow second');
+      await capture(page, first, isMobile);
+      await openItem(page, first, isMobile);
+      await centerIfDocked(page, isMobile);
+
+      try {
+        const docking = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
+        await docking;
+        await expect(titleBox(page)).toHaveValue(first);
+
+        await captureBox(page).fill(second);
+        await captureBox(page).press('Enter');
+
+        await expect(titleBox(page)).toHaveValue(second);
+        await expect(itemRow(page, second)).toHaveAttribute('aria-current', 'true');
+        await expect(captureBox(page)).toBeFocused();
+      } finally {
+        if (!(await form(page).count().catch(() => 0))) {
+          await openItem(page, second, isMobile).catch(() => {});
+        }
+        await putItBackCentered(page, isMobile);
+      }
+    });
+
+    /**
      * "Out of scope" for a phone means "falls back to centered", not
      * "renders anyway" (found in review, on the pull request itself): a
      * jsdom unit test proved the class name changes, but the real product
