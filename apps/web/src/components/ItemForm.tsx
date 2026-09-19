@@ -62,7 +62,7 @@ const DESCRIPTION_LIMIT = 60_000;
  * send, and offer an undo for, dates nobody meant. A picked date or a
  * shortcut is not typed and commits at once.
  */
-const DUE_DATE_SETTLES_MS = 600;
+export const DUE_DATE_SETTLES_MS = 600;
 
 const CHANGED_ELSEWHERE =
   'That item changed somewhere else. Copy what you want to keep and reopen it.';

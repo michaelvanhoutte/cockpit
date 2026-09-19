@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Attachment, Filing, Item, PossibleDuplicate, WorkspaceSnapshot } from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../../../src/api/client';
-import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
+import { DUE_DATE_SETTLES_MS, ItemForm, whatChanged } from '../../../src/components/ItemForm';
 import { dueComingFriday, dueSevenDaysOut, dueToday } from '../../../src/dueDateShortcuts';
 import { THE_BAR_LASTS_MS, UndoWhatJustHappened } from '../../../src/undo';
 
@@ -1345,6 +1345,10 @@ describe('Item editing', () => {
         situation: 'the due date, cleared and then left',
         item: anItem({ dueDate: '2026-09-30' }),
         finish: async (user: ReturnType<typeof userEvent.setup>) => {
+          // Focused first: the title has autofocus, so without this the click
+          // below lands on the box that already holds the cursor and blurs
+          // nothing.
+          await user.click(dueDateBox());
           fireEvent.change(dueDateBox(), { target: { value: '' } });
           await user.click(titleBox());
         },
@@ -1355,7 +1359,11 @@ describe('Item editing', () => {
 
       await finish(user);
 
-      await waitFor(() => expect(sent().map((change) => change.name)).toEqual([expected]));
+      // Inside the due date's own settle time, so a write that only arrives
+      // because a timer ran out is not taken for one made on leaving.
+      await waitFor(() => expect(sent().map((change) => change.name)).toEqual([expected]), {
+        timeout: DUE_DATE_SETTLES_MS - 150,
+      });
       expect(held.close).not.toHaveBeenCalled();
     });
 
@@ -1365,12 +1373,15 @@ describe('Item editing', () => {
       // A date input announces every date the keystrokes so far spell -
       // typing a year passes through 0002, 0020, 0202 - so a write per change
       // would send dates nobody meant.
+      await user.click(dueDateBox());
       fireEvent.change(dueDateBox(), { target: { value: '2026-10-01' } });
       expect(held.send).not.toHaveBeenCalled();
 
-      await user.click(screen.getByLabelText('Title'));
+      await user.click(titleBox());
 
-      await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_due_date']));
+      await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_due_date']), {
+        timeout: DUE_DATE_SETTLES_MS - 150,
+      });
       expect(sent()[0]).toMatchObject({ payload: { dueDate: '2026-10-01' } });
     });
 
