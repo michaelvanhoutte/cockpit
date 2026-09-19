@@ -95,6 +95,7 @@ const NO_DOCK: DockedItem = { openId: null, show: () => {} };
 export const DockedItemContext = createContext<DockedItem>(NO_DOCK);
 const ReportDocked = createContext<(docked: boolean) => void>(() => {});
 const QuietOpening = createContext<(itemId: string) => boolean>(() => false);
+const SettleQuietOpening = createContext<() => void>(() => {});
 
 export function useDockedItem(): DockedItem {
   return useContext(DockedItemContext);
@@ -103,6 +104,11 @@ export function useDockedItem(): DockedItem {
 /** Whether the form for this Item was last asked for with `keepFocus`. */
 export function useQuietOpening(): (itemId: string) => boolean {
   return useContext(QuietOpening);
+}
+
+/** The form saying it has read that, so the flag does not outlive the switch it was made for. */
+export function useSettleQuietOpening(): () => void {
+  return useContext(SettleQuietOpening);
 }
 
 /** How the form says it is really docked open, for as long as it is. */
@@ -135,9 +141,13 @@ export function OpensItemForms({ children }: { children: ReactNode }) {
   );
   // A read that changes nothing, because it is called from a `useState`
   // initializer, which React may run twice under StrictMode and expects to be
-  // pure. What clears the flag is the next request to open a form (`open`,
-  // `show`), so it never outlives the switch it was made for.
+  // pure. What clears the flag is the form settling it once mounted, or the
+  // next request to open a form (`open`, `show`), so it never outlives the
+  // switch it was made for.
   const isQuietOpening = useCallback((itemId: string) => quietFor.current === itemId, []);
+  const settleQuietOpening = useCallback(() => {
+    quietFor.current = null;
+  }, []);
   const dock = useMemo(
     () => ({ openId: docked ? (search.item ?? null) : null, show }),
     [docked, search.item, show],
@@ -146,7 +156,9 @@ export function OpensItemForms({ children }: { children: ReactNode }) {
     <OpenItem.Provider value={open}>
       <ReportDocked.Provider value={setDocked}>
         <QuietOpening.Provider value={isQuietOpening}>
-          <DockedItemContext.Provider value={dock}>{children}</DockedItemContext.Provider>
+          <SettleQuietOpening.Provider value={settleQuietOpening}>
+            <DockedItemContext.Provider value={dock}>{children}</DockedItemContext.Provider>
+          </SettleQuietOpening.Provider>
         </QuietOpening.Provider>
       </ReportDocked.Provider>
     </OpenItem.Provider>

@@ -32,6 +32,7 @@ const held = vi.hoisted(() => ({
   open: vi.fn(),
   reportDocked: vi.fn(),
   quietly: false,
+  settleQuiet: vi.fn(),
   openItemId: 'item-1' as string | undefined,
 }));
 
@@ -44,6 +45,7 @@ vi.mock('../../../src/itemForm', () => ({
   useOpenItem: () => held.open,
   useReportDocked: () => held.reportDocked,
   useQuietOpening: () => () => held.quietly,
+  useSettleQuietOpening: () => held.settleQuiet,
 }));
 
 /**

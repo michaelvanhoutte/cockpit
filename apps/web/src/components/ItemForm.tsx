@@ -40,7 +40,13 @@ import {
   type Draft,
   type Field,
 } from '../itemFieldCommands';
-import { useItemForm, useOpenItem, useQuietOpening, useReportDocked } from '../itemForm';
+import {
+  useItemForm,
+  useOpenItem,
+  useQuietOpening,
+  useReportDocked,
+  useSettleQuietOpening,
+} from '../itemForm';
 import { openableAtSource } from '../itemSource';
 import { useUndo } from '../undo';
 import { browserStore } from '../lastVisited';
@@ -232,6 +238,8 @@ function TheForm({
   const openItem = useOpenItem();
   const isQuietOpening = useQuietOpening();
   const [openedQuietly] = useState(() => isQuietOpening(itemId));
+  const settleQuietOpening = useSettleQuietOpening();
+  useEffect(() => settleQuietOpening(), [settleQuietOpening]);
   const item = data?.items.find((candidate) => candidate.id === itemId);
   const atSource = item ? openableAtSource(item) : null;
 

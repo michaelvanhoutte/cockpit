@@ -50,6 +50,7 @@ vi.mock('@tanstack/react-router', () => ({ useParams: () => ({ workspaceId: 'ws-
 vi.mock('../../../src/itemForm', () => ({
   useReportDocked: () => () => {},
   useQuietOpening: () => () => false,
+  useSettleQuietOpening: () => () => {},
   useItemForm: () => ({
     openItemId: opened.item,
     close: () => {
