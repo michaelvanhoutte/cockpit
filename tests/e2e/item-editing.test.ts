@@ -1073,6 +1073,9 @@ test.describe('Item editing', () => {
       const second = uniqueTitle('Second');
       await openInbox(page, isMobile);
       await makeWorkspace(page, home, isMobile);
+      // Making it only waits for its tab, and the capture below acts on
+      // whichever workspace is on screen until the router has moved.
+      await switchTo(page, home, isMobile);
       const thought = uniqueTitle('Keep docked across dashboards');
       await capture(page, thought, isMobile);
       await openItem(page, thought, isMobile);

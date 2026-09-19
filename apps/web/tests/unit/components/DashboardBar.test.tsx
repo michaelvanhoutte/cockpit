@@ -397,6 +397,22 @@ describe('Dashboards', () => {
       expect(screen.getByRole('link', { name: 'Dashboard 1' })).not.toHaveFocus();
     });
 
+    // "Keep a docked item open across dashboards in the same workspace" (issue
+    // 482): deleting the dashboard you are on moves the workspace on behind
+    // you, and a form docked beside it is not the dashboard's to take along.
+    it('keeps an open item’s form open when the dashboard on screen is the one deleted', async () => {
+      const { user } = showBar(['Dashboard 1', 'Research'], { openDashboardId: 'ws-work-research' });
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Research' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+      await user.click(await screen.findByRole('button', { name: 'Yes, delete Research' }));
+
+      await waitFor(() => expect(wentTo.calls).toHaveLength(1));
+      const [{ to, search }] = wentTo.calls as [{ to: string; search: (was: object) => object }];
+      expect(to).toBe('/w/$workspaceId');
+      expect(search({ item: 'item-1', connected: 'teams' })).toEqual({ item: 'item-1' });
+      expect(search({})).toEqual({});
+    });
+
     it('sends the delete only once the question has been answered', async () => {
       const { mutate, user } = showBar(['Dashboard 1', 'Research']);
       fireEvent.contextMenu(await screen.findByRole('link', { name: 'Research' }));
@@ -619,6 +635,17 @@ describe('Panels', () => {
       expect(wentTo.calls).toEqual([
         expect.objectContaining({ params: { workspaceId: 'ws-work', dashboardId: 'ws-work-research' } }),
       ]);
+    });
+
+    it('keeps an open item’s form open when it goes there', async () => {
+      showBar(['Dashboard 1', 'Research'], { openDashboardId: 'ws-work-dashboard 1' });
+      await screen.findByRole('link', { name: 'Research' });
+
+      restOn('Research', DWELL_MS);
+
+      const [{ search }] = wentTo.calls as [{ search: (was: object) => object }];
+      expect(search({ item: 'item-1', connected: 'teams' })).toEqual({ item: 'item-1' });
+      expect(search({})).toEqual({});
     });
 
     it('starts the dwell over when the drag leaves and comes back', async () => {
