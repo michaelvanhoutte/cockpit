@@ -986,8 +986,11 @@ test.describe('Item editing', () => {
     });
   });
 
-  test.describe('the technical record is on the Details tab', () => {
-    test('shows the id and what was captured there, and the form again on going back', async ({
+  // F3 only for what JSDOM cannot compute: the form's panel being really
+  // hidden by CSS while Details shows, and really back on returning. What each
+  // tab holds is `ItemForm.test.tsx`'s claim.
+  test.describe('the Details tab takes the place of the fields, and gives it back', () => {
+    test('hides the fields while Details shows and shows them again on Item', async ({
       page,
       isMobile,
     }) => {
@@ -996,18 +999,14 @@ test.describe('Item editing', () => {
       await capture(page, thought, isMobile);
       await openItem(page, thought, isMobile);
 
-      await expect(form(page).getByRole('tab', { name: 'Item', selected: true })).toBeVisible();
-      await expect(form(page).getByRole('tab', { name: 'Details' })).toBeVisible();
+      const files = form(page).getByText('Attachments', { exact: true });
+      await expect(files).toBeVisible();
 
       await press(form(page).getByRole('tab', { name: 'Details' }), isMobile);
-      await expect(form(page).getByRole('tabpanel').getByText(thought)).toBeVisible();
-      await expect(form(page).getByRole('button', { name: 'Copy' })).toBeVisible();
-      // The title stays above the tabs; the fields and description go.
-      await expect(titleBox(page)).toBeVisible();
-      await expect(form(page).getByText('Attachments', { exact: true })).toBeHidden();
+      await expect(files).toBeHidden();
 
       await press(form(page).getByRole('tab', { name: 'Item' }), isMobile);
-      await expect(titleBox(page)).toHaveValue(thought);
+      await expect(files).toBeVisible();
     });
   });
 
