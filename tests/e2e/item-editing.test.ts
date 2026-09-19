@@ -1297,6 +1297,54 @@ test.describe('Item editing', () => {
     });
 
     /**
+     * "Let a docked item's form follow the row you click" (issue 481): the
+     * click lands on a real row beside a real dock, and what is typed in the
+     * form on the way out is written by the real unmount - neither of which
+     * jsdom can say.
+     */
+    test('follows a plain click on another row, writing what was typed on the way', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'docking is its own, separate discussion on a phone, by design');
+
+      await openInbox(page, isMobile);
+      const first = uniqueTitle('Follow first');
+      const second = uniqueTitle('Follow second');
+      await capture(page, first, isMobile);
+      await capture(page, second, isMobile);
+      await openItem(page, first, isMobile);
+      await centerIfDocked(page, isMobile);
+
+      try {
+        const docking = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
+        await docking;
+        await expect(titleBox(page)).toHaveValue(first);
+        await expect(itemRow(page, first)).toHaveAttribute('aria-current', 'true');
+
+        const renamed = uniqueTitle('Follow renamed');
+        await titleBox(page).fill(renamed);
+        await itemRow(page, second).click();
+
+        await expect(titleBox(page)).toHaveValue(second);
+        await expect(itemRow(page, second)).toHaveAttribute('aria-current', 'true');
+        // What was typed in the first was written as the form let go of it.
+        await expect(itemRow(page, renamed)).toBeVisible();
+
+        // One open form changing its Item, so Back leaves the page rather
+        // than stepping back through the rows.
+        await page.goBack();
+        await expect(form(page)).toHaveCount(0);
+      } finally {
+        if (!(await form(page).count().catch(() => 0))) {
+          await openItem(page, second, isMobile).catch(() => {});
+        }
+        await putItBackCentered(page, isMobile);
+      }
+    });
+
+    /**
      * "Out of scope" for a phone means "falls back to centered", not
      * "renders anyway" (found in review, on the pull request itself): a
      * jsdom unit test proved the class name changes, but the real product

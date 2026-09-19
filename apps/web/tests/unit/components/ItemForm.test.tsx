@@ -30,6 +30,7 @@ const held = vi.hoisted(() => ({
   send: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
   close: vi.fn(),
   open: vi.fn(),
+  reportDocked: vi.fn(),
   openItemId: 'item-1' as string | undefined,
 }));
 
@@ -40,6 +41,7 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('../../../src/itemForm', () => ({
   useItemForm: () => ({ openItemId: held.openItemId, close: held.close }),
   useOpenItem: () => held.open,
+  useReportDocked: () => held.reportDocked,
 }));
 
 /**
@@ -193,6 +195,7 @@ beforeEach(() => {
   held.send.mockImplementation(() => Promise.resolve({ ok: true as const, applied: true }));
   held.close.mockClear();
   held.open.mockClear();
+  held.reportDocked.mockClear();
   held.filings = [];
   held.duplicates = [];
   held.attachments = [];
@@ -1205,6 +1208,26 @@ describe('Item editing', () => {
 
       expect(dockButton()).toBeVisible();
       expect(screen.getByRole('dialog')).toHaveClass('left-1/2');
+    });
+
+    // "Let a docked item's form follow the row you click" (issue 481): the rows
+    // only follow a form that is really docked, so it says so - and says so no
+    // longer once it is not, whether centered, too narrow to dock, or gone.
+    it('tells the rows it is docked, and that it no longer is once it is gone', async () => {
+      held.itemFormPresentation = 'docked';
+      await theForm();
+
+      expect(held.reportDocked).toHaveBeenLastCalledWith(true);
+
+      cleanup();
+
+      expect(held.reportDocked).toHaveBeenLastCalledWith(false);
+    });
+
+    it('tells the rows nothing is docked while the form is centered', async () => {
+      await theForm();
+
+      expect(held.reportDocked).not.toHaveBeenCalledWith(true);
     });
 
     it('opens docked where the account has chosen it, offering to center it', async () => {

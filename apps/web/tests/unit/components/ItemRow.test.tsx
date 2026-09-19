@@ -6,6 +6,7 @@ import { ItemRow } from '../../../src/components/ItemRow';
 import { HOLD_DRIFT_PX, HOLD_MS } from '../../../src/hold';
 import { SWIPE_THRESHOLD_PX } from '../../../src/swipe';
 import { UndoWhatJustHappened } from '../../../src/undo';
+import { DockedItemContext, type DockedItem } from '../../../src/itemForm';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
 
 vi.mock('../../../src/api/queries', () => ({
@@ -77,6 +78,7 @@ function aRow({
   mayBeADuplicate,
   onSettleNotADuplicate,
   alsoIn,
+  dock,
 }: {
   settles?: boolean;
   onMoveTo?: (from: HTMLElement | null) => void;
@@ -94,6 +96,7 @@ function aRow({
   mayBeADuplicate?: boolean;
   onSettleNotADuplicate?: () => void;
   alsoIn?: readonly string[];
+  dock?: DockedItem;
 } = {}) {
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (settles) options?.onSuccess?.();
@@ -118,12 +121,17 @@ function aRow({
       />
     </UndoWhatJustHappened>
   );
-  const { rerender } = render(rendered(selecting));
+  const withDock = (node: React.ReactNode) => (
+    <DockedItemContext.Provider value={dock ?? { openId: null, show: () => {} }}>
+      {node}
+    </DockedItemContext.Provider>
+  );
+  const { rerender } = render(withDock(rendered(selecting)));
   return {
     mutate,
     send,
     /** Re-renders the same row with a different `selecting`, in place. */
-    rerenderSelecting: (next: typeof selecting) => rerender(rendered(next)),
+    rerenderSelecting: (next: typeof selecting) => rerender(withDock(rendered(next))),
   };
 }
 
@@ -908,6 +916,83 @@ describe('Item editing', () => {
       await user.unhover(also);
       await hoverLabel(user, also, { scrollWidth: 120, clientWidth: 120 });
       expect(also).not.toHaveAttribute('title');
+    });
+  });
+
+  /** "Let a docked item's form follow the row you click", issue 481. */
+  describe("a docked item's form follows the row that is clicked", () => {
+    it('shows the row in the dock on a plain click', async () => {
+      const user = userEvent.setup();
+      const show = vi.fn();
+      aRow({ dock: { openId: 'item-other', show } });
+
+      await user.click(screen.getByRole('listitem'));
+
+      expect(show).toHaveBeenCalledExactlyOnceWith('item-1');
+    });
+
+    it('marks the row the dock already shows, and does not ask for it again', async () => {
+      const user = userEvent.setup();
+      const show = vi.fn();
+      aRow({ dock: { openId: 'item-1', show } });
+
+      await user.click(screen.getByRole('listitem'));
+
+      expect(screen.getByRole('listitem')).toHaveAttribute('aria-current', 'true');
+      expect(show).not.toHaveBeenCalled();
+    });
+
+    it('opens nothing on a plain click where no form is docked open', async () => {
+      const user = userEvent.setup();
+      const onOpen = vi.fn();
+      aRow({ onOpen });
+
+      await user.click(screen.getByRole('listitem'));
+
+      expect(onOpen).not.toHaveBeenCalled();
+      expect(screen.getByRole('listitem')).not.toHaveAttribute('aria-current');
+    });
+
+    it('leaves a control of the row to itself', async () => {
+      const user = userEvent.setup();
+      const show = vi.fn();
+      aRow({ dock: { openId: 'item-other', show } });
+
+      await user.click(screen.getByLabelText('Item actions'));
+
+      expect(show).not.toHaveBeenCalled();
+    });
+
+    it('still picks the row on a ctrl-click, rather than showing it', async () => {
+      const user = userEvent.setup();
+      const show = vi.fn();
+      const onPick = vi.fn();
+      aRow({
+        dock: { openId: 'item-other', show },
+        selecting: { picked: false, revealed: false, onPick, onEndSelection: () => {} },
+      });
+
+      await user.keyboard('{Control>}');
+      await user.click(screen.getByRole('listitem'));
+      await user.keyboard('{/Control}');
+
+      expect(onPick).toHaveBeenCalledOnce();
+      expect(show).not.toHaveBeenCalled();
+    });
+
+    it('only ends a selection already held on a plain click, and shows nothing', async () => {
+      const user = userEvent.setup();
+      const show = vi.fn();
+      const onEndSelection = vi.fn();
+      aRow({
+        dock: { openId: 'item-other', show },
+        selecting: { picked: false, revealed: true, onPick: () => {}, onEndSelection },
+      });
+
+      await user.click(screen.getByRole('listitem'));
+
+      expect(onEndSelection).toHaveBeenCalledOnce();
+      expect(show).not.toHaveBeenCalled();
     });
   });
 

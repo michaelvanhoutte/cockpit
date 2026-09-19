@@ -40,7 +40,7 @@ import {
   type Draft,
   type Field,
 } from '../itemFieldCommands';
-import { useItemForm, useOpenItem } from '../itemForm';
+import { useItemForm, useOpenItem, useReportDocked } from '../itemForm';
 import { openableAtSource } from '../itemSource';
 import { useUndo } from '../undo';
 import { browserStore } from '../lastVisited';
@@ -1027,6 +1027,15 @@ function TheForm({
       closing.current = false;
     }
   };
+  // Tells the rows a plain click now follows this form ("Let a docked item's
+  // form follow the row you click", issue 481). Cleared on unmount, so a form
+  // that closes - or is replaced by another Item's - leaves nothing claiming a
+  // dock; the replacement reports again in the same commit.
+  const reportDocked = useReportDocked();
+  useEffect(() => {
+    reportDocked(docked);
+    return () => reportDocked(false);
+  }, [docked, reportDocked]);
   const dockedNow = useRef(docked);
   dockedNow.current = docked;
   const commitNow = useRef(commitFields);

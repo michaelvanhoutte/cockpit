@@ -15,6 +15,7 @@ import { isCutOff } from '../cutOff';
 import { dueColorOf, dueDateLabel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { HOLD_MS, stillHolding } from '../hold';
+import { useDockedItem } from '../itemForm';
 import { openableAtSource } from '../itemSource';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useUndo } from '../undo';
@@ -371,6 +372,7 @@ export function ItemRow({
    * unbroken touch, which is the thing `swipe.ts` refuses to let a mouse do.
    */
   const held = useRef(false);
+  const dock = useDockedItem();
   /**
    * Which kind of pointer last pressed down on this row, read back when a
    * click follows - a click carries no `pointerType` of its own, and a plain
@@ -656,12 +658,23 @@ export function ItemRow({
       // with a long press is still the one the browser turns into this click,
       // and `held` is what tells that click apart from a fresh one - without
       // it, the row it had just picked out was toggled straight back off.
+      //
+      // **Except while a form is docked open, where a plain click shows that
+      // row in it** ("Let a docked item's form follow the row you click", issue
+      // 481): the dock is there to be read alongside the lists, and a click is
+      // how a row is asked for. Not over a selection already held, whose plain
+      // click still only ends it, and not with a modifier, which still picks.
       onClick={(event) => {
-        if (!selecting) return;
         const hit = event.target as Node;
         if (!event.currentTarget.contains(hit)) return;
         if ((hit as Element).closest?.('a, button')) return;
         if (held.current) return;
+        const plain = !event.shiftKey && !event.ctrlKey && !event.metaKey;
+        if (plain && dock.openId !== null && !selecting?.revealed) {
+          if (dock.openId !== item.id) dock.show(item.id);
+          return;
+        }
+        if (!selecting) return;
         if (event.shiftKey || event.ctrlKey || event.metaKey) {
           selecting.onPick(event.shiftKey);
           return;
@@ -752,7 +765,10 @@ export function ItemRow({
       // **An overdue row has a hover of its own, not the shared one**: the
       // solid red is the whole row, so it lightens (`over-row-hover`) rather
       // than swapping to a tint the white text could not be read on.
+      aria-current={dock.openId === item.id ? 'true' : undefined}
       className={`group relative touch-pan-y border-b border-black/5 last:border-b-0 pointer-coarse:select-none ${
+        dock.openId === item.id ? 'ring-2 ring-inset ring-accent ' : ''
+      }${
         selecting?.picked
           ? 'bg-accent-tint hover:bg-accent-tint/40'
           : dueColor === -1

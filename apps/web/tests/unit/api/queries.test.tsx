@@ -48,6 +48,7 @@ const opened = vi.hoisted(() => ({ item: undefined as string | undefined }));
 vi.mock('@tanstack/react-router', () => ({ useParams: () => ({ workspaceId: 'ws-work' }) }));
 
 vi.mock('../../../src/itemForm', () => ({
+  useReportDocked: () => () => {},
   useItemForm: () => ({
     openItemId: opened.item,
     close: () => {

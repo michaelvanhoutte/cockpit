@@ -1,4 +1,11 @@
-import { createContext, useCallback, useContext, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 
 /**
@@ -60,14 +67,63 @@ export function useOpenItem(): (itemId: string) => void {
   return useContext(OpenItem);
 }
 
+/**
+ * The Item shown in a docked form, if one is docked open - what a plain click
+ * on a row follows ("Let a docked item's form follow the row you click", issue
+ * 481). `openId` is null whenever nothing is docked open, which is what tells a
+ * row that its plain click still opens nothing (issue 456).
+ *
+ * **A context, for the reason `OpenItem` is one**: rows are drawn outside the
+ * router in tests, and only the shell knows both the address and whether the
+ * form is really docked (a narrow screen renders a docked account's form
+ * centered, `ItemForm.tsx`), so the form reports that fact up rather than the
+ * row working it out.
+ */
+export interface DockedItem {
+  openId: string | null;
+  show: (itemId: string) => void;
+}
+const NO_DOCK: DockedItem = { openId: null, show: () => {} };
+export const DockedItemContext = createContext<DockedItem>(NO_DOCK);
+const ReportDocked = createContext<(docked: boolean) => void>(() => {});
+
+export function useDockedItem(): DockedItem {
+  return useContext(DockedItemContext);
+}
+
+/** How the form says it is really docked open, for as long as it is. */
+export function useReportDocked(): (docked: boolean) => void {
+  return useContext(ReportDocked);
+}
+
 /** The shell's answer: opening a form is a change of address. */
 export function OpensItemForms({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const search = useSearch({ strict: false }) as ItemFormSearch;
+  const [docked, setDocked] = useState(false);
   const open = useCallback(
     (itemId: string) => void navigate({ to: '.', search: (was) => ({ ...was, item: itemId }) }),
     [navigate],
   );
-  return <OpenItem.Provider value={open}>{children}</OpenItem.Provider>;
+  // Replacing rather than pushing: following the rows is one open form
+  // changing its Item, so Back leaves the page rather than stepping back
+  // through every row that was looked at.
+  const show = useCallback(
+    (itemId: string) =>
+      void navigate({ to: '.', replace: true, search: (was) => ({ ...was, item: itemId }) }),
+    [navigate],
+  );
+  const dock = useMemo(
+    () => ({ openId: docked ? (search.item ?? null) : null, show }),
+    [docked, search.item, show],
+  );
+  return (
+    <OpenItem.Provider value={open}>
+      <ReportDocked.Provider value={setDocked}>
+        <DockedItemContext.Provider value={dock}>{children}</DockedItemContext.Provider>
+      </ReportDocked.Provider>
+    </OpenItem.Provider>
+  );
 }
 
 /**
