@@ -1,51 +1,49 @@
 import { dayOf } from './filters';
 
 /**
- * What a due date reads as, and how it tints a row ("Colour an action's own
- * deadline as it approaches, and mark it red once passed", issue 473).
+ * How near a due date is, as the pill a row wears for it. Replaces the row's
+ * own colour ("Colour an action's own deadline as it approaches, and mark it
+ * red once passed", issue 473), which read as unclear across a whole list: the
+ * row stays ordinary and only the pill says how near the deadline is.
  *
- * Both are pure, and given `now`/`locale` rather than reading a clock or
- * `navigator`, so they are provable without either (the testing skill's
- * L1/F1 restriction on the clock, the same reason `waited.ts` is).
+ * Pure, and given `now` rather than reading a clock, so it is provable without
+ * one (the testing skill's L1/F1 restriction, the same reason `waited.ts` is).
  */
+export type DeadlineLevel = 'week' | 'near' | 'today' | 'over';
+
+export interface Deadline {
+  level: DeadlineLevel;
+  /** What the pill says: "Due in 5d", "Due tomorrow", "Due today", "Overdue 2d". */
+  label: string;
+}
+
+/** How many days ahead a deadline starts to show at all: further out, the date on the meta line is all there is. */
+export const DEADLINE_SHOWS_WITHIN_DAYS = 7;
+
+const DAY_MS = 86_400_000;
 
 /**
- * How an Item's row is tinted by its own due date: `null` for none, the
- * ease-in intensity (0-1) toward `due` while it's still ahead, or `-1` once
- * it has passed - the ramp itself can never go negative, so this is
- * unambiguous without a second field.
+ * The pill for a due date, or `null` while it is further off than a week, for
+ * no due date, and for anything that is not really a date. Counted in the
+ * viewer's own calendar days, the way the Filter's own due-date windows are
+ * (`filters.ts`'s `holdsFor`): a date-only string is UTC midnight, and so is
+ * what `dayOf` answers for today, so their difference is a whole number of
+ * days.
+ *
+ * Calm at a distance and louder as it closes: a quiet outline within a week, a
+ * soft fill within two days, solid on the day, red once passed - and no further
+ * escalation however long past it is, only the count.
  */
-export type DueColor = number | null;
-
-/**
- * Calm for most of the window between when a due date was set and when it is
- * due, warming into `due` amber only in the final stretch - a quadratic
- * ease-in on the elapsed fraction, so a quarter-long deadline stays calm for
- * weeks and a week-long one heats up within days. Once the due date has
- * passed, by the viewer's own calendar day (mirroring the Filter's own
- * due-date windows, `filters.ts`'s `holdsFor`), the answer is `-1` however
- * long past it is - there is no further escalation.
- */
-export function dueColorOf(
-  dueDate: string | null,
-  dueDateSetAt: string | null,
-  createdAt: string,
-  now: number,
-): DueColor {
+export function deadlineOf(dueDate: string | null, now: number): Deadline | null {
   if (dueDate === null) return null;
-  if (dueDate < dayOf(new Date(now))) return -1;
-
-  // An item that already carried a due date before this shipped has no
-  // `dueDateSetAt` of its own - the ramp falls back to when the item itself
-  // was made rather than a backfill migration.
-  const setAt = Date.parse(dueDateSetAt ?? createdAt);
-  // A date-only string is already UTC midnight, per the Date Time String
-  // Format (ECMA-262) - the same rule `dueDateLabel`'s `new Date(dueDate)`
-  // below leans on, so this needs no time appended to get the same anchor.
-  const span = Date.parse(dueDate) - setAt;
-  // Squared for the ease-in, once elapsed is a fraction of the window (or
-  // already full, for a window that has none left to elapse).
-  return span > 0 ? Math.min(1, Math.max(0, (now - setAt) / span)) ** 2 : 1;
+  const days = Math.round((Date.parse(dueDate) - Date.parse(dayOf(new Date(now)))) / DAY_MS);
+  if (Number.isNaN(days)) return null;
+  if (days < 0) return { level: 'over', label: `Overdue ${-days}d` };
+  if (days === 0) return { level: 'today', label: 'Due today' };
+  if (days === 1) return { level: 'near', label: 'Due tomorrow' };
+  if (days === 2) return { level: 'near', label: 'Due in 2d' };
+  if (days <= DEADLINE_SHOWS_WITHIN_DAYS) return { level: 'week', label: `Due in ${days}d` };
+  return null;
 }
 
 /**

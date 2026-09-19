@@ -30,4 +30,4 @@ Types are managed in a window of their own, opened from the header's menu becaus
 
 **An Item is either yours to deal with or finished with**, and nothing in between. Being finished with one is a time, so it says *when*; dismissing one is the tombstone that makes it reversible. What kind of thing an Item is belongs to its **Type**, and a due date is a field.
 
-Focus horizons and the AI layer beyond the note cleanup and Readings above are designed, not built: see "Focus horizons" and "AI layer" in `docs/ideas.md`. Deadline colors have shipped: a row is tinted by how close its due date is, and turns solid red once it has passed.
+Focus horizons and the AI layer beyond the note cleanup and Readings above are designed, not built: see "Focus horizons" and "AI layer" in `docs/ideas.md`. Deadline pills have shipped: within a week of its due date a row wears a pill on its title line — a quiet amber outline ("Due in 5d"), a soft amber fill within two days ("Due tomorrow"), solid amber on the day ("Due today"), red once it has passed ("Overdue 2d") — and the row itself stays plain. A day is the viewer's own calendar day, and nothing escalates past red, only the count.

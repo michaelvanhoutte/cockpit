@@ -1156,130 +1156,71 @@ describe('Triage', () => {
 
 describe('Triage', () => {
   /**
-   * "Colour an action's own deadline as it approaches, and mark it red once
-   * passed" (issue 473). The ramp itself is proved without a clock in
-   * `dueDate.test.ts`; what is asked here is that the row reads it and draws
-   * it - `Date.now()` is what the test replaces, the same as the age above.
+   * A pill for how near the due date is, and nothing else about the row
+   * changing (replacing "Colour an action's own deadline as it approaches, and
+   * mark it red once passed", issue 473). The ladder itself is proved without a
+   * clock in `dueDate.test.ts`; what is asked here is that the row reads it,
+   * says it in words, and stays plain - `Date.now()` is what the test
+   * replaces, the same as the age above.
    */
-  describe('an action’s row is coloured by how close its due date is, and turns red once it has passed', () => {
+  describe('an action’s row wears a pill for how near its due date is, and is otherwise left plain', () => {
     afterEach(() => {
       vi.useRealTimers();
     });
 
-    it('draws no colour for an item with no due date', () => {
+    const today = (iso: string) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(`${iso}T12:00:00`));
+    };
+
+    it('wears no pill for an item with no due date', () => {
       aRow({ item: anItem({ dueDate: null }) });
 
+      expect(screen.queryByText(/^(Due|Overdue)/)).toBeNull();
+    });
+
+    it('wears no pill while the deadline is more than a week off, though the date is still on the row', () => {
+      today('2026-09-17');
+      aRow({ item: anItem({ dueDate: '2026-09-30' }) });
+
+      expect(screen.queryByText(/^(Due in|Due today|Due tomorrow|Overdue)/)).toBeNull();
+      expect(screen.getByText(/^Due .*2026/)).toBeInTheDocument();
+    });
+
+    it.each([
+      { situation: 'five days off', dueDate: '2026-09-22', says: 'Due in 5d', looks: 'border-due' },
+      { situation: 'two days off', dueDate: '2026-09-19', says: 'Due in 2d', looks: 'bg-due-soft' },
+      { situation: 'tomorrow', dueDate: '2026-09-18', says: 'Due tomorrow', looks: 'bg-due-soft' },
+      { situation: 'today', dueDate: '2026-09-17', says: 'Due today', looks: 'bg-due' },
+      { situation: 'two days ago', dueDate: '2026-09-15', says: 'Overdue 2d', looks: 'bg-over-deep' },
+    ])('says "$says" in words, louder as it closes, for a deadline $situation', ({ dueDate, says, looks }) => {
+      today('2026-09-17');
+      aRow({ item: anItem({ dueDate }) });
+
+      expect(screen.getByText(says).className).toContain(looks);
+    });
+
+    // The point of the change: how overdue an item is used to fill its whole
+    // row, and now the row is the same whatever the date says.
+    it('leaves the row itself plain, overdue included', () => {
+      today('2026-09-17');
+      aRow({ item: anItem({ dueDate: '2026-09-10' }) });
+
       const row = screen.getByRole('listitem');
-      expect(row.className).not.toContain('bg-over-row');
-      // `due-tint` is still the row's own class either way - zero intensity,
-      // fully transparent, is what keeps a due-date-less row looking plain.
-      expect(row.getAttribute('style')).toContain('--due: 0');
+      expect(row.className).not.toContain('bg-over');
+      expect(row.className).not.toContain('text-white');
+      expect(row.getAttribute('style')).toBeNull();
+      expect(screen.getByText(/Own/).parentElement?.className).toContain('text-ink-faint');
     });
 
-    it('tints the row toward `due` while the deadline is still ahead', () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(Date.parse('2026-09-11T00:00:00.000Z'));
+    it('still lets a picked row read as picked, whatever its deadline', () => {
+      today('2026-09-17');
       aRow({
-        item: anItem({
-          dueDate: '2026-09-21',
-          dueDateSetAt: '2026-09-01T00:00:00.000Z',
-          createdAt: '2026-08-01T00:00:00.000Z',
-        }),
-      });
-
-      const row = screen.getByRole('listitem');
-      expect(row.className).toContain('due-tint');
-      // Half the 20-day window elapsed, squared for the ease-in: 0.25.
-      expect(row.getAttribute('style')).toContain('--due: 0.25');
-      expect(row.className).not.toContain('bg-over-row');
-    });
-
-    it('turns `over-row` with white text once the due date has passed, whatever the item otherwise carries', () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(Date.parse('2026-09-17T09:00:00.000Z'));
-      aRow({ item: anItem({ dueDate: '2026-09-16', dueDateSetAt: '2026-09-01T00:00:00.000Z' }) });
-
-      const row = screen.getByRole('listitem');
-      expect(row.className).toContain('bg-over-row');
-      expect(row.className).toContain('text-white');
-      // `hover:bg-accent-tint/40`, a `:hover` variant, outranks a plain class
-      // regardless of source order - left on this row, hovering would paint
-      // it pale while its text stayed forced white underneath (found in
-      // review), so this row does not carry it at all.
-      expect(row.className).not.toContain('hover:bg-accent-tint');
-    });
-
-    // Hovering used to show nothing on it: solid red with nothing to lighten.
-    it('lightens on hover, which the shared hover could not show on it', () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(Date.parse('2026-09-17T09:00:00.000Z'));
-      aRow({ item: anItem({ dueDate: '2026-09-16', dueDateSetAt: '2026-09-01T00:00:00.000Z' }) });
-
-      expect(screen.getByRole('listitem').className).toContain('hover:bg-over-row-hover');
-    });
-
-    it('drops the description mark and the waited badge back to white too, once overdue', () => {
-      // Both read white the same way the meta line and the type name do -
-      // by dropping their own muted colour and inheriting the row's, rather
-      // than restating `text-white` themselves - and were left wearing their
-      // muted colour by mistake in a pass that scoped the drop down for the
-      // bundle budget (found in review).
-      vi.useFakeTimers();
-      vi.setSystemTime(Date.parse('2026-09-17T09:00:00.000Z'));
-      aRow({
-        item: anItem({
-          description: 'Some detail',
-          dueDate: '2026-09-16',
-          dueDateSetAt: '2026-09-01T00:00:00.000Z',
-        }),
-      });
-
-      expect(screen.getByTitle('Has a description').className).not.toContain('text-ink-faint');
-      expect(screen.getByTitle(/^Waiting /).className).not.toContain('text-ink-faint');
-    });
-
-    it('drops the "also in…" text back to white too, once overdue', () => {
-      // Sits in the same title row as the three marks above, and was missed
-      // when it merged into this branch after they were converted (found in
-      // review).
-      vi.useFakeTimers();
-      vi.setSystemTime(Date.parse('2026-09-17T09:00:00.000Z'));
-      aRow({
-        item: anItem({ dueDate: '2026-09-16', dueDateSetAt: '2026-09-01T00:00:00.000Z' }),
-        alsoIn: ['Today'],
-      });
-
-      expect(screen.getByText('also in Today').className).not.toContain('text-ink-faint');
-    });
-
-    it('falls back to when the item was made, for a due date carried from before this shipped', () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(Date.parse('2026-09-11T00:00:00.000Z'));
-      aRow({
-        item: anItem({ dueDate: '2026-09-21', dueDateSetAt: null, createdAt: '2026-09-01T00:00:00.000Z' }),
-      });
-
-      expect(screen.getByRole('listitem').getAttribute('style')).toContain('--due: 0.25');
-    });
-
-    it('leaves a picked row in its own colour rather than its due date’s, overdue included', () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(Date.parse('2026-09-17T09:00:00.000Z'));
-      aRow({
-        item: anItem({ dueDate: '2026-09-16', dueDateSetAt: '2026-09-01T00:00:00.000Z' }),
+        item: anItem({ dueDate: '2026-09-10' }),
         selecting: { picked: true, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() },
       });
 
-      const row = screen.getByRole('listitem');
-      expect(row.className).toContain('bg-accent-tint');
-      expect(row.className).not.toContain('bg-over-row');
-      // `due-tint` is the class the intensity actually reads through; a
-      // picked row not wearing it is what leaves it inert here.
-      expect(row.className).not.toContain('due-tint');
-      // The meta line forced itself white for an overdue item regardless of
-      // being picked - unreadable over the picked row's own light background
-      // (found in review).
-      expect(screen.getByText(/Own/).parentElement?.className).not.toContain('text-white');
+      expect(screen.getByRole('listitem').className).toContain('bg-accent-tint');
     });
   });
 });

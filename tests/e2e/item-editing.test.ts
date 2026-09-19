@@ -281,10 +281,26 @@ test.describe('Item editing', () => {
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
 
       await expect(dueDateBox(page)).toHaveCount(0);
+      // The pill for how near it is, on the title line, in a real layout.
+      await expect(itemRow(page, thought).getByText('Due today')).toBeVisible();
       const now = new Date();
       const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       await openItem(page, thought, isMobile);
       await expect(dueDateBox(page)).toHaveValue(today);
+    });
+
+    // Red is for a date that has gone by, and the row around it stays plain.
+    test('a date long past wears an Overdue pill', async ({ page, isMobile }) => {
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Long overdue');
+      await capture(page, thought, isMobile);
+
+      await openItem(page, thought, isMobile);
+      await dueDateBox(page).fill('2020-01-01');
+      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+
+      await expect(dueDateBox(page)).toHaveCount(0);
+      await expect(itemRow(page, thought).getByText(/^Overdue \d+d$/)).toBeVisible();
     });
   });
 
