@@ -613,7 +613,8 @@ export function ItemRow({
     // ("Change a workspace or a dashboard on the tab it is", issue 267). Not on
     // touch, which has the three dots and spends a long press on picking the
     // row out (refused where it opens, `onOpenChange`, since Radix starts its own
-    // long press on any touch or pen); and not while a selection is held, which
+    // long press on any touch - a pen's is let through, having no hold of the
+    // row's own to open over); and not while a selection is held, which
     // suspends every row's own menu, so the browser's is left alone then.
     <ContextMenu.Root
       open={contextOpen}
