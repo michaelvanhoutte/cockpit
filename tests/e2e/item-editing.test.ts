@@ -1031,7 +1031,7 @@ test.describe('Item editing', () => {
         // that page at all (found in review: the first version of this walk
         // reopened through `openInbox` after the reload, and had the drag it
         // had just proven immediately forgotten by its own next step).
-        await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+        await press(form(page).getByRole('button', { name: 'Close' }), isMobile);
         await page.reload();
         await expect(captureBox(page)).toBeVisible();
         await openItem(page, thought, isMobile);
@@ -1043,6 +1043,95 @@ test.describe('Item editing', () => {
         // on finding the centered presentation it was written against -
         // best effort, so a failure above is reported as itself rather than
         // masked by a cleanup step failing on whatever broke it.
+        if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
+          const recentering = answeredThePresentation(page, 5_000).catch(() => {});
+          await press(form(page).getByRole('button', { name: 'Center' }), isMobile).catch(() => {});
+          await recentering;
+        }
+        await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile).catch(() => {});
+      }
+    });
+
+    /**
+     * "Save a docked item's fields as you finish them, not behind one Save
+     * button" (issue 483). F3 for what a jsdom form cannot say: that a real
+     * blur, a real select and the real bar reach the server, and that what was
+     * written is there on reopening.
+     */
+    test('writes each field as it is finished, takes the last one back, and keeps the rest on closing', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'docking is its own, separate discussion on a phone, by design');
+
+      const answeredTo = (command: string) =>
+        page.waitForResponse(
+          (response) =>
+            response.request().method() === 'POST' &&
+            new URL(response.url()).pathname === `/v1/commands/${command}`,
+        );
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Finish each field');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      if (await form(page).getByRole('button', { name: 'Center' }).count()) {
+        const already = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
+        await already;
+      }
+
+      try {
+        const docking = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
+        await docking;
+        await expect(form(page).getByRole('button', { name: 'Save' })).toHaveCount(0);
+
+        const prioritised = answeredTo('set_priority');
+        await priorityBox(page).selectOption('high');
+        await prioritised;
+
+        const renamed = answeredTo('set_title');
+        await titleBox(page).fill(`${thought} edited`);
+        await titleBox(page).press('Tab');
+        await renamed;
+        await expect(page.getByRole('status')).toContainText('Changed the title');
+
+        // The last change, taken back - the bar offers one step, so the
+        // priority stays.
+        const undone = answeredTo('set_title');
+        await press(page.getByRole('status').getByRole('button', { name: 'Undo' }), isMobile);
+        await undone;
+        await expect(titleBox(page)).toHaveValue(thought);
+
+        // Closing keeps a box still holding the cursor.
+        const closing = answeredTo('set_description');
+        await theEditorIsThere(page);
+        await descriptionBox(page).fill('Written, cursor still there');
+        await press(form(page).getByRole('button', { name: 'Close' }), isMobile);
+        await closing;
+        await expect(form(page)).toHaveCount(0);
+
+        // Opened only once the server's own copy has been read back: a reload
+        // first paints from what this browser stored, which cannot yet hold a
+        // write made a moment before, and the form fills once from whichever
+        // copy it is opened on.
+        const readBack = page.waitForResponse(
+          (response) =>
+            response.request().method() === 'GET' &&
+            /\/v1\/workspaces\/[^/]+\/snapshot$/.test(new URL(response.url()).pathname),
+        );
+        await page.reload();
+        await readBack;
+        await expect(captureBox(page)).toBeVisible();
+        await openItem(page, thought, isMobile);
+        await expect(priorityBox(page)).toHaveValue('high');
+        await expect(titleBox(page)).toHaveValue(thought);
+        await theEditorIsThere(page);
+        await expect(descriptionBox(page)).toHaveText('Written, cursor still there');
+      } finally {
+        // Put back for every other walk sharing this account, best effort.
         if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
           const recentering = answeredThePresentation(page, 5_000).catch(() => {});
           await press(form(page).getByRole('button', { name: 'Center' }), isMobile).catch(() => {});
