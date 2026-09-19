@@ -907,6 +907,11 @@ test.describe('Item editing', () => {
       const priority = (await priorityBox(page).boundingBox())!;
       const description = (await toolbar.boundingBox())!;
       const attached = (await files.boundingBox())!;
+      // Stacked first, or the order below would also hold in the two-column
+      // layout and prove nothing: there the fields and the description's own
+      // toolbar sit on one row, within the same forty pixels the sibling
+      // walk above measures.
+      expect(description.y - priority.y, 'one column, the description below the fields').toBeGreaterThanOrEqual(40);
       expect(priority.y, 'the short fields come first').toBeLessThan(description.y);
       expect(description.y, 'then the description, ahead of the files').toBeLessThan(attached.y);
 
