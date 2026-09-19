@@ -40,7 +40,13 @@ import {
   type Draft,
   type Field,
 } from '../itemFieldCommands';
-import { useItemForm, useOpenItem } from '../itemForm';
+import {
+  useItemForm,
+  useOpenItem,
+  useQuietOpening,
+  useReportDocked,
+  useSettleQuietOpening,
+} from '../itemForm';
 import { openableAtSource } from '../itemSource';
 import { useUndo } from '../undo';
 import { browserStore } from '../lastVisited';
@@ -151,12 +157,40 @@ export function ItemForm() {
     workspaceId?: string;
   };
 
+  // Held here rather than in `TheForm`, so following a docked form to another
+  // row (`key` below remounts it) keeps the presentation this open form was
+  // locked to instead of re-reading a snapshot that may not yet carry a choice
+  // just made - which drew the next item's form centered and modal. Forgotten
+  // once no form is open, so the next one reads the account afresh.
+  const [fixedPresentation, setFixedPresentation] = useState<ItemFormPresentation | null>(null);
+  const open = Boolean(openItemId && workspaceId);
+  useEffect(() => {
+    if (!open) setFixedPresentation(null);
+  }, [open]);
+  // A write arriving after the form has closed - a refused Dock or Center
+  // reverting itself - is dropped, as it was when this state died with the
+  // form, rather than left to lock the next one to a stale choice.
+  const stillOpen = useRef(open);
+  stillOpen.current = open;
+  const lockTo = useCallback((next: ItemFormPresentation | null) => {
+    if (stillOpen.current) setFixedPresentation(next);
+  }, []);
+
   if (!openItemId || !workspaceId) return null;
   // Keyed on the item, so going from one item's form straight to another's -
   // a pasted link, a step through history - starts the boxes again from the
   // item now named. Without it the draft is kept across the change and Save
   // writes the first item's text onto the second.
-  return <TheForm key={openItemId} itemId={openItemId} workspaceId={workspaceId} onClose={close} />;
+  return (
+    <TheForm
+      key={openItemId}
+      itemId={openItemId}
+      workspaceId={workspaceId}
+      onClose={close}
+      fixedPresentation={fixedPresentation}
+      setFixedPresentation={lockTo}
+    />
+  );
 }
 
 /** How far into the dialog's own corner a `mousedown` still counts as taking
@@ -188,17 +222,36 @@ function TheForm({
   itemId,
   workspaceId,
   onClose,
+  fixedPresentation,
+  setFixedPresentation,
 }: {
   itemId: string;
   workspaceId: string;
   onClose: () => void;
+  fixedPresentation: ItemFormPresentation | null;
+  setFixedPresentation: (presentation: ItemFormPresentation | null) => void;
 }) {
-  const { data, isLoading } = useQuery(snapshotQuery(workspaceId));
+  const { data, isLoading, isFetching } = useQuery(snapshotQuery(workspaceId));
   const queryClient = useQueryClient();
   const send = useSendCommand();
   const offerToUndo = useUndo();
   const openItem = useOpenItem();
+  const isQuietOpening = useQuietOpening();
+  const [openedQuietly] = useState(() => isQuietOpening(itemId));
+  /**
+   * Whether this form was opened for a note captured a moment ago, and so is
+   * expected to arrive with the re-read still in flight: the dock moves to a
+   * capture the instant it lands, a beat before the snapshot carrying it. Held
+   * only until that first read settles, so a later refetch of a note that
+   * really is gone does not flicker back to "Opening…".
+   */
+  const [arriving, setArriving] = useState(openedQuietly);
+  const settleQuietOpening = useSettleQuietOpening();
+  useEffect(() => settleQuietOpening(), [settleQuietOpening]);
   const item = data?.items.find((candidate) => candidate.id === itemId);
+  useEffect(() => {
+    if (item || !isFetching) setArriving(false);
+  }, [item, isFetching]);
   const atSource = item ? openableAtSource(item) : null;
 
   /**
@@ -215,7 +268,6 @@ function TheForm({
    * pressing the control sets it directly, so this render picks it up at
    * once, while a change arriving over `data` alone never touches it.
    */
-  const [fixedPresentation, setFixedPresentation] = useState<ItemFormPresentation | null>(null);
   useEffect(() => {
     // `?? DEFAULT_ITEM_FORM_PRESENTATION` rather than trusting `data` to
     // always carry the field: a snapshot restored from a stored copy older
@@ -227,7 +279,7 @@ function TheForm({
     if (fixedPresentation === null && data) {
       setFixedPresentation(data.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION);
     }
-  }, [data, fixedPresentation]);
+  }, [data, fixedPresentation, setFixedPresentation]);
   const presentation = fixedPresentation ?? data?.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION;
   const chosenDocked = presentation === 'docked';
   const screenWidth = useScreenWidth();
@@ -1027,6 +1079,16 @@ function TheForm({
       closing.current = false;
     }
   };
+  // Tells the rows a plain click now follows this form ("Let the item's form
+  // dock to the side of the screen instead of opening as a dialog", issue
+  // 481). Cleared on unmount, so a form that closes - or is replaced by
+  // another Item's - leaves nothing claiming a dock; the replacement reports
+  // again in the same commit.
+  const reportDocked = useReportDocked();
+  useEffect(() => {
+    reportDocked(docked);
+    return () => reportDocked(false);
+  }, [docked, reportDocked]);
   const dockedNow = useRef(docked);
   dockedNow.current = docked;
   const commitNow = useRef(commitFields);
@@ -1063,6 +1125,10 @@ function TheForm({
         <Dialog.Content
           ref={setContentEl}
           aria-describedby={undefined}
+          onOpenAutoFocus={(event) => {
+            // A switch that keeps the keyboard where it is (`show`, `keepFocus`).
+            if (openedQuietly && docked) event.preventDefault();
+          }}
           onInteractOutside={(event) => {
             // Non-modal already keeps a press on the page behind from
             // reaching it; this stops Radix reading that same press as a
@@ -1183,7 +1249,7 @@ function TheForm({
 
           {!item ? (
             <p role="alert" className="pt-3 text-sm text-ink-soft">
-              {isLoading ? 'Opening…' : 'That item is not here any more.'}
+              {isLoading || (arriving && isFetching) ? 'Opening…' : 'That item is not here any more.'}
             </p>
           ) : (
             draft && (
@@ -1201,7 +1267,7 @@ function TheForm({
                 <label className="block shrink-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
                   Title
                   <input
-                    autoFocus
+                    autoFocus={!(openedQuietly && docked)}
                     // Both boxes are closed while a save is in flight, for the
                     // reason Cancel and Save are: what is sent is worked out
                     // before the round trip, so a keystroke landing during it

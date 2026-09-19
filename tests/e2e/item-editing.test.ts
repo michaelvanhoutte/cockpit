@@ -1334,6 +1334,92 @@ test.describe('Item editing', () => {
     });
 
     /**
+     * "Let the item's form dock to the side of the screen instead of opening as a dialog" (issue 481): the
+     * click lands on a real row beside a real dock, and what is typed in the
+     * form on the way out is written by the real unmount - neither of which
+     * jsdom can say.
+     */
+    test('follows a plain click on another row, writing what was typed on the way', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'docking is its own, separate discussion on a phone, by design');
+
+      await openInbox(page, isMobile);
+      const first = uniqueTitle('Follow first');
+      const second = uniqueTitle('Follow second');
+      await capture(page, first, isMobile);
+      await capture(page, second, isMobile);
+      await openItem(page, first, isMobile);
+      await centerIfDocked(page, isMobile);
+
+      try {
+        const docking = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
+        await docking;
+        await expect(titleBox(page)).toHaveValue(first);
+        await expect(itemRow(page, first)).toHaveAttribute('aria-current', 'true');
+
+        const renamed = uniqueTitle('Follow renamed');
+        await titleBox(page).fill(renamed);
+        await itemRow(page, second).click();
+
+        await expect(titleBox(page)).toHaveValue(second);
+        await expect(itemRow(page, second)).toHaveAttribute('aria-current', 'true');
+        // What was typed in the first was written as the form let go of it.
+        await expect(itemRow(page, renamed)).toBeVisible();
+
+        // One open form changing its Item, so Back leaves the page rather
+        // than stepping back through the rows.
+        await page.goBack();
+        await expect(form(page)).toHaveCount(0);
+      } finally {
+        if (!(await form(page).count().catch(() => 0))) {
+          await openItem(page, second, isMobile).catch(() => {});
+        }
+        await putItBackCentered(page, isMobile);
+      }
+    });
+
+    /**
+     * A capture moves the dock to the new note and leaves the keyboard in the
+     * capture box, so a run of notes can be typed one after another: real
+     * focus, and a real dialog that would otherwise take it.
+     */
+    test('follows a capture, and leaves the keyboard in the capture box', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'docking is its own, separate discussion on a phone, by design');
+
+      await openInbox(page, isMobile);
+      const first = uniqueTitle('Capture follow first');
+      const second = uniqueTitle('Capture follow second');
+      await capture(page, first, isMobile);
+      await openItem(page, first, isMobile);
+      await centerIfDocked(page, isMobile);
+
+      try {
+        const docking = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
+        await docking;
+        await expect(titleBox(page)).toHaveValue(first);
+
+        await captureBox(page).fill(second);
+        await captureBox(page).press('Enter');
+
+        await expect(titleBox(page)).toHaveValue(second);
+        await expect(itemRow(page, second)).toHaveAttribute('aria-current', 'true');
+        await expect(captureBox(page)).toBeFocused();
+      } finally {
+        if (!(await form(page).count().catch(() => 0))) {
+          await openItem(page, second, isMobile).catch(() => {});
+        }
+        await putItBackCentered(page, isMobile);
+      }
+    });
+
+    /**
      * "Out of scope" for a phone means "falls back to centered", not
      * "renders anyway" (found in review, on the pull request itself): a
      * jsdom unit test proved the class name changes, but the real product

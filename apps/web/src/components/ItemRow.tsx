@@ -15,6 +15,7 @@ import { isCutOff } from '../cutOff';
 import { deadlineOf, dueDateLabel, type DeadlineLevel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { HOLD_MS, stillHolding } from '../hold';
+import { useDockedItem } from '../itemForm';
 import { openableAtSource } from '../itemSource';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useUndo } from '../undo';
@@ -373,6 +374,7 @@ export function ItemRow({
    * unbroken touch, which is the thing `swipe.ts` refuses to let a mouse do.
    */
   const held = useRef(false);
+  const dock = useDockedItem();
   /**
    * Which kind of pointer last pressed down on this row, read back when a
    * click follows - a click carries no `pointerType` of its own, and a plain
@@ -658,12 +660,25 @@ export function ItemRow({
       // with a long press is still the one the browser turns into this click,
       // and `held` is what tells that click apart from a fresh one - without
       // it, the row it had just picked out was toggled straight back off.
+      //
+      // **Except while a form is docked open, where a plain click shows that
+      // row in it** ("Let the item's form dock to the side of the screen instead of opening as a dialog", issue
+      // 481): the dock is there to be read alongside the lists, and a click is
+      // how a row is asked for. Not over a selection already held, whose plain
+      // click still only ends it, and not with a modifier, which still picks.
       onClick={(event) => {
-        if (!selecting) return;
         const hit = event.target as Node;
         if (!event.currentTarget.contains(hit)) return;
         if ((hit as Element).closest?.('a, button')) return;
         if (held.current) return;
+        // Alt too: it is this row's own modifier for filing to a proposed panel
+        // on a double-click, whose first click must not replace the open form.
+        const plain = !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey;
+        if (plain && dock.openId !== null && !selecting?.revealed) {
+          if (dock.openId !== item.id) dock.show(item.id);
+          return;
+        }
+        if (!selecting) return;
         if (event.shiftKey || event.ctrlKey || event.metaKey) {
           selecting.onPick(event.shiftKey);
           return;
@@ -737,10 +752,12 @@ export function ItemRow({
       //
       // **The row's own colour says only whether it is picked.** How near its
       // deadline is belongs to the pill on the title line, which is why an
-      // overdue row is no longer filled red.
+      // overdue row is no longer filled red. The row being shown in a docked
+      // form is ringed instead, and named to assistive tech.
+      aria-current={dock.openId === item.id ? 'true' : undefined}
       className={`group relative touch-pan-y border-b border-black/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
-        selecting?.picked ? 'bg-accent-tint' : ''
-      }`}
+        dock.openId === item.id ? 'ring-2 ring-inset ring-accent ' : ''
+      }${selecting?.picked ? 'bg-accent-tint' : ''}`}
     >
       <WhatLettingGoWouldDo across={gone} />
       {/* The row itself, which is what moves: the band above has to stay where

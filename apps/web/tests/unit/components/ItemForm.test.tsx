@@ -30,6 +30,11 @@ const held = vi.hoisted(() => ({
   send: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
   close: vi.fn(),
   open: vi.fn(),
+  reportDocked: vi.fn(),
+  quietly: false,
+  /** Holds every read of the snapshot until it settles, where a test needs one still in flight. */
+  gate: undefined as Promise<void> | undefined,
+  settleQuiet: vi.fn(),
   openItemId: 'item-1' as string | undefined,
 }));
 
@@ -40,6 +45,9 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('../../../src/itemForm', () => ({
   useItemForm: () => ({ openItemId: held.openItemId, close: held.close }),
   useOpenItem: () => held.open,
+  useReportDocked: () => held.reportDocked,
+  useQuietOpening: () => () => held.quietly,
+  useSettleQuietOpening: () => held.settleQuiet,
 }));
 
 /**
@@ -96,14 +104,16 @@ vi.mock('../../../src/api/queries', () => ({
       held.attachments,
       held.itemFormPresentation,
     ],
-    queryFn: (): Promise<WorkspaceSnapshot> =>
-      Promise.resolve({
+    queryFn: async (): Promise<WorkspaceSnapshot> => {
+      await held.gate;
+      return {
         items: held.items,
         filings: held.filings,
         duplicates: held.duplicates,
         attachments: held.attachments,
         itemFormPresentation: held.itemFormPresentation,
-      } as unknown as WorkspaceSnapshot),
+      } as unknown as WorkspaceSnapshot;
+    },
   }),
 }));
 
@@ -193,6 +203,9 @@ beforeEach(() => {
   held.send.mockImplementation(() => Promise.resolve({ ok: true as const, applied: true }));
   held.close.mockClear();
   held.open.mockClear();
+  held.reportDocked.mockClear();
+  held.quietly = false;
+  held.gate = undefined;
   held.filings = [];
   held.duplicates = [];
   held.attachments = [];
@@ -1125,6 +1138,66 @@ describe('Item editing', () => {
       expect(await screen.findByText('That item is not here any more.')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
     });
+
+    // The dock is moved to a note the instant it is captured, before the re-read
+    // that carries it lands: that beat is "not here yet", not "gone" (found in
+    // review).
+    it('says it is opening, not gone, for a note just captured while the read that brings it is in flight', async () => {
+      held.items = [anItem()];
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const shell = () => (
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(shell());
+      await screen.findByLabelText('Title');
+
+      let arrive: () => void = () => {};
+      held.gate = new Promise<void>((resolve) => {
+        arrive = resolve;
+      });
+      held.openItemId = 'item-2';
+      held.quietly = true;
+      // Not awaited: the refetch is what waits on the gate.
+      act(() => {
+        void client.invalidateQueries();
+      });
+      rerender(shell());
+
+      expect(screen.queryByText('That item is not here any more.')).toBeNull();
+      expect(screen.getByText('Opening…')).toBeInTheDocument();
+
+      held.items = [anItem(), anItem({ id: 'item-2', title: 'Just captured' })];
+      await act(async () => arrive());
+
+      await waitFor(() => expect(titleBox()).toHaveValue('Just captured'));
+    });
+
+    // A note that really is gone stays gone: an unrelated refetch of the
+    // snapshot - any command, any collaborator's change - must not flicker it
+    // back to "Opening…" (found in review).
+    it('does not go back to opening on a later re-read, for a note that is really gone', async () => {
+      held.items = [anItem()];
+      held.openItemId = 'item-2';
+      held.quietly = true;
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const shell = () => (
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>
+      );
+      render(shell());
+      expect(await screen.findByText('That item is not here any more.')).toBeInTheDocument();
+
+      held.gate = new Promise<void>(() => {});
+      act(() => {
+        void client.invalidateQueries();
+      });
+
+      expect(screen.getByText('That item is not here any more.')).toBeInTheDocument();
+      expect(screen.queryByText('Opening…')).toBeNull();
+    });
   });
 
   /**
@@ -1207,6 +1280,53 @@ describe('Item editing', () => {
       expect(screen.getByRole('dialog')).toHaveClass('left-1/2');
     });
 
+    // "Let the item's form dock to the side of the screen instead of opening as a dialog" (issue 481): the rows
+    // only follow a form that is really docked, so it says so - and says so no
+    // longer once it is not, whether centered, too narrow to dock, or gone.
+    it('tells the rows it is docked, and that it no longer is once it is gone', async () => {
+      held.itemFormPresentation = 'docked';
+      await theForm();
+
+      expect(held.reportDocked).toHaveBeenLastCalledWith(true);
+
+      cleanup();
+
+      expect(held.reportDocked).toHaveBeenLastCalledWith(false);
+    });
+
+    // A switch that is not a click on a row - a capture moving the dock - must
+    // leave the keyboard in the box the person is typing in.
+    it('takes the keyboard for the title, unless a docked form was opened keeping it where it is', async () => {
+      held.itemFormPresentation = 'docked';
+      await theForm();
+      expect(titleBox()).toHaveFocus();
+
+      cleanup();
+      held.quietly = true;
+      await theForm();
+      expect(titleBox()).not.toHaveFocus();
+    });
+
+    // Centering it is a switch to a modal dialog, which mounts its content
+    // afresh: the keyboard has to go into it the ordinary way then, or it is
+    // left outside a dialog that has hidden the page (found in review).
+    it('takes the keyboard for the title once a quietly opened form is centered', async () => {
+      held.itemFormPresentation = 'docked';
+      held.quietly = true;
+      const user = await theForm();
+      expect(titleBox()).not.toHaveFocus();
+
+      await user.click(centerButton());
+
+      await waitFor(() => expect(titleBox()).toHaveFocus());
+    });
+
+    it('tells the rows nothing is docked while the form is centered', async () => {
+      await theForm();
+
+      expect(held.reportDocked).not.toHaveBeenCalledWith(true);
+    });
+
     it('opens docked where the account has chosen it, offering to center it', async () => {
       held.itemFormPresentation = 'docked';
       const user = await theForm();
@@ -1274,6 +1394,94 @@ describe('Item editing', () => {
     // Against the live account this inverts: a choice made from another
     // device or tab while this form is open must not move it - only a press
     // on this form's own control does that (the case above).
+    // Following a docked form to another row remounts it: the presentation
+    // this open form was locked to must survive that, where the snapshot the
+    // new one would re-read may not yet carry a choice just made - which drew
+    // the next item's form centered and modal (found in CI, "Let the item's form dock to the side of
+    // the screen instead of opening as a dialog", issue 481).
+    it('stays docked when it is swapped to another item, whatever the snapshot says by then', async () => {
+      held.items = [anItem(), anItem({ id: 'item-2', title: 'Part 12' })];
+      held.itemFormPresentation = 'docked';
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const shell = () => (
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(shell());
+      await screen.findByLabelText('Title');
+      expect(centerButton()).toBeVisible();
+
+      held.itemFormPresentation = 'centered';
+      held.openItemId = 'item-2';
+      rerender(shell());
+
+      await waitFor(() => expect(titleBox()).toHaveValue('Part 12'));
+      expect(centerButton()).toBeVisible();
+      expect(screen.getByRole('dialog')).toHaveClass('right-0');
+    });
+
+    it('is not locked to a choice reverting itself after the form has closed', async () => {
+      held.items = [anItem()];
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const shell = () => (
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>
+      );
+      let refuse: (reason: Error) => void = () => {};
+      held.send.mockImplementation(((change: { name: string }) =>
+        change.name === 'set_item_form_presentation'
+          ? new Promise((_, reject) => {
+              refuse = reject;
+            })
+          : Promise.resolve({ ok: true as const, applied: true })) as unknown as () => Promise<{
+        ok: true;
+        applied: boolean;
+      }>);
+      const user = userEvent.setup();
+      const { rerender } = render(shell());
+      await screen.findByLabelText('Title');
+
+      await user.click(dockButton());
+      held.openItemId = undefined;
+      rerender(shell());
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      await act(async () => refuse(new Error('Too many requests')));
+
+      // The account moved on elsewhere in the meantime.
+      held.itemFormPresentation = 'docked';
+      held.openItemId = 'item-1';
+      rerender(shell());
+
+      await screen.findByLabelText('Title');
+      expect(centerButton()).toBeVisible();
+    });
+
+    it('reads the account afresh for the next form, once none is open', async () => {
+      held.items = [anItem()];
+      held.itemFormPresentation = 'docked';
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const shell = () => (
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(shell());
+      await screen.findByLabelText('Title');
+      expect(centerButton()).toBeVisible();
+
+      held.openItemId = undefined;
+      rerender(shell());
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      held.itemFormPresentation = 'centered';
+      held.openItemId = 'item-1';
+      rerender(shell());
+
+      await screen.findByLabelText('Title');
+      expect(dockButton()).toBeVisible();
+    });
+
     it('a choice made elsewhere does not move a form already open', async () => {
       held.items = [anItem()];
       const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

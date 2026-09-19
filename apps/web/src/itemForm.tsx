@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 
 /**
@@ -60,14 +68,101 @@ export function useOpenItem(): (itemId: string) => void {
   return useContext(OpenItem);
 }
 
+/**
+ * The Item shown in a docked form, if one is docked open - what a plain click
+ * on a row follows ("Let the item's form dock to the side of the screen instead of opening as a dialog", issue
+ * 481). `openId` is null whenever nothing is docked open, which is what tells a
+ * row that its plain click still opens nothing ("Require a double-click to open a row again, now that a plain click
+ * opens it", issue 456).
+ *
+ * **A context, for the reason `OpenItem` is one**: rows are drawn outside the
+ * router in tests, and only the shell knows both the address and whether the
+ * form is really docked (a narrow screen renders a docked account's form
+ * centered, `ItemForm.tsx`), so the form reports that fact up rather than the
+ * row working it out.
+ */
+export interface DockedItem {
+  openId: string | null;
+  /**
+   * `keepFocus` leaves the keyboard where it is instead of moving it into the
+   * form, for a switch that was not a click on a row: what a capture moves the
+   * dock to must not take the keyboard from the capture box, or capturing
+   * several notes in a row would break.
+   */
+  show: (itemId: string, options?: { keepFocus?: boolean }) => void;
+}
+const NO_DOCK: DockedItem = { openId: null, show: () => {} };
+export const DockedItemContext = createContext<DockedItem>(NO_DOCK);
+const ReportDocked = createContext<(docked: boolean) => void>(() => {});
+const QuietOpening = createContext<(itemId: string) => boolean>(() => false);
+const SettleQuietOpening = createContext<() => void>(() => {});
+
+export function useDockedItem(): DockedItem {
+  return useContext(DockedItemContext);
+}
+
+/** Whether the form for this Item was last asked for with `keepFocus`. */
+export function useQuietOpening(): (itemId: string) => boolean {
+  return useContext(QuietOpening);
+}
+
+/** The form saying it has read that, so the flag does not outlive the switch it was made for. */
+export function useSettleQuietOpening(): () => void {
+  return useContext(SettleQuietOpening);
+}
+
+/** How the form says it is really docked open, for as long as it is. */
+export function useReportDocked(): (docked: boolean) => void {
+  return useContext(ReportDocked);
+}
+
 /** The shell's answer: opening a form is a change of address. */
 export function OpensItemForms({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const search = useSearch({ strict: false }) as ItemFormSearch;
+  const [docked, setDocked] = useState(false);
+  const quietFor = useRef<string | null>(null);
   const open = useCallback(
-    (itemId: string) => void navigate({ to: '.', search: (was) => ({ ...was, item: itemId }) }),
+    (itemId: string) => {
+      quietFor.current = null;
+      void navigate({ to: '.', search: (was) => ({ ...was, item: itemId }) });
+    },
     [navigate],
   );
-  return <OpenItem.Provider value={open}>{children}</OpenItem.Provider>;
+  // Replacing rather than pushing: following the rows is one open form
+  // changing its Item, so Back leaves the page rather than stepping back
+  // through every row that was looked at.
+  const show = useCallback(
+    (itemId: string, options?: { keepFocus?: boolean }) => {
+      quietFor.current = options?.keepFocus ? itemId : null;
+      void navigate({ to: '.', replace: true, search: (was) => ({ ...was, item: itemId }) });
+    },
+    [navigate],
+  );
+  // A read that changes nothing, because it is called from a `useState`
+  // initializer, which React may run twice under StrictMode and expects to be
+  // pure. What clears the flag is the form settling it once mounted, or the
+  // next request to open a form (`open`, `show`), so it never outlives the
+  // switch it was made for.
+  const isQuietOpening = useCallback((itemId: string) => quietFor.current === itemId, []);
+  const settleQuietOpening = useCallback(() => {
+    quietFor.current = null;
+  }, []);
+  const dock = useMemo(
+    () => ({ openId: docked ? (search.item ?? null) : null, show }),
+    [docked, search.item, show],
+  );
+  return (
+    <OpenItem.Provider value={open}>
+      <ReportDocked.Provider value={setDocked}>
+        <QuietOpening.Provider value={isQuietOpening}>
+          <SettleQuietOpening.Provider value={settleQuietOpening}>
+            <DockedItemContext.Provider value={dock}>{children}</DockedItemContext.Provider>
+          </SettleQuietOpening.Provider>
+        </QuietOpening.Provider>
+      </ReportDocked.Provider>
+    </OpenItem.Provider>
+  );
 }
 
 /**
