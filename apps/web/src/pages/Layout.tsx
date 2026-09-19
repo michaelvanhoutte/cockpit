@@ -481,16 +481,13 @@ function TheShell() {
       // `--ground` and `--tint` beside the fill, because two things drawn far
       // below here are mixed from them rather than given them: the wells sunk
       // into the sheet (styles.css) and the lit tint a dot wears on the chrome.
-      // The room a docked item's form takes off the right edge, given up by
-      // the whole shell rather than left under it ("Let the item's form dock
-      // to the side of the screen instead of opening as a dialog", issue 481:
-      // a companion beside the dashboards, not a cover over their right-hand
-      // part). The form sets `--docked-form-w` while it is docked and drawn,
-      // and nothing else does, so this is nothing the rest of the time - and
-      // follows a drag of the form's edge live, since the variable does.
       style={
         {
           backgroundColor: theme.ground,
+          // The docked item's form's width, which `ItemForm.tsx` sets while
+          // it is docked, so the form sits beside the shell rather than over
+          // it ("Let the item's form dock to the side of the screen instead
+          // of opening as a dialog", issue 481).
           paddingRight: 'var(--docked-form-w, 0px)',
           '--ground': theme.ground,
           '--tint': theme.color,

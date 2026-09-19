@@ -1058,6 +1058,24 @@ test.describe('Item editing', () => {
     );
   }
 
+  /** The account is shared by every walk in the run, so an earlier one may have left it docked: a docking walk starts from centered either way. */
+  async function centerIfDocked(page: Page, isMobile: boolean): Promise<void> {
+    if (!(await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0))) return;
+    const answered = answeredThePresentation(page);
+    await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
+    await answered;
+  }
+
+  /** Every docking walk's `finally`: best effort, so a failure above is reported as itself rather than masked by a cleanup step failing on whatever broke it. */
+  async function putItBackCentered(page: Page, isMobile: boolean): Promise<void> {
+    if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
+      const recentering = answeredThePresentation(page, 5_000).catch(() => {});
+      await press(form(page).getByRole('button', { name: 'Center' }), isMobile).catch(() => {});
+      await recentering;
+    }
+    await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile).catch(() => {});
+  }
+
   /**
    * "Let the item's form dock to the side of the screen instead of opening
    * as a dialog" (issue 481): an account-wide choice, so this walk restores
@@ -1080,11 +1098,7 @@ test.describe('Item editing', () => {
 
       // Whatever the shared account already has - centered, on a run where
       // nothing else has touched this yet.
-      if (await form(page).getByRole('button', { name: 'Center' }).count()) {
-        const already = answeredThePresentation(page);
-        await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
-        await already;
-      }
+      await centerIfDocked(page, isMobile);
 
       try {
         const centered = (await form(page).boundingBox())!;
@@ -1154,12 +1168,7 @@ test.describe('Item editing', () => {
         // on finding the centered presentation it was written against -
         // best effort, so a failure above is reported as itself rather than
         // masked by a cleanup step failing on whatever broke it.
-        if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
-          const recentering = answeredThePresentation(page, 5_000).catch(() => {});
-          await press(form(page).getByRole('button', { name: 'Center' }), isMobile).catch(() => {});
-          await recentering;
-        }
-        await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile).catch(() => {});
+        await putItBackCentered(page, isMobile);
       }
     });
 
@@ -1187,11 +1196,7 @@ test.describe('Item editing', () => {
       await capture(page, thought, isMobile);
       await openItem(page, thought, isMobile);
 
-      if (await form(page).getByRole('button', { name: 'Center' }).count()) {
-        const already = answeredThePresentation(page);
-        await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
-        await already;
-      }
+      await centerIfDocked(page, isMobile);
 
       try {
         const docking = answeredThePresentation(page);
@@ -1243,12 +1248,7 @@ test.describe('Item editing', () => {
         await expect(descriptionBox(page)).toHaveText('Written, cursor still there');
       } finally {
         // Put back for every other walk sharing this account, best effort.
-        if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
-          const recentering = answeredThePresentation(page, 5_000).catch(() => {});
-          await press(form(page).getByRole('button', { name: 'Center' }), isMobile).catch(() => {});
-          await recentering;
-        }
-        await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile).catch(() => {});
+        await putItBackCentered(page, isMobile);
       }
     });
 
@@ -1280,11 +1280,7 @@ test.describe('Item editing', () => {
       await capture(page, thought, isMobile);
       await openItem(page, thought, isMobile);
 
-      if (await form(page).getByRole('button', { name: 'Center' }).count()) {
-        const already = answeredThePresentation(page);
-        await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
-        await already;
-      }
+      await centerIfDocked(page, isMobile);
 
       try {
         const docking = answeredThePresentation(page);
@@ -1318,12 +1314,7 @@ test.describe('Item editing', () => {
         if (!(await form(page).count().catch(() => 0))) {
           await openItem(page, thought, isMobile).catch(() => {});
         }
-        if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
-          const recentering = answeredThePresentation(page, 5_000).catch(() => {});
-          await press(form(page).getByRole('button', { name: 'Center' }), isMobile).catch(() => {});
-          await recentering;
-        }
-        await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile).catch(() => {});
+        await putItBackCentered(page, isMobile);
       }
       await deleteWorkspace(page, home, isMobile);
     });
@@ -1347,11 +1338,7 @@ test.describe('Item editing', () => {
       await capture(page, thought, isMobile);
       await openItem(page, thought, isMobile);
 
-      if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
-        const already = answeredThePresentation(page);
-        await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
-        await already;
-      }
+      await centerIfDocked(page, isMobile);
 
       const full = page.viewportSize()!;
       try {
@@ -1380,19 +1367,15 @@ test.describe('Item editing', () => {
         await expect(form(page).getByRole('button', { name: 'Center' })).toBeVisible();
       } finally {
         await page.setViewportSize(full);
-        if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
-          const recentering = answeredThePresentation(page, 5_000).catch(() => {});
-          await press(form(page).getByRole('button', { name: 'Center' }), isMobile).catch(() => {});
-          await recentering;
-        }
-        await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile).catch(() => {});
+        await putItBackCentered(page, isMobile);
       }
     });
 
     /**
      * A docked form is a companion beside the dashboards, so the page gives
-     * up the room it takes rather than being covered by it: what the form
-     * hides of the page is what the page is for. Real layout, so here.
+     * up the room it takes rather than being covered by it. F3, because the
+     * shell's width, and its following a drag of the form's edge, exist only
+     * where there is a real layout - which jsdom does not have.
      */
     test('the page beside a docked form is left whole, follows the form as it is dragged, and takes the room back', async ({
       page,
@@ -1405,11 +1388,7 @@ test.describe('Item editing', () => {
       await capture(page, thought, isMobile);
       await openItem(page, thought, isMobile);
 
-      if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
-        const already = answeredThePresentation(page);
-        await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
-        await already;
-      }
+      await centerIfDocked(page, isMobile);
 
       // The page's own right edge: its header, which spans the whole shell.
       const shellRight = async () => {
@@ -1424,7 +1403,10 @@ test.describe('Item editing', () => {
         await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
         await docking;
         const docked = (await form(page).boundingBox())!;
-        expect(await shellRight(), 'ends where the docked form begins').toBe(Math.round(docked.x));
+        // Polled: the server's answer is not the page having repainted.
+        await expect
+          .poll(shellRight, { message: 'ends where the docked form begins' })
+          .toBe(Math.round(docked.x));
 
         // Dragged narrower, the page takes the room back as the form gives it.
         const grip = (await form(page).getByRole('separator', { name: 'Resize the form' }).boundingBox())!;
@@ -1444,12 +1426,7 @@ test.describe('Item editing', () => {
         await centering;
         await expect.poll(shellRight, { message: 'the whole window again' }).toBe(viewportWidth);
       } finally {
-        if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
-          const recentering = answeredThePresentation(page, 5_000).catch(() => {});
-          await press(form(page).getByRole('button', { name: 'Center' }), isMobile).catch(() => {});
-          await recentering;
-        }
-        await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile).catch(() => {});
+        await putItBackCentered(page, isMobile);
       }
     });
   });
