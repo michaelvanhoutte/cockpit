@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
-import type { Dashboard, ItemType, Workspace } from '@cockpit/shared';
+import type { Dashboard, Item, ItemFormPresentation, ItemType, Workspace } from '@cockpit/shared';
 import { createAppRouter } from '../../src/router';
 import {
   NotSignedIn,
@@ -78,7 +78,17 @@ async function open(
   at: string,
   have: Workspace[],
   boards: (workspaceId: string) => Dashboard[] = dashboardsOf,
-  { types = [], until }: { types?: ItemType[]; until?: () => Promise<void> } = {},
+  {
+    types = [],
+    until,
+    items = [],
+    presentation = 'centered',
+  }: {
+    types?: ItemType[];
+    until?: () => Promise<void>;
+    items?: Item[];
+    presentation?: ItemFormPresentation;
+  } = {},
 ) {
   readsWorkspaces.mockResolvedValue({ workspaces: have });
   // A workspace that is not there has no snapshot, exactly as the server has
@@ -89,7 +99,8 @@ async function open(
     if (!workspace) return Promise.reject(new Error(`snapshot failed: 404`));
     const answer = {
       workspace,
-      items: [],
+      // Each workspace holds only its own Items, as the server's snapshot does.
+      items: items.filter((item) => item.workspaceId === workspace.id),
       dashboards: boards(workspace.id),
       panels: [],
       layouts: [],
@@ -97,7 +108,7 @@ async function open(
       attachments: [],
       itemTypes: types,
       screenSizes: [],
-      itemFormPresentation: 'centered' as const,
+      itemFormPresentation: presentation,
       duplicates: [],
       filings: [],
       routingSummary: null,
@@ -648,6 +659,95 @@ describe('Dashboards', () => {
       // Personal was never opened, so it opens on its own first dashboard -
       // not on the Research that Work remembers.
       expect(await screen.findByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
+    });
+  });
+});
+
+/**
+ * "Keep a docked item open across dashboards in the same workspace" (issue
+ * 482). The form is opened by the address, so what is asked here is what the
+ * address keeps and what it drops as the tabs are pressed - stated as whether
+ * the form is still on screen, which is what a person sees.
+ */
+describe('Item editing', () => {
+  describe('a docked form stays open across the views of one workspace, and not into another workspace', () => {
+    const anItem: Item = {
+      id: 'item-1',
+      tenantId: 'tenant',
+      workspaceId: 'ws-work',
+      workspaceDecided: true,
+      source: 'internal',
+      sourceId: null,
+      sourceLink: null,
+      sender: null,
+      sourceTimestamp: null,
+      capturedMessage: 'Ask Novy about part 11',
+      textsSettledAt: null,
+      textsProposedAt: null,
+      readings: null,
+      proposedPanelId: null,
+      proposedPanelReason: null,
+      sourceResolvedAt: null,
+      title: 'Part 11',
+      description: null,
+      typeId: null,
+      nextAction: null,
+      completedAt: null,
+      priority: null,
+      dueDate: null,
+      dueDateSetAt: null,
+      unseen: false,
+      deletedAt: null,
+      createdAt: '2026-08-12T10:00:00.000Z',
+      updatedAt: '2026-08-12T10:00:00.000Z',
+    };
+    const theForm = () => screen.queryByRole('dialog');
+    const tab = (bar: 'Dashboards' | 'Workspaces', name: string) =>
+      within(screen.getByRole('navigation', { name: bar })).getByRole('link', { name });
+
+    async function dockedOverTheFirstDashboard() {
+      await open('/w/ws-work/d/ws-work-dashboard-1?item=item-1', [work, personal], dashboardsOf, {
+        items: [anItem],
+        presentation: 'docked',
+      });
+      expect(await screen.findByRole('dialog')).toBeVisible();
+      return userEvent.setup();
+    }
+
+    it.each([
+      { situation: 'another dashboard', goingTo: 'Research' },
+      { situation: 'the Inbox, where it is a tab of its own', goingTo: 'Inbox' },
+    ])('stays open, showing the same item, going to $situation and back', async ({ goingTo }) => {
+      const user = await dockedOverTheFirstDashboard();
+
+      await user.click(tab('Dashboards', goingTo));
+      await screen.findByRole('dialog');
+      expect(within(theForm()!).getByDisplayValue('Part 11')).toBeVisible();
+
+      await user.click(tab('Dashboards', 'Dashboard 1'));
+      await screen.findByRole('dialog');
+      expect(within(theForm()!).getByDisplayValue('Part 11')).toBeVisible();
+    });
+
+    it('still closes from its own control after moving to another dashboard', async () => {
+      const user = await dockedOverTheFirstDashboard();
+      await user.click(tab('Dashboards', 'Research'));
+      await screen.findByRole('heading', { name: 'Research' });
+
+      await user.click(within(theForm()!).getByRole('button', { name: 'Cancel' }));
+
+      expect(theForm()).toBeNull();
+    });
+
+    it('closes on going to another workspace, and is not there again coming back', async () => {
+      const user = await dockedOverTheFirstDashboard();
+
+      await user.click(tab('Workspaces', 'Personal'));
+      await waitFor(() => expect(theForm()).toBeNull());
+      await user.click(tab('Workspaces', 'Work'));
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+
+      expect(theForm()).toBeNull();
     });
   });
 });

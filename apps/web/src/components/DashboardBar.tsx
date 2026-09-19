@@ -6,6 +6,7 @@ import { CommandRefused } from '../api/client';
 import { refusalFrom, snapshotQuery, useCommand, useSendCommand } from '../api/queries';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { useRoomForTheInbox } from '../roomForTheInbox';
+import { keepingTheOpenItem } from '../itemForm';
 import { dashboardToSwitchTo } from '../switchWhileDragging';
 import { layoutsOf } from '../panels/arrangement';
 import { DeleteQuestion } from './DeleteQuestion';
@@ -117,6 +118,7 @@ export function DashboardBar({
     void navigate({
       to: '/w/$workspaceId/d/$dashboardId',
       params: { workspaceId, dashboardId: switchTo },
+      search: keepingTheOpenItem,
     });
   };
 
@@ -215,7 +217,7 @@ export function DashboardBar({
           // the same re-read but does not wait for it, and this is the caller
           // that has to.
           await queryClient.refetchQueries({ queryKey: ['snapshot', workspaceId] });
-          void navigate({ to: '/w/$workspaceId', params: { workspaceId } });
+          void navigate({ to: '/w/$workspaceId', params: { workspaceId }, search: keepingTheOpenItem });
         },
       },
     );
@@ -332,6 +334,7 @@ export function DashboardBar({
         <Link
           to="/w/$workspaceId/inbox"
           params={{ workspaceId }}
+          search={keepingTheOpenItem}
           className={tabClass}
         >
           Inbox
@@ -346,6 +349,7 @@ export function DashboardBar({
           <Link
             to="/w/$workspaceId/d/$dashboardId"
             params={{ workspaceId, dashboardId: dashboard.id }}
+            search={keepingTheOpenItem}
             // What a panel drag reads to tell which dashboard a drop landed on
             // (`panels/dashboardDrop.ts`). A panel is moved with the pointer
             // rather than the browser's own drag-and-drop (`PanelCard.tsx`),
@@ -509,6 +513,7 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
           void navigate({
             to: '/w/$workspaceId/d/$dashboardId',
             params: { workspaceId, dashboardId },
+            search: keepingTheOpenItem,
           });
         },
       },

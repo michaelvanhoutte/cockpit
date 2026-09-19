@@ -52,12 +52,14 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({
     children,
     to: _to,
+    search: _search,
     params,
     className,
     ...rest
   }: {
     children?: React.ReactNode;
     to?: unknown;
+    search?: unknown;
     params?: { dashboardId?: string };
   } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
     <a
@@ -479,8 +481,24 @@ describe('Dashboards', () => {
         {
           to: '/w/$workspaceId/d/$dashboardId',
           params: { workspaceId: 'ws-work', dashboardId: asked.payload.dashboardId },
+          search: expect.any(Function),
         },
       ]);
+    });
+
+    // "Keep a docked item open across dashboards in the same workspace" (issue
+    // 482): a form docked beside the page is the address's `item`, and the
+    // switch this makes is the one move here that no tab is pressed for.
+    it('keeps an open item’s form open when it switches', async () => {
+      const { user } = showBar(['Dashboard 1']);
+
+      await user.click(screen.getByRole('button', { name: 'Add a dashboard' }));
+      await user.type(screen.getByLabelText('Name of the new dashboard'), 'Research');
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      const [{ search }] = wentTo.calls as [{ search: (was: object) => object }];
+      expect(search({ item: 'item-1', connected: 'teams' })).toEqual({ item: 'item-1' });
+      expect(search({})).toEqual({});
     });
 
     it('does not still say why the last one was refused, next time the field opens', async () => {
