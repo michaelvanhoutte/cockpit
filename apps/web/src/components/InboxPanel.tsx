@@ -130,7 +130,10 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
      in the sheet (pages/Layout.tsx), and the name and count are up in the band
      above it. What is left here is what the Inbox actually holds. */
   return (
-    <>
+    // At least as tall as the column it is drawn in, so the list takes what the
+    // form above it leaves: as tall as the whole column, it overflowed by the
+    // form's own height and always scrolled.
+    <div className="flex min-h-full flex-col">
       {/* Writing something down and seeing where it landed are the same
           place: the box is the Inbox's first row. */}
       <div className="border-b border-black/5 px-4 py-3">
@@ -158,7 +161,8 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
         // there is no dashboard here for the picker to offer first.
         openDashboardId={null}
         emptyMessage="Nothing to deal with."
+        fillsTheRestOfItsColumn
       />
-    </>
+    </div>
   );
 }

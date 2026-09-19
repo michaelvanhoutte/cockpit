@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Item, ItemType } from '@cockpit/shared';
 import { ItemRow } from '../../../src/components/ItemRow';
@@ -652,6 +652,160 @@ describe('Item editing', () => {
     });
   });
 
+  describe('an alt-double-click takes the panel Cockpit proposed, and a plain double-click still opens the row', () => {
+    const proposal = { panelName: 'Compliance questions', reason: 'a compliance question' };
+
+    it('takes the proposal with alt held, and does not open the form', () => {
+      const onAcceptRouting = vi.fn();
+      const onOpen = vi.fn();
+      aRow({ routingProposal: proposal, onAcceptRouting, onOpen });
+
+      fireEvent.doubleClick(screen.getByRole('listitem'), { altKey: true });
+
+      expect(onAcceptRouting).toHaveBeenCalledOnce();
+      expect(onOpen).not.toHaveBeenCalled();
+    });
+
+    it('opens the form on a plain double-click, proposal or not', () => {
+      const onAcceptRouting = vi.fn();
+      const onOpen = vi.fn();
+      aRow({ routingProposal: proposal, onAcceptRouting, onOpen });
+
+      fireEvent.doubleClick(screen.getByRole('listitem'));
+
+      expect(onOpen).toHaveBeenCalledOnce();
+      expect(onAcceptRouting).not.toHaveBeenCalled();
+    });
+
+    it('takes nothing with alt held while a selection is held, which suspends single-row actions', () => {
+      const onAcceptRouting = vi.fn();
+      aRow({
+        routingProposal: proposal,
+        onAcceptRouting,
+        onOpen: () => {},
+        selecting: { picked: false, revealed: true, onPick: () => {}, onEndSelection: () => {} },
+      });
+
+      fireEvent.doubleClick(screen.getByRole('listitem'), { altKey: true });
+
+      expect(onAcceptRouting).not.toHaveBeenCalled();
+    });
+
+    it('opens the form on an alt-double-click where nothing was proposed', () => {
+      const onOpen = vi.fn();
+      aRow({ onOpen });
+
+      fireEvent.doubleClick(screen.getByRole('listitem'), { altKey: true });
+
+      expect(onOpen).toHaveBeenCalledOnce();
+    });
+
+    it('takes nothing when the double-click was on a control of the row’s own', () => {
+      const onAcceptRouting = vi.fn();
+      aRow({ routingProposal: proposal, onAcceptRouting, onOpen: () => {} });
+
+      fireEvent.doubleClick(screen.getByLabelText('Item actions'), { altKey: true });
+
+      expect(onAcceptRouting).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('a right-click on a row opens the same menu as its three dots', () => {
+    /** Every entry the open menu offers, in order. */
+    const entriesOpen = async () =>
+      (await screen.findAllByRole('menuitem')).map((entry) => entry.textContent);
+
+    it('offers exactly what the three dots offer', async () => {
+      const user = userEvent.setup();
+      const options = { onOpen: () => {}, onMoveTo: () => {} };
+      aRow(options);
+      await user.click(screen.getByLabelText('Item actions'));
+      const fromTheDots = await entriesOpen();
+      await user.keyboard('{Escape}');
+
+      fireEvent.contextMenu(screen.getByRole('listitem'));
+
+      expect(await entriesOpen()).toEqual(fromTheDots);
+      expect(fromTheDots).toContain('Mark done');
+    });
+
+    it('does what a chosen entry says', async () => {
+      const user = userEvent.setup();
+      const onOpen = vi.fn();
+      aRow({ onOpen });
+
+      fireEvent.contextMenu(screen.getByRole('listitem'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Open' }));
+
+      expect(onOpen).toHaveBeenCalledOnce();
+    });
+
+    // The dropdown's entries are drawn in a portal, which reaches the row's
+    // handlers through the React tree rather than the DOM one.
+    it('opens no second menu over the first when the right-click was on an entry of the open one', async () => {
+      const user = userEvent.setup();
+      aRow({ onOpen: () => {} });
+      await user.click(screen.getByLabelText('Item actions'));
+      const before = (await screen.findAllByRole('menu')).length;
+
+      fireEvent.contextMenu(await screen.findByRole('menuitem', { name: 'Mark done' }));
+
+      expect(screen.getAllByRole('menu')).toHaveLength(before);
+    });
+
+    it('opens nothing while a selection is held, which suspends every row’s own menu', () => {
+      aRow({
+        selecting: { picked: false, revealed: true, onPick: () => {}, onEndSelection: () => {} },
+      });
+
+      fireEvent.contextMenu(screen.getByRole('listitem'));
+
+      expect(screen.queryByRole('menuitem') === null).toBe(true);
+    });
+
+    it('closes when a selection starts while it is open', async () => {
+      const held = { picked: false, revealed: true, onPick: () => {}, onEndSelection: () => {} };
+      const { rerenderSelecting } = aRow({
+        selecting: { ...held, revealed: false },
+      });
+      fireEvent.contextMenu(screen.getByRole('listitem'));
+      await screen.findByRole('menuitem', { name: 'Mark done' });
+
+      rerenderSelecting(held);
+
+      await waitFor(() => expect(screen.queryByRole('menuitem') === null).toBe(true));
+    });
+
+    // Radix starts its own long press on any touch, on whatever the row's own
+    // handlers let through - a control on the row included. Real timers: Radix
+    // reads `window.setTimeout`, which fake ones do not reach here.
+    it.each([
+      { where: 'the row', target: () => screen.getByRole('listitem') },
+      { where: 'a control of its own', target: () => screen.getByText('→ Compliance questions') },
+    ])('opens nothing on a long press by touch on ', async ({ target }) => {
+      aRow({
+        routingProposal: { panelName: 'Compliance questions', reason: 'a compliance question' },
+        onAcceptRouting: () => {},
+      });
+
+      fireEvent.pointerDown(target(), { pointerType: 'touch', pointerId: 1 });
+      await act(() => new Promise((resolve) => setTimeout(resolve, 800)));
+      fireEvent.pointerUp(target(), { pointerType: 'touch', pointerId: 1 });
+
+      expect(screen.queryByRole('menuitem') === null).toBe(true);
+    });
+
+    it('opens nothing after a touch, which has the three dots and spends a hold on picking the row', () => {
+      aRow();
+      fireEvent.pointerDown(screen.getByRole('listitem'), { pointerType: 'touch', pointerId: 1 });
+      fireEvent.pointerUp(screen.getByRole('listitem'), { pointerType: 'touch', pointerId: 1 });
+
+      fireEvent.contextMenu(screen.getByRole('listitem'));
+
+      expect(screen.queryByRole('menuitem') === null).toBe(true);
+    });
+  });
+
   describe('a row spells out a label it had to cut, and stays quiet about one it drew whole', () => {
 
     it.each([
@@ -917,7 +1071,7 @@ describe('Triage', () => {
       aRow({ item: anItem({ dueDate: null }) });
 
       const row = screen.getByRole('listitem');
-      expect(row.className).not.toContain('bg-over-deep');
+      expect(row.className).not.toContain('bg-over-row');
       // `due-tint` is still the row's own class either way - zero intensity,
       // fully transparent, is what keeps a due-date-less row looking plain.
       expect(row.getAttribute('style')).toContain('--due: 0');
@@ -938,22 +1092,31 @@ describe('Triage', () => {
       expect(row.className).toContain('due-tint');
       // Half the 20-day window elapsed, squared for the ease-in: 0.25.
       expect(row.getAttribute('style')).toContain('--due: 0.25');
-      expect(row.className).not.toContain('bg-over-deep');
+      expect(row.className).not.toContain('bg-over-row');
     });
 
-    it('turns `over-deep` with white text once the due date has passed, whatever the item otherwise carries', () => {
+    it('turns `over-row` with white text once the due date has passed, whatever the item otherwise carries', () => {
       vi.useFakeTimers();
       vi.setSystemTime(Date.parse('2026-09-17T09:00:00.000Z'));
       aRow({ item: anItem({ dueDate: '2026-09-16', dueDateSetAt: '2026-09-01T00:00:00.000Z' }) });
 
       const row = screen.getByRole('listitem');
-      expect(row.className).toContain('bg-over-deep');
+      expect(row.className).toContain('bg-over-row');
       expect(row.className).toContain('text-white');
       // `hover:bg-accent-tint/40`, a `:hover` variant, outranks a plain class
       // regardless of source order - left on this row, hovering would paint
       // it pale while its text stayed forced white underneath (found in
       // review), so this row does not carry it at all.
       expect(row.className).not.toContain('hover:bg-accent-tint');
+    });
+
+    // Hovering used to show nothing on it: solid red with nothing to lighten.
+    it('lightens on hover, which the shared hover could not show on it', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-09-17T09:00:00.000Z'));
+      aRow({ item: anItem({ dueDate: '2026-09-16', dueDateSetAt: '2026-09-01T00:00:00.000Z' }) });
+
+      expect(screen.getByRole('listitem').className).toContain('hover:bg-over-row-hover');
     });
 
     it('drops the description mark and the waited badge back to white too, once overdue', () => {
@@ -1010,7 +1173,7 @@ describe('Triage', () => {
 
       const row = screen.getByRole('listitem');
       expect(row.className).toContain('bg-accent-tint');
-      expect(row.className).not.toContain('bg-over-deep');
+      expect(row.className).not.toContain('bg-over-row');
       // `due-tint` is the class the intensity actually reads through; a
       // picked row not wearing it is what leaves it inert here.
       expect(row.className).not.toContain('due-tint');

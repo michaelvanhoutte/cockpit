@@ -49,6 +49,16 @@
    * this small.
    */
   --color-over-deep: #a04a43;
+  /*
+   * An overdue item's row, a step lighter than `over-deep` ("Colour an action's
+   * own deadline as it approaches, and mark it red once passed", issue 473):
+   * the solid fill read as too dark a red across a whole row, and gave the
+   * hover highlight nothing to show on. White on this is 4.6:1, so it passes
+   * for the row's small text; the hover is the lighter one, which is what
+   * shows the pointer is on the row, at about 3.8:1 for as long as it is.
+   */
+  --color-over-row: #b85850;
+  --color-over-row-hover: #c7665e;
 
   /*
    * What an item is doing, as a color. The dot on a row is the scannable half

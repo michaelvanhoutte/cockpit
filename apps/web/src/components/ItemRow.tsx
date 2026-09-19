@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   itemHasOpenReadings,
@@ -18,7 +19,13 @@ import { openableAtSource } from '../itemSource';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
-import { MenuContent, MenuTrigger, menuItemClass } from './Menu';
+import {
+  ContextMenuContent,
+  MenuContent,
+  MenuTrigger,
+  destructiveItemClass,
+  menuItemClass,
+} from './Menu';
 import { RewriteHistoryWindow } from './RewriteHistoryWindow';
 
 /**
@@ -176,6 +183,8 @@ export function ItemRow({
   /** Belongs to no workspace yet, so it is in every workspace's Inbox at once. */
   const undecided = !workspaceIsDecided(item);
   const trigger = useRef<HTMLButtonElement>(null);
+  /** Whether the menu a right-click opens is open - controlled so a touch can be refused (see the wrapper below). */
+  const [contextOpen, setContextOpen] = useState(false);
   /** True while the entry just chosen is opening something that wants the focus. */
   const opening = useRef(false);
   /** This item's own rewrite history, opened from its own menu ("See the history of what Cockpit proposed for the Inbox's items", issue 444). */
@@ -195,7 +204,10 @@ export function ItemRow({
   // so the moment the selection that suspended it ends, `open` reads that
   // stale `true` again and the menu reopens on its own, having asked nobody.
   useEffect(() => {
-    if (selecting?.revealed) setMenuOpen(false);
+    if (selecting?.revealed) {
+      setMenuOpen(false);
+      setContextOpen(false);
+    }
   }, [selecting?.revealed]);
 
   const envelope = () => ({
@@ -480,10 +492,138 @@ export function ItemRow({
     },
   };
 
+  /**
+   * Choosing Move to… opens the picker, which takes the focus itself; Radix
+   * would put it back on the menu's trigger as it closes and take it straight
+   * off the dialog. Every other entry here opens nothing, so Radix's own
+   * return of the focus stands.
+   */
+  const keepFocusIfSomethingOpened = (event: Event) => {
+    if (!opening.current) return;
+    opening.current = false;
+    event.preventDefault();
+  };
+
+  /**
+   * What this row offers, drawn into whichever primitive opens it - the
+   * dropdown its three dots open, and the context menu a right-click on the row
+   * opens (the way a tab's does, issue 267). One list, so
+   * the two ways in cannot come to offer different things.
+   *
+   * Both primitives are Radix's menu underneath and share an item and a
+   * separator with the same props, which is what lets one list serve both.
+   */
+  const menuEntries = (M: { Item: typeof DropdownMenu.Item; Separator: typeof DropdownMenu.Separator }) => (
+    <>
+        {onOpen && (
+          <M.Item
+            className={menuItemClass}
+            onSelect={() => {
+              // The form takes the focus itself, like the pickers below.
+              opening.current = true;
+              onOpen();
+            }}
+          >
+            Open
+          </M.Item>
+        )}
+        {/* An `<a>` rather than a select handler, so it is a real link the
+            browser opens in a new tab and not a script opening one; Radix
+            closes the menu on its own selection either way. */}
+        {atSource && (
+          <M.Item asChild className={menuItemClass}>
+            <a href={atSource.link} target="_blank" rel="noopener noreferrer">
+              Open in {atSource.name}
+            </a>
+          </M.Item>
+        )}
+        {/* The common case in one press ("Capture something before you know
+            which workspace it belongs to", issue 165): a row read in Work is
+            usually Work's, and saying so should not cost a dialog listing
+            every alternative. Above Move to…, which is the same answer with
+            the other workspaces in it.
+
+            Only on a row that belongs to no workspace: on any other it would
+            be an entry that does nothing. */}
+        {undecided && onMoveHere && (
+          <M.Item className={menuItemClass} onSelect={onMoveHere}>
+            Move to this workspace
+          </M.Item>
+        )}
+        {onMoveTo && (
+          <M.Item
+            className={menuItemClass}
+            onSelect={() => {
+              opening.current = true;
+              onMoveTo(trigger.current);
+            }}
+          >
+            Move to…
+          </M.Item>
+        )}
+        {onAddTo && (
+          <M.Item
+            className={menuItemClass}
+            onSelect={() => {
+              opening.current = true;
+              onAddTo(trigger.current);
+            }}
+          >
+            Add to…
+          </M.Item>
+        )}
+        {onRemoveFromHere && (
+          <M.Item className={menuItemClass} onSelect={onRemoveFromHere}>
+            Remove from this panel
+          </M.Item>
+        )}
+        {mayBeADuplicate && onSettleNotADuplicate && (
+          <M.Item className={menuItemClass} onSelect={onSettleNotADuplicate}>
+            Not a duplicate
+          </M.Item>
+        )}
+        <M.Item className={menuItemClass} onSelect={markDone}>
+          Mark done
+        </M.Item>
+        <M.Item
+          className={menuItemClass}
+          onSelect={() => {
+            opening.current = true;
+            setHistoryOpen(true);
+          }}
+        >
+          Rewrite history…
+        </M.Item>
+        <M.Separator className="my-1 h-px bg-black/10" />
+        <M.Item
+          className={destructiveItemClass}
+          onSelect={dismiss}
+        >
+          Dismiss
+        </M.Item>
+    </>
+  );
+
   return (
     // `gap-1.5` rather than `gap-2`: the row gained a mark at its head and an
     // age at its tail, and the Inbox column is a fifth of the screen, so the
     // space between them is space the title does not get.
+    // A right-click anywhere on the row opens the same menu the three dots do,
+    // where the pointer is - the way a tab's and a Panel's header's does
+    // ("Change a workspace or a dashboard on the tab it is", issue 267). Not on
+    // touch, which has the three dots and spends a long press on picking the
+    // row out (refused where it opens, `onOpenChange`, since Radix starts its own
+    // long press on any touch - a pen's is let through, having no hold of the
+    // row's own to open over); and not while a selection is held, which
+    // suspends every row's own menu, so the browser's is left alone then.
+    <ContextMenu.Root
+      open={contextOpen}
+      onOpenChange={(next) => {
+        if (next && lastPointerType.current === 'touch') return;
+        setContextOpen(next);
+      }}
+    >
+      <ContextMenu.Trigger asChild disabled={selecting?.revealed === true}>
     <li
       // What a list measures when it works out where a dragged row would land,
       // so the line drawn between rows is not counted as one of them.
@@ -554,7 +694,24 @@ export function ItemRow({
         const hit = event.target as Node;
         if (!event.currentTarget.contains(hit)) return;
         if ((hit as Element).closest?.('a, button')) return;
+        // Alt held, where Cockpit has proposed a Panel: take the proposal - the
+        // chip's own filing, without opening the form first. A plain
+        // double-click still opens. Alt rather than ctrl/cmd or shift, which
+        // already pick the row out (issue 438): a ctrl-double-click would pick
+        // and un-pick it on the way to filing it.
+        // Not while a selection is held, which suspends every single-row
+        // action but the chip itself (issue 438).
+        if (event.altKey && !selecting?.revealed && routingProposal && onAcceptRouting) {
+          onAcceptRouting();
+          return;
+        }
         onOpen?.();
+      }}
+      // Nothing drawn in a portal from this row opens the row's menu: its own
+      // dropdown's entries reach here through the React tree, and a menu opening
+      // over a menu is not what a right-click on an entry means.
+      onContextMenu={(event) => {
+        if (!event.currentTarget.contains(event.target as Node)) event.preventDefault();
       }}
       onDragStart={(event) => {
         event.dataTransfer.setData(ITEM_BEING_DRAGGED, item.id);
@@ -591,11 +748,15 @@ export function ItemRow({
       // plain class regardless of source order, so left unconditional it
       // painted an overdue row's own dark red pale on hover while its text
       // stayed forced white underneath it - unreadable (found in review).
+      //
+      // **An overdue row has a hover of its own, not the shared one**: the
+      // solid red is the whole row, so it lightens (`over-row-hover`) rather
+      // than swapping to a tint the white text could not be read on.
       className={`group relative touch-pan-y border-b border-black/5 last:border-b-0 pointer-coarse:select-none ${
         selecting?.picked
           ? 'bg-accent-tint hover:bg-accent-tint/40'
           : dueColor === -1
-            ? 'bg-over-deep text-white'
+            ? 'bg-over-row text-white hover:bg-over-row-hover'
             : 'due-tint hover:bg-accent-tint/40'
       }`}
       // Set regardless of which of the three classes above actually reads
@@ -739,7 +900,7 @@ export function ItemRow({
 
               This line sets its own muted colour normally, the same as the
               three marks above and the waited badge further on - so all of
-              them drop it once the row has gone `over-deep text-white`
+              them drop it once the row has gone `over-row text-white`
               (issue 473), reading the row's own white by inheriting it
               rather than fighting it. The type name nested inside restates
               `'text-white'` instead of also dropping to inherit it - the two
@@ -764,6 +925,7 @@ export function ItemRow({
                 href={atSource.link}
                 target="_blank"
                 rel="noopener noreferrer"
+                onContextMenu={(event) => event.stopPropagation()}
                 title={`Open in ${atSource.name}`}
                 aria-label={`Open in ${atSource.name}`}
                 className="shrink-0 underline"
@@ -831,120 +993,34 @@ export function ItemRow({
         >
           <MenuTrigger label="Item actions" ref={trigger} disabled={selecting?.revealed} />
           <MenuContent
-            onCloseAutoFocus={(event) => {
-              // Choosing Move to… opens the picker, which takes the focus itself;
-              // Radix would put it back on this control as the menu closes and
-              // take it straight off the dialog. Every other entry here opens
-              // nothing, so the focus belongs back on the control.
-              if (!opening.current) return;
-              opening.current = false;
-              event.preventDefault();
-            }}
+            onCloseAutoFocus={keepFocusIfSomethingOpened}
           >
-            {onOpen && (
-              <DropdownMenu.Item
-                className={menuItemClass}
-                onSelect={() => {
-                  // The form takes the focus itself, like the pickers below.
-                  opening.current = true;
-                  onOpen();
-                }}
-              >
-                Open
-              </DropdownMenu.Item>
-            )}
-            {/* An `<a>` rather than a select handler, so it is a real link the
-                browser opens in a new tab and not a script opening one; Radix
-                closes the menu on its own selection either way. */}
-            {atSource && (
-              <DropdownMenu.Item asChild className={menuItemClass}>
-                <a href={atSource.link} target="_blank" rel="noopener noreferrer">
-                  Open in {atSource.name}
-                </a>
-              </DropdownMenu.Item>
-            )}
-            {/* The common case in one press ("Capture something before you know
-                which workspace it belongs to", issue 165): a row read in Work is
-                usually Work's, and saying so should not cost a dialog listing
-                every alternative. Above Move to…, which is the same answer with
-                the other workspaces in it.
-
-                Only on a row that belongs to no workspace: on any other it would
-                be an entry that does nothing. */}
-            {undecided && onMoveHere && (
-              <DropdownMenu.Item className={menuItemClass} onSelect={onMoveHere}>
-                Move to this workspace
-              </DropdownMenu.Item>
-            )}
-            {onMoveTo && (
-              <DropdownMenu.Item
-                className={menuItemClass}
-                onSelect={() => {
-                  opening.current = true;
-                  onMoveTo(trigger.current);
-                }}
-              >
-                Move to…
-              </DropdownMenu.Item>
-            )}
-            {onAddTo && (
-              <DropdownMenu.Item
-                className={menuItemClass}
-                onSelect={() => {
-                  opening.current = true;
-                  onAddTo(trigger.current);
-                }}
-              >
-                Add to…
-              </DropdownMenu.Item>
-            )}
-            {onRemoveFromHere && (
-              <DropdownMenu.Item className={menuItemClass} onSelect={onRemoveFromHere}>
-                Remove from this panel
-              </DropdownMenu.Item>
-            )}
-            {mayBeADuplicate && onSettleNotADuplicate && (
-              <DropdownMenu.Item className={menuItemClass} onSelect={onSettleNotADuplicate}>
-                Not a duplicate
-              </DropdownMenu.Item>
-            )}
-            <DropdownMenu.Item className={menuItemClass} onSelect={markDone}>
-              Mark done
-            </DropdownMenu.Item>
-            <DropdownMenu.Item
-              className={menuItemClass}
-              onSelect={() => {
-                opening.current = true;
-                setHistoryOpen(true);
-              }}
-            >
-              Rewrite history…
-            </DropdownMenu.Item>
-            <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
-            <DropdownMenu.Item
-              className={`${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`}
-              onSelect={dismiss}
-            >
-              Dismiss
-            </DropdownMenu.Item>
+            {menuEntries(DropdownMenu)}
           </MenuContent>
         </DropdownMenu.Root>
-        {/* Mounted only once opened, unlike the account-wide window a shell
-            keeps mounted between openings - a row is instantiated once per
-            item in the list, and a `useQuery` on every one of them (even
-            disabled) is a query registered per row for a feature few rows
-            will ever open. */}
-        {historyOpen && (
-          <RewriteHistoryWindow
-            open={historyOpen}
-            onClose={() => setHistoryOpen(false)}
-            returnFocusTo={trigger.current}
-            workspaceId={workspaceId}
-            itemId={item.id}
-          />
-        )}
       </div>
     </li>
+      </ContextMenu.Trigger>
+      {/* Beside the row rather than inside it, so a right-click in the dialog
+          (a paste, say) does not bubble through the React tree to the row's own
+          context menu. Mounted only once opened, unlike the account-wide window a shell
+          keeps mounted between openings - a row is instantiated once per
+          item in the list, and a `useQuery` on every one of them (even
+          disabled) is a query registered per row for a feature few rows
+          will ever open. */}
+      {historyOpen && (
+        <RewriteHistoryWindow
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          returnFocusTo={trigger.current}
+          workspaceId={workspaceId}
+          itemId={item.id}
+        />
+      )}
+      <ContextMenuContent label="Item menu" onCloseAutoFocus={keepFocusIfSomethingOpened}>
+        {menuEntries(ContextMenu)}
+      </ContextMenuContent>
+    </ContextMenu.Root>
   );
 }
 
