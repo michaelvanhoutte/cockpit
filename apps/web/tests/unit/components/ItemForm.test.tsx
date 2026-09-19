@@ -1297,6 +1297,56 @@ describe('Item editing', () => {
     // Against the live account this inverts: a choice made from another
     // device or tab while this form is open must not move it - only a press
     // on this form's own control does that (the case above).
+    // Following a docked form to another row remounts it: the presentation
+    // this open form was locked to must survive that, where the snapshot the
+    // new one would re-read may not yet carry a choice just made - which drew
+    // the next item's form centered and modal (found in CI, issue 481).
+    it('stays docked when it is swapped to another item, whatever the snapshot says by then', async () => {
+      held.items = [anItem(), anItem({ id: 'item-2', title: 'Part 12' })];
+      held.itemFormPresentation = 'docked';
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const shell = () => (
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(shell());
+      await screen.findByLabelText('Title');
+      expect(centerButton()).toBeVisible();
+
+      held.itemFormPresentation = 'centered';
+      held.openItemId = 'item-2';
+      rerender(shell());
+
+      await waitFor(() => expect(titleBox()).toHaveValue('Part 12'));
+      expect(centerButton()).toBeVisible();
+      expect(screen.getByRole('dialog')).toHaveClass('right-0');
+    });
+
+    it('reads the account afresh for the next form, once none is open', async () => {
+      held.items = [anItem()];
+      held.itemFormPresentation = 'docked';
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const shell = () => (
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(shell());
+      await screen.findByLabelText('Title');
+      expect(centerButton()).toBeVisible();
+
+      held.openItemId = undefined;
+      rerender(shell());
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      held.itemFormPresentation = 'centered';
+      held.openItemId = 'item-1';
+      rerender(shell());
+
+      await screen.findByLabelText('Title');
+      expect(dockButton()).toBeVisible();
+    });
+
     it('a choice made elsewhere does not move a form already open', async () => {
       held.items = [anItem()];
       const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

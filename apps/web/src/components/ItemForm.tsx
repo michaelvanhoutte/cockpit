@@ -151,12 +151,32 @@ export function ItemForm() {
     workspaceId?: string;
   };
 
+  // Held here rather than in `TheForm`, so following a docked form to another
+  // row (`key` below remounts it) keeps the presentation this open form was
+  // locked to instead of re-reading a snapshot that may not yet carry a choice
+  // just made - which drew the next item's form centered and modal. Forgotten
+  // once no form is open, so the next one reads the account afresh.
+  const [fixedPresentation, setFixedPresentation] = useState<ItemFormPresentation | null>(null);
+  const open = Boolean(openItemId && workspaceId);
+  useEffect(() => {
+    if (!open) setFixedPresentation(null);
+  }, [open]);
+
   if (!openItemId || !workspaceId) return null;
   // Keyed on the item, so going from one item's form straight to another's -
   // a pasted link, a step through history - starts the boxes again from the
   // item now named. Without it the draft is kept across the change and Save
   // writes the first item's text onto the second.
-  return <TheForm key={openItemId} itemId={openItemId} workspaceId={workspaceId} onClose={close} />;
+  return (
+    <TheForm
+      key={openItemId}
+      itemId={openItemId}
+      workspaceId={workspaceId}
+      onClose={close}
+      fixedPresentation={fixedPresentation}
+      setFixedPresentation={setFixedPresentation}
+    />
+  );
 }
 
 /** How far into the dialog's own corner a `mousedown` still counts as taking
@@ -188,10 +208,14 @@ function TheForm({
   itemId,
   workspaceId,
   onClose,
+  fixedPresentation,
+  setFixedPresentation,
 }: {
   itemId: string;
   workspaceId: string;
   onClose: () => void;
+  fixedPresentation: ItemFormPresentation | null;
+  setFixedPresentation: (presentation: ItemFormPresentation | null) => void;
 }) {
   const { data, isLoading } = useQuery(snapshotQuery(workspaceId));
   const queryClient = useQueryClient();
@@ -215,7 +239,6 @@ function TheForm({
    * pressing the control sets it directly, so this render picks it up at
    * once, while a change arriving over `data` alone never touches it.
    */
-  const [fixedPresentation, setFixedPresentation] = useState<ItemFormPresentation | null>(null);
   useEffect(() => {
     // `?? DEFAULT_ITEM_FORM_PRESENTATION` rather than trusting `data` to
     // always carry the field: a snapshot restored from a stored copy older
@@ -227,7 +250,7 @@ function TheForm({
     if (fixedPresentation === null && data) {
       setFixedPresentation(data.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION);
     }
-  }, [data, fixedPresentation]);
+  }, [data, fixedPresentation, setFixedPresentation]);
   const presentation = fixedPresentation ?? data?.itemFormPresentation ?? DEFAULT_ITEM_FORM_PRESENTATION;
   const chosenDocked = presentation === 'docked';
   const screenWidth = useScreenWidth();

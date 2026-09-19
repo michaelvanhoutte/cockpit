@@ -980,6 +980,20 @@ describe('Item editing', () => {
       expect(show).not.toHaveBeenCalled();
     });
 
+    // Alt is the row's own modifier for filing to a proposed panel on a
+    // double-click; its first click must not tear down the form that is open.
+    it('leaves the open form alone on an alt-click, the first half of an alt-double-click', async () => {
+      const user = userEvent.setup();
+      const show = vi.fn();
+      aRow({ dock: { openId: 'item-other', show } });
+
+      await user.keyboard('{Alt>}');
+      await user.click(screen.getByRole('listitem'));
+      await user.keyboard('{/Alt}');
+
+      expect(show).not.toHaveBeenCalled();
+    });
+
     it('only ends a selection already held on a plain click, and shows nothing', async () => {
       const user = userEvent.setup();
       const show = vi.fn();

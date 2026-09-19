@@ -669,7 +669,9 @@ export function ItemRow({
         if (!event.currentTarget.contains(hit)) return;
         if ((hit as Element).closest?.('a, button')) return;
         if (held.current) return;
-        const plain = !event.shiftKey && !event.ctrlKey && !event.metaKey;
+        // Alt too: it is this row's own modifier for filing to a proposed panel
+        // on a double-click, whose first click must not replace the open form.
+        const plain = !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey;
         if (plain && dock.openId !== null && !selecting?.revealed) {
           if (dock.openId !== item.id) dock.show(item.id);
           return;
