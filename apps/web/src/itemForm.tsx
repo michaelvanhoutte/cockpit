@@ -133,10 +133,10 @@ export function OpensItemForms({ children }: { children: ReactNode }) {
     },
     [navigate],
   );
-  // A read that changes nothing, because `useState` runs an initializer twice
-  // under StrictMode and a read that consumed the flag would leave the second,
-  // committed one seeing none. What clears it is the next request to open a
-  // form (`open`, `show`), so it never outlives the switch it was made for.
+  // A read that changes nothing, because it is called from a `useState`
+  // initializer, which React may run twice under StrictMode and expects to be
+  // pure. What clears the flag is the next request to open a form (`open`,
+  // `show`), so it never outlives the switch it was made for.
   const isQuietOpening = useCallback((itemId: string) => quietFor.current === itemId, []);
   const dock = useMemo(
     () => ({ openId: docked ? (search.item ?? null) : null, show }),
