@@ -734,7 +734,7 @@ describe('Item editing', () => {
       await user.click(tab('Dashboards', 'Research'));
       await screen.findByRole('heading', { name: 'Research' });
 
-      await user.click(within(theForm()!).getByRole('button', { name: 'Cancel' }));
+      await user.click(within(theForm()!).getByRole('button', { name: 'Close' }));
 
       expect(theForm()).toBeNull();
     });
