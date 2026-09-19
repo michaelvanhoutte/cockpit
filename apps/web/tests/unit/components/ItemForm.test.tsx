@@ -1491,6 +1491,52 @@ describe('Item editing', () => {
       }
     });
 
+    it('writes nothing on Dock when the choice itself is refused, and keeps saying so', async () => {
+      const user = await theForm();
+      await user.type(titleBox(), ' now');
+      held.send.mockImplementation(((change: { name: string }) =>
+        change.name === 'set_item_form_presentation'
+          ? Promise.reject(new Error('Too many requests'))
+          : Promise.resolve({ ok: true as const, applied: true })) as unknown as () => Promise<{
+        ok: true;
+        applied: boolean;
+      }>);
+
+      await user.click(screen.getByRole('button', { name: 'Dock' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Too many requests');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(sent().map((change) => change.name)).toEqual(['set_item_form_presentation']);
+      expect(screen.getByRole('alert')).toHaveTextContent('Too many requests');
+      expect(screen.getByRole('button', { name: 'Save' })).toBeVisible();
+    });
+
+    it.each([
+      {
+        situation: 'the Close button',
+        close: async (user: ReturnType<typeof userEvent.setup>) =>
+          user.click(screen.getByRole('button', { name: 'Close' })),
+      },
+      {
+        situation: 'Escape',
+        close: async (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Escape}'),
+      },
+    ])('$situation stays open while what was typed cannot be written, and leaves on the second press', async ({ close }) => {
+      const user = await dockedForm();
+      await user.type(titleBox(), ' now');
+      held.send.mockRejectedValue(new Error('offline'));
+
+      await close(user);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/offline.*Close again/);
+      expect(held.close).not.toHaveBeenCalled();
+      expect(titleBox()).toHaveValue('Part 11 now');
+
+      await close(user);
+
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+    });
+
     it('keeps saying a write did not land while that field is still unwritten, whatever else is written', async () => {
       const user = await dockedForm();
       held.send.mockResolvedValueOnce({ ok: true as const, applied: false });

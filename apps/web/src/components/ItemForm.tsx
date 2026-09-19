@@ -313,10 +313,11 @@ function TheForm({
     setFixedPresentation(next);
     // Docking is the moment "nothing is written until Save" stops being the
     // rule for this form, and there is no Save left to write what is already
-    // typed.
-    // Only where it will really be docked: a screen too narrow for it keeps
-    // Save and Cancel, and Cancel must still discard what it says it does.
-    if (next === 'docked' && screenWidth >= DESKTOP_MIN_WIDTH) void commitFields(FIELDS);
+    // typed. Only where it will really be docked - a screen too narrow for it
+    // keeps Save and Cancel, and Cancel must still discard what it says it
+    // does - and only once the choice has been accepted, so a refused one
+    // leaves the centered form's typed text unwritten and its refusal standing.
+    const dockedHere = next === 'docked' && screenWidth >= DESKTOP_MIN_WIDTH;
     try {
       await send({
         name: 'set_item_form_presentation',
@@ -327,6 +328,7 @@ function TheForm({
           presentation: next,
         },
       });
+      if (dockedHere) void commitFields(FIELDS);
     } catch (failure) {
       setFixedPresentation(was);
       setRefusal(failure instanceof Error ? failure.message : 'That could not be saved');
@@ -1017,7 +1019,25 @@ function TheForm({
    * None of those blur a box that still holds the cursor, so this is what
    * stops them discarding it. Centered, closing discards, as it always has.
    * Read through refs because a cleanup only sees the render it was made in.
+   *
+   * **The close button and Escape wait for the write, and stay open on a
+   * refusal**, for the reason the batched Save does: closing is the one case
+   * where a write that did not land would throw away what was typed, with
+   * nobody left to tell. The second press leaves anyway, so a form that can
+   * never write - offline, an item since deleted - is not a trap. The routes
+   * that are not ours to hold back (the back button, another item opening)
+   * write on the way out and cannot wait.
    */
+  const closeRefused = useRef(false);
+  const closeDocked = async () => {
+    await commitFields(FIELDS);
+    if (unwritten.current.size > 0 && !closeRefused.current) {
+      closeRefused.current = true;
+      setRefusal((was) => `${was ?? 'That could not be saved.'} Close again to leave without it.`);
+      return;
+    }
+    onClose();
+  };
   const dockedNow = useRef(docked);
   dockedNow.current = docked;
   const commitNow = useRef(commitFields);
@@ -1047,7 +1067,9 @@ function TheForm({
         // here at all - Radix's dismissable layers close only the innermost
         // open one, so a `Popover` open over this `Dialog` answers for
         // itself (`FooterDisclosure`).
-        if (!stillOpen && !saving) onClose();
+        if (stillOpen || saving) return;
+        if (docked) void closeDocked();
+        else onClose();
       }}
     >
       <Dialog.Portal>
