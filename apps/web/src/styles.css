@@ -39,6 +39,15 @@
   --color-accent-soft: #b5abfc;
   --color-accent-tint: #e7e5fe;
   --color-due: #c98a4b;
+  /*
+   * The rest of a deadline pill's amber (`deadlineOf`, dueDate.ts): the soft
+   * fill within two days, and the two inks that read on it - dark brown on the
+   * soft fill and the outline, near-black on solid `due`. Each is at least
+   * 4.5:1 on what it is written on.
+   */
+  --color-due-soft: #f1dcc0;
+  --color-due-ink: #6b4515;
+  --color-due-deep: #2e1d08;
   --color-over: #bf5d55;
   /*
    * The missing half of a pair the accent already has: `over` is a tint to
@@ -49,16 +58,6 @@
    * this small.
    */
   --color-over-deep: #a04a43;
-  /*
-   * An overdue item's row, a step lighter than `over-deep` ("Colour an action's
-   * own deadline as it approaches, and mark it red once passed", issue 473):
-   * the solid fill read as too dark a red across a whole row, and gave the
-   * hover highlight nothing to show on. White on this is 4.6:1, so it passes
-   * for the row's small text; the hover is the lighter one, which is what
-   * shows the pointer is on the row, at about 3.8:1 for as long as it is.
-   */
-  --color-over-row: #b85850;
-  --color-over-row-hover: #c7665e;
 
   /*
    * What an item is doing, as a color. The dot on a row is the scannable half
@@ -220,13 +219,3 @@ body {
     inset 0 0 0 1px rgb(93 82 148 / 0.1);
 }
 
-/*
- * An item row's ease-in tint toward `due`, as it approaches its own due date
- * ("Colour an action's own deadline as it approaches, and mark it red once
- * passed", issue 473) - the formula written once here rather than once per
- * row per render, with only the fraction itself (`--due`, 0-1) set from the
- * row's own inline style.
- */
-@utility due-tint {
-  background-color: color-mix(in srgb, var(--color-due) calc(var(--due, 0) * 100%), transparent);
-}

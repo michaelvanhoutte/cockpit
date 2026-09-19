@@ -13,7 +13,7 @@ Panels, rows and controls keep one neutral/accent palette wherever they are draw
 - **Ink** — `ink`, `ink-soft`, `ink-faint`: body text, on the neutral surfaces.
 - **Neutral surfaces** — `surface`, `ground`.
 - **Accent** — `accent`, `accent-deep`, `accent-soft`, `accent-tint`: the one hue used for selection and emphasis outside a Workspace's own tint.
-- **Due / overdue** — `due`, `over`, `over-deep`, `over-row`, `over-row-hover`: `over-deep` exists because the swipe reveal fills a band with `over` and writes a word inside it, and white on `over` itself falls short of readable at that size. An overdue row is filled with `over-row`, a step lighter than `over-deep` so a whole row of it is not harsh (white on it is 4.6:1), and lightens to `over-row-hover` under the pointer, at about 3.8:1 while it does — the shared blue hover cannot show on a solid fill.
+- **Due / overdue** — `due`, `due-soft`, `due-ink`, `due-deep`, `over`, `over-deep`: the amber and red of a deadline pill, never of a whole row. The pill steps up as the date closes — an outline in `due` with `due-ink` text, a `due-soft` fill, solid `due` with `due-deep` text, then `over-deep` with white text once passed — each at least 4.5:1 on what it is written on. `over-deep` exists because the swipe reveal also fills a band with `over` and writes a word inside it, and white on `over` itself falls short of readable at that size.
 - **Status** — one colour per Item status (`to-process`, `task`, `waiting`, `delegated`, `snoozed`, `reference`), always paired with the word beside it: colour alone cannot separate six statuses, and cannot be read by a screen reader at all.
 
 ## Workspace themes
