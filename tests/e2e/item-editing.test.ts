@@ -1113,7 +1113,17 @@ test.describe('Item editing', () => {
         await closing;
         await expect(form(page)).toHaveCount(0);
 
+        // Opened only once the server's own copy has been read back: a reload
+        // first paints from what this browser stored, which cannot yet hold a
+        // write made a moment before, and the form fills once from whichever
+        // copy it is opened on.
+        const readBack = page.waitForResponse(
+          (response) =>
+            response.request().method() === 'GET' &&
+            /\/v1\/workspaces\/[^/]+\/snapshot$/.test(new URL(response.url()).pathname),
+        );
         await page.reload();
+        await readBack;
         await expect(captureBox(page)).toBeVisible();
         await openItem(page, thought, isMobile);
         await expect(priorityBox(page)).toHaveValue('high');

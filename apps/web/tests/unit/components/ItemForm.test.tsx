@@ -1471,6 +1471,71 @@ describe('Item editing', () => {
       expect(cleared()).toBe('');
     });
 
+    // Docking is refused a screen too narrow for it (the form stays centered,
+    // with Save and Cancel), so there is no Save left over that writes twice.
+    it('writes nothing on Dock where the screen is too narrow for it to dock, and keeps Save', async () => {
+      const original = window.innerWidth;
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 });
+      try {
+        const user = await theForm();
+        await user.type(titleBox(), ' now');
+
+        await user.click(screen.getByRole('button', { name: 'Dock' }));
+
+        await waitFor(() =>
+          expect(sent().map((change) => change.name)).toEqual(['set_item_form_presentation']),
+        );
+        expect(screen.getByRole('button', { name: 'Save' })).toBeVisible();
+      } finally {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: original });
+      }
+    });
+
+    it('keeps saying a write did not land while that field is still unwritten, whatever else is written', async () => {
+      const user = await dockedForm();
+      held.send.mockResolvedValueOnce({ ok: true as const, applied: false });
+      await user.selectOptions(priorityBox(), 'high');
+      expect(await screen.findByRole('alert')).toHaveTextContent(/changed somewhere else/);
+
+      await user.type(titleBox(), ' now');
+      await user.tab();
+
+      await waitFor(() =>
+        expect(sent().map((change) => change.name)).toEqual(['set_priority', 'set_title']),
+      );
+      expect(screen.getByRole('alert')).toHaveTextContent(/changed somewhere else/);
+    });
+
+    it('waits for a write still in flight before undoing an earlier one, and offers nothing stale after', async () => {
+      const user = await dockedForm(anItem({ title: 'A' }), true);
+      await user.type(titleBox(), ' B');
+      await user.tab();
+      const undo = await screen.findByText('Undo');
+      held.send.mockClear();
+      let land!: () => void;
+      held.send.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            land = () => resolve({ ok: true as const, applied: true });
+          }),
+      );
+      await user.type(titleBox(), ' C');
+      await user.tab();
+      await waitFor(() => expect(held.send).toHaveBeenCalledTimes(1));
+
+      fireEvent.click(undo);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(held.send).toHaveBeenCalledTimes(1);
+
+      land();
+
+      await waitFor(() => expect(held.send).toHaveBeenCalledTimes(2));
+      expect(sent().map((change) => change.name)).toEqual(['set_title', 'set_title']);
+      expect(sent()[1]).toMatchObject({ payload: { title: 'A' } });
+      await waitFor(() => expect(screen.queryByText('Undo')).toBeNull());
+      expect(titleBox()).toHaveValue('A');
+    });
+
     it('takes a chosen reading as one write of both texts, and one thing to undo', async () => {
       const READINGS = [
         { title: 'Call Jan', description: 'Ring Jan.', meaning: "'jan' is a person's name" },

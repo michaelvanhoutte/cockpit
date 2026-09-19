@@ -314,7 +314,9 @@ function TheForm({
     // Docking is the moment "nothing is written until Save" stops being the
     // rule for this form, and there is no Save left to write what is already
     // typed.
-    if (next === 'docked') void commitFields(FIELDS);
+    // Only where it will really be docked: a screen too narrow for it keeps
+    // Save and Cancel, and Cancel must still discard what it says it does.
+    if (next === 'docked' && screenWidth >= DESKTOP_MIN_WIDTH) void commitFields(FIELDS);
     try {
       await send({
         name: 'set_item_form_presentation',
@@ -892,11 +894,32 @@ function TheForm({
    * item no longer has.
    */
   const inTurn = useRef<Promise<void>>(Promise.resolve());
+  /**
+   * How many undos have been pressed. A commit that was asked for before one
+   * was pressed and finishes after it must not offer to undo: the bar would
+   * be handed an inverse to a value the person has just gone back past.
+   */
+  const undoneCount = useRef(0);
+  /**
+   * Fields a refused write left unwritten. The refusal stays up until every
+   * one of them is written or put back by hand, so an unrelated field's
+   * write succeeding cannot wipe out a message that is still true.
+   */
+  const unwritten = useRef(new Set<Field>());
   const commitFields = (fields: readonly Field[]): Promise<void> => {
+    const undoneAtCall = undoneCount.current;
     const turn = inTurn.current.then(async () => {
       const held = editingRef.current;
       if (!held) return;
       const changed = whatChanged(held.was, held.now);
+      // One put back by hand is no longer unwritten, so nothing is left to refuse.
+      const wasUnwritten = unwritten.current.size;
+      for (const field of unwritten.current) {
+        if (changed[field] === undefined) unwritten.current.delete(field);
+      }
+      if (wasUnwritten > 0 && unwritten.current.size === 0) setRefusal(null);
+      const pending = fields.filter((field) => changed[field] !== undefined);
+      if (pending.length === 0) return;
       const envelope = () => ({
         commandId: uuidv7(),
         issuedAt: new Date().toISOString(),
@@ -904,9 +927,9 @@ function TheForm({
         itemId,
       });
       const committed: { field: Field; before: Draft[Field] }[] = [];
+      let stopped: string | null = null;
       try {
-        for (const field of fields) {
-          if (changed[field] === undefined) continue;
+        for (const field of pending) {
           // What would be written, not what is merely held: an over-long text
           // is refused where it stands (`tooLong`, below) and left in its box.
           const value = asStored(held.now, field);
@@ -918,38 +941,57 @@ function TheForm({
           }
           const answer = await send(fieldCommand(field, envelope(), value));
           if (!answer.applied) {
-            setRefusal(CHANGED_ELSEWHERE);
+            stopped = CHANGED_ELSEWHERE;
             break;
           }
           committed.push({ field, before: held.was[field] });
+          unwritten.current.delete(field);
           changeEditing((now) =>
             now ? { ...now, was: { ...now.was, [field]: held.now[field] } } : now,
           );
-          setRefusal(null);
         }
       } catch (failure) {
-        setRefusal(failure instanceof Error ? failure.message : 'That could not be saved');
+        stopped = failure instanceof Error ? failure.message : 'That could not be saved';
       }
-      if (committed.length === 0) return;
+      if (stopped !== null) {
+        for (const field of pending) {
+          if (!committed.some((done) => done.field === field)) unwritten.current.add(field);
+        }
+        setRefusal(stopped);
+      } else if (unwritten.current.size === 0) {
+        setRefusal(null);
+      }
+      if (committed.length === 0 || undoneCount.current !== undoneAtCall) return;
       offerToUndo({
         what: `Changed the ${committed.map(({ field }) => FIELD_NAMES[field]).join(' and the ')}`,
-        undo: async () => {
-          for (const { field, before } of [...committed].reverse()) {
-            const back = asStored({ ...held.now, [field]: before }, field);
-            const answer = await send(fieldCommand(field, envelope(), back));
-            if (!answer.applied) throw new Error(CHANGED_ELSEWHERE);
-            changeEditing((now) =>
-              now
-                ? {
-                    was: { ...now.was, [field]: before },
-                    now: { ...now.now, [field]: before },
-                  }
-                : now,
-            );
-            // The editor owns its document once made, so a description put
-            // back from outside needs it rebuilt (`readingPicked`).
-            if (field === 'description') setReadingPicked((was) => was + 1);
-          }
+        // Queued behind any write still in flight, for the reason the writes
+        // are queued behind each other: run alongside one, it could land first
+        // and be overwritten by a value the person had already gone back past.
+        undo: () => {
+          undoneCount.current += 1;
+          const run = inTurn.current.then(async () => {
+            for (const { field, before } of [...committed].reverse()) {
+              const back = asStored({ ...held.now, [field]: before }, field);
+              const answer = await send(fieldCommand(field, envelope(), back));
+              if (!answer.applied) throw new Error(CHANGED_ELSEWHERE);
+              changeEditing((now) =>
+                now
+                  ? {
+                      was: { ...now.was, [field]: before },
+                      now: { ...now.now, [field]: before },
+                    }
+                  : now,
+              );
+              // The editor owns its document once made, so a description put
+              // back from outside needs it rebuilt (`readingPicked`).
+              if (field === 'description') setReadingPicked((was) => was + 1);
+            }
+          });
+          inTurn.current = run.then(
+            () => {},
+            () => {},
+          );
+          return run;
         },
       });
     });
