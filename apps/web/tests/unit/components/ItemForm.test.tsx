@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Attachment, Filing, Item, PossibleDuplicate, WorkspaceSnapshot } from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../../../src/api/client';
 import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
 import { dueComingFriday, dueSevenDaysOut, dueToday } from '../../../src/dueDateShortcuts';
-import { UndoWhatJustHappened } from '../../../src/undo';
+import { THE_BAR_LASTS_MS, UndoWhatJustHappened } from '../../../src/undo';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
@@ -1289,6 +1289,261 @@ describe('Item editing', () => {
 
       await waitFor(() => expect(screen.getByRole('heading')).toHaveTextContent('Renamed elsewhere'));
       expect(dockButton()).toBeVisible();
+    });
+  });
+
+  /**
+   * "Save a docked item's fields as you finish them, not behind one Save
+   * button" (issue 483). A commit landing against an item changed elsewhere
+   * reuses the batched Save's own refusal (`a save that did not land keeps the
+   * form open`), so only its being reached from here is asked.
+   */
+  describe('a docked form writes each field as it is finished, not behind one Save', () => {
+    const priorityBox = () => screen.getByLabelText('Priority');
+    const dueDateBox = () => screen.getByLabelText('Due date');
+    const dockedForm = async (item: Item = anItem(), withUndo = false) => {
+      held.itemFormPresentation = 'docked';
+      return theForm(item, [], withUndo);
+    };
+
+    it.each([
+      {
+        situation: 'the title, on leaving it',
+        item: anItem(),
+        finish: async (user: ReturnType<typeof userEvent.setup>) => {
+          await user.type(titleBox(), ' now');
+          expect(held.send).not.toHaveBeenCalled();
+          await user.tab();
+        },
+        expected: 'set_title',
+      },
+      {
+        situation: 'the description, on leaving it',
+        item: anItem(),
+        finish: async (user: ReturnType<typeof userEvent.setup>) => {
+          await user.type(descriptionBox(), 'Notes');
+          expect(held.send).not.toHaveBeenCalled();
+          await user.tab();
+        },
+        expected: 'set_description',
+      },
+      {
+        situation: 'the priority, the moment one is picked',
+        item: anItem(),
+        finish: async (user: ReturnType<typeof userEvent.setup>) =>
+          user.selectOptions(priorityBox(), 'high'),
+        expected: 'set_priority',
+      },
+      {
+        situation: 'the due date, the moment a shortcut is pressed',
+        item: anItem(),
+        finish: async (user: ReturnType<typeof userEvent.setup>) =>
+          user.click(screen.getByRole('button', { name: 'Today' })),
+        expected: 'set_due_date',
+      },
+      {
+        situation: 'the due date, the moment it is cleared',
+        item: anItem({ dueDate: '2026-09-30' }),
+        finish: async () => {
+          fireEvent.change(dueDateBox(), { target: { value: '' } });
+        },
+        expected: 'set_due_date',
+      },
+    ])('writes $situation, and only that field', async ({ item, finish, expected }) => {
+      const user = await dockedForm(item);
+
+      await finish(user);
+
+      await waitFor(() => expect(sent().map((change) => change.name)).toEqual([expected]));
+      expect(held.close).not.toHaveBeenCalled();
+    });
+
+    it('waits for a typed due date to sit still, but writes it at once on leaving the field', async () => {
+      const user = await dockedForm();
+
+      // A date input announces every date the keystrokes so far spell -
+      // typing a year passes through 0002, 0020, 0202 - so a write per change
+      // would send dates nobody meant.
+      fireEvent.change(dueDateBox(), { target: { value: '2026-10-01' } });
+      expect(held.send).not.toHaveBeenCalled();
+
+      await user.click(screen.getByLabelText('Title'));
+
+      await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_due_date']));
+      expect(sent()[0]).toMatchObject({ payload: { dueDate: '2026-10-01' } });
+    });
+
+    it('writes a typed due date once it has sat still, without leaving the field', async () => {
+      await dockedForm();
+
+      fireEvent.change(dueDateBox(), { target: { value: '2026-10-01' } });
+      expect(held.send).not.toHaveBeenCalled();
+
+      await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_due_date']), {
+        timeout: 3000,
+      });
+    });
+
+    it('sends nothing for a field left as it was, and never resends one already written', async () => {
+      const user = await dockedForm();
+
+      await user.type(titleBox(), ' now');
+      await user.tab();
+      await waitFor(() => expect(held.send).toHaveBeenCalledTimes(1));
+
+      // Into the description and out again untouched, then the title again.
+      await user.click(descriptionBox());
+      await user.tab();
+      await user.click(titleBox());
+      await user.tab();
+      expect(held.send).toHaveBeenCalledTimes(1);
+
+      await user.type(descriptionBox(), 'Notes');
+      await user.tab();
+
+      await waitFor(() => expect(held.send).toHaveBeenCalledTimes(2));
+      expect(sent().map((change) => change.name)).toEqual(['set_title', 'set_description']);
+    });
+
+    it('has a Close and no Save or Cancel, and closing keeps what is still in a box', async () => {
+      await dockedForm();
+      expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Close' })).toBeVisible();
+
+      // The cursor is still in the box when the form goes - the back button,
+      // or another item opening in its place, blurs nothing.
+      fireEvent.change(titleBox(), { target: { value: 'Typed, cursor still there' } });
+      cleanup();
+
+      await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_title']));
+      expect(sent()[0]).toMatchObject({ payload: { title: 'Typed, cursor still there' } });
+    });
+
+    it('writes what was already typed the moment the form is docked', async () => {
+      const user = await theForm();
+      await user.type(titleBox(), ' now');
+      expect(held.send).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole('button', { name: 'Dock' }));
+
+      await waitFor(() =>
+        expect(sent().map((change) => change.name).sort()).toEqual([
+          'set_item_form_presentation',
+          'set_title',
+        ]),
+      );
+    });
+
+    it('keeps the bar offering an undo clear of the form, for as long as the form is docked', async () => {
+      await dockedForm();
+      const cleared = () => document.documentElement.style.getPropertyValue('--docked-form-w');
+
+      expect(cleared()).toMatch(/^\d+px$/);
+
+      cleanup();
+      expect(cleared()).toBe('');
+    });
+
+    it('takes a chosen reading as one write of both texts, and one thing to undo', async () => {
+      const READINGS = [
+        { title: 'Call Jan', description: 'Ring Jan.', meaning: "'jan' is a person's name" },
+        { title: 'Call in January', description: 'Ring in January.', meaning: "'jan' is a month" },
+      ];
+      const user = await dockedForm(
+        anItem({ title: 'Call Jan', description: 'Mine already', readings: READINGS }),
+        true,
+      );
+
+      await user.click(screen.getByRole('button', { name: /Call in January/ }));
+
+      await waitFor(() =>
+        expect(sent().map((change) => change.name)).toEqual(['set_title', 'set_description']),
+      );
+      expect(await screen.findByText('Changed the title and the description')).toBeVisible();
+    });
+
+    describe('and every write can be undone right after, and only right after', () => {
+      it('puts the previous value back, in the item and in the box', async () => {
+        const user = await dockedForm(anItem({ title: 'Part 11' }), true);
+        await user.clear(titleBox());
+        await user.type(titleBox(), 'Part 12');
+        await user.tab();
+        const undo = await screen.findByText('Undo');
+        held.send.mockClear();
+
+        fireEvent.click(undo);
+
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_title']));
+        expect(sent()[0]).toMatchObject({ payload: { title: 'Part 11' } });
+        await waitFor(() => expect(titleBox()).toHaveValue('Part 11'));
+      });
+
+      it('puts a priority back to none, not to whatever it was last shown as', async () => {
+        const user = await dockedForm(anItem({ priority: null }), true);
+        await user.selectOptions(priorityBox(), 'high');
+        const undo = await screen.findByText('Undo');
+        held.send.mockClear();
+
+        fireEvent.click(undo);
+
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_priority']));
+        expect(sent()[0]).toMatchObject({ payload: { priority: null } });
+        await waitFor(() => expect(priorityBox()).toHaveValue(''));
+      });
+
+      it('says so, and leaves the box alone, where the item changed elsewhere in the meantime', async () => {
+        const user = await dockedForm(anItem({ title: 'Part 11' }), true);
+        await user.type(titleBox(), ' now');
+        await user.tab();
+        const undo = await screen.findByText('Undo');
+        held.send.mockResolvedValueOnce({ ok: true as const, applied: false });
+
+        fireEvent.click(undo);
+
+        expect(await screen.findByText(/changed somewhere else/)).toBeVisible();
+        expect(titleBox()).toHaveValue('Part 11 now');
+      });
+
+      it('stops being offered once the bar has gone', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+          const user = await dockedForm(anItem(), true);
+          await user.selectOptions(priorityBox(), 'low');
+          expect(await screen.findByText('Undo')).toBeVisible();
+
+          await act(async () => {
+            vi.advanceTimersByTime(THE_BAR_LASTS_MS);
+          });
+
+          expect(screen.queryByText('Undo')).toBeNull();
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    });
+
+    describe('and a write that did not land says so, and offers nothing to undo', () => {
+      it.each([
+        {
+          situation: 'the item changed elsewhere',
+          answer: () => held.send.mockResolvedValueOnce({ ok: true as const, applied: false }),
+          said: /changed somewhere else/,
+        },
+        {
+          situation: 'the server refused it',
+          answer: () => held.send.mockRejectedValueOnce(new Error('Too many requests')),
+          said: /Too many requests/,
+        },
+      ])('$situation', async ({ answer, said }) => {
+        const user = await dockedForm(anItem(), true);
+        answer();
+
+        await user.selectOptions(priorityBox(), 'high');
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(said);
+        expect(screen.queryByText('Undo')).toBeNull();
+      });
     });
   });
 });

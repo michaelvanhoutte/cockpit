@@ -32,6 +32,14 @@ import { DescriptionBox } from './DescriptionBox';
 import { possibleDuplicatesOf } from '../duplicates';
 import { dueComingFriday, dueSevenDaysOut, dueToday } from '../dueDateShortcuts';
 import { filingsThatFile } from '../filing';
+import {
+  FIELDS,
+  FIELD_NAMES,
+  asStored,
+  fieldCommand,
+  type Draft,
+  type Field,
+} from '../itemFieldCommands';
 import { useItemForm, useOpenItem } from '../itemForm';
 import { openableAtSource } from '../itemSource';
 import { useUndo } from '../undo';
@@ -45,16 +53,19 @@ import {
 import { useScreenWidth } from '../panels/useScreenWidth';
 import { PRIORITY_LABELS } from '../priority';
 
-/** What the two boxes, the priority control and the due date hold, before anything is sent. */
-interface Draft {
-  title: string;
-  description: string;
-  priority: Priority | null;
-  /** ISO calendar date (`2026-09-30`), or `null` for none - the empty string the date input shows for "unset" is never stored in the draft. */
-  dueDate: string | null;
-}
-
 const DESCRIPTION_LIMIT = 60_000;
+
+/**
+ * How long a typed due date sits still before it is committed, docked. A date
+ * input announces every date the keystrokes so far happen to spell - typing a
+ * year passes through 0002, 0020, 0202 - so committing on each change would
+ * send, and offer an undo for, dates nobody meant. A picked date or a
+ * shortcut is not typed and commits at once.
+ */
+const DUE_DATE_SETTLES_MS = 600;
+
+const CHANGED_ELSEWHERE =
+  'That item changed somewhere else. Copy what you want to keep and reopen it.';
 
 /** The due date field's one-click shortcuts, in the order they are offered (issue 480). */
 const DUE_DATE_SHORTCUTS: { label: string; dueDate: (now: Date) => string }[] = [
@@ -300,6 +311,10 @@ function TheForm({
     // dock what is already docked.
     const next: ItemFormPresentation = chosenDocked ? 'centered' : 'docked';
     setFixedPresentation(next);
+    // Docking is the moment "nothing is written until Save" stops being the
+    // rule for this form, and there is no Save left to write what is already
+    // typed.
+    if (next === 'docked') void commitFields(FIELDS);
     try {
       await send({
         name: 'set_item_form_presentation',
@@ -706,10 +721,37 @@ function TheForm({
     screenWidth,
   );
 
+  /**
+   * Says how much of the right edge the docked form covers, so the bar that
+   * offers to undo a field it has just written (`undo.tsx`) is centred in the
+   * page left over rather than laid across the form's own footer - which
+   * docked is where every such offer is about (issue 483).
+   */
+  useEffect(() => {
+    if (!docked) return;
+    const root = document.documentElement;
+    root.style.setProperty('--docked-form-w', `${dockedWidthPx}px`);
+    return () => {
+      root.style.removeProperty('--docked-form-w');
+    };
+  }, [docked, dockedWidthPx]);
+
   /** What the boxes hold, and what they were filled from. */
   const [editing, setEditing] = useState<{ was: Draft; now: Draft } | null>(null);
+  /**
+   * The same value, held where an async commit can read what is in the boxes
+   * *now* rather than what the render it started in closed over - updated in
+   * the same breath as the state by `changeEditing`, never a render later.
+   */
+  const editingRef = useRef(editing);
+  const changeEditing = (
+    change: (held: { was: Draft; now: Draft } | null) => { was: Draft; now: Draft } | null,
+  ) => {
+    editingRef.current = change(editingRef.current);
+    setEditing(editingRef.current);
+  };
   const draft = editing?.now ?? null;
-  const setDraft = (now: Draft) => setEditing((held) => (held ? { ...held, now } : held));
+  const setDraft = (now: Draft) => changeEditing((held) => (held ? { ...held, now } : held));
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   /**
@@ -747,7 +789,7 @@ function TheForm({
         priority: item.priority,
         dueDate: item.dueDate,
       };
-      setEditing({ was: from, now: { ...from } });
+      changeEditing(() => ({ was: from, now: { ...from } }));
     }
   }, [item, editing]);
 
@@ -803,7 +845,7 @@ function TheForm({
     ): Promise<boolean> => {
       const answer = await send(change);
       if (!answer.applied) return false;
-      setEditing((held) =>
+      changeEditing((held) =>
         held ? { ...held, was: { ...held.was, [what]: editing.now[what] } } : held,
       );
       return true;
@@ -859,6 +901,124 @@ function TheForm({
       setSaving(false);
     }
   };
+
+  /**
+   * Docked, a field is written when it is done being edited rather than all at
+   * once behind Save ("Save a docked item's fields as you finish them, not
+   * behind one Save button", issue 483): a form meant to stay open for a while
+   * has no session boundary for Save to be, and would sit holding an hour of
+   * unsaved edits. The same four commands `save` sends, one per field.
+   *
+   * **Sent one at a time, each reading the boxes as they are when its turn
+   * comes.** A blur and the next blur can land a round trip apart, and a
+   * second commit started against a baseline the first has not yet moved would
+   * send the same field twice.
+   *
+   * **A field that has not moved sends nothing**, the same `whatChanged`
+   * reading `save` uses, so leaving a box unchanged, or one field's commit
+   * finding another already sent, is a no-op rather than a rewrite.
+   *
+   * **One offer to undo per gesture**, however many fields it committed: a
+   * reading chosen fills two boxes and is one thing to take back. The undo
+   * puts the boxes back with the item, so the form never claims a value the
+   * item no longer has.
+   */
+  const inTurn = useRef<Promise<void>>(Promise.resolve());
+  const commitFields = (fields: readonly Field[]): Promise<void> => {
+    const turn = inTurn.current.then(async () => {
+      const held = editingRef.current;
+      if (!held) return;
+      const changed = whatChanged(held.was, held.now);
+      const envelope = () => ({
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        itemId,
+      });
+      const committed: { field: Field; before: Draft[Field] }[] = [];
+      try {
+        for (const field of fields) {
+          if (changed[field] === undefined) continue;
+          // What would be written, not what is merely held: an over-long text
+          // is refused where it stands (`tooLong`, below) and left in its box.
+          const value = asStored(held.now, field);
+          if (
+            typeof value === 'string' &&
+            value.length > (field === 'title' ? TITLE_LENGTH : DESCRIPTION_LIMIT)
+          ) {
+            continue;
+          }
+          const answer = await send(fieldCommand(field, envelope(), value));
+          if (!answer.applied) {
+            setRefusal(CHANGED_ELSEWHERE);
+            break;
+          }
+          committed.push({ field, before: held.was[field] });
+          changeEditing((now) =>
+            now ? { ...now, was: { ...now.was, [field]: held.now[field] } } : now,
+          );
+          setRefusal(null);
+        }
+      } catch (failure) {
+        setRefusal(failure instanceof Error ? failure.message : 'That could not be saved');
+      }
+      if (committed.length === 0) return;
+      offerToUndo({
+        what: `Changed the ${committed.map(({ field }) => FIELD_NAMES[field]).join(' and the ')}`,
+        undo: async () => {
+          for (const { field, before } of [...committed].reverse()) {
+            const back = asStored({ ...held.now, [field]: before }, field);
+            const answer = await send(fieldCommand(field, envelope(), back));
+            if (!answer.applied) throw new Error(CHANGED_ELSEWHERE);
+            changeEditing((now) =>
+              now
+                ? {
+                    was: { ...now.was, [field]: before },
+                    now: { ...now.now, [field]: before },
+                  }
+                : now,
+            );
+            // The editor owns its document once made, so a description put
+            // back from outside needs it rebuilt (`readingPicked`).
+            if (field === 'description') setReadingPicked((was) => was + 1);
+          }
+        },
+      });
+    });
+    inTurn.current = turn;
+    return turn;
+  };
+
+  /**
+   * The due date's own clock, docked: a typed date is committed once it has
+   * sat still (`DUE_DATE_SETTLES_MS`), or when the field is left, whichever is
+   * first.
+   */
+  const dueDateSettles = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settleDueDate = () => {
+    if (dueDateSettles.current) clearTimeout(dueDateSettles.current);
+    dueDateSettles.current = null;
+    return commitFields(['dueDate']);
+  };
+
+  /**
+   * Closing a docked form keeps what is in it, by whatever route it closes: the
+   * close button, Escape, the back button, another item opening in its place.
+   * None of those blur a box that still holds the cursor, so this is what
+   * stops them discarding it. Centered, closing discards, as it always has.
+   * Read through refs because a cleanup only sees the render it was made in.
+   */
+  const dockedNow = useRef(docked);
+  dockedNow.current = docked;
+  const commitNow = useRef(commitFields);
+  commitNow.current = commitFields;
+  useEffect(
+    () => () => {
+      if (dueDateSettles.current) clearTimeout(dueDateSettles.current);
+      if (dockedNow.current) void commitNow.current(FIELDS);
+    },
+    [],
+  );
 
   return (
     <Dialog.Root
@@ -1031,6 +1191,9 @@ function TheForm({
                     disabled={saving}
                     value={draft.title}
                     onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                    onBlur={() => {
+                      if (docked) void commitFields(['title']);
+                    }}
                     className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
                   />
                 </label>
@@ -1088,6 +1251,10 @@ function TheForm({
                                   description: reading.description,
                                 });
                                 setReadingPicked((was) => was + 1);
+                                // A choice, not typing: nothing else will
+                                // blur to commit it, so docked it is written
+                                // now, as one thing to undo.
+                                if (docked) void commitFields(['title', 'description']);
                               }}
                               className="rounded-md border border-black/10 bg-surface px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
                             >
@@ -1175,12 +1342,13 @@ function TheForm({
                         <select
                           disabled={saving}
                           value={draft.priority ?? ''}
-                          onChange={(e) =>
+                          onChange={(e) => {
                             setDraft({
                               ...draft,
                               priority: (e.target.value || null) as Priority | null,
-                            })
-                          }
+                            });
+                            if (docked) void commitFields(['priority']);
+                          }}
                           className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
                         >
                           <option value="">None</option>
@@ -1199,7 +1367,26 @@ function TheForm({
                             type="date"
                             disabled={saving}
                             value={draft.dueDate ?? ''}
-                            onChange={(e) => setDraft({ ...draft, dueDate: e.target.value || null })}
+                            onChange={(e) => {
+                              setDraft({
+                                ...draft,
+                                dueDate: e.target.value || null,
+                              });
+                              if (!docked) return;
+                              if (dueDateSettles.current) clearTimeout(dueDateSettles.current);
+                              // Cleared is a decision, not a step towards one.
+                              if (!e.target.value) {
+                                void settleDueDate();
+                                return;
+                              }
+                              dueDateSettles.current = setTimeout(
+                                () => void settleDueDate(),
+                                DUE_DATE_SETTLES_MS,
+                              );
+                            }}
+                            onBlur={() => {
+                              if (docked) void settleDueDate();
+                            }}
                             className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
                           />
                         </label>
@@ -1215,7 +1402,13 @@ function TheForm({
                               key={label}
                               type="button"
                               disabled={saving}
-                              onClick={() => setDraft({ ...draft, dueDate: dueDate(new Date()) })}
+                              onClick={() => {
+                                setDraft({
+                                  ...draft,
+                                  dueDate: dueDate(new Date()),
+                                });
+                                if (docked) void settleDueDate();
+                              }}
                               className="rounded-md border border-black/10 px-2 py-0.5 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
                             >
                               {label}
@@ -1361,7 +1554,17 @@ function TheForm({
                       (found in review). A floor a couple of lines tall keeps
                       it visible; the wrapper above scrolls the rest into
                       view. */}
-                  <div className="flex min-h-40 flex-1 flex-col">
+                  <div
+                    className="flex min-h-40 flex-1 flex-col"
+                    // Left for something outside the description - the Source
+                    // toggle and the editor trade the cursor between them
+                    // without leaving it.
+                    onBlur={(e) => {
+                      if (docked && !e.currentTarget.contains(e.relatedTarget)) {
+                        void commitFields(['description']);
+                      }
+                    }}
+                  >
                     <DescriptionBox
                       resetKey={readingPicked}
                       value={draft.description}
@@ -1450,22 +1653,31 @@ function TheForm({
               )}
             </div>
 
-            <div className="flex gap-2">
-              <Dialog.Close
-                disabled={saving}
-                className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
-              >
-                Cancel
+            {docked ? (
+              // Nothing to save and nothing to discard: each field was written
+              // as it was left (`commitFields`), and closing keeps whatever is
+              // still in a box.
+              <Dialog.Close className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
+                Close
               </Dialog.Close>
-              <button
-                type="button"
-                disabled={!item || saving || tooLong}
-                onClick={() => void save()}
-                className="milled shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
-              >
-                Save
-              </button>
-            </div>
+            ) : (
+              <div className="flex gap-2">
+                <Dialog.Close
+                  disabled={saving}
+                  className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+                >
+                  Cancel
+                </Dialog.Close>
+                <button
+                  type="button"
+                  disabled={!item || saving || tooLong}
+                  onClick={() => void save()}
+                  className="milled shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+                >
+                  Save
+                </button>
+              </div>
+            )}
           </div>
         </Dialog.Content>
       </Dialog.Portal>

@@ -170,7 +170,9 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
           role="status"
           // Laid over the window rather than in the page, so nothing above it
           // moves it off the home indicator: its own padding is what keeps the
-          // way back reachable (styles.css, `--edge-bottom`).
+          // way back reachable (styles.css, `--edge-bottom`). A docked item
+          // form sets `--docked-form-w` while open, so the bar is centred in
+          // the page beside it rather than across the form's footer.
           //
           // **`pointer-events-auto` against the page's own lock.** Radix's
           // modal primitives - `Dialog`, and `DropdownMenu` the same way -
@@ -182,7 +184,7 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
           // this, the bar is visible and its text is read, but the Undo
           // button under a click does nothing at all - not refused, just
           // inert.
-          className="pointer-events-auto fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right))] pb-[calc(1rem_+_var(--edge-bottom))] pl-[calc(1rem_+_var(--edge-left))]"
+          className="pointer-events-auto fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right)_+_var(--docked-form-w,0px))] pb-[calc(1rem_+_var(--edge-bottom))] pl-[calc(1rem_+_var(--edge-left))]"
         >
           <div className="flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
             <span className="min-w-0 flex-1 truncate">{failure ?? held.what}</span>
