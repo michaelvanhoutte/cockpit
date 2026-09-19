@@ -1091,6 +1091,13 @@ describe('Capture', () => {
       { situation: 'from Teams with a link', item: teams, offered: true },
       { situation: 'from Teams with no link', item: { source: 'teams' as const }, offered: false },
       { situation: 'an item of your own', item: {}, offered: false },
+      // A stored link is any URL the schema parses; only a web address is ever
+      // drawn as one.
+      {
+        situation: 'from Teams with a link that is not a web address',
+        item: { source: 'teams' as const, sourceLink: 'javascript:alert(1)' },
+        offered: false,
+      },
     ])('$situation', async ({ item, offered }) => {
       const user = userEvent.setup();
       aRow({ item: anItem(item), onOpen: vi.fn() });

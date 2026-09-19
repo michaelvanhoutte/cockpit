@@ -1030,6 +1030,10 @@ describe('Item editing', () => {
     it.each([
       { situation: 'an item of your own', item: { sender: 'Anna', sourceLink: link } },
       { situation: 'a source that never gave a link', item: { source: 'teams' as const, sender: 'Anna' } },
+      {
+        situation: 'a link that is not a web address',
+        item: { source: 'teams' as const, sender: 'Anna', sourceLink: 'javascript:alert(1)' },
+      },
     ])('says nothing for $situation', async ({ item }) => {
       await theForm(anItem(item));
 
