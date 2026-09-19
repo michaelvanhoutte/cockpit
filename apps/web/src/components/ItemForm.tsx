@@ -231,7 +231,7 @@ function TheForm({
   fixedPresentation: ItemFormPresentation | null;
   setFixedPresentation: (presentation: ItemFormPresentation | null) => void;
 }) {
-  const { data, isLoading } = useQuery(snapshotQuery(workspaceId));
+  const { data, isLoading, isFetching } = useQuery(snapshotQuery(workspaceId));
   const queryClient = useQueryClient();
   const send = useSendCommand();
   const offerToUndo = useUndo();
@@ -1238,7 +1238,10 @@ function TheForm({
 
           {!item ? (
             <p role="alert" className="pt-3 text-sm text-ink-soft">
-              {isLoading ? 'Opening…' : 'That item is not here any more.'}
+              {/* Still fetching counts as not arrived yet, not gone: the dock is
+                  moved to a note the instant it is captured, a beat before the
+                  re-read that carries it lands. */}
+              {isLoading || isFetching ? 'Opening…' : 'That item is not here any more.'}
             </p>
           ) : (
             draft && (

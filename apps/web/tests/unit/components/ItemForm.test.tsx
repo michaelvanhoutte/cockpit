@@ -32,6 +32,8 @@ const held = vi.hoisted(() => ({
   open: vi.fn(),
   reportDocked: vi.fn(),
   quietly: false,
+  /** Holds every read of the snapshot until it settles, where a test needs one still in flight. */
+  gate: undefined as Promise<void> | undefined,
   settleQuiet: vi.fn(),
   openItemId: 'item-1' as string | undefined,
 }));
@@ -102,14 +104,16 @@ vi.mock('../../../src/api/queries', () => ({
       held.attachments,
       held.itemFormPresentation,
     ],
-    queryFn: (): Promise<WorkspaceSnapshot> =>
-      Promise.resolve({
+    queryFn: async (): Promise<WorkspaceSnapshot> => {
+      await held.gate;
+      return {
         items: held.items,
         filings: held.filings,
         duplicates: held.duplicates,
         attachments: held.attachments,
         itemFormPresentation: held.itemFormPresentation,
-      } as unknown as WorkspaceSnapshot),
+      } as unknown as WorkspaceSnapshot;
+    },
   }),
 }));
 
@@ -201,6 +205,7 @@ beforeEach(() => {
   held.open.mockClear();
   held.reportDocked.mockClear();
   held.quietly = false;
+  held.gate = undefined;
   held.filings = [];
   held.duplicates = [];
   held.attachments = [];
@@ -1132,6 +1137,40 @@ describe('Item editing', () => {
 
       expect(await screen.findByText('That item is not here any more.')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    });
+
+    // The dock is moved to a note the instant it is captured, before the re-read
+    // that carries it lands: that beat is "not here yet", not "gone" (found in
+    // review).
+    it('says it is opening, not gone, while the read that would bring it is still in flight', async () => {
+      held.items = [anItem()];
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const shell = () => (
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(shell());
+      await screen.findByLabelText('Title');
+
+      let arrive: () => void = () => {};
+      held.gate = new Promise<void>((resolve) => {
+        arrive = resolve;
+      });
+      held.openItemId = 'item-2';
+      // Not awaited: the refetch is what waits on the gate.
+      act(() => {
+        void client.invalidateQueries();
+      });
+      rerender(shell());
+
+      expect(screen.queryByText('That item is not here any more.')).toBeNull();
+      expect(screen.getByText('Opening…')).toBeInTheDocument();
+
+      held.items = [anItem(), anItem({ id: 'item-2', title: 'Just captured' })];
+      await act(async () => arrive());
+
+      await waitFor(() => expect(titleBox()).toHaveValue('Just captured'));
     });
   });
 
