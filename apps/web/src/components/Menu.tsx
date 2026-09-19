@@ -202,12 +202,40 @@ export function MenuContent({
   );
 }
 
+/**
+ * The panel a right-click opens, for a surface that already has a button-opened
+ * `MenuContent` of its own - the item row, whose entries are one list drawn
+ * into either primitive (`ItemRow`). Portalled and looking the same as
+ * `MenuContent`, so the two ways in are one menu.
+ */
+export function ContextMenuContent({
+  label,
+  children,
+  onCloseAutoFocus,
+}: {
+  label: string;
+  children: React.ReactNode;
+  onCloseAutoFocus?: (event: Event) => void;
+}) {
+  return (
+    <ContextMenu.Portal>
+      <ContextMenu.Content
+        aria-label={label}
+        onCloseAutoFocus={onCloseAutoFocus}
+        className="min-w-44 rounded-md border border-black/10 bg-surface p-1 shadow-lg"
+      >
+        {children}
+      </ContextMenu.Content>
+    </ContextMenu.Portal>
+  );
+}
+
 /** One entry. Exported as a class because entries are `asChild` as often as not. */
 export const menuItemClass =
   'block cursor-default rounded px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-accent-tint data-[highlighted]:text-accent-deep';
 
 /** An entry that deletes something, which is the one kind that is coloured. */
-const destructiveItemClass = `${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`;
+export const destructiveItemClass =`${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`;
 
 /**
  * An entry that cannot be chosen. It stays visible, reachable and says why,
@@ -398,20 +426,18 @@ export function SurfaceMenu({
       <ContextMenu.Trigger ref={tab} asChild disabled={disabled}>
         {children}
       </ContextMenu.Trigger>
-      <ContextMenu.Portal>
-        <ContextMenu.Content
-          aria-label={label}
-          onCloseAutoFocus={(event) => {
-            // The row menu's reasoning, and the same code: an entry that opens
-            // something has to keep the focus it just took.
-            const claimed = chose.current;
-            chose.current = false;
-            if (!claimed) return;
-            event.preventDefault();
-          }}
-          className="min-w-44 rounded-md border border-black/10 bg-surface p-1 shadow-lg"
-        >
-          {entries.map((entry) => (
+      <ContextMenuContent
+        label={label}
+        onCloseAutoFocus={(event) => {
+          // The row menu's reasoning, and the same code: an entry that opens
+          // something has to keep the focus it just took.
+          const claimed = chose.current;
+          chose.current = false;
+          if (!claimed) return;
+          event.preventDefault();
+        }}
+      >
+        {entries.map((entry) => (
             <ContextMenu.Item
               key={entry.label}
               {...(entry.unavailable
@@ -437,8 +463,7 @@ export function SurfaceMenu({
               {entry.unavailable && <span className="block text-xs">{entry.unavailable}</span>}
             </ContextMenu.Item>
           ))}
-        </ContextMenu.Content>
-      </ContextMenu.Portal>
+      </ContextMenuContent>
     </ContextMenu.Root>
   );
 }

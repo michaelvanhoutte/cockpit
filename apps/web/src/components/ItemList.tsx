@@ -67,6 +67,7 @@ export function ItemList({
   gathered = false,
   /** What the list says when it holds nothing. */
   emptyMessage,
+  fillsTheRestOfItsColumn = false,
 }: {
   workspaceId: string;
   items: readonly Item[];
@@ -92,6 +93,13 @@ export function ItemList({
    */
   gathered?: boolean;
   emptyMessage: string;
+  /**
+   * That this list sits under other things in a column, and is to be as tall as
+   * what they leave rather than as the whole column - the Inbox, under its
+   * capture form. A list that is a Panel's whole contents keeps the default,
+   * which is the whole of the box it is in.
+   */
+  fillsTheRestOfItsColumn?: boolean;
 }) {
   const { data } = useQuery(snapshotQuery(workspaceId));
   const openItem = useOpenItem();
@@ -878,7 +886,7 @@ export function ItemList({
         // what is in it, so an empty panel's drop target was the one line of
         // text saying it is empty - and letting go anywhere in the space below
         // did nothing, which is most of the panel.
-        className="min-h-full"
+        className={fillsTheRestOfItsColumn ? 'flex-1' : 'min-h-full'}
         onDragOver={(event) => {
           // Only a row of ours. A panel dragged by its header crosses lists on
           // its way to another panel, and a list that offered it a place would
