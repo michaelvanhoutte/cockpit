@@ -880,7 +880,8 @@ test.describe('Item editing', () => {
      * Stacked, the files used to come ahead of the description - the order
      * the two columns happened to be written in - which put text a person is
      * here to write below a list of files they are only attaching to it
-     * (found using the docked form, which is narrow enough to stack).
+     * (found in the docked form once it is dragged narrower than the split
+     * needs).
      */
     test('reads the fields, then the description, then the files, once stacked', async ({
       page,
@@ -908,6 +909,16 @@ test.describe('Item editing', () => {
       const attached = (await files.boundingBox())!;
       expect(priority.y, 'the short fields come first').toBeLessThan(description.y);
       expect(description.y, 'then the description, ahead of the files').toBeLessThan(attached.y);
+
+      // What is drawn is also what Tab and a screen reader take: the
+      // description comes before the files in the document itself, not only
+      // on screen.
+      const filesHandle = (await files.elementHandle())!;
+      const descriptionFirst = await toolbar.evaluate(
+        (element, other) => Boolean(element.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING),
+        filesHandle,
+      );
+      expect(descriptionFirst, 'the description before the files in the document').toBe(true);
     });
   });
 
@@ -918,7 +929,7 @@ test.describe('Item editing', () => {
    * layout can measure.
    */
   test.describe('the form opens big enough for what is in it', () => {
-    test('opens wide, and wide enough for the priority to say its longest choice in full', async ({
+    test('has room for the priority to say its longest choice in full', async ({
       page,
       isMobile,
     }) => {
@@ -929,12 +940,9 @@ test.describe('Item editing', () => {
       await capture(page, thought, isMobile);
       await openItem(page, thought, isMobile);
 
-      const box = (await form(page).boundingBox())!;
-      expect(Math.round(box.width), 'the default width, up from the 768px it opened at').toBe(896);
-
-      // The room a choice has is the box less its own padding, border and
-      // the native arrow - measured against the widest label it has to hold,
-      // in the font the box is actually drawn in.
+      // The room a choice has is the box less its own padding, border and an
+      // allowance for the native arrow - measured against the widest label it
+      // has to hold, in the font the box is actually drawn in.
       const { widest, room } = await priorityBox(page).evaluate((element) => {
         const select = element as HTMLSelectElement;
         const style = getComputedStyle(select);
@@ -955,8 +963,23 @@ test.describe('Item editing', () => {
           parseFloat(style.borderRightWidth);
         return { widest, room };
       });
-      const ARROW = 24;
-      expect(room - ARROW, 'the widest priority fits beside the native arrow').toBeGreaterThanOrEqual(widest);
+      const NATIVE_ARROW_ALLOWANCE = 24;
+      expect(
+        room - NATIVE_ARROW_ALLOWANCE,
+        'the widest priority fits, less an allowance for the native arrow',
+      ).toBeGreaterThanOrEqual(widest);
+    });
+
+    test('opens at its default width', async ({ page, isMobile }) => {
+      test.skip(isMobile, 'a phone opens the form at the screen’s own size');
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Opens at its default width');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      // 56rem, on a window wide enough that nothing clamps it.
+      expect(Math.round((await form(page).boundingBox())!.width)).toBe(896);
     });
   });
 
@@ -1248,8 +1271,14 @@ test.describe('Item editing', () => {
         // width the docked resize clamp already answers to, not only a
         // fresh open's own read of it.
         await page.setViewportSize({ width: 375, height: 700 });
-        const narrow = (await form(page).boundingBox())!;
-        expect(Math.round(narrow.x + narrow.width), 'no longer flush against the edge').not.toBe(375);
+        // Polled rather than read once: falling back to centered swaps the
+        // dialog's own modal and non-modal content, which is drawn afresh a
+        // beat after the resize rather than in the same frame.
+        await expect(async () => {
+          const narrow = await form(page).boundingBox();
+          expect(narrow, 'the form is drawn').not.toBeNull();
+          expect(Math.round(narrow!.x + narrow!.width), 'no longer flush against the edge').not.toBe(375);
+        }).toPass();
 
         // The account is still docked - only what is drawn fell back - so
         // the control still offers to undock it, not to dock what already

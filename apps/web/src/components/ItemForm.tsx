@@ -1156,32 +1156,26 @@ function TheForm({
                     above) - answering to the box actually being dragged and
                     remembered, not to the viewport, which can stay wide while
                     the box itself is dragged down to its own floor. */}
-                <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 @lg:flex-row">
-                  {/* Its own scroll, like the description column beside it -
-                      the whole form used to scroll as one region, and this is
-                      that region's half of splitting it in two: a full
-                      Attachments list must still reach its own "Add" button
-                      rather than being clipped by the dialog's own
-                      `overflow-hidden` with nothing to scroll it into view.
-                      `-mx-1 … px-1` for the same reason the wrapper around
-                      this whole section now carries it too - `overflow-y-auto`
-                      would otherwise clip the Priority/Due date fields' own
-                      `focus:ring-2` at the edges they're flush against. */}
-                  {/* **`contents` until the two columns exist.** Stacked, this
-                      wrapper draws nothing of its own, so its two halves - the
-                      short fields and the attachments - join the description
-                      as siblings and are put in the order a person reads them
-                      (fields, description, then files) with `order-*`, rather
-                      than the files coming ahead of the text they are only
-                      attached to. From `@lg` it is the sidebar again, and each
-                      child's order is put back to the source order. */}
-                  <div className="-mx-1 contents min-h-0 flex-col gap-4 overflow-y-auto px-1 @lg:flex @lg:w-72 @lg:shrink-0">
+                <div className="mt-4 flex min-h-0 flex-1 flex-col">
+                  {/* **Three cells written in the order a person reads them -
+                      the short fields, the description, then the files - which
+                      is also the order Tab and a screen reader take, so what is
+                      drawn and what is announced never disagree.** Stacked they
+                      are one column, the description taking whatever height is
+                      left above a floor a couple of lines tall (a track of its
+                      own, since a `flex-1 1 0%` box has nothing to shrink *from*
+                      and a long Attachments list once left it at a genuine zero
+                      - found in review, issue 480). From `@lg` the fields and
+                      the files are the left column and the description spans
+                      both rows beside them; the files cell scrolls on its own, so
+                      a full Attachments list still reaches its "Add" button
+                      rather than being clipped by the dialog's `overflow-hidden`
+                      (`-mx-1 … px-1` keeps that scroll from clipping the
+                      buttons' `focus:ring-2`). */}
+                  <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(10rem,1fr)_auto] gap-4 @lg:grid-cols-[18rem_minmax(0,1fr)] @lg:grid-rows-[auto_minmax(0,1fr)]">
                     {/* Priority and due date share a row (issue 480). */}
-                    <div className="order-1 flex gap-3 @lg:order-none">
-                      {/* A width of its own rather than half the row: the
-                          longest label, "Normal", was clipped to "Nor" at the
-                          half a 240px sidebar left it. */}
-                      <label className="block w-30 shrink-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                    <div className="flex gap-3 @lg:col-start-1 @lg:row-start-1">
+                      <label className="block flex-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">
                         Priority
                         <select
                           disabled={saving}
@@ -1236,11 +1230,27 @@ function TheForm({
                       </div>
                     </div>
 
+                    {/* Formatted, with the Markdown behind it one button away
+                        ("Format a description, and edit its source", issue 160).
+                        The editor is fetched behind this form rather than on the
+                        cold-open path, which is why this is a component and not a
+                        box: the states around that fetch are the bulk of it.
+                        Fills whatever height the form has, rather than shrinking
+                        to fit only what it holds (issue 480). */}
+                    <div className="flex min-h-0 flex-col @lg:col-start-2 @lg:row-span-2 @lg:row-start-1">
+                      <DescriptionBox
+                        resetKey={readingPicked}
+                        value={draft.description}
+                        onChange={(description) => setDraft({ ...draft, description })}
+                        editable={!saving}
+                      />
+                    </div>
+
                     {/* A screenshot, a scan or a clip the note is really about
                         ("Attach a file to an item", issue 441) - added by button
                         or drag-and-drop, drawn as a chip, opened or downloaded by
                         a click on it. */}
-                    <div className="order-3 @lg:order-none">
+                    <div className="@lg:col-start-1 @lg:row-start-2 @lg:-mx-1 @lg:min-h-0 @lg:overflow-y-auto @lg:px-1">
                       <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
                         Attachments
                       </p>
@@ -1353,32 +1363,6 @@ function TheForm({
                         </p>
                       )}
                     </div>
-                  </div>
-
-                  {/* Formatted, with the Markdown behind it one button away
-                      ("Format a description, and edit its source", issue 160).
-                      The editor is fetched behind this form rather than on the
-                      cold-open path, which is why this is a component and not a
-                      box: the states around that fetch are the bulk of it.
-                      Fills whatever height the form has, rather than shrinking
-                      to fit only what it holds (issue 480).
-                      `min-h-40` rather than `min-h-0`: below `@lg`, this column
-                      and the fields and files stacked around it (issue 480,
-                      its own comment) compete for the same vertical space, and
-                      a `flex-1 1 0%` column has nothing to shrink *from* - a
-                      tall enough Attachments list took the sidebar down to its
-                      own floor and left this at a genuine zero, rather than
-                      merely short, with no way to reach the description at all
-                      (found in review). A floor a couple of lines tall keeps
-                      it visible; the wrapper above scrolls the rest into
-                      view. */}
-                  <div className="order-2 flex min-h-40 flex-1 flex-col @lg:order-none">
-                    <DescriptionBox
-                      resetKey={readingPicked}
-                      value={draft.description}
-                      onChange={(description) => setDraft({ ...draft, description })}
-                      editable={!saving}
-                    />
                   </div>
                 </div>
               </div>
