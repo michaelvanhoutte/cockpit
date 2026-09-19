@@ -238,9 +238,20 @@ function TheForm({
   const openItem = useOpenItem();
   const isQuietOpening = useQuietOpening();
   const [openedQuietly] = useState(() => isQuietOpening(itemId));
+  /**
+   * Whether this form was opened for a note captured a moment ago, and so is
+   * expected to arrive with the re-read still in flight: the dock moves to a
+   * capture the instant it lands, a beat before the snapshot carrying it. Held
+   * only until that first read settles, so a later refetch of a note that
+   * really is gone does not flicker back to "Opening…".
+   */
+  const [arriving, setArriving] = useState(openedQuietly);
   const settleQuietOpening = useSettleQuietOpening();
   useEffect(() => settleQuietOpening(), [settleQuietOpening]);
   const item = data?.items.find((candidate) => candidate.id === itemId);
+  useEffect(() => {
+    if (item || !isFetching) setArriving(false);
+  }, [item, isFetching]);
   const atSource = item ? openableAtSource(item) : null;
 
   /**
@@ -1238,10 +1249,7 @@ function TheForm({
 
           {!item ? (
             <p role="alert" className="pt-3 text-sm text-ink-soft">
-              {/* Still fetching counts as not arrived yet, not gone: the dock is
-                  moved to a note the instant it is captured, a beat before the
-                  re-read that carries it lands. */}
-              {isLoading || isFetching ? 'Opening…' : 'That item is not here any more.'}
+              {isLoading || (arriving && isFetching) ? 'Opening…' : 'That item is not here any more.'}
             </p>
           ) : (
             draft && (

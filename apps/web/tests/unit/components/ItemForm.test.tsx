@@ -1142,7 +1142,7 @@ describe('Item editing', () => {
     // The dock is moved to a note the instant it is captured, before the re-read
     // that carries it lands: that beat is "not here yet", not "gone" (found in
     // review).
-    it('says it is opening, not gone, while the read that would bring it is still in flight', async () => {
+    it('says it is opening, not gone, for a note just captured while the read that brings it is in flight', async () => {
       held.items = [anItem()];
       const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       const shell = () => (
@@ -1158,6 +1158,7 @@ describe('Item editing', () => {
         arrive = resolve;
       });
       held.openItemId = 'item-2';
+      held.quietly = true;
       // Not awaited: the refetch is what waits on the gate.
       act(() => {
         void client.invalidateQueries();
@@ -1171,6 +1172,31 @@ describe('Item editing', () => {
       await act(async () => arrive());
 
       await waitFor(() => expect(titleBox()).toHaveValue('Just captured'));
+    });
+
+    // A note that really is gone stays gone: an unrelated refetch of the
+    // snapshot - any command, any collaborator's change - must not flicker it
+    // back to "Opening…" (found in review).
+    it('does not go back to opening on a later refetch, for a note that is really gone', async () => {
+      held.items = [anItem()];
+      held.openItemId = 'item-2';
+      held.quietly = true;
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const shell = () => (
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>
+      );
+      render(shell());
+      expect(await screen.findByText('That item is not here any more.')).toBeInTheDocument();
+
+      held.gate = new Promise<void>(() => {});
+      act(() => {
+        void client.invalidateQueries();
+      });
+
+      expect(screen.getByText('That item is not here any more.')).toBeInTheDocument();
+      expect(screen.queryByText('Opening…')).toBeNull();
     });
   });
 
