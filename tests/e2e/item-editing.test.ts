@@ -1,6 +1,21 @@
 import type { Page } from '@playwright/test';
 import { MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
-import { capture, captureBox, expect, itemRow, openInbox, press, test, uniqueTitle } from './support/app';
+import {
+  STARTING_WORKSPACE,
+  capture,
+  captureBox,
+  dashboardTab,
+  deleteWorkspace,
+  expect,
+  itemRow,
+  makeWorkspace,
+  openDashboard,
+  openInbox,
+  press,
+  switchTo,
+  test,
+  uniqueTitle,
+} from './support/app';
 
 /** Opens one row's form the way both devices can: from the row's own menu. */
 async function openItem(page: Page, row: string, isMobile: boolean): Promise<void> {
@@ -1035,6 +1050,82 @@ test.describe('Item editing', () => {
         }
         await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile).catch(() => {});
       }
+    });
+
+    /**
+     * "Keep a docked item open across dashboards in the same workspace" (issue
+     * 482). F3 for the one part a jsdom router cannot say: that the address a
+     * real browser holds keeps the item through a dashboard's own tab and the
+     * `+` that adds one, and drops it on the way to another workspace. The
+     * rest of the rule is apps/web/tests/unit/router.test.tsx.
+     *
+     * In a workspace of its own, so the dashboard it adds goes with the
+     * workspace it is deleted with, and the account's presentation is put
+     * back by reopening the form at the end - the walk closes it by leaving.
+     */
+    test('stays open across the dashboards of one workspace, and closes on going to another', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'docking is its own, separate discussion on a phone, by design');
+
+      const home = uniqueTitle('Docked walk');
+      const second = uniqueTitle('Second');
+      await openInbox(page, isMobile);
+      await makeWorkspace(page, home, isMobile);
+      // Making it only waits for its tab, and the capture below acts on
+      // whichever workspace is on screen until the router has moved.
+      await switchTo(page, home, isMobile);
+      const thought = uniqueTitle('Keep docked across dashboards');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      if (await form(page).getByRole('button', { name: 'Center' }).count()) {
+        const already = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
+        await already;
+      }
+
+      try {
+        const docking = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
+        await docking;
+        await expect(titleBox(page)).toHaveValue(thought);
+
+        // Through the `+`, which switches to the dashboard it makes.
+        await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
+        await page.getByLabel('Name of the new dashboard').fill(second);
+        await page.getByLabel('Name of the new dashboard').press('Enter');
+        await expect(dashboardTab(page, second)).toHaveClass(/(^|\s)active(\s|$)/);
+        await expect(titleBox(page)).toHaveValue(thought);
+
+        // And through a tab, both ways.
+        await openDashboard(page, 'Dashboard 1', isMobile);
+        await expect(titleBox(page)).toHaveValue(thought);
+        await openDashboard(page, second, isMobile);
+        await expect(titleBox(page)).toHaveValue(thought);
+        expect(new URL(page.url()).searchParams.get('item')).not.toBeNull();
+
+        await switchTo(page, STARTING_WORKSPACE, isMobile);
+        await expect(form(page)).toHaveCount(0);
+        await switchTo(page, home, isMobile);
+        await expect(dashboardTab(page, second)).toBeVisible();
+        await expect(form(page)).toHaveCount(0);
+      } finally {
+        // Put back for every other walk sharing this account, best effort so
+        // a failure above is reported as itself. The form is not open by now,
+        // so it is reopened, docked as the account has it, to centre it.
+        if (!(await form(page).count().catch(() => 0))) {
+          await openItem(page, thought, isMobile).catch(() => {});
+        }
+        if (await form(page).getByRole('button', { name: 'Center' }).count().catch(() => 0)) {
+          const recentering = answeredThePresentation(page, 5_000).catch(() => {});
+          await press(form(page).getByRole('button', { name: 'Center' }), isMobile).catch(() => {});
+          await recentering;
+        }
+        await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile).catch(() => {});
+      }
+      await deleteWorkspace(page, home, isMobile);
     });
 
     /**

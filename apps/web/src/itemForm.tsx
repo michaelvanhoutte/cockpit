@@ -32,6 +32,20 @@ export function itemFormSearch(search: Record<string, unknown>): ItemFormSearch 
 }
 
 /**
+ * What a move between the views of one workspace - its dashboards and its
+ * Inbox - carries over of the address: the open Item and nothing else ("Keep a
+ * docked item open across dashboards in the same workspace", issue 482).
+ *
+ * **The Item is the workspace's, not the view's**, so it survives a change of
+ * view and is left behind by a change of workspace, whose tabs name no search
+ * at all. Only a docked form leaves the tabs pressable, a centered one being
+ * modal, so this needs no word of which presentation is open.
+ */
+export function keepingTheOpenItem(was: ItemFormSearch): ItemFormSearch {
+  return itemFormSearch(was as Record<string, unknown>);
+}
+
+/**
  * How a row asks for its Item's form.
  *
  * **A context rather than the router hook itself**, because the lists that draw
