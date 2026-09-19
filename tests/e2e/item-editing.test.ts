@@ -875,6 +875,117 @@ test.describe('Item editing', () => {
 
       expect(await sideBySide(), 'one column once the dialog itself is narrow').toBe(false);
     });
+
+    /**
+     * Stacked, the files used to come ahead of the description - the order
+     * the two columns happened to be written in - which put text a person is
+     * here to write below a list of files they are only attaching to it
+     * (found in the docked form once it is dragged narrower than the split
+     * needs).
+     */
+    test('reads the fields, then the description, then the files, once stacked', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'resizing is a pointer gesture');
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Stacked order');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+      await theEditorIsThere(page);
+
+      const box = (await form(page).boundingBox())!;
+      const grip = { x: box.x + box.width - 6, y: box.y + box.height - 6 };
+      await page.mouse.move(grip.x, grip.y);
+      await page.mouse.down();
+      await page.mouse.move(grip.x - 400, grip.y, { steps: 8 });
+      await page.mouse.up();
+
+      const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
+      const files = form(page).getByText('Attachments', { exact: true });
+      const priority = (await priorityBox(page).boundingBox())!;
+      const description = (await toolbar.boundingBox())!;
+      const attached = (await files.boundingBox())!;
+      // Stacked first, or the order below would also hold in the two-column
+      // layout and prove nothing: there the fields and the description's own
+      // toolbar sit on one row, within the same forty pixels the sibling
+      // walk above measures.
+      expect(description.y - priority.y, 'one column, the description below the fields').toBeGreaterThanOrEqual(40);
+      expect(priority.y, 'the short fields come first').toBeLessThan(description.y);
+      expect(description.y, 'then the description, ahead of the files').toBeLessThan(attached.y);
+
+      // What is drawn is also what Tab and a screen reader take: the
+      // description comes before the files in the document itself, not only
+      // on screen.
+      const filesHandle = (await files.elementHandle())!;
+      const descriptionFirst = await toolbar.evaluate(
+        (element, other) => Boolean(element.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING),
+        filesHandle,
+      );
+      expect(descriptionFirst, 'the description before the files in the document').toBe(true);
+    });
+  });
+
+  /**
+   * F3, because a size that is enough is a claim about real text in a real
+   * font in a real box: "Normal", the longest priority, was clipped to
+   * "Nor" at the half of a 240px sidebar it was given, which no jsdom
+   * layout can measure.
+   */
+  test.describe('the form opens big enough for what is in it', () => {
+    test('has room for the priority to say its longest choice in full', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'a phone opens the form at the screen’s own size');
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Opens big enough');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      // The room a choice has is the box less its own padding, border and an
+      // allowance for the native arrow - measured against the widest label it
+      // has to hold, in the font the box is actually drawn in.
+      const { widest, room } = await priorityBox(page).evaluate((element) => {
+        const select = element as HTMLSelectElement;
+        const style = getComputedStyle(select);
+        const probe = document.createElement('span');
+        probe.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;font:${style.font}`;
+        document.body.appendChild(probe);
+        let widest = 0;
+        for (const option of Array.from(select.options)) {
+          probe.textContent = option.text;
+          widest = Math.max(widest, probe.getBoundingClientRect().width);
+        }
+        probe.remove();
+        const room =
+          select.getBoundingClientRect().width -
+          parseFloat(style.paddingLeft) -
+          parseFloat(style.paddingRight) -
+          parseFloat(style.borderLeftWidth) -
+          parseFloat(style.borderRightWidth);
+        return { widest, room };
+      });
+      const NATIVE_ARROW_ALLOWANCE = 24;
+      expect(
+        room - NATIVE_ARROW_ALLOWANCE,
+        'the widest priority fits, less an allowance for the native arrow',
+      ).toBeGreaterThanOrEqual(widest);
+    });
+
+    test('opens at its default width', async ({ page, isMobile }) => {
+      test.skip(isMobile, 'a phone opens the form at the screen’s own size');
+
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Opens at its default width');
+      await capture(page, thought, isMobile);
+      await openItem(page, thought, isMobile);
+
+      // 56rem, on a window wide enough that nothing clamps it.
+      expect(Math.round((await form(page).boundingBox())!.width)).toBe(896);
+    });
   });
 
   /**
@@ -1254,8 +1365,14 @@ test.describe('Item editing', () => {
         // width the docked resize clamp already answers to, not only a
         // fresh open's own read of it.
         await page.setViewportSize({ width: 375, height: 700 });
-        const narrow = (await form(page).boundingBox())!;
-        expect(Math.round(narrow.x + narrow.width), 'no longer flush against the edge').not.toBe(375);
+        // Polled rather than read once: falling back to centered swaps the
+        // dialog's own modal and non-modal content, which is drawn afresh a
+        // beat after the resize rather than in the same frame.
+        await expect(async () => {
+          const narrow = await form(page).boundingBox();
+          expect(narrow, 'the form is drawn').not.toBeNull();
+          expect(Math.round(narrow!.x + narrow!.width), 'no longer flush against the edge').not.toBe(375);
+        }).toPass();
 
         // The account is still docked - only what is drawn fell back - so
         // the control still offers to undock it, not to dock what already
