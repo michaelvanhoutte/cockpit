@@ -1342,10 +1342,11 @@ describe('Item editing', () => {
         expected: 'set_due_date',
       },
       {
-        situation: 'the due date, the moment it is cleared',
+        situation: 'the due date, cleared and then left',
         item: anItem({ dueDate: '2026-09-30' }),
-        finish: async () => {
+        finish: async (user: ReturnType<typeof userEvent.setup>) => {
           fireEvent.change(dueDateBox(), { target: { value: '' } });
+          await user.click(titleBox());
         },
         expected: 'set_due_date',
       },
@@ -1371,6 +1372,20 @@ describe('Item editing', () => {
 
       await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_due_date']));
       expect(sent()[0]).toMatchObject({ payload: { dueDate: '2026-10-01' } });
+    });
+
+    // A date input reports '' while one segment of a complete date is being
+    // retyped, which is a step towards a date and not a clear.
+    it('does not write a clear for a segment being retyped, only the date it ends as', async () => {
+      await dockedForm(anItem({ dueDate: '2026-09-30' }));
+
+      fireEvent.change(dueDateBox(), { target: { value: '' } });
+      fireEvent.change(dueDateBox(), { target: { value: '2026-10-30' } });
+
+      await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_due_date']), {
+        timeout: 3000,
+      });
+      expect(sent()[0]).toMatchObject({ payload: { dueDate: '2026-10-30' } });
     });
 
     it('writes a typed due date once it has sat still, without leaving the field', async () => {

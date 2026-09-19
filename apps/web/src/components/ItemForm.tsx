@@ -1342,11 +1342,10 @@ function TheForm({
                               });
                               if (!docked) return;
                               if (dueDateSettles.current) clearTimeout(dueDateSettles.current);
-                              // Cleared is a decision, not a step towards one.
-                              if (!e.target.value) {
-                                void settleDueDate();
-                                return;
-                              }
+                              // Empty settles like any other value: a native date
+                              // input also reports '' while one segment of a
+                              // complete date is being retyped, which is not a
+                              // clear.
                               dueDateSettles.current = setTimeout(
                                 () => void settleDueDate(),
                                 DUE_DATE_SETTLES_MS,
