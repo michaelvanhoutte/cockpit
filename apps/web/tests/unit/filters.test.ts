@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import type { DueCondition, Filing, FilterCondition, Item, ItemType, Panel, Priority } from '@cockpit/shared';
+import type {
+  DueCondition,
+  Filing,
+  FilterCondition,
+  FilterMatch,
+  Item,
+  ItemType,
+  Panel,
+  Priority,
+} from '@cockpit/shared';
 import { filingsThatFile, itemsInTheInbox } from '../../src/filing';
 import {
   alsoShownOn,
@@ -85,7 +94,7 @@ function aPanel(id: string, kind: Panel['kind'] = 'items'): Panel {
     format: 'plain',
     body: '',
     readOnly: false,
-    filter: kind === 'filter' ? { conditions: [] } : null,
+    filter: kind === 'filter' ? { conditions: [], match: 'all' } : null,
   };
 }
 
@@ -109,9 +118,15 @@ function shown(
     panels = [FALCON, GATHERS],
     itemTypes = [] as ItemType[],
     on = TODAY,
-  }: { panels?: readonly Panel[]; itemTypes?: readonly ItemType[]; on?: string } = {},
+    match = 'all',
+  }: {
+    panels?: readonly Panel[];
+    itemTypes?: readonly ItemType[];
+    on?: string;
+    match?: FilterMatch;
+  } = {},
 ): string[] {
-  return itemsMatchingFilter(items, filings, panels, itemTypes, { conditions }, on).map(
+  return itemsMatchingFilter(items, filings, panels, itemTypes, { conditions, match }, on).map(
     (item) => item.id,
   );
 }
@@ -192,6 +207,64 @@ describe('Panels', () => {
           { itemTypes: [okr] },
         ),
       ).toEqual([okrDueThisQuarter.id]);
+    });
+  });
+
+  describe('a filter set to any shows an item meeting one of its conditions, where all asks for every one', () => {
+    const rule = [due('week'), { field: 'priority', values: ['high'] }] as FilterCondition[];
+    const dueThisWeekNormal = anItem('due-normal', { dueDate: '2026-09-18', priority: 'normal' });
+    const highNoDate = anItem('high-undated', { priority: 'high' });
+    const nextMonthLow = anItem('later-low', { dueDate: '2026-10-20', priority: 'low' });
+    const items = [dueThisWeekNormal, highNoDate, nextMonthLow];
+    const everywhere = items.map((item) => filed('falcon', item.id));
+
+    it.each([
+      { situation: 'due this week and only Normal', match: 'any', item: dueThisWeekNormal, drawn: true },
+      { situation: 'High with no due date', match: 'any', item: highNoDate, drawn: true },
+      { situation: 'due next month and Low', match: 'any', item: nextMonthLow, drawn: false },
+      // The contrast: the same rule under all wants both.
+      { situation: 'only High', match: 'all', item: highNoDate, drawn: false },
+    ] as const)('an item $situation is drawn: $drawn, under $match', ({ match, item, drawn }) => {
+      expect(shown(items, everywhere, rule, { match }).includes(item.id)).toBe(drawn);
+    });
+
+    it('draws nothing where it has no conditions', () => {
+      expect(shown(items, everywhere, [], { match: 'any' })).toEqual([]);
+    });
+
+    it('draws nothing still in the inbox, though it meets a condition', () => {
+      expect(shown([highNoDate], [], rule, { match: 'any' })).toEqual([]);
+    });
+
+    it('draws an item meeting two conditions and filed on two panels once', () => {
+      const also = aPanel('anna');
+      const both = anItem('both', { dueDate: '2026-09-18', priority: 'high' });
+      expect(
+        shown([both], [filed('falcon', 'both'), filed('anna', 'both')], rule, {
+          match: 'any',
+          panels: [FALCON, also, GATHERS],
+        }),
+      ).toEqual(['both']);
+    });
+
+    it('lets a Priority condition with nothing ticked add nothing rather than everything', () => {
+      // Under all, this row empties the Filter; under any it is one more way to
+      // miss, so the Due date row alone decides.
+      expect(
+        shown(items, everywhere, [{ field: 'priority', values: [] }, due('week')], { match: 'any' }),
+      ).toEqual(['due-normal']);
+    });
+
+    it('lets a Type condition whose only Type was deleted add nothing rather than every Type', () => {
+      const typed = anItem('typed', { typeId: 'type-gone' });
+      expect(
+        shown(
+          [typed, highNoDate],
+          [filed('falcon', 'typed'), filed('falcon', 'high-undated')],
+          [{ field: 'type', values: ['type-gone'] }, { field: 'priority', values: ['high'] }],
+          { match: 'any' },
+        ),
+      ).toEqual(['high-undated']);
     });
   });
 
@@ -564,13 +637,43 @@ describe('Panels', () => {
     ])('reads $situation', ({ conditions, itemTypes, panels = [], reads }) => {
       expect(saysWhatItShows(conditions, itemTypes, panels)).toBe(reads);
     });
+
+    it.each([
+      {
+        situation: 'two conditions, either of which will do',
+        conditions: [due('week'), priority('high')],
+        itemTypes: [] as ItemType[],
+        reads: 'Any of: Due this week or overdue; Priority is High',
+      },
+      {
+        // One condition says the same under either, so it carries no prefix.
+        situation: 'a single condition',
+        conditions: [priority('high')],
+        itemTypes: [] as ItemType[],
+        reads: 'Priority is High',
+      },
+      {
+        situation: 'a Type among the values has since been deleted',
+        conditions: [type(okr.id, 'type-deleted'), priority('high')],
+        itemTypes: [okr],
+        reads: 'Any of: Type is OKR; Priority is High',
+      },
+      {
+        situation: 'nothing chosen',
+        conditions: [] as FilterCondition[],
+        itemTypes: [] as ItemType[],
+        reads: 'Nothing chosen yet',
+      },
+    ])('reads any, with $situation', ({ conditions, itemTypes, reads }) => {
+      expect(saysWhatItShows(conditions, itemTypes, [], 'any')).toBe(reads);
+    });
   });
 
   describe('deleting a Panel is asked about wherever a live Filter of its Workspace looks at it', () => {
     /** A Filter, gathering by these Panel ids unless a case says otherwise. */
     function aFilterOnPanels(id: string, ...values: string[]): Panel {
       const condition: FilterCondition = { field: 'panel', values };
-      return { ...aPanel(id, 'filter'), filter: { conditions: [condition] } };
+      return { ...aPanel(id, 'filter'), filter: { conditions: [condition], match: 'all' as const } };
     }
     const notes = aPanel('notes');
 
@@ -602,7 +705,7 @@ describe('Panels', () => {
     });
 
     it('never names a Filter that does not condition on this Panel at all', () => {
-      const other = { ...aPanel('over', 'filter'), filter: { conditions: [due('today')] } };
+      const other = { ...aPanel('over', 'filter'), filter: { conditions: [due('today')], match: 'all' as const } };
       expect(filtersUsingPanel('wiki', [FALCON, other])).toEqual([]);
     });
 
@@ -649,7 +752,7 @@ describe('Panels', () => {
 
     it('names a Filter the item matches, alongside a Panel it is filed on', () => {
       const today = aPanel('today');
-      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')] } };
+      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')], match: 'all' as const } };
       const item = anItem('a', { dueDate: TODAY });
 
       expect(
@@ -659,10 +762,10 @@ describe('Panels', () => {
 
     it('drawn on a Filter itself, names the Panels filed on and every other Filter matched, never itself', () => {
       const today = aPanel('today');
-      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')] } };
+      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')], match: 'all' as const } };
       const highPriority = {
         ...aPanel('high-priority', 'filter'),
-        filter: { conditions: [{ field: 'priority' as const, values: ['high'] as Priority[] }] },
+        filter: { conditions: [{ field: 'priority' as const, values: ['high'] as Priority[] }], match: 'all' as const },
       };
       const item = anItem('a', { dueDate: TODAY, priority: 'high' });
       const panels = [today, dueSoon, highPriority];
@@ -694,7 +797,7 @@ describe('Panels', () => {
       // The Filter is found after the filed Panel (`panelAndFilterIdsByItem`
       // walks filings before Filters), and still reads before it here,
       // because both are read back in `panelsInWorkspace`'s own order.
-      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')] } };
+      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')], match: 'all' as const } };
       const today = aPanel('today');
       const item = anItem('a', { dueDate: TODAY });
       const panels = [dueSoon, today];

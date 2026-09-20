@@ -602,7 +602,7 @@ describe('Panels', () => {
           format: 'plain' as const,
           body: '',
           readOnly: false,
-          filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }] },
+          filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }], match: 'all' as const },
         },
       ];
       held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
@@ -622,7 +622,7 @@ describe('Panels', () => {
         format: 'plain' as const,
         body: '',
         readOnly: false,
-        filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }] },
+        filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }], match: 'all' as const },
       };
       held.panels = [...held.panels, gathers];
       held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];

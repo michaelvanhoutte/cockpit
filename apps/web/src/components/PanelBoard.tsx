@@ -13,6 +13,7 @@ import type {
   Dashboard,
   Filing,
   FilterCondition,
+  FilterMatch,
   Item,
   ItemType,
   Layout,
@@ -812,7 +813,7 @@ export function PanelBoard({
    * Closed only once it lands, the way the rename is: a refusal leaves the
    * question up with the rows still in it rather than losing what was chosen.
    */
-  const setFilter = (panelId: string, conditions: FilterCondition[]) => {
+  const setFilter = (panelId: string, conditions: FilterCondition[], match: FilterMatch) => {
     command.mutate(
       {
         name: 'set_panel_filter',
@@ -822,6 +823,7 @@ export function PanelBoard({
           workspaceId,
           panelId,
           conditions,
+          match,
         },
       },
       { onSuccess: () => setFiltering(null) },
@@ -1117,9 +1119,10 @@ export function PanelBoard({
               open
               panelName={beingFiltered.name}
               conditions={(beingFiltered.filter ?? NO_CONDITIONS).conditions}
+              match={(beingFiltered.filter ?? NO_CONDITIONS).match}
               itemTypes={itemTypes}
               panels={panelsInWorkspace}
-              onSave={(conditions) => setFilter(beingFiltered.id, conditions)}
+              onSave={(conditions, match) => setFilter(beingFiltered.id, conditions, match)}
               onCancel={() => {
                 setFiltering(null);
                 command.reset();

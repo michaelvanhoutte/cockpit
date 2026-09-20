@@ -140,7 +140,9 @@ export function PanelCard({
   const text = panelHoldsText(panel);
   const filter = panelGathers(panel) ? (panel.filter ?? NO_CONDITIONS) : null;
   /** What the funnel reads back on hover, and the whole of what a Filter's state is. */
-  const shows = filter ? saysWhatItShows(filter.conditions, itemTypes, panelsInWorkspace) : null;
+  const shows = filter
+    ? saysWhatItShows(filter.conditions, itemTypes, panelsInWorkspace, filter.match)
+    : null;
   // Read once, said the many ways it is asked below: whether the menu is
   // open to being asked at all, whether the header is a tab stop or a name
   // and a role, whether a plain click starts a drag or does nothing.

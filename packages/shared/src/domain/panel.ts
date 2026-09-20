@@ -219,19 +219,40 @@ export const filterConditionSchema = z.discriminatedUnion('field', [
 export type FilterCondition = z.infer<typeof filterConditionSchema>;
 
 /**
- * What a Filter shows: every condition it has, all of which must hold. OR
- * between them is an idea rather than a rule (`docs/ideas.md`).
+ * How a Filter's conditions combine ("Let a Filter show items that meet any of
+ * its conditions", issue 504): an Item has to meet every one of them, or any
+ * one.
+ *
+ * **`all` is what a Filter meant before this existed**, so it is what every
+ * stored Filter without a setting reads as, and what a save carrying none
+ * writes. A stale tab or a queued change saving a Filter without one therefore
+ * puts it back to `all` — the later whole save standing, as everywhere else —
+ * and one tick undoes it.
+ */
+export const FILTER_MATCHES = ['all', 'any'] as const;
+export const filterMatchSchema = z.enum(FILTER_MATCHES);
+export type FilterMatch = z.infer<typeof filterMatchSchema>;
+
+/**
+ * What a Filter shows: its conditions, and whether an Item has to meet all of
+ * them or any one (`FilterMatch`). Sets of conditions joined by *or*, for
+ * *(A and B) or C*, are a decided design and not built (`docs/ideas.md`).
  *
  * An object rather than a bare array, so a Filter can grow a setting of its own
  * without every stored one having to be re-read as something else.
+ *
+ * **A `match` nobody wrote reads as `all`, never as an empty Filter**: the
+ * catch is on the one field, so a value this release cannot read costs the
+ * setting alone and leaves the conditions intact.
  */
 export const panelFilterSchema = z.object({
   conditions: z.array(filterConditionSchema).default([]),
+  match: filterMatchSchema.catch('all'),
 });
 export type PanelFilter = z.infer<typeof panelFilterSchema>;
 
 /** A Filter with nothing chosen yet — what a new one is, and what an unreadable one reads as. */
-export const NO_CONDITIONS: PanelFilter = { conditions: [] };
+export const NO_CONDITIONS: PanelFilter = { conditions: [], match: 'all' };
 
 /**
  * What a stored Filter says, from the text the column holds.
@@ -258,7 +279,7 @@ export function panelFilterFrom(stored: string | null): PanelFilter | null {
   try {
     const read = panelFilterSchema.safeParse(JSON.parse(stored));
     if (!read.success) return NO_CONDITIONS;
-    return { conditions: uniqueByField(read.data.conditions) };
+    return { conditions: uniqueByField(read.data.conditions), match: read.data.match };
   } catch {
     return NO_CONDITIONS;
   }
@@ -275,8 +296,11 @@ function uniqueByField(conditions: readonly FilterCondition[]): FilterCondition[
 }
 
 /** What a Filter's conditions are stored as — the one writer, so nothing else has to know the format. */
-export function panelFilterAsStored(conditions: readonly FilterCondition[]): string {
-  return JSON.stringify({ conditions });
+export function panelFilterAsStored(
+  conditions: readonly FilterCondition[],
+  match: FilterMatch = 'all',
+): string {
+  return JSON.stringify({ conditions, match });
 }
 
 /**

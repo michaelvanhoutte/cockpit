@@ -123,8 +123,14 @@ const PRIORITY_HIGH_OR_NORMAL = { field: 'priority', values: ['high', 'normal'] 
 /** A Type condition: matches an item of the seeded workspace's Task type. */
 const TYPE_TASK = { field: 'type', values: [TASK_TYPE_ID] };
 
-function setFilter(panelId: string, conditions: unknown[]) {
-  return send('set_panel_filter', { workspaceId: WORKSPACE_ID, panelId, conditions });
+/** A save carrying `match` only where one is given: leaving it out is what a client from before it existed sends. */
+function setFilter(panelId: string, conditions: unknown[], match?: unknown) {
+  return send('set_panel_filter', {
+    workspaceId: WORKSPACE_ID,
+    panelId,
+    conditions,
+    ...(match === undefined ? {} : { match }),
+  });
 }
 
 /** One panel as the snapshot hands it back. */
@@ -1002,15 +1008,15 @@ describe('Panels', () => {
     it('arrives with nothing chosen, and keeps what was chosen for it', async () => {
       const { panelId } = await aFilter();
 
-      expect(await panelNow(panelId)).toMatchObject({ kind: 'filter', filter: { conditions: [] } });
+      expect(await panelNow(panelId)).toMatchObject({ kind: 'filter', filter: { conditions: [], match: 'all' } });
 
       expect((await setFilter(panelId, [DUE_TODAY])).status).toBe(200);
-      expect((await panelNow(panelId)).filter).toEqual({ conditions: [DUE_TODAY] });
+      expect((await panelNow(panelId)).filter).toEqual({ conditions: [DUE_TODAY], match: 'all' });
 
       // Saved whole, so taking the last one out puts it back to saying nothing
       // has been chosen rather than leaving the old answer standing.
       expect((await setFilter(panelId, [])).status).toBe(200);
-      expect((await panelNow(panelId)).filter).toEqual({ conditions: [] });
+      expect((await panelNow(panelId)).filter).toEqual({ conditions: [], match: 'all' });
     });
 
     it('accepts a Priority, a Type and a Panel condition beside a Due date one', async () => {
@@ -1029,7 +1035,51 @@ describe('Panels', () => {
       ];
 
       expect((await setFilter(panelId, conditions)).status).toBe(200);
-      expect((await panelNow(panelId)).filter).toEqual({ conditions });
+      expect((await panelNow(panelId)).filter).toEqual({ conditions, match: 'all' });
+    });
+
+    it('keeps whether an item has to meet all of its conditions or any one, and a save without it means all', async () => {
+      const { panelId } = await aFilter();
+      const conditions = [DUE_TODAY, PRIORITY_HIGH_OR_NORMAL];
+
+      expect((await setFilter(panelId, conditions, 'any')).status).toBe(200);
+      expect((await panelNow(panelId)).filter).toEqual({ conditions, match: 'any' });
+
+      // A stale tab or a queued change saves the whole Filter without the
+      // setting: the later whole save stands, and it stands as all.
+      expect((await setFilter(panelId, conditions)).status).toBe(200);
+      expect((await panelNow(panelId)).filter).toEqual({ conditions, match: 'all' });
+    });
+
+    it('refuses a setting that is neither all nor any, and stores nothing of it', async () => {
+      const { panelId } = await aFilter();
+
+      expect((await setFilter(panelId, [DUE_TODAY], 'either')).status).toBe(400);
+
+      expect((await panelNow(panelId)).filter).toEqual({ conditions: [], match: 'all' });
+    });
+
+    it('still refuses a field twice where the filter is set to any', async () => {
+      const { panelId } = await aFilter();
+
+      expect(
+        (await setFilter(panelId, [DUE_TODAY, { ...DUE_TODAY, window: 'week' }], 'any')).status,
+      ).toBe(400);
+    });
+
+    it('reads a filter stored before there was a setting as all, conditions intact', async () => {
+      // Written straight into the store: the only way to hold what an older
+      // release wrote, which no request here can produce.
+      const { panelId } = await aFilter();
+      await inTheStore((sql) =>
+        sql.exec(
+          'UPDATE panels SET filter_conditions = ? WHERE id = ?',
+          JSON.stringify({ conditions: [DUE_TODAY] }),
+          panelId,
+        ),
+      );
+
+      expect((await panelNow(panelId)).filter).toEqual({ conditions: [DUE_TODAY], match: 'all' });
     });
 
     it('shows nothing chosen where what is stored cannot be read, and the workspace still opens', async () => {
@@ -1040,7 +1090,7 @@ describe('Panels', () => {
         sql.exec('UPDATE panels SET filter_conditions = ? WHERE id = ?', '{not json', panelId),
       );
 
-      expect(await panelNow(panelId)).toMatchObject({ kind: 'filter', filter: { conditions: [] } });
+      expect(await panelNow(panelId)).toMatchObject({ kind: 'filter', filter: { conditions: [], match: 'all' } });
     });
 
     it.each([
@@ -1112,7 +1162,7 @@ describe('Panels', () => {
       // And nothing of it is stored: a refusal that half-landed would leave a
       // panel gathering something nobody asked for.
       expect((await panelNow(panelId)).filter).toEqual(
-        (await panelNow(panelId)).kind === 'filter' ? { conditions: [] } : null,
+        (await panelNow(panelId)).kind === 'filter' ? { conditions: [], match: 'all' } : null,
       );
     });
 

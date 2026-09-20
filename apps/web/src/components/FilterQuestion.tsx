@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   DUE_WINDOWS,
+  FILTER_MATCHES,
   panelTakesItems,
   prioritySchema,
   type DueCondition,
   type DueWindow,
   type FilterCondition,
+  type FilterMatch,
   type ItemType,
   type Panel,
   type Priority,
@@ -25,7 +27,9 @@ const NO_PANELS_TO_CHOOSE = 'No panels to choose from yet.';
  * shows every filed item due in a window", issue 463; "Filter a Filter panel
  * by priority and type", issue 464).
  *
- * **One row per condition, and all of them have to hold.** The rows are a list
+ * **One row per condition, and all of them have to hold** unless the switch
+ * above them says *any* ("Let a Filter show items that meet any of its
+ * conditions", issue 504), which appears from two rows. The rows are a list
  * rather than a sentence with clauses because that is what the question grows
  * into - Due date, Priority, Type and, since "Filter a Filter panel by panel,
  * and name the Filters a panel's deletion affects" (issue 465), Panel, each
@@ -51,6 +55,7 @@ const NO_PANELS_TO_CHOOSE = 'No panels to choose from yet.';
 function FilterQuestion({
   panelName,
   conditions,
+  match: initialMatch,
   itemTypes,
   panels,
   open,
@@ -63,6 +68,8 @@ function FilterQuestion({
   panelName: string;
   /** What the Filter shows now, which the rows open on. */
   conditions: readonly FilterCondition[];
+  /** Whether the Filter needs all of them or any one, which the switch opens on. */
+  match: FilterMatch;
   /** The account's live Types, what a Type condition offers to choose from. */
   itemTypes: readonly ItemType[];
   /**
@@ -74,7 +81,7 @@ function FilterQuestion({
    */
   panels: readonly Panel[];
   open: boolean;
-  onSave: (conditions: FilterCondition[]) => void;
+  onSave: (conditions: FilterCondition[], match: FilterMatch) => void;
   onCancel: () => void;
   refusal?: string | null;
   busy?: boolean;
@@ -93,6 +100,17 @@ function FilterQuestion({
    * on the form.
    */
   const [rows, setRows] = useState<FilterCondition[]>([...conditions]);
+  /**
+   * Whether an Item has to meet all of the rows or any one, read once like
+   * them. **Kept when rows are removed down to one**, the way *or overdue* is
+   * kept when the window changes: the switch hides below two rows, but what was
+   * chosen is still what saves.
+   */
+  const [match, setMatch] = useState<FilterMatch>(initialMatch);
+  // With fewer than two rows the two answers are the same one, and the question
+  // reads as it always did.
+  const several = rows.length >= 2;
+  const any = several && match === 'any';
 
   const change = (at: number, row: FilterCondition) =>
     setRows(rows.map((was, index) => (index === at ? row : was)));
@@ -122,31 +140,39 @@ function FilterQuestion({
             What does {panelName} show?
           </Dialog.Title>
           <Dialog.Description className="pt-2 text-sm text-ink-soft">
-            Every item filed on a panel of this workspace that meets all of these.
+            Every item filed on a panel of this workspace that meets {any ? 'any' : 'all'} of these.
           </Dialog.Description>
 
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              onSave(rows);
+              onSave(rows, match);
             }}
             className="pt-4"
           >
+            {several && <MatchSwitch match={match} onChange={setMatch} />}
             {rows.length === 0 ? (
               <p className="text-sm text-ink-faint">Nothing chosen yet.</p>
             ) : (
-              <ul className="flex flex-col gap-3">
+              <ul className="flex flex-col gap-1">
                 {rows.map((row, at) => (
-                  <li key={row.field} className="rounded-md border border-black/10 p-3">
-                    <ConditionRow
-                      at={at}
-                      row={row}
-                      itemTypes={itemTypes}
-                      panels={panels}
-                      onChange={(next) => change(at, next)}
-                      onRemove={() => setRows(rows.filter((_, index) => index !== at))}
-                    />
-                  </li>
+                  <Fragment key={row.field}>
+                    {any && at > 0 && (
+                      <li aria-hidden className="text-center text-xs uppercase text-ink-faint">
+                        or
+                      </li>
+                    )}
+                    <li className="rounded-md border border-black/10 p-3">
+                      <ConditionRow
+                        at={at}
+                        row={row}
+                        itemTypes={itemTypes}
+                        panels={panels}
+                        onChange={(next) => change(at, next)}
+                        onRemove={() => setRows(rows.filter((_, index) => index !== at))}
+                      />
+                    </li>
+                  </Fragment>
                 ))}
               </ul>
             )}
@@ -198,6 +224,50 @@ function FilterQuestion({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+/** What the two ways of combining the rows are called on the switch. */
+const MATCH_LABELS: Record<FilterMatch, string> = {
+  all: 'All of these',
+  any: 'Any of these',
+};
+
+/**
+ * The switch between *All of these* and *Any of these* ("Let a Filter show
+ * items that meet any of its conditions", issue 504): two radios drawn as one
+ * segmented control, because it is one choice of two that has to stay visible
+ * beside the rows it governs.
+ */
+function MatchSwitch({
+  match,
+  onChange,
+}: {
+  match: FilterMatch;
+  onChange: (match: FilterMatch) => void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="How the conditions combine"
+      className="mb-3 inline-flex rounded-md border border-black/10 p-0.5 text-sm"
+    >
+      {FILTER_MATCHES.map((value) => (
+        <label key={value} className="relative">
+          <input
+            type="radio"
+            name="filter-match"
+            value={value}
+            checked={match === value}
+            onChange={() => onChange(value)}
+            className="peer sr-only"
+          />
+          <span className="block cursor-pointer rounded px-3 py-1 text-ink-soft peer-checked:bg-accent-tint peer-checked:font-medium peer-checked:text-accent-deep peer-focus-visible:ring-2 peer-focus-visible:ring-accent-soft/40">
+            {MATCH_LABELS[value]}
+          </span>
+        </label>
+      ))}
+    </div>
   );
 }
 

@@ -18,6 +18,7 @@ import { itemFormPresentationSchema } from './domain/item-form-presentation.js';
 import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
 import {
   filterConditionSchema,
+  filterMatchSchema,
   panelFormatSchema,
   panelKindSchema,
   panelNameSchema,
@@ -200,6 +201,13 @@ export const setPanelFilterSchema = commandEnvelopeSchema
   .extend({
     panelId: z.uuid(),
     conditions: z.array(filterConditionSchema).max(CONDITIONS_LIMIT),
+    /**
+     * Whether an Item has to meet all of the conditions or any one ("Let a Filter
+     * show items that meet any of its conditions", issue 504). Left out means
+     * `all`, so a stale tab or a queued change from before this existed puts the
+     * Filter back to what it always meant, the later whole save standing.
+     */
+    match: filterMatchSchema.default('all'),
   })
   // A field already on the Filter is not offered a second time in the
   // question ("Filter a Filter panel by priority and type", issue 464); this
