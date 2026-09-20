@@ -31,22 +31,52 @@ export function dashboardNamed(
 
 export interface DashboardRow extends Dashboard {
   foldedName: string;
+  position: number;
   createdAt: string;
   deletedAt: string | null;
+}
+
+/**
+ * Whether this is an order of exactly the dashboards the workspace has: every
+ * one of them, once each, and nothing else.
+ *
+ * The same check `ordersExactly` makes for workspaces, one level down, and the
+ * scope is the only thing it differs in: `live` is one workspace's dashboards,
+ * so an order naming another workspace's is refused here rather than silently
+ * moving a tab nobody was looking at ("Reorder a workspace's dashboards by
+ * dragging their tabs", issue 503).
+ */
+export function ordersDashboardsExactly(
+  live: readonly Dashboard[],
+  order: readonly string[],
+): boolean {
+  const named = new Set(order);
+  if (named.size !== order.length) return false;
+  if (named.size !== live.length) return false;
+  return live.every((dashboard) => named.has(dashboard.id));
 }
 
 /**
  * `createdAt` is the client's own timestamp, like every other command, so the
  * order dashboards sit in the bar is the order they were added in even when an
  * add was queued offline.
+ *
+ * `position` arrives the way it does for a workspace, and for the same reason:
+ * it is a function of every dashboard the workspace already has, deleted ones
+ * included, and only the store can see that whole set.
  */
-export function dashboardFromCommand(cmd: AddDashboardCommand, tenantId: string): DashboardRow {
+export function dashboardFromCommand(
+  cmd: AddDashboardCommand,
+  tenantId: string,
+  position: number,
+): DashboardRow {
   return {
     id: cmd.dashboardId,
     tenantId,
     workspaceId: cmd.workspaceId,
     name: cmd.name,
     foldedName: foldName(cmd.name),
+    position,
     createdAt: cmd.issuedAt,
     deletedAt: null,
   };
@@ -71,6 +101,8 @@ export function firstDashboardFor(
     workspaceId: workspace.id,
     name: FIRST_DASHBOARD_NAME,
     foldedName: foldName(FIRST_DASHBOARD_NAME),
+    // First in a bar that has nothing else in it yet.
+    position: 0,
     createdAt: workspace.createdAt,
     deletedAt: null,
   };

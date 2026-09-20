@@ -119,6 +119,29 @@ export const deleteDashboardSchema = commandEnvelopeSchema.extend({
 });
 export type DeleteDashboardCommand = z.infer<typeof deleteDashboardSchema>;
 
+/**
+ * reorder_dashboards — the whole order of one workspace's dashboards, not the
+ * move that produced it (architecture, "A whole order, never a relative move").
+ *
+ * The envelope's `workspaceId` is the scope rather than decoration: a dashboard
+ * order belongs to one workspace, so the same id may sit in two orders that
+ * know nothing about each other.
+ */
+export const reorderDashboardsSchema = commandEnvelopeSchema
+  .extend({
+    dashboardId: z.string().min(1),
+    dashboardIds: z.array(z.string().min(1)).min(1),
+  })
+  .refine((cmd) => new Set(cmd.dashboardIds).size === cmd.dashboardIds.length, {
+    message: 'a dashboard can only be in one place in the order',
+    path: ['dashboardIds'],
+  })
+  .refine((cmd) => cmd.dashboardIds.includes(cmd.dashboardId), {
+    message: 'the dashboard that moved is not in the order',
+    path: ['dashboardIds'],
+  });
+export type ReorderDashboardsCommand = z.infer<typeof reorderDashboardsSchema>;
+
 /** add_panel (architecture.md §4.4). */
 export const addPanelSchema = commandEnvelopeSchema.extend({
   dashboardId: z.string(),
@@ -672,6 +695,7 @@ export const commandSchemas = {
   add_dashboard: addDashboardSchema,
   rename_dashboard: renameDashboardSchema,
   delete_dashboard: deleteDashboardSchema,
+  reorder_dashboards: reorderDashboardsSchema,
   add_panel: addPanelSchema,
   rename_panel: renamePanelSchema,
   delete_panel: deletePanelSchema,

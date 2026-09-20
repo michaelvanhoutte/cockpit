@@ -1209,6 +1209,12 @@ const routes = app
     async (c) => c.json(await change(c, 'delete_dashboard', c.req.valid('json')), 200),
   )
   .openapi(
+    commandRoute('reorder_dashboards', {
+      conflict: 'The dashboards changed while they were being put in order',
+    }),
+    async (c) => c.json(await change(c, 'reorder_dashboards', c.req.valid('json')), 200),
+  )
+  .openapi(
     commandRoute('reorder_workspaces', {
       conflict: 'The workspaces changed while they were being put in order',
     }),

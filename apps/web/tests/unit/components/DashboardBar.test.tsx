@@ -178,20 +178,25 @@ function showBar(
     variables: null,
   };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const mutate = vi.fn((args: AskedFor, options?: { onSuccess?: () => void }) => {
-    asked.variables = args;
-    if (answer.error) return;
-    // A delete really takes the dashboard out of the workspace, and the read
-    // behind the bar is asked again - which the real `useCommand` does through
-    // `afterChanging`. Without it the bar goes on drawing the dashboard that
-    // has just gone, and every rule about what happens once it has gone passes
-    // by never happening.
-    if (args.name === 'delete_dashboard') {
-      held.dashboards = held.dashboards.filter((one) => one.id !== args.payload.dashboardId);
-      void client.invalidateQueries({ queryKey: ['snapshot', 'ws-work'] });
-    }
-    options?.onSuccess?.();
-  });
+  const mutate = vi.fn(
+    (args: AskedFor, options?: { onSuccess?: () => void; onError?: () => void }) => {
+      asked.variables = args;
+      if (answer.error) {
+        options?.onError?.();
+        return;
+      }
+      // A delete really takes the dashboard out of the workspace, and the read
+      // behind the bar is asked again - which the real `useCommand` does through
+      // `afterChanging`. Without it the bar goes on drawing the dashboard that
+      // has just gone, and every rule about what happens once it has gone passes
+      // by never happening.
+      if (args.name === 'delete_dashboard') {
+        held.dashboards = held.dashboards.filter((one) => one.id !== args.payload.dashboardId);
+        void client.invalidateQueries({ queryKey: ['snapshot', 'ws-work'] });
+      }
+      options?.onSuccess?.();
+    },
+  );
   const reset = vi.fn(() => {
     asked.error = null;
   });
@@ -237,7 +242,149 @@ function showBar(
   };
 }
 
+/**
+ * Lays the bar out, because jsdom does not: `tabDrag.ts`'s `placeAt` reads each
+ * tab's right edge off `getBoundingClientRect`, which jsdom always answers with
+ * zeroes. Each tab is given a 100-pixel-wide slot instead, the same stand-in
+ * `WorkspaceTabs.test.tsx` uses for the strip above it.
+ *
+ * **Every tab of the bar, the Inbox included**, and not only the ones the drag
+ * measures: the Inbox really occupies the leftmost slot, so laying out the
+ * dashboards alone would put the first of them where the Inbox is and a drop
+ * aimed past the Inbox would never be aimed past anything.
+ */
+function layOutTabs() {
+  [...document.querySelectorAll('nav[aria-label="Dashboards"] a')].forEach((tab, index) => {
+    tab.getBoundingClientRect = () => ({ right: (index + 1) * 100 }) as DOMRect;
+  });
+}
+
+/**
+ * Drags a tab far enough to let go over the bar's `overSlot`th tab, and drops
+ * it there. The slots are the bar's own, so slot 0 is the Inbox.
+ */
+function dragTab(name: string, overSlot: number) {
+  const tab = screen.getByRole('link', { name });
+  fireEvent.pointerDown(tab, {
+    button: 0,
+    pointerId: 1,
+    pointerType: 'mouse',
+    clientX: 0,
+    buttons: 1,
+  });
+  layOutTabs();
+  fireEvent.pointerMove(tab, {
+    pointerId: 1,
+    pointerType: 'mouse',
+    clientX: overSlot * 100 + 50,
+    buttons: 1,
+  });
+  fireEvent.pointerUp(tab, { pointerId: 1, pointerType: 'mouse' });
+}
+
+/** The bar as it is drawn, the Inbox included. */
+function theBar(): (string | null)[] {
+  return screen.getAllByRole('link').map((tab) => tab.textContent);
+}
+
 describe('Dashboards', () => {
+  describe('a dashboard you move is shown where you moved it before the server agrees', () => {
+    /*
+     * F1: what the gesture asks for, what the bar paints while it is in
+     * flight, and what it does with an answer it does not like. The gesture
+     * itself is `useTabDrag`'s and is walked in a real browser in
+     * tests/e2e/dashboards.test.ts, where there is a layout engine to measure;
+     * that the server keeps the order is proved against a real store in
+     * apps/api/tests/integration/http/dashboards.test.ts.
+     */
+    it('paints the new order at once, and asks for the whole order', async () => {
+      // Not politeness: the order a move is computed from is the order in
+      // hand, so a second move made before the first came back would undo it.
+      const { mutate } = showBar(['Dashboard 1', 'Research', 'Admin']);
+      await screen.findByRole('link', { name: 'Admin' });
+
+      dragTab('Dashboard 1', 2);
+
+      await waitFor(() =>
+        expect(theBar()).toEqual(['Inbox', 'Research', 'Dashboard 1', 'Admin']),
+      );
+      expect(mutate.mock.calls[0]?.[0]).toMatchObject({
+        name: 'reorder_dashboards',
+        payload: {
+          workspaceId: 'ws-work',
+          dashboardId: 'ws-work-dashboard 1',
+          dashboardIds: ['ws-work-research', 'ws-work-dashboard 1', 'ws-work-admin'],
+        },
+      });
+    });
+
+    it('asks for nothing when a drag ends where it started', async () => {
+      const { mutate } = showBar(['Dashboard 1', 'Research', 'Admin']);
+      await screen.findByRole('link', { name: 'Admin' });
+
+      dragTab('Research', 2);
+
+      // Settled before asking, because a move that did go out would only reach
+      // the sender a microtask later - so a bare "not called" here would pass
+      // over exactly the regression this case exists to catch.
+      await act(async () => {});
+      expect(mutate).not.toHaveBeenCalled();
+      expect(theBar()).toEqual(['Inbox', 'Dashboard 1', 'Research', 'Admin']);
+    });
+
+    it('puts the tabs back when the move is refused', async () => {
+      const { mutate } = showBar(['Dashboard 1', 'Research', 'Admin'], {
+        error: new CommandRefused(409, 'the dashboards changed while they were being put in order'),
+      });
+      await screen.findByRole('link', { name: 'Admin' });
+
+      dragTab('Dashboard 1', 3);
+
+      // Otherwise this passes vacuously: the order it puts back is the order
+      // it started in, so a drag that silently did nothing would look the same
+      // as one that was sent and refused.
+      await waitFor(() => expect(mutate).toHaveBeenCalled());
+      await waitFor(() =>
+        expect(theBar()).toEqual(['Inbox', 'Dashboard 1', 'Research', 'Admin']),
+      );
+    });
+
+    it('does not move the Inbox, which is no dashboard of this workspace', async () => {
+      const { mutate } = showBar(['Dashboard 1', 'Research', 'Admin']);
+      await screen.findByRole('link', { name: 'Admin' });
+
+      dragTab('Inbox', 3);
+
+      await act(async () => {});
+      expect(mutate).not.toHaveBeenCalled();
+      expect(theBar()).toEqual(['Inbox', 'Dashboard 1', 'Research', 'Admin']);
+      // The two above pass on their own whether or not the Inbox carries the
+      // gesture, since it is in no order for a move to be computed against - so
+      // what says it is out is that the bar does not count it as one of its
+      // tabs, which is what `placeAt` (`tabDrag.ts`) measures.
+      expect(screen.getByRole('link', { name: 'Inbox' })).not.toHaveAttribute('data-tab-id');
+    });
+
+    it('puts a dashboard dropped over the Inbox first among the dashboards, behind it', async () => {
+      // The other half of the Inbox being fixed: it is not a place in the
+      // order either, so dropping past it lands first among the dashboards
+      // rather than in front of it.
+      const { mutate } = showBar(['Dashboard 1', 'Research', 'Admin']);
+      await screen.findByRole('link', { name: 'Admin' });
+
+      dragTab('Admin', 0);
+
+      await waitFor(() =>
+        expect(theBar()).toEqual(['Inbox', 'Admin', 'Dashboard 1', 'Research']),
+      );
+      expect(mutate.mock.calls[0]?.[0]).toMatchObject({
+        payload: {
+          dashboardIds: ['ws-work-admin', 'ws-work-dashboard 1', 'ws-work-research'],
+        },
+      });
+    });
+  });
+
   describe('the bar holds the Inbox and the workspace’s dashboards', () => {
     it('shows the Inbox first, then each dashboard by name', async () => {
       showBar(['Dashboard 1', 'Research']);

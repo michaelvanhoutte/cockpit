@@ -41,6 +41,7 @@ import {
   AttachmentIdTakenError,
   DashboardNameTakenError,
   DashboardNotFoundError,
+  DashboardOrderStaleError,
   ItemNotFoundError,
   ItemTypeNameTakenError,
   ItemTypeNotFoundError,
@@ -940,6 +941,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         // way to get here: what has collided is the whole list against a list
         // of workspaces that has moved on.
         error instanceof WorkspaceOrderStaleError ||
+        error instanceof DashboardOrderStaleError ||
         // Same kind of collision one level down: a whole order sent against a
         // panel whose items have moved on.
         error instanceof PanelOrderStaleError ||

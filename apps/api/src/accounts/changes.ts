@@ -108,8 +108,46 @@ export function accountChanges(accountId: string): readonly Change[] {
     CONNECTOR_ACCOUNTS,
     ITEM_FORM_PRESENTATION,
     ITEM_SOURCE_CONNECTOR,
+    DASHBOARD_ORDER,
   ];
 }
+
+/**
+ * Where a dashboard sits in its workspace's bar ("Reorder a workspace's
+ * dashboards by dragging their tabs", issue 503) - see `schema.ts` for what the
+ * column carries and why.
+ *
+ * **One `ADD COLUMN` and no backfill**, which is the one thing this does not
+ * copy from `0004-workspace-order`; `schema.ts` carries what that costs the
+ * read.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** it cannot. One statement, and a change's statements
+ *   and the record that they ran commit in one `transactionSync` (store.ts) -
+ *   load-bearing rather than a nicety, SQLite having no
+ *   `ADD COLUMN IF NOT EXISTS` for a half-applied change to re-run over.
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** there can be none. Every dashboard
+ *   takes 0, which the read treats as "nobody has moved these yet".
+ * - **Rolled back after it has run:** an older release names neither the column
+ *   nor the command, and orders the bar by `created_at` alone - so an order
+ *   somebody chose is simply unread until the release goes forward again.
+ * - **A backup restored from before it:** the restore replays the changes that
+ *   backup recorded - which do not include this one - and then brings the
+ *   account up to date at the end of the restore itself (`restoreFrom`,
+ *   store.ts), so the column is back before the next request. The exception is
+ *   a backup that recorded no changes at all, which is left untouched on
+ *   purpose and takes them on its first open.
+ */
+const DASHBOARD_ORDER: Change = {
+  name: '0039-dashboard-order',
+  statements: [
+    { sql: 'ALTER TABLE `dashboards` ADD COLUMN `position` integer DEFAULT 0 NOT NULL' },
+  ],
+};
 
 /**
  * When a person took an Item's title and description over from Cockpit ("Clean

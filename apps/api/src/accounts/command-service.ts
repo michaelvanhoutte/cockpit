@@ -37,6 +37,7 @@ import {
   getSourceAccount,
   getWorkspace,
   isItemFiled,
+  lastDashboardPosition,
   lastWorkspacePosition,
   listDashboards,
   lastItemTypePosition,
@@ -69,6 +70,7 @@ import {
   dashboardFromCommand,
   dashboardNamed,
   firstDashboardFor,
+  ordersDashboardsExactly,
 } from '../domain/dashboards.js';
 import {
   FILING_VALUES_PER_ROW,
@@ -240,6 +242,14 @@ export class DashboardNotFoundError extends Error {
   constructor(dashboardId: string) {
     super(`dashboard ${dashboardId} not found`);
     this.name = 'DashboardNotFoundError';
+  }
+}
+
+/** The same collision `WorkspaceOrderStaleError` names, one level down: a whole order sent against a workspace whose dashboards have moved on. */
+export class DashboardOrderStaleError extends Error {
+  constructor() {
+    super('the dashboards changed while they were being put in order');
+    this.name = 'DashboardOrderStaleError';
   }
 }
 
@@ -837,8 +847,11 @@ export function runCommand<N extends CommandName>(
       // replay carrying this dashboard's id and a fresh request id would
       // otherwise add a second Panel 1 to it.
       const dashboardIsNew = !alreadyThere.some((one) => one.id === cmd.dashboardId);
+      // After every dashboard this workspace has ever had, so a new one turns
+      // up at the end of the bar rather than in the middle of it.
+      const goesAfter = nextPosition(lastDashboardPosition(db, tenantId, cmd.workspaceId));
       db.transaction((tx) => {
-        const dashboard = dashboardFromCommand(cmd, tenantId);
+        const dashboard = dashboardFromCommand(cmd, tenantId, goesAfter);
         tx.insert(dashboards)
           .values(dashboard)
           .onConflictDoNothing({ target: dashboards.id })
@@ -906,6 +919,44 @@ export function runCommand<N extends CommandName>(
           .set({ deletedAt: cmd.issuedAt })
           .where(and(eq(dashboards.tenantId, tenantId), eq(dashboards.id, cmd.dashboardId)))
           .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'reorder_dashboards': {
+      const cmd = payload as CommandPayload<'reorder_dashboards'>;
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
+        throw new WorkspaceNotFoundError(cmd.workspaceId);
+      }
+      // One list, one question: is this an order of the dashboards this
+      // workspace actually has? It answers "is the dashboard that moved still
+      // there" at the same time, because the wire schema has already made that
+      // id one of the ones in the list - and it is what refuses an order
+      // naming another workspace's dashboard, since the list is read per
+      // workspace.
+      const live = listDashboards(db, tenantId, cmd.workspaceId);
+      if (!ordersDashboardsExactly(live, cmd.dashboardIds)) throw new DashboardOrderStaleError();
+      db.transaction((tx) => {
+        // Every dashboard written, not only the ones that moved, for the reason
+        // `reorder_workspaces` writes them all: working out which those are
+        // would be a second implementation of the order that could disagree
+        // with the first, and it is at most a handful of rows.
+        cmd.dashboardIds.forEach((dashboardId, position) => {
+          tx.update(dashboards)
+            .set({ position })
+            // The workspace as well as the id, though the check above has
+            // already made every id one of this workspace's: it costs nothing,
+            // and it means the write is scoped by itself rather than by an
+            // argument about `id` being the primary key.
+            .where(
+              and(
+                eq(dashboards.tenantId, tenantId),
+                eq(dashboards.workspaceId, cmd.workspaceId),
+                eq(dashboards.id, dashboardId),
+              ),
+            )
+            .run();
+        });
         tx.insert(commands).values(commandRow).run();
       });
       break;

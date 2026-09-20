@@ -338,6 +338,22 @@ export const dashboards = sqliteTable(
      * table).
      */
     foldedName: text('folded_name').notNull(),
+    /**
+     * Where it sits in its workspace's bar ("Reorder a workspace's dashboards
+     * by dragging their tabs", issue 503). Scoped to the workspace, not the
+     * account, the way the name's uniqueness is.
+     *
+     * `NOT NULL DEFAULT 0` because the column was added to a table that already
+     * had rows in it (change `0039-dashboard-order` in changes.ts), which SQLite
+     * allows only with a default. **Nothing backfills it**, unlike
+     * `workspaces.position`: every dashboard that already existed reads 0 and
+     * `created_at` breaks the tie, so the bar comes back in exactly the order it
+     * was in and the change writes to no row. The default is also what a
+     * dashboard added by an older version during a deploy gets - first in the
+     * bar, which is one tab in an unexpected place rather than a row that cannot
+     * be written.
+     */
+    position: integer('position').notNull().default(0),
     createdAt: text('created_at').notNull(),
     /**
      * Tombstone, written by "Rename and delete a dashboard from a dashboard

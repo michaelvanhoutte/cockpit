@@ -487,8 +487,9 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0038-item-source-connector` adds it; `0037-connector-accounts`, the
-    // other of the two, creates a table of its own and alters none.
+    // `0039-dashboard-order` adds it.
+    dashboards: ['position'],
+    // `0038-item-source-connector` adds it.
     items: ['source_connector'],
   };
 
