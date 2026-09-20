@@ -165,6 +165,8 @@ function showBar(
     screenSizes?: ScreenSize[];
     /** What a Save comes back with, the form sending its own change. */
     sendFails?: Error;
+    /** A dashboard another tab adds while a refused move is in flight. */
+    arrivesInFlight?: string;
   } = {},
 ) {
   held.dashboards = names.map(aDashboard);
@@ -173,16 +175,29 @@ function showBar(
   held.screenSizes = answer.screenSizes ?? [];
   held.openDashboardId = answer.openDashboardId ?? null;
   wentTo.calls = [];
-  const asked: { error: Error | null; variables: unknown } = {
+  const asked: { error: Error | null; variables: unknown; keptOnRefusal: string[] } = {
     error: answer.error ?? null,
     variables: null,
+    keptOnRefusal: [],
   };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const mutate = vi.fn(
     (args: AskedFor, options?: { onSuccess?: () => void; onError?: () => void }) => {
       asked.variables = args;
       if (answer.error) {
+        if (answer.arrivesInFlight) {
+          const arrived = aDashboard(answer.arrivesInFlight);
+          held.dashboards = [...held.dashboards, arrived];
+          client.setQueryData<WorkspaceSnapshot>(['snapshot', 'ws-work'], (now) =>
+            now ? { ...now, dashboards: [...now.dashboards, arrived] } : now,
+          );
+        }
         options?.onError?.();
+        // Read before the re-read the refusal asks for can land, which would
+        // put every dashboard back on its own and hide what the rollback did.
+        asked.keptOnRefusal = (
+          client.getQueryData<WorkspaceSnapshot>(['snapshot', 'ws-work'])?.dashboards ?? []
+        ).map((one) => one.name);
         return;
       }
       // A delete really takes the dashboard out of the workspace, and the read
@@ -233,6 +248,8 @@ function showBar(
     mutate,
     sent,
     container,
+    /** The dashboards the cache held the moment a refusal had been put back. */
+    keptOnRefusal: () => asked.keptOnRefusal,
     /** The same bar with another dashboard open, which is what a switch is. */
     switchTo: (openDashboardId: string | null) => {
       held.openDashboardId = openDashboardId;
@@ -347,6 +364,21 @@ describe('Dashboards', () => {
       await waitFor(() =>
         expect(theBar()).toEqual(['Inbox', 'Dashboard 1', 'Research', 'Admin']),
       );
+    });
+
+    it('keeps a dashboard added meanwhile when it puts the tabs back', async () => {
+      // A refusal is most likely because a dashboard came or went elsewhere, so
+      // putting the old order back must not take the one that came off the bar.
+      const { keptOnRefusal, mutate } = showBar(['Dashboard 1', 'Research', 'Admin'], {
+        error: new CommandRefused(409, 'the dashboards changed while they were being put in order'),
+        arrivesInFlight: 'Newest',
+      });
+      await screen.findByRole('link', { name: 'Admin' });
+
+      dragTab('Dashboard 1', 3);
+
+      await waitFor(() => expect(mutate).toHaveBeenCalled());
+      expect(keptOnRefusal()).toEqual(['Dashboard 1', 'Research', 'Admin', 'Newest']);
     });
 
     it('does not move the Inbox, which is no dashboard of this workspace', async () => {

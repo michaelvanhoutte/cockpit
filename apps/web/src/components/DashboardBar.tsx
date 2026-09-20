@@ -113,13 +113,16 @@ export function DashboardBar({
    * replacing it with anything less would take the panels and the items off the
    * screen for as long as the move is in flight.
    */
-  const move = async (dashboardId: string, moved: string[]) => {
+  const move = (dashboardId: string, moved: string[]) => {
     const key = snapshotQuery(workspaceId).queryKey;
     // Anything already asking for this workspace is stopped first, or it lands
     // after the write below and paints the order from before the move - the
     // snapshot is re-read after almost every change, on every server event and
-    // on window focus, so there is often one in the air.
-    await queryClient.cancelQueries({ queryKey: key });
+    // on window focus, so there is often one in the air. Not awaited: the
+    // fetches are stopped inside the call, and waiting on the promise would
+    // hold the write back a render after the drop, so the tab would jump back
+    // to its old place for that render.
+    void queryClient.cancelQueries({ queryKey: key });
     /** The order as it was, which is the whole of what a refusal has to undo. */
     const wasInThisOrder = queryClient
       .getQueryData<WorkspaceSnapshot>(key)
@@ -149,16 +152,20 @@ export function DashboardBar({
         // The order alone, onto whatever the cache holds now, rather than the
         // whole copy taken before the move: a snapshot re-read in between would
         // otherwise be undone with it, taking an item captured in another tab
-        // back off the screen until the re-read below lands.
+        // back off the screen until the re-read below lands. A dashboard the
+        // cache holds that the old order never named - one added in another tab
+        // while the move was in flight, which is also what makes the server
+        // refuse it - goes on the end rather than off the bar.
         onError: () => {
           if (wasInThisOrder) {
             queryClient.setQueryData<WorkspaceSnapshot>(key, (now) =>
               now
                 ? {
                     ...now,
-                    dashboards: wasInThisOrder.flatMap((id) =>
-                      now.dashboards.filter((d) => d.id === id),
-                    ),
+                    dashboards: [
+                      ...wasInThisOrder.flatMap((id) => now.dashboards.filter((d) => d.id === id)),
+                      ...now.dashboards.filter((d) => !wasInThisOrder.includes(d.id)),
+                    ],
                   }
                 : now,
             );
