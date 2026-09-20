@@ -600,10 +600,10 @@ Teams message to Cockpit", issue 486;
 `packages/connectors/teams/README.md` for the protocol's own quirks). Per
 environment:
 
-1. **An Azure Bot resource** with a Microsoft App ID, **single-tenant**
-   (Microsoft no longer creates multi-tenant ones), whose **messaging endpoint**
-   is `<APP_ORIGIN>/ingress/teams/messages` and whose **Microsoft Teams
-   channel** is enabled.
+1. **An Azure Bot resource** with a Microsoft App ID, **single-tenant** (why:
+   `packages/connectors/teams/README.md`, "Setting it up"), whose **messaging
+   endpoint** is `<APP_ORIGIN>/ingress/teams/messages` and whose **Microsoft
+   Teams channel** is enabled.
 2. **Its App ID into the platform**, which is what makes the address exist:
 
 ```bash
