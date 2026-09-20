@@ -250,6 +250,7 @@ function showBar(
     mutate,
     sent,
     container,
+    client,
     /** The dashboards the cache held the moment a refusal had been put back. */
     keptOnRefusal: () => asked.keptOnRefusal,
     /** The same bar with another dashboard open, which is what a switch is. */
@@ -381,6 +382,27 @@ describe('Dashboards', () => {
 
       await waitFor(() => expect(mutate).toHaveBeenCalled());
       expect(keptOnRefusal()).toEqual(['Dashboard 1', 'Research', 'Admin', 'Newest']);
+    });
+
+    it('keeps a dashboard that arrived since the bar was drawn when it shows the move', async () => {
+      const { client } = showBar(['Dashboard 1', 'Research', 'Admin']);
+      await screen.findByRole('link', { name: 'Admin' });
+
+      // Written to the cache and dropped in the same tick, before React Query has
+      // told the bar about it: the window a snapshot re-read lands in unseen. The
+      // drop is computed from the bar as drawn, so the newcomer is not in it.
+      act(() => {
+        client.setQueryData<WorkspaceSnapshot>(['snapshot', 'ws-work'], (held) =>
+          held ? { ...held, dashboards: [...held.dashboards, aDashboard('Newest')] } : held,
+        );
+        dragTab('Dashboard 1', 3);
+      });
+
+      expect(
+        client
+          .getQueryData<WorkspaceSnapshot>(['snapshot', 'ws-work'])
+          ?.dashboards.map((one) => one.name),
+      ).toEqual(['Research', 'Admin', 'Dashboard 1', 'Newest']);
     });
 
     it('does not move the Inbox, which is no dashboard of this workspace', async () => {
