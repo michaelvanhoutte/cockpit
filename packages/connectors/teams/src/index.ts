@@ -125,9 +125,8 @@ function refused(refusal: Refusal): Response {
  *
  * A message action's reply is a task module response, and `message` is the
  * one that simply says something in the dialog Teams already has open -
- * nothing about a save belongs in the chat everybody else is reading. The
- * `composeExtension` results are a search command's replies: Teams answered
- * one to an action with a dialog reading "unsupported".
+ * nothing about a save belongs in the chat everybody else is reading. Why not
+ * a `composeExtension` reply is in the package README.
  */
 function saidInTeams(text: string): Response {
   return Response.json({ task: { type: 'message', value: text } }, { status: 200 });

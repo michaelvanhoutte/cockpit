@@ -204,8 +204,12 @@ describe('Capture', () => {
       const first = await saveFromTeams();
       const again = await saveFromTeams();
 
-      expect(await first.json()).toEqual({ task: { type: 'message', value: 'Saved to Cockpit.' } });
-      expect(await again.json()).toEqual({ task: { type: 'message', value: 'Already in Cockpit.' } });
+      const saidTo = async (answer: Response) =>
+        ((await answer.json()) as { task: { value: string } }).task.value;
+      expect([await saidTo(first), await saidTo(again)]).toEqual([
+        'Saved to Cockpit.',
+        'Already in Cockpit.',
+      ]);
     });
 
     it('makes a second item for a second message', async () => {

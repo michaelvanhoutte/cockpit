@@ -120,7 +120,7 @@ describe('Capture', () => {
   describe('whoever saved a message is told in Teams what became of it', () => {
     it.each([
       {
-        situation: 'the message was filed as a new item',
+        situation: 'the message was saved as a new item',
         host: () => hostThatHasConnected(CONNECTED, 'filed').host,
         said: 'Saved to Cockpit.',
       },

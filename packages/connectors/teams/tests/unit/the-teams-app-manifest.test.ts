@@ -32,8 +32,8 @@ const CHECKED_AGAINST_THE_SCHEMA = [
 ];
 
 describe('Capture', () => {
-  describe('the Teams app Teams is given names only what its schema accepts', () => {
-    it('carries no top-level property that has not been checked against the schema', () => {
+  describe('the Teams app lists only properties somebody has checked against its schema', () => {
+    it('carries no top-level property that has not been checked', () => {
       const unchecked = Object.keys(manifest).filter(
         (property) => !CHECKED_AGAINST_THE_SCHEMA.includes(property),
       );
@@ -53,12 +53,13 @@ describe('Capture', () => {
       expect(bot?.scopes).toContain(scope);
     });
 
-    it('is offered by the bot that answers it', () => {
+    it('the app, its bot and its message extension are one bot', () => {
       const [bot] = manifest.bots;
       const [extension] = manifest.composeExtensions;
 
       expect(manifest.bots).toHaveLength(1);
-      expect(bot?.botId).toBe(extension?.botId);
+      expect(bot?.botId).toBe(manifest.id);
+      expect(extension?.botId).toBe(manifest.id);
     });
   });
 });
