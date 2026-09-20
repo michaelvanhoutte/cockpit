@@ -990,7 +990,7 @@ export function runCommand<N extends CommandName>(
           // The whole list, over whatever is there: the question is saved at
           // once, so the later save standing is the same answer this app gives
           // everywhere else.
-          .set({ filterConditions: panelFilterAsStored(cmd.conditions) })
+          .set({ filterConditions: panelFilterAsStored(cmd.conditions, cmd.match) })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
         tx.insert(commands).values(commandRow).run();

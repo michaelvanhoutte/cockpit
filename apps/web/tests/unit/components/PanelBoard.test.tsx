@@ -7,6 +7,7 @@ import type {
   Dashboard,
   Filing,
   FilterCondition,
+  FilterMatch,
   Item,
   ItemType,
   Layout,
@@ -110,9 +111,16 @@ const TODAY = dayOf(new Date());
 const DUE_TODAY: FilterCondition = { field: 'dueDate', window: 'today', orOverdue: true };
 
 /** A panel that gathers what it shows, with nothing chosen unless a case says otherwise. */
-function aFilter(id: string, name: string, conditions: FilterCondition[] = []): Panel {
-  return { ...aPanel(id, name), kind: 'filter', filter: { conditions } };
+function aFilter(
+  id: string,
+  name: string,
+  conditions: FilterCondition[] = [],
+  match: FilterMatch = 'all',
+): Panel {
+  return { ...aPanel(id, name), kind: 'filter', filter: { conditions, match } };
 }
+
+const PRIORITY_HIGH: FilterCondition = { field: 'priority', values: ['high'] };
 
 /** A live Type, exactly as `itemTypeSchema` shapes one. */
 function aType(id: string, name: string): ItemType {
@@ -1906,6 +1914,119 @@ describe('Onboarding', () => {
         }),
         expect.anything(),
       );
+    });
+
+    describe('it can be told an item need only meet any of its conditions', () => {
+      const ALL_OR_ANY = 'How the conditions combine';
+
+      it('offers the choice only from two conditions, on all of these', async () => {
+        const { user } = showBoard({ panels: [aFilter('due', 'Due soon', [DUE_TODAY])] });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await screen.findByRole('button', { name: 'Save' });
+        expect(screen.queryByRole('radiogroup', { name: ALL_OR_ANY })).toBeNull();
+
+        await addCondition(user, 'Priority');
+
+        expect(screen.getByRole('radiogroup', { name: ALL_OR_ANY })).toBeVisible();
+        expect(screen.getByRole('radio', { name: 'All of these' })).toBeChecked();
+        expect(screen.getByText(/meets all of these/)).toBeVisible();
+      });
+
+      it('says any in its description and puts an or between the cards once any is chosen', async () => {
+        const { user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH])],
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        expect(screen.queryByText('or', { selector: 'li' })).toBeNull();
+        await user.click(await screen.findByRole('radio', { name: 'Any of these' }));
+
+        expect(screen.getByText(/meets any of these/)).toBeVisible();
+        expect(screen.getAllByText('or', { selector: 'li' })).toHaveLength(1);
+      });
+
+      it('sends the choice with the rows, and keeps it when the rows are taken down to one', async () => {
+        const { mutate, user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH])],
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await user.click(await screen.findByRole('radio', { name: 'Any of these' }));
+        await user.click(screen.getByRole('button', { name: 'Remove condition 2' }));
+        // One row left: the switch is gone and the question reads as it always did.
+        expect(screen.queryByRole('radiogroup', { name: ALL_OR_ANY })).toBeNull();
+        expect(screen.getByText(/meets all of these/)).toBeVisible();
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(mutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: 'set_panel_filter',
+            payload: expect.objectContaining({ conditions: [DUE_TODAY], match: 'any' }),
+          }),
+          expect.anything(),
+        );
+      });
+
+      it('sends all where it was never changed', async () => {
+        const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await addCondition(user, 'Due date');
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(mutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            payload: expect.objectContaining({ match: 'all' }),
+          }),
+          expect.anything(),
+        );
+      });
+
+      it('opens on any for a filter that is set to it', async () => {
+        const { user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH], 'any')],
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+
+        expect(await screen.findByRole('radio', { name: 'Any of these' })).toBeChecked();
+      });
+
+      it('saves nothing where it is cancelled', async () => {
+        const { mutate, user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH])],
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await user.click(await screen.findByRole('radio', { name: 'Any of these' }));
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        expect(mutate).not.toHaveBeenCalled();
+      });
+
+      it('reads what it shows as any of them, beside its name', async () => {
+        showBoard({ panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH], 'any')] });
+
+        const due = await screen.findByRole('region', { name: 'Due soon' });
+        expect(
+          within(due).getByRole('img', {
+            name: 'Shows any of: due today or overdue; priority is high',
+          }),
+        ).toBeVisible();
+      });
+
+      it('draws an item meeting one condition, where all of them would draw nothing', async () => {
+        const bart = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
+        showBoard({
+          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH], 'any')],
+          items: [{ ...bart, dueDate: TODAY, priority: 'low' }],
+          filings: [{ panelId: 'falcon', itemId: bart.id, position: 0 }],
+        });
+
+        const due = await screen.findByRole('region', { name: 'Due soon' });
+        expect(within(due).getByText(/Reply to Bart/)).toBeVisible();
+      });
     });
 
     it('is not asked what a panel of items or a panel of text shows', async () => {

@@ -26,6 +26,7 @@ describe('Panels', () => {
     it('reads back exactly what was written', () => {
       expect(panelFilterFrom(panelFilterAsStored([DUE_TODAY]))).toEqual({
         conditions: [DUE_TODAY],
+        match: 'all',
       });
     });
 
@@ -37,7 +38,7 @@ describe('Panels', () => {
       // affects", issue 465).
       expect(
         panelFilterFrom(panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH, TYPE_OKR, PANEL_Q3])),
-      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH, TYPE_OKR, PANEL_Q3] });
+      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH, TYPE_OKR, PANEL_Q3], match: 'all' });
     });
 
     it('is not a filter at all where nothing was stored', () => {
@@ -56,7 +57,7 @@ describe('Panels', () => {
       const week = { field: 'dueDate', window: 'week', orOverdue: false } as const;
       expect(
         panelFilterFrom(panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH, week])),
-      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH] });
+      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH], match: 'all' });
     });
 
     it.each([
@@ -79,7 +80,44 @@ describe('Panels', () => {
       // stored before the tick existed widens rather than narrows.
       expect(panelFilterFrom('{"conditions":[{"field":"dueDate","window":"week"}]}')).toEqual({
         conditions: [{ field: 'dueDate', window: 'week', orOverdue: true }],
+        match: 'all',
       });
+    });
+  });
+
+  describe('a filter with no setting for how its conditions combine means all of them', () => {
+    it.each([
+      {
+        situation: 'stored before there was a setting',
+        stored: JSON.stringify({ conditions: [DUE_TODAY, PRIORITY_HIGH] }),
+        reads: 'all',
+      },
+      {
+        situation: 'stored as any',
+        stored: panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH], 'any'),
+        reads: 'any',
+      },
+      {
+        situation: 'stored as all',
+        stored: panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH], 'all'),
+        reads: 'all',
+      },
+      {
+        situation: 'holding a value nobody wrote',
+        stored: JSON.stringify({ conditions: [DUE_TODAY, PRIORITY_HIGH], match: 'either' }),
+        reads: 'all',
+      },
+    ])('reads $situation as $reads, conditions intact', ({ stored, reads }) => {
+      // The conditions surviving is the point of the last row: a setting this
+      // release cannot read costs the setting alone, never an empty Filter.
+      expect(panelFilterFrom(stored)).toEqual({
+        conditions: [DUE_TODAY, PRIORITY_HIGH],
+        match: reads,
+      });
+    });
+
+    it('is written as all where no setting is given', () => {
+      expect(panelFilterFrom(panelFilterAsStored([DUE_TODAY]))?.match).toBe('all');
     });
   });
 

@@ -2,6 +2,7 @@ import type {
   DueWindow,
   Filing,
   FilterCondition,
+  FilterMatch,
   Item,
   ItemType,
   PanelFilter,
@@ -204,7 +205,9 @@ function sortsBefore(one: Item, other: Item): number {
 
 /**
  * Every open Item filed on a Panel of this Workspace that meets all of this
- * Filter's conditions, in the order the Filter draws them.
+ * Filter's conditions - or any of them, where it is set to `any` ("Let a Filter
+ * show items that meet any of its conditions", issue 504) - in the order the
+ * Filter draws them.
  *
  * **Filed, never the Inbox.** An Item nobody has triaged is what the Inbox is
  * for, and a Filter that drew it too would take the point out of triaging at
@@ -237,7 +240,7 @@ export function itemsMatchingFilter(
   const filedPanelIdsByItem = panelIdsFiledOnto(filed);
   return inFilterOrder(
     itemsThatAreFiled(items, filed).filter((item) =>
-      filter.conditions.every((condition) =>
+      meets(filter, (condition) =>
         holdsFor(
           condition,
           item,
@@ -249,6 +252,17 @@ export function itemsMatchingFilter(
       ),
     ),
   );
+}
+
+/**
+ * Whether an Item meets a Filter, given how one condition is asked of it.
+ *
+ * `some` and `every` differ on an empty list, which `itemsMatchingFilter`'s guard
+ * has already answered for both. A condition holding no value fails to hold, so
+ * under `any` it adds nothing rather than matching everything.
+ */
+function meets(filter: PanelFilter, holds: (condition: FilterCondition) => boolean): boolean {
+  return filter.match === 'any' ? filter.conditions.some(holds) : filter.conditions.every(holds);
 }
 
 /** Nothing filed anywhere - handed to `holdsFor` for an Item no filing names, so nothing has to be allocated for it. */
@@ -379,10 +393,11 @@ export function joinedBy(names: readonly string[], conjunction: 'and' | 'or'): s
  * than of the question that set it.
  *
  * **Joined with *and*, not with a comma**, because all of them have to hold: a
- * comma reads as a list of alternatives, which is the one thing a Filter cannot
- * be told to do (`docs/ideas.md`, "A Filter that reaches further than one rule
- * at a time"). *Or overdue* is said only where it widens something: on
- * *overdue* itself and on *not set* it is stored but means nothing.
+ * comma reads as a list of alternatives. A Filter set to *any* says so up front
+ * instead - *Any of: A; B* - with semicolons, since a condition's own values
+ * already use commas and *or*. *Or overdue* is said only where it widens
+ * something: on *overdue* itself and on *not set* it is stored but means
+ * nothing.
  *
  * **A Type or a Panel condition's values are read against `itemTypes` and
  * `panels`**, the same live lists matching itself reads against
@@ -394,9 +409,13 @@ export function saysWhatItShows(
   conditions: readonly FilterCondition[],
   itemTypes: readonly ItemType[] = [],
   panels: readonly Panel[] = [],
+  match: FilterMatch = 'all',
 ): string {
   if (conditions.length === 0) return 'Nothing chosen yet';
-  return conditions.map((condition) => sentenceFor(condition, itemTypes, panels)).join(' and ');
+  const parts = conditions.map((condition) => sentenceFor(condition, itemTypes, panels));
+  // One condition reads the same either way, so it carries no prefix.
+  if (match === 'any' && parts.length > 1) return `Any of: ${parts.join('; ')}`;
+  return parts.join(' and ');
 }
 
 function sentenceFor(
@@ -465,7 +484,12 @@ export function filtersUsingPanel(
     );
     if (!condition || !condition.values.includes(panelId)) continue;
     const stillHasOne = condition.values.some((id) => id !== panelId && liveIds.has(id));
-    affected.push({ filter: candidate, leftEmpty: !stillHasOne });
+    // A Filter set to *any* with other conditions still shows what they match,
+    // so a Panel condition left with no live Panel does not leave it showing
+    // nothing - only a Filter that needs every condition, or has no other, is.
+    const others = (candidate.filter ?? NO_CONDITIONS).conditions.length > 1;
+    const needsIt = (candidate.filter ?? NO_CONDITIONS).match === 'all' || !others;
+    affected.push({ filter: candidate, leftEmpty: !stillHasOne && needsIt });
   }
   return affected;
 }
