@@ -103,10 +103,10 @@ function connectedHost(
      * captures through (architecture, "Multi-channel capture and the
      * task-creator merge").
      *
-     * **Named at what the source calls the thing that was saved**, so the same
-     * save arriving twice is one Item: both ids are derived from the source and
-     * its own id for it, so a redelivery is a replay the store already knows to
-     * ignore (`commandAlreadyApplied`, accounts/command-service.ts) rather than
+     * **Named by what the connector says the thing is**, so the same save
+     * arriving twice is one Item: both ids are derived from the source and the
+     * connector's own id for it, so a redelivery is a replay the store already
+     * knows to ignore (`commandAlreadyApplied`, accounts/command-service.ts) rather than
      * a second capture.
      *
      * The Item's texts are seeded from the captured message the way every other

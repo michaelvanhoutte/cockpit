@@ -104,6 +104,8 @@ export interface SaveWanted {
   messageId?: string;
   said?: string;
   commandId?: string;
+  /** The click's own id: what one press is, and what a redelivery of it repeats. */
+  activityId?: string;
 }
 
 /** What Teams posts when somebody picks "Save to Cockpit" on a message. */
@@ -112,7 +114,7 @@ export function saveToCockpitCall(wanted: SaveWanted = {}): Record<string, unkno
   const tenant = wanted.tenant ?? TEAMS_TENANT;
   return {
     type: 'invoke',
-    id: 'f:7194316379412500000',
+    id: wanted.activityId ?? 'f:7194316379412500000',
     name: 'composeExtension/submitAction',
     serviceUrl: SERVICE_URL,
     channelId: 'msteams',

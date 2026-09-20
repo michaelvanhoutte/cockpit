@@ -182,43 +182,81 @@ describe('Capture', () => {
     });
   });
 
-  describe('the same message saved twice is one item, however often Teams delivers it', () => {
-    it('makes one item out of a delivery repeated', async () => {
+  /**
+   * What the person who pressed Save is told, which only a real store can
+   * settle: whether a press is already an Item is the store's answer to it, not
+   * something the connector can see. Why a press, not a message, is what counts
+   * is in the connector's README.
+   */
+  describe('every press of Save saves an item of its own, and a press delivered again saves only the one', () => {
+    const saidTo = async (answer: Response) =>
+      ((await answer.json()) as { task: { value: string } }).task.value;
+
+    it.each([
+      {
+        situation: 'the same press delivered a second time',
+        presses: [{}, {}],
+        items: 1,
+        said: ['Saved to Cockpit.', 'Already in Cockpit.'],
+      },
+      {
+        situation: 'a second press on the same message',
+        presses: [{}, { activityId: 'f:7194316379999999999' }],
+        items: 2,
+        said: ['Saved to Cockpit.', 'Saved to Cockpit.'],
+      },
+      {
+        // The press keeps its id, so only the message can make the second Item.
+        situation: 'a press on another message',
+        presses: [{}, { messageId: '1757930999000', said: 'And this one' }],
+        items: 2,
+        said: ['Saved to Cockpit.', 'Saved to Cockpit.'],
+      },
+    ])('$situation', async ({ presses, items, said }) => {
       await connectTeams();
 
-      const first = await saveFromTeams();
-      const again = await saveFromTeams();
+      const answers: Response[] = [];
+      for (const press of presses) {
+        answers.push(await saveFromTeams({ activity: saveToCockpitCall(press) }));
+      }
 
-      expect([first.status, again.status]).toEqual([200, 200]);
-      expect(await itemsIn()).toHaveLength(1);
+      expect(answers.map((answer) => answer.status)).toEqual([200, 200]);
+      expect(await Promise.all(answers.map(saidTo))).toEqual(said);
+      expect(await itemsIn()).toHaveLength(items);
     });
 
     /**
-     * What the person who pressed Save is told, which only a real store can
-     * settle: whether the message is already an Item is the store's answer to
-     * the second delivery, not something the connector can see.
+     * The case that started this: an Item dismissed in Cockpit is left out of
+     * every list, so a message saved again after it must come back rather than
+     * be taken for a delivery Cockpit has already answered.
      */
-    it('tells whoever saved it that it is already in Cockpit the second time', async () => {
+    it('files a message again after the item it made was dismissed', async () => {
       await connectTeams();
-
-      const first = await saveFromTeams();
-      const again = await saveFromTeams();
-
-      const saidTo = async (answer: Response) =>
-        ((await answer.json()) as { task: { value: string } }).task.value;
-      expect([await saidTo(first), await saidTo(again)]).toEqual([
-        'Saved to Cockpit.',
-        'Already in Cockpit.',
-      ]);
-    });
-
-    it('makes a second item for a second message', async () => {
-      await connectTeams();
-
       await saveFromTeams();
-      await saveFromTeams({ activity: saveToCockpitCall({ messageId: '1757930999000', said: 'And this one' }) });
+      const [first] = await itemsIn();
 
-      expect(await itemsIn()).toHaveLength(2);
+      const dismissed = await asUser('http://cockpit.test/v1/commands/set_dismissed', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: '0195c0f6-0000-7000-8000-000000000005',
+          issuedAt: new Date().toISOString(),
+          workspaceId: WORKSPACE_ID,
+          itemId: first!.id,
+          dismissed: true,
+        }),
+      });
+      expect(dismissed.status).toBe(200);
+      expect(await itemsIn()).toEqual([]);
+
+      const again = await saveFromTeams({
+        activity: saveToCockpitCall({ activityId: 'f:7194316379999999999' }),
+      });
+
+      expect(await saidTo(again)).toBe('Saved to Cockpit.');
+      const items = await itemsIn();
+      expect(items).toHaveLength(1);
+      expect(items[0]!.id).not.toBe(first!.id);
     });
   });
 

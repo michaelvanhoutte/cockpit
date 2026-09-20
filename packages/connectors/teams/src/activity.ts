@@ -35,15 +35,16 @@ const SUBMIT_ACTION = 'composeExtension/submitAction';
 /**
  * Why a call was not acted on - the log's words, never a person's.
  *
- * The first three are refusals of the call itself and the last three are
- * refusals of what it carried, which is the difference between "somebody is
- * posting at this address" and "Teams sent something this cannot use".
+ * The first three are refusals of the call itself and the rest are refusals of
+ * what it carried, which is the difference between "somebody is posting at
+ * this address" and "Teams sent something this cannot use".
  */
 export type Refusal =
   | 'the call was not signed by the Bot Framework'
   | 'the call was signed for another bot'
   | 'the call names another address'
   | 'the call is not a save'
+  | 'the call names no click'
   | 'the call carries no message'
   | 'the call names nobody';
 
@@ -69,6 +70,8 @@ export interface SavedMessage {
 
 /** What the call carries, as far as anything here reads it. */
 interface Activity {
+  /** The click's own id, which a redelivery of the same click repeats. */
+  id?: unknown;
   type?: unknown;
   name?: unknown;
   serviceUrl?: unknown;
@@ -136,6 +139,11 @@ export async function savedMessageFrom(
     return 'the call is not a save';
   }
 
+  // **What names a save is the click's own id, which the source gives and this
+  // does not make up**: an invented one would make a retry a second Item.
+  const click = text(activity.id);
+  if (!click) return 'the call names no click';
+
   // Tenant and object id, the pair a Teams connection is keyed on. `tid` from
   // the conversation where it is there and from the channel data otherwise,
   // which is where Teams puts it for a channel rather than a chat.
@@ -153,11 +161,8 @@ export async function savedMessageFrom(
     externalAccountKey: `${tenant}:${person}`,
     item: {
       source: 'teams',
-      // **The message, not the click.** A delivery Teams repeats carries the
-      // same message and so lands on the same Item, and so does somebody
-      // pressing save on it twice - which the click's own id would not catch.
-      // Scoped by the conversation, message ids being unique only within one.
-      sourceId: `${conversation}:${messageId}`,
+      // The click as well as the message, for the reason in the README.
+      sourceId: `${conversation}:${messageId}:${click}`,
       sourceLink: deepLink(message, conversation, messageId, tenant),
       // **Cut to what an Item may carry** (`capturedFrom` in the contract),
       // Entra allowing a display name half as long again as a title. What the
