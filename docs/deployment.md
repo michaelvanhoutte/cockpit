@@ -600,9 +600,11 @@ Teams message to Cockpit", issue 486;
 `packages/connectors/teams/README.md` for the protocol's own quirks). Per
 environment:
 
-1. **An Azure Bot resource** with a Microsoft App ID, whose **messaging
-   endpoint** is `<APP_ORIGIN>/ingress/teams/messages` and whose **Microsoft
-   Teams channel** is enabled.
+1. **An Azure Bot resource** with a Microsoft App ID, **single-tenant** —
+   Microsoft stopped creating new multi-tenant bots after 31 July 2025, so only
+   the bot's own tenant can install it — whose **messaging endpoint** is
+   `<APP_ORIGIN>/ingress/teams/messages` and whose **Microsoft Teams channel**
+   is enabled.
 2. **Its App ID into the platform**, which is what makes the address exist:
 
 ```bash
@@ -611,9 +613,12 @@ wrangler secret put MS_BOT_APP_ID --env staging
 ```
 
 3. **The Teams app itself**, from `packages/connectors/teams/teams-app/`: fill
-   in the App ID, the origin and the two icons, zip it, and upload it in Teams.
-   The tenant's custom-app-upload policy has to allow that — an admin toggle,
-   not a licence.
+   in the App ID (it appears in three places: the app's own `id` and the `botId`
+   of both the `bots` and the `composeExtensions` entries), the origin and the
+   two icons, zip it, and upload it in Teams. The tenant's custom-app-upload
+   policy has to allow that — an admin toggle, not a licence. The `bots` entry is
+   what offers the action in chats as well as channels, and a changed manifest
+   needs a higher `version` and a reinstall for Teams to read it.
 
 Saving a message needs no Graph scope and no consent prompt: what is saved
 arrives in the call itself.

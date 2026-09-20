@@ -1,9 +1,8 @@
 {
   "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
   "manifestVersion": "1.17",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "id": "REPLACE_WITH_THE_AZURE_BOT_APP_ID",
-  "packageName": "com.cockpit.teams",
   "developer": {
     "name": "Cockpit",
     "websiteUrl": "https://REPLACE_WITH_APP_ORIGIN",
@@ -23,6 +22,12 @@
     "outline": "outline.png"
   },
   "accentColor": "#2F5D8C",
+  "bots": [
+    {
+      "botId": "REPLACE_WITH_THE_AZURE_BOT_APP_ID",
+      "scopes": ["personal", "team", "groupChat"]
+    }
+  ],
   "composeExtensions": [
     {
       "botId": "REPLACE_WITH_THE_AZURE_BOT_APP_ID",
