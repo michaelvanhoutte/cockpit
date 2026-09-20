@@ -26,9 +26,15 @@ host does the rest ("Save a Teams message to Cockpit", issue 486).
   `https://login.botframework.com/v1/.well-known/openidconfiguration`, never
   written down here. `tests/contract/` asks the real endpoint whether that is
   still true, on a schedule.
-- **`messagePayload.id` is unique within a conversation, not globally**, so what
-  identifies the saved message — and so what makes a redelivered click one Item
-  rather than two — is the conversation and the message together.
+- **What identifies a save is the click, not the message.** Every press of Save
+  files an Item, and Cockpit's own possible-duplicate mark is what says two are
+  one note, so the name is `conversation:message:activity id` — the activity's
+  own top-level `id`, which is what makes a click Teams delivers again one Item.
+  `messagePayload.id` is unique within a conversation, not globally, hence the
+  conversation. **Unverified:** that Teams keeps the same activity `id` when it
+  redelivers an invoke; if it does not, a retry files a second Item, which the
+  duplicate mark then flags. A click with no usable `id` gets a fresh random one
+  rather than none, so two saves are never taken for one.
 - **A message body is HTML unless it says otherwise**, so what is captured is
   the text with its tags taken out.
 - **The reply is a task-module message.** `{ task: { type: "message", value } }`

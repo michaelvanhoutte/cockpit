@@ -62,9 +62,9 @@ export const itemDescriptionSchema = z.string().trim().max(60_000);
  * source-owned slice of an Item, said by whatever front door carried it in
  * ("Save a Teams message to Cockpit", issue 486).
  *
- * **`sourceId` is what makes the same save land once.** It names the thing at
- * the source rather than the delivery that carried it, so a push delivered
- * twice and a person pressing save twice both end as one Item.
+ * **`sourceId` is what makes the same save land once.** What the source names
+ * here is what counts as one Item: the Teams connector names the click, so a
+ * push delivered twice is one Item and a person pressing save twice is two.
  */
 export const capturedFromSchema = z.object({
   source: sourceSchema,

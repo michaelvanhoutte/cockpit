@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { savedMessageFrom } from '../../src/activity.js';
 import {
+  ACTIVITY_ID,
   ANOTHER_BOT_APP_ID,
   BOT_APP_ID,
   CONVERSATION,
@@ -24,13 +25,22 @@ const NOW = new Date();
 async function read(
   call: { token?: string; activity?: unknown } = {},
   appId = BOT_APP_ID,
+  newId: () => string = () => 'a-fresh-id',
 ): ReturnType<typeof savedMessageFrom> {
   return savedMessageFrom(
     { token: call.token ?? (await channelToken()), activity: call.activity ?? saveToCockpitCall() },
     await channelKeys(),
     { appId },
     NOW,
+    newId,
   );
+}
+
+/** What a save was named, or the refusal it met instead. */
+async function nameOf(activity: unknown, newId?: () => string): Promise<string> {
+  const answer = await read({ activity }, BOT_APP_ID, newId);
+  if (typeof answer === 'string') throw new Error(`the save was refused: ${answer}`);
+  return answer.item.sourceId!;
 }
 
 describe('Capture', () => {
@@ -115,6 +125,68 @@ describe('Capture', () => {
     });
   });
 
+  describe('every press of Save is named for itself, and a press delivered again is named as it was', () => {
+    it.each([
+      {
+        situation: 'the same press delivered a second time',
+        first: () => saveToCockpitCall(),
+        second: () => saveToCockpitCall(),
+        named: 'alike',
+      },
+      {
+        situation: 'a second press on the same message',
+        first: () => saveToCockpitCall(),
+        second: () => saveToCockpitCall({ id: 'f:7194316379999999999' }),
+        named: 'apart',
+      },
+      {
+        situation: 'a press on another message',
+        first: () => saveToCockpitCall(),
+        second: () => {
+          const other = saveToCockpitCall({ id: 'f:7194316379999999999' }) as {
+            value: { messagePayload: { id: string } };
+          };
+          other.value.messagePayload.id = '1757930999000';
+          return other;
+        },
+        named: 'apart',
+      },
+      {
+        situation: 'a press that carries no id, made twice',
+        first: () => saveToCockpitCall({ id: undefined }),
+        second: () => saveToCockpitCall({ id: undefined }),
+        named: 'apart',
+      },
+      {
+        situation: 'a press whose id is blank, made twice',
+        first: () => saveToCockpitCall({ id: '  ' }),
+        second: () => saveToCockpitCall({ id: '  ' }),
+        named: 'apart',
+      },
+      {
+        situation: 'a press whose id is not text, made twice',
+        first: () => saveToCockpitCall({ id: 7194316379412500000 }),
+        second: () => saveToCockpitCall({ id: 7194316379412500000 }),
+        named: 'apart',
+      },
+    ])('$situation', async ({ first, second, named }) => {
+      let made = 0;
+      const newId = () => `made-up-${(made += 1)}`;
+
+      const names = [await nameOf(first(), newId), await nameOf(second(), newId)];
+
+      expect(names[0] === names[1] ? 'alike' : 'apart').toBe(named);
+    });
+
+    it('still points the way back at the message rather than at the press', async () => {
+      const answer = await read({ activity: saveToCockpitCall({ id: 'f:7194316379999999999' }) });
+
+      expect(typeof answer === 'string' ? answer : answer.item.sourceLink).toBe(
+        `https://teams.microsoft.com/l/message/${CONVERSATION}/${MESSAGE_ID}?tenantId=${TENANT}`,
+      );
+    });
+  });
+
   describe('a saved message keeps who sent it, when they sent it, and the way back to it', () => {
     it('reads the message, the sender, the time and the link out of the call', async () => {
       const answer = await read();
@@ -123,7 +195,7 @@ describe('Capture', () => {
         externalAccountKey: `${TENANT}:${PERSON}`,
         item: {
           source: 'teams',
-          sourceId: `${CONVERSATION}:${MESSAGE_ID}`,
+          sourceId: `${CONVERSATION}:${MESSAGE_ID}:${ACTIVITY_ID}`,
           sourceLink: `https://teams.microsoft.com/l/message/${CONVERSATION}/${MESSAGE_ID}?tenantId=${TENANT}`,
           sender: 'Grace Hopper',
           sourceTimestamp: '2026-09-15T09:20:00.000Z',
@@ -147,9 +219,8 @@ describe('Capture', () => {
     });
 
     it('names a message by the conversation it is in as well as by itself', async () => {
-      // Two conversations can hand out the same message id, so the pair is what
-      // makes the same save land on the same Item and two different saves land
-      // on two.
+      // Two conversations can hand out the same message id, so a save of one is
+      // not named as a save of the other.
       const elsewhere = saveToCockpitCall({
         conversation: { id: '19:another@thread.v2', tenantId: TENANT },
       });

@@ -19,6 +19,8 @@ export const TENANT = '72f988bf-86f1-41af-91ab-2d7cd011db47';
 export const PERSON = '2b3c4d5e-6f70-4812-9a3b-4c5d6e7f8091';
 export const CONVERSATION = '19:meeting_abc123@thread.v2';
 export const MESSAGE_ID = '1757930400000';
+/** The id Teams gives the click itself, which `saveToCockpitCall` carries unless told otherwise. */
+export const ACTIVITY_ID = 'f:7194316379412500000';
 
 let pair: CryptoKeyPair | null = null;
 let impostor: CryptoKeyPair | null = null;
@@ -77,7 +79,7 @@ export async function channelToken(wanted: TokenWanted = {}): Promise<string> {
 export function saveToCockpitCall(changed: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     type: 'invoke',
-    id: 'f:7194316379412500000',
+    id: ACTIVITY_ID,
     name: 'composeExtension/submitAction',
     serviceUrl: SERVICE_URL,
     channelId: 'msteams',

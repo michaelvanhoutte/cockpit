@@ -69,6 +69,8 @@ export interface SavedMessage {
 
 /** What the call carries, as far as anything here reads it. */
 interface Activity {
+  /** The click's own id - what a redelivery of the same click is recognized by. */
+  id?: unknown;
   type?: unknown;
   name?: unknown;
   serviceUrl?: unknown;
@@ -92,12 +94,17 @@ interface MessagePayload {
  * The order is the point: the token first, then what the token permits us to
  * read. Nothing about the account is looked up here at all - who this is for
  * is answered, and the host is what turns that answer into a connection.
+ *
+ * `newId` names a click that arrives without an id of its own, so that a save
+ * is never taken for another one; it is handed in, like `now`, to keep this a
+ * function of its arguments.
  */
 export async function savedMessageFrom(
   call: { token: string; activity: unknown },
   keys: JWTVerifyGetKey,
   expected: { appId: string },
   now: Date,
+  newId: () => string,
 ): Promise<SavedMessage | Refusal> {
   let claims;
   try {
@@ -153,11 +160,11 @@ export async function savedMessageFrom(
     externalAccountKey: `${tenant}:${person}`,
     item: {
       source: 'teams',
-      // **The message, not the click.** A delivery Teams repeats carries the
-      // same message and so lands on the same Item, and so does somebody
-      // pressing save on it twice - which the click's own id would not catch.
-      // Scoped by the conversation, message ids being unique only within one.
-      sourceId: `${conversation}:${messageId}`,
+      // **The click, not the message.** Every press of Save files an Item and
+      // Cockpit's own duplicate mark says when two are one note, while a click
+      // Teams delivers again keeps its id and so lands on the Item it made.
+      // Message ids are unique only within a conversation, so both are named.
+      sourceId: `${conversation}:${messageId}:${text(activity.id) || newId()}`,
       sourceLink: deepLink(message, conversation, messageId, tenant),
       // **Cut to what an Item may carry** (`capturedFrom` in the contract),
       // Entra allowing a display name half as long again as a title. What the
