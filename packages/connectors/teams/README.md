@@ -31,9 +31,13 @@ host does the rest ("Save a Teams message to Cockpit", issue 486).
   rather than two — is the conversation and the message together.
 - **A message body is HTML unless it says otherwise**, so what is captured is
   the text with its tags taken out.
-- **The reply is a `composeExtension` result, not an empty 200.** `type:
-  "message"` says something to whoever clicked without putting a card into the
-  conversation everybody else is reading.
+- **The reply is a task-module message, not an empty 200 and not a
+  `composeExtension` result.** `{ task: { type: "message", value } }` says
+  something to whoever clicked without putting a card into the conversation
+  everybody else is reading; `composeExtension` replies are a search command's,
+  and Teams answered one with a dialog reading "unsupported". The new shape follows
+  Microsoft's documented replies to an action and has not yet been confirmed in a
+  real Teams client.
 - **The manifest asks for `identity` and nothing else.** A tenant admin weighs
   what the uploaded app may do, and saving a message needs only the payload the
   action already carries — `messageTeamMembers`, which an earlier draft asked
