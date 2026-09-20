@@ -484,7 +484,12 @@ export function filtersUsingPanel(
     );
     if (!condition || !condition.values.includes(panelId)) continue;
     const stillHasOne = condition.values.some((id) => id !== panelId && liveIds.has(id));
-    affected.push({ filter: candidate, leftEmpty: !stillHasOne });
+    // A Filter set to *any* with other conditions still shows what they match,
+    // so a Panel condition left with no live Panel does not leave it showing
+    // nothing - only a Filter that needs every condition, or has no other, is.
+    const others = (candidate.filter ?? NO_CONDITIONS).conditions.length > 1;
+    const needsIt = (candidate.filter ?? NO_CONDITIONS).match === 'all' || !others;
+    affected.push({ filter: candidate, leftEmpty: !stillHasOne && needsIt });
   }
   return affected;
 }

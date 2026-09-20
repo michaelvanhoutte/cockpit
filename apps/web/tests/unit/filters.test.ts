@@ -704,6 +704,33 @@ describe('Panels', () => {
       ]);
     });
 
+    it.each([
+      {
+        situation: 'set to any beside another condition, still shows what that one matches',
+        others: [due('today')],
+        match: 'any' as const,
+        leftEmpty: false,
+      },
+      {
+        situation: 'set to any with no other condition, is left showing nothing',
+        others: [] as FilterCondition[],
+        match: 'any' as const,
+        leftEmpty: true,
+      },
+      {
+        situation: 'set to all beside another condition, is left showing nothing',
+        others: [due('today')],
+        match: 'all' as const,
+        leftEmpty: true,
+      },
+    ])('names a Filter that, losing its only live Panel and $situation', ({ others, match, leftEmpty }) => {
+      const gathers = {
+        ...aPanel('due', 'filter'),
+        filter: { conditions: [{ field: 'panel' as const, values: ['wiki'] }, ...others], match },
+      };
+      expect(filtersUsingPanel('wiki', [FALCON, gathers])).toEqual([{ filter: gathers, leftEmpty }]);
+    });
+
     it('never names a Filter that does not condition on this Panel at all', () => {
       const other = { ...aPanel('over', 'filter'), filter: { conditions: [due('today')], match: 'all' as const } };
       expect(filtersUsingPanel('wiki', [FALCON, other])).toEqual([]);
