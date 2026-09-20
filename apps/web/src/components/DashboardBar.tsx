@@ -129,7 +129,15 @@ export function DashboardBar({
       ?.dashboards.map((d) => d.id);
     queryClient.setQueryData<WorkspaceSnapshot>(key, (held) =>
       held
-        ? { ...held, dashboards: moved.flatMap((id) => held.dashboards.filter((d) => d.id === id)) }
+        ? {
+            ...held,
+            dashboards: [
+              ...moved.flatMap((id) => held.dashboards.filter((d) => d.id === id)),
+              // One the move never named, arrived since the bar was drawn: kept
+              // on the end rather than taken off it for the round trip.
+              ...held.dashboards.filter((d) => !moved.includes(d.id)),
+            ],
+          }
         : held,
     );
     moving.mutate(
@@ -176,7 +184,7 @@ export function DashboardBar({
     );
   };
 
-  const drag = useTabDrag({ order, onDrop: (dashboardId, moved) => void move(dashboardId, moved) });
+  const drag = useTabDrag({ order, onDrop: move });
   const shown = drag.shown.flatMap((id) => dashboards.filter((d) => d.id === id));
 
   /**

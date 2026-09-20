@@ -187,7 +187,9 @@ function showBar(
       if (answer.error) {
         if (answer.arrivesInFlight) {
           const arrived = aDashboard(answer.arrivesInFlight);
-          held.dashboards = [...held.dashboards, arrived];
+          // In front on the server's side and behind in the cache, so what the
+          // cache holds is told apart from what the re-read would put there.
+          held.dashboards = [arrived, ...held.dashboards];
           client.setQueryData<WorkspaceSnapshot>(['snapshot', 'ws-work'], (now) =>
             now ? { ...now, dashboards: [...now.dashboards, arrived] } : now,
           );
