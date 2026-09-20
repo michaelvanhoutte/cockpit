@@ -27,14 +27,15 @@ host does the rest ("Save a Teams message to Cockpit", issue 486).
   written down here. `tests/contract/` asks the real endpoint whether that is
   still true, on a schedule.
 - **What identifies a save is the click, not the message.** Every press of Save
-  files an Item, and Cockpit's own possible-duplicate mark is what says two are
-  one note, so the name is `conversation:message:activity id` — the activity's
-  own top-level `id`, which is what makes a click Teams delivers again one Item.
-  `messagePayload.id` is unique within a conversation, not globally, hence the
-  conversation. **Unverified:** that Teams keeps the same activity `id` when it
-  redelivers an invoke; if it does not, a retry files a second Item, which the
-  duplicate mark then flags. A click with no usable `id` gets a fresh random one
-  rather than none, so two saves are never taken for one.
+  saves an Item to the Inbox, and where the meaning-reading job runs, Cockpit's
+  own possible-duplicate mark is what says two are one note. So the name is
+  `conversation:message:activity id` — the activity's own top-level `id`, which
+  is what makes a click Teams delivers again one Item. `messagePayload.id` is
+  unique within a conversation, not globally, hence the conversation.
+  **Unverified:** that Teams keeps the same activity `id` when it redelivers an
+  invoke; if it does not, a retry saves a second Item, which the mark may then
+  flag. A call with no usable `id` is refused with a 400 rather than given one
+  made up here, since an invented key would make every retry a new Item.
 - **A message body is HTML unless it says otherwise**, so what is captured is
   the text with its tags taken out.
 - **The reply is a task-module message.** `{ task: { type: "message", value } }`

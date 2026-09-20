@@ -35,15 +35,16 @@ const SUBMIT_ACTION = 'composeExtension/submitAction';
 /**
  * Why a call was not acted on - the log's words, never a person's.
  *
- * The first three are refusals of the call itself and the last three are
- * refusals of what it carried, which is the difference between "somebody is
- * posting at this address" and "Teams sent something this cannot use".
+ * The first three are refusals of the call itself and the rest are refusals of
+ * what it carried, which is the difference between "somebody is posting at
+ * this address" and "Teams sent something this cannot use".
  */
 export type Refusal =
   | 'the call was not signed by the Bot Framework'
   | 'the call was signed for another bot'
   | 'the call names another address'
   | 'the call is not a save'
+  | 'the call names no click'
   | 'the call carries no message'
   | 'the call names nobody';
 
@@ -69,7 +70,7 @@ export interface SavedMessage {
 
 /** What the call carries, as far as anything here reads it. */
 interface Activity {
-  /** The click's own id - what a redelivery of the same click is recognized by. */
+  /** The click's own id, which a redelivery of the same click repeats. */
   id?: unknown;
   type?: unknown;
   name?: unknown;
@@ -94,17 +95,12 @@ interface MessagePayload {
  * The order is the point: the token first, then what the token permits us to
  * read. Nothing about the account is looked up here at all - who this is for
  * is answered, and the host is what turns that answer into a connection.
- *
- * `newId` names a click that arrives without an id of its own, so that a save
- * is never taken for another one; it is handed in, like `now`, to keep this a
- * function of its arguments.
  */
 export async function savedMessageFrom(
   call: { token: string; activity: unknown },
   keys: JWTVerifyGetKey,
   expected: { appId: string },
   now: Date,
-  newId: () => string,
 ): Promise<SavedMessage | Refusal> {
   let claims;
   try {
@@ -143,6 +139,11 @@ export async function savedMessageFrom(
     return 'the call is not a save';
   }
 
+  // **What names a save is the click's own id, which the source gives and this
+  // does not make up**: an invented one would make a retry a second Item.
+  const click = text(activity.id);
+  if (!click) return 'the call names no click';
+
   // Tenant and object id, the pair a Teams connection is keyed on. `tid` from
   // the conversation where it is there and from the channel data otherwise,
   // which is where Teams puts it for a channel rather than a chat.
@@ -160,11 +161,8 @@ export async function savedMessageFrom(
     externalAccountKey: `${tenant}:${person}`,
     item: {
       source: 'teams',
-      // **The click, not the message.** Every press of Save files an Item and
-      // Cockpit's own duplicate mark says when two are one note, while a click
-      // Teams delivers again keeps its id and so lands on the Item it made.
-      // Message ids are unique only within a conversation, so both are named.
-      sourceId: `${conversation}:${messageId}:${text(activity.id) || newId()}`,
+      // The click as well as the message, for the reason in the README.
+      sourceId: `${conversation}:${messageId}:${click}`,
       sourceLink: deepLink(message, conversation, messageId, tenant),
       // **Cut to what an Item may carry** (`capturedFrom` in the contract),
       // Entra allowing a display name half as long again as a title. What the

@@ -25,20 +25,18 @@ const NOW = new Date();
 async function read(
   call: { token?: string; activity?: unknown } = {},
   appId = BOT_APP_ID,
-  newId: () => string = () => 'a-fresh-id',
 ): ReturnType<typeof savedMessageFrom> {
   return savedMessageFrom(
     { token: call.token ?? (await channelToken()), activity: call.activity ?? saveToCockpitCall() },
     await channelKeys(),
     { appId },
     NOW,
-    newId,
   );
 }
 
 /** What a save was named, or the refusal it met instead. */
-async function nameOf(activity: unknown, newId?: () => string): Promise<string> {
-  const answer = await read({ activity }, BOT_APP_ID, newId);
+async function nameOf(activity: unknown): Promise<string> {
+  const answer = await read({ activity });
   if (typeof answer === 'string') throw new Error(`the save was refused: ${answer}`);
   return answer.item.sourceId!;
 }
@@ -91,6 +89,23 @@ describe('Capture', () => {
         expected: 'the call is not a save',
       },
       {
+        // The click's own id is what a save is named by, and one made up here
+        // would make a retry a second Item - so a call without one is refused.
+        situation: 'a save carrying no id of its own',
+        call: async () => ({ activity: saveToCockpitCall({ id: undefined }) }),
+        expected: 'the call names no click',
+      },
+      {
+        situation: 'a save whose id is blank',
+        call: async () => ({ activity: saveToCockpitCall({ id: '  ' }) }),
+        expected: 'the call names no click',
+      },
+      {
+        situation: 'a save whose id is not text',
+        call: async () => ({ activity: saveToCockpitCall({ id: 7194316379412500000 }) }),
+        expected: 'the call names no click',
+      },
+      {
         situation: 'a call that is not an action at all',
         call: async () => ({ activity: saveToCockpitCall({ type: 'message' }) }),
         expected: 'the call is not a save',
@@ -140,40 +155,19 @@ describe('Capture', () => {
         named: 'apart',
       },
       {
+        // The click's id is kept the same on purpose: only the message differs,
+        // so this cannot pass unless the message is part of the name.
         situation: 'a press on another message',
         first: () => saveToCockpitCall(),
         second: () => {
-          const other = saveToCockpitCall({ id: 'f:7194316379999999999' }) as {
-            value: { messagePayload: { id: string } };
-          };
+          const other = saveToCockpitCall() as { value: { messagePayload: { id: string } } };
           other.value.messagePayload.id = '1757930999000';
           return other;
         },
         named: 'apart',
       },
-      {
-        situation: 'a press that carries no id, made twice',
-        first: () => saveToCockpitCall({ id: undefined }),
-        second: () => saveToCockpitCall({ id: undefined }),
-        named: 'apart',
-      },
-      {
-        situation: 'a press whose id is blank, made twice',
-        first: () => saveToCockpitCall({ id: '  ' }),
-        second: () => saveToCockpitCall({ id: '  ' }),
-        named: 'apart',
-      },
-      {
-        situation: 'a press whose id is not text, made twice',
-        first: () => saveToCockpitCall({ id: 7194316379412500000 }),
-        second: () => saveToCockpitCall({ id: 7194316379412500000 }),
-        named: 'apart',
-      },
     ])('$situation', async ({ first, second, named }) => {
-      let made = 0;
-      const newId = () => `made-up-${(made += 1)}`;
-
-      const names = [await nameOf(first(), newId), await nameOf(second(), newId)];
+      const names = [await nameOf(first()), await nameOf(second())];
 
       expect(names[0] === names[1] ? 'alike' : 'apart').toBe(named);
     });

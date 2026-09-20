@@ -185,10 +185,10 @@ describe('Capture', () => {
   /**
    * What the person who pressed Save is told, which only a real store can
    * settle: whether a press is already an Item is the store's answer to it, not
-   * something the connector can see. Cockpit's own "possible duplicate" mark,
-   * not the save, is what says two Items are one note said twice.
+   * something the connector can see. Why a press, not a message, is what counts
+   * is in the connector's README.
    */
-  describe('every press of Save files an item, and a press delivered again files only the one', () => {
+  describe('every press of Save saves an item of its own, and a press delivered again saves only the one', () => {
     const saidTo = async (answer: Response) =>
       ((await answer.json()) as { task: { value: string } }).task.value;
 
@@ -206,11 +206,9 @@ describe('Capture', () => {
         said: ['Saved to Cockpit.', 'Saved to Cockpit.'],
       },
       {
+        // The press keeps its id, so only the message can make the second Item.
         situation: 'a press on another message',
-        presses: [
-          {},
-          { activityId: 'f:7194316379999999999', messageId: '1757930999000', said: 'And this one' },
-        ],
+        presses: [{}, { messageId: '1757930999000', said: 'And this one' }],
         items: 2,
         said: ['Saved to Cockpit.', 'Saved to Cockpit.'],
       },

@@ -77,7 +77,6 @@ export function createTeamsConnector(config: TeamsConnectorConfig): Connector {
         keys,
         { appId: config.appId },
         now(),
-        () => crypto.randomUUID(),
       );
       if (typeof read === 'string') {
         host.log('warn', `a call at the Teams address was refused: ${read}`);
@@ -95,9 +94,9 @@ export function createTeamsConnector(config: TeamsConnectorConfig): Connector {
       }
 
       // Left to throw, and that is the retry: Teams redelivers an action it
-      // got no 200 for, and the same click delivered twice is one Item
-      // (`sourceId`, activity.ts), so failing loudly is safe and losing the
-      // save quietly is not.
+      // got no 200 for, and a click that carries an id is one Item however
+      // often it is delivered (`sourceId`, activity.ts), so failing loudly is
+      // safe and losing the save quietly is not.
       const filing = await connection.emitItem(read.item);
       if (filing === 'already-known') {
         connection.log('info', 'a Teams save delivered again was already in Cockpit');

@@ -125,7 +125,7 @@ describe('Capture', () => {
         said: 'Saved to Cockpit.',
       },
       {
-        situation: 'the message was already in Cockpit',
+        situation: 'the same press was delivered again',
         host: () => hostThatHasConnected(CONNECTED, 'already-known').host,
         said: 'Already in Cockpit.',
       },
@@ -164,6 +164,12 @@ describe('Capture', () => {
         situation: 'an action this app does not offer',
         token: () => channelToken(),
         activity: () => saveToCockpitCall({ value: { commandId: 'somethingElse' } }),
+        status: 400,
+      },
+      {
+        situation: 'a save that names no click',
+        token: () => channelToken(),
+        activity: () => saveToCockpitCall({ id: undefined }),
         status: 400,
       },
     ])('$situation', async ({ token, activity, status }) => {
