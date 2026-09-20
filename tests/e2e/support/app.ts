@@ -401,17 +401,35 @@ export async function switchTo(page: Page, name: string, isMobile: boolean): Pro
  * in from a finger or a keyboard.
  */
 export async function dragTabOnto(page: Page, tab: string, onto: string): Promise<void> {
+  await dragOnto(page, workspaceTab(page, tab), workspaceTab(page, onto), `${tab} onto ${onto}`);
+}
+
+/**
+ * The same gesture on the bar below, where it moves a dashboard of the
+ * workspace you are in ("Reorder a workspace's dashboards by dragging their
+ * tabs", issue 503). Desktop only, for the reason `dragTabOnto` gives.
+ */
+export async function dragDashboardTabOnto(
+  page: Page,
+  tab: string,
+  onto: string,
+): Promise<void> {
+  await dragOnto(page, dashboardTab(page, tab), dashboardTab(page, onto), `${tab} onto ${onto}`);
+}
+
+/** What both of those do, said once because a tab strip is a tab strip. */
+async function dragOnto(page: Page, tab: Locator, onto: Locator, what: string): Promise<void> {
   // Scrolled to before they are measured, and that is not a nicety:
   // `boundingBox` reports a position without scrolling to it, so a tab outside
   // the strip's visible part is measured at a coordinate the mouse cannot be
   // moved to - and the drag then silently moves nothing while every assertion
   // after it is asked of a strip nothing touched. That is how the workspace
   // list's own drag walk once passed while dragging nothing at all.
-  await workspaceTab(page, tab).scrollIntoViewIfNeeded();
-  await workspaceTab(page, onto).scrollIntoViewIfNeeded();
-  const from = await workspaceTab(page, tab).boundingBox();
-  const to = await workspaceTab(page, onto).boundingBox();
-  if (!from || !to) throw new Error(`cannot drag ${tab} onto ${onto}: one of them is not on screen`);
+  await tab.scrollIntoViewIfNeeded();
+  await onto.scrollIntoViewIfNeeded();
+  const from = await tab.boundingBox();
+  const to = await onto.boundingBox();
+  if (!from || !to) throw new Error(`cannot drag ${what}: one of them is not on screen`);
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.mouse.down();
   // In steps, because a drag is a stream of moves: one jump would leave the
@@ -439,6 +457,16 @@ export function dashboardBar(page: Page): Locator {
  */
 export function dashboardTab(page: Page, name: string): Locator {
   return page.locator('nav[aria-label="Dashboards"] a').filter({ hasText: name });
+}
+
+/**
+ * The bar's tabs in the order they are drawn, which is what a move changes.
+ * On a screen too narrow for the Inbox beside them it holds the Inbox first,
+ * so a walk reading this is reading what is on the screen rather than the
+ * workspace's dashboards.
+ */
+export async function dashboardTabs(page: Page): Promise<string[]> {
+  return page.locator('nav[aria-label="Dashboards"] a').allTextContents();
 }
 
 /**

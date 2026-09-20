@@ -295,6 +295,8 @@ const commandSenders = {
     api.v1.commands.rename_dashboard.$post({ json: p }),
   delete_dashboard: (p: CommandPayload<'delete_dashboard'>) =>
     api.v1.commands.delete_dashboard.$post({ json: p }),
+  reorder_dashboards: (p: CommandPayload<'reorder_dashboards'>) =>
+    api.v1.commands.reorder_dashboards.$post({ json: p }),
   add_panel: (p: CommandPayload<'add_panel'>) => api.v1.commands.add_panel.$post({ json: p }),
   rename_panel: (p: CommandPayload<'rename_panel'>) =>
     api.v1.commands.rename_panel.$post({ json: p }),

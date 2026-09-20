@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { uuidv7, type Dashboard, type PanelKind } from '@cockpit/shared';
+import { uuidv7, type Dashboard, type PanelKind, type WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { refusalFrom, snapshotQuery, useCommand, useSendCommand } from '../api/queries';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { keepingTheOpenItem } from '../itemForm';
+import { useTabDrag } from '../tabDrag';
 import { dashboardToSwitchTo } from '../switchWhileDragging';
 import { layoutsOf } from '../panels/arrangement';
 import { DeleteQuestion } from './DeleteQuestion';
@@ -24,6 +25,10 @@ import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_HOLDS, WHAT_A_PANEL_IS } from '../wha
  * **The Inbox is never a dashboard**, wherever it appears. It is always there,
  * it cannot be renamed, deleted or moved, and it is not a row of the dashboards
  * table at all - so nothing can address it to change it.
+ *
+ * **A dashboard is moved by dragging its tab along the bar** ("Reorder a
+ * workspace's dashboards by dragging their tabs", issue 503), the gesture the
+ * workspace tabs above take, through the same `useTabDrag`.
  *
  * The dashboards come from the workspace's snapshot, which the page below is
  * reading anyway (architecture, "The read model: persisted snapshot,
@@ -54,6 +59,18 @@ export function DashboardBar({
   const navigate = useNavigate();
 
   const command = useCommand();
+  /**
+   * The move's own, rather than the `command` every entry of every tab's menu
+   * shares.
+   *
+   * **Two reasons, and both are bugs on one mutation.** Opening any entry calls
+   * `command.reset()`, which takes the observer off whatever is still in flight
+   * - so a move refused while somebody opens a menu would never run its
+   * `onError`, and the bar would go on painting an order the server declined.
+   * And `isPending` belongs to whatever was sent last, so a move still in
+   * flight would grey out the Yes of a delete question about another dashboard.
+   */
+  const moving = useCommand();
   const send = useSendCommand();
   const queryClient = useQueryClient();
   /**
@@ -79,7 +96,96 @@ export function DashboardBar({
    * about to be taken away.
    */
   const focusOwedAfterDeleting = useRef<string | null>(null);
-  const bar = useRef<HTMLElement>(null);
+
+  const order = dashboards.map((d) => d.id);
+
+  /**
+   * Moves a dashboard along the bar, and shows it moved before the server has
+   * agreed - the same two halves the workspace strip's own move has
+   * (`WorkspaceTabs.tsx`), for the same reasons.
+   *
+   * **Shown first, put back if it is refused**, which is correctness rather
+   * than feel: the order a move is computed from is the order in hand, so a
+   * second move made before the first came back would be computed from the bar
+   * *before* the first and would undo it.
+   *
+   * Only `dashboards` is rewritten. The snapshot holds the whole workspace, so
+   * replacing it with anything less would take the panels and the items off the
+   * screen for as long as the move is in flight.
+   */
+  const move = (dashboardId: string, moved: string[]) => {
+    const key = snapshotQuery(workspaceId).queryKey;
+    // Anything already asking for this workspace is stopped first, or it lands
+    // after the write below and paints the order from before the move - the
+    // snapshot is re-read after almost every change, on every server event and
+    // on window focus, so there is often one in the air. Not awaited: the
+    // fetches are stopped inside the call, and waiting on the promise would
+    // hold the write back a render after the drop, so the tab would jump back
+    // to its old place for that render.
+    void queryClient.cancelQueries({ queryKey: key });
+    /** The order as it was, which is the whole of what a refusal has to undo. */
+    const wasInThisOrder = queryClient
+      .getQueryData<WorkspaceSnapshot>(key)
+      ?.dashboards.map((d) => d.id);
+    queryClient.setQueryData<WorkspaceSnapshot>(key, (held) =>
+      held
+        ? {
+            ...held,
+            dashboards: [
+              ...moved.flatMap((id) => held.dashboards.filter((d) => d.id === id)),
+              // One the move never named, arrived since the bar was drawn: kept
+              // on the end rather than taken off it for the round trip.
+              ...held.dashboards.filter((d) => !moved.includes(d.id)),
+            ],
+          }
+        : held,
+    );
+    moving.mutate(
+      {
+        name: 'reorder_dashboards',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          dashboardId,
+          dashboardIds: moved,
+        },
+      },
+      {
+        // Both answers to a refusal, and each covers what the other cannot. The
+        // order goes back first, because it is the only answer available when
+        // the request never reached the server at all. Then a re-read, because
+        // that order is only right when this was the one move in flight.
+        //
+        // The order alone, onto whatever the cache holds now, rather than the
+        // whole copy taken before the move: a snapshot re-read in between would
+        // otherwise be undone with it, taking an item captured in another tab
+        // back off the screen until the re-read below lands. A dashboard the
+        // cache holds that the old order never named - one added in another tab
+        // while the move was in flight, which is also what makes the server
+        // refuse it - goes on the end rather than off the bar.
+        onError: () => {
+          if (wasInThisOrder) {
+            queryClient.setQueryData<WorkspaceSnapshot>(key, (now) =>
+              now
+                ? {
+                    ...now,
+                    dashboards: [
+                      ...wasInThisOrder.flatMap((id) => now.dashboards.filter((d) => d.id === id)),
+                      ...now.dashboards.filter((d) => !wasInThisOrder.includes(d.id)),
+                    ],
+                  }
+                : now,
+            );
+          }
+          void queryClient.invalidateQueries({ queryKey: key });
+        },
+      },
+    );
+  };
+
+  const drag = useTabDrag({ order, onDrop: move });
+  const shown = drag.shown.flatMap((id) => dashboards.filter((d) => d.id === id));
 
   /**
    * Which dashboard's name a drag is resting on, and since when.
@@ -249,14 +355,14 @@ export function DashboardBar({
       return;
     }
     if (openDashboardId === deleted) return;
-    const tab = bar.current?.querySelector<HTMLElement>('a.active');
+    const tab = drag.strip.current?.querySelector<HTMLElement>('a.active');
     if (!tab) return;
     focusOwedAfterDeleting.current = null;
     // A frame later, because the question's own focus scope is still restoring
     // as it unmounts - onto a tab that is no longer there.
     const frame = requestAnimationFrame(() => tab.focus());
     return () => cancelAnimationFrame(frame);
-  }, [beingDeleted, openDashboardId]);
+  }, [beingDeleted, drag.strip, openDashboardId]);
 
   /**
    * What can be done to this dashboard. One entry for changing it rather than a
@@ -317,7 +423,7 @@ export function DashboardBar({
 
   return (
     <nav
-      ref={bar}
+      ref={drag.strip}
       aria-label="Dashboards"
       // No background of its own: the band around it is the workspace's, and is
       // painted by the shell so the tabs can be inset from the left without a
@@ -329,7 +435,14 @@ export function DashboardBar({
           is a column beside the dashboards rather than one of them ("Show the
           Inbox beside the dashboards instead of as a tab", issue 117), and a
           tab that switched to something already in front of you is not a
-          switch. */}
+          switch.
+
+          **It carries none of the drag**, which is what keeps it fixed beside
+          the dashboards: it is no dashboard of the workspace, so there is
+          nothing to move and nowhere in the order to move it to. `placeAt`
+          (`tabDrag.ts`) measures the tabs marked as this strip's, and this one
+          is not among them - so a dashboard dropped to its left lands first
+          among the dashboards rather than in front of the Inbox. */}
       {!roomForTheInbox && (
         <Link
           to="/w/$workspaceId/inbox"
@@ -340,7 +453,7 @@ export function DashboardBar({
           Inbox
         </Link>
       )}
-      {dashboards.map((dashboard: Dashboard) => (
+      {shown.map((dashboard: Dashboard) => (
         <SurfaceMenu
           key={dashboard.id}
           label={`Actions for ${dashboard.name}`}
@@ -356,12 +469,21 @@ export function DashboardBar({
             // so there is no `drop` event here for it to arrive as - the board
             // hit-tests this element's own rectangle against where the
             // pointer let go instead.
+            //
+            // The same id also arrives below as `data-tab-id`, which is what
+            // the tab's own drag measures: that one is the contract of a strip
+            // rather than of this bar, and the workspaces above carry it too.
             data-dashboard-tab-id={dashboard.id}
+            // An *item* is dragged onto a tab to switch to it, which is the
+            // browser's own drag-and-drop with its own events; dragging the tab
+            // itself is the pointer's (`tabDrag.ts`). So the two gestures can
+            // sit on one element without either reading as the other.
             onDragOver={(event) => restOn(event, dashboard.id)}
             onDragLeave={leftIt}
             onDrop={droppedOnIt}
             onClick={opensOnPress(dashboard.id === openDashboardId)}
-            className={tabClass}
+            {...drag.tabProps(dashboard.id)}
+            className={`${tabClass}${drag.inTheAir === dashboard.id ? ' opacity-60' : ''}`}
           >
             {dashboard.name}
           </Link>

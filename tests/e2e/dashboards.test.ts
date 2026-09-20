@@ -2,6 +2,8 @@ import {
   chooseTabAction,
   dashboardBar,
   dashboardTab,
+  dashboardTabs,
+  dragDashboardTabOnto,
   expect,
   expectNoSidewaysScroll,
   makeWorkspace,
@@ -87,6 +89,70 @@ test.describe('Dashboards', () => {
       await page.goto(address);
       await expect(page.getByRole('heading', { name })).toBeVisible();
     });
+  });
+
+  test.describe('a dashboard you move is where you put it in the bar', () => {
+    /**
+     * F3, and the drag exists nowhere below a browser at all - where the
+     * pointer is over the bar is measured from the tabs' rectangles, and jsdom
+     * has no layout engine to give it any. What the drag's answer does is
+     * settled in apps/web/tests/unit/components/DashboardBar.test.tsx, and that
+     * the server keeps the order in
+     * apps/api/tests/integration/http/dashboards.test.ts.
+     *
+     * Desktop only: dragging a tab is a mouse gesture with no keyboard or
+     * touch alternative, the same as the workspace strip above.
+     */
+    test('moves it when its tab is dragged over another, and the order survives a reload', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'a drag is the pointer’s; a finger has no way to move a tab');
+      // Its own workspace, for the reason every walk here makes one: the run
+      // shares one database, and a reordered bar would stay reordered for
+      // whatever ran next.
+      const workspace = uniqueTitle('Bookkeeping');
+      await openFirstWorkspace(page, isMobile);
+      await makeWorkspace(page, workspace, isMobile);
+      await switchTo(page, workspace, isMobile);
+
+      const mover = uniqueTitle('Mover');
+      await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
+      await page.getByLabel('Name of the new dashboard').fill(mover);
+      await page.getByLabel('Name of the new dashboard').press('Enter');
+      await expect(page.getByRole('heading', { name: mover })).toBeVisible();
+      // Added after the one the workspace arrives with, which is what the drag
+      // is about to change - and a walk that never saw it there would not know
+      // the move happened.
+      await expect.poll(async () => placesApart(await dashboardTabs(page), mover)).toBe(1);
+
+      // Armed before the gesture, because the answer is what the reload below
+      // has to come after: the bar paints a move before the server agrees, so
+      // the poll under the drag is satisfied by the preview alone and a reload
+      // fired on it would cancel the request in flight and read back an order
+      // nothing ever wrote.
+      const kept = page.waitForResponse(
+        (response) =>
+          response.url().endsWith('/v1/commands/reorder_dashboards') && response.status() === 200,
+      );
+
+      await dragDashboardTabOnto(page, mover, 'Dashboard 1');
+
+      await expect.poll(async () => placesApart(await dashboardTabs(page), mover)).toBe(-1);
+      await kept;
+
+      // Read back from the server rather than painted: the bar shows a move
+      // before the server has agreed, so only a reload says the order was kept
+      // rather than merely drawn.
+      await page.reload();
+      await expect.poll(async () => placesApart(await dashboardTabs(page), mover)).toBe(-1);
+      await expectNoSidewaysScroll(page);
+    });
+
+    /** Where the moved tab sits relative to the one the workspace arrived with. */
+    function placesApart(tabs: string[], mover: string): number {
+      return tabs.indexOf(mover) - tabs.indexOf('Dashboard 1');
+    }
   });
 
   test.describe('deleting the dashboard you are on leaves you somewhere that works', () => {

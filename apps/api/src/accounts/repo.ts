@@ -168,6 +168,11 @@ export function getWorkspace(
  * workspace ones are: a bare `select()` names every column of the table, which
  * makes dropping one a two-release job. `folded_name` is deliberately not among
  * them - nothing outside the index reads it.
+ *
+ * **`position` is not among them either, and is not droppable for it.** It is
+ * read by `listDashboards`'s ORDER BY below, so the two-release rule applies to
+ * it in full, for the reason and by the measurement written out on
+ * `listWorkspaces` above.
  */
 const dashboardColumns = {
   id: dashboards.id,
@@ -177,8 +182,13 @@ const dashboardColumns = {
 };
 
 /**
- * A workspace's dashboards, oldest first, which is the order they sit in the
- * bar. Tombstoned ones are left out the way tombstoned workspaces are.
+ * A workspace's dashboards in the order they sit in the bar ("Reorder a
+ * workspace's dashboards by dragging their tabs", issue 503). Tombstoned ones
+ * are left out the way tombstoned workspaces are.
+ *
+ * `createdAt` breaks the tie, which is what a workspace nobody has ever
+ * reordered leans on entirely - see `position` in schema.ts for why every row
+ * of one holds the same number.
  */
 export function listDashboards(
   db: AccountDb,
@@ -195,8 +205,30 @@ export function listDashboards(
         isNull(dashboards.deletedAt),
       ),
     )
-    .orderBy(dashboards.createdAt)
+    .orderBy(dashboards.position, dashboards.createdAt)
     .all();
+}
+
+/**
+ * The highest place any of this workspace's dashboards holds, deleted ones
+ * included, or null where it has none - what a dashboard added now goes after.
+ *
+ * The highest rather than how many are live, the same distinction
+ * `lastWorkspacePosition` carries: deleting the dashboards at 0 and 1 leaves one
+ * survivor at 2, and counting the live ones would put the next one in front of
+ * it rather than at the end of the bar it was meant to join.
+ */
+export function lastDashboardPosition(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): number | null {
+  const row = db
+    .select({ highest: max(dashboards.position) })
+    .from(dashboards)
+    .where(and(eq(dashboards.tenantId, tenantId), eq(dashboards.workspaceId, workspaceId)))
+    .get();
+  return row?.highest ?? null;
 }
 
 /** One live dashboard of one workspace, or null - the check every panel change starts from. */
