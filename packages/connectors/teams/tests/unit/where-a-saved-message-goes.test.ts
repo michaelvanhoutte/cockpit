@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ConnectedAccountHost, PushHost, SourceItem } from '@cockpit/connector-sdk';
+import type {
+  ConnectedAccountHost,
+  EmittedItem,
+  PushHost,
+  SourceItem,
+} from '@cockpit/connector-sdk';
 import { createTeamsConnector } from '../../src/index.js';
 import {
   BOT_APP_ID,
@@ -21,8 +26,15 @@ import {
 
 const CONNECTED = `${TENANT}:${PERSON}`;
 
-/** A host that has connected one account, and a record of everything asked of it. */
-function hostThatHasConnected(connected: string | null): {
+/**
+ * A host that has connected one account, and a record of everything asked of
+ * it. `filing` is what the host says of each item it is handed: a new Item, or
+ * one it already had.
+ */
+function hostThatHasConnected(
+  connected: string | null,
+  filing: EmittedItem = 'filed',
+): {
   host: PushHost;
   keysAskedAbout: string[];
   filed: SourceItem[];
@@ -39,6 +51,7 @@ function hostThatHasConnected(connected: string | null): {
     },
     emitItem: async (item) => {
       filed.push(item);
+      return filing;
     },
   };
   return {
@@ -82,19 +95,14 @@ describe('Capture', () => {
         ['teams', 'Grace Hopper'],
       ]);
       expect(answer.status).toBe(200);
-      expect(await answer.json()).toEqual({
-        composeExtension: { type: 'message', text: 'Saved to Cockpit.' },
-      });
     });
 
-    it('says so, and files nothing, where nobody has connected that account', async () => {
+    it('files nothing where nobody has connected that account', async () => {
       const asked = hostThatHasConnected(null);
 
-      const answer = await save(asked.host);
+      await save(asked.host);
 
       expect(asked.filed).toEqual([]);
-      expect(answer.status).toBe(200);
-      expect(JSON.stringify(await answer.json())).toContain('not connected');
     });
 
     it('never opens a stored credential for a save it files', async () => {
@@ -106,6 +114,32 @@ describe('Capture', () => {
       await save(asked.host);
 
       expect(asked.credentialsOpened).toEqual([]);
+    });
+  });
+
+  describe('whoever saved a message is told in Teams what became of it', () => {
+    it.each([
+      {
+        situation: 'the message was saved as a new item',
+        host: () => hostThatHasConnected(CONNECTED, 'filed').host,
+        said: 'Saved to Cockpit.',
+      },
+      {
+        situation: 'the message was already in Cockpit',
+        host: () => hostThatHasConnected(CONNECTED, 'already-known').host,
+        said: 'Already in Cockpit.',
+      },
+      {
+        situation: 'the Microsoft account is not connected to any workspace',
+        host: () => hostThatHasConnected(null).host,
+        said:
+          'That Microsoft Teams account is not connected to a Cockpit workspace yet. Connect it under Manage connections and try again.',
+      },
+    ])('$situation', async ({ host, said }) => {
+      const answer = await save(host());
+
+      expect(answer.status).toBe(200);
+      expect(await answer.json()).toEqual({ task: { type: 'message', value: said } });
     });
   });
 
@@ -199,7 +233,7 @@ describe('Capture', () => {
         forAccount: async () => ({
           log: () => {},
           getCredentials: async () => ({}),
-          emitItem: async () => {
+          emitItem: async (): Promise<EmittedItem> => {
             throw new Error('the store would not take it');
           },
         }),

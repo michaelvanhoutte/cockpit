@@ -48,6 +48,9 @@ export type SourceItem = Pick<
   | 'capturedMessage'
 >;
 
+/** What the host did with an emitted item: `filed` as a new Item, or `already-known` and left as it was. */
+export type EmittedItem = 'filed' | 'already-known';
+
 /** A source-state change observed during sync (tombstones, completions). */
 export interface SourceStateChange {
   sourceId: string;
@@ -70,8 +73,12 @@ export interface ConnectedAccountHost {
    */
   getCredentials(): Promise<Record<string, string>>;
 
-  /** Normalized output lands here; the host owns persistence and dedup. */
-  emitItem(item: SourceItem): Promise<void>;
+  /**
+   * Normalized output lands here; the host owns persistence and dedup. Says
+   * whether the item was filed as a new Item or was already known, which a push
+   * connector needs to tell whoever sent it what became of it.
+   */
+  emitItem(item: SourceItem): Promise<EmittedItem>;
 
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void;
 }

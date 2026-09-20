@@ -1,4 +1,9 @@
-import type { ConnectedAccountHost, PushHost, SourceItem } from '@cockpit/connector-sdk';
+import type {
+  ConnectedAccountHost,
+  EmittedItem,
+  PushHost,
+  SourceItem,
+} from '@cockpit/connector-sdk';
 import type { Env } from '../env.js';
 import { AccountNotInRegisterError, openAccount, type Account } from '../accounts/index.js';
 import { noteTypeId } from '../accounts/changes.js';
@@ -114,7 +119,7 @@ function connectedHost(
      * without one every such item would be the same item, and the second would
      * be dropped as a replay of the first.
      */
-    async emitItem(item: SourceItem): Promise<void> {
+    async emitItem(item: SourceItem): Promise<EmittedItem> {
       const sourceId = item.sourceId ?? '';
       if (!sourceId) {
         throw new Error(`the ${connectorId} connector emitted an item its source does not name`);
@@ -138,10 +143,10 @@ function connectedHost(
       // The two jobs capture's own route fires, and for the reasons it fires
       // them: only where the Item was actually written, so a redelivered save
       // buys no second model call.
-      if (result.applied) {
-        around.waitUntil(enqueueCleanUp(around.env, pointer.accountName, itemId));
-        around.waitUntil(enqueueReadingItsMeaning(around.env, pointer.accountName, itemId));
-      }
+      if (!result.applied) return 'already-known';
+      around.waitUntil(enqueueCleanUp(around.env, pointer.accountName, itemId));
+      around.waitUntil(enqueueReadingItsMeaning(around.env, pointer.accountName, itemId));
+      return 'filed';
     },
   };
 }

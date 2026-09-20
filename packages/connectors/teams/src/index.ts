@@ -97,7 +97,11 @@ export function createTeamsConnector(config: TeamsConnectorConfig): Connector {
       // got no 200 for, and the same message saved twice is one Item
       // (`sourceId`, activity.ts), so failing loudly is safe and losing the
       // save quietly is not.
-      await connection.emitItem(read.item);
+      const filing = await connection.emitItem(read.item);
+      if (filing === 'already-known') {
+        connection.log('info', 'a Teams message saved again was already in Cockpit');
+        return saidInTeams('Already in Cockpit.');
+      }
       connection.log('info', 'a Teams message was saved to Cockpit');
       return saidInTeams('Saved to Cockpit.');
     },
@@ -119,13 +123,13 @@ function refused(refusal: Refusal): Response {
 /**
  * What Teams shows the person who clicked.
  *
- * A message action's reply is a `composeExtension` result, and `message` is
- * the one that simply says something rather than putting a card into the
- * conversation - nothing about a save belongs in the chat everybody else is
- * reading.
+ * A message action's reply is a task module response, and `message` is the
+ * one that simply says something in the dialog Teams already has open -
+ * nothing about a save belongs in the chat everybody else is reading. Why not
+ * a `composeExtension` reply is in the package README.
  */
 function saidInTeams(text: string): Response {
-  return Response.json({ composeExtension: { type: 'message', text } }, { status: 200 });
+  return Response.json({ task: { type: 'message', value: text } }, { status: 200 });
 }
 
 async function bodyOf(request: Request): Promise<unknown> {

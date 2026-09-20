@@ -114,9 +114,6 @@ describe('Capture', () => {
       const answer = await saveFromTeams();
 
       expect(answer.status).toBe(200);
-      expect(await answer.json()).toEqual({
-        composeExtension: { type: 'message', text: 'Saved to Cockpit.' },
-      });
       const items = await itemsIn();
       expect(items).toHaveLength(1);
       expect({
@@ -194,6 +191,25 @@ describe('Capture', () => {
 
       expect([first.status, again.status]).toEqual([200, 200]);
       expect(await itemsIn()).toHaveLength(1);
+    });
+
+    /**
+     * What the person who pressed Save is told, which only a real store can
+     * settle: whether the message is already an Item is the store's answer to
+     * the second delivery, not something the connector can see.
+     */
+    it('tells whoever saved it that it is already in Cockpit the second time', async () => {
+      await connectTeams();
+
+      const first = await saveFromTeams();
+      const again = await saveFromTeams();
+
+      const saidTo = async (answer: Response) =>
+        ((await answer.json()) as { task: { value: string } }).task.value;
+      expect([await saidTo(first), await saidTo(again)]).toEqual([
+        'Saved to Cockpit.',
+        'Already in Cockpit.',
+      ]);
     });
 
     it('makes a second item for a second message', async () => {
