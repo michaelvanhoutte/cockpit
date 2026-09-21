@@ -1,13 +1,12 @@
 /**
  * The wiring, and the only place github.js and model.js meet.
  *
- *   collect(repo) -> buildModel(...) -> a file
+ *   collect(repo) -> buildModel(...) -> renderHtml(model) -> a file
  *
- * Nothing is written until every request has come back: a model of partial
- * numbers looks exactly like a model of real ones, so a failed fetch leaves the
- * previous file in place rather than replacing it with a plausible lie. The page
- * that draws the model is a separate piece of work, so the model is all this
- * writes and `--json` is what it always does.
+ * `--json` stops after the second arrow, so anything else can consume the
+ * model. Nothing is written until every request has come back: a page of partial
+ * numbers looks exactly like a page of real ones, so a failed fetch leaves the
+ * previous file in place rather than replacing it with a plausible lie.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -17,14 +16,15 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { collect, GitHubError } from './github.js';
 import { buildModel } from './model.js';
+import { renderHtml } from './render/html.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DAY_MS = 86_400_000;
 
 const USAGE = `Usage: node src/cli.js [options]
 
-  --out <path>        where to write the model (default ../out/model.json)
-  --json              write the model; the only output there is, so this changes nothing
+  --out <path>        where to write (default ../out/index.html, or model.json with --json)
+  --json              write the model instead of the page
   --days <n>          how far back to read (default: the widest window)
   --windows <a,b>     the windows to report, in days (default 7,14)
   --max-pulls <n>     stop after this many pull requests, and report the shorter period (default 150)
@@ -95,6 +95,16 @@ export function parseArgs(argv) {
   return args;
 }
 
+/**
+ * What is written and its default name: the page, or with `--json` the model. Kept
+ * apart from `main` so what a flag chooses can be read without a fetch.
+ */
+export function output(args, model) {
+  return args.json
+    ? { file: 'model.json', content: JSON.stringify(model, null, 2) }
+    : { file: 'index.html', content: renderHtml(model) };
+}
+
 export async function main(argv) {
   const args = parseArgs(argv);
   if (args.unknown) {
@@ -145,9 +155,10 @@ export async function main(argv) {
     windows: args.windows,
   });
 
-  const out = path.resolve(args.out ?? path.join(here, '../out/model.json'));
+  const { file, content } = output(args, model);
+  const out = path.resolve(args.out ?? path.join(here, '../out', file));
   mkdirSync(path.dirname(out), { recursive: true });
-  writeFileSync(out, JSON.stringify(model, null, 2), 'utf8');
+  writeFileSync(out, content, 'utf8');
   process.stderr.write(
     `wrote ${out} — ${collected.pulls.length} pull requests, ${collected.requests} requests` +
       `${collected.failed.length ? `, ${collected.failed.length} unreadable` : ''}` +
