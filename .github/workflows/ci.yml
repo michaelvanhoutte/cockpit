@@ -235,15 +235,17 @@ jobs:
   # fetch-depth: 0 is what makes the merge-base computable at all - see
   # ci-test.mjs's own comment for why no other ref is needed.
   #
-  # Instrumented (`test:coverage`, not plain `test`) even when selective, so the
-  # suite still runs once for both the gate and `test-explorer`'s coverage
-  # columns rather than once here and again there ("Run the suite once in CI,
-  # not once to gate and once to measure", issue 289) - a selective pull
-  # request run therefore uploads real coverage for what it actually ran and
-  # "unknown" for what it didn't, same as `test-explorer` already renders any
-  # file no test reaches at all. Uploaded because Actions jobs share no
-  # filesystem - this artifact is the explicit hop `test-explorer` downloads
-  # instead of re-running the suite.
+  # Instrumented (`test:coverage`) on a push to `main` only, so the suite runs
+  # once for both the gate and `test-explorer`'s coverage columns rather than
+  # once here and again there ("Run the suite once in CI, not once to gate and
+  # once to measure", issue 289). A pull request runs plain `test`: its report
+  # is never published and nothing gates on the numbers, so instrumenting it
+  # was cost for nobody ("Stop instrumenting coverage on a pull request's test
+  # run", issue 508). scripts/lib/test-selection.mjs makes the choice, and a
+  # pull request's `test-explorer` renders "unknown" coverage columns, its own
+  # designed fallback. Uploaded because Actions jobs share no filesystem - this
+  # artifact is the explicit hop `test-explorer` downloads instead of
+  # re-running the suite.
   test:
     name: Test
     # Documentation-only diffs skip this; see the `checks` job.
@@ -256,7 +258,10 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - run: node scripts/ci-test.mjs
+      # `main` only: a pull request's uninstrumented run writes no coverage, and
+      # an upload of nothing would put a warning on every green run.
       - uses: actions/upload-artifact@v4
+        if: ${{ success() && github.event_name == 'push' }}
         with:
           name: coverage-reports
           path: |
@@ -333,7 +338,8 @@ jobs:
   #
   # `needs: [test, checks]` rather than running either itself: the coverage
   # this job renders as "branches nothing takes" is `test`'s own instrumented
-  # run, downloaded as an artifact instead of collected again, and a red
+  # run on `main`, downloaded as an artifact instead of collected again (a pull
+  # request has none and renders "unknown"), and a red
   # suite or a registry drift already kills the report the way it always has
   # — this job simply never starts. On a documentation-only diff `test` is
   # skipped rather than failed, and a skipped dependency is not a successful
@@ -361,11 +367,16 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Download the coverage `test` already collected
         uses: actions/download-artifact@v4
-        # Missing rather than failed: if `test:coverage` ran but somehow wrote
-        # no `coverage-final.json` anywhere, `test` still succeeded and no
-        # artifact exists to download. Continuing without it degrades the
-        # report to "unknown" coverage columns — tools/test-explorer's own
-        # designed fallback — rather than failing this advisory job outright.
+        # `main` only, matching the upload in `test`: a pull request's `test` is
+        # uninstrumented and uploads nothing, so a download there would show a
+        # red step on every run. Its report reads "unknown" coverage columns
+        # without it.
+        if: ${{ success() && github.event_name == 'push' }}
+        # Missing rather than failed: on `main`, a `test:coverage` that somehow
+        # wrote no `coverage-final.json` leaves no artifact either. Continuing
+        # without it degrades the report to "unknown" coverage columns —
+        # tools/test-explorer's own designed fallback — rather than failing this
+        # advisory job outright.
         continue-on-error: true
         with:
           name: coverage-reports

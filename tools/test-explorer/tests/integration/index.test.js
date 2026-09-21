@@ -133,6 +133,18 @@ describe('analyze (end to end against a fixture repo)', () => {
     expect(model.commitUrl).toBeNull();
   });
 
+  it('reads every branches-nothing-takes column as unknown, rather than failing, when no coverage was collected at all', () => {
+    // A pull request's Test run is uninstrumented ("Stop instrumenting coverage on a pull request's
+    // test run", issue 508), so its Test Explorer report has no
+    // coverage-final.json anywhere: the fixture writes none.
+    repo = writeFixtureRepo();
+    const model = analyze(repo);
+    expect(model.coverageAvailable).toBe(false);
+    for (const node of walkTree(model.tree)) {
+      expect(node.branchesNothingTakes).toBeNull();
+    }
+  });
+
   it('warns about a file with no coverage data instead of silently rendering it as a clean 0', () => {
     repo = writeFixtureRepo();
     const pkg = path.join(repo, 'packages/demo');
