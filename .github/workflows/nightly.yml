@@ -1,0 +1,59 @@
+name: Nightly
+
+# The reports that are too dear to build on every merge, built once a night
+# ("Run the lead-time report nightly, and publish it beside the other two",
+# issue 515). The lead-time report re-reads 14 days of history, about 800
+# requests against the 1,000 an hour every workflow in this repository shares:
+# run on each merge it would fail in a burst, and take the stability report
+# down with it.
+#
+# **Each report is its own job**, so adding one is adding a job and one failing
+# costs no other. `main`'s `Publish` job (ci.yml) takes each report's newest
+# artifact from a run on `main`, not the newest successful run, for the same
+# reason: a run where another job failed still has this one's page.
+#
+# Not `contract.yml`, which spends money and holds its own secrets, and not
+# `ci.yml`, which would run the whole suite.
+#
+# Nightly, and by hand from the Actions tab when a night was missed. Off the
+# hour and clear of contract.yml's 03:00, because GitHub delays scheduled runs
+# at the top of an hour.
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  lead-time:
+    name: Lead time
+    runs-on: ubuntu-latest
+    # Reads pull requests, their commits, their check runs and the Actions API,
+    # all through the workflow's own token. Nothing else, and no write anywhere.
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      # Node only, no install: the report reads the API with the standard
+      # library, as the stability job does, and the runner's own Node is not
+      # promised to be the one the repository asks for.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+      - name: Work out where a change spends its time
+        run: node tools/lead-time/src/cli.js --out tools/lead-time/out/index.html
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lead-time-report
+          path: tools/lead-time/out/

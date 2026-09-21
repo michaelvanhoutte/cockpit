@@ -486,10 +486,11 @@ jobs:
       group: pages
       cancel-in-progress: false
     steps:
-      # The site is two reports, so it is assembled here rather than uploaded by
+      # The site is three reports, so it is assembled here rather than uploaded by
       # whichever job finished last: the explorer at the root, the stability
-      # page one directory down at /stability/. Both stay downloadable on their
-      # own as the artifacts the jobs above uploaded.
+      # page one directory down at /stability/ and the lead-time page at
+      # /lead-time/. Each stays downloadable on its own as the artifact its job
+      # uploaded.
       - name: Take the test explorer's report
         uses: actions/download-artifact@v4
         with:
@@ -504,6 +505,40 @@ jobs:
         with:
           name: ci-stability-report
           path: site/stability/
+      # Built nightly by nightly.yml rather than by this run, so it is the last
+      # night's page, refreshed onto the site by the next merge; the manual run
+      # of that workflow covers a missed night. The newest one from `main`,
+      # rather than from a successful run, so a night where another report's
+      # job failed still yields this page ("Run the lead-time report nightly,
+      # and publish it beside the other two", issue 515).
+      - name: Find the latest lead-time page
+        id: lead-time
+        # Reads the run and artifact lists; a refused call is a missing page, as
+        # below. **The artifact is trusted through its run, not its name or
+        # branch**: a pull request from a fork branched `main` uploads an
+        # artifact of any name whose `head_branch` reads `main`, and this job
+        # would publish it on the site's own origin. So only the runs of
+        # nightly.yml itself, on `main`, started by its schedule or by a person
+        # with write access, in this repository, are read from.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly.yml/runs?branch=main&per_page=50" \
+            --jq '[.workflow_runs[] | select((.event == "schedule" or .event == "workflow_dispatch") and .head_repository.full_name == env.GITHUB_REPOSITORY) | .id]')
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=lead-time-report&per_page=100" |
+            jq -r --argjson runs "$runs" '[.artifacts[] | select(.expired == false and (.workflow_run.id as $r | $runs | index($r)))] | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty')
+          echo "run-id=$id" >> "$GITHUB_OUTPUT"
+      - name: Take the lead-time page, if there is one
+        if: ${{ steps.lead-time.outputs.run-id != '' }}
+        uses: actions/download-artifact@v4
+        # A page that cannot be fetched costs this page and never the site.
+        continue-on-error: true
+        with:
+          name: lead-time-report
+          path: site/lead-time/
+          run-id: ${{ steps.lead-time.outputs.run-id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site/

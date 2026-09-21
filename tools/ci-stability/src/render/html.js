@@ -233,11 +233,12 @@ function failuresSection(model) {
 
 /**
  * @param {object} model the model buildModel produced
- * @param {{ explorerHref?: string }} [options] where the test explorer sits relative to this
- *   page. The two are published together, so the default is the directory above.
+ * @param {{ explorerHref?: string, leadTimeHref?: string }} [options] where the test explorer and
+ *   the lead-time page sit relative to this one. The three are published together, so the defaults
+ *   are the directory above and its `lead-time/`.
  * @returns {string} a complete HTML document
  */
-export function renderHtml(model, { explorerHref = '../' } = {}) {
+export function renderHtml(model, { explorerHref = '../', leadTimeHref = '../lead-time/' } = {}) {
   const styles = readFileSync(path.join(here, 'styles.css'), 'utf8');
   const commitUrl = model.commit
     ? `https://github.com/${model.repo}/commit/${model.commit}`
@@ -282,6 +283,7 @@ export function renderHtml(model, { explorerHref = '../' } = {}) {
           : ''
       }
       <span><a href="${esc(explorerHref)}"><b>Test explorer &rarr;</b></a></span>
+      <span><a href="${esc(leadTimeHref)}"><b>Lead time &rarr;</b></a></span>
     </div>
   </header>
 
