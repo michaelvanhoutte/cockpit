@@ -22,6 +22,22 @@ CLAUDE.md is already loaded into this session and governs how this repository is
 
 Mark a chapter at each phase boundary, per **Working in parallel**.
 
+**Record each phase boundary on the pull request** with `node scripts/session-record.mjs mark <phase>`, which stamps the time from the clock itself. The phases:
+
+| Mark | When |
+|---|---|
+| `start` | right after step 2's answer, so waiting on it is not counted |
+| `scoped` | after step 3 |
+| `built` | after step 6 |
+| `review-start` / `review-end` `<code-review\|security-review> <level>` | around each local review; a second round marks again, and both are kept |
+| `pushed` | immediately before the push that opens the draft pull request |
+
+Every write to the pull request's body — opening it, the browser walk, marking it ready — goes through the record's `body` command, which adds the block at the end or replaces it in place and touches nothing around it. A session that skips a marker reads "not recorded" in a report, never zero.
+
+```bash
+gh pr view <number> --json body -q .body | node scripts/session-record.mjs body | gh pr edit <number> --body-file -
+```
+
 ## A parent issue
 
 **A parent is never built itself, and this session builds none of its children.** It orchestrates: every child runs in fresh subagents, so neither this conversation nor an earlier child's work is in the context that builds the next one.
