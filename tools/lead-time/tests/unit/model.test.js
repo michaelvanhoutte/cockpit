@@ -402,6 +402,7 @@ describe('Lead time', () => {
       const [window] = build([merged({ commits: [commit('a', 0)] })]).windows;
       expect(window.pulls.total).toBe(1);
       expect(window.harness).toBeNull();
+      expect(window.flukes).toBeNull();
     });
 
     it('counts the rounds that ran past ten minutes, and how many rounds each pull request took', () => {

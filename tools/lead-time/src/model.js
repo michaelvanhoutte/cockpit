@@ -423,7 +423,7 @@ function windowModel(pulls, { days, now, coveredSince }) {
     // Null too where pull requests merged but no check ever ran on any of them: no
     // rounds is no data about what held them, not a harness that held nothing.
     harness: rounds.length ? harnessOf(rounds.map((entry) => entry.round)) : null,
-    flukes: inWindow.length
+    flukes: rounds.length
       ? {
           count: sum(inWindow.map((pull) => pull.flukes.length)),
           pulls: inWindow.filter((pull) => pull.flukes.length > 0).length,

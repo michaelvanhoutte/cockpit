@@ -65,5 +65,15 @@ describe('Lead time', () => {
       expect(fitted.clipped).toBeNull();
       expect(fitted.shownMs).toBe(60 * MIN);
     });
+
+    it('keeps time away that comes before the edge of a strip that is cut', () => {
+      const fitted = fitTo(partsOf(pull([[0, 30], [400, 470]], 470)), 60 * MIN);
+      expect(fitted.parts.map((part) => [part.type, part.ms / MIN])).toEqual([
+        ['round', 30],
+        ['away', 370],
+        ['round', 30],
+      ]);
+      expect(fitted.clipped).toEqual({ shownMs: 60 * MIN, totalMs: 100 * MIN });
+    });
   });
 });

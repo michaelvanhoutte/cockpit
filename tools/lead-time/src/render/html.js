@@ -47,6 +47,7 @@ const days = (value) => (Number.isInteger(value) ? String(value) : (Math.round(v
 
 /** Days covered, said as "under 0.1" rather than as the zero that would read as a measurement of nothing. */
 const coveredDays = (value) => (value < 0.05 ? 'under 0.1' : days(value));
+const coveredPhrase = (value) => `${coveredDays(value)} ${value === 1 ? 'day' : 'days'}`;
 
 function windowHeading(window) {
   const name = `${window.days} ${window.days === 1 ? 'day' : 'days'}`;
@@ -148,7 +149,7 @@ function harnessCards(model) {
  */
 function limits(model) {
   const { coverage } = model;
-  const covered = coveredDays(coverage.actualDays);
+  const covered = coveredPhrase(coverage.actualDays);
   const range = `From ${esc(day(coverage.coveredSince))} to ${esc(day(coverage.until))}.`;
 
   let period;
@@ -156,9 +157,9 @@ function limits(model) {
     const reason = coverage.truncated
       ? 'the fetch stopped at its pull request budget before it reached the start of the period'
       : `${esc(model.branch)} has no history that far back`;
-    period = `<li class="warn"><b>This covers ${covered} days, not ${days(coverage.requestedDays)}</b> &mdash; ${reason}. ${range} Every figure below is over what was fetched, and a column says so in its own heading.</li>`;
+    period = `<li class="warn"><b>This covers ${covered}, not ${days(coverage.requestedDays)}</b> &mdash; ${reason}. ${range} Every figure below is over what was fetched, and a column says so in its own heading.</li>`;
   } else {
-    period = `<li><b>This covers ${covered} days.</b> ${range}</li>`;
+    period = `<li><b>This covers ${covered}.</b> ${range}</li>`;
   }
 
   const recorded = model.pulls.filter((pull) => pull.recorded).length;
@@ -234,7 +235,7 @@ function stripRow(pull, parts, scaleMs) {
   ].join('');
 
   const clipNote = fitted.clipped
-    ? `<p class="clipnote">Clipped: ${humanMs(fitted.clipped.totalMs)} in all, the first ${humanMs(fitted.clipped.shownMs)} shown. The strip ends at the edge of the scale, not at the merge.</p>`
+    ? `<p class="clipnote">Clipped: ${humanMs(fitted.clipped.totalMs)} on the scale in all (time away is not counted), the first ${humanMs(fitted.clipped.shownMs)} shown. The strip ends at the edge of the scale, not at the merge.</p>`
     : '';
   const detail = pull.rounds.length
     ? `<details><summary>${plural(pull.rounds.length, 'round')}${reds ? `, ${reds} red` : ''} &middot; ${humanMs(pull.totalMs)} to merge</summary><ol class="roundlist">${pull.rounds
@@ -361,7 +362,7 @@ export function renderHtml(model) {
       <span>generated <b>${esc(stamp(model.generatedAt))}</b></span>
       ${commitUrl ? `<span>commit <a href="${esc(commitUrl)}" target="_blank" rel="noopener"><b>${esc(model.commit.slice(0, 7))}</b></a></span>` : ''}
       <span>merged pull requests read <b>${model.coverage.pulls}</b></span>
-      <span>covering <b>${coveredDays(model.coverage.actualDays)} days</b></span>
+      <span>covering <b>${coveredPhrase(model.coverage.actualDays)}</b></span>
     </div>
   </header>
 
