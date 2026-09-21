@@ -319,6 +319,13 @@ encode, so a reorganisation is a line here rather than a rename across test code
 `Workspaces`, `Inbox` and `Across the app` exist only to hold other rows and own no
 patterns of their own.
 
+An entry also carries `"browserWalks": <n>` where the area has F3 walks: its ceiling on
+them, held by `pnpm test:e2e:ceilings` rather than by anything the explorer does
+(`docs/testing-strategy.md`, "Run-time budget"). Here rather than in a list of its own so
+there is one list of areas rather than two that drift. An area with no F3 walk carries no
+ceiling at all — 0 is a number nothing can satisfy, since the check fails both on a
+ceiling no walk declares and on a walk under an area with no ceiling.
+
 A describe's outer text resolves to an area by exact match on `key`. A source file
 resolves to **every** area whose patterns it matches, which is expected rather than an
 error (§2a); a file matching none falls into `infrastructure`.

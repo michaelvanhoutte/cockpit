@@ -36,7 +36,10 @@ export function walksIn(listing) {
   const found = new Map();
   for (const file of listing.suites ?? []) {
     const path = file.file ?? file.title ?? '';
-    for (const spec of specsUnder(file, [])) keep(found, path, null, spec);
+    // The file's own specs, which are the ones written under no `describe` at
+    // all - taken without recursing, because everything deeper belongs to an
+    // outer `describe` and is read below with the area that names it.
+    for (const spec of ownSpecs(file, [])) keep(found, path, null, spec);
     for (const outer of file.suites ?? []) {
       for (const spec of specsUnder(outer, [outer.title])) keep(found, path, outer.title, spec);
     }
@@ -44,13 +47,18 @@ export function walksIn(listing) {
   return [...found.values()];
 }
 
-/** Every spec below one suite, each carrying the titles of the blocks it sits in. */
-function specsUnder(suite, titles) {
-  const found = (suite.specs ?? []).map((spec) => ({
+/** One suite's own specs, each carrying the titles of the blocks it sits in. */
+function ownSpecs(suite, titles) {
+  return (suite.specs ?? []).map((spec) => ({
     titles: [...titles, spec.title],
     line: spec.line,
     column: spec.column,
   }));
+}
+
+/** Every spec below one suite, however deeply nested. */
+function specsUnder(suite, titles) {
+  const found = ownSpecs(suite, titles);
   for (const child of suite.suites ?? []) found.push(...specsUnder(child, [...titles, child.title]));
   return found;
 }
@@ -138,7 +146,9 @@ export function asReport(review) {
     );
   }
   for (const { area, ceiling } of review.empty) {
-    problems.push(`${area} has a ceiling of ${ceiling} in ${THE_REGISTRY} and no walk declares it.`);
+    problems.push(
+      `${area} has a ceiling of ${ceiling} in ${THE_REGISTRY} and no walk declares it. Take the entry out rather than lowering it: an area with no browser walk carries no ceiling, and 0 is a number nothing can satisfy.`,
+    );
   }
   for (const { where, walk, area } of review.unbudgeted) {
     problems.push(

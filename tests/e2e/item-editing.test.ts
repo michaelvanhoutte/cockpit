@@ -1055,6 +1055,12 @@ test.describe('Item editing', () => {
         await expect(itemRow(page, captured)).toHaveAttribute('aria-current', 'true');
         await expect(captureBox(page)).toBeFocused();
 
+        // One open form changing its Item, so Back leaves the page rather than
+        // stepping back through the rows it has followed.
+        await page.goBack();
+        await expect(form(page)).toHaveCount(0);
+        await openItem(page, captured, isMobile);
+
         // Each field as it is finished, on the item the dock has followed to.
         const prioritised = answeredTo('set_priority');
         await priorityBox(page).selectOption('high');
