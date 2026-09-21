@@ -173,6 +173,31 @@ summary { cursor: pointer; }
 .roundlist { margin: 6px 0 0; padding-left: 22px; color: var(--ink-2); }
 .roundlist li { margin: 2px 0; }
 
+/* Coding against the harness: one SVG, its key and its facts beside it. Text wears
+   the text tokens; only the marks carry a colour. */
+.balance { display: flex; flex-wrap: wrap; gap: 8px 28px; align-items: flex-start; padding-bottom: 8px; }
+.chart { flex: 1 1 340px; max-width: 520px; min-width: 0; }
+.chartside { flex: 1 1 260px; min-width: 0; }
+.chartside .fact { margin: 12px 0 0; color: var(--ink-2); }
+.legend.stacked { flex-direction: column; gap: 6px; }
+.keyline { width: 34px; height: 14px; margin-right: 8px; overflow: visible; flex: none; }
+.scatter { display: block; width: 100%; height: auto; font-family: var(--sans); }
+.scatter .grid { stroke: var(--line); stroke-width: 1; }
+.scatter .axis { stroke: var(--ink-3); stroke-width: 1; }
+.scatter .tick { fill: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.scatter .axistitle { fill: var(--ink-2); font-size: 12px; }
+.scatter .dotlabel { fill: var(--ink-1); font-size: 11px; font-weight: 600; paint-order: stroke; stroke: var(--card); stroke-width: 3px; }
+.equalline { stroke: var(--ink-3); stroke-width: 1.5; stroke-dasharray: 6 4; fill: none; }
+.medianline { stroke: var(--ink-1); stroke-width: 2; stroke-linecap: round; fill: none; }
+/* A 2px ring in the card's colour keeps overlapping dots apart; a dot beyond the
+   scale is the same dot, hollow. */
+.dot { fill: var(--accent); fill-opacity: 0.85; stroke: var(--card); stroke-width: 2; }
+.dot.off { fill: var(--card); stroke: var(--accent); }
+.hit { fill: transparent; }
+.scatter a { cursor: pointer; }
+.scatter a:hover .dot, .scatter a:focus-visible .dot { stroke: var(--ink-1); }
+.scatter a:focus { outline: none; }
+
 /* Read by a screen reader and by nothing else. */
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
