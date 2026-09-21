@@ -367,11 +367,16 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Download the coverage `test` already collected
         uses: actions/download-artifact@v4
-        # Missing rather than failed: a pull request's `test` is uninstrumented
-        # and uploads no artifact, and on `main` a `test:coverage` that somehow
-        # wrote no `coverage-final.json` leaves none either. Continuing without it degrades the
-        # report to "unknown" coverage columns — tools/test-explorer's own
-        # designed fallback — rather than failing this advisory job outright.
+        # `main` only, matching the upload in `test`: a pull request's `test` is
+        # uninstrumented and uploads nothing, so a download there would show a
+        # red step on every run. Its report reads "unknown" coverage columns
+        # without it.
+        if: ${{ success() && github.event_name == 'push' }}
+        # Missing rather than failed: on `main`, a `test:coverage` that somehow
+        # wrote no `coverage-final.json` leaves no artifact either. Continuing
+        # without it degrades the report to "unknown" coverage columns —
+        # tools/test-explorer's own designed fallback — rather than failing this
+        # advisory job outright.
         continue-on-error: true
         with:
           name: coverage-reports
