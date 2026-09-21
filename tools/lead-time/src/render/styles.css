@@ -1,0 +1,191 @@
+/* The same palette as the stability report and the test explorer, which are pages
+   of one site, plus a light scheme those two do not have: this page opens from
+   disk, where the reader's own setting is the only thing to go on. Dark first. */
+:root {
+  color-scheme: dark light;
+  --bg: #0f1115;
+  --card: #161922;
+  --raised: #1b1f2a;
+  --ink-1: #f0f1f4;
+  --ink-2: #b7bcc9;
+  --ink-3: #98a0b2;
+  --line: #262b38;
+  --accent: #6ea8fe;
+  --bad: #ff8b8b;
+  --warn: #f0c674;
+  --ok: #6fce8d;
+  --warn-bg: #241c14;
+  --warn-line: #4a3a2a;
+  /* What held a round. Three hues that stay apart in greyscale by lightness too. */
+  --checks: #4f8ef7;
+  --code-review: #b39bfa;
+  --security-review: #2fc6b1;
+  --coding: #6fce8d;
+  --fixing: #6b7387;
+  --wait: #3a4152;
+  --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --raised: #eef0f4;
+    --ink-1: #14171f;
+    --ink-2: #414858;
+    --ink-3: #5f6779;
+    --line: #dcdfe6;
+    --accent: #1f5fd1;
+    --bad: #c2262e;
+    --warn: #8a5a00;
+    --ok: #1c7a3d;
+    --warn-bg: #fff6e5;
+    --warn-line: #ecd29a;
+    --checks: #2f6fe0;
+    --code-review: #7d5ce0;
+    --security-review: #0f9a87;
+    --coding: #2f9e5a;
+    --fixing: #9aa2b5;
+    --wait: #d3d7e0;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink-1);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 32px 20px 80px; }
+
+.eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em; font-size: 12px; font-weight: 600; margin: 0 0 8px; }
+h1 { font-size: 28px; margin: 0 0 12px; }
+h2 { font-size: 18px; margin: 36px 0 4px; }
+h3 { font-size: 14px; margin: 0 0 8px; }
+.standfirst { color: var(--ink-2); max-width: 760px; margin: 0 0 20px; }
+.sectionnote { color: var(--ink-3); font-size: 13px; margin: 0 0 12px; max-width: 800px; }
+code { font-family: var(--mono); font-size: 12.5px; }
+
+.runmeta { display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; color: var(--ink-3); }
+.runmeta b { color: var(--ink-1); font-weight: 600; }
+.runmeta a { color: inherit; text-decoration: none; }
+.runmeta a:hover b { color: var(--accent); }
+
+.note { margin-top: 20px; padding: 14px 18px; border-radius: 8px; background: var(--card); color: var(--ink-2); font-size: 13px; border: 1px solid var(--line); }
+.note b { color: var(--ink-1); }
+.note ul { margin: 8px 0 0; padding-left: 20px; }
+.note li { margin: 4px 0; }
+.note li.warn { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 6px; padding: 6px 12px; margin-left: -20px; list-style: none; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-top: 12px; }
+.card.pad { padding: 14px 16px 8px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; }
+.cards .card { margin-top: 0; }
+.tablewrap { overflow-x: auto; padding: 4px; }
+
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: baseline; }
+thead th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3); font-weight: 600; }
+tbody tr:last-child td, tbody tr:last-child th { border-bottom: none; }
+th.num, td.num { text-align: right; }
+tbody th { font-weight: 500; color: var(--ink-1); }
+.rownote { display: block; font-weight: 400; font-size: 12px; color: var(--ink-3); white-space: normal; max-width: 300px; }
+tfoot td { font-weight: 600; border-top: 1px solid var(--line); border-bottom: none; background: var(--raised); }
+tr.group th { border-bottom: none; padding-bottom: 0; text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--ink-2); }
+
+.fig { font-variant-numeric: tabular-nums; font-weight: 600; }
+.fig.none { color: var(--ink-3); font-weight: 400; }
+/* The counts are not decoration: a median over four rounds and one over four
+   hundred are different claims, and this is the only thing that says so. */
+.of { color: var(--ink-3); font-weight: 400; font-size: 12px; margin-left: 6px; font-variant-numeric: tabular-nums; }
+.dur { color: var(--ink-2); font-variant-numeric: tabular-nums; font-size: 13px; }
+td.pr { max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
+td.pr a, .who a { color: var(--accent); text-decoration: none; }
+td.pr a:hover, .who a:hover { text-decoration: underline; }
+td.pr .title { color: var(--ink-2); }
+.add { color: var(--ok); font-variant-numeric: tabular-nums; }
+.del { color: var(--bad); font-variant-numeric: tabular-nums; }
+
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; vertical-align: baseline; background: var(--fixing); }
+.swatch.checks { background: var(--checks); }
+.swatch.code-review { background: var(--code-review); }
+.swatch.security-review { background: var(--security-review); }
+.swatch.coding { background: var(--coding); }
+.swatch.fixing { background: var(--fixing); }
+.swatch.wait { background: var(--wait); }
+.swatch.away { background: transparent; border: 1px dashed var(--ink-3); }
+.swatch.unrecorded { background: repeating-linear-gradient(135deg, var(--coding) 0 2px, transparent 2px 4px); border: 1px solid var(--coding); }
+
+.bar { display: inline-block; width: 90px; height: 8px; margin-left: 10px; background: var(--raised); border-radius: 4px; vertical-align: baseline; overflow: hidden; }
+.fill { display: block; height: 100%; background: var(--fixing); }
+.fill.checks { background: var(--checks); }
+.fill.code-review { background: var(--code-review); }
+.fill.security-review { background: var(--security-review); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--ink-2); margin: 0 0 4px; }
+.key { display: inline-flex; align-items: center; }
+
+/* One row per pull request: who, then a strip on a scale shared by every row. */
+.pullrow { display: grid; grid-template-columns: minmax(200px, 300px) 1fr; gap: 6px 20px; padding: 12px 16px; border-bottom: 1px solid var(--line); align-items: start; }
+.pullrow:last-child { border-bottom: none; }
+.who { font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.who .when { color: var(--ink-3); font-size: 12px; margin-top: 2px; }
+.strip { min-width: 0; }
+.track { display: flex; align-items: stretch; height: 22px; background: var(--raised); border-radius: 4px; overflow: hidden; position: relative; }
+.trackempty { color: var(--ink-3); font-size: 12px; padding: 3px 8px; }
+.seg { display: block; min-width: 3px; position: relative; height: 100%; }
+.seg + .seg { margin-left: 1px; }
+.seg.coding { background: var(--coding); }
+.seg.fixing { background: var(--fixing); }
+.seg.wait { background: var(--wait); }
+.seg.round.checks { background: var(--checks); }
+.seg.round.code-review { background: var(--code-review); }
+.seg.round.security-review { background: var(--security-review); }
+/* Hatched, so that "not recorded" is a different thing from a coloured stretch,
+   and from nothing. */
+.seg.unrecorded { background: repeating-linear-gradient(135deg, var(--coding) 0 3px, transparent 3px 6px); outline: 1px solid var(--coding); outline-offset: -1px; }
+.seg.away { flex: 0 0 26px; background: repeating-linear-gradient(90deg, transparent 0 3px, var(--ink-3) 3px 4px); opacity: 0.7; margin: 0 2px; }
+.seg.red { box-shadow: inset 0 0 0 2px var(--bad); }
+.fill-space { display: block; }
+.clipmark { flex: 0 0 auto; padding: 0 5px; color: var(--ink-1); background: var(--bad); font-size: 12px; line-height: 22px; }
+
+.mark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-style: normal; font-size: 11px; line-height: 1; font-weight: 700; padding: 1px 3px; border-radius: 3px; white-space: nowrap; }
+.mark.red { background: var(--bad); color: #fff; }
+.mark.fluke { background: var(--warn); color: #14171f; }
+.mark.red + .mark.fluke { transform: translate(60%, -50%); }
+.key .mark { position: static; transform: none; margin-right: 6px; }
+
+.tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; margin-left: 4px; border: 1px solid var(--line); color: var(--ink-2); }
+.tag.red { color: var(--bad); border-color: var(--bad); }
+.tag.fluke { color: var(--warn); border-color: var(--warn); }
+.tag.unrecorded { color: var(--ink-2); border-style: dashed; border-color: var(--ink-3); }
+.tag.clip { color: var(--ink-1); border-color: var(--bad); }
+
+.clipnote { margin: 4px 0 0; font-size: 12px; color: var(--ink-3); }
+details { margin-top: 4px; font-size: 12px; color: var(--ink-3); }
+summary { cursor: pointer; }
+.roundlist { margin: 6px 0 0; padding-left: 22px; color: var(--ink-2); }
+.roundlist li { margin: 2px 0; }
+
+/* Read by a screen reader and by nothing else. */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.empty { padding: 16px; color: var(--ink-3); font-size: 13px; }
+
+footer { margin-top: 40px; color: var(--ink-3); font-size: 12.5px; }
+
+@media (max-width: 720px) {
+  .wrap { padding: 24px 14px 60px; }
+  h1 { font-size: 23px; }
+  .pullrow { grid-template-columns: 1fr; }
+  /* The tables keep their columns and scroll sideways rather than reflowing into
+     something that fits but cannot be compared. */
+  th, td { padding: 8px 10px; }
+  .cards { grid-template-columns: minmax(0, 1fr); }
+}

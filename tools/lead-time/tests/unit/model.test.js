@@ -372,4 +372,56 @@ describe('Lead time', () => {
       expect(model.coverage.actualDays).toBeCloseTo(9);
     });
   });
+
+  describe('a window says what held its rounds and how many ran long', () => {
+    const build = (pulls) =>
+      buildModel({ pulls, now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] });
+    const merged = (overrides) => pull({ createdAt: at(-10), mergedAt: at(120), ...overrides });
+
+    it('gives each kind of check the minutes it held, the runs behind them and the rounds it finished last', () => {
+      const model = build([
+        merged({
+          commits: [
+            commit('a', 0, [check('Test', 2, 8), check('E2E (F3)', 3, 12)]),
+            commit('b', 30, [check('Test', 31, 36), check('claude-review', 31, 45), check('Security review', 31, 40)]),
+          ],
+        }),
+      ]);
+      const { harness } = model.windows[0];
+      expect(harness.rounds).toBe(2);
+      expect(harness.kinds.checks).toEqual({ ms: 15 * MIN, runs: 3, last: 1 });
+      expect(harness.kinds['security-review']).toEqual({ ms: 4 * MIN, runs: 1, last: 0 });
+      expect(harness.kinds['code-review']).toEqual({ ms: 5 * MIN, runs: 1, last: 1 });
+    });
+
+    it('reads no pull requests in the window as no harness figures, not as a harness that held nothing', () => {
+      expect(build([]).windows[0].harness).toBeNull();
+    });
+
+    it('counts the rounds that ran past ten minutes, and how many rounds each pull request took', () => {
+      const model = build([
+        merged({ number: 1, commits: [commit('a', 0, [check('Test', 2, 12)]), commit('b', 30, [check('Test', 31, 42)])] }),
+        merged({ number: 2, commits: [commit('c', 0, [check('Test', 2, 22)])] }),
+      ]);
+      const { rounds } = model.windows[0];
+      // Exactly ten minutes is not past ten minutes.
+      expect(rounds.overTenMinutes).toBe(2);
+      expect(rounds.perPull).toMatchObject({ median: 1.5, count: 2, pulls: 2 });
+    });
+
+    it('leaves a pull request no check ran on out of the rounds it took, rather than counting it as taking none', () => {
+      const model = build([merged({ number: 1, commits: [commit('a', 0)] }), merged({ number: 2, commits: [commit('b', 0, [check('Test', 2, 12)])] })]);
+      expect(model.windows[0].rounds.perPull).toMatchObject({ count: 1, pulls: 1 });
+    });
+
+    it('says how long a review held anyone up beside how long it ran, since a review beside the tests holds nobody until they finish', () => {
+      const [pullModelled] = build([
+        merged({ commits: [commit('a', 0, [check('Test', 2, 12), check('claude-review', 2, 20), check('Security review', 2, 8)])] }),
+      ]).pulls;
+      expect(minutes(pullModelled.reviews['code-review'].ms)).toBe(18);
+      expect(minutes(pullModelled.reviews['code-review'].heldMs)).toBe(8);
+      // It finished before the tests did, so it held the round for none of it.
+      expect(pullModelled.reviews['security-review']).toMatchObject({ runs: 1, heldMs: 6 * MIN });
+    });
+  });
 });

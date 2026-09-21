@@ -36,6 +36,18 @@ export const AWAY_MS = 3 * HOUR_MS;
  */
 export const REVIEW_CHECKS = { 'code-review': 'claude-review', 'security-review': 'Security review' };
 
+/** A round that took longer than this is one somebody was kept waiting on. */
+export const LONG_ROUND_MS = 10 * 60_000;
+
+/**
+ * What kind of check a name is: one of the two reviews, or everything else, which
+ * is the tests and the mechanical checks. The page groups by this rather than by
+ * name, because job names come and go and the question is who held the round.
+ */
+export function kindOf(name) {
+  return Object.entries(REVIEW_CHECKS).find(([, reviewName]) => reviewName === name)?.[0] ?? 'checks';
+}
+
 /**
  * Every conclusion the Actions API documents, and what it means here. `other` is
  * known-but-not-a-verdict; `unknown` is a value that did not exist when this was
@@ -260,14 +272,19 @@ function readRecord(body, firstCommit) {
   };
 }
 
-/** How many times a review check ran on the pull request and for how long — the runs that ran, not the skipped ones. */
-function reviewsOf(commits) {
+/**
+ * How many times a review check ran on the pull request and for how long — the runs
+ * that ran, not the skipped ones — and how much of that anyone actually waited for
+ * (`heldMs`): a review that ran beside the tests holds nobody up until they finish.
+ */
+function reviewsOf(commits, rounds) {
   const result = {};
   for (const [kind, name] of Object.entries(REVIEW_CHECKS)) {
     const ran = commits.flatMap((commit) => commit.checks).filter((check) => check.name === name && classify(check) !== 'skipped');
     result[kind] = {
       runs: ran.length,
       ms: sum(ran.map((check) => (time(check.completedAt) ?? NaN) - (time(check.startedAt) ?? NaN)).filter((ms) => Number.isFinite(ms) && ms >= 0)),
+      heldMs: sum(rounds.flatMap((round) => round.held).filter((held) => held.name === name).map((held) => held.ms)),
     };
   }
   return result;
@@ -328,10 +345,23 @@ export function pullModel(pull) {
     waitingToMergeMs: waitingToMerge,
     totalMs: Math.max(0, mergedAt - startMs),
     flukes: rounds.flatMap((round) => round.flukes),
-    reviews: reviewsOf(pull.commits),
+    reviews: reviewsOf(pull.commits, rounds),
     localReviews: record.localReviews,
     notes,
   };
+}
+
+/** Minutes held, runs and rounds finished last, for each kind of check — every kind present, so a kind that held nothing reads as a zero it earned. */
+function harnessOf(rounds) {
+  const kinds = { checks: { ms: 0, runs: 0, last: 0 }, ...Object.fromEntries(Object.keys(REVIEW_CHECKS).map((kind) => [kind, { ms: 0, runs: 0, last: 0 }])) };
+  for (const round of rounds) {
+    for (const held of round.held) {
+      kinds[kindOf(held.name)].ms += held.ms;
+      kinds[kindOf(held.name)].runs += 1;
+    }
+    if (round.last !== null) kinds[kindOf(round.last)].last += 1;
+  }
+  return { rounds: rounds.length, kinds };
 }
 
 /** One window's picture: the pull requests merged in it, and every part's median and p90. */
@@ -375,8 +405,19 @@ function windowModel(pulls, { days, now, coveredSince }) {
       ms: figure(reviewed.map((pull) => ({ pull: pull.number, value: pull.localReviews.ms }))),
     },
     rounds: inWindow.length
-      ? { count: rounds.length, red: rounds.filter((entry) => entry.round.red).length, ready: rounds.filter((entry) => entry.round.kind === 'ready').length }
+      ? {
+          count: rounds.length,
+          red: rounds.filter((entry) => entry.round.red).length,
+          ready: rounds.filter((entry) => entry.round.kind === 'ready').length,
+          overTenMinutes: rounds.filter((entry) => entry.value > LONG_ROUND_MS).length,
+          // A pull request no check ever ran on has no round, so it is left out of
+          // the rounds it took rather than counted as taking none.
+          perPull: figure(inWindow.filter((pull) => pull.rounds.length > 0).map((pull) => ({ pull: pull.number, value: pull.rounds.length }))),
+        }
       : null,
+    // What each kind of check held a round up for: its time, the runs that made it,
+    // and how many rounds it was the last to finish.
+    harness: inWindow.length ? harnessOf(rounds.map((entry) => entry.round)) : null,
     flukes: inWindow.length
       ? {
           count: sum(inWindow.map((pull) => pull.flukes.length)),

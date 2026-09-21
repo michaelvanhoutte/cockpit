@@ -3,16 +3,18 @@
 Answers, without querying the API by hand: **how long does a change spend being written
 against waiting on the harness, how many rounds does it take, and which check holds each
 round up.** Reads the pull request and Actions APIs and each pull request's session record
-("Record what a session did, on the pull request it opens", issue 514), and writes the model as
-JSON. Keeps no state — GitHub already stores this history, so every run re-derives it.
+("Record what a session did, on the pull request it opens", issue 514), and draws them as one
+HTML page that opens from disk, or with `--json` writes the model. Keeps no state — GitHub
+already stores this history, so every run re-derives it.
 
-The page that draws the model is "Draw the lead-time page from the model" (issue 389); running
-it nightly is "Run the lead-time report nightly, and publish it beside the other two" (issue 515).
+Running it nightly is "Run the lead-time report nightly, and publish it beside the other two"
+(issue 515).
 
 ## Running it
 
 ```bash
-pnpm lead-time            # from the repo root — writes tools/lead-time/out/model.json
+pnpm lead-time            # from the repo root — writes tools/lead-time/out/index.html
+pnpm --filter @cockpit/lead-time model   # the model instead, at out/model.json
 ```
 
 ```bash
@@ -63,19 +65,37 @@ A pull request is one line, cut into parts:
   `pulls.withoutRecord` says how many pull requests the record-based figures left out. A pull
   request closed without merging is in no figure.
 
-Over each window the model gives the median and p90 of every part; `pulls` in the model is the
-per-pull-request detail behind them.
+Over each window the model gives the median and p90 of every part, the rounds per pull request,
+how many rounds ran past ten minutes, and what each kind of check held rounds up for (`harness`:
+minutes, runs, and rounds it finished last). `pulls` in the model is the per-pull-request detail
+behind them.
 
-## How a model gets built
+## The page
+
+Every figure on it is the model's; the renderer works out none. It opens with a box saying what
+the totals leave out, always and not only when something is unusual: the period actually covered
+(not the one asked for, where the fetch was capped), that time before the session's start is not
+measured, that only merged pull requests count, and how many carry a session record. Then the
+figures over each window, where the harness minutes go, a strip per pull request, and the numbers
+behind them.
+
+- **A strip is drawn on one scale for every pull request** (`src/render/strips.js`), up to four
+  hours; a longer one is cut at the edge and says how much it cut. Time away is off the scale.
+- **A pull request with no session record reads "not recorded"**, as a tag and a hatched first
+  part, so it never looks like coding that took no time.
+- **No script and nothing fetched**: styles are inline, and the only addresses are links to pull
+  requests. Light and dark follow the reader's setting.
+
+## How a page gets built
 
 ```
-collect(repo)  →  buildModel(...)  →  out/model.json
-  (src/github.js)   (src/model.js)
+collect(repo)  →  buildModel(...)  →  renderHtml(model)  →  out/index.html
+  (src/github.js)   (src/model.js)      (src/render/)         (out/model.json with --json)
 ```
 
 `github.js` is the only file that does I/O and `model.js` the only one that computes;
-`cli.js` wires them. Sessions' record format is `scripts/lib/session-record.mjs`'s, imported
-rather than copied, so the two cannot drift.
+`render/` draws what it is handed and `cli.js` wires them. Sessions' record format is
+`scripts/lib/session-record.mjs`'s, imported rather than copied, so the two cannot drift.
 
 **Request cost is what shapes `github.js`**, and its header comment is where that is worked out:
 about 5 to 6 requests per pull request against the 1,000 an hour a `GITHUB_TOKEN` allows.
@@ -86,5 +106,5 @@ limit fails the run, since what comes after it would be missing for the same rea
 
 ## Tests
 
-The model and the argument parser are `tests/unit/`; the fetcher, driven through a stubbed
+The model, the page it renders and the argument parser are `tests/unit/`; the fetcher, driven through a stubbed
 `fetch`, is `tests/integration/`. Nothing reaches the network, so neither needs a token.
