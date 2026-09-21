@@ -109,7 +109,8 @@ function runOne(pkg, index) {
   // pkg.script is test:coverage on a push to main, so the suite runs once for
   // both this gate and test-explorer's coverage columns ("Run the suite once
   // in CI, not once to gate and once to measure", issue 289), and plain test
-  // on a pull request, where that report is not published (issue 508).
+  // on a pull request, where that report is not published ("Stop
+  // instrumenting coverage on a pull request's test run", issue 508).
   const args = ['--filter', pkg.name, pkg.script];
   // --passWithNoTests: a package the PR never touches routinely has zero
   // files left once --changed narrows it. Vitest 4's own default already

@@ -5,8 +5,9 @@
 // scripts/ci-test.mjs actually runs per package (instrumented on a push to
 // `main`, so the suite runs once for both this gate and test-explorer's
 // coverage columns, per "Run the suite once in CI, not once to gate and once
-// to measure", issue 289; plain `test` on a pull request, issue 508, which is
-// why a package must declare both), and the same set `pnpm test:coverage` ran before scripts/ci-test.mjs
+// to measure", issue 289; plain `test` on a pull request, "Stop instrumenting
+// coverage on a pull request's test run", issue 508, which is why a package
+// must declare both), and the same set `pnpm test:coverage` ran before scripts/ci-test.mjs
 // took over the Test job's step, per "Run only the affected tests in CI's
 // Test job on a pull request" (issue 346).
 //

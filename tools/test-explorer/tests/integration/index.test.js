@@ -134,7 +134,8 @@ describe('analyze (end to end against a fixture repo)', () => {
   });
 
   it('reads every branches-nothing-takes column as unknown, rather than failing, when no coverage was collected at all', () => {
-    // A pull request's Test run is uninstrumented (issue 508), so its Test Explorer report has no
+    // A pull request's Test run is uninstrumented ("Stop instrumenting coverage on a pull request's
+    // test run", issue 508), so its Test Explorer report has no
     // coverage-final.json anywhere: the fixture writes none.
     repo = writeFixtureRepo();
     const model = analyze(repo);
