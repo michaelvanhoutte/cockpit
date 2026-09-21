@@ -176,10 +176,12 @@ function buildRounds(commits, mergedAt) {
       return { name: attempt.name, ms, ...(rerun ? { rerun: true } : {}) };
     });
 
-    // What a check ended as is its last attempt: a failure that was re-run to a
-    // pass is a fluke, not a red round.
+    // What a check ended as is its last attempt that reached a verdict: a failure
+    // re-run to a pass is a fluke, not a red round, while one whose re-run was
+    // cancelled before it finished has still never passed.
+    const decisive = (attempt) => ['pass', 'fail'].includes(classify(attempt));
+    const failed = push.groups.filter((attempts) => classify(attempts.findLast(decisive) ?? attempts[0]) === 'fail').map((attempts) => attempts[0].name);
     const finals = push.groups.map((attempts) => attempts[attempts.length - 1]);
-    const failed = finals.filter((attempt) => classify(attempt) === 'fail').map((attempt) => attempt.name);
     const unrecognised = finals
       .filter((attempt) => classify(attempt) === 'unknown')
       .map((attempt) => ({ name: attempt.name, conclusion: attempt.conclusion }));

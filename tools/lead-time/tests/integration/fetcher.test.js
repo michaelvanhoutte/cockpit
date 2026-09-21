@@ -84,6 +84,15 @@ describe('Lead time', () => {
       expect(api.calls.some((url) => url.endsWith('/pulls/6'))).toBe(false);
     });
 
+    it('treats a throttled burst as the same failure as a spent allowance, not as a pull request it could not read', async () => {
+      const throttled = refuse(403, { 'retry-after': '60' });
+      const api = stubApi({
+        listing: [1, 2].map((n) => listed(n, '2026-09-11T00:00:00Z')),
+        override: (url) => (url.endsWith('/pulls/1') ? throttled : undefined),
+      });
+      await expect(collectFrom(api)).rejects.toMatchObject({ reason: 'rate-limit' });
+    });
+
     it('reports the shorter period as the coverage where the listing ends before the window does', async () => {
       const api = stubApi({ listing: [listed(1, '2026-09-20T00:00:00Z'), listed(2, '2026-09-15T00:00:00Z')] });
       const collected = await collectFrom(api);

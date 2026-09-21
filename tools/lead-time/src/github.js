@@ -104,7 +104,10 @@ async function request(path, { token, fetchImpl, retries = 2, retryDelayMs = 250
     // GitHub, and the fix (fewer pull requests, or wait) differs from every other
     // status. Never retried: asking again is what spent it.
     const remaining = res.headers?.get?.('x-ratelimit-remaining');
-    if ((res.status === 403 || res.status === 429) && remaining === '0') {
+    // The secondary limit, which throttles bursts, says so with a Retry-After
+    // instead of an empty allowance, and is the same failure for the same reason.
+    const throttled = res.headers?.get?.('retry-after') != null;
+    if ((res.status === 403 || res.status === 429) && (remaining === '0' || throttled)) {
       const reset = res.headers?.get?.('x-ratelimit-reset');
       const at = reset ? new Date(Number(reset) * 1000).toISOString() : 'an unknown time';
       if (abort) abort.stopped = true;

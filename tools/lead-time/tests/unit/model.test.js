@@ -189,6 +189,12 @@ describe('Lead time', () => {
       expect(model.flukes).toEqual([]);
     });
 
+    it('calls a check red whose failure was followed only by a re-run cancelled before it finished', () => {
+      const model = pullModel(pull({ commits: [commit('a', 0, [check('Test', 2, 10, 'failure'), check('Test', 12, 14, 'cancelled')])] }));
+      expect(model.rounds[0].red).toBe(true);
+      expect(model.flukes).toEqual([]);
+    });
+
     it('does not call a check that passed and then failed on its commit a fluke, only red', () => {
       const model = pullModel(pull({ commits: [commit('a', 0, [check('Test', 2, 10), check('Test', 12, 20, 'failure')])] }));
       expect(model.flukes).toEqual([]);
