@@ -464,6 +464,13 @@ describe('Lead time', () => {
       expect(balance).toEqual({ codingMs: 0, harnessMs: 30 * MIN, rounds: 1, ratio: null });
     });
 
+    it('moves no more review to the harness than the time it came out of, where one was marked longer than that', () => {
+      const body = recordBody([[0, 'start'], [5, 'review-start', 'code-review', 'low'], [45, 'review-end', 'code-review', 'low']]);
+      const { balance } = pullModel(pull({ commits: [commit('a', 0, [check('Test', 20, 30)])], body }));
+      // 20 minutes before the push held the whole of a 40-minute review; only that 20 moves.
+      expect(balance).toEqual({ codingMs: 0, harnessMs: 30 * MIN, rounds: 1, ratio: null });
+    });
+
     it("gives a window the dots of the pull requests it weighed and the median of their ratios, counting what it could not weigh", () => {
       const build = (pulls) =>
         buildModel({ pulls, now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] });

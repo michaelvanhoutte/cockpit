@@ -332,9 +332,13 @@ export function pullModel(pull) {
   // Waiting to merge is neither: nobody was writing, and no check was running.
   let balance = null;
   if (record.present && rounds.length > 0) {
-    const localReviewMs = record.localReviews?.ms ?? 0;
-    const codingMs = Math.max(0, beforeFirstPushMs + sum(fixing) - localReviewMs);
-    const harnessMs = sum(rounds.map((round) => round.ms)) + localReviewMs;
+    const writingMs = beforeFirstPushMs + sum(fixing);
+    // A review can only come out of the time it sat in: one marked longer than that
+    // (it ran beside a round, or through a night) would otherwise be moved in full to
+    // the harness and taken from a coding that never held it.
+    const reviewMs = Math.min(record.localReviews?.ms ?? 0, writingMs);
+    const codingMs = writingMs - reviewMs;
+    const harnessMs = sum(rounds.map((round) => round.ms)) + reviewMs;
     balance = { codingMs, harnessMs, rounds: rounds.length, ratio: codingMs > 0 ? harnessMs / codingMs : null };
   }
 
