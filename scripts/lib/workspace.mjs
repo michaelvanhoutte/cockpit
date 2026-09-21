@@ -5,8 +5,8 @@
 // scripts/ci-test.mjs actually runs per package (instrumented on a push to
 // `main`, so the suite runs once for both this gate and test-explorer's
 // coverage columns, per "Run the suite once in CI, not once to gate and once
-// to measure", issue 289; plain `test` on a pull request, issue 508 - every
-// package that declares the first declares the second too), and the same set `pnpm test:coverage` ran before scripts/ci-test.mjs
+// to measure", issue 289; plain `test` on a pull request, issue 508, which is
+// why a package must declare both), and the same set `pnpm test:coverage` ran before scripts/ci-test.mjs
 // took over the Test job's step, per "Run only the affected tests in CI's
 // Test job on a pull request" (issue 346).
 //
@@ -28,7 +28,9 @@ import { relative, sep, posix } from 'node:path';
 
 /**
  * `{ name, dir }` for every package in `pnpmList` (parsed `pnpm -r list
- * --depth -1 --json` output) that declares its own "test:coverage" script.
+ * --depth -1 --json` output) that declares both its own "test" and its own
+ * "test:coverage" script - scripts/ci-test.mjs runs one or the other by event,
+ * so a package with only one would fail on exactly one of them.
  * `readManifest(pkg.path)` returns that package's parsed package.json.
  * `dir` is given relative to `root`, in POSIX form regardless of the host
  * OS - the same shape `git diff --name-only` itself always emits, which is
@@ -46,7 +48,7 @@ export function testablePackages(pnpmList, readManifest, root) {
   for (const pkg of pnpmList) {
     if (relative(root, pkg.path) === '') continue;
     const manifest = readManifest(pkg.path);
-    if (!manifest?.scripts?.['test:coverage']) continue;
+    if (!manifest?.scripts?.test || !manifest.scripts['test:coverage']) continue;
     found.push({ name: pkg.name, dir: relative(root, pkg.path).split(sep).join(posix.sep) });
   }
   return found;

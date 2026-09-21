@@ -26,13 +26,19 @@ function manifests(byPath) {
 describe('testablePackages', () => {
   it('includes a package that declares its own test:coverage script', () => {
     const list = [pkg('@cockpit/shared', 'packages/shared')];
-    const read = manifests({ [at('packages', 'shared')]: { scripts: { 'test:coverage': 'vitest run --coverage' } } });
+    const read = manifests({ [at('packages', 'shared')]: { scripts: { test: 'vitest run', 'test:coverage': 'vitest run --coverage' } } });
     assert.deepEqual(testablePackages(list, read, ROOT), [{ name: '@cockpit/shared', dir: 'packages/shared' }]);
   });
 
   it('excludes a package with no test:coverage script, rather than erroring on it', () => {
     const list = [pkg('@cockpit/config', 'packages/config')];
     const read = manifests({ [at('packages', 'config')]: { scripts: { typecheck: 'tsc' } } });
+    assert.deepEqual(testablePackages(list, read, ROOT), []);
+  });
+
+  it('excludes a package with a test:coverage script but no plain test script, since a pull request runs the latter', () => {
+    const list = [pkg('@cockpit/shared', 'packages/shared')];
+    const read = manifests({ [at('packages', 'shared')]: { scripts: { 'test:coverage': 'vitest run --coverage' } } });
     assert.deepEqual(testablePackages(list, read, ROOT), []);
   });
 
@@ -46,8 +52,8 @@ describe('testablePackages', () => {
       { name: '@cockpit/shared', path: at('packages', 'shared'), version: '0.0.0' },
     ];
     const read = manifests({
-      [ROOT]: { scripts: { 'test:coverage': 'vitest run --coverage' } },
-      [at('packages', 'shared')]: { scripts: { 'test:coverage': 'vitest run --coverage' } },
+      [ROOT]: { scripts: { test: 'vitest run', 'test:coverage': 'vitest run --coverage' } },
+      [at('packages', 'shared')]: { scripts: { test: 'vitest run', 'test:coverage': 'vitest run --coverage' } },
     });
     assert.deepEqual(
       testablePackages(list, read, ROOT).map((p) => p.name),
@@ -61,7 +67,7 @@ describe('testablePackages', () => {
     // thing that actually means "root", not from a field the root merely
     // happens to lack today.
     const list = [{ name: '@cockpit/shared', path: at('packages', 'shared') }];
-    const read = manifests({ [at('packages', 'shared')]: { scripts: { 'test:coverage': 'vitest run --coverage' } } });
+    const read = manifests({ [at('packages', 'shared')]: { scripts: { test: 'vitest run', 'test:coverage': 'vitest run --coverage' } } });
     assert.deepEqual(
       testablePackages(list, read, ROOT).map((p) => p.name),
       ['@cockpit/shared'],
@@ -80,7 +86,7 @@ describe('testablePackages', () => {
       pkg('@cockpit/ci-stability', 'tools/ci-stability'),
       pkg('@cockpit/test-explorer', 'tools/test-explorer'),
     ];
-    const withTestCoverage = { scripts: { 'test:coverage': 'vitest run --coverage' } };
+    const withTestCoverage = { scripts: { test: 'vitest run', 'test:coverage': 'vitest run --coverage' } };
     const read = manifests({
       [at('packages', 'shared')]: withTestCoverage,
       [at('packages', 'config')]: { scripts: { typecheck: 'tsc' } },
@@ -97,7 +103,7 @@ describe('testablePackages', () => {
 
   it('gives dir in POSIX form relative to root, matching what git diff --name-only reports', () => {
     const list = [pkg('@cockpit/api', 'apps/api')];
-    const read = manifests({ [at('apps', 'api')]: { scripts: { 'test:coverage': 'vitest run --coverage' } } });
+    const read = manifests({ [at('apps', 'api')]: { scripts: { test: 'vitest run', 'test:coverage': 'vitest run --coverage' } } });
     assert.equal(testablePackages(list, read, ROOT)[0].dir, 'apps/api');
   });
 
