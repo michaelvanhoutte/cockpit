@@ -117,9 +117,22 @@ test.describe('Item editing', () => {
       // never be edited. Scoped to that tab's own panel, because the
       // description's editor writes paragraphs of its own the moment it
       // arrives, which is a race against this line.
+      //
+      // **The fields go, really.** The Item panel stays mounted while Details
+      // shows, so the editor and whatever is half-typed survive the switch
+      // (`ItemForm.tsx`) - which makes it hidden by a class rather than
+      // unrendered, and that is a claim no jsdom can make: the unit runner
+      // loads no stylesheet, so `ItemForm.test.tsx` can only ask what each tab
+      // holds, never whether the other one is out of sight (found by the
+      // review on this pull request, which is why this is here rather than in
+      // a walk of its own).
+      const files = form(page).getByText('Attachments', { exact: true });
+      await expect(files).toBeVisible();
       await press(form(page).getByRole('tab', { name: 'Details' }), isMobile);
       await expect(form(page).getByRole('tabpanel').getByText(thought)).toBeVisible();
+      await expect(files).toBeHidden();
       await press(form(page).getByRole('tab', { name: 'Item' }), isMobile);
+      await expect(files).toBeVisible();
 
       const named = uniqueTitle('Part 11');
       await titleBox(page).fill(named);
