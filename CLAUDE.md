@@ -24,6 +24,7 @@ pnpm dev
 - **A rule and its reason fit in one or two sentences.** Keep the reason — a rule without one gets argued with — but a clause is usually enough.
 - **Name the incident, don't retell it.** "One issue was built whole after it had already merged" carries the same warning as the paragraph reconstructing it. Keep the story only where it is the evidence, and keep it to a sentence.
 - **Say it in one place.** A point made in the introduction is not repeated in the section, and a rule stated in a skill is referenced from here rather than restated. The one exception is a rule that has to hold in a session which never loads that skill — this file is in context always, a skill only once something triggers it — and a restatement claiming that exception says so where it stands.
+- **Record the decision, not the case for it.** What a change makes true, and what a reader has to do about it, is the document; the sampling, the costs, the verdict counts and what was weighed stay in the issue or pull request that decided it, named rather than reproduced. A removed CI check earns "these two are gone, and restoring one means restoring its required context in the same change", not the month of cost samples behind the decision.
 - **Parallel cases are a table or a list**, not prose that walks through each one.
 - **Start at the point.** Delete "it is worth noting that", "the requirement is therefore twofold", "worth writing down, because".
 - **Cut what the reader can see.** Don't describe the code, the diff or the diagram that follows; say what it means.
