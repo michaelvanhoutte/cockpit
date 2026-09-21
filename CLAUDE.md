@@ -99,7 +99,7 @@ What each of these earns in local review — `/code-review`'s level, and whether
 
 This reverses "Small changes take hours: bring a pull request back to its 25-minute floor" (issue 377), which left the local level flat regardless of what a change touched.
 
-**The level is part of that command, because a bare `/code-review` picks the cheapest one.** It reuses whatever level was typed last and falls back when nothing ever was, so it lands on `low` or `medium` regardless of the table above — the wrong trade wherever that table asks for more, since the coverage a level buys is now the only coverage there is. `xhigh` rather than `max`, even on the two highest rows, because a `max` pass on a large diff is slow enough to get skipped, and a skipped review is the failure the rule above already exists to fix. `ultra` is not a deeper step on the same scale: it is a billed multi-agent review in the cloud, so only the user can start one.
+**Type the level into the command** — `/code-review xhigh`, never a bare `/code-review`, which reuses whatever level was typed last rather than the one the table gives. Never `max`, slow enough on a real diff to get skipped, and never `ultra`: a billed cloud review only the user can start.
 
 **Recheck a round of fixes instead of re-reviewing the whole diff.** One targeted `/code-review` pass over the files the fixes touched, and a targeted `/security-review` pass only where a fix itself touches a security path. Run a full second pass, at the diff's own row above, only where a fix touches a stored-data path, or the fixes change more than 25% of the original diff or 40 lines, whichever is larger. Fix or decline whatever the recheck finds without another local pass.
 
