@@ -10,14 +10,12 @@ already stores this history, so every run re-derives it.
 ## Reading it without running it
 
 Built once a night by the `Lead time` job of
-[`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml) — never per merge, since
-its 800 or so requests would fail in a burst against the hourly allowance — and by hand from the
-Actions tab when a night was missed, and uploaded as the `lead-time-report` artifact. `Publish`
-in `ci.yml` takes the newest one from `main` into
+[`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml), which says why it is not
+per merge, and by hand from the Actions tab when a night was missed. It is uploaded as the
+`lead-time-report` artifact, and `Publish` in `ci.yml` takes the newest one from `main` into
 **<https://michaelvanhoutte.github.io/cockpit/lead-time/>**, beside the test explorer and the
-[CI stability page](../ci-stability/README.md), so the page is the last night's, refreshed onto
-the site by the next merge. A missing or refused page costs this one and never the site. Each
-nightly report is a job of its own, so adding one is adding a job.
+[CI stability page](../ci-stability/README.md): the page is the last night's, refreshed onto the
+site by the next merge, and a missing one costs this page and never the site.
 
 ## Running it
 
