@@ -11,19 +11,21 @@
 //
 //   e.g.  mark start          mark review-start code-review high
 //
-// The record is a file in this worktree's own git directory, so it is never
-// tracked and two worktrees never share one. `body` prints its input
+// The record is a file per branch in this worktree's own git directory, so it
+// is never tracked, two worktrees never share one, and a branch started after
+// another in the same worktree begins empty. `body` prints its input
 // unchanged where nothing has been marked.
 //
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { applyBlock, markPhase, parseRecord, renderBlock, serialiseRecord } from './lib/session-record.mjs';
+import { applyBlock, markPhase, parseRecord, recordFileName, renderBlock, serialiseRecord } from './lib/session-record.mjs';
 
 const gitDir = execFileSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).trim();
-const recordFile = join(gitDir, 'cockpit-session-record.jsonl');
+const branch = spawnSync('git', ['symbolic-ref', '--short', '-q', 'HEAD'], { encoding: 'utf8' }).stdout.trim() || 'detached';
+const recordFile = join(gitDir, recordFileName(branch));
 const entries = () => (existsSync(recordFile) ? parseRecord(readFileSync(recordFile, 'utf8')) : []);
 
 const [command, ...words] = process.argv.slice(2);

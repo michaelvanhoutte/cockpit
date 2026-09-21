@@ -26,7 +26,7 @@ Mark a chapter at each phase boundary, per **Working in parallel**.
 
 | Mark | When |
 |---|---|
-| `start` | right after step 2's answer, so waiting on it is not counted |
+| `start` | right after step 2's answer, so waiting on it is not counted; a parent's child marks it once its own branch exists |
 | `scoped` | after step 3 |
 | `built` | after step 6 |
 | `review-start` / `review-end` `<code-review\|security-review> <level>` | around each local review; a second round marks again, and both are kept |

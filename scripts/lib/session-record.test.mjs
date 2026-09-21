@@ -8,6 +8,7 @@ import {
   applyBlock,
   markPhase,
   parseRecord,
+  recordFileName,
   readBlock,
   renderBlock,
   serialiseRecord,
@@ -68,6 +69,13 @@ describe("a session's phases are written down as they happen", () => {
     const entries = markPhase(markPhase([], ['start'], at('2026-09-21T10:00:00.000Z')), ['pushed'], at('2026-09-21T11:00:00.000Z'));
     assert.deepEqual(parseRecord(serialiseRecord(entries)), entries);
     assert.deepEqual(parseRecord(''), []);
+  });
+});
+
+describe('each branch keeps its own record', () => {
+  it('keeps a second branch in the same worktree apart from the first', () => {
+    assert.notEqual(recordFileName('claude/issue-1-aaa'), recordFileName('claude/issue-2-bbb'));
+    assert.match(recordFileName('claude/issue-1-aaa'), /^[\w.-]+$/);
   });
 });
 

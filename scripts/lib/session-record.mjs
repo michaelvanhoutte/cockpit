@@ -22,6 +22,13 @@
 /** Where a phase boundary is marked, in the order a session reaches them. */
 export const PHASES = ['start', 'scoped', 'built', 'review-start', 'review-end', 'pushed'];
 
+/**
+ * The file a branch's record is kept in, beside the others in the worktree's git directory. Keyed by branch as well as by worktree, because a parent issue starts each child on a fresh branch in the same worktree and a second child must not inherit the first one's marks.
+ */
+export function recordFileName(branch) {
+  return `cockpit-session-record.${encodeURIComponent(branch).replaceAll('%', '_')}.jsonl`;
+}
+
 /** The two phases that name which local review, and at what level, they bound. */
 const REVIEW_PHASES = ['review-start', 'review-end'];
 
