@@ -15,7 +15,7 @@
 import { AWAY_MS } from '../model.js';
 
 /** The longest stretch of time a strip is drawn to before it is cut. */
-export const SCALE_CAP_MS = 4 * 3_600_000;
+const SCALE_CAP_MS = 4 * 3_600_000;
 
 /** Below this a scale would be a scale of nothing, and every part would draw as full width. */
 const SCALE_FLOOR_MS = 60_000;
@@ -43,11 +43,12 @@ export function partsOf(pull) {
 }
 
 /** The time a strip takes on the scale: everything except the time away. */
-export const onScaleMs = (parts) => parts.filter((part) => part.type !== 'away').reduce((total, part) => total + part.ms, 0);
+const onScaleMs = (parts) => parts.filter((part) => part.type !== 'away').reduce((total, part) => total + part.ms, 0);
 
 /** The one scale every strip on the page is drawn to: the longest of them, up to the cap. */
 export function scaleFor(allParts) {
-  return Math.max(SCALE_FLOOR_MS, Math.min(SCALE_CAP_MS, Math.max(0, ...allParts.map(onScaleMs))));
+  const longest = allParts.reduce((most, parts) => Math.max(most, onScaleMs(parts)), 0);
+  return Math.max(SCALE_FLOOR_MS, Math.min(SCALE_CAP_MS, longest));
 }
 
 /**
@@ -64,12 +65,14 @@ export function fitTo(parts, scaleMs) {
   const shown = [];
   let used = 0;
   for (const part of parts) {
+    const room = scaleMs - used;
+    // Before the away branch: a gap after the last part that fits happened beyond
+    // the edge, and drawing it would put it inside the span the strip claims to show.
+    if (room <= 0) break;
     if (part.type === 'away') {
       shown.push(part);
       continue;
     }
-    const room = scaleMs - used;
-    if (room <= 0) break;
     shown.push(part.ms > room ? { ...part, ms: room, cut: true } : part);
     used += Math.min(part.ms, room);
   }

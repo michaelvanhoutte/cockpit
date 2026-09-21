@@ -97,6 +97,32 @@ describe('Lead time', () => {
     });
   });
 
+  describe('a figure says what it was made from once, and never as a zero it did not measure', () => {
+    it('says the pull requests behind a per-pull-request figure once, not twice', () => {
+      const html = render({ pulls: [pull({ number: 1 }), pull({ number: 2 })] });
+      expect(html).toContain('2 pull requests');
+      expect(html).not.toMatch(/(\d+ pull requests?), \1/);
+    });
+
+    it('reads a window whose pull requests had no check run on them as no rounds to count, not as zero of zero', () => {
+      const html = render({ pulls: [pull({ commits: [commit('a', 0)] })], windows: [7] });
+      expect(html).not.toContain('of 0 rounds');
+      expect(html.split('<h2>Where the harness minutes go</h2>')[1].split('<h2>')[0]).toContain('no data');
+    });
+
+    it('reads the time to merge from the pull request, so time away is in it', () => {
+      const html = render({
+        pulls: [pull({ mergedAt: at(430), commits: [commit('a', 0, [check('Test', 2, 12)]), commit('b', 420, [check('Test', 421, 430)])] })],
+      });
+      expect(rowOf(html, 1)).toContain('7h 10m to merge, 2 rounds');
+    });
+
+    it('reads the time to merge of a pull request no check ran on, rather than as nothing', () => {
+      const html = render({ pulls: [pull({ mergedAt: at(180), commits: [commit('a', 0)] })] });
+      expect(rowOf(html, 1)).toContain('3h 00m to merge, 0 rounds');
+    });
+  });
+
   describe('the strip draws every round', () => {
     it('draws three rounds in order, each coloured by the check that held it', () => {
       const html = render({

@@ -72,7 +72,7 @@ behind them.
 
 ## The page
 
-Every figure on it is the model's; the renderer works out none. It opens with a box saying what
+Every measurement on it is the model's; the renderer lays them out and sums the columns it shows. It opens with a box saying what
 the totals leave out, always and not only when something is unusual: the period actually covered
 (not the one asked for, where the fetch was capped), that time before the session's start is not
 measured, that only merged pull requests count, and how many carry a session record. Then the
@@ -83,8 +83,10 @@ behind them.
   hours; a longer one is cut at the edge and says how much it cut. Time away is off the scale.
 - **A pull request with no session record reads "not recorded"**, as a tag and a hatched first
   part, so it never looks like coding that took no time.
-- **No script and nothing fetched**: styles are inline, and the only addresses are links to pull
-  requests. Light and dark follow the reader's setting.
+- **No script and nothing fetched**: styles are inline, and the only addresses are links a reader
+  follows, to pull requests and the commit. Light and dark follow the reader's setting.
+- **The harness cards are per window; the numbers table is over every pull request read**, which is
+  the same set unless `--days` reaches back further than the widest window.
 
 ## How a page gets built
 

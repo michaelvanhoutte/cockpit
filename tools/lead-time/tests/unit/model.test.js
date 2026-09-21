@@ -398,6 +398,12 @@ describe('Lead time', () => {
       expect(build([]).windows[0].harness).toBeNull();
     });
 
+    it('reads pull requests no check ran on as no harness figures, not as a harness that held nothing', () => {
+      const [window] = build([merged({ commits: [commit('a', 0)] })]).windows;
+      expect(window.pulls.total).toBe(1);
+      expect(window.harness).toBeNull();
+    });
+
     it('counts the rounds that ran past ten minutes, and how many rounds each pull request took', () => {
       const model = build([
         merged({ number: 1, commits: [commit('a', 0, [check('Test', 2, 12)]), commit('b', 30, [check('Test', 31, 42)])] }),

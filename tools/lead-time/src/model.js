@@ -44,6 +44,8 @@ export const LONG_ROUND_MS = 10 * 60_000;
  * is the tests and the mechanical checks. The page groups by this rather than by
  * name, because job names come and go and the question is who held the round.
  */
+export const CHECK_KINDS = ['checks', ...Object.keys(REVIEW_CHECKS)];
+
 export function kindOf(name) {
   return Object.entries(REVIEW_CHECKS).find(([, reviewName]) => reviewName === name)?.[0] ?? 'checks';
 }
@@ -353,11 +355,12 @@ export function pullModel(pull) {
 
 /** Minutes held, runs and rounds finished last, for each kind of check — every kind present, so a kind that held nothing reads as a zero it earned. */
 function harnessOf(rounds) {
-  const kinds = { checks: { ms: 0, runs: 0, last: 0 }, ...Object.fromEntries(Object.keys(REVIEW_CHECKS).map((kind) => [kind, { ms: 0, runs: 0, last: 0 }])) };
+  const kinds = Object.fromEntries(CHECK_KINDS.map((kind) => [kind, { ms: 0, runs: 0, last: 0 }]));
   for (const round of rounds) {
     for (const held of round.held) {
-      kinds[kindOf(held.name)].ms += held.ms;
-      kinds[kindOf(held.name)].runs += 1;
+      const kind = kindOf(held.name);
+      kinds[kind].ms += held.ms;
+      kinds[kind].runs += 1;
     }
     if (round.last !== null) kinds[kindOf(round.last)].last += 1;
   }
@@ -417,7 +420,9 @@ function windowModel(pulls, { days, now, coveredSince }) {
       : null,
     // What each kind of check held a round up for: its time, the runs that made it,
     // and how many rounds it was the last to finish.
-    harness: inWindow.length ? harnessOf(rounds.map((entry) => entry.round)) : null,
+    // Null too where pull requests merged but no check ever ran on any of them: no
+    // rounds is no data about what held them, not a harness that held nothing.
+    harness: rounds.length ? harnessOf(rounds.map((entry) => entry.round)) : null,
     flukes: inWindow.length
       ? {
           count: sum(inWindow.map((pull) => pull.flukes.length)),
