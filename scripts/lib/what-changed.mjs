@@ -23,10 +23,10 @@
 // untested - and it is silent.
 //
 // Everything here reads nothing of its own: no filesystem, no environment, no
-// subprocess, for the reason review-gate.mjs gives. `classify` takes the two
-// pieces of I/O it needs as functions, so every way this can fail is a case in
-// what-changed.test.mjs rather than a path only a runner ever walks;
-// `scripts/what-changed.mjs` is the dozen lines that supply them.
+// subprocess. `classify` takes the two pieces of I/O it needs as functions, so
+// every way this can fail is a case in what-changed.test.mjs rather than a path
+// only a runner ever walks; `scripts/what-changed.mjs` is the dozen lines that
+// supply them.
 //
 // `changeClass`, below, answers a second, related question this same
 // allowlist already had half the answer to: not just "does the mechanical
@@ -125,8 +125,7 @@ const DELETE = 0x7f;
  * characters closes that route; it does not close `::stop-commands::4f1a` as a
  * *path itself*, since every printed line already carries a two-space indent
  * ahead of it and a runner that strips leading whitespace before matching a
- * command would still read it there — the same hazard review-gate.mjs's
- * `oneLine` neutralises by breaking every `::` up, which this does too.
+ * command would still read it there — so this breaks every `::` up as well.
  */
 export function printable(text) {
   return [...String(text ?? '')]
@@ -264,27 +263,22 @@ const BACKUP_RESTORE_GUEST_RESET = [
 /**
  * Paths Review findings' table calls security: sign-in and the register
  * (`auth/`), the web session, a connector, the gate composition and the
- * Google OIDC and ingress-webhook routes it mounts (`http/app.ts` - "there
- * is no perimeter to fall back on" for this app's auth model,
- * .github/security-review-instructions.md), the CI workflows, the composite
- * action they share, and the branch protection payload they feed, the
- * security review's own instructions, Wrangler's configuration, and the gate
- * itself - each a way a change could grant, keep or check access wrongly
- * without touching a migration or a schema.
+ * Google OIDC and ingress-webhook routes it mounts (`http/app.ts` - there is
+ * no perimeter to fall back on for this app's auth model), the CI workflows,
+ * the composite action they share, and the branch protection payload they
+ * feed, Wrangler's configuration, and the classifier itself - each a way a
+ * change could grant, keep or check access wrongly without touching a
+ * migration or a schema.
  *
- * The gate is on its own list for the reason CI's own code review found on
- * this issue's pull request: `claude-security-review.yml`'s `changes` job
- * classifies with the *base* commit's copy of this module, so a change that
- * weakens the gate - deletes an entry here, or makes
- * `decideSecurityOutcome` always pass - would otherwise get
- * `security_changed=false` from that same base copy and skip the one review
- * that would have caught it, reported skipped rather than failed. Every file
- * that decides or asserts the verdict is named, not only this one:
- * `scripts/what-changed.mjs` (the CI wrapper), `scripts/lib/review-gate.mjs`
- * (`decideSecurityOutcome`), `scripts/assert-security-review.mjs`, and
+ * The classifier is on its own list because a change that weakens it -
+ * deleting an entry here - would otherwise classify itself as harmless and
+ * skip the one review that would have caught it. Since "Remove the remote
+ * code and security reviews" that review is the local `/security-review`
+ * Review findings' table asks for, so `scripts/local-changes.mjs` is what
+ * reads this list. `scripts/what-changed.mjs` (the CI wrapper) and
  * `.github/actions/setup/action.yml` (a sibling of `.github/workflows/`, not
  * a path under it, so the directory-prefix entry above does not already
- * cover it).
+ * cover it) are named for the same reason.
  */
 const SECURITY_PATHS = [
   'apps/api/src/auth/',
@@ -295,12 +289,9 @@ const SECURITY_PATHS = [
   '.github/workflows/',
   '.github/actions/setup/action.yml',
   '.github/branch-protection.json',
-  '.github/security-review-instructions.md',
   'apps/api/wrangler.jsonc',
   'scripts/lib/what-changed.mjs',
   'scripts/what-changed.mjs',
-  'scripts/lib/review-gate.mjs',
-  'scripts/assert-security-review.mjs',
   ...BACKUP_RESTORE_GUEST_RESET,
 ];
 
@@ -414,9 +405,9 @@ const NAMED = 20;
  * "documentation only" or "not security" would wave an untested or unreviewed
  * change through green ticks.
  *
- * `security` is what claude-security-review.yml's own `changes` job reads to
- * decide whether the security review runs at all - the same shape
- * `product_changed` already is for claude-code-review.yml's.
+ * `security` is what scripts/local-changes.mjs reads to decide whether Review
+ * findings' table asks for a `/security-review` at all - the same shape
+ * `product_changed` already is for ci.yml's mechanical jobs.
  */
 export function classify({ eventName, eventPath, readFile, gitDiff } = {}) {
   const range = diffRange({ eventName, event: parseEvent(readFile, eventPath) });

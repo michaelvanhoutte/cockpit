@@ -22,7 +22,7 @@ Read `required_status_checks.contexts` — that list is the whole scope; nothing
 Split what's left into two kinds, because they need different evidence:
 
 - **Mechanical** — Checks, Test, E2E (F3). Pass or fail is a deterministic fact about the code.
-- **Judgement** — `claude-review`, Security review. Pass or fail is a model's call, and a required check here can be "working" at a low hit rate the way a smoke detector is — rarely firing is not by itself evidence of nothing to fire on.
+- **Judgement** — a check whose pass or fail is a model's call. This repository has none on the runner since "Remove the remote code and security reviews", which left the judgement passes local; a required check of this kind can be "working" at a low hit rate the way a smoke detector is, so rarely firing is not by itself evidence of nothing to fire on.
 
 ### 2. Sample the pull requests both tracks read from
 
@@ -76,7 +76,7 @@ The model's `windows[].workflows[].jobs[].durations` gives `median`/`p90` in mil
 
 Pass/fail is the wrong instrument here — a low hit rate can be correct. What "Make the security review's warnings mean something, or drop them" (PR 323) found instead was a *sub-signal inside a passing check* that fired on almost every run regardless of what the run was: 7 of 8 sampled pull requests carried a turn-count warning under a clean verdict, with the turn count itself (4–9) uncorrelated with diff size — a 448-line, 5-file change took 4 turns, a 556-line, 25-file one took 9. That is what this step looks for again, generalized past that one warning, over step 2's GraphQL pull.
 
-From each sampled pull request, keep only the comments and review bodies whose `author.login` is the review's own bot (`github-actions` for the security-review gate's sticky comment, `claude` for both reviews' own posts — GraphQL's `author.login` omits the `[bot]` suffix REST appends, which is why `scripts/lib/review-gate.mjs`'s own bot check matches by prefix instead of the literal `[bot]`-suffixed name) — a human quoting the same warning back is not a second occurrence of it. Tabulate every distinct warning or recurring finding-type against the sampled pull requests' `additions`/`deletions`/`changedFiles` and the verdict it appeared under.
+From each sampled pull request, keep only the comments and review bodies whose `author.login` is the check's own bot — a human quoting the same warning back is not a second occurrence of it. Match the login by prefix: GraphQL's `author.login` omits the `[bot]` suffix REST appends, so a literal comparison against either spelling misses half the rows. Tabulate every distinct warning or recurring finding-type against the sampled pull requests' `additions`/`deletions`/`changedFiles` and the verdict it appeared under.
 
 A turn count, a token or cost figure, and any other run-level number are not in that comment — they were dropped from it by PR 323 for exactly this reason — so a candidate that needs one falls back to the run log: `gh run view <run-id> --log --job <job-id>`, the same way PR 323 pulled real denial text from two runs by hand. Treat that as a deeper, optional step, not the default path.
 

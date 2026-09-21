@@ -2,7 +2,7 @@
 // Two halves, and both are needed. The first proves the classifier tells a
 // documentation-only diff from every other kind, against path lists written
 // here, and that every way its I/O can fail still says "product changed" and
-// "security". The second reads the three workflow files, which is the half
+// "security". The second reads the two workflow files, which is the half
 // that gates: the classifier is only worth anything if the jobs actually
 // consult it, and a job added or an output renamed would otherwise be found
 // by a pull request that skipped its own checks.
@@ -240,8 +240,8 @@ describe('changeClass', () => {
       want: { class: 'product', security: true, storedData: true },
     },
     {
-      situation: 'a workflow, the branch-protection payload, the security-review instructions or Wrangler\'s configuration, none of them stored data',
-      paths: ['.github/workflows/ci.yml', '.github/branch-protection.json', '.github/security-review-instructions.md', 'apps/api/wrangler.jsonc'],
+      situation: 'a workflow, the branch-protection payload, the composite action or Wrangler\'s configuration, none of them stored data',
+      paths: ['.github/workflows/ci.yml', '.github/branch-protection.json', '.github/actions/setup/action.yml', 'apps/api/wrangler.jsonc'],
       want: { class: 'product', security: true, storedData: false },
     },
     {
@@ -297,17 +297,14 @@ describe('isSecurityPath and isStoredDataPath', () => {
     assert.equal(isStoredDataPath('apps/api/src/accounts/store.ts'), true, "the Durable Object every account's rows are actually read and written through");
   });
 
-  it('calls its own gate security, so a change that weakens the gate cannot classify itself out of review', () => {
-    // Found by CI's own code review on this issue's pull request: the
-    // `changes` job classifies with the *base* commit's copy of this module,
-    // so a change to the gate itself has to be on this list or it would get
-    // `security_changed=false` from that unweakened base copy and skip the
-    // one review that would have caught it.
+  it('calls its own classifier security, so a change that weakens it cannot classify itself out of review', () => {
+    // A change to the classifier itself has to be on this list, or it would
+    // classify itself as harmless and skip the one review that would have
+    // caught it - the local `/security-review` Review findings' table asks
+    // for, since "Remove the remote code and security reviews".
     for (const path of [
       'scripts/lib/what-changed.mjs',
       'scripts/what-changed.mjs',
-      'scripts/lib/review-gate.mjs',
-      'scripts/assert-security-review.mjs',
       '.github/actions/setup/action.yml',
     ]) {
       assert.equal(isSecurityPath(path), true, `${path} decides or asserts the verdict and should be a security path`);
@@ -418,8 +415,7 @@ describe('printable', () => {
     // Flattening the newline stops a path from opening a new log line, but
     // every printed line already starts with a two-space indent, so a runner
     // that trims leading whitespace before matching a command would still read
-    // one sitting right after it - the same hazard review-gate.mjs's `oneLine`
-    // breaks up, which this mirrors.
+    // one sitting right after it, so every `::` is broken up as well.
     assert.equal(printable(`apps/x.ts${NEWLINE}::stop-commands::4f1a`), 'apps/x.ts?: :stop-commands: :4f1a');
     assert.equal(printable('::error::forged'), ': :error: :forged');
   });
@@ -726,140 +722,5 @@ describe('the mechanical checks', () => {
     // nothing reports under, which is what issue 386 was filed to clear.
     const protection = readFileSync(join(repo, '.github/branch-protection.json'), 'utf8');
     assert.doesNotMatch(protection, /CodeQL/, 'branch protection requires a context CodeQL no longer reports');
-  });
-});
-
-describe("the code review's own classifier", () => {
-  // claude-code-review.yml's version of ci.yml's `checks` job - see its
-  // comment there for why this is a second copy rather than a shared one.
-  // Unlike `checks`, this workflow never consolidated several small jobs
-  // into one, so it stays a producer job (`changes`) and a consumer
-  // (`claude-review`) rather than gated steps of a single job. `job`,
-  // `jobIfAny` and `needsOf` are shared module-scope helpers, above.
-  const changes = () => job(workflow('claude-code-review.yml'), 'changes');
-  const claudeReview = () => job(workflow('claude-code-review.yml'), 'claude-review');
-
-  it('publishes the same product_changed output, read from the base commit', () => {
-    const block = changes();
-    assert.match(block, /product_changed: \$\{\{ steps\.classify\.outputs\.product_changed \}\}/, 'the changes job publishes no answer');
-    assert.match(block, /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/, 'the base commit is never named');
-    assert.match(block, /git show "\$BASE_SHA:scripts\/what-changed\.mjs"/, "the base commit's own wrapper is not taken");
-    assert.match(block, /git show "\$BASE_SHA:scripts\/lib\/what-changed\.mjs"/, "the base commit's own module is not taken");
-    assert.doesNotMatch(block, /node scripts\/what-changed\.mjs/, 'this workflow never triggers on push, so it should not carry a push fallback');
-  });
-
-  it('cannot skip on a classifier that failed rather than answered', () => {
-    // Mirrors ci.yml's own version of this test: both steps continue past a
-    // failure, and the else branch fails open (`product_changed=true`
-    // written directly) rather than falling back to this branch's own copy.
-    const block = changes();
-    const steps = (block.match(/^ {6}- \w+:/gm) ?? []).length;
-    const continues = (block.match(/^ {8}continue-on-error: true$/gm) ?? []).length;
-    assert.ok(steps >= 2, `expected at least two steps in the changes job, found ${steps}`);
-    assert.equal(continues, steps, `every step of the changes job should continue on error (${continues} of ${steps} do)`);
-    const elseBranch = block.slice(block.indexOf('else', block.indexOf('git show')));
-    assert.doesNotMatch(elseBranch, /node /, 'the else branch still runs a classifier - which one, on whose copy?');
-    assert.match(elseBranch, /product_changed=true/, 'the else branch does not fail open directly');
-  });
-
-  it('skips itself on a fork, a draft or a bot pull request, the same way claude-review does', () => {
-    // Those three already cost this workflow zero runner minutes before this
-    // classifier existed - claude-review's own job-level `if:` was enough on
-    // its own to never start one. Without the same guard here, every one of
-    // those pull requests would pay for a checkout computing an answer
-    // claude-review would ignore regardless, reintroducing exactly the cost
-    // the guard exists to avoid.
-    const block = changes();
-    for (const clause of [
-      'github.event.pull_request.head.repo.full_name == github.repository',
-      'github.event.pull_request.draft == false',
-      "github.event.pull_request.user.type != 'Bot'",
-    ]) {
-      assert.ok(block.includes(clause), `the changes job is missing the guard: ${clause}`);
-    }
-  });
-
-  it('gates claude-review on what changed, the same way ci.yml gates its own mechanical jobs', () => {
-    const block = claudeReview();
-    assert.ok(needsOf(block).includes('changes'), 'the claude-review job does not wait for what changed');
-    assert.match(block, /!cancelled\(\)/, 'the gate should run despite changes failing outright, not only despite its output being unset');
-    assert.match(block, /needs\.changes\.outputs\.product_changed != 'false'/, 'the claude-review job does not read the classifier');
-  });
-
-  it('skips the whole job, assert step included, so the gate can never read the skip as a decline', () => {
-    // "Assert the review actually ran" is a step of claude-review itself, not
-    // a job of its own - so the same `if:` that skips a fork, a draft or a
-    // bot pull request skips this step with it, and a documentation-only one
-    // is skipped the identical way. There is no path here where the review
-    // step is skipped but the assert step still runs against an empty
-    // execution file, which is what would read a legitimate skip as a
-    // reviewer that looked and said nothing.
-    const block = claudeReview();
-    assert.match(block, /Assert the review actually ran/, 'the assert step should live inside the claude-review job');
-    assert.equal(jobIfAny(workflow('claude-code-review.yml'), 'assert-code-review'), null, 'the assert step should not be split into a job of its own');
-  });
-});
-
-describe("the security review's own classifier", () => {
-  // claude-security-review.yml's version of the same `changes`/consumer
-  // pair claude-code-review.yml carries - "Review a change as much as what
-  // it touches needs, and recheck only what a fix changed" (issue 423). The
-  // consumer job kept its pre-existing name, `security-review`, rather than
-  // being renamed to match `claude-review`.
-  const changes = () => job(workflow('claude-security-review.yml'), 'changes');
-  const securityReview = () => job(workflow('claude-security-review.yml'), 'security-review');
-
-  it('publishes a security_changed output, read from the base commit', () => {
-    const block = changes();
-    assert.match(block, /security_changed: \$\{\{ steps\.classify\.outputs\.security_changed \}\}/, 'the changes job publishes no answer');
-    assert.match(block, /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/, 'the base commit is never named');
-    assert.match(block, /git show "\$BASE_SHA:scripts\/what-changed\.mjs"/, "the base commit's own wrapper is not taken");
-    assert.match(block, /git show "\$BASE_SHA:scripts\/lib\/what-changed\.mjs"/, "the base commit's own module is not taken");
-    assert.doesNotMatch(block, /node scripts\/what-changed\.mjs/, 'this workflow never triggers on push, so it should not carry a push fallback');
-  });
-
-  it('cannot skip on a classifier that failed rather than answered', () => {
-    // Mirrors ci.yml's and claude-code-review.yml's own versions of this
-    // test: both steps continue past a failure, and the else branch fails
-    // open (`security_changed=true` written directly) rather than falling
-    // back to this branch's own copy.
-    const block = changes();
-    const steps = (block.match(/^ {6}- \w+:/gm) ?? []).length;
-    const continues = (block.match(/^ {8}continue-on-error: true$/gm) ?? []).length;
-    assert.ok(steps >= 2, `expected at least two steps in the changes job, found ${steps}`);
-    assert.equal(continues, steps, `every step of the changes job should continue on error (${continues} of ${steps} do)`);
-    const elseBranch = block.slice(block.indexOf('else', block.indexOf('git show')));
-    assert.doesNotMatch(elseBranch, /node /, 'the else branch still runs a classifier - which one, on whose copy?');
-    assert.match(elseBranch, /security_changed=true/, 'the else branch does not fail open directly');
-  });
-
-  it('skips itself on a fork, a draft or a bot pull request, the same way security-review does', () => {
-    const block = changes();
-    for (const clause of [
-      'github.event.pull_request.head.repo.full_name == github.repository',
-      'github.event.pull_request.draft == false',
-      "github.event.pull_request.user.type != 'Bot'",
-    ]) {
-      assert.ok(block.includes(clause), `the changes job is missing the guard: ${clause}`);
-    }
-  });
-
-  it('gates security-review on what changed, the same way claude-review is gated', () => {
-    const block = securityReview();
-    assert.ok(needsOf(block).includes('changes'), 'the security-review job does not wait for what changed');
-    assert.match(block, /!cancelled\(\)/, 'the gate should run despite changes failing outright, not only despite its output being unset');
-    assert.match(block, /needs\.changes\.outputs\.security_changed != 'false'/, 'the security-review job does not read the classifier');
-  });
-
-  it('skips the whole job, verdict assertion included, so the gate can never read the skip as a decline', () => {
-    // "Assert the review reached a verdict" is a step of security-review
-    // itself, not a job of its own - mirroring claude-review's own assert
-    // step, for the same reason: a non-security diff is skipped the
-    // identical way a fork, draft or bot pull request already is, so there
-    // is no path where the review step is skipped but the assert step still
-    // runs against an empty execution file.
-    const block = securityReview();
-    assert.match(block, /Assert the review reached a verdict/, 'the assert step should live inside the security-review job');
-    assert.equal(jobIfAny(workflow('claude-security-review.yml'), 'assert-security-review'), null, 'the assert step should not be split into a job of its own');
   });
 });

@@ -1,6 +1,6 @@
 //
 // Unit tests for planTestRun, run by `node --test` from the Scripts step -
-// the same place review-gate.test.mjs and the rest of scripts/lib are
+// the same place the rest of scripts/lib is
 // asserted. Each case here is a row of the statement list from "Run only the
 // affected tests in CI's Test job on a pull request" (issue 346) or "Stop a
 // documentation edit forcing every package's tests to run in full" (issue
