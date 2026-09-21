@@ -513,13 +513,21 @@ jobs:
       # and publish it beside the other two", issue 515).
       - name: Find the latest lead-time page
         id: lead-time
-        # Reads the artifact list; a refused call is a missing page, as below.
+        # Reads the run and artifact lists; a refused call is a missing page, as
+        # below. **The artifact is trusted through its run, not its name or
+        # branch**: a pull request from a fork branched `main` uploads an
+        # artifact of any name whose `head_branch` reads `main`, and this job
+        # would publish it on the site's own origin. So only the runs of
+        # nightly.yml itself, on `main`, started by its schedule or by a person
+        # with write access, in this repository, are read from.
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=lead-time-report&per_page=100" \
-            --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")] | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty')
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly.yml/runs?branch=main&per_page=50" \
+            --jq '[.workflow_runs[] | select((.event == "schedule" or .event == "workflow_dispatch") and .head_repository.full_name == env.GITHUB_REPOSITORY) | .id]')
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=lead-time-report&per_page=100" |
+            jq -r --argjson runs "$runs" '[.artifacts[] | select(.expired == false and (.workflow_run.id as $r | $runs | index($r)))] | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty')
           echo "run-id=$id" >> "$GITHUB_OUTPUT"
       - name: Take the lead-time page, if there is one
         if: ${{ steps.lead-time.outputs.run-id != '' }}

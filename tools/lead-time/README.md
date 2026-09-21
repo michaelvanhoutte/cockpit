@@ -12,7 +12,7 @@ already stores this history, so every run re-derives it.
 Built once a night by the `Lead time` job of
 [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml), which says why it is not
 per merge, and by hand from the Actions tab when a night was missed. It is uploaded as the
-`lead-time-report` artifact, and `Publish` in `ci.yml` takes the newest one from `main` into
+`lead-time-report` artifact, and `Publish` in `ci.yml` takes the newest one a nightly run on `main` made into
 **<https://michaelvanhoutte.github.io/cockpit/lead-time/>**, beside the test explorer and the
 [CI stability page](../ci-stability/README.md): the page is the last night's, refreshed onto the
 site by the next merge, and a missing one costs this page and never the site.
