@@ -16,6 +16,7 @@
     "test:fast": "pnpm -r test:fast && pnpm test:scripts && pnpm test:lint",
     "test:all": "pnpm -r test:all && pnpm test:scripts && pnpm test:lint && pnpm test:e2e",
     "test:e2e": "playwright test",
+    "test:e2e:ceilings": "node scripts/e2e-ceilings.mjs",
     "test:scripts": "node --test scripts/lib/*.test.mjs",
     "test:lint": "node --test tests/lint/*.test.mjs",
     "test:coverage": "pnpm -r test:coverage",

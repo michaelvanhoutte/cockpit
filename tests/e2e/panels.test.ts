@@ -227,12 +227,24 @@ async function expectLayouts(page: Page, made: number, isMobile: boolean): Promi
 }
 
 test.describe('Panels', () => {
-  test.describe('a panel you add is one you can rename and delete on the dashboard itself', () => {
-    test('puts it on the dashboard and keeps it there through both', async ({
+  /**
+   * The three things done to a panel from its own header, in one walk because
+   * they are one setup: a dashboard with panels on it. Moving is here rather
+   * than beside the drag that also moves one ("Move a panel to another
+   * dashboard, from its menu or by dragging it onto a tab", issue 439),
+   * because a finger has no drag - the menu is the only route a phone has, and
+   * this walk runs on both projects. What the picker offers, and that a name
+   * collision is renamed rather than refused, are settled below jsdom's own
+   * layout engine in apps/web/tests/unit/components/PanelBoard.test.tsx and
+   * against a real store in apps/api/tests/integration/http/panels.test.ts.
+   */
+  test.describe('a panel you add is one you can rename, move to another dashboard, and delete', () => {
+    test('puts it on the dashboard and keeps it there through all three', async ({
       page,
       isMobile,
     }) => {
-      await ownDashboard(page, isMobile);
+      const here = await ownDashboard(page, isMobile);
+      const elsewhere = await anotherDashboard(page, here, isMobile);
 
       const falcon = uniqueTitle('Project Falcon');
       const reading = uniqueTitle('To read');
@@ -258,6 +270,19 @@ test.describe('Panels', () => {
       await expect.poll(() => panelsOnScreen(page)).toEqual([renamed]);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
+
+      // And choosing a dashboard in the picker really does take the panel off
+      // the one you were looking at and onto the one you picked.
+      const moved = answerTo(page, 'move_panel_to_dashboard');
+      await choosePanelAction(page, renamed, 'Move to another dashboard', isMobile);
+      const picker = page.getByRole('dialog');
+      await expect(picker).toBeVisible();
+      await press(picker.getByRole('button', { name: elsewhere }), isMobile);
+      expect((await moved).status()).toBe(200);
+
+      await expect(page.getByRole('region', { name: renamed })).toHaveCount(0);
+      await press(dashboardBar(page).getByRole('link', { name: elsewhere }), isMobile);
+      await expect(page.getByRole('region', { name: renamed })).toBeVisible();
     });
   });
 
@@ -487,51 +512,17 @@ test.describe('Panels', () => {
     });
   });
 
-  test.describe('a panel of text is a box on the dashboard you write in', () => {
+  test.describe('a panel of text is a box you write in, drawn as what its words mean once you ask', () => {
     /**
      * The one walk this feature needs, and what it says that no level below it
      * can: the box, the change it sends and the store all agree through a real
-     * reload. What each kind draws is proved in
+     * reload; what a real browser draws from Markdown; and what having the
+     * cursor in the panel does. The last two need real focus and a real layout
+     * engine. What each kind draws is
      * apps/web/tests/unit/components/PanelBoard.test.tsx, and what the store
-     * keeps in apps/api/tests/integration/http/panels.test.ts; neither can say
-     * the words are still there after the page has been thrown away and rebuilt
+     * keeps apps/api/tests/integration/http/panels.test.ts; neither can say the
+     * words are still there after the page has been thrown away and rebuilt
      * from the server.
-     */
-    test('keeps what was written in it across a reload, and locks from its own menu', async ({
-      page,
-      isMobile,
-    }) => {
-      await ownDashboard(page, isMobile);
-      const name = uniqueTitle('What matters');
-      await addPanelOfText(page, name, isMobile);
-
-      const written = answerTo(page, 'set_panel_text');
-      await page.getByRole('textbox', { name }).fill('Standing agenda');
-      // Nothing else to do: what was typed goes up once the typing stops, so
-      // the walk waits for the change rather than pressing anything to force
-      // it. Clicking away would not help either — the header is the panel's
-      // drag handle, so a click there is the start of a gesture, not a blur.
-      expect((await written).status()).toBe(200);
-
-      await page.reload();
-      await expect(page.getByRole('textbox', { name })).toHaveValue('Standing agenda');
-
-      const locked = answerTo(page, 'set_panel_read_only');
-      await choosePanelAction(page, name, 'Make read-only', isMobile);
-      expect((await locked).status()).toBe(200);
-
-      // No box left to type in, and the words still there to read.
-      await expect(page.getByRole('textbox', { name })).toHaveCount(0);
-      await expect(page.getByRole('region', { name }).getByText('Standing agenda')).toBeVisible();
-      await expectNoSidewaysScroll(page);
-    });
-  });
-
-  test.describe('a panel of text is drawn as what its words mean once you ask', () => {
-    /**
-     * The two claims no level below this one can make: what a real browser
-     * draws from Markdown, and what having the cursor in the panel does. Both
-     * need real focus and a real layout engine.
      *
      * **Not what the page fetches**, which is what the split is for and is not
      * provable here: this tier runs the Vite dev server (scripts/e2e-stack.mjs),
@@ -541,7 +532,7 @@ test.describe('Panels', () => {
      * reading a formatted panel never asks for the editor is
      * apps/web/tests/unit/panels/PanelText.test.tsx.
      */
-    test('draws the words, shows its bar only while you write, and gives the characters back', async ({
+    test('keeps what was written across a reload, draws the words once asked, shows its bar only while you write, and locks from its own menu', async ({
       page,
       isMobile,
     }) => {
@@ -552,9 +543,18 @@ test.describe('Panels', () => {
 
       const written = answerTo(page, 'set_panel_text');
       await page.getByRole('textbox', { name }).fill('**Pricing** for Atlas Copco');
+      // Nothing else to do: what was typed goes up once the typing stops, so
+      // the walk waits for the change rather than pressing anything to force
+      // it. Clicking away would not help either — the header is the panel's
+      // drag handle, so a click there is the start of a gesture, not a blur.
       expect((await written).status()).toBe(200);
       // Plain: the characters that were typed, asterisks and all.
       await expect(panel).toContainText('**Pricing**');
+
+      // Really stored, rather than only drawn: the same words after the page
+      // has been thrown away and read again.
+      await page.reload();
+      await expect(page.getByRole('textbox', { name })).toHaveValue('**Pricing** for Atlas Copco');
 
       const formatted = answerTo(page, 'set_panel_format');
       await choosePanelAction(page, name, 'Use rich text', isMobile);
@@ -581,22 +581,31 @@ test.describe('Panels', () => {
       //
       // To the character, because how it is drawn was never what it is.
       await expect(panel.locator('textarea')).toHaveValue('**Pricing** for Atlas Copco');
+
+      const locked = answerTo(page, 'set_panel_read_only');
+      await choosePanelAction(page, name, 'Make read-only', isMobile);
+      expect((await locked).status()).toBe(200);
+
+      // No box left to type in, and the words still there to read.
+      await expect(page.getByRole('textbox', { name })).toHaveCount(0);
+      await expect(panel.getByText('**Pricing** for Atlas Copco')).toBeVisible();
       await expectNoSidewaysScroll(page);
     });
   });
 
-  test.describe('a panel goes where you drag it', () => {
+  test.describe('a panel goes where you drag it, on this dashboard or onto another', () => {
     // Desktop only, and the reason is the gesture rather than the screen: a
     // panel is moved with a pointer held down and dragged, which a finger
     // spends on scrolling the page instead - moving there is the entry in the
     // panel's own menu, which the walk above drives on both projects.
     test.skip(({ isMobile }) => !!isMobile, 'dragging a panel is a pointer gesture');
 
-    test('joins the row of the panel it was dropped on, and leaves the row behind', async ({
+    test('joins the row it is dropped on, takes a line of its own in the gap between two, and changes dashboard when dropped on a tab', async ({
       page,
       isMobile,
     }) => {
-      await ownDashboard(page, isMobile);
+      const here = await ownDashboard(page, isMobile);
+      const elsewhere = await anotherDashboard(page, here, isMobile);
       const first = uniqueTitle('Project Falcon');
       const second = uniqueTitle('To read');
       const third = uniqueTitle('People');
@@ -644,32 +653,21 @@ test.describe('Panels', () => {
       // One row now, holding all three, and the line the third panel came from
       // has gone with it rather than staying behind as a blank.
       await expect.poll(() => rowsOnScreen(page)).toEqual([[third, first, second]]);
-      await expectNoSidewaysScroll(page);
-      await expectTheDashboardFits(page);
-    });
 
-    test('takes a line of its own when it is let go in the gap between two rows', async ({
-      page,
-      isMobile,
-    }) => {
-      // The seam is four pixels of gap at rest and opens to something a hand
-      // can hit only while a panel is actually in the air, so whether it is a
-      // target at all is a question about a real drag against a real layout -
-      // the one claim in this gesture that no amount of firing events at the
-      // element can answer. The board's half of it, what the drop *means*, is
-      // settled in apps/web/tests/unit/components/PanelBoard.test.tsx.
-      await ownDashboard(page, isMobile);
-      const first = uniqueTitle('Project Falcon');
-      const second = uniqueTitle('To read');
-      await addPanel(page, first, isMobile);
-      await addPanel(page, second, isMobile);
-      await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second]]);
-
+      // **And let go in the gap between rows, a panel takes a line of its
+      // own.** The seam is four pixels of gap at rest and opens to something a
+      // hand can hit only while a panel is actually in the air, so whether it
+      // is a target at all is a question about a real drag against a real
+      // layout - the one claim in this gesture that no amount of firing events
+      // at the element can answer. The board's half of it, what the drop
+      // *means*, is settled in
+      // apps/web/tests/unit/components/PanelBoard.test.tsx.
+      //
       // Aimed at where the gap above the row *is*, measured while the drag is
       // on rather than beforehand: at rest it is four pixels, and a point
       // picked from that would be off the seam the moment it opened.
-      const saved = answerTo(page, 'save_layout');
-      const board = page.getByRole('region', { name: first });
+      const toItsOwnLine = answerTo(page, 'save_layout');
+      const board = page.getByRole('region', { name: second });
       await page.mouse.move(...(await centreOf(board.locator('header'))));
       await page.mouse.down();
       const seam = page.locator('main [data-testid="row-seam"]').first();
@@ -678,96 +676,59 @@ test.describe('Panels', () => {
       await page.mouse.move(...(await centreOf(board)), { steps: 4 });
       await page.mouse.move(...(await centreOf(seam)), { steps: 4 });
       await page.mouse.up();
-      expect((await saved).status()).toBe(200);
+      expect((await toItsOwnLine).status()).toBe(200);
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[second], [third, first]]);
 
-      await expect.poll(() => rowsOnScreen(page)).toEqual([[first], [second]]);
+      // **And let go on another dashboard's own tab, it goes there** ("Move a
+      // panel to another dashboard, from its menu or by dragging it onto a
+      // tab", issue 439). The same handle and the same gesture; what is new is
+      // where it is let go, on a part of the page drawn by something other
+      // than the board that captured the pointer.
+      const movedAway = answerTo(page, 'move_panel_to_dashboard');
+      await page.mouse.move(
+        ...(await centreOf(page.getByRole('region', { name: third }).locator('header'))),
+      );
+      await page.mouse.down();
+      await page.mouse.move(...(await centreOf(dashboardTab(page, elsewhere))), { steps: 8 });
+      await page.mouse.up();
+      expect((await movedAway).status()).toBe(200);
+
+      await expect(page.getByRole('region', { name: third })).toHaveCount(0);
+      await press(dashboardBar(page).getByRole('link', { name: elsewhere }), isMobile);
+      await expect(page.getByRole('region', { name: third })).toBeVisible();
+
+      await press(dashboardBar(page).getByRole('link', { name: here }), isMobile);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
     });
   });
 
-  test.describe('a panel moves to another dashboard from its own menu', () => {
-    /**
-     * "Move a panel to another dashboard, from its menu or by dragging it onto
-     * a tab" (issue 439). What the picker offers, and that a name collision is
-     * renamed rather than refused, are settled below jsdom's own layout engine
-     * in apps/web/tests/unit/components/PanelBoard.test.tsx and against a real
-     * store in apps/api/tests/integration/http/panels.test.ts; what only a
-     * browser can say is that choosing a dashboard really does take the panel
-     * off the one you were looking at and onto the one you picked.
-     */
-    test('takes it off the dashboard it was on, onto the one picked', async ({ page, isMobile }) => {
-      const here = await ownDashboard(page, isMobile);
-      const elsewhere = await anotherDashboard(page, here, isMobile);
-
-      const falcon = uniqueTitle('Project Falcon');
-      await addPanel(page, falcon, isMobile);
-
-      const moved = answerTo(page, 'move_panel_to_dashboard');
-      await choosePanelAction(page, falcon, 'Move to another dashboard', isMobile);
-      const dialog = page.getByRole('dialog');
-      await expect(dialog).toBeVisible();
-      await press(dialog.getByRole('button', { name: elsewhere }), isMobile);
-      expect((await moved).status()).toBe(200);
-
-      await expect(page.getByRole('region', { name: falcon })).toHaveCount(0);
-      await press(dashboardBar(page).getByRole('link', { name: elsewhere }), isMobile);
-      await expect(page.getByRole('region', { name: falcon })).toBeVisible();
-    });
-  });
-
-  test.describe('dropping a dragged panel on another dashboard’s tab moves it there', () => {
-    // Desktop only, the reason every other drag in this file is: a panel is
-    // moved with a pointer held down, which a finger spends on scrolling the
-    // page - moving there is the entry in the panel's own menu, walked above
-    // on both projects.
-    test.skip(({ isMobile }) => !!isMobile, 'dragging a panel is a pointer gesture');
-
-    test('moves it there, the same way the menu’s picker does', async ({ page, isMobile }) => {
-      const here = await ownDashboard(page, isMobile);
-      const elsewhere = await anotherDashboard(page, here, isMobile);
-
-      const falcon = uniqueTitle('Project Falcon');
-      await addPanel(page, falcon, isMobile);
-
-      const moved = answerTo(page, 'move_panel_to_dashboard');
-      // The header is the handle, the same gesture the within-dashboard drags
-      // above use - what is new here is where it is let go: on the other
-      // dashboard's own tab, drawn by a different part of the page than the
-      // board that captured the pointer.
-      await page.mouse.move(
-        ...(await centreOf(page.getByRole('region', { name: falcon }).locator('header'))),
-      );
-      await page.mouse.down();
-      await page.mouse.move(...(await centreOf(dashboardTab(page, elsewhere))), { steps: 8 });
-      await page.mouse.up();
-      expect((await moved).status()).toBe(200);
-
-      await expect(page.getByRole('region', { name: falcon })).toHaveCount(0);
-      await press(dashboardBar(page).getByRole('link', { name: elsewhere }), isMobile);
-      await expect(page.getByRole('region', { name: falcon })).toBeVisible();
-    });
-  });
-
-  test.describe('a row is as tall, and a panel as wide, as the line you drag says', () => {
+  /**
+   * "A Panel doesn't shrink or scroll to fit a shorter dashboard row" (issue
+   * 432). The one claim no level below can make: both lines are four pixels of
+   * gap, and whether a hand can take hold of one at all is a question about a
+   * real pointer against a real layout - as is containment, which is real
+   * flex/grid layout math jsdom cannot compute at all. What the gestures
+   * *mean* is settled in apps/web/tests/unit/components/PanelBoard.test.tsx,
+   * and the arithmetic under them in
+   * apps/web/tests/unit/panels/arrangement.test.ts.
+   */
+  test.describe('a row is as tall, and a panel as wide, as the line you drag says, and nothing spills out of it', () => {
     // Desktop only for the reason the drag above is: both lines are taken hold
     // of with a pointer, which a finger spends on scrolling the page.
     test.skip(({ isMobile }) => !!isMobile, 'sizing a row is a pointer gesture');
 
-    test('keeps the height and the shares a drag sets, across a reload', async ({
+    test('keeps the height and the shares a drag sets across a reload, shrinks and scrolls a panel to fit a row dragged short, and shows everything again once the row is let back', async ({
       page,
       isMobile,
     }) => {
-      // The one claim no level below can make: both lines are four pixels of
-      // gap, and whether a hand can take hold of one at all is a question about
-      // a real pointer against a real layout. What the gestures *mean* is
-      // settled in apps/web/tests/unit/components/PanelBoard.test.tsx, and the
-      // arithmetic under them in apps/web/tests/unit/panels/arrangement.test.ts.
       await ownDashboard(page, isMobile);
       const first = uniqueTitle('Project Falcon');
       const second = uniqueTitle('To read');
       await addPanel(page, first, isMobile);
       await addPanel(page, second, isMobile);
+      // Two fit across a desktop board, so both land on one row without a
+      // drag - the row this walk goes on to size.
       await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second]]);
 
       const row = page.locator('main [style*="grid-template-columns"]').first();
@@ -777,7 +738,7 @@ test.describe('Panels', () => {
       // under the hand and sends it only when the hand stops.
       let saved = answerTo(page, 'save_layout');
       const under = page.getByTestId('row-line').first();
-      const [lineX, lineY] = await centreOf(under);
+      let [lineX, lineY] = await centreOf(under);
       await page.mouse.move(lineX, lineY);
       await page.mouse.down();
       await page.mouse.move(lineX, lineY + 120, { steps: 8 });
@@ -805,40 +766,17 @@ test.describe('Panels', () => {
       await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second]]);
       await expect.poll(async () => (await row.boundingBox())!.height).toBe(wasTall + 120);
       await expect.poll(() => shareOfTheRow(page, first, second)).toBeCloseTo(2, 1);
-      await expectNoSidewaysScroll(page);
-      await expectTheDashboardFits(page);
-    });
-  });
 
-  /**
-   * "A Panel doesn't shrink or scroll to fit a shorter dashboard row" (issue
-   * 432). Containment is real flex/grid layout math - whether a panel's own
-   * box, and the well inside it, actually stay inside the row drawn around
-   * them - which jsdom cannot compute at all. What the gestures themselves
-   * mean is already settled above and in
-   * apps/web/tests/unit/panels/arrangement.test.ts; what is only true here is
-   * that nothing spills.
-   */
-  test.describe('a Panel never shows more than its row gives it', () => {
-    // Sizing a row is a pointer gesture, for the reason the drag above is.
-    test.skip(({ isMobile }) => !!isMobile, 'sizing a row is a pointer gesture');
-
-    test('shrinks and scrolls a panel to fit a row dragged short, and shows everything again once the row is let back', async ({
-      page,
-      isMobile,
-    }) => {
-      await ownDashboard(page, isMobile);
-      const busy = uniqueTitle('Project Falcon');
-      const bare = uniqueTitle('To read');
-      await addPanel(page, busy, isMobile);
-      await addPanel(page, bare, isMobile);
-      // Two fit across a desktop board, so both land on one row without a
-      // drag - the row this walk goes on to shrink.
-      await expect.poll(() => rowsOnScreen(page)).toEqual([[busy, bare]]);
-
-      // Enough items that the row's own natural height is well past the
-      // floor a drag can shrink it to - otherwise shrinking it would prove
-      // nothing.
+      // **And nothing shows more than its row gives it.** Whether a panel's
+      // own box, and the well inside it, really stay inside the row drawn
+      // around them is the half of this no arithmetic below the tier can
+      // check.
+      //
+      // Enough items that the row's own natural height is well past the floor
+      // a drag can shrink it to - otherwise shrinking it would prove nothing.
+      // Filled here rather than at the top, because the drags above are
+      // written against the row two empty panels make and a taller one would
+      // put the line they take hold of off the bottom of the screen.
       const items = Array.from({ length: 8 }, (_, at) => uniqueTitle(`Item ${at}`));
       for (const title of items) await capture(page, title, isMobile);
 
@@ -856,27 +794,27 @@ test.describe('Panels', () => {
       await page.getByRole('button', { name: 'Move to…' }).click();
       const picker = page.getByRole('dialog');
       await expect(picker).toBeVisible();
-      await picker.getByRole('button', { name: busy, exact: true }).click();
+      await picker.getByRole('button', { name: first, exact: true }).click();
       await expect(picker).toHaveCount(0);
       // Filing several keeps the Inbox's own order, oldest first - unlike
       // filing one at a time, which lands each on top of the one before - so
       // the last item captured is the last on the panel too.
-      await expect.poll(() => itemsOn(page, busy)).toEqual(items);
+      await expect.poll(() => itemsOn(page, first)).toEqual(items);
 
-      const row = page.locator('main [style*="grid-template-columns"]').first();
-      const busyWell = page.getByRole('region', { name: busy }).locator('.well');
-      const bareWell = page.getByRole('region', { name: bare }).locator('.well');
+      // The first panel is the busy one from here on, holding all eight; the
+      // second has nothing in it, which is what makes the pair a comparison.
+      const busyWell = page.getByRole('region', { name: first }).locator('.well');
+      const bareWell = page.getByRole('region', { name: second }).locator('.well');
       expect(
         (await row.boundingBox())!.height,
-        'eight items should already need more than the floor',
+        'the row should already stand well above the floor, or shrinking it proves nothing',
       ).toBeGreaterThan(MIN_ROW_HEIGHT);
 
       // Dragged far past the floor rather than to it exactly, so the result
       // does not depend on how tall this checkout's items happen to measure:
       // `withRowHeight` clamps whatever the pointer says.
-      let saved = answerTo(page, 'save_layout');
-      const under = page.getByTestId('row-line').first();
-      let [lineX, lineY] = await centreOf(under);
+      saved = answerTo(page, 'save_layout');
+      [lineX, lineY] = await centreOf(under);
       await page.mouse.move(lineX, lineY);
       await page.mouse.down();
       await page.mouse.move(lineX, lineY - 1000, { steps: 8 });
@@ -887,8 +825,8 @@ test.describe('Panels', () => {
       // Neither panel's own box reaches past the row around it - the claim
       // the issue makes, and the one no arithmetic below this tier can check.
       let rowBox = (await row.boundingBox())!;
-      const busyBox = (await page.getByRole('region', { name: busy }).boundingBox())!;
-      const bareBox = (await page.getByRole('region', { name: bare }).boundingBox())!;
+      const busyBox = (await page.getByRole('region', { name: first }).boundingBox())!;
+      const bareBox = (await page.getByRole('region', { name: second }).boundingBox())!;
       expect(
         busyBox.y + busyBox.height,
         'the busy panel spills past its row',
@@ -904,7 +842,7 @@ test.describe('Panels', () => {
       // last item captured is the last on the panel - the one a scroll has
       // to reach.
       expect(await busyWell.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
-      const lastOnThePanel = page.getByRole('region', { name: busy }).getByText(items.at(-1)!);
+      const lastOnThePanel = page.getByRole('region', { name: first }).getByText(items.at(-1)!);
       await busyWell.evaluate((el) => {
         el.scrollTop = el.scrollHeight;
       });
