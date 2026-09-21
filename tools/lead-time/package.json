@@ -1,0 +1,23 @@
+{
+  "name": "@cockpit/lead-time",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Works out how long each merged pull request spent being written against waiting on the harness, from the pull request and Actions APIs and each pull request's session record.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "generate": "node src/cli.js",
+    "model": "node src/cli.js --json",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:fast": "pnpm test:unit",
+    "test:all": "vitest run",
+    "test:coverage": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}
