@@ -4,9 +4,7 @@
     "contexts": [
       "Checks",
       "Test",
-      "E2E (F3)",
-      "claude-review",
-      "Security review"
+      "E2E (F3)"
     ]
   },
   "enforce_admins": false,

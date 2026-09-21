@@ -13,7 +13,7 @@ name: CodeQL
 # (branch-protection.json) is not applying it. They were not applied until 13
 # September 2026, and deployment.md's "Bootstrap runbook" has what that cost.
 #
-# Deliberately no path filters, on this workflow or on claude-code-review.yml.
+# Deliberately no path filters on this workflow.
 # A required status check whose *workflow* never triggers does not report green -
 # it does not report at all, and a pull request that required one would wait on
 # it forever. Moot for the push and schedule triggers here, which nothing
@@ -94,10 +94,8 @@ jobs:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
 
-      # No assertion step, unlike claude-code-review.yml. That gate exists
-      # because a Claude session can decline to review and still exit zero; this
-      # action fails the job when the analysis fails, so a broken run is already
-      # red rather than a green tick over nothing.
+      # No assertion step: this action fails the job when the analysis fails,
+      # so a broken run is already red rather than a green tick over nothing.
       - name: Analyse
         uses: github/codeql-action/analyze@v3
         with:

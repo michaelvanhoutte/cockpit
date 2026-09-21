@@ -1,10 +1,13 @@
 //
 // The I/O around scripts/lib/what-changed.mjs, for the classifier step of
-// ci.yml's `checks` job, claude-code-review.yml's own `changes` job, and
-// claude-security-review.yml's own `changes` job. Everything that decides
-// anything - including every way the decision can fail - is in the module,
-// which node --test covers in the Scripts step. This supplies the two
-// readers, prints what it is told to, and writes both outputs.
+// ci.yml's `checks` job - the only consumer left since "Remove the remote
+// code and security reviews" deleted the two that also read it. Everything
+// that decides anything - including every way the decision can fail - is in
+// the module, which node --test covers in the Scripts step. This supplies
+// the two readers, prints what it is told to, and writes both outputs;
+// `security_changed` is written for a reader that no workflow currently is,
+// since scripts/local-changes.mjs answers the same question of a working
+// tree for Review findings' table.
 //
 // Usage: node scripts/what-changed.mjs   (on a runner, with GITHUB_OUTPUT set)
 //
@@ -42,13 +45,9 @@ if (process.env.GITHUB_OUTPUT) {
 }
 
 if (process.env.GITHUB_STEP_SUMMARY) {
-  // Says nothing about `security` here: this script's summary is shared by
-  // ci.yml's `checks` job and claude-code-review.yml's `changes` job too,
-  // neither of which runs the security review - a security-specific line
-  // printed into either of their job summaries would claim something about a
-  // job that never runs there. claude-security-review.yml's own skip is
-  // legible from its Checks tab entry going straight to "skipped", the same
-  // way claude-code-review.yml's documentation-only skip already is.
+  // Says nothing about `security` here: this summary belongs to ci.yml's
+  // `checks` job, which runs no security-specific work, so a line about it
+  // would claim something about a job that never runs there.
   const summary = changed
     ? 'This diff touches the product, so every mechanical check runs.'
     : 'This diff touches only `docs/`, `.claude/` and root-level Markdown, so the mechanical checks skip. Each still reports, as skipped.';

@@ -899,7 +899,7 @@ Then, by hand (no API, or deliberately not automated):
      three contexts, and cover codeql.yml's trigger with a test" (issue 386)
      applied the payload by hand. The reviews' absence was a third and older
      drift: "Require the two Claude reviews, once it is known what a required
-     review would break" (issue 310, below) added them to the payload hours
+     review would break" (issue 310) added them to the payload hours
      after issue 276's application on 2026-09-09, so they too were required for
      the first time on 2026-09-13. So read the live setting whenever the answer
      matters:
@@ -908,86 +908,16 @@ Then, by hand (no API, or deliberately not automated):
      gh api repos/michaelvanhoutte/cockpit/branches/main/protection --jq '.required_status_checks.contexts'
      ```
 
-     **Whether `claude-review` and `Security review` belong in this list was investigated
-     for "Require the two Claude reviews, once it is known what a required review would
-     break" (issue 310).** Four mechanisms were measured rather than assumed, since nothing
-     in this repository's history had ever required a context shaped like either review's:
+     **`claude-review` and `Security review` left this list with the workflows that
+     reported them**, for "Remove the remote code and security reviews". The numbers
+     behind it, sampled over September: $3.03 a run across 51 code reviews and $0.51
+     across 16 security reviews, the latter having reached a verdict of NONE on 31 of
+     31 pull requests, and the two together under 1% of the account's weekly token
+     use. The saving was small, so what decided it was that the local passes Review
+     findings' table asks for now answer for a change on their own. Restoring either
+     means putting its workflow file and its context back in the same change: a
+     required context no workflow reports blocks every pull request permanently.
 
-     - **A skipped run satisfies a required context.** Measured on a throwaway public
-       repository (deleted after): a job skipping on `draft == true`, required by name,
-       left a draft pull request `mergeable: MERGEABLE` and `mergeStateStatus: CLEAN` while
-       its only check-run read `skipped`. The exclusion of Test Explorer, Publish and
-       Stability above already assumed this; it is now measured rather than assumed,
-       and the mechanical jobs' documentation-only skip is built on it.
-     - **When one name reports twice on a head, the most recent run wins.** The same
-       throwaway pull request went `skipped` (draft) then `success` (marked ready) on one
-       commit and stayed `MERGEABLE` throughout. "Require the checks the payload already
-       lists, so a red browser tier cannot merge" (pull request 291) shows the same shape
-       for real, for both reviews, on the commit that changed this repository's own
-       required contexts.
-     - **A cancelled run reports `cancelled`, not a passing conclusion.** Measured live on
-       "Clean up a captured note into a clear title and a fuller message" (pull request
-       308) while this investigation ran: two `pull_request` events fired seconds apart on
-       one push, and the superseded `claude-review` and `Security review` runs both read
-       `cancelled` on that commit until the surviving run completed. A required context
-       stuck at `cancelled` blocks merge in the meantime, correctly — the commit genuinely
-       had no finished review yet.
-     - **A review that fails to run goes red, not green — and this repository's bot actor hit
-       it live.** Run 34375132552 (`claude-review` on a Dependabot pull request) was a real
-       instance before this issue's own pull request applied the payload: the action refused
-       to run for a disallowed bot actor, produced no execution file, and
-       `scripts/assert-code-review.mjs` marked the check red rather than pass an unreviewed
-       diff. Neither review workflow's `if:` skips a bot the way it skips a fork or a draft, so
-       requiring these contexts left two open Dependabot pull requests at the time —
-       "chore(deps-dev): bump vitest from 4.1.10 to 4.1.11" (pull request 292) and "chore(deps):
-       bump hono from 4.13.1 to 4.13.5" (pull request 293) — unmergeable without an admin
-       bypass the moment the payload applied, found by checking rather than by the issue's own
-       reasoning. Both workflows now skip a bot-authored pull request for the same reason they
-       already skip a fork's, rather than asking `enforce_admins: false` to carry a cost this
-       repository gets on every dependency bump. No run in this repository's history has
-       failed from a rate limit or a
-       degraded session — the closest available measurement of *that* path is still this one,
-       since the assertion scripts treat every route to "no execution file" alike, and a
-       required context failing that way still stops every merge until it clears.
-
-     **What the green certifies was the fifth question, and it moved while this
-     investigation was running.** `decideCodeReviewOutcome` used to treat a decline because
-     the pull request "has already been reviewed" as a warning rather than a failure, so a
-     head with new commits nobody had looked at could still report success — "The review
-     check goes green when the reviewer declined to look at the new commits" (issue 75).
-     "Fail the review check when the reviewer never looked at the head" (pull request 313)
-     closed it while this issue was open, by making the gate ask whether the reviewer spoke
-     about *this run's own head* rather than the pull request as a whole: a genuine decline
-     against an already-reviewed head still passes, and a decline against a head nobody has
-     seen now fails. `decideSecurityOutcome` never had the equivalent gap — its prompt is
-     instructed to review the current head regardless of history, and its gate fails any run
-     that ends without a fresh `SECURITY-VERDICT` line.
-
-     One narrower gap remains in `decideCodeReviewOutcome`, named in its own comments rather
-     than hidden: when the run cannot place its head in time — no SHA, or GitHub unreachable
-     for the dates a placement needs — the check falls back to "has the reviewer ever spoken
-     here", a warning rather than a failure, sooner than going red at GitHub for being
-     unreachable. That is a narrower version of the same shape issue 75 named, accepted
-     because the alternative is louder than the bug it guards against and about the wrong
-     thing; it is not a reason to hold `claude-review` out of `contexts`, since forcing every
-     placement failure red would trade a rare, already-warned gap for stopping the trunk on
-     an unrelated GitHub outage.
-
-     **Both `claude-review` and `Security review` are required as of the pull request that
-     added this paragraph.** The four mechanisms measured above hold for both, and neither
-     carries an unclosed version of issue 75's gap.
-
-     **A pull request that edits either review workflow file can never pass its own review,
-     permanently, and needs `enforce_admins: false` to merge.** Measured on this issue's own
-     pull request: `anthropics/claude-code-action` refuses to run "a version of itself that is
-     not yet on the repository's default branch," which is every pull request touching
-     `claude-code-review.yml` or `claude-security-review.yml`, by design — the alternative
-     lets a pull request grant its own review elevated behaviour before anyone has seen it.
-     The assert scripts already read this correctly, as "not reviewed" rather than "passed";
-     what changed is that a required context now blocks on it rather than reporting an
-     advisory red. This is the same shape as a required context a legitimate pull request
-     cannot pass through ordinary means, and the same resolution: an admin merge, confirmed
-     with the user first since it bypasses a check this document just made required.
    - **`required_linear_history: true`** — makes §1's squash-merge rule mechanical
      rather than remembered.
    - **`enforce_admins: false`** — keeps an admin escape hatch for emergencies,
