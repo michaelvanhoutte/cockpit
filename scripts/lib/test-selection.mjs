@@ -104,10 +104,17 @@ export function planTestRun({ event, mergeBase, changedFiles = [], packages }) {
     !mergeBase ||
     productFiles.some((path) => isTsconfig(path) || isOutsidePackages(path, packages));
 
+  // Coverage only on a push to `main`, the one place its report is published
+  // (test-explorer); a pull request pays no instrumentation for a report nobody
+  // reads there ("Stop instrumenting coverage on a pull request's test run",
+  // issue 508).
+  const script = event === 'push' ? 'test:coverage' : 'test';
+
   return {
     packages: packages.map((pkg) => ({
       ...pkg,
       mode: forceAll || productFiles.some((path) => forcesThisPackageFull(path, pkg.dir)) ? 'full' : 'changed',
+      script,
     })),
   };
 }

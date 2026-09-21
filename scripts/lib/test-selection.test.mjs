@@ -69,6 +69,16 @@ describe('planTestRun', () => {
     }
   });
 
+  it('runs every package’s plain test script on a pull request, so no instrumentation is paid there', () => {
+    const plan = forPR(['apps/web/src/components/InboxColumn.tsx']);
+    for (const pkg of plan.packages) assert.equal(pkg.script, 'test', pkg.dir);
+  });
+
+  it('runs every package’s test:coverage script on a push to main, so the published report keeps its columns', () => {
+    const plan = planTestRun({ event: 'push', mergeBase: null, changedFiles: [], packages: PACKAGES });
+    for (const pkg of plan.packages) assert.equal(pkg.script, 'test:coverage', pkg.dir);
+  });
+
   it('forces only apps/api into full for a migration, leaving the others selective', () => {
     const plan = forPR(['apps/api/migrations/0007_add_note_state.sql']);
     assert.deepEqual(allModes(plan), { 'packages/shared': 'changed', 'apps/api': 'full', 'apps/web': 'changed' });

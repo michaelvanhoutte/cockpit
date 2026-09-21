@@ -2,10 +2,11 @@
 // Which workspace packages the Test job (.github/workflows/ci.yml) has to
 // know about at all: every package pnpm's own workspace listing reports,
 // narrowed to the ones that declare a "test:coverage" script - what
-// scripts/ci-test.mjs actually runs per package (instrumented, so the suite
-// runs once for both this gate and test-explorer's coverage columns, per
-// "Run the suite once in CI, not once to gate and once to measure", issue
-// 289), and the same set `pnpm test:coverage` ran before scripts/ci-test.mjs
+// scripts/ci-test.mjs actually runs per package (instrumented on a push to
+// `main`, so the suite runs once for both this gate and test-explorer's
+// coverage columns, per "Run the suite once in CI, not once to gate and once
+// to measure", issue 289; plain `test` on a pull request, issue 508 - every
+// package that declares the first declares the second too), and the same set `pnpm test:coverage` ran before scripts/ci-test.mjs
 // took over the Test job's step, per "Run only the affected tests in CI's
 // Test job on a pull request" (issue 346).
 //
