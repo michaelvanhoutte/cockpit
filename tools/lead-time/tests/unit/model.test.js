@@ -431,4 +431,61 @@ describe('Lead time', () => {
       expect(pullModelled.reviews['security-review']).toMatchObject({ runs: 1, heldMs: 6 * MIN });
     });
   });
+
+  describe('a pull request is weighed as time coding and fixing against time in the harness', () => {
+    // Started at 0; a ten-minute local review; first push at 20 (round 20–40), a fix, a second push at 55 (round 55–65).
+    const commits = [commit('a', 0, [check('Test', 20, 40)]), commit('b', 50, [check('Test', 55, 65)])];
+    const reviewed = recordBody([[0, 'start'], [5, 'review-start', 'code-review', 'high'], [15, 'review-end', 'code-review', 'high'], [16, 'pushed']]);
+
+    it('takes the local review out of the coding and puts it with the harness, alongside every round', () => {
+      const { balance } = pullModel(pull({ mergedAt: at(70), commits, body: reviewed }));
+      // Coding: 20 minutes before the push and 15 fixing, less the 10 of review. Harness: 20 + 10 of rounds and the 10 of review.
+      expect(balance).toEqual({ codingMs: 25 * MIN, harnessMs: 40 * MIN, rounds: 2, ratio: 1.6 });
+    });
+
+    it('leaves the wait to merge and time away out of both', () => {
+      const { balance } = pullModel(pull({ mergedAt: at(65 + 60), commits, body: reviewed }));
+      expect(balance).toMatchObject({ codingMs: 25 * MIN, harnessMs: 40 * MIN });
+      const away = pullModel(pull({ mergedAt: at(420), commits: [commits[0], commit('b', 50, [check('Test', 300, 310)])], body: reviewed }));
+      expect(away.balance).toMatchObject({ codingMs: 10 * MIN });
+    });
+
+    it('is not weighed at all without a session record, since the local reviews would be missing from it', () => {
+      expect(pullModel(pull({ mergedAt: at(70), commits })).balance).toBeNull();
+    });
+
+    it('is not weighed where no check ran on it, since it has no harness time to place', () => {
+      expect(pullModel(pull({ commits: [commit('a', 0)], body: reviewed })).balance).toBeNull();
+    });
+
+    it('has a dot but no ratio where all its time before the push was review', () => {
+      const body = recordBody([[0, 'start'], [0, 'review-start', 'code-review', 'low'], [20, 'review-end', 'code-review', 'low']]);
+      const { balance } = pullModel(pull({ commits: [commit('a', 0, [check('Test', 20, 30)])], body }));
+      expect(balance).toEqual({ codingMs: 0, harnessMs: 30 * MIN, rounds: 1, ratio: null });
+    });
+
+    it("gives a window the dots of the pull requests it weighed and the median of their ratios, counting what it could not weigh", () => {
+      const build = (pulls) =>
+        buildModel({ pulls, now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] });
+      const recorded = (number, harness) =>
+        pull({ number, mergedAt: at(120), body: recordBody([[0, 'start'], [1, 'pushed']]), commits: [commit('a', 10, [check('Test', 20, 20 + harness)])] });
+      // Every ratio is harness over 20 minutes of coding: 1, 2 and 4.
+      const [window] = build([
+        recorded(1, 20),
+        recorded(2, 40),
+        recorded(3, 80),
+        pull({ number: 4, mergedAt: at(120), commits: [commit('b', 0, [check('Test', 2, 12)])] }),
+        pull({ number: 5, mergedAt: at(120), body: recordBody([[0, 'start']]), commits: [commit('c', 0)] }),
+      ]).windows;
+      expect(window.balance.dots.map((dot) => [dot.number, dot.ratio])).toEqual([[1, 1], [2, 2], [3, 4]]);
+      expect(window.balance.ratio).toMatchObject({ median: 2, pulls: 3 });
+      expect(window.balance.noChecks).toBe(1);
+      expect(window.pulls.withoutRecord).toBe(1);
+    });
+
+    it('reads a window with no weighed pull request as no median, never as a ratio of zero', () => {
+      const [window] = buildModel({ pulls: [], now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] }).windows;
+      expect(window.balance).toEqual({ dots: [], ratio: null, noChecks: 0 });
+    });
+  });
 });

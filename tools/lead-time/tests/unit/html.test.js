@@ -211,6 +211,106 @@ describe('Lead time', () => {
     });
   });
 
+  describe('coding against the harness: every recorded pull request is a dot, and nothing else is', () => {
+    const sectionOf = (html) => html.split('<h2>Coding against the harness</h2>')[1].split('<h2>')[0];
+    const dotsOf = (html) => [...sectionOf(html).matchAll(/<circle class="dot( off)?" /g)].length - keyDots;
+    // The key draws its own sample dots; they are not pull requests.
+    const keyDots = 3;
+    // Ten minutes writing, then thirty in the harness: a ratio of three.
+    const recorded = (number, harness = 30, extra = {}) =>
+      pull({
+        number,
+        url: `https://github.com/o/r/pull/${number}`,
+        mergedAt: at(harness + 30),
+        body: withRecord(0),
+        commits: [commit('a', 0, [check('Test', 10, 10 + harness)])],
+        ...extra,
+      });
+
+    it('draws a dot for a pull request with a record, naming it and its figures', () => {
+      const html = render({ pulls: [recorded(7)] });
+      expect(dotsOf(html)).toBe(1);
+      const title = sectionOf(html).match(/<a href="https:\/\/github.com\/o\/r\/pull\/7"[^>]*><title>([^<]*)<\/title>/)[1];
+      expect(title).toBe('#7 A change · coding and fixing 10m 00s · in the harness 30m 00s · ratio 3.0× · 1 round');
+    });
+
+    it('draws no dot for a pull request with no record, and says how many it left out', () => {
+      const html = render({ pulls: [recorded(1), pull({ number: 2 }), pull({ number: 3 })] });
+      expect(dotsOf(html)).toBe(1);
+      expect(sectionOf(html)).toContain('2 merged pull requests in this window carry no session record and are not on the chart.');
+      expect(sectionOf(html)).not.toMatch(/pull\/2"|pull\/3"/);
+    });
+
+    it('says none were left out where every pull request has a record', () => {
+      expect(sectionOf(render({ pulls: [recorded(1)] }))).toContain('Every merged pull request in this window carries a session record.');
+    });
+
+    it('draws a dot beyond the scale hollow on the edge, and says it is off the chart', () => {
+      const html = render({ pulls: [recorded(1), recorded(2, 390)] });
+      const section = sectionOf(html);
+      expect(section.match(/<circle class="dot off" /g)).toHaveLength(2);
+      expect(section).toContain('beyond the scale, so drawn on its edge');
+      expect(section).toContain('1 dot beyond it, drawn hollow on the edge');
+      expect(section).toContain('<span class="tag">off the chart</span>');
+    });
+
+    it('reads a window where no pull request has a record as no data, not as an empty chart', () => {
+      const html = render({ pulls: [pull({ number: 1 }), pull({ number: 2 })] });
+      expect(sectionOf(html)).not.toContain('<svg class="scatter"');
+      expect(sectionOf(html)).toContain('no data');
+      expect(sectionOf(html)).toContain('2 merged pull requests in this window carry no session record');
+    });
+
+    it('reads a window with no pull request in it as no data', () => {
+      const html = render({ pulls: [] });
+      expect(sectionOf(html)).not.toContain('<svg class="scatter"');
+      expect(sectionOf(html)).toContain('no data');
+    });
+
+    it('leaves out a pull request with a record that no check ran on, and says so', () => {
+      const html = render({ pulls: [recorded(1), pull({ number: 2, body: withRecord(0), commits: [commit('b', 0)] })] });
+      expect(dotsOf(html)).toBe(1);
+      expect(sectionOf(html)).toContain('1 pull request with a record had no check run on it');
+    });
+
+    it('puts every dot in the table behind the chart as well, so no figure needs a hover', () => {
+      const html = render({ pulls: [recorded(1), recorded(2, 60)] });
+      const table = sectionOf(html).split('<details>')[1];
+      expect(table).toContain('#1');
+      expect(table).toContain('#2');
+      expect(table).toContain('1h 00m');
+    });
+  });
+
+  describe("coding against the harness: the median line is the window's own", () => {
+    const sectionOf = (html) => html.split('<h2>Coding against the harness</h2>')[1].split('<h2>')[0];
+    const recorded = (number, harness) =>
+      pull({ number, url: `https://github.com/o/r/pull/${number}`, mergedAt: at(harness + 30), body: withRecord(0), commits: [commit('a', 0, [check('Test', 10, 10 + harness)])] });
+
+    it("draws the median line at the window's median ratio and names it, with the pull requests behind it", () => {
+      // Ten minutes of coding each, so the ratios are 1, 2 and 6.
+      const html = render({ pulls: [recorded(1, 10), recorded(2, 20), recorded(3, 60)] });
+      expect(sectionOf(html)).toContain('Median ratio 2.0×</b> over 3 pull requests.');
+      // The line leaves the plot at half the height on the right edge: y of a ratio of two is the top, at half the width.
+      expect(sectionOf(html)).toMatch(/class="medianline" x1="48.0" y1="396.0" x2="238.0" y2="16.0"/);
+    });
+
+    it("uses the widest window's pull requests, not the narrowest's", () => {
+      // Ten minutes of coding each: a ratio of one for the recent pull request, and of six for the one four days back.
+      const recent = recorded(1, 10);
+      const long = -4 * 24 * 60;
+      const older = pull({ number: 2, mergedAt: at(long + 100), body: withRecord(long), commits: [commit('a', long, [check('Test', long + 10, long + 70)])] });
+      const html = render({ pulls: [recent, older], windows: [1, 14] });
+      expect(sectionOf(html)).toContain('14 days');
+      expect(sectionOf(html)).toContain('Median ratio 3.5×</b> over 2 pull requests');
+    });
+
+    it('says how few one pull request rests on, and that the median is its own ratio', () => {
+      const html = render({ pulls: [recorded(1, 30)] });
+      expect(sectionOf(html)).toContain('Median ratio 3.0×</b> over 1 pull request: that one pull request&rsquo;s own ratio');
+    });
+  });
+
   describe('the page is one file that opens from disk', () => {
     it('asks for nothing outside itself: styles and data are inline', () => {
       const html = render({ pulls: [pull({ body: withRecord() }), pull({ number: 2 })] });

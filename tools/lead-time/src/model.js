@@ -322,6 +322,22 @@ export function pullModel(pull) {
     waitingToMerge = waited > AWAY_MS ? 0 : waited;
   }
 
+  const beforeFirstPushMs = rounds.length ? Math.max(0, time(rounds[0].pushedAt) - startMs) : null;
+
+  // Coding against the harness: where a person was writing, against where the harness
+  // was being waited on. Only a pull request with a record can say — without one,
+  // its local reviews are not there to move out of the coding — and one no check ran
+  // on has no round to weigh. Local review sits inside the time before the first push
+  // and between pushes, so it is taken out of the coding and put with the harness.
+  // Waiting to merge is neither: nobody was writing, and no check was running.
+  let balance = null;
+  if (record.present && rounds.length > 0) {
+    const localReviewMs = record.localReviews?.ms ?? 0;
+    const codingMs = Math.max(0, beforeFirstPushMs + sum(fixing) - localReviewMs);
+    const harnessMs = sum(rounds.map((round) => round.ms)) + localReviewMs;
+    balance = { codingMs, harnessMs, rounds: rounds.length, ratio: codingMs > 0 ? harnessMs / codingMs : null };
+  }
+
   return {
     number: pull.number,
     title: pull.title,
@@ -340,7 +356,8 @@ export function pullModel(pull) {
     notRecorded: record.notRecorded,
     // Time from the session's start to the first push. Zero, never negative, where
     // the first commit is dated after the first push (a rebase or a clock).
-    beforeFirstPushMs: rounds.length ? Math.max(0, time(rounds[0].pushedAt) - startMs) : null,
+    beforeFirstPushMs,
+    balance,
     rounds,
     fixingMs: fixing,
     awayMs: away,
@@ -379,6 +396,7 @@ function windowModel(pulls, { days, now, coveredSince }) {
   const each = (pick) => inWindow.flatMap((pull) => pick(pull).map((value) => ({ pull: pull.number, value })));
   const withRecord = inWindow.filter((pull) => pull.recorded);
   const reviewed = inWindow.filter((pull) => pull.localReviews);
+  const placed = inWindow.filter((pull) => pull.balance);
 
   // A window is partial when the fetch did not read back to its start — a 14-day
   // column over nine days of pulls is a nine-day column, and saying otherwise
@@ -400,6 +418,14 @@ function windowModel(pulls, { days, now, coveredSince }) {
       fixing: figure(each((pull) => pull.fixingMs)),
       waitingToMerge: figure(inWindow.filter((pull) => pull.waitingToMergeMs !== null).map((pull) => ({ pull: pull.number, value: pull.waitingToMergeMs }))),
       away: figure(each((pull) => pull.awayMs)),
+    },
+    // The scatter's dots, and the median of their ratios. A dot with no coding time
+    // has no ratio, so it is placed but not in the median. `noChecks` are the ones
+    // with a record that no check ran on, left off because they have no harness time.
+    balance: {
+      dots: placed.map((pull) => ({ number: pull.number, title: pull.title, url: pull.url, ...pull.balance })),
+      ratio: figure(placed.filter((pull) => pull.balance.ratio !== null).map((pull) => ({ pull: pull.number, value: pull.balance.ratio }))),
+      noChecks: withRecord.length - placed.length,
     },
     // Only over the pull requests that have a record, which is why the window says
     // how many do not.
