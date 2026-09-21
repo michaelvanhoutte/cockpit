@@ -302,9 +302,12 @@ describe('isSecurityPath and isStoredDataPath', () => {
     // classify itself as harmless and skip the one review that would have
     // caught it - the local `/security-review` Review findings' table asks
     // for, since "Remove the remote code and security reviews".
+    // local-changes.mjs is on it because that removal left it the only
+    // reader of the security answer: weaken it and nothing else notices.
     for (const path of [
       'scripts/lib/what-changed.mjs',
       'scripts/what-changed.mjs',
+      'scripts/local-changes.mjs',
       '.github/actions/setup/action.yml',
     ]) {
       assert.equal(isSecurityPath(path), true, `${path} decides or asserts the verdict and should be a security path`);

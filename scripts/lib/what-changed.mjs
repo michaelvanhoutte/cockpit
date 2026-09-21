@@ -274,11 +274,13 @@ const BACKUP_RESTORE_GUEST_RESET = [
  * deleting an entry here - would otherwise classify itself as harmless and
  * skip the one review that would have caught it. Since "Remove the remote
  * code and security reviews" that review is the local `/security-review`
- * Review findings' table asks for, so `scripts/local-changes.mjs` is what
- * reads this list. `scripts/what-changed.mjs` (the CI wrapper) and
+ * Review findings' table asks for, so every file between a path and that
+ * answer is named: `scripts/what-changed.mjs` (the CI wrapper),
+ * `scripts/local-changes.mjs` (which is what asks this of a working tree,
+ * and so is now the only reader of the security answer), and
  * `.github/actions/setup/action.yml` (a sibling of `.github/workflows/`, not
  * a path under it, so the directory-prefix entry above does not already
- * cover it) are named for the same reason.
+ * cover it).
  */
 const SECURITY_PATHS = [
   'apps/api/src/auth/',
@@ -292,6 +294,7 @@ const SECURITY_PATHS = [
   'apps/api/wrangler.jsonc',
   'scripts/lib/what-changed.mjs',
   'scripts/what-changed.mjs',
+  'scripts/local-changes.mjs',
   ...BACKUP_RESTORE_GUEST_RESET,
 ];
 

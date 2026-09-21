@@ -4,7 +4,8 @@
 //
 // This replaced a `run:`-adjacent bash script for a reason this repository
 // has hit more than once: a decision inline bash makes is a decision nothing
-// checks, because inline bash cannot be run by a test. It also replaced a check that asked exactly once. That single ask was
+// checks, because inline bash cannot be run by a test. It also replaced a
+// check that asked exactly once. That single ask was
 // wrong from the moment `/health` grew a second half: it now opens an account
 // store, and the *first* request after a deploy is the one that creates that
 // store and applies every outstanding change to it. The post-deploy step runs
