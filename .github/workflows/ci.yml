@@ -295,6 +295,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
+      # The budget, ahead of the browser download and the tier itself
+      # ("Bring the browser tier back inside a budget", issue 509): `--list`
+      # loads the specs and reports what would run, which needs no browser and
+      # no stack. A breach is a decision to take rather than a failure to
+      # diagnose, so half a minute here beats thirteen.
+      - name: Walks per area
+        run: pnpm test:e2e:ceilings
       # Only Chromium: both Playwright projects (desktop and phone) are
       # Chromium, because this is a viewport and input matrix, not a browser
       # matrix. --with-deps because the runner lacks the shared libraries a

@@ -38,51 +38,53 @@ import {
  * project's walk reads.
  */
 test.describe('Connector management', () => {
-  test('connects a source account, sees it listed, and disconnects it', async ({
-    page,
-    isMobile,
-  }) => {
-    await openFirstWorkspace(page, isMobile);
-    const workspace = uniqueTitle('Connected');
-    await makeWorkspace(page, workspace, isMobile);
-    await switchTo(page, workspace, isMobile);
-
-    await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
-    const window = page.getByRole('dialog');
-    await expect(window).toBeVisible();
-    await expect(window.getByText(/Nothing connected yet/)).toBeVisible();
-
-    // Out to the issuer, choose an account there, and back - the whole page
-    // leaves, which is why the window has to be reopened by what comes back
-    // rather than by anything this walk does.
-    await press(window.getByRole('button', { name: 'Connect' }), isMobile);
-    await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
-
-    const back = page.getByRole('dialog');
-    await expect(back.getByText('michael@example.com')).toBeVisible();
-    await expect(back.getByText(/Nothing was stored/)).toHaveCount(0);
-
-    // The same account again is the same row, not a second one - the rule the
-    // store keeps, seen here as what a person is shown.
-    await press(back.getByRole('button', { name: 'Connect' }), isMobile);
-    await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
-    await expect(page.getByRole('dialog').getByText('michael@example.com')).toHaveCount(1);
-
-    await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
-    await press(
-      page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }),
+  test.describe('a source account connected to a workspace is listed there until it is disconnected', () => {
+    test('connects one, lists it once however often it is connected, and disconnects it', async ({
+      page,
       isMobile,
-    );
-    await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+    }) => {
+      await openFirstWorkspace(page, isMobile);
+      const workspace = uniqueTitle('Connected');
+      await makeWorkspace(page, workspace, isMobile);
+      await switchTo(page, workspace, isMobile);
 
-    // Reopened from scratch, which is the claim the issue makes about this
-    // window: what it shows is what is stored, never what the last press
-    // guessed.
-    await press(page.getByRole('button', { name: 'Done' }), isMobile);
-    await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
-    await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+      await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
+      const window = page.getByRole('dialog');
+      await expect(window).toBeVisible();
+      await expect(window.getByText(/Nothing connected yet/)).toBeVisible();
 
-    await press(page.getByRole('button', { name: 'Done' }), isMobile);
-    await deleteWorkspace(page, workspace, isMobile);
+      // Out to the issuer, choose an account there, and back - the whole page
+      // leaves, which is why the window has to be reopened by what comes back
+      // rather than by anything this walk does.
+      await press(window.getByRole('button', { name: 'Connect' }), isMobile);
+      await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
+
+      const back = page.getByRole('dialog');
+      await expect(back.getByText('michael@example.com')).toBeVisible();
+      await expect(back.getByText(/Nothing was stored/)).toHaveCount(0);
+
+      // The same account again is the same row, not a second one - the rule the
+      // store keeps, seen here as what a person is shown.
+      await press(back.getByRole('button', { name: 'Connect' }), isMobile);
+      await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
+      await expect(page.getByRole('dialog').getByText('michael@example.com')).toHaveCount(1);
+
+      await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
+      await press(
+        page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }),
+        isMobile,
+      );
+      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+
+      // Reopened from scratch, which is the claim the issue makes about this
+      // window: what it shows is what is stored, never what the last press
+      // guessed.
+      await press(page.getByRole('button', { name: 'Done' }), isMobile);
+      await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
+      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+
+      await press(page.getByRole('button', { name: 'Done' }), isMobile);
+      await deleteWorkspace(page, workspace, isMobile);
+    });
   });
 });

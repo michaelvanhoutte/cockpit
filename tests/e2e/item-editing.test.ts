@@ -117,9 +117,22 @@ test.describe('Item editing', () => {
       // never be edited. Scoped to that tab's own panel, because the
       // description's editor writes paragraphs of its own the moment it
       // arrives, which is a race against this line.
+      //
+      // **The fields go, really.** The Item panel stays mounted while Details
+      // shows, so the editor and whatever is half-typed survive the switch
+      // (`ItemForm.tsx`) - which makes it hidden by a class rather than
+      // unrendered, and that is a claim no jsdom can make: the unit runner
+      // loads no stylesheet, so `ItemForm.test.tsx` can only ask what each tab
+      // holds, never whether the other one is out of sight (found by the
+      // review on this pull request, which is why this is here rather than in
+      // a walk of its own).
+      const files = form(page).getByText('Attachments', { exact: true });
+      await expect(files).toBeVisible();
       await press(form(page).getByRole('tab', { name: 'Details' }), isMobile);
       await expect(form(page).getByRole('tabpanel').getByText(thought)).toBeVisible();
+      await expect(files).toBeHidden();
       await press(form(page).getByRole('tab', { name: 'Item' }), isMobile);
+      await expect(files).toBeVisible();
 
       const named = uniqueTitle('Part 11');
       await titleBox(page).fill(named);
@@ -188,140 +201,66 @@ test.describe('Item editing', () => {
 
   /**
    * F3, because this is the capability: a person sets or clears an item's
-   * priority and finds the row marked accordingly. What the form sends is
-   * proved without a browser in apps/web/tests/unit/components/ItemForm.test.tsx,
-   * and that a save waits for the re-read before the row can be trusted is
-   * proved in apps/web/tests/unit/api/queries.test.tsx. Neither can say the
-   * row's own mark actually changes on screen ("Show and edit an item's
-   * priority", issue 433).
+   * priority and due date and finds the row marked accordingly. What the form
+   * sends is proved without a browser in
+   * apps/web/tests/unit/components/ItemForm.test.tsx - the one-click shortcuts
+   * beside the date field included, what each of them computes being
+   * apps/web/tests/unit/dueDateShortcuts.test.ts's own claim; what pill a date
+   * wears is apps/web/tests/unit/dueDate.test.ts and
+   * apps/web/tests/unit/components/ItemRow.test.tsx; and that a save waits for
+   * the re-read before the row can be trusted is
+   * apps/web/tests/unit/api/queries.test.tsx. None of those can say the row's
+   * own marks actually change on screen ("Show and edit an item's priority",
+   * issue 433; "Show and set an item's due date", issue 462), nor that the
+   * flag column leaves every title on one left edge.
    */
-  test.describe('setting a priority marks the row, and clearing it removes the mark', () => {
-    test('shows the level chosen, and nothing once it is cleared', async ({ page, isMobile }) => {
-      await openInbox(page, isMobile);
-      const thought = uniqueTitle('Renew the passport');
-      await capture(page, thought, isMobile);
-
-      await openItem(page, thought, isMobile);
-      await priorityBox(page).selectOption('high');
-      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
-
-      await expect(itemRow(page, thought).getByLabel('High priority')).toBeVisible();
-
-      // And it is still there on the way back in, holding the level rather
-      // than only having drawn it once.
-      await openItem(page, thought, isMobile);
-      await expect(priorityBox(page)).toHaveValue('high');
-
-      await priorityBox(page).selectOption('');
-      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
-
-      // The dialog gone first, the same as the cancel walk above asserts -
-      // otherwise the list sits behind Radix's aria-hidden while the dialog
-      // is still up mid-save, and the row's mark would read as absent from
-      // that alone, whether or not the clear actually landed.
-      await expect(priorityBox(page)).toHaveCount(0);
-      await expect(itemRow(page, thought).getByLabel('High priority')).toHaveCount(0);
-    });
-
-    // Layout, which JSDOM cannot measure: the flag column is always there, so
-    // a title is where the others are with or without a level.
-    test('keeps every title on the same left edge, with a level or without', async ({
+  test.describe('a priority and a due date mark the row, and clearing them takes the marks off', () => {
+    test('shows what was chosen, keeps every title on one left edge, and leaves nothing behind once cleared', async ({
       page,
       isMobile,
     }) => {
       await openInbox(page, isMobile);
       const plain = uniqueTitle('No level here');
-      const flagged = uniqueTitle('Level here');
+      const marked = uniqueTitle('Renew the passport');
       await capture(page, plain, isMobile);
-      await capture(page, flagged, isMobile);
-      await openItem(page, flagged, isMobile);
+      await capture(page, marked, isMobile);
+
+      await openItem(page, marked, isMobile);
       await priorityBox(page).selectOption('high');
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
-      await expect(itemRow(page, flagged).getByLabel('High priority')).toBeVisible();
 
+      await expect(itemRow(page, marked).getByLabel('High priority')).toBeVisible();
+
+      // Layout, which JSDOM cannot measure: the flag column is always there, so
+      // a title is where the others are with or without a level. Asked while
+      // neither row has a due date, because a pill is drawn on the title line
+      // and how near a date is depends on the day the suite runs.
       const left = async (title: string) =>
         Math.round((await itemRow(page, title).getByText(title).boundingBox())!.x);
-      expect(await left(flagged)).toBe(await left(plain));
-    });
-  });
+      expect(await left(marked)).toBe(await left(plain));
 
-  /**
-   * F3, because this is the capability: a person sets or clears an item's due
-   * date and finds the row showing it accordingly. What the form sends is
-   * proved without a browser in apps/web/tests/unit/components/ItemForm.test.tsx,
-   * and that a save waits for the re-read before the row can be trusted is
-   * proved in apps/web/tests/unit/api/queries.test.tsx. Neither can say the
-   * row itself actually changes on screen ("Show and set an item's due date",
-   * issue 462).
-   */
-  test.describe('setting a due date shows it on the row, and clearing it removes it', () => {
-    test('shows the date chosen, and nothing once it is cleared', async ({ page, isMobile }) => {
-      await openInbox(page, isMobile);
-      const thought = uniqueTitle('Renew the passport');
-      await capture(page, thought, isMobile);
-
-      await openItem(page, thought, isMobile);
+      // The level is still there on the way back in, held rather than only
+      // having been drawn once, and the date goes on the same item.
+      await openItem(page, marked, isMobile);
+      await expect(priorityBox(page)).toHaveValue('high');
       await dueDateBox(page).fill('2026-09-30');
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
 
-      await expect(itemRow(page, thought).getByText('Due Sep 30, 2026')).toBeVisible();
+      await expect(itemRow(page, marked).getByText('Due Sep 30, 2026')).toBeVisible();
 
-      // And it is still there on the way back in, holding the date rather
-      // than only having drawn it once.
-      await openItem(page, thought, isMobile);
+      await openItem(page, marked, isMobile);
       await expect(dueDateBox(page)).toHaveValue('2026-09-30');
-
+      await priorityBox(page).selectOption('');
       await dueDateBox(page).fill('');
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
 
       // The dialog gone first, the same as the cancel walk above asserts -
       // otherwise the list sits behind Radix's aria-hidden while the dialog
-      // is still up mid-save, and the row would read as unset from that
+      // is still up mid-save, and the row would read as unmarked from that
       // alone, whether or not the clear actually landed.
-      await expect(dueDateBox(page)).toHaveCount(0);
-      await expect(itemRow(page, thought).getByText('Due Sep 30, 2026')).toHaveCount(0);
-    });
-
-    /**
-     * The one-click shortcuts beside the field itself ("Give the item's form
-     * more room, and put clutter out of the way", issue 480) - what each one
-     * computes is tests/unit/dueDateShortcuts.test.ts's own claim; what is
-     * asked here is that a real press on a real button actually reaches the
-     * field, the same way typing into it does above.
-     */
-    test('a one-click shortcut fills the field too, and reaches the row the same way', async ({
-      page,
-      isMobile,
-    }) => {
-      await openInbox(page, isMobile);
-      const thought = uniqueTitle('One-click due date');
-      await capture(page, thought, isMobile);
-
-      await openItem(page, thought, isMobile);
-      await press(form(page).getByRole('button', { name: 'Today' }), isMobile);
-      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
-
-      await expect(dueDateBox(page)).toHaveCount(0);
-      // The pill for how near it is, on the title line, in a real layout.
-      await expect(itemRow(page, thought).getByText('Due today')).toBeVisible();
-      const now = new Date();
-      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      await openItem(page, thought, isMobile);
-      await expect(dueDateBox(page)).toHaveValue(today);
-    });
-
-    // Red is for a date that has gone by, and the row around it stays plain.
-    test('a date long past wears an Overdue pill', async ({ page, isMobile }) => {
-      await openInbox(page, isMobile);
-      const thought = uniqueTitle('Long overdue');
-      await capture(page, thought, isMobile);
-
-      await openItem(page, thought, isMobile);
-      await dueDateBox(page).fill('2020-01-01');
-      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
-
-      await expect(dueDateBox(page)).toHaveCount(0);
-      await expect(itemRow(page, thought).getByText(/^Overdue \d+d$/)).toBeVisible();
+      await expect(priorityBox(page)).toHaveCount(0);
+      await expect(itemRow(page, marked).getByLabel('High priority')).toHaveCount(0);
+      await expect(itemRow(page, marked).getByText('Due Sep 30, 2026')).toHaveCount(0);
     });
   });
 
@@ -353,7 +292,7 @@ test.describe('Item editing', () => {
       );
     }
 
-    test('adds one by button, drawn as a chip, and opens the real file from a click on it', async ({
+    test('adds one by button, draws it as a chip, opens the real file from a click on it, and takes it off for good', async ({
       page,
       isMobile,
     }) => {
@@ -376,6 +315,22 @@ test.describe('Item editing', () => {
       await expect(popup).toHaveURL(/\/v1\/attachments\//);
       expect(await popup.locator('img').first().evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1);
       await popup.close();
+
+      const removed = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).pathname === '/v1/commands/remove_attachment',
+      );
+      await press(form(page).getByRole('button', { name: 'Remove receipt.png' }), isMobile);
+      expect((await removed).status()).toBe(200);
+      await expect(form(page).getByText('receipt.png')).toHaveCount(0);
+
+      // Removal is sent the moment it happens, not batched into Save - so a
+      // Save pressed afterwards, with nothing else changed, has nothing to
+      // resurrect (issue 441's own UI test case).
+      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+      await openItem(page, thought, isMobile);
+      await expect(form(page).getByText('receipt.png')).toHaveCount(0);
     });
 
     test('refuses a file over the size cap, and a kind not on the allowlist, naming why', async ({
@@ -406,88 +361,16 @@ test.describe('Item editing', () => {
       await expect(form(page).getByRole('link', { name: 'huge.png' })).toHaveCount(0);
     });
 
-    test('removing one takes it off the item for good, and a second Save does not bring it back', async ({
-      page,
-      isMobile,
-    }) => {
-      await openInbox(page, isMobile);
-      const thought = uniqueTitle('Attached and removed');
-      await capture(page, thought, isMobile);
-      await openItem(page, thought, isMobile);
-
-      const uploaded = uploadResponse(page);
-      await attachmentInput(page).setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: A_PNG });
-      await uploaded;
-      await expect(form(page).getByText('receipt.png')).toBeVisible();
-
-      const removed = page.waitForResponse(
-        (response) =>
-          response.request().method() === 'POST' &&
-          new URL(response.url()).pathname === '/v1/commands/remove_attachment',
-      );
-      await press(form(page).getByRole('button', { name: 'Remove receipt.png' }), isMobile);
-      expect((await removed).status()).toBe(200);
-      await expect(form(page).getByText('receipt.png')).toHaveCount(0);
-
-      // Removal is sent the moment it happens, not batched into Save - so a
-      // Save pressed afterwards, with nothing else changed, has nothing to
-      // resurrect (issue 441's own UI test case).
-      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
-      await openItem(page, thought, isMobile);
-      await expect(form(page).getByText('receipt.png')).toHaveCount(0);
-    });
   });
 
   /**
    * End to end, because this is where a real selection in a real editor is: the
    * unit runner gives ProseMirror rectangles that are all zero and a caret that
-   * does not exist, so nothing about switching views with something selected
-   * can be asked below the browser.
+   * does not exist, so nothing about applying a mark to a selection can be
+   * asked below the browser. That the two views hold one text is settled there
+   * instead, in apps/web/tests/unit/description/syntax.test.ts and
+   * apps/web/tests/unit/components/DescriptionBox.test.tsx.
    */
-  test.describe('the formatted description and its source are one text', () => {
-    test('shows the same description either way round, and leaves it alone', async ({
-      page,
-      isMobile,
-    }) => {
-      const thought = await anItemToWriteOn(page, 'Two views', isMobile);
-
-      // Written as Markdown, it comes back formatted.
-      await show(page, 'Source', isMobile);
-      await descriptionBox(page).fill('- milk\n- bread');
-      await show(page, 'Formatted', isMobile);
-      await expect(form(page).getByRole('listitem')).toHaveText(['milk', 'bread']);
-
-      // Formatted, it comes back as the marks that make it.
-      await putTheCaretInTheDescription(page, isMobile);
-      await press(form(page).getByRole('button', { name: 'bold' }), isMobile);
-      await show(page, 'Source', isMobile);
-      await expect(descriptionBox(page)).toHaveValue(/\*\*milk\*\*/);
-
-      // And what was written stays written. `- ` is the marker the editor
-      // rewrites to `* ` the moment it prints a list of its own, so a
-      // description that came back tidied here would be one the editor had
-      // silently rewritten on the way past.
-      await descriptionBox(page).fill('- milk\n- bread');
-      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
-      await openItem(page, thought, isMobile);
-      await theEditorIsThere(page);
-      await show(page, 'Source', isMobile);
-      await expect(descriptionBox(page)).toHaveValue('- milk\n- bread');
-
-      // Twice through both views, with nothing typed in either.
-      await show(page, 'Formatted', isMobile);
-      await show(page, 'Source', isMobile);
-      await show(page, 'Formatted', isMobile);
-      await show(page, 'Source', isMobile);
-      await expect(descriptionBox(page)).toHaveValue('- milk\n- bread');
-      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
-      await openItem(page, thought, isMobile);
-      await theEditorIsThere(page);
-      await show(page, 'Source', isMobile);
-      await expect(descriptionBox(page)).toHaveValue('- milk\n- bread');
-    });
-  });
-
   test.describe('the toolbar and the shortcuts make the same five things', () => {
     /** One word, selected, with the formatting under test applied to it. */
     async function appliedTo(
@@ -504,8 +387,11 @@ test.describe('Item editing', () => {
       return descriptionBox(page).inputValue();
     }
 
-    test('by button', async ({ page, isMobile }) => {
-      await anItemToWriteOn(page, 'By button', isMobile);
+    test('by button, by shortcut, and not at all for an address that would not be a link', async ({
+      page,
+      isMobile,
+    }) => {
+      await anItemToWriteOn(page, 'Five things', isMobile);
       const button = (name: string) => form(page).getByRole('button', { name, exact: true });
 
       for (const [name, made] of [
@@ -541,11 +427,10 @@ test.describe('Item editing', () => {
       await expect(descriptionBox(page)).toHaveValue(
         /^\[Tolerances\]\(https:\/\/example\.com\/handover\)\s*$/,
       );
-    });
 
-    test('by shortcut', async ({ page, isMobile }) => {
-      await anItemToWriteOn(page, 'By shortcut', isMobile);
-
+      // The same five things from the keyboard, on the same item: what the
+      // shortcuts make is the claim, and a second item to make it on would be
+      // the setup done twice.
       for (const [keys, made] of [
         ['ControlOrMeta+b', '**Tolerances**'],
         ['ControlOrMeta+i', '*Tolerances*'],
@@ -558,28 +443,24 @@ test.describe('Item editing', () => {
         ).toContain(made);
       }
 
-      const linked = await appliedTo(page, isMobile, async () => {
+      const byShortcut = await appliedTo(page, isMobile, async () => {
         await descriptionBox(page).press('ControlOrMeta+k');
         await form(page).getByRole('textbox', { name: 'Address' }).fill('example.com/runbook');
         await form(page).getByRole('textbox', { name: 'Address' }).press('Enter');
       });
-      expect(linked).toContain('[Tolerances](https://example.com/runbook)');
-    });
+      expect(byShortcut).toContain('[Tolerances](https://example.com/runbook)');
 
-    // The refusal is the visible half of the address allowlist, whose rules are
-    // in apps/web/tests/unit/description/safeHref.test.ts. What is asked here
-    // is only that the button is wired to it and says so.
-    test('refuses a link that would not be a link', async ({ page, isMobile }) => {
-      await anItemToWriteOn(page, 'A bad address', isMobile);
+      // And the address that is not one is refused where it is typed. Which
+      // addresses those are is apps/web/tests/unit/description/safeHref.test.ts;
+      // that the button is wired to it and says so has nowhere below this to
+      // be asked, the link window having no test of its own at all.
       await show(page, 'Source', isMobile);
       await descriptionBox(page).fill('Tolerances');
       await show(page, 'Formatted', isMobile);
       await putTheCaretInTheDescription(page, isMobile);
-
-      await press(form(page).getByRole('button', { name: 'link', exact: true }), isMobile);
+      await press(button('link'), isMobile);
       await form(page).getByRole('textbox', { name: 'Address' }).fill('javascript:alert(1)');
       await press(form(page).getByRole('button', { name: 'Add link' }), isMobile);
-
       await expect(form(page).getByRole('alert')).toHaveText(
         'A link can only go to a web address or an email address.',
       );
@@ -603,7 +484,21 @@ test.describe('Item editing', () => {
    * native handle actually leaves the box at is only provable here.
    */
   test.describe('the dialog can be resized, and a size dragged to sticks', () => {
-    test('offers the handle at a desk, and none on a phone', async ({ page, isMobile }) => {
+    /**
+     * The default used to double as its own ceiling - a drag could shrink the
+     * box but never grow it - which is what "Give the item's form more room,
+     * and put clutter out of the way" (issue 480) puts a real ceiling above.
+     */
+    test('offers the handle at a desk and none on a phone, and holds a drag at the ceiling and at the floor', async ({
+      page,
+      isMobile,
+    }) => {
+      // Taller than the suite's own default viewport, so the ceiling's own
+      // headroom above the default height is not itself clamped away by the
+      // screen before the drag ever gets there - the default's own height
+      // already sits close to a laptop-sized screen by design.
+      if (!isMobile) await page.setViewportSize({ width: 1280, height: 1000 });
+
       await openInbox(page, isMobile);
       const thought = uniqueTitle('Resize handle');
       await capture(page, thought, isMobile);
@@ -615,80 +510,60 @@ test.describe('Item editing', () => {
       const resize = await form(page).evaluate((el) => getComputedStyle(el).resize);
       if (isMobile) {
         expect(resize, 'a phone has no room to spare, and no handle').toBe('none');
-      } else {
-        expect(resize, 'a desk has room to spare, and a corner handle to shrink into it').toBe(
-          'both',
-        );
+        // Returned rather than skipped: the phone's half of this rule is the
+        // assertion just made, and everything below is the drag it has no
+        // handle for. A `test.skip` here would report that assertion as never
+        // having run.
+        return;
       }
-    });
+      expect(resize, 'a desk has room to spare, and a corner handle to shrink into it').toBe('both');
 
-    /**
-     * The default used to double as its own ceiling - a drag could shrink the
-     * box but never grow it - which is what "Give the item's form more room,
-     * and put clutter out of the way" (issue 480) puts a real ceiling above.
-     */
-    test('grows past the old default size, up to a real ceiling above it', async ({
-      page,
-      isMobile,
-    }) => {
-      test.skip(isMobile, 'resizing is a pointer gesture');
+      // The handle is the box's own bottom-right corner, drawn by the browser
+      // rather than a testid this can look up - so a drag starts a few pixels
+      // inside it instead.
+      const takeHold = async () => {
+        const box = (await form(page).boundingBox())!;
+        const grip = { x: box.x + box.width - 6, y: box.y + box.height - 6 };
+        await page.mouse.move(grip.x, grip.y);
+        await page.mouse.down();
+        return { box, grip };
+      };
 
-      // Taller than the suite's own default viewport, so the ceiling's own
-      // headroom above the default height is not itself clamped away by the
-      // screen before the drag ever gets there - the default's own height
-      // already sits close to a laptop-sized screen by design.
-      await page.setViewportSize({ width: 1280, height: 1000 });
-
-      await openInbox(page, isMobile);
-      const thought = uniqueTitle('Grow past the old default');
-      await capture(page, thought, isMobile);
-      await openItem(page, thought, isMobile);
-
-      const before = (await form(page).boundingBox())!;
-      const grip = { x: before.x + before.width - 6, y: before.y + before.height - 6 };
-      await page.mouse.move(grip.x, grip.y);
-      await page.mouse.down();
+      const { box: before, grip: outward } = await takeHold();
       // Dragged outward on both axes - past where the old default, which
       // used to double as its own ceiling, would have stopped it.
-      await page.mouse.move(grip.x + 250, grip.y + 150, { steps: 8 });
+      await page.mouse.move(outward.x + 250, outward.y + 150, { steps: 8 });
       await page.mouse.up();
       const grown = (await form(page).boundingBox())!;
-
       expect(grown.width, 'grew past the old default width').toBeGreaterThan(before.width + 100);
       expect(grown.height, 'grew past the old default height').toBeGreaterThan(before.height + 100);
-    });
 
-    test('shrinks to a floor, and no further', async ({ page, isMobile }) => {
-      test.skip(isMobile, 'resizing is a pointer gesture');
-
-      await openInbox(page, isMobile);
-      const thought = uniqueTitle('Shrink to the floor');
-      await capture(page, thought, isMobile);
-      await openItem(page, thought, isMobile);
-
-      const before = (await form(page).boundingBox())!;
-      const grip = { x: before.x + before.width - 6, y: before.y + before.height - 6 };
-      await page.mouse.move(grip.x, grip.y);
-      await page.mouse.down();
-      // Dragged far past where the floor sits, so the assertion is about the
-      // floor holding rather than about how far the drag reached.
-      await page.mouse.move(grip.x - 1000, grip.y - 1000, { steps: 8 });
+      // And back the other way, far past where the floor sits, so the
+      // assertion is about the floor holding rather than about how far the
+      // drag reached.
+      const { grip: inward } = await takeHold();
+      await page.mouse.move(inward.x - 1000, inward.y - 1000, { steps: 8 });
       await page.mouse.up();
       const shrunk = (await form(page).boundingBox())!;
-
       expect(shrunk.width, 'shrank to the floor, not any smaller').toBeGreaterThanOrEqual(318);
       expect(shrunk.width).toBeLessThanOrEqual(322);
       expect(shrunk.height, 'shrank to the floor, not any smaller').toBeGreaterThanOrEqual(286);
       expect(shrunk.height).toBeLessThanOrEqual(290);
     });
 
-    test('remembers a dragged size across items and a reopen, clamped to whatever screen it opens on next', async ({
+    test('remembers a dragged size across items and a reopen, clamped to whatever screen it opens on next, and never carries one axis into the other', async ({
       page,
       isMobile,
     }) => {
       // Dragging is a pointer gesture, the same reason sizing a panel's own
       // row and column is desktop-only in tests/e2e/panels.test.ts.
       test.skip(isMobile, 'resizing is a pointer gesture');
+
+      const full = page.viewportSize()!;
+      // Short rather than narrow, so the ceiling clamps the height alone -
+      // the axis the first drag below never touches - and wide enough that
+      // the resize handle is still offered.
+      await page.setViewportSize({ width: 900, height: 500 });
 
       await openInbox(page, isMobile);
       const first = uniqueTitle('Dragged smaller');
@@ -698,13 +573,40 @@ test.describe('Item editing', () => {
 
       await openItem(page, first, isMobile);
       const firstUrl = page.url();
-      const before = (await form(page).boundingBox())!;
+
       // The handle is the box's own bottom-right corner, drawn by the browser
       // rather than a testid this can look up - so the drag starts a few
       // pixels inside it instead.
-      const grip = { x: before.x + before.width - 6, y: before.y + before.height - 6 };
-      await page.mouse.move(grip.x, grip.y);
-      await page.mouse.down();
+      const takeHold = async () => {
+        const box = (await form(page).boundingBox())!;
+        const grip = { x: box.x + box.width - 6, y: box.y + box.height - 6 };
+        await page.mouse.move(grip.x, grip.y);
+        await page.mouse.down();
+        return { box, grip };
+      };
+
+      // **One axis first, with nothing remembered yet.** Dragged along the
+      // width only - the same height as the grip started at, so nothing here
+      // ever asks the height to move.
+      const { grip: oneAxis } = await takeHold();
+      await page.mouse.move(oneAxis.x - 150, oneAxis.y, { steps: 8 });
+      await page.mouse.up();
+      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
+
+      // Back on a screen tall enough for the full default, the height this
+      // never touched is the default, not the short screen's own clamp of
+      // it - the claim the rest of this walk makes for a screen reclamping a
+      // size that *was* remembered, made here for one clamping the default
+      // before anything was ever remembered at all.
+      await page.setViewportSize(full);
+      await page.goto(firstUrl);
+      const untouched = (await form(page).boundingBox())!;
+      expect(
+        untouched.height,
+        'the untouched axis is the full default, not the short screen’s clamp of it',
+      ).toBeGreaterThan(600);
+
+      const { box: before, grip } = await takeHold();
       await page.mouse.move(grip.x - 150, grip.y - 100, { steps: 8 });
       await page.mouse.up();
       const dragged = (await form(page).boundingBox())!;
@@ -732,7 +634,6 @@ test.describe('Item editing', () => {
 
       // A screen too small for the dragged size clamps it down without
       // touching what was remembered.
-      const full = page.viewportSize()!;
       await page.setViewportSize({ width: 500, height: 500 });
       await page.goto(secondUrl);
       const clamped = (await form(page).boundingBox())!;
@@ -765,220 +666,44 @@ test.describe('Item editing', () => {
       expect(Math.round(afterReclamp.width)).toBe(Math.round(dragged.width));
       expect(Math.round(afterReclamp.height)).toBe(Math.round(dragged.height));
     });
-
-    test('a drag on one axis, with nothing remembered yet, does not carry a clamped screen into the other', async ({
-      page,
-      isMobile,
-    }) => {
-      // Dragging is a pointer gesture, the same reason sizing a panel's own
-      // row and column is desktop-only in tests/e2e/panels.test.ts.
-      test.skip(isMobile, 'resizing is a pointer gesture');
-
-      // Short rather than narrow, so the ceiling clamps the height alone -
-      // the axis this walk never touches - and wide enough that the resize
-      // handle is still offered.
-      const full = page.viewportSize()!;
-      await page.setViewportSize({ width: 900, height: 500 });
-
-      await openInbox(page, isMobile);
-      const thought = uniqueTitle('One axis, nothing remembered yet');
-      await capture(page, thought, isMobile);
-      await openItem(page, thought, isMobile);
-      const thoughtUrl = page.url();
-
-      const before = (await form(page).boundingBox())!;
-      const grip = { x: before.x + before.width - 6, y: before.y + before.height - 6 };
-      // Dragged along one axis only - the same height as the grip started
-      // at, so nothing here ever asks the height to move.
-      await page.mouse.move(grip.x, grip.y);
-      await page.mouse.down();
-      await page.mouse.move(grip.x - 150, grip.y, { steps: 8 });
-      await page.mouse.up();
-      await press(form(page).getByRole('button', { name: 'Cancel' }), isMobile);
-
-      // Back on a screen tall enough for the full default, the height this
-      // never touched is the default, not the short screen's own clamp of
-      // it - the same claim the other test in this block makes for a screen
-      // reclamping a size that was remembered, made here for one clamping
-      // the *default* before anything was ever remembered at all.
-      await page.setViewportSize(full);
-      await page.goto(thoughtUrl);
-      const reopened = (await form(page).boundingBox())!;
-      expect(
-        reopened.height,
-        'the untouched axis is the full default, not the short screen’s clamp of it',
-      ).toBeGreaterThan(600);
-    });
   });
 
   /**
-   * F3, because whether the description's own box actually grows and shrinks
-   * on screen as the dialog is dragged is a claim about a real layout that
-   * nothing below the browser can make - the frame not reacting to what is
-   * *typed or loaded* into it is `apps/web/tests/unit/components/ItemForm.test.tsx`'s
-   * own claim, and is a different thing from the description reacting to the
-   * frame ("Give the item's form more room, and put clutter out of the way",
-   * issue 480).
+   * F3, because every claim here is about real text in a real font in a real
+   * box, which no jsdom layout can measure: "Normal", the longest priority,
+   * was clipped to "Nor" at the half of a 240px sidebar it was given; the
+   * description's own box growing as the dialog is dragged is a different
+   * thing from the frame ignoring what is *typed or loaded* into it, which is
+   * apps/web/tests/unit/components/ItemForm.test.tsx's claim; and a broken
+   * `@container` setup would leave every other walk in this file green - none
+   * of them ever narrow the dialog through the breakpoint - while the split
+   * silently never collapsed at all ("Give the item's form more room, and put
+   * clutter out of the way", issue 480).
    */
-  test.describe('the description fills whatever room the form has', () => {
-    test('grows and shrinks with the dialog, rather than a fixed size', async ({
+  test.describe('the form opens big enough for what is in it, and what is inside answers to its own width', () => {
+    test('opens at its default width with room for the longest choice, gives the description whatever room a drag makes, and stacks into one column once it is narrow', async ({
       page,
       isMobile,
     }) => {
-      test.skip(isMobile, 'resizing is a pointer gesture');
+      test.skip(
+        isMobile,
+        'a phone opens the form at the screen’s own size, and resizing is a pointer gesture',
+      );
 
       // Taller than the suite's own default viewport, the same reason the
-      // resize block's own growth test sets one: the default height already
-      // sits close to a laptop-sized screen, so there is no room for a drag
-      // to grow it further without one.
+      // resize walk sets one: the default height already sits close to a
+      // laptop-sized screen, so there is no room for a drag to grow it
+      // further without one.
       await page.setViewportSize({ width: 1280, height: 1000 });
-
-      await openInbox(page, isMobile);
-      const thought = uniqueTitle('Description fills the form');
-      await capture(page, thought, isMobile);
-      await openItem(page, thought, isMobile);
-      await theEditorIsThere(page);
-
-      // The gap between the toolbar and the footer is the room the
-      // description has, measured without depending on how much text is in
-      // it - a fixed-height box would leave that gap unmoved by a drag.
-      const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
-      const saveButton = form(page).getByRole('button', { name: 'Save' });
-      const gap = async () => {
-        const toolbarBox = (await toolbar.boundingBox())!;
-        const saveBox = (await saveButton.boundingBox())!;
-        return saveBox.y - (toolbarBox.y + toolbarBox.height);
-      };
-      const before = await gap();
-
-      const box = (await form(page).boundingBox())!;
-      const grip = { x: box.x + box.width - 6, y: box.y + box.height - 6 };
-      await page.mouse.move(grip.x, grip.y);
-      await page.mouse.down();
-      await page.mouse.move(grip.x + 60, grip.y + 150, { steps: 8 });
-      await page.mouse.up();
-
-      expect(await gap(), 'grew with the dialog').toBeGreaterThan(before + 100);
-    });
-  });
-
-  /**
-   * F3, because whether the two-column split actually answers to a real
-   * drag rather than to the viewport is a claim about real layout, the same
-   * reason the resize and description-fill walks above are. A broken
-   * `@container` setup would leave every other walk in this file green -
-   * none of them ever narrow the dialog through the breakpoint - while the
-   * split silently never collapsed at all ("Give the item's form more room,
-   * and put clutter out of the way", issue 480).
-   */
-  test.describe('the two-column layout answers to the dialog’s own width, not the window’s', () => {
-    test('stacks into one column once the dialog is dragged narrower than the split needs', async ({
-      page,
-      isMobile,
-    }) => {
-      test.skip(isMobile, 'resizing is a pointer gesture');
-
-      await openInbox(page, isMobile);
-      const thought = uniqueTitle('Collapses to one column');
-      await capture(page, thought, isMobile);
-      await openItem(page, thought, isMobile);
-      await theEditorIsThere(page);
-
-      // Priority and the description's own toolbar sit on the same row when
-      // there is room for two columns - both near the top of their own
-      // column - and one column drops below the other's whole height once
-      // there is not. The toolbar, not the description box itself: the box
-      // sits below its own toolbar, which is otherwise close enough to
-      // Priority's own row to read as "the same row" even stacked.
-      const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
-      const sideBySide = async () => {
-        const priority = (await priorityBox(page).boundingBox())!;
-        const description = (await toolbar.boundingBox())!;
-        return Math.abs(priority.y - description.y) < 40;
-      };
-      expect(await sideBySide(), 'two columns at the dialog’s own default width').toBe(true);
-
-      const box = (await form(page).boundingBox())!;
-      const grip = { x: box.x + box.width - 6, y: box.y + box.height - 6 };
-      await page.mouse.move(grip.x, grip.y);
-      await page.mouse.down();
-      // Dragged well past the container-query breakpoint, on a viewport
-      // that never itself narrows - the window staying wide throughout is
-      // what tells the two apart.
-      await page.mouse.move(grip.x - 400, grip.y, { steps: 8 });
-      await page.mouse.up();
-
-      expect(await sideBySide(), 'one column once the dialog itself is narrow').toBe(false);
-    });
-
-    /**
-     * Stacked, the files used to come ahead of the description - the order
-     * the two columns happened to be written in - which put text a person is
-     * here to write below a list of files they are only attaching to it
-     * (found in the docked form once it is dragged narrower than the split
-     * needs).
-     */
-    test('reads the fields, then the description, then the files, once stacked', async ({
-      page,
-      isMobile,
-    }) => {
-      test.skip(isMobile, 'resizing is a pointer gesture');
-
-      await openInbox(page, isMobile);
-      const thought = uniqueTitle('Stacked order');
-      await capture(page, thought, isMobile);
-      await openItem(page, thought, isMobile);
-      await theEditorIsThere(page);
-
-      const box = (await form(page).boundingBox())!;
-      const grip = { x: box.x + box.width - 6, y: box.y + box.height - 6 };
-      await page.mouse.move(grip.x, grip.y);
-      await page.mouse.down();
-      await page.mouse.move(grip.x - 400, grip.y, { steps: 8 });
-      await page.mouse.up();
-
-      const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
-      const files = form(page).getByText('Attachments', { exact: true });
-      const priority = (await priorityBox(page).boundingBox())!;
-      const description = (await toolbar.boundingBox())!;
-      const attached = (await files.boundingBox())!;
-      // Stacked first, or the order below would also hold in the two-column
-      // layout and prove nothing: there the fields and the description's own
-      // toolbar sit on one row, within the same forty pixels the sibling
-      // walk above measures.
-      expect(description.y - priority.y, 'one column, the description below the fields').toBeGreaterThanOrEqual(40);
-      expect(priority.y, 'the short fields come first').toBeLessThan(description.y);
-      expect(description.y, 'then the description, ahead of the files').toBeLessThan(attached.y);
-
-      // What is drawn is also what Tab and a screen reader take: the
-      // description comes before the files in the document itself, not only
-      // on screen.
-      const filesHandle = (await files.elementHandle())!;
-      const descriptionFirst = await toolbar.evaluate(
-        (element, other) => Boolean(element.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING),
-        filesHandle,
-      );
-      expect(descriptionFirst, 'the description before the files in the document').toBe(true);
-    });
-  });
-
-  /**
-   * F3, because a size that is enough is a claim about real text in a real
-   * font in a real box: "Normal", the longest priority, was clipped to
-   * "Nor" at the half of a 240px sidebar it was given, which no jsdom
-   * layout can measure.
-   */
-  test.describe('the form opens big enough for what is in it', () => {
-    test('has room for the priority to say its longest choice in full', async ({
-      page,
-      isMobile,
-    }) => {
-      test.skip(isMobile, 'a phone opens the form at the screen’s own size');
 
       await openInbox(page, isMobile);
       const thought = uniqueTitle('Opens big enough');
       await capture(page, thought, isMobile);
       await openItem(page, thought, isMobile);
+      await theEditorIsThere(page);
+
+      // 56rem, on a window wide enough that nothing clamps it.
+      expect(Math.round((await form(page).boundingBox())!.width)).toBe(896);
 
       // The room a choice has is the box less its own padding, border and an
       // allowance for the native arrow - measured against the widest label it
@@ -1008,42 +733,76 @@ test.describe('Item editing', () => {
         room - NATIVE_ARROW_ALLOWANCE,
         'the widest priority fits, less an allowance for the native arrow',
       ).toBeGreaterThanOrEqual(widest);
-    });
 
-    test('opens at its default width', async ({ page, isMobile }) => {
-      test.skip(isMobile, 'a phone opens the form at the screen’s own size');
+      // Priority and the description's own toolbar sit on the same row when
+      // there is room for two columns - both near the top of their own
+      // column - and one column drops below the other's whole height once
+      // there is not. The toolbar, not the description box itself: the box
+      // sits below its own toolbar, which is otherwise close enough to
+      // Priority's own row to read as "the same row" even stacked.
+      const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
+      const sideBySide = async () => {
+        const priority = (await priorityBox(page).boundingBox())!;
+        const description = (await toolbar.boundingBox())!;
+        return Math.abs(priority.y - description.y) < 40;
+      };
+      expect(await sideBySide(), 'two columns at the dialog’s own default width').toBe(true);
 
-      await openInbox(page, isMobile);
-      const thought = uniqueTitle('Opens at its default width');
-      await capture(page, thought, isMobile);
-      await openItem(page, thought, isMobile);
+      // The gap between the toolbar and the footer is the room the
+      // description has, measured without depending on how much text is in
+      // it - a fixed-height box would leave that gap unmoved by a drag.
+      const saveButton = form(page).getByRole('button', { name: 'Save' });
+      const gap = async () => {
+        const toolbarBox = (await toolbar.boundingBox())!;
+        const saveBox = (await saveButton.boundingBox())!;
+        return saveBox.y - (toolbarBox.y + toolbarBox.height);
+      };
+      const drag = async (byX: number, byY: number) => {
+        const box = (await form(page).boundingBox())!;
+        const grip = { x: box.x + box.width - 6, y: box.y + box.height - 6 };
+        await page.mouse.move(grip.x, grip.y);
+        await page.mouse.down();
+        await page.mouse.move(grip.x + byX, grip.y + byY, { steps: 8 });
+        await page.mouse.up();
+      };
 
-      // 56rem, on a window wide enough that nothing clamps it.
-      expect(Math.round((await form(page).boundingBox())!.width)).toBe(896);
-    });
-  });
+      const wasGiven = await gap();
+      await drag(60, 150);
+      expect(await gap(), 'the description grew with the dialog').toBeGreaterThan(wasGiven + 100);
 
-  // F3 only for what JSDOM cannot compute: the form's panel being really
-  // hidden by CSS while Details shows, and really back on returning. What each
-  // tab holds is `ItemForm.test.tsx`'s claim.
-  test.describe('the Details tab takes the place of the fields, and gives it back', () => {
-    test('hides the fields while Details shows and shows them again on Item', async ({
-      page,
-      isMobile,
-    }) => {
-      await openInbox(page, isMobile);
-      const thought = uniqueTitle('Details tab');
-      await capture(page, thought, isMobile);
-      await openItem(page, thought, isMobile);
+      // Dragged well past the container-query breakpoint - the split collapses
+      // below `@lg`, 512px of the dialog's own content box - on a viewport
+      // that never itself narrows, the window staying wide throughout being
+      // what tells the two apart. 500 rather than the 400 this walk used
+      // before the drag above widened it: from 956px, 400 would land within a
+      // pixel or two of the breakpoint itself.
+      await drag(-500, 0);
+      expect(await sideBySide(), 'one column once the dialog itself is narrow').toBe(false);
 
+      /**
+       * Stacked, the files used to come ahead of the description - the order
+       * the two columns happened to be written in - which put text a person
+       * is here to write below a list of files they are only attaching to it
+       * (found in the docked form once it is dragged narrower than the split
+       * needs).
+       */
       const files = form(page).getByText('Attachments', { exact: true });
-      await expect(files).toBeVisible();
+      const priority = (await priorityBox(page).boundingBox())!;
+      const description = (await toolbar.boundingBox())!;
+      const attached = (await files.boundingBox())!;
+      expect(description.y - priority.y, 'one column, the description below the fields').toBeGreaterThanOrEqual(40);
+      expect(priority.y, 'the short fields come first').toBeLessThan(description.y);
+      expect(description.y, 'then the description, ahead of the files').toBeLessThan(attached.y);
 
-      await press(form(page).getByRole('tab', { name: 'Details' }), isMobile);
-      await expect(files).toBeHidden();
-
-      await press(form(page).getByRole('tab', { name: 'Item' }), isMobile);
-      await expect(files).toBeVisible();
+      // What is drawn is also what Tab and a screen reader take: the
+      // description comes before the files in the document itself, not only
+      // on screen.
+      const filesHandle = (await files.elementHandle())!;
+      const descriptionFirst = await toolbar.evaluate(
+        (element, other) => Boolean(element.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING),
+        filesHandle,
+      );
+      expect(descriptionFirst, 'the description before the files in the document').toBe(true);
     });
   });
 
@@ -1099,7 +858,7 @@ test.describe('Item editing', () => {
    * it docked (found in review).
    */
   test.describe('the form can be docked to the side of the screen, an account-wide choice', () => {
-    test('docks to the side, leaves the page behind it clickable, is remembered on reopening, and is resizable', async ({
+    test('docks flush to the side, leaves the page beside it whole and clickable, is remembered on reopening, and falls back to centered on a window too narrow for it', async ({
       page,
       isMobile,
     }) => {
@@ -1114,14 +873,20 @@ test.describe('Item editing', () => {
       // nothing else has touched this yet.
       await centerIfDocked(page, isMobile);
 
+      // The page's own right edge: its header, which spans the whole shell.
+      const shellRight = async () => {
+        const box = (await page.locator('header').first().boundingBox())!;
+        return Math.round(box.x + box.width);
+      };
+      const viewport = page.viewportSize()!;
       try {
         const centered = (await form(page).boundingBox())!;
+        expect(await shellRight(), 'the whole window while the form is centered').toBe(viewport.width);
 
         const docking = answeredThePresentation(page);
         await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
         await docking;
 
-        const viewport = page.viewportSize()!;
         const docked = (await form(page).boundingBox())!;
         // Flush against the right edge and full height - unlike centered,
         // which sits away from every edge.
@@ -1129,6 +894,13 @@ test.describe('Item editing', () => {
         expect(Math.round(docked.y)).toBe(0);
         expect(Math.round(docked.height)).toBe(viewport.height);
         expect(Math.round(docked.x)).not.toBe(Math.round(centered.x));
+
+        // A companion beside the dashboards, so the page gives up the room it
+        // takes rather than being covered by it. Polled: the server's answer
+        // is not the page having repainted.
+        await expect
+          .poll(shellRight, { message: 'ends where the docked form begins' })
+          .toBe(Math.round(docked.x));
 
         // Non-modal: the page behind it can still be worked, which a real
         // click - not merely filling a value in - is what actually proves,
@@ -1143,7 +915,8 @@ test.describe('Item editing', () => {
         // presentation's bottom-right corner - dragged toward the right edge
         // it is docked to, which is what narrows it (the default viewport is
         // wide enough that it opens at its own ceiling already, so widening it
-        // further has nowhere to go).
+        // further has nowhere to go). The page takes the room back as the
+        // form gives it.
         const handle = form(page).getByRole('separator', { name: 'Resize the form' });
         const grip = (await handle.boundingBox())!;
         await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
@@ -1154,6 +927,10 @@ test.describe('Item editing', () => {
         expect(narrowed.width, 'dragging toward the edge it is docked to narrowed it').toBeLessThan(
           docked.width - 100,
         );
+        expect(narrowed.x, 'the form is narrower').toBeGreaterThan(docked.x + 100);
+        await expect
+          .poll(shellRight, { message: 'follows the form’s new edge' })
+          .toBe(Math.round(narrowed.x));
 
         // Both the choice and the width it was dragged to are the account's
         // and this device's own, so they are there again on a fresh page
@@ -1177,22 +954,61 @@ test.describe('Item editing', () => {
         await expect(form(page).getByRole('button', { name: 'Center' })).toBeVisible();
         const reopened = (await form(page).boundingBox())!;
         expect(Math.round(reopened.width)).toBe(Math.round(narrowed.width));
+
+        // **"Out of scope" for a phone means "falls back to centered", not
+        // "renders anyway"** (found in review, on the pull request itself): a
+        // jsdom unit test proved the class name changes, but a docked
+        // account's own form actually redrawing itself once the window it is
+        // open in gets too narrow is a real window and a real layout.
+        // Narrowed live, with the form already open - the same reactive width
+        // the docked resize clamp answers to, not only a fresh open's read
+        // of it.
+        await page.setViewportSize({ width: 375, height: 700 });
+        // Polled rather than read once: falling back to centered swaps the
+        // dialog's own modal and non-modal content, which is drawn afresh a
+        // beat after the resize rather than in the same frame.
+        await expect(async () => {
+          const narrow = await form(page).boundingBox();
+          expect(narrow, 'the form is drawn').not.toBeNull();
+          expect(Math.round(narrow!.x + narrow!.width), 'no longer flush against the edge').not.toBe(375);
+        }).toPass();
+        // The account is still docked - only what is drawn fell back - so the
+        // control still offers to undock it, not to dock what already is.
+        await expect(form(page).getByRole('button', { name: 'Center' })).toBeVisible();
+
+        // Centered by hand on a window with room again, and the page has the
+        // whole of it back.
+        await page.setViewportSize(viewport);
+        const centering = answeredThePresentation(page);
+        await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
+        await centering;
+        await expect.poll(shellRight, { message: 'the whole window again' }).toBe(viewport.width);
       } finally {
         // Put back, so every other item-form walk sharing this account goes
         // on finding the centered presentation it was written against -
         // best effort, so a failure above is reported as itself rather than
         // masked by a cleanup step failing on whatever broke it.
+        await page.setViewportSize(viewport);
         await putItBackCentered(page, isMobile);
       }
     });
 
     /**
-     * "Save a docked item's fields as you finish them, not behind one Save
-     * button" (issue 483). F3 for what a jsdom form cannot say: that a real
-     * blur, a real select and the real bar reach the server, and that what was
-     * written is there on reopening.
+     * What a docked form follows, and what it writes on the way. Three issues
+     * meet in one walk because they share every step of the setup: "Let the
+     * item's form dock to the side of the screen instead of opening as a
+     * dialog" (issue 481) for the click that lands on a real row beside a real
+     * dock, "Save a docked item's fields as you finish them, not behind one
+     * Save button" (issue 483) for a real blur, a real select and the real bar
+     * reaching the server, and "Keep a docked item open across dashboards in
+     * the same workspace" (issue 482) for the address a real browser holds.
+     * None of the three can be asked of jsdom; the rest of the routing rule is
+     * apps/web/tests/unit/router.test.tsx.
+     *
+     * In a workspace of its own, so the dashboard it adds goes with the
+     * workspace it is deleted with.
      */
-    test('writes each field as it is finished, takes the last one back, and keeps the rest on closing', async ({
+    test('follows the row you click and the note you capture, writes each field as it is finished, and stays open across the dashboards of its own workspace', async ({
       page,
       isMobile,
     }) => {
@@ -1205,35 +1021,79 @@ test.describe('Item editing', () => {
             new URL(response.url()).pathname === `/v1/commands/${command}`,
         );
 
+      const home = uniqueTitle('Docked walk');
+      const anotherDashboard = uniqueTitle('Second');
       await openInbox(page, isMobile);
-      const thought = uniqueTitle('Finish each field');
-      await capture(page, thought, isMobile);
-      await openItem(page, thought, isMobile);
+      await makeWorkspace(page, home, isMobile);
+      // Making it only waits for its tab, and the capture below acts on
+      // whichever workspace is on screen until the router has moved.
+      await switchTo(page, home, isMobile);
 
+      const first = uniqueTitle('Follow first');
+      const next = uniqueTitle('Follow second');
+      await capture(page, first, isMobile);
+      await capture(page, next, isMobile);
+      await openItem(page, first, isMobile);
       await centerIfDocked(page, isMobile);
 
+      let followedTo = first;
       try {
         const docking = answeredThePresentation(page);
         await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
         await docking;
+        // No Save button at all: a docked form writes each field as it is
+        // finished rather than behind one press.
         await expect(form(page).getByRole('button', { name: 'Save' })).toHaveCount(0);
+        await expect(titleBox(page)).toHaveValue(first);
+        await expect(itemRow(page, first)).toHaveAttribute('aria-current', 'true');
 
+        // A plain click on another row moves the dock to it, and what was
+        // typed in the one it leaves is written by the real unmount.
+        const renamed = uniqueTitle('Follow renamed');
+        await titleBox(page).fill(renamed);
+        await itemRow(page, next).click();
+        followedTo = next;
+        await expect(titleBox(page)).toHaveValue(next);
+        await expect(itemRow(page, next)).toHaveAttribute('aria-current', 'true');
+        await expect(itemRow(page, renamed)).toBeVisible();
+
+        // A capture moves it again and leaves the keyboard in the capture
+        // box, so a run of notes can be typed one after another: real focus,
+        // and a real dialog that would otherwise take it.
+        const captured = uniqueTitle('Capture follow');
+        await captureBox(page).fill(captured);
+        await captureBox(page).press('Enter');
+        followedTo = captured;
+        await expect(titleBox(page)).toHaveValue(captured);
+        await expect(itemRow(page, captured)).toHaveAttribute('aria-current', 'true');
+        await expect(captureBox(page)).toBeFocused();
+
+        // One open form changing its Item, so Back leaves the page rather than
+        // stepping back through the rows it has followed.
+        await page.goBack();
+        await expect(form(page)).toHaveCount(0);
+        await openItem(page, captured, isMobile);
+
+        // Each field as it is finished, on the item the dock has followed to.
         const prioritised = answeredTo('set_priority');
         await priorityBox(page).selectOption('high');
         await prioritised;
 
-        const renamed = answeredTo('set_title');
-        await titleBox(page).fill(`${thought} edited`);
+        const titled = answeredTo('set_title');
+        await titleBox(page).fill(`${captured} edited`);
         await titleBox(page).press('Tab');
-        await renamed;
+        await titled;
         await expect(page.getByRole('status')).toContainText('Changed the title');
 
         // The last change, taken back - the bar offers one step, so the
-        // priority stays.
+        // priority stays, and so does the rename the row click wrote on its
+        // way out, which is what tells this apart from an Undo that reached
+        // the wrong change.
         const undone = answeredTo('set_title');
         await press(page.getByRole('status').getByRole('button', { name: 'Undo' }), isMobile);
         await undone;
-        await expect(titleBox(page)).toHaveValue(thought);
+        await expect(titleBox(page)).toHaveValue(captured);
+        await expect(itemRow(page, renamed)).toBeVisible();
 
         // Closing keeps a box still holding the cursor.
         const closing = answeredTo('set_description');
@@ -1255,279 +1115,44 @@ test.describe('Item editing', () => {
         await page.reload();
         await readBack;
         await expect(captureBox(page)).toBeVisible();
-        await openItem(page, thought, isMobile);
+        await openItem(page, captured, isMobile);
         await expect(priorityBox(page)).toHaveValue('high');
-        await expect(titleBox(page)).toHaveValue(thought);
+        await expect(titleBox(page)).toHaveValue(captured);
         await theEditorIsThere(page);
         await expect(descriptionBox(page)).toHaveText('Written, cursor still there');
-      } finally {
-        // Put back for every other walk sharing this account, best effort.
-        await putItBackCentered(page, isMobile);
-      }
-    });
 
-    /**
-     * "Keep a docked item open across dashboards in the same workspace" (issue
-     * 482). F3 for the one part a jsdom router cannot say: that the address a
-     * real browser holds keeps the item through a dashboard's own tab and the
-     * `+` that adds one, and drops it on the way to another workspace. The
-     * rest of the rule is apps/web/tests/unit/router.test.tsx.
-     *
-     * In a workspace of its own, so the dashboard it adds goes with the
-     * workspace it is deleted with, and the account's presentation is put
-     * back by reopening the form at the end - the walk closes it by leaving.
-     */
-    test('stays open across the dashboards of one workspace, and closes on going to another', async ({
-      page,
-      isMobile,
-    }) => {
-      test.skip(isMobile, 'docking is its own, separate discussion on a phone, by design');
-
-      const home = uniqueTitle('Docked walk');
-      const second = uniqueTitle('Second');
-      await openInbox(page, isMobile);
-      await makeWorkspace(page, home, isMobile);
-      // Making it only waits for its tab, and the capture below acts on
-      // whichever workspace is on screen until the router has moved.
-      await switchTo(page, home, isMobile);
-      const thought = uniqueTitle('Keep docked across dashboards');
-      await capture(page, thought, isMobile);
-      await openItem(page, thought, isMobile);
-
-      await centerIfDocked(page, isMobile);
-
-      try {
-        const docking = answeredThePresentation(page);
-        await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
-        await docking;
-        await expect(titleBox(page)).toHaveValue(thought);
-
-        // Through the `+`, which switches to the dashboard it makes.
+        // And it stays open across this workspace's dashboards - through the
+        // `+`, which switches to the dashboard it makes, and through a tab,
+        // both ways.
         await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
-        await page.getByLabel('Name of the new dashboard').fill(second);
+        await page.getByLabel('Name of the new dashboard').fill(anotherDashboard);
         await page.getByLabel('Name of the new dashboard').press('Enter');
-        await expect(dashboardTab(page, second)).toHaveClass(/(^|\s)active(\s|$)/);
-        await expect(titleBox(page)).toHaveValue(thought);
-
-        // And through a tab, both ways.
+        await expect(dashboardTab(page, anotherDashboard)).toHaveClass(/(^|\s)active(\s|$)/);
+        await expect(titleBox(page)).toHaveValue(captured);
         await openDashboard(page, 'Dashboard 1', isMobile);
-        await expect(titleBox(page)).toHaveValue(thought);
-        await openDashboard(page, second, isMobile);
-        await expect(titleBox(page)).toHaveValue(thought);
+        await expect(titleBox(page)).toHaveValue(captured);
+        await openDashboard(page, anotherDashboard, isMobile);
+        await expect(titleBox(page)).toHaveValue(captured);
         expect(new URL(page.url()).searchParams.get('item')).not.toBeNull();
 
+        // And lets go at the workspace boundary, which the walk leaves by.
         await switchTo(page, STARTING_WORKSPACE, isMobile);
         await expect(form(page)).toHaveCount(0);
         await switchTo(page, home, isMobile);
-        await expect(dashboardTab(page, second)).toBeVisible();
+        await expect(dashboardTab(page, anotherDashboard)).toBeVisible();
         await expect(form(page)).toHaveCount(0);
       } finally {
         // Put back for every other walk sharing this account, best effort so
-        // a failure above is reported as itself. The form is not open by now,
-        // so it is reopened, docked as the account has it, to centre it.
+        // a failure above is reported as itself. The form may not be open by
+        // now, so it is reopened - docked, as the account has it - to centre
+        // it.
         if (!(await form(page).count().catch(() => 0))) {
-          await openItem(page, thought, isMobile).catch(() => {});
+          await openItem(page, followedTo, isMobile).catch(() => {});
         }
         await putItBackCentered(page, isMobile);
       }
       await deleteWorkspace(page, home, isMobile);
     });
 
-    /**
-     * "Let the item's form dock to the side of the screen instead of opening as a dialog" (issue 481): the
-     * click lands on a real row beside a real dock, and what is typed in the
-     * form on the way out is written by the real unmount - neither of which
-     * jsdom can say.
-     */
-    test('follows a plain click on another row, writing what was typed on the way', async ({
-      page,
-      isMobile,
-    }) => {
-      test.skip(isMobile, 'docking is its own, separate discussion on a phone, by design');
-
-      await openInbox(page, isMobile);
-      const first = uniqueTitle('Follow first');
-      const second = uniqueTitle('Follow second');
-      await capture(page, first, isMobile);
-      await capture(page, second, isMobile);
-      await openItem(page, first, isMobile);
-      await centerIfDocked(page, isMobile);
-
-      try {
-        const docking = answeredThePresentation(page);
-        await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
-        await docking;
-        await expect(titleBox(page)).toHaveValue(first);
-        await expect(itemRow(page, first)).toHaveAttribute('aria-current', 'true');
-
-        const renamed = uniqueTitle('Follow renamed');
-        await titleBox(page).fill(renamed);
-        await itemRow(page, second).click();
-
-        await expect(titleBox(page)).toHaveValue(second);
-        await expect(itemRow(page, second)).toHaveAttribute('aria-current', 'true');
-        // What was typed in the first was written as the form let go of it.
-        await expect(itemRow(page, renamed)).toBeVisible();
-
-        // One open form changing its Item, so Back leaves the page rather
-        // than stepping back through the rows.
-        await page.goBack();
-        await expect(form(page)).toHaveCount(0);
-      } finally {
-        if (!(await form(page).count().catch(() => 0))) {
-          await openItem(page, second, isMobile).catch(() => {});
-        }
-        await putItBackCentered(page, isMobile);
-      }
-    });
-
-    /**
-     * A capture moves the dock to the new note and leaves the keyboard in the
-     * capture box, so a run of notes can be typed one after another: real
-     * focus, and a real dialog that would otherwise take it.
-     */
-    test('follows a capture, and leaves the keyboard in the capture box', async ({
-      page,
-      isMobile,
-    }) => {
-      test.skip(isMobile, 'docking is its own, separate discussion on a phone, by design');
-
-      await openInbox(page, isMobile);
-      const first = uniqueTitle('Capture follow first');
-      const second = uniqueTitle('Capture follow second');
-      await capture(page, first, isMobile);
-      await openItem(page, first, isMobile);
-      await centerIfDocked(page, isMobile);
-
-      try {
-        const docking = answeredThePresentation(page);
-        await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
-        await docking;
-        await expect(titleBox(page)).toHaveValue(first);
-
-        await captureBox(page).fill(second);
-        await captureBox(page).press('Enter');
-
-        await expect(titleBox(page)).toHaveValue(second);
-        await expect(itemRow(page, second)).toHaveAttribute('aria-current', 'true');
-        await expect(captureBox(page)).toBeFocused();
-      } finally {
-        if (!(await form(page).count().catch(() => 0))) {
-          await openItem(page, second, isMobile).catch(() => {});
-        }
-        await putItBackCentered(page, isMobile);
-      }
-    });
-
-    /**
-     * "Out of scope" for a phone means "falls back to centered", not
-     * "renders anyway" (found in review, on the pull request itself): a
-     * jsdom unit test proved the class name changes, but the real product
-     * behaviour - a docked account's own form actually redrawing itself once
-     * the window it is open in gets too narrow - is a real window and a real
-     * layout, so it belongs here, driven in an actual browser.
-     */
-    test('falls back to centered once the window is too narrow to dock, without moving the account off docked', async ({
-      page,
-      isMobile,
-    }) => {
-      test.skip(isMobile, 'the viewport is fixed on a phone project already');
-
-      await openInbox(page, isMobile);
-      const thought = uniqueTitle('Narrow the window while docked');
-      await capture(page, thought, isMobile);
-      await openItem(page, thought, isMobile);
-
-      await centerIfDocked(page, isMobile);
-
-      const full = page.viewportSize()!;
-      try {
-        const docking = answeredThePresentation(page);
-        await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
-        await docking;
-        const docked = (await form(page).boundingBox())!;
-        expect(Math.round(docked.x + docked.width)).toBe(full.width);
-
-        // Narrowed live, with the form already open - the same reactive
-        // width the docked resize clamp already answers to, not only a
-        // fresh open's own read of it.
-        await page.setViewportSize({ width: 375, height: 700 });
-        // Polled rather than read once: falling back to centered swaps the
-        // dialog's own modal and non-modal content, which is drawn afresh a
-        // beat after the resize rather than in the same frame.
-        await expect(async () => {
-          const narrow = await form(page).boundingBox();
-          expect(narrow, 'the form is drawn').not.toBeNull();
-          expect(Math.round(narrow!.x + narrow!.width), 'no longer flush against the edge').not.toBe(375);
-        }).toPass();
-
-        // The account is still docked - only what is drawn fell back - so
-        // the control still offers to undock it, not to dock what already
-        // is.
-        await expect(form(page).getByRole('button', { name: 'Center' })).toBeVisible();
-      } finally {
-        await page.setViewportSize(full);
-        await putItBackCentered(page, isMobile);
-      }
-    });
-
-    /**
-     * A docked form is a companion beside the dashboards, so the page gives
-     * up the room it takes rather than being covered by it. F3, because the
-     * shell's width, and its following a drag of the form's edge, exist only
-     * where there is a real layout - which jsdom does not have.
-     */
-    test('the page beside a docked form is left whole, follows the form as it is dragged, and takes the room back', async ({
-      page,
-      isMobile,
-    }) => {
-      test.skip(isMobile, 'docking is its own, separate discussion on a phone, by design');
-
-      await openInbox(page, isMobile);
-      const thought = uniqueTitle('The page makes room');
-      await capture(page, thought, isMobile);
-      await openItem(page, thought, isMobile);
-
-      await centerIfDocked(page, isMobile);
-
-      // The page's own right edge: its header, which spans the whole shell.
-      const shellRight = async () => {
-        const box = (await page.locator('header').first().boundingBox())!;
-        return Math.round(box.x + box.width);
-      };
-      const viewportWidth = page.viewportSize()!.width;
-      try {
-        expect(await shellRight(), 'the whole window while the form is centered').toBe(viewportWidth);
-
-        const docking = answeredThePresentation(page);
-        await press(form(page).getByRole('button', { name: 'Dock' }), isMobile);
-        await docking;
-        const docked = (await form(page).boundingBox())!;
-        // Polled: the server's answer is not the page having repainted.
-        await expect
-          .poll(shellRight, { message: 'ends where the docked form begins' })
-          .toBe(Math.round(docked.x));
-
-        // Dragged narrower, the page takes the room back as the form gives it.
-        const grip = (await form(page).getByRole('separator', { name: 'Resize the form' }).boundingBox())!;
-        await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
-        await page.mouse.down();
-        await page.mouse.move(grip.x + 200, grip.y, { steps: 8 });
-        await page.mouse.up();
-        const narrowed = (await form(page).boundingBox())!;
-        expect(narrowed.x, 'the form is narrower').toBeGreaterThan(docked.x + 100);
-        await expect
-          .poll(shellRight, { message: 'follows the form’s new edge' })
-          .toBe(Math.round(narrowed.x));
-
-        // Centered again, the page has the whole window back.
-        const centering = answeredThePresentation(page);
-        await press(form(page).getByRole('button', { name: 'Center' }), isMobile);
-        await centering;
-        await expect.poll(shellRight, { message: 'the whole window again' }).toBe(viewportWidth);
-      } finally {
-        await putItBackCentered(page, isMobile);
-      }
-    });
   });
 });
