@@ -7,8 +7,17 @@ round up.** Reads the pull request and Actions APIs and each pull request's sess
 HTML page that opens from disk, or with `--json` writes the model. Keeps no state — GitHub
 already stores this history, so every run re-derives it.
 
-Running it nightly is "Run the lead-time report nightly, and publish it beside the other two"
-(issue 515).
+## Reading it without running it
+
+Built once a night by the `Lead time` job of
+[`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml) — never per merge, since
+its 800 or so requests would fail in a burst against the hourly allowance — and by hand from the
+Actions tab when a night was missed, and uploaded as the `lead-time-report` artifact. `Publish`
+in `ci.yml` takes the newest one from `main` into
+**<https://michaelvanhoutte.github.io/cockpit/lead-time/>**, beside the test explorer and the
+[CI stability page](../ci-stability/README.md), so the page is the last night's, refreshed onto
+the site by the next merge. A missing or refused page costs this one and never the site. Each
+nightly report is a job of its own, so adding one is adding a job.
 
 ## Running it
 

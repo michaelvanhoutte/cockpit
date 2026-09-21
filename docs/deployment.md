@@ -95,9 +95,10 @@ Workers AI binding — which has no local simulator, so a local run that declare
 one would need a Cloudflare account to start at all ("Flag a captured note that
 says what another one already said", issue 407).
 A third *GitHub* environment, `github-pages`, does exist beside these two and holds no
-part of the app: it is where CI publishes the two reports from `main` — the test
-explorer at the root (`tools/test-explorer/README.md`) and the CI stability page at
-`/stability/` (`tools/ci-stability/README.md`).
+part of the app: it is where CI publishes the three reports from `main` — the test
+explorer at the root (`tools/test-explorer/README.md`), the CI stability page at
+`/stability/` (`tools/ci-stability/README.md`) and the lead-time page at
+`/lead-time/` (`tools/lead-time/README.md`).
 
 **Both are reachable by anyone who knows the URL**, with Cockpit's own sign-in the
 only thing in the way — see "Secrets and access" for what that is worth today. The
@@ -978,9 +979,10 @@ Then, by hand (no API, or deliberately not automated):
    It is a dashboard setting with no API to read it back from.
 
 4. **GitHub Pages**, at Settings → Pages → Source: **GitHub Actions**. CI's
-   `Publish` job deploys both reports there from `main` — the test explorer
-   (`tools/test-explorer/README.md`) and the CI stability page
-   (`tools/ci-stability/README.md`) — and until this is set that job fails, which
+   `Publish` job deploys the three reports there from `main` — the test explorer
+   (`tools/test-explorer/README.md`), the CI stability page
+   (`tools/ci-stability/README.md`) and the lead-time page
+   (`tools/lead-time/README.md`) — and until this is set that job fails, which
    puts `main` red on every commit. Not automated: `configure-pages`'s
    `enablement` input refuses `GITHUB_TOKEN` and wants a stored personal access
    token, which buys one settings click at the price of a long-lived credential.

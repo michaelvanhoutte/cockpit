@@ -21,6 +21,11 @@ describe('renderHtml', () => {
     expect(html).toContain('href="stability/"');
     expect(html).toContain('CI stability');
   });
+
+  it('links to the lead-time page, the third of the published site', () => {
+    const html = renderHtml(model, { repoRelPrefix: '../../..' });
+    expect(html).toContain('href="lead-time/"');
+  });
 });
 
 describe('esc', () => {
