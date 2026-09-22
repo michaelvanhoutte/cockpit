@@ -11,7 +11,8 @@ The options considered and rejected, and the measured baseline, are in
 
 Published on every merge to `main` at
 **<https://michaelvanhoutte.github.io/cockpit/stability/>** — no sign-in needed. The test
-explorer is the other half of that site, at the root, and the two link to each other.
+explorer is at the root and the [lead-time page](../lead-time/README.md) at `/lead-time/`; the
+three link to one another.
 
 Every `main` run also uploads the page as the `ci-stability-report` artifact, from the
 `Stability` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).

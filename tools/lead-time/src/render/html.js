@@ -1,6 +1,6 @@
 /**
  * The renderer: the model in, a single self-contained HTML file out. Imports
- * model.js and strips.js and nothing else — never github.js, the same split the
+ * model.js, strips.js and scatter.js and nothing else — never github.js, the same split the
  * stability report and the test explorer keep — and draws what it is handed:
  * every measurement on the page is the model's. What it adds is layout, and the
  * sums of columns it is showing.
@@ -15,6 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { AWAY_MS, CHECK_KINDS, LONG_ROUND_MS, REVIEW_CHECKS, kindOf } from '../model.js';
+import { layoutScatter, radiusFor } from './scatter.js';
 import { fitTo, partsOf, scaleFor } from './strips.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -181,14 +182,32 @@ function limits(model) {
   </ul></div>`;
 }
 
+/**
+ * Every check that held the round, in the order it did, each named once even
+ * where a re-run repeats it — "held by Test, then claude-review", never just
+ * the last of the two. Naming only `round.last` here would say in words the
+ * same thing the strip used to say in colour, and be just as misleading for a
+ * round several checks handed off between.
+ */
+function heldBy(round) {
+  const names = [];
+  for (const held of round.held) if (names[names.length - 1] !== held.name) names.push(held.name);
+  return names.join(', then ');
+}
+
 /** What a round says about itself, in words, for the title on its segment and the list under its strip. */
 function roundText(round, index) {
   const parts = [`Round ${index}`, humanMs(round.ms), `pushed ${stamp(round.pushedAt)}`];
-  if (round.last) parts.push(`held by ${round.last}`);
+  if (round.held.length) parts.push(`held by ${heldBy(round)}`);
   if (round.red) parts.push(`RED: ${round.failed.join(', ')} failed`);
   if (round.flukes.length) parts.push(`FLUKE: ${round.flukes.map((fluke) => `${fluke.name} failed and passed on re-run, +${humanMs(fluke.ms)}`).join('; ')}`);
   if (round.unrecognised.length) parts.push(`unrecognised: ${round.unrecognised.map((each) => `${each.name} (${each.conclusion})`).join(', ')}`);
   return parts.join(' · ');
+}
+
+/** What one check held a round for, in words, for the title on its own slice of the round. */
+function heldText(held) {
+  return `${KIND_LABEL[kindOf(held.name)]} (${held.name}) · held it ${humanMs(held.ms)}${held.rerun ? ' · re-run' : ''}`;
 }
 
 const PART_TITLE = {
@@ -199,15 +218,49 @@ const PART_TITLE = {
   away: (part) => `Away for ${humanMs(part.ms)} · a gap of over ${humanMs(AWAY_MS)} is drawn off the time scale`,
 };
 
+/** The CSS flex-grow for a duration: proportional to its seconds, floored at 1 so nothing vanishes to zero width. */
+const growOf = (ms) => Math.max(1, Math.round(ms / 1000));
+
+/**
+ * A round drawn as the checks that actually held it, in the order they finished —
+ * never as one colour for the whole span. A round often outlasts any one check:
+ * the tests can hold it for most of its length and a review only the tail, and a
+ * single colour over the full width would read as the tail's check holding all of
+ * it. Each piece is sized to the share of the round it actually held, so a piece
+ * of the same colour beside another of the same colour reads as one stretch,
+ * which is correct — the round genuinely was held by that kind without a seam.
+ *
+ * `visibleMs`, when the round itself was clipped to the scale's edge, is how much
+ * of it is actually shown: the pieces are trimmed to that budget the same way
+ * `fitTo` trims the parts around it, rather than drawn at their real, full-round
+ * proportions squeezed into less room — which would show a check's colour past
+ * the point its slice was actually cut off.
+ */
+function roundPieces(round, visibleMs = round.ms) {
+  const shown = [];
+  if (visibleMs >= round.ms) {
+    shown.push(...round.held);
+  } else {
+    let used = 0;
+    for (const held of round.held) {
+      const room = visibleMs - used;
+      if (room <= 0) break;
+      shown.push(held.ms > room ? { ...held, ms: room } : held);
+      used += Math.min(held.ms, room);
+    }
+  }
+  return shown.map((held) => `<span class="piece ${kindOf(held.name)}" style="flex:${growOf(held.ms)} 1 0" title="${esc(heldText(held))}"></span>`).join('');
+}
+
 function segment(part, pull) {
   if (part.type === 'away') return `<span class="seg away" title="${esc(PART_TITLE.away(part))}"><span class="sr">away ${esc(humanMs(part.ms))}</span></span>`;
 
-  const grow = `flex:${Math.max(1, Math.round(part.ms / 1000))} 1 0`;
+  const grow = `flex:${growOf(part.ms)} 1 0`;
   if (part.type === 'round') {
-    const held = kindOf(part.round.last ?? '');
     const marks =
       (part.round.red ? '<i class="mark red" aria-hidden="true">✕</i>' : '') + (part.round.flukes.length ? '<i class="mark fluke" aria-hidden="true">↻</i>' : '');
-    return `<span class="seg round ${held}${part.round.red ? ' red' : ''}${part.cut ? ' cut' : ''}" style="${grow}" title="${esc(roundText(part.round, part.index))}">${marks}</span>`;
+    const pieces = roundPieces(part.round, part.cut ? part.ms : undefined);
+    return `<span class="seg round${part.round.red ? ' red' : ''}${part.cut ? ' cut' : ''}" style="${grow}" title="${esc(roundText(part.round, part.index))}">${pieces}${marks}</span>`;
   }
 
   const unrecorded = part.type === 'coding' && !pull.recorded ? ' unrecorded' : '';
@@ -256,7 +309,7 @@ function legend() {
   const item = (cls, text) => `<span class="key"><span class="swatch ${cls}"></span>${text}</span>`;
   return `<div class="legend">
     ${item('coding', 'coding before the first push')}
-    ${item('checks', 'a round held by tests and checks')}
+    ${item('checks', 'held by tests and checks')}
     ${item('code-review', 'held by code review')}
     ${item('security-review', 'held by security review')}
     ${item('fixing', 'fixing between rounds')}
@@ -272,8 +325,141 @@ function strips(model) {
   if (model.pulls.length === 0) return '<div class="card"><p class="empty">No merged pull requests in this period.</p></div>';
   const allParts = model.pulls.map(partsOf);
   const scaleMs = scaleFor(allParts);
-  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}. Time away is not on it. Hover a part for what it was; open a row for its rounds in words.</p>`;
+  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}. Time away is not on it. A round is split into the checks that held it, in the order they finished — hover a slice for which one and how long; open a row for its rounds in words.</p>`;
   return `${scaleNote}${legend()}<div class="card">${model.pulls.map((pull, index) => stripRow(pull, allParts[index], scaleMs)).join('')}</div>`;
+}
+
+/** A ratio to the precision it can be read at: two places below one, one below ten. */
+const ratioText = (value) => `${value < 1 ? value.toFixed(2) : value < 10 ? value.toFixed(1) : Math.round(value)}×`;
+
+/** Axis ticks are whole minutes, and the axis title says so. */
+const minuteTick = (ms) => String(Math.round(ms / 60_000));
+
+/** What a dot says when it is hovered or focused: the pull request, then its figures. */
+function dotTitle(dot) {
+  const parts = [
+    `#${dot.number} ${dot.title}`,
+    `coding and fixing ${humanMs(dot.codingMs)}`,
+    `in the harness ${humanMs(dot.harnessMs)}`,
+    dot.ratio === null ? 'no coding time, so no ratio' : `ratio ${ratioText(dot.ratio)}`,
+    plural(dot.rounds, 'round'),
+  ];
+  if (dot.off) parts.push('beyond the scale, so drawn on its edge');
+  return parts.join(' · ');
+}
+
+const PLOT = { left: 48, top: 16, size: 380 };
+const VIEW = { width: PLOT.left + PLOT.size + 24, height: PLOT.top + PLOT.size + 44 };
+
+function scatterSvg(layout) {
+  const px = (fraction) => (PLOT.left + fraction * PLOT.size).toFixed(1);
+  const py = (fraction) => (PLOT.top + (1 - fraction) * PLOT.size).toFixed(1);
+
+  const grid = layout.ticks
+    .map((ms) => {
+      const fraction = ms / layout.scaleMs;
+      return `<line class="grid" x1="${px(fraction)}" y1="${py(0)}" x2="${px(fraction)}" y2="${py(1)}"/><line class="grid" x1="${px(0)}" y1="${py(fraction)}" x2="${px(1)}" y2="${py(fraction)}"/>
+      <text class="tick" x="${px(fraction)}" y="${PLOT.top + PLOT.size + 16}" text-anchor="middle">${minuteTick(ms)}</text><text class="tick" x="${PLOT.left - 8}" y="${(Number(py(fraction)) + 4).toFixed(1)}" text-anchor="end">${minuteTick(ms)}</text>`;
+    })
+    .join('');
+
+  const median = layout.median
+    ? `<line class="medianline" x1="${px(0)}" y1="${py(0)}" x2="${px(layout.median.x)}" y2="${py(layout.median.y)}"/>`
+    : '';
+
+  const dots = layout.dots
+    .map((dot) => {
+      const r = radiusFor(dot.rounds);
+      const cx = px(dot.x);
+      const cy = py(dot.y);
+      const nearRight = dot.x > 0.85;
+      const label = dot.labelled
+        ? `<text class="dotlabel" x="${(Number(cx) + (nearRight ? -(r + 4) : r + 4)).toFixed(1)}" y="${(Number(cy) + 4).toFixed(1)}" text-anchor="${nearRight ? 'end' : 'start'}">#${esc(dot.number)}</text>`
+        : '';
+      // The link is the hit target: a pointer only has to be near, and a keyboard reaches it.
+      return `<a href="${esc(dot.url)}" target="_blank" rel="noopener"><title>${esc(dotTitle(dot))}</title><circle class="hit" cx="${cx}" cy="${cy}" r="${Math.max(12, r + 6)}"/><circle class="dot${dot.off ? ' off' : ''}" cx="${cx}" cy="${cy}" r="${r}"/>${label}</a>`;
+    })
+    .join('');
+
+  return `<svg class="scatter" viewBox="0 0 ${VIEW.width} ${VIEW.height}" role="img" aria-label="Scatter of minutes coding and fixing against minutes in the harness, one dot per pull request. The same figures are in the table below it.">
+    ${grid}
+    <line class="axis" x1="${px(0)}" y1="${py(0)}" x2="${px(1)}" y2="${py(0)}"/><line class="axis" x1="${px(0)}" y1="${py(0)}" x2="${px(0)}" y2="${py(1)}"/>
+    <line class="equalline" x1="${px(0)}" y1="${py(0)}" x2="${px(1)}" y2="${py(1)}"/>
+    ${median}
+    ${dots}
+    <text class="axistitle" x="${px(0.5)}" y="${VIEW.height - 6}" text-anchor="middle">Minutes coding and fixing</text>
+    <text class="axistitle" transform="translate(12 ${py(0.5)}) rotate(-90)" text-anchor="middle">Minutes in the harness</text>
+  </svg>`;
+}
+
+/**
+ * Coding against the harness, over the widest window. Each dot is a pull request with
+ * a session record, so one without is left out and counted rather than drawn at a
+ * guess, and a window with no dot is no data rather than an empty chart.
+ */
+function balance(model) {
+  const window = model.windows.reduce((widest, each) => (!widest || each.days > widest.days ? each : widest), null);
+  if (!window) return '';
+
+  const { dots, ratio, noChecks } = window.balance;
+  const heading = `<h3>${esc(windowHeading(window))}</h3>`;
+  const leftOut = [
+    window.pulls.withoutRecord === 0
+      ? window.pulls.total === 0
+        ? ''
+        : 'Every merged pull request in this window carries a session record.'
+      : `${plural(window.pulls.withoutRecord, 'merged pull request')} in this window ${window.pulls.withoutRecord === 1 ? 'carries' : 'carry'} no session record and ${window.pulls.withoutRecord === 1 ? 'is' : 'are'} not on the chart.`,
+    noChecks ? `${plural(noChecks, 'pull request')} with a record had no check run on ${noChecks === 1 ? 'it' : 'them'}, so ${noChecks === 1 ? 'has' : 'have'} no harness time to place.` : '',
+  ]
+    .filter(Boolean)
+    .map((sentence) => `<p class="clipnote">${sentence}</p>`)
+    .join('');
+
+  if (dots.length === 0) return `<div class="card pad">${heading}<p class="empty">${noData}</p>${leftOut}</div>`;
+
+  const layout = layoutScatter(dots, ratio?.median ?? null);
+  const off = layout.dots.filter((dot) => dot.off).length;
+  const medianNote = ratio
+    ? `<p class="fact"><b>Median ratio ${ratioText(ratio.median)}</b> over ${plural(ratio.pulls, 'pull request')}${
+        ratio.pulls === 1 ? ': that one pull request&rsquo;s own ratio, so it says nothing about the rest' : ''
+      }.</p>`
+    : '<p class="fact"><b>No median ratio:</b> no pull request here has any coding time to divide by.</p>';
+
+  const legend = `<div class="legend stacked">
+    <span class="key"><svg class="keyline" viewBox="0 0 24 8" aria-hidden="true"><line class="equalline" x1="0" y1="4" x2="24" y2="4"/></svg>the harness took as long as the coding</span>
+    <span class="key"><svg class="keyline" viewBox="0 0 24 8" aria-hidden="true"><line class="medianline" x1="0" y1="4" x2="24" y2="4"/></svg>this window&rsquo;s median ratio</span>
+    <span class="key"><svg class="keyline" viewBox="0 0 34 14" aria-hidden="true"><circle class="dot" cx="7" cy="7" r="${radiusFor(1)}"/><circle class="dot" cx="24" cy="7" r="${radiusFor(5)}"/></svg>dot size: 1 round, and 5</span>
+    <span class="key"><svg class="keyline" viewBox="0 0 14 14" aria-hidden="true"><circle class="dot off" cx="7" cy="7" r="5"/></svg>hollow on the edge: off the chart</span>
+  </div>`;
+
+  const rows = layout.dots
+    .map(
+      (dot) => `<tr>
+        <td class="pr"><a href="${esc(dot.url)}" target="_blank" rel="noopener">#${esc(dot.number)}</a> <span class="title">${esc(dot.title)}</span></td>
+        <td class="num dur">${humanMs(dot.codingMs)}</td>
+        <td class="num dur">${humanMs(dot.harnessMs)}</td>
+        <td class="num dur">${dot.ratio === null ? '&mdash;' : ratioText(dot.ratio)}</td>
+        <td class="num">${dot.rounds}</td>
+        <td>${dot.off ? '<span class="tag">off the chart</span>' : ''}</td>
+      </tr>`,
+    )
+    .join('');
+
+  return `<div class="card pad">${heading}
+    <div class="balance">
+      <div class="chart">${scatterSvg(layout)}</div>
+      <div class="chartside">
+        ${legend}
+        ${medianNote}
+        <p class="clipnote">Scale to ${humanMs(layout.scaleMs)} on both axes${off ? `; ${plural(off, 'dot')} beyond it, drawn hollow on the edge` : ''}. The three furthest above the dashed line are named. Hover or focus a dot for its figures; it opens the pull request.</p>
+        ${leftOut}
+      </div>
+    </div>
+    <details><summary>The figures behind the dots</summary><div class="tablewrap"><table>
+      <thead><tr><th>Pull request</th><th class="num">Coding and fixing</th><th class="num">In the harness</th><th class="num">Ratio</th><th class="num">Rounds</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div></details>
+  </div>`;
 }
 
 const reviewCells = (pull, kind) => {
@@ -363,6 +549,10 @@ export function renderHtml(model) {
       ${commitUrl ? `<span>commit <a href="${esc(commitUrl)}" target="_blank" rel="noopener"><b>${esc(model.commit.slice(0, 7))}</b></a></span>` : ''}
       <span>merged pull requests read <b>${model.coverage.pulls}</b></span>
       <span>covering <b>${coveredPhrase(model.coverage.actualDays)}</b></span>
+      <!-- The other two pages of the published site, assembled by ci.yml's
+           Publish job; they resolve there and nowhere else. -->
+      <span><a href="../"><b>Test explorer &rarr;</b></a></span>
+      <span><a href="../stability/"><b>CI stability &rarr;</b></a></span>
     </div>
   </header>
 
@@ -375,6 +565,10 @@ export function renderHtml(model) {
   <h2>Where the harness minutes go</h2>
   <p class="sectionnote">The time each kind of check held a round: from the moment the one before it finished, so two running together are counted once and the last to finish is the one charged. Runs are the times it ran; a review that finished before the tests held nobody up.</p>
   ${harnessCards(model)}
+
+  <h2>Coding against the harness</h2>
+  <p class="sectionnote">Minutes spent writing and fixing against minutes spent in the harness, the rounds plus local review. Every pull request pays a fixed harness cost, so a small change sits above the dashed line whatever it did; read the minutes beside the ratio. No line is drawn as healthy, since there is no accepted benchmark for this ratio: the reference is the window&rsquo;s own median.</p>
+  ${balance(model)}
 
   <h2>Each pull request, start to merge</h2>
   ${strips(model)}

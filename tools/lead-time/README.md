@@ -7,8 +7,15 @@ round up.** Reads the pull request and Actions APIs and each pull request's sess
 HTML page that opens from disk, or with `--json` writes the model. Keeps no state — GitHub
 already stores this history, so every run re-derives it.
 
-Running it nightly is "Run the lead-time report nightly, and publish it beside the other two"
-(issue 515).
+## Reading it without running it
+
+Built once a night by the `Lead time` job of
+[`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml), which says why it is not
+per merge, and by hand from the Actions tab when a night was missed. It is uploaded as the
+`lead-time-report` artifact, and `Publish` in `ci.yml` takes the newest one a nightly run on `main` made into
+**<https://michaelvanhoutte.github.io/cockpit/lead-time/>**, beside the test explorer and the
+[CI stability page](../ci-stability/README.md): the page is the last night's, refreshed onto the
+site by the next merge, and a missing one costs this page and never the site.
 
 ## Running it
 
@@ -70,14 +77,29 @@ how many rounds ran past ten minutes, and what each kind of check held rounds up
 minutes, runs, and rounds it finished last). `pulls` in the model is the per-pull-request detail
 behind them.
 
+**Coding against the harness** is each pull request's `balance`, and over a window its `balance`
+holds the dots and the median of their ratios. Coding is the time before the first push plus the
+fixing between rounds, less local review; the harness is every round plus local review. Waiting to
+merge and time away are in neither. It is `null` for a pull request with no record (the local
+reviews would be missing from it) or with no round, and `noChecks` counts the second kind.
+
 ## The page
 
 Every measurement on it is the model's; the renderer lays them out and sums the columns it shows. It opens with a box saying what
 the totals leave out, always and not only when something is unusual: the period actually covered
 (not the one asked for, where the fetch was capped), that time before the session's start is not
 measured, that only merged pull requests count, and how many carry a session record. Then the
-figures over each window, where the harness minutes go, a strip per pull request, and the numbers
-behind them.
+figures over each window, where the harness minutes go, coding against the harness, a strip per
+pull request, and the numbers behind them.
+
+- **Coding against the harness is a scatter** (`src/render/scatter.js`): a dot per pull request
+  that carries a record, minutes coding and fixing across and minutes in the harness up, on one
+  scale for both axes up to two hours, sized by rounds. A dashed line marks the harness taking as
+  long as the coding, a solid one the median ratio. It is drawn over the widest window only. A dot
+  past the scale is hollow on the edge and marked off the chart, the three furthest above the
+  dashed line are named, and a hover or focus names the pull request and its figures. Pull requests
+  without a record are counted beneath it, not drawn. No line means healthy: there is no accepted
+  benchmark, so the reference is the window's own median.
 
 - **A strip is drawn on one scale for every pull request** (`src/render/strips.js`), up to four
   hours; a longer one is cut at the edge and says how much it cut. Time away is off the scale.
