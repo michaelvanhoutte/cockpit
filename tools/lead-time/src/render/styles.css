@@ -144,9 +144,18 @@ td.pr .title { color: var(--ink-2); }
 .seg.coding { background: var(--coding); }
 .seg.fixing { background: var(--fixing); }
 .seg.wait { background: var(--wait); }
-.seg.round.checks { background: var(--checks); }
-.seg.round.code-review { background: var(--code-review); }
-.seg.round.security-review { background: var(--security-review); }
+/* A round is not one colour: it is the checks that held it, each its own slice,
+   in the order they finished. Same-coloured slices sit flush against each other
+   on purpose — that reads as one stretch, which is correct when nothing else
+   held the round in between. */
+.seg.round { display: flex; align-items: stretch; }
+/* A floor well under .seg's own 3px: two checks settling in the same recorded
+   second hold a round for 0ms, and without this a real, titled, coloured piece
+   would round to nothing and never be seen or hovered. */
+.piece { display: block; height: 100%; min-width: 1px; }
+.piece.checks { background: var(--checks); }
+.piece.code-review { background: var(--code-review); }
+.piece.security-review { background: var(--security-review); }
 /* Hatched, so that "not recorded" is a different thing from a coloured stretch,
    and from nothing. */
 .seg.unrecorded { background: repeating-linear-gradient(135deg, var(--coding) 0 3px, transparent 3px 6px); outline: 1px solid var(--coding); outline-offset: -1px; }
