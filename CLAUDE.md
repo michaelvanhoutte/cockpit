@@ -11,42 +11,41 @@ pnpm dev
 
 `pnpm dev` applies the local D1 migrations, seeds the database, builds the SPA if it has never been built, then runs the API, the web app and the stub issuer you sign in against together, printing each address. Every step is idempotent, so re-running is safe; Ctrl+C stops all of them. `pnpm dev:api` and `pnpm dev:web` run one alone. `pnpm build`, `pnpm typecheck` and `pnpm test` run across every package.
 
-**The ports depend on the checkout, so read them off what `pnpm dev` prints.** The primary checkout keeps <http://localhost:8787> and <http://localhost:5173>; a linked worktree gets its own set derived from its path, the same set every time, so several worktrees can each run the app at once (`scripts/lib/ports.mjs`). The stub issuer you sign in against has a port of its own, and the browser tier's three move the same way. Never write one of these numbers into a document or a test as though it were fixed — ask `portsFor` instead, which is what `playwright.config.ts` does.
+**Read the ports off what `pnpm dev` prints.** Each worktree derives its own set from its path, so several can run the app at once. Never write a port into a document or a test — ask `portsFor` (`scripts/lib/ports.mjs`), as `playwright.config.ts` does.
 
 ## Deployed data is real
 
-**Production and staging hold real data from 7 September 2026, and nothing may delete, re-seed, wipe or restore over it.** Stated here as well as in the document of record — the exception "Say it in one place" below allows — because a session that never opens `docs/deployment.md` still has to obey it: production is the work itself, and staging's old rows are the only proof that a migration and the code either side of it still read what is already there. So expand-then-contract is a hard rule rather than a preference, and `pnpm backup:export` comes before anything that writes to either. The recoveries this still allows, the one suite that may delete its own rows, the guest account the product itself resets every night, and a user an admin deletes with their account, are in "The environments" and "Migrations and rollback" there.
+**Nothing may delete, re-seed, wipe or restore over production or staging.** Both hold real data, and staging's existing rows are the only proof that a migration, and the code either side of it, still reads what is already there. So migrations are expand-then-contract, and `pnpm backup:export` runs before anything that writes to either. Restated here from `docs/deployment.md`, the document of record, because a session that never opens it still has to obey; the exceptions it allows are in its "The environments" and "Migrations and rollback".
 
 ## Writing
 
 **Say it once, in as few sentences as it takes.** Documents, issues, pull request bodies and review replies are all read by agents on a context budget, so length is a cost paid on every future read.
 
-- **A rule and its reason fit in one or two sentences.** Keep the reason — a rule without one gets argued with — but a clause is usually enough.
-- **Name the incident, don't retell it.** "One issue was built whole after it had already merged" carries the same warning as the paragraph reconstructing it. Keep the story only where it is the evidence, and keep it to a sentence.
-- **Say it in one place.** A point made in the introduction is not repeated in the section, and a rule stated in a skill is referenced from here rather than restated. The one exception is a rule that has to hold in a session which never loads that skill — this file is in context always, a skill only once something triggers it — and a restatement claiming that exception says so where it stands.
-- **Record the decision, not the case for it.** What a change makes true, and what a reader has to do about it, is the document; the sampling, the costs, the verdict counts and what was weighed stay in the issue or pull request that decided it, named rather than reproduced. A removed CI check earns "these two are gone, and restoring one means restoring its required context in the same change", not the month of cost samples behind the decision.
-- **Parallel cases are a table or a list**, not prose that walks through each one.
-- **Start at the point.** Delete "it is worth noting that", "the requirement is therefore twofold", "worth writing down, because".
-- **Cut what the reader can see.** Don't describe the code, the diff or the diagram that follows; say what it means.
+- **Give the instruction, then the reason in a clause.** A rule without a reason gets argued with; a rule buried in a paragraph of background gets skimmed.
+- **Say what to do, not how the tool behaves.** Reach the mechanism only if the reason needs it.
+- **No history.** The incident, the sampling, the costs and what was weighed stay in the issue or pull request that decided it. A document says what is true now and what to do about it.
+- **Say it in one place.** A rule stated in a skill is referenced from here, not restated — except one that has to hold in a session that never loads that skill, and a restatement claiming that exception says so where it stands.
+- **Parallel cases are a table or a list**, not prose walking through each one.
+- **Start at the point, and cut what the reader can see.** No "it is worth noting that"; no describing the code, diff or table that follows.
 
-**Four of these are checked rather than reviewed**, over every Markdown file outside `poc/`: an issue number with no title named for it, a `§N` or `rule N` citation resolving to nothing the file offers, an unbalanced `**`, and a paragraph appearing near-verbatim in two places. `pnpm test:scripts` runs them, so does the Scripts step of CI's `Checks` job, and `scripts/lib/writing-rules.mjs` is where each one's reach is written down. The same run reports the counting words on the lines you touched — "three things", "both", "nine areas" — which is a prompt to check a claim, not a failure.
+**Four rules are checked rather than reviewed**, over every Markdown file outside `poc/`: an issue number with no title named for it, a `§N` or `rule N` citation resolving to nothing the file offers, an unbalanced `**`, and a paragraph appearing near-verbatim in two places. `pnpm test:scripts` runs them, as does CI's `Checks` job; `scripts/lib/writing-rules.mjs` holds each one's reach. The same run reports the counting words on the lines you touched — "three things", "both", "nine areas" — as a prompt to check the claim, not a failure.
 
 ## Starting an issue
 
-**`/issue <number>` is the entry point for issue work.** It runs the whole loop — confirm the issue is live, scope it, build, test, prove it runs, review, ship — end to end, sequencing the sections below rather than restating them. Assembling the phases by hand from this file is the fallback for work that never had an issue number.
+**`/issue <number>` is the entry point for issue work.** It sequences everything below — confirm the issue is live, scope, build, test, prove it runs, review, ship — so assembling the phases by hand is only for work that never had an issue number.
 
 ## Scoping new work
 
-**Before writing code for any new feature or fix, run the `scoping` skill in `.claude/skills/scoping/`** — deciding whether it has to be seen first as a design canvas or a throwaway POC, sharpening requirements, sizing the vertical slice, enumerating the failure modes of anything that changes state it cannot put back, and generating the statement list. Starting the work triggers it, not the decision to file an issue.
+**Run the `scoping` skill before writing code for any feature or fix.** It decides whether the work has to be seen first, sharpens the requirements, sizes the vertical slice, enumerates the failure modes of anything that changes state it cannot put back, and produces the statement list. Starting the work triggers it, not the decision to file an issue.
 
-**Check the issue is still open, and unclaimed, at the moment you start it.** Several sessions work this repository at once: "Rename and delete a workspace" (issue 77) was built whole — nine hundred lines, tests and a browser pass — and only then found to have already merged, hours earlier, with none of it salvageable. Fetching `main` is not this check, and neither is having read the issue an hour ago: it can be closed by work that merged before your branch point, or while you read it.
+**Check the issue is still open and unclaimed at the moment you start it.** Several sessions work this repository at once, so it can be closed by work that merged before your branch point, or while you read it. Fetching `main` is not this check.
 
 ```bash
 gh issue view <number> --json state,title,assignees
 gh pr list --state all --search <number> --json number,title,state
 ```
 
-**Work with no issue number needs the same check, asked of the files.** "Remove the 120-layout row-cleanup test for its CI cost" (pull request 364) deleted a test another session was already deleting in "Delete a user, and the account they owned with them" (pull request 362), and found out after a review round, two rounds of fixes and three CI cycles, for a diff `main` already had. Ask again before marking ready rather than only at the start: the pull request that supersedes yours can be open, and not yet touching your file, when you begin.
+**Work with no issue number needs the same check, asked of the files** — and asked again before you mark the pull request ready, since the pull request that supersedes yours can be open, and not yet touching your file, when you begin.
 
 ```bash
 gh pr list --state open --json number,title,files --jq '.[] | select(any(.files[]; .path == "<the file>")) | "\(.number) \(.title)"'
@@ -54,28 +53,28 @@ gh pr list --state open --json number,title,files --jq '.[] | select(any(.files[
 
 ## Working in parallel
 
-The three tools named here come from the desktop app, so a terminal, scheduled or remote session has none of them: take the fallback where a rule gives one, and skip the rule where it does not.
+The desktop-app tools named here are missing from a terminal, scheduled or remote session: take the fallback where a rule gives one, and skip the rule where it does not.
 
-**A finding outside the issue's statement list becomes a chip, not a commit.** Call `spawn_task` with enough for a fresh session to act on — file paths, the symptom, what you were doing — then carry on with the scope you were given. Fix it inline only where the current work cannot be proven without it, and say so in the pull request body. Without `spawn_task`, open a bare issue naming the symptom: it is a pointer rather than a brief, so the `github-issue` skill and the scoping it presumes do not apply.
+**A finding outside the issue's statement list becomes a chip, not a commit.** Call `spawn_task` with what a fresh session needs — file paths, the symptom, what you were doing — then carry on with your own scope. Fix it inline only where the current work cannot be proven without it, and say so in the pull request body. Without `spawn_task`, open a bare issue naming the symptom; it is a pointer rather than a brief, so the `github-issue` skill and the scoping it presumes do not apply.
 
-**Mark a chapter at each phase boundary** — scoping settled, implementation done, review findings in, browser pass done. `mark_chapter` puts a divider in the transcript and an entry in the table of contents, which is what lets a long thread be re-entered without scrolling it. Three to eight in a session, not one per tool call.
+**Mark a chapter at each phase boundary** — scoping settled, built, review findings in, browser pass done — with `mark_chapter`, which is what lets a long thread be re-entered without scrolling it. Three to eight in a session, not one per tool call.
 
-**Rename the session when its scope moves**, with `set_session_title`. The sidebar is how eight open threads are told apart, and a title naming work that has since been deferred sends the reader into the wrong one.
+**Rename the session with `set_session_title` when its scope moves**, since the sidebar is how parallel threads are told apart.
 
-**`/where` prints this session's position** for a reader who has lost the thread, following the constraints in `.claude/commands/where.md`.
+**`/where` prints this session's position** for a reader who has lost the thread.
 
 ## Tests
 
-**Follow the `testing` skill in `.claude/skills/testing/` before writing, moving or reviewing any test.** It restates every binding rule, so there is no need to open the strategy document to write a test. `docs/testing-strategy.md` holds the reasoning and is the version of record; open it to change a rule or to settle something the skill does not decide.
+**Follow the `testing` skill before writing, moving or reviewing any test.** It restates every binding rule, so writing a test needs nothing else. `docs/testing-strategy.md` is the version of record: open it to change a rule, or to settle what the skill does not decide.
 
-The two rules that get skipped most, restated here rather than referenced because this file is in context in every session and the skill is not:
+Two of its rules are restated here because this file is in context always and the skill only once something triggers it:
 
 - **Test at the lowest level that can prove the behaviour**, and escalate only for what that level physically cannot verify. Never re-prove lower-level coverage higher up the pyramid.
-- **Nothing is "working" until the application has been started and the changed behaviour exercised** — except where Tests' scaling table drops the browser pass, for a documentation-only or tests-only change. Green unit and integration tests are not evidence that the app runs — start it with `pnpm dev` and drive the change in the browser. This is why that command has to stay one command.
+- **Nothing is "working" until the app has been started and the changed behaviour driven in the browser.** Green unit and integration tests are not evidence that the app runs. The exception is a change the table below drops the browser pass for.
 
-**Write that walk down in the pull request, since you have already driven it.** What to open, what to click, what should happen: recording the path costs nothing once the browser pass is done, and saves the next person rediscovering it. Four of the ten pull requests merged on 2 September 2026 waited over two hours between their last commit and their merge, two of them over five, on that pass being repeated by hand. Keep it to what a reader would not guess, and where a change has no product surface to drive, say that instead.
+**Write that walk down in the pull request** — what to open, what to click, what should happen. You have already driven it, and recording it saves the next person rediscovering it. Keep it to what a reader would not guess, and where a change has no product surface to drive, say that instead.
 
-**Scale what a session runs before a push to what changed, the same way CI already does** ("Skip the mechanical checks on a pull request that touches nothing they cover", issue 345). `node scripts/local-changes.mjs` answers for the working tree; ask it rather than judging by eye.
+**Scale what you run before a push to what changed.** `node scripts/local-changes.mjs` answers for the working tree; ask it rather than judging by eye.
 
 | Change | Runs |
 |---|---|
@@ -83,11 +82,9 @@ The two rules that get skipped most, restated here rather than referenced becaus
 | only test files, or a test deletion | that package's suite and `pnpm test:scripts`; no browser pass |
 | anything touching product code | everything the definition of done lists today |
 
-What each of these earns in local review — `/code-review`'s level, and whether `/security-review` runs at all — is Review findings' own table below, not this one: a product change splits further there, into stored data, security, or neither.
-
 ## Review findings
 
-**Run `/code-review` and `/security-review` yourself before pushing, each at the level the change earns.** `node scripts/local-changes.mjs`'s answer maps to a row below, the same way it already does for Tests' scaling table above. Across five pull requests of one run, all twenty findings were code-review findings and the security review correctly found nothing — silence that read, from the transcript, like a review had happened. Since the remote code and security reviews were removed, this local pass is the only review a change gets: nothing downstream will catch what it misses.
+**Run `/code-review` and `/security-review` yourself before pushing, each at the level the change earns.** They are the only review a change gets, so nothing downstream will catch what they miss. `node scripts/local-changes.mjs`'s answer maps to a row:
 
 | Change | `/code-review` | Security review |
 |---|---|---|
@@ -97,26 +94,22 @@ What each of these earns in local review — `/code-review`'s level, and whether
 | `product changed (stored data)` | `xhigh` | none |
 | `product changed (security)`, with or without stored data | `high`, or `xhigh` with stored data | as its own agent |
 
-This reverses "Small changes take hours: bring a pull request back to its 25-minute floor" (issue 377), which left the local level flat regardless of what a change touched.
-
 **Type the level into the command** — `/code-review xhigh`, never a bare `/code-review`, which reuses whatever level was typed last rather than the one the table gives. Never `max`, slow enough on a real diff to get skipped, and never `ultra`: a billed cloud review only the user can start.
 
 **Recheck a round of fixes instead of re-reviewing the whole diff.** One targeted `/code-review` pass over the files the fixes touched, and a targeted `/security-review` pass only where a fix itself touches a security path. Run a full second pass, at the diff's own row above, only where a fix touches a stored-data path, or the fixes change more than 25% of the original diff or 40 lines, whichever is larger. Fix or decline whatever the recheck finds without another local pass.
 
-**Run `/security-review` as its own `Agent` subagent call, never inline via `Skill`, wherever the table above doesn't answer none.** `/security-review` closes with "your final reply must contain the markdown report and nothing else"; invoked inline, that closing line becomes the session's own last turn, and the work sits reviewed on an unpushed commit — which is where "Give the code review the tested gate the security review already uses" (issue 277) sat until somebody asked why, and where it recurred verbatim building "Make the security review warning mean something, or drop it" (issue 284). Spawn it instead as a `general-purpose` `Agent` call, foregrounded, on the session's own model or stronger where the calling session already requires that (`/issue` step 7 does): the closing line then binds that subagent's own last turn, and the session gets back a finished report to read, fix against, and push in the same turn. `/code-review` carries no such closing line and keeps running inline.
+**Where the table asks for a security review, run it as its own foregrounded `general-purpose` `Agent` call, never inline via `Skill`.** Its prompt ends "your final reply must contain the markdown report and nothing else", which inline becomes the session's own last turn, leaving the work reviewed on an unpushed commit. As a subagent, on the session's model or stronger, that line binds the subagent instead and the session gets a report back to fix against and push in the same turn. `/code-review` carries no such line and runs inline.
 
-**Open the pull request as a draft while the work is unfinished, and mark it ready when it is done.** Nothing now fires on the transition — removing the remote reviews took away the only two checks that triggered on `ready_for_review`, and `ci.yml` names no `types`, so it runs on every push, draft or not. The draft is a signal to whoever reads the list, not a gate, so opening one ready costs nothing mechanical.
+**Open the pull request as a draft while the work is unfinished, and mark it ready when it is done.** Nothing fires on the transition — `ci.yml` names no `types`, so it runs on every push — so the draft is a signal to whoever reads the list, not a gate.
 
 ```bash
 gh pr create --draft --title "..." --body "..."
 gh pr ready <number>
 ```
 
-**Start the waiter on the push, not on the transition.** A push is now the only thing that fires a check, so there is no wave that arrives later and nothing to be gained by holding the waiter back.
+**Check `gh pr view <number> --json mergeable,mergeStateStatus` before waiting on anything.** A `CONFLICTING` pull request gets no checks at all, so the waiter below would never return. That is the one case this file permits merging `main` in for.
 
-**Check `gh pr view N --json mergeable,mergeStateStatus` first, too.** A conflicted pull request gets no checks at all, so `check-runs` stays empty forever and the loop below has nothing to tell that apart from "nothing new yet" — it ran for close to two hours against a `CONFLICTING` pull request before anyone noticed, on "Show when each person last signed in, on the admin page" (pull request 358). `CONFLICTING` is the one case this file permits merging `main` in for.
-
-**Opening the pull request is not the end of the task — the checks run after the push.** "CI was still pending when I looked" is not a status; it is a note saying nobody looked again. "Create a workspace from a settings page" (pull request 81) was opened while a check was still pending and reported done in the same breath, and the one finding it went on to raise sat unanswered until somebody noticed by hand. Wait for the checks to settle, then work whatever they report to the end of the rule below.
+**Opening the pull request is not the end of the task: wait for the checks to settle, then fix what they report.** Start the waiter on the push, in the background, from inside the repository — `git rev-parse` and gh's `{owner}/{repo}` both need the working directory.
 
 ```bash
 sha=$(git rev-parse HEAD); before=
@@ -129,19 +122,15 @@ done
 gh api repos/{owner}/{repo}/commits/$sha/check-runs --jq '.check_runs[] | [.name, .conclusion] | @tsv'
 ```
 
-Run it from inside the repository, in the background, and carry on with something else — `git rev-parse` and gh's `{owner}/{repo}` both need the working directory. Do not poll it by hand and do not finish the turn on a pending check.
+It names a SHA because for the seconds after a push GitHub's head is still the previous commit, whose checks are long green. It compares the whole list against the previous poll because a commit's checks are registered as their jobs start, so an early poll can find a complete set of *completed* runs with another still to appear. Do not poll by hand, and do not end a turn on a pending check.
 
-**A remote or cloud session has no `gh` to run the loop above in.** Poll `pull_request_read`'s `get_check_runs`/`get` through the GitHub MCP tools instead, and never end a turn on a bare "still waiting" with nothing scheduled to bring the session back: the PR-activity subscription's own webhook is not reliable for every transition, and a turn that only trusts it left a settled run unnoticed until the user asked directly ("Colour an action's own deadline as it approaches, and mark it red once passed", pull request 475). Schedule the next check with `send_later` whenever a turn would otherwise end on a check still pending — the same "do not finish the turn on a pending check" the loop above already keeps, just without a shell to keep it in.
+**A remote or cloud session has no `gh` to run that loop in.** Poll `pull_request_read`'s `get_check_runs`/`get` through the GitHub MCP tools, and schedule the next check with `send_later` rather than trusting the PR-activity webhook, which does not fire on every transition.
 
-**Wait on the commit you pushed, which is why that command names a SHA.** For the seconds around a push, GitHub's head is still the *previous* commit, whose checks are long green — so a waiter that asks "are this pull request's checks pending?" returns immediately, reporting a pass that belongs to code you have replaced. That happened twice in one run, and once was one command away from being merged on.
+**A finding is not handled until its own review thread says so**, because a push only adds an *Outdated* badge and GitHub never resolves a thread itself. Reply naming the commit that fixed it and what changed, then resolve; where the fix did not land or was declined on purpose, reply saying which and leave the thread open. Never resolve without a reply, and never on the strength of a commit message rather than the committed code. `gh pr view` does not show thread state — query `reviewThreads` for the ids, then `addPullRequestReviewThreadReply` and `resolveReviewThread`.
 
-**Settled means the list of checks stopped changing, not that the ones it saw are done.** A commit's checks are registered as their jobs start rather than all at once, so a poll taken early can find a complete set of *completed* runs with another still to appear. The loop above therefore compares the whole `name:status` list against the previous poll, which costs at least two polls.
+**Merge `main` into the branch only when GitHub reports the pull request conflicted.** It lands squashed and CI already tests the branch merged with `main`, so a clean merge buys nothing that lands and only restarts CI.
 
-**A finding is not handled until its own review thread says so**, because GitHub never resolves one by itself — a push only adds an *Outdated* badge. Reply naming the commit that fixed it and what changed, then resolve; where the fix did not land or was declined on purpose, reply saying which and leave the thread open. Never resolve without a reply, and never on the strength of a commit message rather than the committed code. All ten findings on "Make the database enforce the schema conventions, not just the callers" (pull request 69) were fixed, pushed, and still read as unanswered: the pull request is the audit trail, not the session. `gh pr view` does not show thread state — query `reviewThreads` for the ids, then `addPullRequestReviewThreadReply` and `resolveReviewThread`.
-
-**Merge `main` into the branch only when GitHub reports the pull request conflicted.** A pull request lands squashed and `pull_request` already tests the branch merged with `main`, so merging a clean `main` into an open branch buys nothing that lands — it only restarts CI ("Validate a commit once, not twice by CI and again for every clean merge of main", issue 311).
-
-**Read what `main` has gained before finishing, not only what it has changed.** This file is read into a session once, at the start, and never again, so a merge to `main` that rewrites it changes nothing about what the session believes until it looks. The review-thread rule two above landed twenty-two minutes before "Recover from an expired sign-in instead of failing silently" (pull request 71) merged, and that session finished without ever reading it. A draft of this same rule, written *because* of "Edit an item's title and description on a form of its own" (pull request 163), went on buying that branch four more review rounds across six further merges of `main` that each read the conflicts and nothing else. Diff against the commit you started from, not the reflog and not the merge-base with `origin/main` — merging `main` in on a conflict, which the rule above permits, makes that merge-base `origin/main` itself, so the diff falls silent on exactly the change the merge just brought in:
+**Read what `main` has gained before finishing, not only what it has changed.** This file is read into a session once, at the start, so a rule that merges while you work changes nothing you believe until you look. Diff against the commit you started from — not the merge-base with `origin/main`, which the conflict-merge above moves to `origin/main` itself, silencing the diff on exactly what that merge brought in.
 
 ```bash
 git fetch origin main
@@ -164,14 +153,10 @@ Anything it prints is a rule you are already working under and have not read.
 
 Options documents (`docs/*-options.md`) record integration research. `poc/` holds proofs of concept and is outside the workspace, so it never runs in CI.
 
-**Cite a section by its name, never by its number alone**, and name an issue before giving its number. The numbers are locators inside documents that cross-reference each other; they tell a reader nothing on their own, and in conversation they say nothing at all.
+**Cite a section by its name, never by its number alone**, and name an issue before giving its number: a number is a locator, and tells the reader nothing on its own.
 
-**When you add or change a rule, apply it across the whole change mechanically** by searching for every instance. Four of the thirteen findings on the pull request that added the rule above were that same rule broken elsewhere in the same change, and one sweep missed a whole class because grepping for `§` cannot find issue numbers. The same holds when a fact stops being true: search for the *claim*, not the file you happen to have open — "the browser tier runs against the `pnpm dev` pair" was corrected in three files before anyone searched for the sentence.
+**When you add or change a rule, or a fact stops being true, sweep the whole repository for it** rather than fixing the file you happen to have open. Search for the claim itself, and remember that counts and enumerations are claims too — "nine areas" goes stale exactly as a sentence does.
 
-**Counts and enumerations are claims as much as sentences are.** A tenth feature area left the same "nine areas" claim standing in three places across two documents; the third only surfaced from searching for the sentence.
+**Write file content with `Write` and `Edit`, and keep the shell for commands.** A heredoc through layers of escaping mangles `\r\n`, lone backslashes and null bytes, and a half-applied scripted edit fails silently where `Edit` refuses on an `old_string` that does not match.
 
-**Write file content with `Write` and `Edit`, and keep the shell for commands.** A heredoc into a script into a TypeScript string is three layers of escaping that `\r\n`, a lone backslash and a null byte survive none of — two source files were mangled that way in one session, badly enough that `grep` called them binary.
-
-**Editing a file through the shell is the same rule, and it fails more quietly.** A half-applied scripted edit duplicated a four-line guard in `apps/api/src/accounts/command-service.ts` and all forty tests in the file went on passing; `Edit` refuses instead when its `old_string` does not match.
-
-**Never run a command that discards uncommitted work to get out of a shell problem.** `git checkout <ref> -- .`, `git restore .` and `git reset --hard` take the whole working tree, and nothing was committed to recover from — an earlier version of these paragraphs was lost to a `git checkout origin/main -- .` prefixed onto an unrelated command purely to fix which directory it ran in. Commit first, or `cd`.
+**Never run a command that discards uncommitted work**, whatever shell problem it would solve: `git checkout <ref> -- .`, `git restore .` and `git reset --hard` take the whole working tree, and nothing was committed to recover from. Commit first, or `cd`.
