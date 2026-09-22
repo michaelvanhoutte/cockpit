@@ -137,10 +137,70 @@ describe('Lead time', () => {
           }),
         ],
       });
-      const rounds = [...stripOf(html, 1).matchAll(/class="seg round (\S+?)[" ]/g)].map((match) => match[1]);
-      expect(rounds).toEqual(['checks', 'code-review', 'security-review']);
+      // Rounds 2 and 3 also ran Test, held earlier in the round: the check named
+      // here is the one whose piece ends the round, not the only piece in it.
+      const heldByRound = stripOf(html, 1)
+        .split('<span class="seg round')
+        .slice(1)
+        .map((round) => {
+          const kinds = [...round.matchAll(/class="piece (\S+?)"/g)].map((match) => match[1]);
+          return kinds[kinds.length - 1];
+        });
+      expect(heldByRound).toEqual(['checks', 'code-review', 'security-review']);
       const titles = [...stripOf(html, 1).matchAll(/title="(Round \d)/g)].map((match) => match[1]);
       expect(titles).toEqual(['Round 1', 'Round 2', 'Round 3']);
+    });
+
+    it('splits a round into the checks that held it, in the order they finished, rather than one colour for the whole span', () => {
+      const html = render({
+        pulls: [
+          pull({
+            commits: [commit('a', 0, [check('Test', 2, 12), check('claude-review', 2, 20)])],
+          }),
+        ],
+      });
+      const round = stripOf(html, 1).split('<span class="seg round')[1];
+      const pieces = [...round.matchAll(/class="piece (\S+?)"/g)].map((match) => match[1]);
+      // Test finishes first, at minute 12, and holds the round from the push at
+      // minute 2 until then (10 minutes); code review is still running and holds
+      // the remaining 8 minutes, to minute 20.
+      expect(pieces).toEqual(['checks', 'code-review']);
+      expect(round).toContain('Tests and checks (Test) · held it 10m 00s');
+      expect(round).toContain('Code review (claude-review) · held it 8m 00s');
+    });
+
+    it('names every check that held a round in its own words, not only the last', () => {
+      const html = render({
+        pulls: [
+          pull({
+            commits: [commit('a', 0, [check('Test', 2, 12), check('claude-review', 2, 20)])],
+          }),
+        ],
+      });
+      // The round-list text is read on its own, without hovering the strip's
+      // pieces, so it must not repeat the strip's old single-check mistake.
+      const detail = rowOf(html, 1).split('<ol class="roundlist">')[1];
+      expect(detail).toContain('held by Test, then claude-review');
+      expect(detail).not.toContain('held by claude-review');
+    });
+
+    it('trims a clipped round to what is actually shown, not the full round squeezed into less room', () => {
+      const html = render({
+        pulls: [
+          pull({
+            mergedAt: at(260),
+            // Test holds the round for its first 198 minutes; claude-review then
+            // holds the last 60, past the scale's 240-minute cap.
+            commits: [commit('a', 2, [check('Test', 2, 200), check('claude-review', 2, 260)])],
+          }),
+        ],
+      });
+      const round = stripOf(html, 1).split('<span class="seg round')[1];
+      expect(round).toContain('cut');
+      // Only 42 of code review's real 60 minutes fall before the cap (240 minus
+      // the 198 Test already used); the old, buggy version showed its full 60.
+      expect(round).toContain('Code review (claude-review) · held it 42m 00s');
+      expect(round).not.toContain('60m 00s');
     });
 
     it('marks a red round red and names the check that failed', () => {
@@ -159,7 +219,7 @@ describe('Lead time', () => {
       expect(strip).toContain('mark fluke');
       expect(strip).toContain('FLUKE: E2E (F3) failed and passed on re-run');
       expect(strip).not.toContain('mark red');
-      expect(strip).not.toContain('seg round checks red');
+      expect(strip).not.toContain('seg round red');
     });
 
     it('draws a gap of over three hours as away, off the time scale', () => {
