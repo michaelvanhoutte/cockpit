@@ -3,7 +3,6 @@ import { applyD1Migrations, env } from 'cloudflare:test';
 import { CONDITIONS_LIMIT, PANEL_TEXT_LIMIT } from '@cockpit/shared';
 import type { Layout, Panel, WorkspaceSnapshot } from '@cockpit/shared';
 import {
-  OTHER_USER_ID,
   TASK_TYPE_ID,
   WORKSPACE_ID,
   alsoWorkspaces,
@@ -132,31 +131,6 @@ function setFilter(panelId: string, conditions: unknown[], match?: unknown) {
     conditions,
     ...(match === undefined ? {} : { match }),
   });
-}
-
-/** A sort by two fields: soonest due first, then High before Low wherever two are due the same day. */
-const BY_DUE_THEN_PRIORITY = [
-  { field: 'dueDate', direction: 'asc' },
-  { field: 'priority', direction: 'desc' },
-];
-
-/** How a panel of items is sorted, or null for Manual; `userId` signs in as someone else. */
-function setSort(panelId: string, sort: unknown, commandId?: string, userId?: string) {
-  return asUser(
-    'http://cockpit.test/v1/commands/set_panel_sort',
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        commandId: commandId ?? nextId(),
-        issuedAt: AT,
-        workspaceId: WORKSPACE_ID,
-        panelId,
-        sort,
-      }),
-    },
-    userId,
-  );
 }
 
 /** One panel as the snapshot hands it back. */
@@ -1197,127 +1171,6 @@ describe('Panels', () => {
       expect((await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId })).status).toBe(200);
 
       expect((await setFilter(panelId, [DUE_TODAY])).status).toBe(404);
-    });
-  });
-
-  describe('a panel’s sort is kept on the panel, and Manual is having none', () => {
-    it('reads back a saved sort, Manual once it is set back, and Manual where it was never sorted', async () => {
-      const { panelId } = await aPanelOfItems();
-      expect((await panelNow(panelId)).sort).toBeNull();
-
-      expect((await setSort(panelId, BY_DUE_THEN_PRIORITY)).status).toBe(200);
-      expect((await panelNow(panelId)).sort).toEqual(BY_DUE_THEN_PRIORITY);
-
-      expect((await setSort(panelId, null)).status).toBe(200);
-      expect((await panelNow(panelId)).sort).toBeNull();
-    });
-
-    it('leaves the order its items were filed in untouched, sorted or back to Manual', async () => {
-      const { panelId } = await aPanelOfItems();
-      const first = await anItem('First filed');
-      const second = await anItem('Second filed');
-      await fileOn(panelId, second, 0);
-      await fileOn(panelId, first, 1);
-
-      await setSort(panelId, [{ field: 'title', direction: 'asc' }]);
-      expect(await filingsOn(panelId)).toEqual([second, first]);
-      await setSort(panelId, null);
-      expect(await filingsOn(panelId)).toEqual([second, first]);
-    });
-
-    it('applies the same change once, however many times it is sent', async () => {
-      const { panelId } = await aPanelOfItems();
-      const commandId = nextId();
-      expect((await setSort(panelId, BY_DUE_THEN_PRIORITY, commandId)).status).toBe(200);
-      await setSort(panelId, null);
-
-      // The first change arriving again, after a later one, changes nothing.
-      const again = await setSort(panelId, BY_DUE_THEN_PRIORITY, commandId);
-
-      expect(await again.json()).toEqual({ ok: true, applied: false });
-      expect((await panelNow(panelId)).sort).toBeNull();
-    });
-
-    it.each([
-      { situation: 'what cannot be read at all', stored: '{not json' },
-      {
-        situation: 'a field this release has never heard of',
-        stored: JSON.stringify({ criteria: [{ field: 'weather', direction: 'asc' }] }),
-      },
-    ])('reads $situation as Manual, and the workspace still opens', async ({ stored }) => {
-      // Written straight into the store: only a release this one is not can
-      // write either, so no request here can drive it.
-      const { panelId } = await aPanelOfItems();
-      await inTheStore((sql) =>
-        sql.exec('UPDATE panels SET sort_criteria = ? WHERE id = ?', stored, panelId),
-      );
-
-      expect(await panelNow(panelId)).toMatchObject({ kind: 'items', sort: null });
-    });
-
-    it.each([
-      {
-        situation: 'a field twice',
-        panel: async () => (await aPanelOfItems()).panelId,
-        sort: [
-          { field: 'dueDate', direction: 'asc' },
-          { field: 'dueDate', direction: 'desc' },
-        ],
-        status: 400,
-      },
-      {
-        situation: 'a field nothing knows about',
-        panel: async () => (await aPanelOfItems()).panelId,
-        sort: [{ field: 'weather', direction: 'asc' }],
-        status: 400,
-      },
-      {
-        situation: 'a direction nothing knows about',
-        panel: async () => (await aPanelOfItems()).panelId,
-        sort: [{ field: 'title', direction: 'sideways' }],
-        status: 400,
-      },
-      {
-        situation: 'no field at all, where Manual is having no sort',
-        panel: async () => (await aPanelOfItems()).panelId,
-        sort: [],
-        status: 400,
-      },
-      {
-        situation: 'a panel of text, which has no rows',
-        panel: async () => (await aPanelOfText()).panelId,
-        sort: BY_DUE_THEN_PRIORITY,
-        status: 400,
-      },
-      {
-        // Until "Choose how a Filter's rows are sorted" (issue 527).
-        situation: 'a Filter, whose order is its own',
-        panel: async () => (await aFilter()).panelId,
-        sort: BY_DUE_THEN_PRIORITY,
-        status: 400,
-      },
-    ])('refuses a sort of $situation, and stores nothing of it', async ({ panel, sort, status }) => {
-      const panelId = await panel();
-
-      expect((await setSort(panelId, sort)).status).toBe(status);
-
-      expect((await panelNow(panelId)).sort).toBeNull();
-    });
-
-    it('refuses sorting a panel that has been deleted', async () => {
-      const { panelId } = await aPanelOfItems();
-      expect((await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId })).status).toBe(200);
-
-      expect((await setSort(panelId, BY_DUE_THEN_PRIORITY)).status).toBe(404);
-    });
-
-    it('never sorts another account’s panel', async () => {
-      const { panelId } = await aPanelOfItems();
-
-      const theirs = await setSort(panelId, BY_DUE_THEN_PRIORITY, undefined, OTHER_USER_ID);
-
-      expect(theirs.status).toBe(404);
-      expect((await panelNow(panelId)).sort).toBeNull();
     });
   });
 

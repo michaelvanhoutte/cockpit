@@ -79,7 +79,9 @@ function SortQuestion({
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
+          // Wider than the Filter question's 28rem, so a row's name, its two
+          // directions, ↑ ↓ and Remove fit on one line on a desktop.
+          className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
           <Dialog.Title className="text-base font-semibold">How is {panelName} sorted?</Dialog.Title>
           <Dialog.Description className="pt-2 text-sm text-ink-soft">
