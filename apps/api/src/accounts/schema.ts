@@ -1318,9 +1318,10 @@ export const textCorrections = sqliteTable(
  * account-scoped rules block replaces this table (`docs/text-learning.md`,
  * "Build order"). Nothing may start reading them in the meantime.
  *
- * `correction`/`correction_set_at` are written only by the
- * `set_routing_summary_correction` command, and that write has never touched
- * the other two columns.
+ * Nothing writes `correction`/`correction_set_at` any more either ("Remove
+ * the two learning settings screens, and the commands that write to them",
+ * issue 452); dropping the table is "Drop the workspace_routing_summary
+ * table", issue 401.
  *
  * **`workspace_id` is the primary key, not a separate `id`.** There is
  * exactly one correction per Workspace, ever, so a row is addressed by the

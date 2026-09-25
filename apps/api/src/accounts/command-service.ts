@@ -3,7 +3,6 @@ import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@coc
 import type { AccountDb } from './client.js';
 import {
   accountItemFormPresentation,
-  accountTextRules,
   associations,
   attachments,
   commands,
@@ -18,10 +17,8 @@ import {
   panelItems,
   panelPlacements,
   panels,
-  pinnedTextExamples,
   screenSizes,
   textCorrections,
-  workspaceRoutingSummary,
   workspaces,
 } from './schema.js';
 import {
@@ -32,7 +29,6 @@ import {
   getItemType,
   getLayout,
   getPanel,
-  getPinnedExample,
   getScreenSize,
   getSourceAccount,
   getWorkspace,
@@ -106,7 +102,6 @@ import {
 import { defaultScreenSizeId, screenSizeNamed } from '../domain/screen-sizes.js';
 import { decisionHistoryEntryFor } from '../domain/decision-history.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
-import { pinnedExampleFieldsFrom } from '../domain/pinned-text-examples.js';
 import {
   applyProposedPanel,
   applyProposedTexts,
@@ -151,14 +146,6 @@ export class ItemTypeOrderStaleError extends Error {
   }
 }
 
-/** "Pin an example of how you want a note written" (issue 397) - an edit or a delete naming an example already gone, most likely to another tab's delete winning the race. */
-export class PinnedExampleNotFoundError extends Error {
-  constructor(exampleId: string) {
-    super(`pinned example ${exampleId} not found`);
-    this.name = 'PinnedExampleNotFoundError';
-  }
-}
-
 export class ItemNotFoundError extends Error {
   constructor(itemId: string) {
     super(`item ${itemId} not found`);
@@ -195,8 +182,7 @@ export class WorkspaceNotFoundError extends Error {
 /**
  * A disconnect naming a source account this account no longer has ("Connect a
  * Microsoft Teams source account", issue 485) - most likely another tab's
- * disconnect winning the race, which is the same reason
- * `PinnedExampleNotFoundError` exists one list along.
+ * disconnect winning the race.
  */
 export class SourceAccountNotFoundError extends Error {
   constructor(sourceAccountId: string) {
@@ -2004,43 +1990,6 @@ export function runCommand<N extends CommandName>(
       }
       break;
     }
-    case 'set_routing_summary_correction': {
-      const cmd = payload as CommandPayload<'set_routing_summary_correction'>;
-      if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
-        throw new WorkspaceNotFoundError(cmd.workspaceId);
-      }
-      // The empty string is what clears it - there is no third state between
-      // "never set" and "set to nothing" (`domain/routing-summary.ts`).
-      const correction = cmd.correction === '' ? null : cmd.correction;
-      db.transaction((tx) => {
-        // Upserted, because the row may not exist yet - a Workspace nobody
-        // has written a sentence for, which is every Workspace's starting
-        // condition (`schema.ts`'s own comment on `workspaceRoutingSummary`).
-        // Only the correction's own two columns are ever written here, and
-        // now they are the only two anything writes at all:
-        // `summary`/`summary_generated_at` keep whatever the nightly job left
-        // on them and are read by nothing ("Drop the nightly filing summary,
-        // keep the sentence you wrote", issue 392).
-        tx.insert(workspaceRoutingSummary)
-          .values({
-            workspaceId: cmd.workspaceId,
-            tenantId,
-            correction,
-            // Null exactly when the correction is, never a timestamp beside
-            // a cleared value - the "set to nothing" state is null on both
-            // columns, or a stale `correction_set_at` would survive its own
-            // clear (`domain/routing-summary.ts`).
-            correctionSetAt: correction === null ? null : cmd.issuedAt,
-          })
-          .onConflictDoUpdate({
-            target: workspaceRoutingSummary.workspaceId,
-            set: { correction, correctionSetAt: correction === null ? null : cmd.issuedAt },
-          })
-          .run();
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
     case 'set_duplicate_settled': {
       const cmd = payload as CommandPayload<'set_duplicate_settled'>;
       // Both items, because a pair is a fact about two of them and either one
@@ -2070,94 +2019,19 @@ export function runCommand<N extends CommandName>(
       });
       break;
     }
-    case 'set_text_learning_rules': {
-      const cmd = payload as CommandPayload<'set_text_learning_rules'>;
-      // The empty string is what clears it - there is no third state between
-      // "never written" and "written as nothing"
-      // (`domain/text-learning-rules.ts`).
-      const rules = cmd.rules === '' ? null : cmd.rules;
-      db.transaction((tx) => {
-        // Upserted, because the row may not exist yet - an account nobody
-        // has written rules for, which is every account's starting condition
-        // (`schema.ts`'s own comment on `accountTextRules`). Account-scoped,
-        // unlike `set_routing_summary_correction` above, so there is no
-        // Workspace to check: `cmd.workspaceId` is `ACCOUNT_WIDE`, the same
-        // convention `create_item_type` and its siblings use, and is never
-        // read here.
-        tx.insert(accountTextRules)
-          .values({
-            tenantId,
-            rules,
-            rulesSetAt: rules === null ? null : cmd.issuedAt,
-          })
-          .onConflictDoUpdate({
-            target: accountTextRules.tenantId,
-            set: { rules, rulesSetAt: rules === null ? null : cmd.issuedAt },
-          })
-          .run();
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
     case 'set_item_form_presentation': {
       const cmd = payload as CommandPayload<'set_item_form_presentation'>;
       db.transaction((tx) => {
-        // Upserted, for the same reason `set_text_learning_rules` above is:
-        // the row may not exist yet, which is every account's starting
-        // condition (`schema.ts`'s own comment on `accountItemFormPresentation`).
-        // Account-scoped, so `cmd.workspaceId` is `ACCOUNT_WIDE` and never
-        // read here, the same as `set_text_learning_rules`.
+        // Upserted, because the row may not exist yet, which is every account's
+        // starting condition (`schema.ts`'s own comment on
+        // `accountItemFormPresentation`). Account-scoped, so `cmd.workspaceId`
+        // is `ACCOUNT_WIDE` and never read here.
         tx.insert(accountItemFormPresentation)
           .values({ tenantId, presentation: cmd.presentation })
           .onConflictDoUpdate({
             target: accountItemFormPresentation.tenantId,
             set: { presentation: cmd.presentation },
           })
-          .run();
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
-    case 'pin_text_example': {
-      const cmd = payload as CommandPayload<'pin_text_example'>;
-      db.transaction((tx) => {
-        tx.insert(pinnedTextExamples)
-          .values({
-            id: cmd.exampleId,
-            tenantId,
-            ...pinnedExampleFieldsFrom(cmd),
-            createdAt: cmd.issuedAt,
-            updatedAt: cmd.issuedAt,
-          })
-          // Bare, like `create_item_type`'s: the one conflict this can hit
-          // is the id itself, which only means a replay of the same pin -
-          // the request has already been granted.
-          .onConflictDoNothing()
-          .run();
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
-    case 'edit_pinned_example': {
-      const cmd = payload as CommandPayload<'edit_pinned_example'>;
-      if (!getPinnedExample(db, tenantId, cmd.exampleId)) throw new PinnedExampleNotFoundError(cmd.exampleId);
-      db.transaction((tx) => {
-        tx.update(pinnedTextExamples)
-          .set({ ...pinnedExampleFieldsFrom(cmd), updatedAt: cmd.issuedAt })
-          .where(and(eq(pinnedTextExamples.tenantId, tenantId), eq(pinnedTextExamples.id, cmd.exampleId)))
-          .run();
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
-    case 'delete_pinned_example': {
-      const cmd = payload as CommandPayload<'delete_pinned_example'>;
-      if (!getPinnedExample(db, tenantId, cmd.exampleId)) throw new PinnedExampleNotFoundError(cmd.exampleId);
-      db.transaction((tx) => {
-        // Hard-deleted, not tombstoned - see `schema.ts`'s own comment on
-        // `pinnedTextExamples` for why nothing here needs a `deletedAt`.
-        tx.delete(pinnedTextExamples)
-          .where(and(eq(pinnedTextExamples.tenantId, tenantId), eq(pinnedTextExamples.id, cmd.exampleId)))
           .run();
         tx.insert(commands).values(commandRow).run();
       });

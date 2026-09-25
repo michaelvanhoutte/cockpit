@@ -1,4 +1,3 @@
-import { TEXT_LEARNING_GUIDANCE } from '@cockpit/shared';
 import { describe, expect, it } from 'vitest';
 import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v8.js';
 import type { TextCorrectionEntry, WhatStood } from '../../../../src/domain/text-corrections.js';
@@ -82,21 +81,6 @@ describe('Capture', () => {
 
       expect(system).toContain('2 of 10 proposed texts were corrected');
       expect(system).toContain('A title that stood');
-    });
-  });
-
-  /**
-   * "the guidance and the prompt: the lines shown are the ones the prompt
-   * actually carries" - `TEXT_LEARNING_GUIDANCE` (`packages/shared`) is what
-   * the window reads back verbatim, so this is what proves the two can never
-   * read differently.
-   */
-  describe('What Cockpit is told', () => {
-    it('carries every line of the built-in guidance, verbatim, in the system prompt', () => {
-      const system = systemFor([], null);
-      for (const line of TEXT_LEARNING_GUIDANCE) {
-        expect(system).toContain(line);
-      }
     });
   });
 });

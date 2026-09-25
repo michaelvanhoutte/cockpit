@@ -111,7 +111,6 @@ async function open(
       itemFormPresentation: presentation,
       duplicates: [],
       filings: [],
-      routingSummary: null,
       generatedAt: '2026-08-31T10:00:00.000Z',
     };
     // Answered already unless a case asked for it to be held: every other case
@@ -620,7 +619,6 @@ describe('Dashboards', () => {
     itemFormPresentation: 'centered',
     duplicates: [],
           filings: [],
-          routingSummary: null,
           generatedAt: '2026-08-31T10:00:00.000Z',
         },
         // Older than the fifteen seconds a snapshot stays fresh, which is what
@@ -827,7 +825,6 @@ describe('Sign-in', () => {
     itemFormPresentation: 'centered',
     duplicates: [],
         filings: [],
-        routingSummary: null,
         generatedAt: '2026-08-31T10:00:00.000Z',
       });
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

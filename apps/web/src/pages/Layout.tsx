@@ -14,8 +14,6 @@ import { LoadFailure } from '../components/LoadFailure';
 import { ManageTypes } from '../components/ManageTypes';
 import { MenuContent, MenuTrigger, menuItemClass } from '../components/Menu';
 import { NameQuestion } from '../components/NameQuestion';
-import { RoutingSummaryWindow } from '../components/RoutingSummaryWindow';
-import { TextLearningRulesWindow } from '../components/TextLearningRulesWindow';
 import { WorkspaceTabs, stripTabClass } from '../components/WorkspaceTabs';
 import { WHAT_A_WORKSPACE_IS } from '../whatThingsAre';
 import { OpensItemForms } from '../itemForm';
@@ -338,7 +336,7 @@ function TheShell() {
    * inside a workspace, and a page reached without one made it degrade into a
    * header wearing none of the workspace's colour, control or selected tab.
    */
-  const [managing, setManaging] = useState<'types' | 'routingSummary' | 'textLearning' | null>(null);
+  const [managing, setManaging] = useState<'types' | null>(null);
   const settingsMenu = useRef<HTMLButtonElement>(null);
   /**
    * That the entry just chosen opens a window, so the menu closing must not
@@ -656,36 +654,6 @@ function TheShell() {
               >
                 Manage types
               </DropdownMenu.Item>
-              {/* Account-scoped, like Manage types above and unlike "What
-                  Cockpit has learned" below - how somebody writes is not a
-                  property of which Workspace a note landed in ("Show what
-                  Cockpit is told, and say how you want it changed", issue
-                  398; `docs/text-learning.md`, "Scope: per account"). */}
-              <DropdownMenu.Item
-                className={menuItemClass}
-                onSelect={() => {
-                  opening.current = true;
-                  setManaging('textLearning');
-                }}
-              >
-                What Cockpit is told
-              </DropdownMenu.Item>
-              {/* Workspace-scoped, unlike Manage types above - the decision
-                  history this sentence steers belongs to one Workspace
-                  (`docs/routing-learning.md`, "Open decisions"), so this is
-                  offered only while one is open ("Show what the system
-                  learned, in a sentence you can correct", issue 301). */}
-              {params.workspaceId && (
-                <DropdownMenu.Item
-                  className={menuItemClass}
-                  onSelect={() => {
-                    opening.current = true;
-                    setManaging('routingSummary');
-                  }}
-                >
-                  What Cockpit has learned
-                </DropdownMenu.Item>
-              )}
               {/* A link rather than an entry that opens a window, and the only
                   one here: the admin pages are about the environment rather
                   than this account, so there is no workspace to keep behind
@@ -900,30 +868,6 @@ function TheShell() {
         onClose={() => setManaging(null)}
         returnFocusTo={settingsMenu.current}
       />
-
-      {/* What Cockpit is told, and the account's own rules for how it should
-          write ("Show what Cockpit is told, and say how you want it
-          changed", issue 398) - account-scoped, the same reason Manage
-          types is drawn here rather than in a page. */}
-      <TextLearningRulesWindow
-        open={managing === 'textLearning'}
-        onClose={() => setManaging(null)}
-        returnFocusTo={settingsMenu.current}
-      />
-
-      {/* The current Workspace's own filing-pattern summary and correction
-          ("Show what the system learned, in a sentence you can correct",
-          issue 301) - over the workspace for the same reason Manage types
-          is, and only ever opened while one is open, so `params.workspaceId`
-          is never absent when this is asked for. */}
-      {params.workspaceId && (
-        <RoutingSummaryWindow
-          workspaceId={params.workspaceId}
-          open={managing === 'routingSummary'}
-          onClose={() => setManaging(null)}
-          returnFocusTo={settingsMenu.current}
-        />
-      )}
 
       {/* The Item's form, drawn over whatever the address below resolves to and
           opened by that same address (`itemForm.tsx`). Here rather than in the

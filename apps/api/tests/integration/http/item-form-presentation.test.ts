@@ -15,8 +15,7 @@ import {
 } from '../seed.js';
 
 /**
- * Integration level, through the real Worker (`asUser`), for the reason
- * `text-learning-rules.test.ts` beside this file is: whether the choice
+ * Integration level, through the real Worker (`asUser`): whether the choice
  * lands, and who it is scoped to, is a fact about the store, not about a pure
  * function ("Let the item's form dock to the side of the screen instead of
  * opening as a dialog", issue 481).

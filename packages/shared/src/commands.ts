@@ -26,13 +26,6 @@ import {
   panelTextSchema,
   rowInputSchema,
 } from './domain/panel.js';
-import {
-  pinnedExampleDescriptionSchema,
-  pinnedExampleNoteSchema,
-  pinnedExampleTitleSchema,
-} from './domain/pinned-text-examples.js';
-import { routingSummaryCorrectionSchema } from './domain/routing-summary.js';
-import { textLearningRulesSchema } from './domain/text-learning-rules.js';
 import { MAX_SCREEN_WIDTH, MIN_SCREEN_WIDTH, screenSizeNameSchema } from './domain/screen-size.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
@@ -531,82 +524,15 @@ export const removeAttachmentSchema = commandEnvelopeSchema.extend({
 export type RemoveAttachmentCommand = z.infer<typeof removeAttachmentSchema>;
 
 /**
- * set_routing_summary_correction — what one Workspace's own sentence about
- * where its notes belong says, in the writer's words ("Show what the system
- * learned, in a sentence you can correct", issue 301). It corrected a
- * generated summary once; that summary is gone and this outlived it ("Drop
- * the nightly filing summary, keep the sentence you wrote", issue 392), so it
- * is now the only text on this table anything reads. The empty string clears
- * it, the same idiom `set_description`'s `null` uses for "nothing here" —
- * empty rather than null because this field has no third state to spend null
- * on (`domain/routing-summary.ts`).
- */
-export const setRoutingSummaryCorrectionSchema = commandEnvelopeSchema.extend({
-  correction: routingSummaryCorrectionSchema,
-});
-export type SetRoutingSummaryCorrectionCommand = z.infer<typeof setRoutingSummaryCorrectionSchema>;
-
-/**
- * set_text_learning_rules — the account's own rules for how Cockpit writes a
- * title and a message, in the writer's own words ("Show what Cockpit is
- * told, and say how you want it changed", issue 398). Account-scoped, unlike
- * `set_routing_summary_correction` above — `workspaceId` on the envelope is
- * `ACCOUNT_WIDE`, the same convention `create_item_type` and its siblings
- * use. The empty string clears it, the same idiom `set_routing_summary_correction`
- * uses for the same reason (`domain/text-learning-rules.ts`).
- */
-export const setTextLearningRulesSchema = commandEnvelopeSchema.extend({
-  rules: textLearningRulesSchema,
-});
-export type SetTextLearningRulesCommand = z.infer<typeof setTextLearningRulesSchema>;
-
-/**
  * set_item_form_presentation — whether the account has the Item's form drawn
  * centered or docked to the side ("Let the item's form dock to the side of the
- * screen instead of opening as a dialog", issue 481). Account-scoped, the same
- * convention `set_text_learning_rules` above uses: `workspaceId` on the
- * envelope is `ACCOUNT_WIDE`.
+ * screen instead of opening as a dialog", issue 481). Account-scoped:
+ * `workspaceId` on the envelope is `ACCOUNT_WIDE`.
  */
 export const setItemFormPresentationSchema = commandEnvelopeSchema.extend({
   presentation: itemFormPresentationSchema,
 });
 export type SetItemFormPresentationCommand = z.infer<typeof setItemFormPresentationSchema>;
-
-/**
- * pin_text_example — a worked example of a note and the title and message
- * chosen for it, added by hand rather than corrected after the fact ("Pin an
- * example of how you want a note written", issue 397). Account-scoped, the
- * same convention `set_text_learning_rules` above uses.
- *
- * **One command for all three fields**, the same shape `set_workspace_theme`
- * takes for its four colours: a note, its title and its message are one
- * example rather than three independently-settleable facts, unlike an
- * Item's title and description, which stay two commands because either can
- * be corrected on its own, days apart.
- */
-export const pinTextExampleSchema = commandEnvelopeSchema.extend({
-  exampleId: z.uuid(),
-  note: pinnedExampleNoteSchema,
-  title: pinnedExampleTitleSchema,
-  description: pinnedExampleDescriptionSchema,
-});
-export type PinTextExampleCommand = z.infer<typeof pinTextExampleSchema>;
-
-/** edit_pinned_example — replaces all three fields of an example already pinned. */
-export const editPinnedExampleSchema = commandEnvelopeSchema.extend({
-  exampleId: z.string().min(1),
-  note: pinnedExampleNoteSchema,
-  title: pinnedExampleTitleSchema,
-  description: pinnedExampleDescriptionSchema,
-});
-export type EditPinnedExampleCommand = z.infer<typeof editPinnedExampleSchema>;
-
-/** delete_pinned_example — gone for good, the same as deleting a correction ("See what it got right, and what you corrected", issue 412): nothing else references a pinned example, so there is no tombstone to keep a foreign key satisfied. */
-export const deletePinnedExampleSchema = commandEnvelopeSchema.extend({
-  exampleId: z.string().min(1),
-});
-export type DeletePinnedExampleCommand = z.infer<typeof deletePinnedExampleSchema>;
-
 /**
  * propose_item_texts — one command for both texts, sent by the enrichment job
  * rather than a client ("Clean up a captured note into a clear title and a
@@ -679,9 +605,8 @@ export type ConnectSourceAccountCommand = z.infer<typeof connectSourceAccountSch
 /**
  * disconnect_source_account - the row and the credential sealed in it, gone
  * for good ("Connect a Microsoft Teams source account", issue 485). No
- * tombstone, for the reason `delete_pinned_example` has none and one of its
- * own: what makes disconnecting mean anything is that the credential stops
- * existing.
+ * tombstone: what makes disconnecting mean anything is that the credential
+ * stops existing.
  */
 export const disconnectSourceAccountSchema = commandEnvelopeSchema.extend({
   sourceAccountId: z.string().min(1),
@@ -761,12 +686,7 @@ export const commandSchemas = {
   set_description: setDescriptionSchema,
   add_attachment: addAttachmentSchema,
   remove_attachment: removeAttachmentSchema,
-  set_routing_summary_correction: setRoutingSummaryCorrectionSchema,
-  set_text_learning_rules: setTextLearningRulesSchema,
   set_item_form_presentation: setItemFormPresentationSchema,
-  pin_text_example: pinTextExampleSchema,
-  edit_pinned_example: editPinnedExampleSchema,
-  delete_pinned_example: deletePinnedExampleSchema,
   propose_item_texts: proposeItemTextsSchema,
   propose_item_panel: proposeItemPanelSchema,
   connect_source_account: connectSourceAccountSchema,

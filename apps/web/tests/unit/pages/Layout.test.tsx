@@ -62,15 +62,7 @@ vi.mock('../../../src/api/queries', () => ({
   // The types window the shell now draws over the workspace reads them
   // (pages/Layout.tsx). It is shut in these cases, but it is mounted.
   itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => Promise.resolve({ itemTypes: [] }) },
-  // The "What Cockpit is told" window the shell now also draws over the
-  // workspace reads this (pages/Layout.tsx, components/
-  // TextLearningRulesWindow.tsx). Shut in these cases, but mounted.
-  textLearningStatusQuery: {
-    queryKey: ['textLearningStatus'],
-    queryFn: () =>
-      Promise.resolve({ rules: null, rulesSetAt: null, proposedTotal: 0, correctedTotal: 0 }),
-  },
-  // The shell draws the account's three management windows over the workspace
+  // The shell draws the account's management windows over the workspace
   // (pages/Layout.tsx). They are shut here - nothing in these cases opens
   // one - but they are mounted, so the hooks they call have to answer.
   useCommand: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
@@ -153,6 +145,27 @@ describe('Workspace management', () => {
       const header = container.querySelector('header')!;
       expect(within(header).getByText(A_NAME_THAT_LOOKS_LIKE_MARKUP)).toBeInTheDocument();
     });
+  });
+
+  describe('the account is not offered a way to hand-write what Cockpit learns from', () => {
+    it.each(['What Cockpit is told', 'What Cockpit has learned'])(
+      'has no %s entry in the header’s menu',
+      async (entry) => {
+        const user = userEvent.setup();
+        render(
+          <QueryClientProvider
+            client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+          >
+            <Layout />
+          </QueryClientProvider>,
+        );
+
+        await user.click(await screen.findByRole('button', { name: 'Settings' }));
+
+        expect(await screen.findByRole('menuitem', { name: 'Manage types' })).toBeVisible();
+        expect(screen.queryByRole('menuitem', { name: entry })).toBeNull();
+      },
+    );
   });
 });
 
