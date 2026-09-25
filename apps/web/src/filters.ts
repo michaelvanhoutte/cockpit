@@ -1,5 +1,6 @@
 import type {
   DueWindow,
+  Dashboard,
   Filing,
   FilterCondition,
   FilterMatch,
@@ -492,4 +493,35 @@ export function filtersUsingPanel(
     affected.push({ filter: candidate, leftEmpty: !stillHasOne && needsIt });
   }
   return affected;
+}
+
+/**
+ * Where one Item shows, named for a person: "Dashboard › Panel" for every live
+ * Panel it is filed on and every Filter it matches, in Panel order, and "Inbox"
+ * where it is filed nowhere ("Change an item's type, and its status, from its
+ * form, and see where it is shown", issue 528). `null` for an Item finished
+ * with, which shows nowhere while it is - where it was filed is not said.
+ *
+ * The same reading the row's "also in" is built on (`panelAndFilterIdsByItem`),
+ * so the form and the row cannot disagree about where an Item is.
+ */
+export function shownOn(
+  item: Item,
+  items: readonly Item[],
+  filings: readonly Filing[],
+  panelsInWorkspace: readonly Panel[],
+  dashboards: readonly Pick<Dashboard, 'id' | 'name'>[],
+  itemTypes: readonly ItemType[],
+  on: Day,
+): string[] | null {
+  if (item.completedAt) return null;
+  const ids = panelAndFilterIdsByItem(items, filings, panelsInWorkspace, itemTypes, on).get(item.id) ?? EMPTY_IDS;
+  const filed = filingsThatFile(filings, panelsInWorkspace).some((filing) => filing.itemId === item.id);
+  const places = panelsInWorkspace
+    .filter((panel) => ids.has(panel.id))
+    .map((panel) => {
+      const dashboard = dashboards.find((candidate) => candidate.id === panel.dashboardId);
+      return dashboard ? `${dashboard.name} › ${panel.name}` : panel.name;
+    });
+  return filed ? places : ['Inbox', ...places];
 }

@@ -3,12 +3,14 @@ import { env, applyD1Migrations, SELF } from 'cloudflare:test';
 import { WORKSPACE_THEMES } from '@cockpit/shared';
 import type { CommandName, CommandPayload } from '@cockpit/shared';
 import {
+  OTHER_ACCOUNT_NAME,
   TASK_TYPE_ID,
   WORKSPACE_ID,
   asUser,
   inTheStore,
   seedRegister,
   startFromEmpty,
+  taskTypeIn,
 } from '../seed.js';
 
 /**
@@ -137,6 +139,17 @@ describe('Offline', () => {
         }),
       },
       {
+        situation: 'saying what kind of thing it is',
+        name: 'set_item_type',
+        change: (targetId, requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-08-12T11:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId: targetId,
+          typeId: TASK_TYPE_ID,
+        }),
+      },
+      {
         situation: 'linking it to a person',
         name: 'associate',
         change: (targetId, requestId) => ({
@@ -256,6 +269,17 @@ describe('Triage', () => {
           workspaceId: WORKSPACE_ID,
           itemId: goneItemId,
           done: true,
+        }),
+      },
+      {
+        situation: 'saying what kind of thing it is',
+        name: 'set_item_type',
+        change: (requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-08-12T10:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId: goneItemId,
+          typeId: TASK_TYPE_ID,
         }),
       },
       {
@@ -728,6 +752,67 @@ describe('Capture', () => {
 
       expect(response.status).toBe(answers);
       expect(await storedIn('items', 'id', itemId)).toHaveLength(answers === 200 ? 1 : 0);
+    });
+  });
+});
+
+describe('Item editing', () => {
+  describe('an item’s type is changed to a type of this account, and never to none', () => {
+    const setType = (itemId: string, typeId: unknown, at = '2026-08-12T12:00:00.000Z') =>
+      postChange('set_item_type', {
+        commandId: nextId(),
+        issuedAt: at,
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        typeId,
+      } as CommandPayload<'set_item_type'>);
+
+    it('changes the type the item is', async () => {
+      const itemId = await captureAnItem();
+      const [other] = await inTheStore((sql) =>
+        sql.exec<{ id: string }>("SELECT id FROM item_types WHERE folded_name != 'task'").toArray(),
+      );
+
+      const response = await setType(itemId, other!.id);
+
+      expect(response.status).toBe(200);
+      const [item] = await storedIn('items', 'id', itemId);
+      expect(item?.type_id).toBe(other!.id);
+    });
+
+    it.each([
+      { situation: 'a type nothing here has', typeId: () => '018f0000-0000-7000-8000-999999999999', answers: 404 },
+      { situation: 'a type of another account', typeId: () => taskTypeIn(OTHER_ACCOUNT_NAME), answers: 404 },
+      { situation: 'no type at all', typeId: () => null, answers: 400 },
+      { situation: 'an empty type', typeId: () => '', answers: 400 },
+    ])('refuses $situation and leaves the item as it was', async ({ typeId, answers }) => {
+      const itemId = await captureAnItem();
+      const [before] = await storedIn('items', 'id', itemId);
+
+      const response = await setType(itemId, typeId());
+
+      expect(response.status).toBe(answers);
+      expect(await storedIn('items', 'id', itemId)).toEqual([before]);
+    });
+
+    it('does nothing where the item changed elsewhere since the form opened', async () => {
+      const itemId = await captureAnItem();
+      const [other] = await inTheStore((sql) =>
+        sql.exec<{ id: string }>("SELECT id FROM item_types WHERE folded_name != 'task'").toArray(),
+      );
+      await postChange('set_title', {
+        commandId: nextId(),
+        issuedAt: '2026-08-12T13:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        title: 'Changed in another tab',
+      });
+
+      const response = await setType(itemId, other!.id, '2026-08-12T12:00:00.000Z');
+
+      expect(await response.json()).toEqual({ ok: true, applied: false });
+      const [item] = await storedIn('items', 'id', itemId);
+      expect(item?.type_id).toBe(TASK_TYPE_ID);
     });
   });
 });

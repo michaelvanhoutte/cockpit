@@ -12,6 +12,7 @@ import {
   type SetDoneCommand,
   type SetDueDateCommand,
   type SetNextActionCommand,
+  type SetItemTypeCommand,
   type SetPriorityCommand,
   type SetTitleCommand,
   type Source,
@@ -191,6 +192,11 @@ export function applySetNextAction(item: Item, cmd: SetNextActionCommand): Item 
 export function applySetPriority(item: Item, cmd: SetPriorityCommand): Item | null {
   if (isStale(item, cmd.issuedAt)) return null;
   return { ...item, priority: cmd.priority, updatedAt: cmd.issuedAt };
+}
+
+export function applySetItemType(item: Item, cmd: SetItemTypeCommand): Item | null {
+  if (isStale(item, cmd.issuedAt)) return null;
+  return { ...item, typeId: cmd.typeId, updatedAt: cmd.issuedAt };
 }
 
 /**

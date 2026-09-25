@@ -115,6 +115,7 @@ import {
   applySetDone,
   applySetDueDate,
   applySetNextAction,
+  applySetItemType,
   applySetPriority,
   applySetTitle,
   asStored,
@@ -2317,11 +2318,20 @@ export function runCommand<N extends CommandName>(
         | CommandPayload<'set_dismissed'>
         | CommandPayload<'set_next_action'>
         | CommandPayload<'set_priority'>
+        | CommandPayload<'set_item_type'>
         | CommandPayload<'set_due_date'>
         | CommandPayload<'set_title'>
         | CommandPayload<'set_description'>;
       const existing = getItem(db, tenantId, cmd.itemId);
       if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      // A type of this account, checked here rather than left to the foreign
+      // key for the reason a capture's is: a constraint would surface a
+      // caller's mistake as a 500, and another account's type is a 404 like
+      // any other missing thing.
+      if (name === 'set_item_type') {
+        const typeId = (cmd as CommandPayload<'set_item_type'>).typeId;
+        if (!getItemType(db, tenantId, typeId)) throw new ItemTypeNotFoundError(typeId);
+      }
       // Finishing with an item that belongs to no workspace, or dismissing one,
       // takes it out of *every* workspace's Inbox rather than one - so every
       // one of them has to be told, not the one the envelope happens to name.
@@ -2340,7 +2350,9 @@ export function runCommand<N extends CommandName>(
                   ? applySetDescription(existing, cmd as CommandPayload<'set_description'>)
                   : name === 'set_priority'
                     ? applySetPriority(existing, cmd as CommandPayload<'set_priority'>)
-                    : applySetDueDate(existing, cmd as CommandPayload<'set_due_date'>);
+                    : name === 'set_item_type'
+                      ? applySetItemType(existing, cmd as CommandPayload<'set_item_type'>)
+                      : applySetDueDate(existing, cmd as CommandPayload<'set_due_date'>);
 
       if (updated === null) {
         // Stale by last-write-wins: log the command, change nothing.
