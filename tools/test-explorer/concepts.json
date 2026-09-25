@@ -235,6 +235,7 @@
         "apps/web/src/description/images.ts",
         "apps/web/src/description/syntax.ts",
         "apps/web/src/description/safeHref.ts",
+        "apps/web/src/description/textClass.ts",
         "apps/web/src/itemForm.tsx",
         "apps/web/src/itemFormSize.ts",
         "apps/web/src/router.tsx",
