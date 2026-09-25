@@ -756,17 +756,18 @@ test.describe('Item editing', () => {
         'the widest priority fits, less an allowance for the native arrow',
       ).toBeGreaterThanOrEqual(widest);
 
-      // Priority and the description's own toolbar sit on the same row when
-      // there is room for two columns - both near the top of their own
+      // Type, the first of the short fields, and the description's own toolbar
+      // sit on the same row when there is room for two columns - both near the
+      // top of their own
       // column - and one column drops below the other's whole height once
       // there is not. The toolbar, not the description box itself: the box
       // sits below its own toolbar, which is otherwise close enough to
-      // Priority's own row to read as "the same row" even stacked.
+      // the first field's own row to read as "the same row" even stacked.
       const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
       const sideBySide = async () => {
-        const priority = (await priorityBox(page).boundingBox())!;
+        const firstField = (await form(page).getByLabel('Type').boundingBox())!;
         const description = (await toolbar.boundingBox())!;
-        return Math.abs(priority.y - description.y) < 40;
+        return Math.abs(firstField.y - description.y) < 40;
       };
       expect(await sideBySide(), 'two columns at the dialog’s own default width').toBe(true);
 
