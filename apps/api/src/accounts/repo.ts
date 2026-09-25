@@ -5,6 +5,7 @@ import {
   DEFAULT_ITEM_FORM_PRESENTATION,
   REWRITE_HISTORY_LIMIT,
   panelFilterFrom,
+  panelSortFrom,
   type Association,
   type Attachment,
   type Dashboard,
@@ -274,27 +275,33 @@ const panelColumns = {
   readOnly: panels.readOnly,
   // What a Filter gathers, which is also what says the panel is one.
   filterConditions: panels.filterConditions,
+  // How a panel of items is sorted, or null for Manual.
+  sortCriteria: panels.sortCriteria,
 };
 
 /**
  * One stored panel as everything outside this file reads it: the wire's kind is
- * `filter` wherever the conditions column is set, and what it holds is the
- * parsed shape rather than the text of a column.
+ * `filter` wherever the conditions column is set, and what it holds and how it
+ * is sorted are the parsed shapes rather than the text of two columns.
  *
  * **The one place that translation happens** ("Add a Filter panel that shows
  * every filed item due in a window", issue 463), so nothing above this has to
  * remember that the stored kind and the read kind are not the same question.
  */
 function panelAsRead(row: PanelRowRead): Panel {
-  const { filterConditions, ...rest } = row;
+  const { filterConditions, sortCriteria, ...rest } = row;
   const filter = panelFilterFrom(filterConditions);
-  return filter === null ? { ...rest, filter: null } : { ...rest, kind: 'filter', filter };
+  const sort = panelSortFrom(sortCriteria);
+  return filter === null
+    ? { ...rest, filter: null, sort }
+    : { ...rest, kind: 'filter', filter, sort };
 }
 
 /** What `panelColumns` selects, before `panelAsRead` turns it into a `Panel`. */
-type PanelRowRead = Omit<Panel, 'kind' | 'filter'> & {
+type PanelRowRead = Omit<Panel, 'kind' | 'filter' | 'sort'> & {
   kind: StoredPanelKind;
   filterConditions: string | null;
+  sortCriteria: string | null;
 };
 
 /**

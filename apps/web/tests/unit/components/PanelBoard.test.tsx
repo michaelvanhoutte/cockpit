@@ -12,6 +12,7 @@ import type {
   ItemType,
   Layout,
   Panel,
+  PanelSort,
   ScreenSize,
 } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
@@ -81,6 +82,7 @@ function aPanel(id: string, name: string): Panel {
     body: '',
     readOnly: false,
     filter: null,
+    sort: null,
   };
 }
 
@@ -1781,7 +1783,204 @@ describe('Panels', () => {
       expect(within(reading).getByText(NOTHING_FILED_HERE)).toBeVisible();
     });
   });
+
+  /**
+   * Which order a sort puts rows in is tests/unit/sorting.test.ts; what is
+   * asked here is that the board draws a sorted Panel through it, says so, and
+   * that the Sort question opens on what is stored and sends the whole sort.
+   */
+  describe('a sorted panel says so beside its name, and draws its rows by the sort', () => {
+    const BY_TITLE: PanelSort = [{ field: 'title', direction: 'asc' }];
+
+    it('reads the sort back on hover and draws the rows by it, where a Manual panel has no mark', async () => {
+      const zebra = anItem('11111111-1111-7111-8111-000000000001', 'Zebra crossing');
+      const apple = anItem('11111111-1111-7111-8111-000000000002', 'Apple harvest');
+      showBoard({
+        panels: [aSortedPanel('falcon', 'Project Falcon', BY_TITLE), aPanel('reading', 'To read')],
+        items: [zebra, apple],
+        filings: [
+          { panelId: 'falcon', itemId: zebra.id, position: 0 },
+          { panelId: 'falcon', itemId: apple.id, position: 1 },
+          { panelId: 'reading', itemId: zebra.id, position: 0 },
+          { panelId: 'reading', itemId: apple.id, position: 1 },
+        ],
+      });
+
+      const falcon = await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(within(falcon).getByRole('img', { name: 'Sorted: Title ascending' })).toBeVisible();
+      expect(within(falcon).getAllByRole('listitem').map((row) => row.textContent)).toEqual([
+        expect.stringContaining('Apple harvest'),
+        expect.stringContaining('Zebra crossing'),
+      ]);
+
+      const reading = screen.getByRole('region', { name: 'To read' });
+      expect(within(reading).queryByRole('img', { name: /Sorted/ })).toBeNull();
+      expect(within(reading).getAllByRole('listitem').map((row) => row.textContent)).toEqual([
+        expect.stringContaining('Zebra crossing'),
+        expect.stringContaining('Apple harvest'),
+      ]);
+    });
+
+    it('is offered on a panel of items alone, never on a panel of text or a Filter', async () => {
+      showBoard({
+        panels: [aPanel('falcon', 'Project Falcon'), aPanelOfText('words', 'Words'), aFilter('due', 'Due soon')],
+      });
+
+      openMenu('Project Falcon');
+      expect(await screen.findByRole('menuitem', { name: 'Sort…' })).toBeVisible();
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+
+      for (const other of ['Words', 'Due soon']) {
+        openMenu(other);
+        await screen.findByRole('menuitem', { name: 'Rename' });
+        expect(screen.queryByRole('menuitem', { name: 'Sort…' })).toBeNull();
+        fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+      }
+    });
+  });
+
+  describe('the Sort question opens on what is stored and saves the whole sort', () => {
+    const MODE = 'Manual or sorted';
+
+    /** Opens *+ Sort by…* or *+ Then by…* and chooses one field. */
+    async function addCriterion(user: ReturnType<typeof userEvent.setup>, field: string) {
+      await user.click(await screen.findByRole('button', { name: /^\+ (Sort|Then) by…$/ }));
+      await user.click(await screen.findByRole('menuitem', { name: field }));
+    }
+
+    /** What the last change sent as the sort. */
+    function sentSort(mutate: ReturnType<typeof vi.fn>) {
+      const [asked] = mutate.mock.calls.at(-1)!;
+      expect(asked.name).toBe('set_panel_sort');
+      return asked.payload.sort;
+    }
+
+    it('opens on Manual for a panel never sorted, and on its rows for one that is', async () => {
+      const { user } = showBoard({
+        panels: [
+          aPanel('falcon', 'Project Falcon'),
+          aSortedPanel('reading', 'To read', [
+            { field: 'dueDate', direction: 'asc' },
+            { field: 'priority', direction: 'desc' },
+          ]),
+        ],
+      });
+
+      await choose(user, 'Project Falcon', 'Sort…');
+      expect(await screen.findByRole('radio', { name: 'Manual' })).toBeChecked();
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      await choose(user, 'To read', 'Sort…');
+      expect(await screen.findByRole('radio', { name: 'Sorted' })).toBeChecked();
+      expect(screen.getByRole('radiogroup', { name: 'Due date direction' })).toBeVisible();
+      expect(within(screen.getByRole('radiogroup', { name: 'Priority direction' })).getByRole('radio', { name: 'Descending' })).toBeChecked();
+    });
+
+    it('offers each field once, starts Priority on Descending and every other on Ascending, and says what each direction means', async () => {
+      const { user, mutate } = showBoard();
+
+      await choose(user, 'Project Falcon', 'Sort…');
+      await user.click(await screen.findByRole('radio', { name: 'Sorted' }));
+      await addCriterion(user, 'Priority');
+      await addCriterion(user, 'Title');
+
+      await user.click(screen.getByRole('button', { name: '+ Then by…' }));
+      expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toEqual([
+        'Created',
+        'Due date',
+        'Type',
+      ]);
+      await user.keyboard('{Escape}');
+
+      const priority = screen.getByRole('radiogroup', { name: 'Priority direction' });
+      expect(within(priority).getByRole('radio', { name: 'Descending' })).toBeChecked();
+      expect(within(priority).getByText('Ascending').closest('label')).toHaveAttribute('title', 'Low to High');
+      const title = screen.getByRole('radiogroup', { name: 'Title direction' });
+      expect(within(title).getByRole('radio', { name: 'Ascending' })).toBeChecked();
+
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+      expect(sentSort(mutate)).toEqual([
+        { field: 'priority', direction: 'desc' },
+        { field: 'title', direction: 'asc' },
+      ]);
+    });
+
+    it('stops offering to add once every field has a row', async () => {
+      const { user } = showBoard();
+
+      await choose(user, 'Project Falcon', 'Sort…');
+      await user.click(await screen.findByRole('radio', { name: 'Sorted' }));
+      for (const field of ['Title', 'Priority', 'Created', 'Due date', 'Type']) await addCriterion(user, field);
+
+      expect(screen.queryByRole('button', { name: '+ Then by…' })).toBeNull();
+    });
+
+    it('moves a row up and down, and never removes the last one', async () => {
+      const { user, mutate } = showBoard({
+        panels: [
+          aSortedPanel('falcon', 'Project Falcon', [
+            { field: 'dueDate', direction: 'asc' },
+            { field: 'priority', direction: 'desc' },
+          ]),
+        ],
+      });
+
+      await choose(user, 'Project Falcon', 'Sort…');
+      expect(await screen.findByRole('button', { name: 'Move Due date up' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Move Priority down' })).toBeDisabled();
+      await user.click(screen.getByRole('button', { name: 'Move Priority up' }));
+      await user.click(screen.getByRole('button', { name: 'Remove Due date' }));
+
+      expect(screen.queryByRole('button', { name: /^Remove/ })).toBeNull();
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+      expect(sentSort(mutate)).toEqual([{ field: 'priority', direction: 'desc' }]);
+    });
+
+    it('keeps the rows through Manual and back, and saves Manual as no sort at all', async () => {
+      const { user, mutate } = showBoard({
+        panels: [aSortedPanel('falcon', 'Project Falcon', [{ field: 'dueDate', direction: 'asc' }])],
+      });
+
+      await choose(user, 'Project Falcon', 'Sort…');
+      await user.click(await screen.findByRole('radio', { name: 'Manual' }));
+      expect(screen.queryByRole('radiogroup', { name: 'Due date direction' })).toBeNull();
+      await user.click(screen.getByRole('radio', { name: 'Sorted' }));
+      expect(screen.getByRole('radiogroup', { name: 'Due date direction' })).toBeVisible();
+
+      await user.click(screen.getByRole('radio', { name: 'Manual' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+      expect(sentSort(mutate)).toBeNull();
+    });
+
+    it.each([
+      { situation: 'Cancel', leave: (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Cancel' })) },
+      { situation: 'Escape', leave: (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Escape}') },
+    ])('discards what was changed on $situation, and opens again on what is stored', async ({ leave }) => {
+      const { user, mutate } = showBoard({
+        panels: [aSortedPanel('falcon', 'Project Falcon', [{ field: 'dueDate', direction: 'asc' }])],
+      });
+
+      await choose(user, 'Project Falcon', 'Sort…');
+      await addCriterion(user, 'Title');
+      await user.click(screen.getByRole('radio', { name: 'Manual' }));
+      await leave(user);
+
+      expect(mutate).not.toHaveBeenCalled();
+      await choose(user, 'Project Falcon', 'Sort…');
+      expect(await screen.findByRole('radio', { name: 'Sorted' })).toBeChecked();
+      expect(screen.queryByRole('radiogroup', { name: 'Title direction' })).toBeNull();
+      expect(screen.getByRole('radio', { name: 'Sorted' }).closest('[role="dialog"]')).toHaveTextContent(ANY_ORDER_DESCRIPTION);
+    });
+  });
 });
+
+/** What the Sort question says under its title while Sorted is chosen. */
+const ANY_ORDER_DESCRIPTION = 'By the first of these, then the next wherever two tie, then the order you set.';
+
+/** A panel of items drawing its rows by a sort. */
+function aSortedPanel(id: string, name: string, sort: PanelSort): Panel {
+  return { ...aPanel(id, name), sort };
+}
 
 describe('Onboarding', () => {
   /**

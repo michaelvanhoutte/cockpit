@@ -37,6 +37,7 @@ function aPanelOfText(holding: Partial<Panel> = {}): Panel {
     body: '',
     readOnly: false,
     filter: null,
+    sort: null,
     ...holding,
   };
 }

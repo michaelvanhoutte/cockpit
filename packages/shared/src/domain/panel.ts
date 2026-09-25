@@ -304,6 +304,75 @@ export function panelFilterAsStored(
 }
 
 /**
+ * What a Panel of items can be sorted by ("Sort a panel of items by the fields
+ * you choose", issue 526), in the order the Sort question offers them.
+ */
+export const SORT_FIELDS = ['title', 'priority', 'createdAt', 'dueDate', 'type'] as const;
+export const sortFieldSchema = z.enum(SORT_FIELDS);
+export type SortField = z.infer<typeof sortFieldSchema>;
+
+/**
+ * Which way one criterion runs. Ascending is A→Z, Low→High, oldest first,
+ * soonest first and the order of your Types; an Item with no value goes last
+ * either way (`apps/web/src/sorting.ts`).
+ */
+export const SORT_DIRECTIONS = ['asc', 'desc'] as const;
+export const sortDirectionSchema = z.enum(SORT_DIRECTIONS);
+export type SortDirection = z.infer<typeof sortDirectionSchema>;
+
+export const sortCriterionSchema = z.object({
+  field: sortFieldSchema,
+  direction: sortDirectionSchema,
+});
+export type SortCriterion = z.infer<typeof sortCriterionSchema>;
+
+/**
+ * A Panel's sort: one criterion or more, each field once, the first deciding
+ * and each next one breaking the ties the one before it left.
+ *
+ * **Manual is its absence, never an empty list** — null on the Panel and on
+ * `set_panel_sort` alike, so there is one way to say it and switching back
+ * leaves the order you set exactly as it was.
+ */
+export const panelSortSchema = z
+  .array(sortCriterionSchema)
+  .min(1)
+  .max(SORT_FIELDS.length)
+  .refine((criteria) => new Set(criteria.map((one) => one.field)).size === criteria.length, {
+    message: 'a field appears once in a sort',
+  });
+export type PanelSort = z.infer<typeof panelSortSchema>;
+
+/**
+ * What a stored sort says, from the text the column holds — or null, which is
+ * Manual.
+ *
+ * **Anything it cannot read is Manual, never a failure**, for the reason
+ * `panelFilterFrom` gives: a Workspace that will not open over one Panel's
+ * setting is far worse than a Panel drawn in the order you set. A field this
+ * release has never heard of fails the whole sort rather than being dropped,
+ * because the criteria left would be ordering by something nobody chose.
+ */
+export function panelSortFrom(stored: string | null): PanelSort | null {
+  if (stored === null) return null;
+  try {
+    const read = z.object({ criteria: panelSortSchema }).safeParse(JSON.parse(stored));
+    return read.success ? read.data.criteria : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What a sort is stored as — the one writer, and null for Manual. An object
+ * rather than the bare list, so a sort can grow a setting of its own without
+ * every stored one being re-read as something else.
+ */
+export function panelSortAsStored(sort: readonly SortCriterion[] | null): string | null {
+  return sort === null ? null : JSON.stringify({ criteria: sort });
+}
+
+/**
  * A Panel, as it is read back. What a Panel *holds* is not here — a filing is
  * its own shape (`filingSchema` below), because an Item can be filed on
  * several Panels at once ("Panels hold the items filed into them, and the
@@ -329,6 +398,13 @@ export const panelSchema = z.object({
    * Panel that is not a Filter rather than as no Panel at all.
    */
   filter: panelFilterSchema.nullable().catch(null).default(null),
+  /**
+   * How a Panel of items draws its rows, and null for Manual — the order the
+   * filings carry ("Sort a panel of items by the fields you choose", issue
+   * 526). Permissive like `filter`: a copy from before this existed, or one it
+   * cannot read, is a Panel in the order you set.
+   */
+  sort: panelSortSchema.nullable().catch(null).default(null),
 });
 export type Panel = z.infer<typeof panelSchema>;
 

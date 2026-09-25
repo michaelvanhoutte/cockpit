@@ -1214,6 +1214,27 @@ describe('Panels', () => {
       ]);
     });
   });
+
+  describe('every panel an account already had is drawn in the order its items were filed in', () => {
+    /**
+     * `0040-panel-sort`'s direction that matters: every panel that already
+     * existed takes NULL, which is Manual, so none of them starts drawing its
+     * rows in an order nobody chose.
+     */
+    it('reads every panel back as Manual', async () => {
+      const name = 'aged-store-before-sort';
+      await agedTo(name, justBefore('0040-panel-sort'));
+      await fillWithWhatIsAlreadyThere(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot).toMatchObject({ status: 'ok' });
+      const panels = snapshot.status === 'ok' ? snapshot.value.panels : [];
+      expect(panels.length).toBeGreaterThan(0);
+      expect(panels.map((panel) => panel.sort)).toEqual(panels.map(() => null));
+    });
+  });
 });
 
 describe('Workspace management', () => {

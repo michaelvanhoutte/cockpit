@@ -172,7 +172,7 @@ const RESEARCH: Dashboard = {
 };
 
 function aPanel(id: string, dashboardId: string, name: string): Panel {
-  return { id, tenantId: 'tenant', dashboardId, name, kind: 'items' as const, format: 'plain' as const, body: '', readOnly: false, filter: null };
+  return { id, tenantId: 'tenant', dashboardId, name, kind: 'items' as const, format: 'plain' as const, body: '', readOnly: false, filter: null, sort: null };
 }
 
 function aWorkspace(id: string, name: string): Workspace {
@@ -603,6 +603,7 @@ describe('Panels', () => {
           body: '',
           readOnly: false,
           filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }], match: 'all' as const },
+          sort: null,
         },
       ];
       held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
@@ -623,6 +624,7 @@ describe('Panels', () => {
         body: '',
         readOnly: false,
         filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }], match: 'all' as const },
+        sort: null,
       };
       held.panels = [...held.panels, gathers];
       held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];

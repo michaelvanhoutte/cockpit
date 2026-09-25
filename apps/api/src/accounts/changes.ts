@@ -109,8 +109,36 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_FORM_PRESENTATION,
     ITEM_SOURCE_CONNECTOR,
     DASHBOARD_ORDER,
+    PANEL_SORT,
   ];
 }
+
+/**
+ * How a Panel of items is sorted ("Sort a panel of items by the fields you
+ * choose", issue 526) - see `schema.ts` for what the column carries. One
+ * nullable column and nothing else, the shape `PANEL_FILTERS` is.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** it cannot. One statement, and a change's
+ *   statements and the record that they ran commit in one `transactionSync`
+ *   (store.ts) - SQLite has no `ADD COLUMN IF NOT EXISTS` for a half-applied
+ *   change to re-run over.
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** there can be none. Every Panel
+ *   takes NULL, which is Manual - the order it was already drawn in.
+ * - **Rolled back after it has run:** an older release never reads the column,
+ *   so a sorted Panel is drawn in the order you set until the release goes
+ *   forward again; the filings were never touched.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const PANEL_SORT: Change = {
+  name: '0040-panel-sort',
+  statements: [{ sql: 'ALTER TABLE `panels` ADD COLUMN `sort_criteria` text' }],
+};
 
 /**
  * Where a dashboard sits in its workspace's bar ("Reorder a workspace's

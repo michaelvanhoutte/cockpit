@@ -35,6 +35,7 @@ function aPanel(id: string): Panel {
     body: '',
     readOnly: false,
     filter: null,
+    sort: null,
   };
 }
 
@@ -56,6 +57,7 @@ describe('Panels', () => {
         body: '',
         readOnly: false,
         filterConditions: null,
+        sortCriteria: null,
         createdAt: AT,
         deletedAt: null,
       });
