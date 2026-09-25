@@ -21,8 +21,11 @@ import { history } from '@milkdown/plugin-history';
 import { $prose, callCommand } from '@milkdown/utils';
 import { keymap } from '@milkdown/prose/keymap';
 import { Plugin, PluginKey } from '@milkdown/prose/state';
+import type { EditorView } from '@milkdown/prose/view';
+import { SHOWN, putImages, uploadMarkers, type UploadImage } from './images';
 import { safeHref } from './safeHref';
 import { descriptionSyntax } from './syntax';
+import { DESCRIPTION_TEXT_CLASS } from './textClass';
 import './description.css';
 
 /** Where a request for a link's address is parked while it is being typed. */
@@ -80,6 +83,13 @@ export interface RichDescriptionProps {
    * editor stuck to the top of a panel.
    */
   fill?: boolean;
+  /**
+   * Where an image put into the text goes, which is what offers images at all:
+   * the button, and a paste or drop of an image file. An Item's description
+   * passes one; a panel's text has no Item to attach to, and leaves pasted and
+   * dropped files to the editor, which does nothing with them.
+   */
+  uploadImage?: UploadImage | undefined;
 }
 
 /**
@@ -107,9 +117,13 @@ export default function RichDescription({
   label = 'Description',
   toolbar = true,
   fill = false,
+  uploadImage,
 }: RichDescriptionProps) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<Editor | null>(null);
+  const imageInput = useRef<HTMLInputElement>(null);
+  /** What went wrong putting images in, said under the toolbar until the next attempt. */
+  const [imageTrouble, setImageTrouble] = useState('');
   // The toolbar is drawn before the editor is built, and every one of its
   // buttons runs a command against that editor. Without this they are live
   // controls that quietly do nothing for as long as the build takes.
@@ -125,9 +139,17 @@ export default function RichDescription({
   const askForAnAddress = useRef(() => {});
   askForAnAddress.current = () =>
     setAsking({ href: hrefUnderTheCursor(editor.current) ?? '', refused: false });
+  /** False once the editor is taken down, so an upload landing after it puts nothing anywhere. */
+  const alive = useRef(true);
+  const putIn = useRef<((view: EditorView, files: File[], at?: number) => void) | null>(null);
+  putIn.current = uploadImage
+    ? (view, files, at) =>
+        void putImages(view, files, at, uploadImage, setImageTrouble, () => !alive.current)
+    : null;
 
   useEffect(() => {
     let live = true;
+    alive.current = true;
     const root = host.current;
     if (!root) return;
 
@@ -141,7 +163,7 @@ export default function RichDescription({
             'aria-label': label,
             role: 'textbox',
             'aria-multiline': 'true',
-            class: 'description-prose',
+            class: DESCRIPTION_TEXT_CLASS,
           },
         }));
       })
@@ -194,6 +216,40 @@ export default function RichDescription({
           }),
         ),
       )
+      .use($prose(() => uploadMarkers))
+      // A file pasted or dropped into the text, where this editor takes images
+      // at all. A clipboard holding the file beside the HTML a browser copied
+      // with it gets the file and not the HTML: the HTML's `<img>` points at
+      // somewhere else's copy.
+      .use(
+        $prose(
+          () =>
+            new Plugin({
+              key: new PluginKey('cockpit-description-files'),
+              props: {
+                handlePaste: (view, event) => {
+                  const files = Array.from(event.clipboardData?.files ?? []);
+                  if (!putIn.current || files.length === 0) return false;
+                  putIn.current(view, files);
+                  return true;
+                },
+                handleDrop: (view, event, _slice, moved) => {
+                  const files = Array.from(event.dataTransfer?.files ?? []);
+                  if (!putIn.current || moved || files.length === 0) return false;
+                  let at: number | undefined;
+                  try {
+                    at = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+                  } catch {
+                    // Nowhere to measure from - jsdom has no layout - so the
+                    // cursor it is.
+                  }
+                  putIn.current(view, files, at);
+                  return true;
+                },
+              },
+            }),
+        ),
+      )
       .create()
       .then((made) => {
         if (!live) {
@@ -206,6 +262,7 @@ export default function RichDescription({
 
     return () => {
       live = false;
+      alive.current = false;
       void editor.current?.destroy();
       editor.current = null;
     };
@@ -317,7 +374,44 @@ export default function RichDescription({
               {command}
             </button>
           ))}
+          {uploadImage && (
+            <>
+              <button
+                type="button"
+                disabled={!editable || !ready}
+                title="image"
+                onClick={() => imageInput.current?.click()}
+                className="rounded px-2 py-0.5 text-xs font-medium normal-case tracking-normal text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+              >
+                image
+              </button>
+              <input
+                ref={imageInput}
+                type="file"
+                multiple
+                accept={SHOWN.join(',')}
+                aria-label="Image to put in the description"
+                className="hidden"
+                onChange={(event) => {
+                  const files = Array.from(event.target.files ?? []);
+                  event.target.value = '';
+                  editor.current?.action((ctx) => {
+                    if (files.length > 0) putIn.current?.(ctx.get(editorViewCtx), files);
+                  });
+                }}
+              />
+            </>
+          )}
         </div>
+      )}
+
+      {imageTrouble && (
+        <p
+          role="alert"
+          className="border-b border-black/10 px-2.5 py-1.5 text-xs font-normal normal-case tracking-normal text-over"
+        >
+          {imageTrouble}
+        </p>
       )}
 
       {asking && editable && (

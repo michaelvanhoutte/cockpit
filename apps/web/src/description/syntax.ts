@@ -5,8 +5,8 @@ import { gfm } from '@milkdown/preset-gfm';
  * What a description is allowed to contain: CommonMark, plus GitHub's tables,
  * strikethrough and task lists.
  *
- * **Wider than the toolbar, deliberately.** Headings, tables, images, code
- * blocks and strikethrough get no button in this issue and are parsed anyway,
+ * **Wider than the toolbar, deliberately.** Headings, tables, code blocks and
+ * strikethrough get no button and are parsed anyway,
  * because a ProseMirror schema deletes what it does not know: with a
  * toolbar-shaped schema, a table pasted out of Notion vanishes the moment the
  * Item is opened - silently, and with no undo. Measured, not assumed: the same

@@ -117,6 +117,42 @@
   border-radius: var(--radius-sm);
 }
 
+/* Where an image will land while it uploads (description/images.ts): one line,
+   never in the document itself. */
+.description-uploading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  border-radius: 999px;
+  background: var(--color-accent-tint);
+  padding: 0.1em 0.7em;
+  color: var(--color-accent-deep);
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+.description-uploading::before {
+  content: '';
+  width: 0.8em;
+  height: 0.8em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: description-uploading 0.8s linear infinite;
+}
+
+@keyframes description-uploading {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .description-uploading::before {
+    animation: none;
+  }
+}
+
 /* A table has no button and is kept anyway (see RichDescription), so it has to
    be legible when one arrives pasted. */
 .description-prose table {

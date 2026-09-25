@@ -303,7 +303,7 @@ test.describe('Item editing', () => {
     );
 
     function attachmentInput(page: Page) {
-      return form(page).locator('input[type="file"]');
+      return form(page).getByLabel('Files to attach');
     }
 
     function uploadResponse(page: Page) {
@@ -383,6 +383,102 @@ test.describe('Item editing', () => {
       await expect(form(page).getByRole('link', { name: 'huge.png' })).toHaveCount(0);
     });
 
+    /**
+     * "Embed an image inline in an item's description", issue 442. What the
+     * editor and the form do with an upload is proved without a browser in
+     * apps/web/tests/unit/description/RichDescription.test.tsx and
+     * apps/web/tests/unit/components/ItemForm.test.tsx; only here is there a
+     * drop point to land at, and a real route serving the file the `<img>`
+     * loads.
+     */
+    test('puts an image dropped between two paragraphs between them, attached, and loads it again after a reopen', async ({
+      page,
+      isMobile,
+    }) => {
+      const thought = await anItemToWriteOn(page, 'Misprinted label', isMobile);
+      await show(page, 'Source', isMobile);
+      await descriptionBox(page).fill('The label is misprinted.\n\nAsk whether the other pallets are affected.');
+      await show(page, 'Formatted', isMobile);
+
+      // Held, so the marker can be seen where the image will land.
+      let release = () => {};
+      const held = new Promise<void>((resolve) => (release = resolve));
+      await page.route('**/v1/items/*/attachments', async (route) => {
+        await held;
+        await route.continue();
+      });
+      const uploaded = uploadResponse(page);
+      await dropOnTheDescription(page, { name: 'photo.png', mimeType: 'image/png', base64: A_PNG.toString('base64') });
+
+      await expect(descriptionBox(page).getByRole('status')).toHaveText('Uploading photo.png…');
+      await expect(form(page).getByText('Attaching…')).toBeVisible();
+      release();
+      expect((await uploaded).status()).toBe(201);
+
+      const inTheText = descriptionBox(page).getByRole('img', { name: 'photo.png' });
+      await expect(inTheText).toBeVisible();
+      await expect(descriptionBox(page).getByRole('status')).toHaveCount(0);
+      await expect(form(page).getByRole('link', { name: /photo\.png/ })).toBeVisible();
+
+      await show(page, 'Source', isMobile);
+      await expect(descriptionBox(page)).toHaveValue(
+        /^The label is misprinted\.\n\n!\[photo\.png\]\(\/v1\/attachments\/[0-9a-f-]+\)\n\nAsk whether the other pallets are affected\.\n?$/,
+      );
+      await show(page, 'Formatted', isMobile);
+
+      // Anything but an image stays out of the text, and is never uploaded.
+      let attempts = 0;
+      page.on('request', (request) => {
+        if (request.method() === 'POST' && /\/v1\/items\/[^/]+\/attachments$/.test(new URL(request.url()).pathname)) {
+          attempts += 1;
+        }
+      });
+      await dropOnTheDescription(page, { name: 'notes.pdf', mimeType: 'application/pdf', base64: '' });
+      await expect(form(page).getByRole('alert')).toHaveText(
+        'Only images go in the description. Add notes.pdf under Attachments.',
+      );
+      expect(attempts).toBe(0);
+
+      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+      await expect(form(page)).toHaveCount(0);
+      await openItem(page, thought, isMobile);
+      await theEditorIsThere(page);
+      const reopened = descriptionBox(page).getByRole('img', { name: 'photo.png' });
+      await expect(reopened).toBeVisible();
+      await expect
+        .poll(() => reopened.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth))
+        .toBe(1);
+    });
+
+    /**
+     * A file dropped on the description, at the gap between its first two
+     * paragraphs. Dispatched rather than dragged: Playwright cannot drag a
+     * file in from outside the page, and the editor measures the drop from
+     * the coordinates the event carries.
+     */
+    async function dropOnTheDescription(
+      page: Page,
+      file: { name: string; mimeType: string; base64: string },
+    ): Promise<void> {
+      await descriptionBox(page).evaluate((box, { name, mimeType, base64 }) => {
+        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+        const carrying = new DataTransfer();
+        carrying.items.add(new File([bytes], name, { type: mimeType }));
+        const [first, second] = box.querySelectorAll('p');
+        const below = first!.getBoundingClientRect().bottom;
+        const above = second!.getBoundingClientRect().top;
+        const at = {
+          clientX: first!.getBoundingClientRect().left + 4,
+          clientY: (below + above) / 2,
+          dataTransfer: carrying,
+          bubbles: true,
+          cancelable: true,
+        };
+        const target = document.elementFromPoint(at.clientX, at.clientY) ?? box;
+        target.dispatchEvent(new DragEvent('dragover', at));
+        target.dispatchEvent(new DragEvent('drop', at));
+      }, file);
+    }
   });
 
   /**
