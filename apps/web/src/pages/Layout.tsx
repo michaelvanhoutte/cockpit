@@ -24,6 +24,7 @@ import { browserStore } from '../lastVisited';
 import { clampInboxWidth, readInboxWidth, writeInboxWidth } from '../inboxWidth';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import { useRoomForTheInbox } from '../roomForTheInbox';
+import { useScrollWhileDraggingAnItem } from '../dragScroll';
 
 /** The default theme in the shape a workspace carries it. */
 const DEFAULT_WORKSPACE_THEME_COLORS = {
@@ -113,6 +114,7 @@ function TheShell() {
       return pathname === '/capture' || pathname.startsWith('/capture/');
     },
   });
+  useScrollWhileDraggingAnItem();
   const roomForTheInbox = useRoomForTheInbox();
 
   /**
@@ -885,7 +887,7 @@ function TheShell() {
             they are windows over the workspace rather than addresses
             (components/ManageWindow.tsx) - so the shell no longer has to ask
             which kind of page this is. */}
-        <div className="min-w-0 flex-1 overflow-y-auto pb-[var(--edge-bottom)]">
+        <div data-drag-scroll="dashboard" className="min-w-0 flex-1 overflow-y-auto pb-[var(--edge-bottom)]">
           <Outlet />
         </div>
       </main>

@@ -384,50 +384,112 @@ test.describe('Panels', () => {
 });
 
 /**
- * F3, and it can be nowhere else: this is a claim about a page that actually
- * scrolls, and nothing in this repository makes it scroll - the browser does it
- * during its own drag-and-drop. There is no rule below this to point at, and
- * that is the point of keeping the walk: it is what would notice if the
- * behaviour the app leans on ever went away.
+ * F3, and it can be nowhere else: only a real browser scrolls. When to scroll,
+ * and which box, is apps/web/tests/unit/dragScroll.test.ts.
+ *
+ * **The drag is `page.mouse`, never `dragTo`**, which scrolls its target into
+ * view itself and so passes whether or not anything scrolled under a real
+ * hand - which is how the walk this replaces (issue 143) passed with nothing
+ * scrolling at all.
  *
  * Desktop only: the phone has no drag.
  */
 test.describe('Panels', () => {
-  test.describe('a drag near an edge scrolls what is under it', () => {
-    test('scrolls the Inbox while a row is held at its bottom edge', async ({ page, isMobile }) => {
+  test.describe('a drag reaches a place that was not on screen when it started', () => {
+    test('scrolls the dashboard while an item is held at its bottom edge, until a panel below the fold is under the pointer, and does the same for a panel dragged by its header', async ({
+      page,
+      isMobile,
+    }) => {
       test.skip(isMobile, 'there is no drag on a touchscreen');
-      await signIn(page, ADA, isMobile);
-
-      // Enough rows that the column has somewhere to scroll to. Sixteen is
-      // about twice what a 720px screen shows.
-      const first = uniqueTitle('The first of many');
-      for (let made = 0; made < 16; made += 1) {
-        await captureBox(page).fill(made === 0 ? first : uniqueTitle(`Filler ${made}`));
-        await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+      const { dashboard, panel } = await ownDashboardWithAPanel(page, isMobile);
+      // Short enough that the panels added below cannot all be on screen.
+      await page.setViewportSize({ width: 1280, height: 560 });
+      const last = uniqueTitle('Far below');
+      for (const name of [uniqueTitle('B'), uniqueTitle('C'), uniqueTitle('D'), uniqueTitle('E'), last]) {
+        await press(page.getByRole('button', { name: '+ Panel' }), isMobile);
+        await page.getByLabel('Name of the new panel').fill(name);
+        await page.getByLabel('Name of the new panel').press('Enter');
+        await expect(page.getByRole('region', { name })).toBeAttached();
       }
-      const column = page.getByRole('complementary', { name: 'Inbox' });
-      await expect
-        .poll(() => column.evaluate((box) => box.scrollHeight > box.clientHeight))
-        .toBe(true);
 
-      const row = itemRow(page, first);
+      const title = uniqueTitle('Goes far down');
+      await goToTheInbox(page, isMobile);
+      await captureBox(page).fill(title);
+      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+      await fileOnto(page, title, panel, isMobile);
+      await goToTheDashboard(page, dashboard, isMobile);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([title]);
+
+      const scroller = page.locator('[data-drag-scroll="dashboard"]');
+      const target = page.getByRole('region', { name: last });
+      const seen = () =>
+        target.evaluate((el) => {
+          const at = el.getBoundingClientRect();
+          return at.top >= 0 && at.bottom <= window.innerHeight;
+        });
+      expect(await seen(), 'the last panel was on screen before the drag').toBe(false);
+
+      const row = page.getByRole('region', { name: panel }).getByRole('listitem').first();
       const from = await row.boundingBox();
-      const over = await column.boundingBox();
-      if (!from || !over) throw new Error('the row or the column is not on screen');
-
+      const over = await scroller.boundingBox();
+      if (!from || !over) throw new Error('the row or the dashboard is not on screen');
       await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
       await page.mouse.down();
-      // Held at the bottom edge. The moves are what keep the drag reporting
-      // where it is; the scrolling itself is a frame loop, which is why this
-      // waits rather than expecting one move to have done it.
-      for (let held = 0; held < 10; held += 1) {
-        await page.mouse.move(over.x + over.width / 2, over.y + over.height - 4 + (held % 2));
+      await page.mouse.move(over.x + over.width - 30, over.y + over.height - 6, { steps: 8 });
+      // Held at the bottom edge. The moves are what keep a native drag
+      // reporting where it is; the scrolling itself is a frame loop.
+      for (let held = 0; held < 100 && !(await seen()); held += 1) {
+        await page.mouse.move(over.x + over.width - 30, over.y + over.height - 6 + (held % 2));
         await page.waitForTimeout(60);
       }
-      const scrolled = await column.evaluate((box) => box.scrollTop);
+      expect(await seen(), 'the last panel never scrolled into view').toBe(true);
+
+      const at = await target.boundingBox();
+      if (!at) throw new Error('the panel below the fold is not on screen');
+      await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2, { steps: 8 });
       await page.mouse.up();
 
-      expect(scrolled, 'the Inbox did not scroll while a row was held at its edge').toBeGreaterThan(0);
+      const question = page.getByRole('alertdialog');
+      await expect(question).toBeVisible();
+      await press(question.getByRole('button', { name: 'Add it here as well' }), isMobile);
+      await expect.poll(() => itemsOn(page, last)).toEqual([title]);
+
+      // **And a panel's header drag scrolls the dashboard too**, which the
+      // browser never does for a pointer gesture, and the arrangement drawn
+      // under the hand follows the scroll while the pointer is still. Held at
+      // the bottom until the gap under the last row is on screen, and dropped
+      // there: the panel takes a row of its own.
+      await scroller.evaluate((el) => (el.scrollTop = 0));
+      const gap = page.locator('main [data-testid="row-seam"]').last();
+      const gapInView = () =>
+        gap.evaluate((el) => {
+          const at = el.getBoundingClientRect();
+          return at.top >= 0 && at.bottom <= window.innerHeight;
+        });
+      expect(await gapInView(), 'the gap was already on screen').toBe(false);
+      const header = page.getByRole('region', { name: panel }).locator('header');
+      const box = await header.boundingBox();
+      if (!box) throw new Error('the panel’s header is not on screen');
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(over.x + over.width / 2, over.y + over.height - 6, { steps: 8 });
+      for (let held = 0; held < 200 && !(await gapInView()); held += 1) {
+        await page.mouse.move(over.x + over.width / 2, over.y + over.height - 6 + (held % 2));
+        await page.waitForTimeout(40);
+      }
+      expect(await gapInView(), 'the gap never scrolled into view').toBe(true);
+      const seam = await gap.boundingBox();
+      if (!seam) throw new Error('the gap is not on screen');
+      await page.mouse.move(seam.x + seam.width / 2, seam.y + seam.height / 2, { steps: 4 });
+      await page.mouse.up();
+      await expect
+        .poll(() =>
+          page
+            .locator('main [style*="grid-template-columns"]')
+            .last()
+            .evaluate((row) => [...row.querySelectorAll('section[aria-label]')].map((p) => p.getAttribute('aria-label'))),
+        )
+        .toEqual([panel]);
     });
   });
 });

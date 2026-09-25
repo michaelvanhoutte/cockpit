@@ -23,6 +23,7 @@ import type {
 } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
+import { scrollWhileDragging } from '../dragScroll';
 import { filingsThatFile, itemsOnPanel } from '../filing';
 import { dayOf, filtersUsingPanel, itemsMatchingFilter, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
@@ -249,6 +250,8 @@ export function PanelBoard({
    * exactly the moves this ref exists to catch.
    */
   const draggingNow = useRef<string | null>(null);
+  /** Where the pointer last was during a panel drag, for the scroll that moves the page under a still hand. */
+  const pointerAt = useRef<{ x: number; y: number } | null>(null);
   /** The control a question was opened from, so the focus can go back to it. */
   const askedFrom = useRef<HTMLElement | null>(null);
   /**
@@ -638,6 +641,7 @@ export function PanelBoard({
   const dragTo = (point: { x: number; y: number }) => {
     const inHand = draggingNow.current;
     if (!inHand) return;
+    pointerAt.current = point;
     const placement = placementFor(point, rowsOnScreen(), inHand);
     if (!placement) return;
     setDragging((held) => {
@@ -719,6 +723,27 @@ export function PanelBoard({
     // board holding a drag would be a listener swapped per pointer move.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragging]);
+
+  /**
+   * **The dashboard scrolls under a panel drag held near its edge** ("Scroll
+   * the dashboard or a panel while dragging near its edge", issue 524), and the
+   * drawing follows: a still pointer fires no move, so each scroll re-reads the
+   * arrangement at the same point over the page as it now is.
+   */
+  useEffect(() => {
+    if (!dragging) return;
+    pointerAt.current = null;
+    return scrollWhileDragging({
+      dragging: 'panel',
+      point: () => pointerAt.current,
+      afterScroll: () => {
+        if (pointerAt.current) dragTo(pointerAt.current);
+      },
+    });
+    // Once per drag: `dragTo` is rebuilt every render and reads only refs and
+    // the setter form of the drag's state, so an older one still answers right.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragging === null]);
 
   /**
    * The same two ends, for a line being dragged. Worth having for the reason

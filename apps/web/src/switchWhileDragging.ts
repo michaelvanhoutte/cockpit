@@ -2,11 +2,12 @@
  * Switching dashboards by resting a drag on one ("Scroll while dragging, and
  * switch dashboards by resting on one", issue 143).
  *
- * **The scrolling half of that issue needed no code.** Chromium scrolls the
- * container under the pointer during its own drag-and-drop, and so does every
- * browser this app targets - measured, by taking a hand-written frame loop out
- * and watching the browser walk pass unchanged. What was written first is gone;
- * what is left is the walk that proves a panel below the fold can be reached.
+ * **The scrolling half of that issue was taken out on a wrong belief, and put
+ * back as "Scroll the dashboard or a panel while dragging near its edge"
+ * (issue 524, dragScroll.ts).** It was said that the browser scrolls the
+ * container under a native drag by itself; the walk that showed it used
+ * Playwright's `dragTo`, which scrolls its target into view on its own, and a
+ * panel's header drag is a pointer gesture the browser never scrolls for.
  *
  * **The deciding is here, and pure, for the reason the swipe's is** (swipe.ts):
  * jsdom performs no drag and runs no animation frames, so a test driving drag
