@@ -819,7 +819,7 @@ describe('Item editing', () => {
 
     it('names the dashboard and panel it is filed on, and puts the list last', async () => {
       held.dashboards = [{ id: 'd1', name: 'Work' }];
-      held.panels = [{ id: 'p1', tenantId: 't', dashboardId: 'd1', name: 'Falcon', kind: 'items', format: 'plain', body: '', readOnly: false, filter: null }];
+      held.panels = [{ id: 'p1', tenantId: 't', dashboardId: 'd1', name: 'Falcon', kind: 'items', format: 'plain', body: '', readOnly: false, filter: null, sort: null }];
       held.filings = [{ panelId: 'p1', itemId: 'item-1', position: 0 }];
       const user = await theForm();
 
