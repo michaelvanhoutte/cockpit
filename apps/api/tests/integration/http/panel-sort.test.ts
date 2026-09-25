@@ -85,14 +85,7 @@ async function panelNow(panelId: string): Promise<Panel> {
 async function anItem(message: string): Promise<string> {
   const itemId = nextId();
   expect(
-    (
-      await send('capture_item', {
-        workspaceId: WORKSPACE_ID,
-        itemId,
-        message,
-        typeId: TASK_TYPE_ID,
-      })
-    ).status,
+    (await send('capture_item', { workspaceId: WORKSPACE_ID, itemId, message, typeId: TASK_TYPE_ID })).status,
   ).toBe(200);
   return itemId;
 }
@@ -194,9 +187,7 @@ describe('Panels', () => {
       { situation: 'what cannot be read at all', stored: '{not json' },
       {
         situation: 'a field this release has never heard of',
-        stored: JSON.stringify({
-          criteria: [{ field: 'weather', direction: 'asc' }],
-        }),
+        stored: JSON.stringify({ criteria: [{ field: 'weather', direction: 'asc' }] }),
       },
     ])('reads $situation as Manual, and the workspace still opens', async ({ stored }) => {
       // Written straight into the store: only a release this one is not can

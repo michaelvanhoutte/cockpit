@@ -414,10 +414,7 @@ function sentenceFor(
   panels: readonly Panel[],
 ): string {
   if (condition.field === 'priority') {
-    return `Priority is ${joinedBy(
-      condition.values.map((value) => PRIORITY_LABELS[value]),
-      'or',
-    )}`;
+    return `Priority is ${joinedBy(condition.values.map((value) => PRIORITY_LABELS[value]), 'or')}`;
   }
   if (condition.field === 'type') {
     const names = condition.values
@@ -507,12 +504,8 @@ export function shownOn(
   on: Day,
 ): string[] | null {
   if (item.completedAt) return null;
-  const ids =
-    panelAndFilterIdsByItem(items, filings, panelsInWorkspace, itemTypes, on).get(item.id) ??
-    EMPTY_IDS;
-  const filed = filingsThatFile(filings, panelsInWorkspace).some(
-    (filing) => filing.itemId === item.id,
-  );
+  const ids = panelAndFilterIdsByItem(items, filings, panelsInWorkspace, itemTypes, on).get(item.id) ?? EMPTY_IDS;
+  const filed = filingsThatFile(filings, panelsInWorkspace).some((filing) => filing.itemId === item.id);
   const places = panelsInWorkspace
     .filter((panel) => ids.has(panel.id))
     .map((panel) => {

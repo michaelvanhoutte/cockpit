@@ -384,10 +384,7 @@ export function PanelBoard({
           // that back into a command the schema then refuses.
           rows: rows.map((row) => ({
             height: row.height,
-            cells: row.cells.map((cell) => ({
-              panelId: cell.panelId,
-              span: cell.span,
-            })),
+            cells: row.cells.map((cell) => ({ panelId: cell.panelId, span: cell.span })),
           })),
         },
       },
@@ -570,8 +567,7 @@ export function PanelBoard({
       // number it happens to be drawn at, which looks identical and is a size
       // somebody now has to undo. The divider says the same thing about a move
       // of no whole columns.
-      held.latest =
-        moved === 0 ? held.from : withRowHeight(held.from, held.rowIndex, held.startHeight + moved);
+      held.latest = moved === 0 ? held.from : withRowHeight(held.from, held.rowIndex, held.startHeight + moved);
     } else {
       // A twelfth of the row is what one column measures, so the gesture lands
       // on the grid the spans are counted in rather than on the pixel - which
@@ -1267,6 +1263,7 @@ export function PanelBoard({
       {beingMoved && (
         <MovePanelToDashboardPicker
           open
+
           panelName={beingMoved.name}
           dashboards={otherDashboards}
           refusal={refusalFor('move_panel_to_dashboard', beingMoved.id)}

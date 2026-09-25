@@ -234,7 +234,8 @@ export function PanelCard({
                         // choosing it gives you, like the entry above it.
                         label: panel.format === 'rich' ? 'Use plain text' : 'Use rich text',
                         keepsFocus: true,
-                        onSelect: () => onFormatChange(panel.format === 'rich' ? 'plain' : 'rich'),
+                        onSelect: () =>
+                          onFormatChange(panel.format === 'rich' ? 'plain' : 'rich'),
                       },
                     ]
                   : []),
@@ -595,5 +596,6 @@ export function PanelCard({
         )}
       </div>
     </section>
+
   );
 }

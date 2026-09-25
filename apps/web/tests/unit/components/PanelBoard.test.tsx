@@ -1821,21 +1821,35 @@ describe('Panels', () => {
       ]);
     });
 
-    it('is offered on a panel of items alone, never on a panel of text or a Filter', async () => {
+    it('marks a Filter that has a sort of its own, and none that goes by the order nobody changed', async () => {
+      showBoard({
+        panels: [
+          { ...aFilter('due', 'Due soon'), sort: BY_TITLE },
+          aFilter('other', 'Other filter'),
+        ],
+      });
+
+      const sorted = await screen.findByRole('region', { name: 'Due soon' });
+      expect(within(sorted).getByRole('img', { name: 'Sorted: Title ascending' })).toBeVisible();
+      const unsorted = screen.getByRole('region', { name: 'Other filter' });
+      expect(within(unsorted).queryByRole('img', { name: /Sorted/ })).toBeNull();
+    });
+
+    it('is offered on a panel of items and a Filter, never on a panel of text', async () => {
       showBoard({
         panels: [aPanel('falcon', 'Project Falcon'), aPanelOfText('words', 'Words'), aFilter('due', 'Due soon')],
       });
 
-      openMenu('Project Falcon');
-      expect(await screen.findByRole('menuitem', { name: 'Sort…' })).toBeVisible();
-      fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
-
-      for (const other of ['Words', 'Due soon']) {
-        openMenu(other);
-        await screen.findByRole('menuitem', { name: 'Rename' });
-        expect(screen.queryByRole('menuitem', { name: 'Sort…' })).toBeNull();
+      for (const sortable of ['Project Falcon', 'Due soon']) {
+        openMenu(sortable);
+        expect(await screen.findByRole('menuitem', { name: 'Sort…' })).toBeVisible();
         fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
       }
+
+      openMenu('Words');
+      await screen.findByRole('menuitem', { name: 'Rename' });
+      expect(screen.queryByRole('menuitem', { name: 'Sort…' })).toBeNull();
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
     });
   });
 
@@ -1874,6 +1888,24 @@ describe('Panels', () => {
       expect(await screen.findByRole('radio', { name: 'Sorted' })).toBeChecked();
       expect(screen.getByRole('radiogroup', { name: 'Due date direction' })).toBeVisible();
       expect(within(screen.getByRole('radiogroup', { name: 'Priority direction' })).getByRole('radio', { name: 'Descending' })).toBeChecked();
+    });
+
+    it('asks a Filter without the Manual switch, opens on what it goes by, and never removes the last row', async () => {
+      const { user, mutate } = showBoard({ panels: [aFilter('due', 'Due soon')] });
+
+      await choose(user, 'Due soon', 'Sort…');
+
+      expect(await screen.findByRole('radiogroup', { name: 'Due date direction' })).toBeVisible();
+      expect(screen.queryByRole('radiogroup', { name: MODE })).toBeNull();
+      expect(within(screen.getByRole('radiogroup', { name: 'Due date direction' })).getByRole('radio', { name: 'Ascending' })).toBeChecked();
+      expect(within(screen.getByRole('radiogroup', { name: 'Priority direction' })).getByRole('radio', { name: 'Descending' })).toBeChecked();
+      expect(within(screen.getByRole('radiogroup', { name: 'Created direction' })).getByRole('radio', { name: 'Ascending' })).toBeChecked();
+
+      await user.click(screen.getByRole('button', { name: 'Remove Priority' }));
+      await user.click(screen.getByRole('button', { name: 'Remove Created' }));
+      expect(screen.queryByRole('button', { name: /^Remove/ })).toBeNull();
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+      expect(sentSort(mutate)).toEqual([{ field: 'dueDate', direction: 'asc' }]);
     });
 
     it('offers each field once, starts Priority on Descending and every other on Ascending, and says what each direction means', async () => {
