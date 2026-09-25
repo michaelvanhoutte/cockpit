@@ -68,9 +68,11 @@ export interface DescriptionBoxProps {
    * `view` and `failed`, which have nothing to do with which text is showing.
    */
   resetKey?: string | number;
+  /** Where an image put into the formatted view is uploaded (`RichDescription`). */
+  uploadImage?: (file: File) => Promise<string>;
 }
 
-export function DescriptionBox({ value, onChange, editable, resetKey }: DescriptionBoxProps) {
+export function DescriptionBox({ value, onChange, editable, resetKey, uploadImage }: DescriptionBoxProps) {
   const [view, setView] = useState<View>('formatted');
   const [failed, setFailed] = useState(false);
   /**
@@ -145,6 +147,7 @@ export function DescriptionBox({ value, onChange, editable, resetKey }: Descript
                 initial={value}
                 onChange={onChange}
                 editable={editable}
+                uploadImage={uploadImage}
                 fill
               />
             </Suspense>

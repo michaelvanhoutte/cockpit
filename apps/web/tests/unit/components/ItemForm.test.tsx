@@ -12,7 +12,7 @@ import type {
   PossibleDuplicate,
   WorkspaceSnapshot,
 } from '@cockpit/shared';
-import { attachmentUrl, uploadAttachment } from '../../../src/api/client';
+import { CommandRefused, attachmentUrl, uploadAttachment } from '../../../src/api/client';
 import { DUE_DATE_SETTLES_MS, ItemForm, whatChanged } from '../../../src/components/ItemForm';
 import { dueComingFriday, dueSevenDaysOut, dueToday } from '../../../src/dueDateShortcuts';
 import { THE_BAR_LASTS_MS, UndoWhatJustHappened } from '../../../src/undo';
@@ -80,22 +80,53 @@ function FakeRichDescription({
   initial,
   onChange,
   editable,
+  uploadImage,
 }: {
   initial: string;
   onChange: (markdown: string) => void;
   editable: boolean;
+  uploadImage?: (file: File) => Promise<string>;
 }) {
   const [value, setValue] = useState(initial);
+  const [trouble, setTrouble] = useState('');
   return (
-    <textarea
-      aria-label="Description"
-      disabled={!editable}
-      value={value}
-      onChange={(event) => {
-        setValue(event.target.value);
-        onChange(event.target.value);
-      }}
-    />
+    <>
+      {/* An image put in, landing at the end of the text once it uploads,
+          or saying why not - what the real editor does with the form's
+          upload, in tests/unit/description/RichDescription.test.tsx. Ahead
+          of the text, where the real toolbar is, so Tab out of the text
+          still leaves the description. */}
+      {uploadImage && (
+        <input
+          type="file"
+          aria-label="Image to put in the description"
+          onChange={(event) => {
+            const file = event.target.files![0]!;
+            void uploadImage(file).then(
+              (src) => {
+                const next = `${value}![${file.name}](${src})`;
+                setValue(next);
+                onChange(next);
+              },
+              (failure: Error) => setTrouble(failure.message),
+            );
+          }}
+        />
+      )}
+      {trouble && <p>{trouble}</p>}
+      <textarea
+        aria-label="Description"
+        // The real editor's text carries this class, which is how the form
+        // tells a drop into the text from one anywhere else.
+        className="description-prose"
+        disabled={!editable}
+        value={value}
+        onChange={(event) => {
+          setValue(event.target.value);
+          onChange(event.target.value);
+        }}
+      />
+    </>
   );
 }
 
@@ -210,6 +241,29 @@ async function theForm(
  */
 async function theEditorHasArrived() {
   await waitFor(() => expect(screen.getByLabelText('Description')).not.toHaveAttribute('readonly'));
+}
+
+const imageInput = () => screen.getByLabelText('Image to put in the description');
+const aPhoto = () => new File(['bytes'], 'photo.png', { type: 'image/png' });
+/** Matches that file by name, since two `File`s compare equal whatever they hold. */
+const aPhotoFile = expect.objectContaining({ name: 'photo.png' });
+
+/** An upload held in flight until the test lands it, answering the attachment id it was sent with. */
+function heldUpload() {
+  let land = () => {};
+  vi.mocked(uploadAttachment).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        land = () => resolve({ ok: true as const, applied: true });
+      }),
+  );
+  return {
+    land: () =>
+      act(async () => {
+        land();
+      }),
+    attachmentId: () => vi.mocked(uploadAttachment).mock.calls[0]![0].attachmentId,
+  };
 }
 
 const titleBox = () => screen.getByLabelText('Title');
@@ -1235,7 +1289,7 @@ describe('Item editing', () => {
      */
     it('keeps the refusal visible when another file in the same drop succeeds', async () => {
       const user = await theForm(anItem({ id: 'item-1' }));
-      const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+      const input = screen.getByLabelText('Files to attach');
       const rejected = new File(['just words'], 'notes.txt', { type: 'text/plain' });
       const accepted = new File(['bytes'], 'receipt.png', { type: 'image/png' });
 
@@ -1248,6 +1302,152 @@ describe('Item editing', () => {
         '"notes.txt" is not a kind of file Cockpit accepts.',
       );
       expect(uploadAttachment).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * "Embed an image inline in an item's description", issue 442: the form's
+   * half - where an image is attached, what is said when it is not, and a
+   * file dropped or pasted anywhere else on the form. Where it lands in the
+   * text is the editor's, in tests/unit/description/RichDescription.test.tsx.
+   */
+  describe('an image in the description is an attachment of the item', () => {
+    it('is attached to this item, listed as attaching while it uploads, and put in the text at its address', async () => {
+      const upload = heldUpload();
+      const user = await theForm(anItem({ id: 'item-1' }));
+
+      await user.upload(imageInput(), aPhoto());
+
+      expect(screen.getByText('Attaching…')).toBeVisible();
+      expect(uploadAttachment).toHaveBeenCalledWith(
+        expect.objectContaining({ itemId: 'item-1', workspaceId: 'ws-work', file: aPhotoFile }),
+      );
+      await upload.land();
+      await waitFor(() =>
+        expect(descriptionBox()).toHaveValue(`![photo.png](${attachmentUrl(upload.attachmentId())})`),
+      );
+      expect(screen.queryByText('Attaching…')).toBeNull();
+    });
+
+    it.each([
+      {
+        situation: 'the server refuses it',
+        failure: new CommandRefused(413, 'That file is too large to attach.'),
+        said: 'That file is too large to attach.',
+      },
+      {
+        situation: 'the connection drops',
+        failure: new TypeError('Failed to fetch'),
+        said: 'photo.png could not be uploaded - the connection dropped.',
+      },
+    ])('says why when $situation, and puts nothing in the text', async ({ failure, said }) => {
+      vi.mocked(uploadAttachment).mockRejectedValue(failure);
+      const user = await theForm(anItem());
+
+      await user.upload(imageInput(), aPhoto());
+
+      expect(await screen.findByText(said)).toBeVisible();
+      expect(descriptionBox()).toHaveValue('');
+      expect(screen.queryByText('Attaching…')).toBeNull();
+    });
+  });
+
+  describe('a file dropped or pasted on the form outside the description text is attached', () => {
+    it.each([
+      { situation: 'the title', target: () => titleBox() },
+      { situation: 'empty space on the form', target: () => screen.getByRole('dialog') },
+    ])('attaches one dropped on $situation, highlighting the form while it is dragged over', async ({ target }) => {
+      await theForm(anItem({ id: 'item-1' }));
+      const carrying = { dataTransfer: { types: ['Files'], files: [aPhoto()] } };
+
+      fireEvent.dragOver(target(), carrying);
+      expect(screen.getByRole('dialog')).toHaveClass('ring-accent');
+      fireEvent.drop(target(), carrying);
+
+      expect(screen.getByRole('dialog')).not.toHaveClass('ring-accent');
+      await waitFor(() =>
+        expect(uploadAttachment).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1', file: aPhotoFile })),
+      );
+    });
+
+    it.each([
+      { situation: 'the title', target: () => titleBox(), attached: 1 },
+      { situation: 'empty space on the form', target: () => screen.getByRole('dialog'), attached: 1 },
+      { situation: 'the description text', target: () => descriptionBox(), attached: 0 },
+    ])('never leaves a drop on $situation to the browser, which would open the file', async ({ target, attached }) => {
+      await theForm(anItem());
+      const carrying = { dataTransfer: { types: ['Files'], files: [aPhoto()] } };
+
+      const leftToTheBrowser = fireEvent.drop(target(), carrying);
+
+      expect(leftToTheBrowser).toBe(false);
+      await waitFor(() => expect(uploadAttachment).toHaveBeenCalledTimes(attached));
+    });
+
+    it.each([
+      { situation: 'in no text box', target: () => screen.getByRole('tab', { name: 'Item' }), attached: 1 },
+      { situation: 'in the title', target: () => titleBox(), attached: 0 },
+    ])('attaches a file pasted with the cursor $situation, and only then', async ({ target, attached }) => {
+      await theForm(anItem());
+
+      fireEvent.paste(target(), { clipboardData: { files: [aPhoto()], types: ['Files'], getData: () => '' } });
+
+      await waitFor(() => expect(uploadAttachment).toHaveBeenCalledTimes(attached));
+    });
+  });
+
+  describe('an image that finishes uploading after you have moved on is still handled', () => {
+    it('writes the description, docked, when the image lands after the cursor has left it', async () => {
+      held.itemFormPresentation = 'docked';
+      const upload = heldUpload();
+      const user = await theForm(anItem());
+
+      await user.upload(imageInput(), aPhoto());
+      await user.click(titleBox());
+      expect(sent()).toEqual([]);
+      await upload.land();
+
+      await waitFor(() =>
+        expect(sent()).toContainEqual(
+          expect.objectContaining({
+            name: 'set_description',
+            payload: expect.objectContaining({
+              itemId: 'item-1',
+              description: `![photo.png](${attachmentUrl(upload.attachmentId())})`,
+            }),
+          }),
+        ),
+      );
+    });
+
+    // Docked, because that is where a description is written without a Save.
+    it.each([
+      { situation: 'closed', after: () => (held.openItemId = undefined) },
+      { situation: 'switched to another item', after: () => (held.openItemId = 'item-2') },
+    ])('attaches it to the original item and changes neither description when the form is $situation', async ({
+      after,
+    }) => {
+      held.itemFormPresentation = 'docked';
+      held.items = [anItem(), anItem({ id: 'item-2', title: 'Part 12' })];
+      const upload = heldUpload();
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const shell = () => (
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(shell());
+      await screen.findByLabelText('Title');
+      await theEditorHasArrived();
+      await userEvent.setup().upload(imageInput(), aPhoto());
+
+      after();
+      rerender(shell());
+      await upload.land();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(uploadAttachment).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'item-1' }));
+      expect(sent().filter((change) => change.name === 'set_description')).toEqual([]);
     });
   });
 

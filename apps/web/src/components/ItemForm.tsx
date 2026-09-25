@@ -5,6 +5,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -26,7 +27,7 @@ import {
   type ItemFormPresentation,
   type Priority,
 } from '@cockpit/shared';
-import { attachmentUrl, uploadAttachment } from '../api/client';
+import { CommandRefused, attachmentUrl, uploadAttachment } from '../api/client';
 import { snapshotQuery, useSendCommand, type CommandArgs } from '../api/queries';
 import { DescriptionBox } from './DescriptionBox';
 import { possibleDuplicatesOf } from '../duplicates';
@@ -92,6 +93,16 @@ function formatFileSize(bytes: number): string {
     unit += 1;
   }
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+}
+
+/** Whether a paste landing here is a text box's to handle rather than the form's. */
+function isATextBox(target: EventTarget | null): boolean {
+  if (target instanceof HTMLTextAreaElement) return true;
+  if (target instanceof HTMLInputElement) {
+    return !['button', 'checkbox', 'file', 'radio', 'reset', 'submit'].includes(target.type);
+  }
+  // Not `isContentEditable`, which jsdom leaves undefined.
+  return target instanceof Element && target.closest('[contenteditable]:not([contenteditable="false"])') !== null;
 }
 
 /** A file chosen or dropped, still uploading - drawn as its own chip until it either lands or is refused. */
@@ -418,7 +429,8 @@ function TheForm({
    */
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
-  const [attachmentsDragOver, setAttachmentsDragOver] = useState(false);
+  /** A file being dragged over the form anywhere a drop would attach it. */
+  const [filesOver, setFilesOver] = useState(false);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const attachFiles = async (files: Iterable<File>) => {
     // Checked whole, before anything uploads - a rejection two files back
@@ -480,6 +492,52 @@ function TheForm({
       setAttachmentError(failure instanceof Error ? failure.message : 'That could not be removed');
     }
   };
+
+  /**
+   * An image put into the description, attached to this Item like any other
+   * file and answered with the address the text points at ("Embed an image
+   * inline in an item's description", issue 442). Listed as "Attaching…"
+   * while it uploads. Rejects with what to say under the editor's toolbar:
+   * the server's own words for a refusal, and the file's name where the
+   * request never got an answer.
+   */
+  const uploadImage = async (file: File): Promise<string> => {
+    const attachmentId = uuidv7();
+    setPendingAttachments((was) => [...was, { id: attachmentId, filename: file.name }]);
+    try {
+      await uploadAttachment({ itemId, workspaceId, attachmentId, commandId: uuidv7(), file });
+    } catch (failure) {
+      throw new Error(
+        failure instanceof CommandRefused
+          ? failure.message
+          : `${file.name} could not be uploaded - the connection dropped.`,
+      );
+    } finally {
+      setPendingAttachments((was) => was.filter((pending) => pending.id !== attachmentId));
+    }
+    void queryClient.invalidateQueries({ queryKey: ['snapshot', workspaceId] });
+    return attachmentUrl(attachmentId);
+  };
+
+  /**
+   * Whether this form is still the one on screen. An image that finishes
+   * uploading after it has closed, or been swapped for another Item's, is
+   * attached to the Item it was put into and changes no description: that
+   * text is no longer anybody's.
+   */
+  const onScreen = useRef(true);
+  useEffect(() => {
+    onScreen.current = true;
+    return () => {
+      onScreen.current = false;
+    };
+  }, []);
+  const descriptionCell = useRef<HTMLDivElement | null>(null);
+
+  /** A file pasted into the form or dropped on it, outside the description text, is attached. */
+  const takesFiles = (event: ReactDragEvent) => event.dataTransfer.types.includes('Files');
+  const inTheDescriptionText = (target: EventTarget | null) =>
+    target instanceof Element && target.closest('.description-prose') !== null;
 
   // A callback ref rather than an object one: Radix's `Content` mounts behind
   // its own exit-animation machinery (`Presence`), so the node an object ref
@@ -1165,6 +1223,33 @@ function TheForm({
             // does not already cover on its own.
             if (docked) event.preventDefault();
           }}
+          // Files dragged anywhere over the form are the form's, never left to
+          // the browser - which would open the file in Cockpit's place. Outside
+          // the description text a drop attaches them; inside it, the editor
+          // has already put an image in or said why not.
+          onDragOver={(event) => {
+            if (!takesFiles(event)) return;
+            event.preventDefault();
+            setFilesOver(!saving && !inTheDescriptionText(event.target));
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFilesOver(false);
+          }}
+          onDrop={(event) => {
+            if (!takesFiles(event)) return;
+            event.preventDefault();
+            setFilesOver(false);
+            if (saving || !item || inTheDescriptionText(event.target)) return;
+            if (event.dataTransfer.files.length > 0) void attachFiles(Array.from(event.dataTransfer.files));
+          }}
+          // Pasted with the cursor in no text box, a file is attached; in one,
+          // the paste is that box's.
+          onPaste={(event) => {
+            const files = Array.from(event.clipboardData.files);
+            if (files.length === 0 || saving || !item || isATextBox(event.target)) return;
+            event.preventDefault();
+            void attachFiles(files);
+          }}
           onEscapeKeyDown={(event) => {
             // Radix's own Escape handling runs in the capture phase, ahead
             // of the drag effect's own `keydown` listener below - so without
@@ -1222,11 +1307,11 @@ function TheForm({
           // issue this presentation shipped in: "everything else about the
           // docked presentation matches today's form exactly" - only the
           // positioning, the sizing and the modality below it are its own.
-          className={
+          className={`${
             docked
               ? '@container fixed right-0 top-0 flex h-full flex-col overflow-hidden rounded-l-lg border border-black/10 bg-surface p-5 shadow-lg'
               : '@container fixed left-1/2 top-1/2 flex h-[var(--item-form-h)] max-h-[var(--item-form-max-h)] min-h-[min(18rem,var(--item-form-max-h))] w-[var(--item-form-w)] max-w-[var(--item-form-max-w)] min-w-[min(20rem,var(--item-form-max-w))] -translate-x-1/2 -translate-y-1/2 flex-col resize-none overflow-hidden rounded-lg border border-black/10 bg-surface p-5 shadow-lg sm:resize'
-          }
+          }${filesOver ? ' ring-2 ring-accent' : ''}`}
           style={
             docked
               ? { width: `${dockedWidthPx}px` }
@@ -1633,6 +1718,7 @@ function TheForm({
                         Fills whatever height the form has, rather than shrinking
                         to fit only what it holds (issue 480). */}
                       <div
+                        ref={descriptionCell}
                         className="flex min-h-0 flex-col @lg:col-start-2 @lg:row-span-2 @lg:row-start-1"
                         // Left for something outside the description - the Source
                         // toggle and the editor trade the cursor between them
@@ -1646,7 +1732,17 @@ function TheForm({
                         <DescriptionBox
                           resetKey={readingPicked}
                           value={draft.description}
-                          onChange={(description) => setDraft({ ...draft, description })}
+                          onChange={(description) => {
+                            if (!onScreen.current) return;
+                            setDraft({ ...draft, description });
+                            // Nothing but an image landing changes the text
+                            // with the cursor elsewhere. Docked, that is
+                            // written as leaving the description would have.
+                            if (docked && !descriptionCell.current?.contains(document.activeElement)) {
+                              void commitFields(['description']);
+                            }
+                          }}
+                          uploadImage={uploadImage}
                           editable={!saving}
                         />
                       </div>
@@ -1659,30 +1755,12 @@ function TheForm({
                         <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
                           Attachments
                         </p>
+                        {/* Dropped on, a file is attached by the form's own
+                            drop, which takes one anywhere outside the
+                            description text (issue 442). */}
                         <div
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            if (!saving) setAttachmentsDragOver(true);
-                          }}
-                          // `dragleave` fires on every child boundary crossed, not
-                          // only on truly leaving the drop zone - checked against
-                          // where the pointer actually went, so passing over a
-                          // chip or the Add button mid-drag does not flicker the
-                          // highlight off.
-                          onDragLeave={(e) => {
-                            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-                              setAttachmentsDragOver(false);
-                            }
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            setAttachmentsDragOver(false);
-                            if (!saving && e.dataTransfer.files.length > 0) {
-                              void attachFiles(e.dataTransfer.files);
-                            }
-                          }}
                           className={`mt-1 flex flex-col gap-1.5 rounded-md border border-dashed px-3 py-2 ${
-                            attachmentsDragOver ? 'border-accent bg-accent-tint' : 'border-black/10'
+                            filesOver ? 'border-accent bg-accent-tint' : 'border-black/10'
                           }`}
                         >
                           {attachments.map((attachment) => (
@@ -1753,6 +1831,7 @@ function TheForm({
                             ref={attachmentInputRef}
                             type="file"
                             multiple
+                            aria-label="Files to attach"
                             className="hidden"
                             onChange={(e) => {
                               if (e.target.files && e.target.files.length > 0) {
