@@ -875,8 +875,8 @@ describe('Panels', () => {
 
         expect(screen.queryByRole('menuitem', { name: new RegExp(`^${gone}`) })).toBeNull();
         // And the count, so they cannot come back under other words: rename,
-        // move to another dashboard, delete.
-        expect(screen.getAllByRole('menuitem')).toHaveLength(3);
+        // sort, move to another dashboard, delete.
+        expect(screen.getAllByRole('menuitem')).toHaveLength(4);
       },
     );
   });
