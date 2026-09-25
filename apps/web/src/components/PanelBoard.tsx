@@ -28,7 +28,7 @@ import { scrollWhileDragging } from '../dragScroll';
 import { filingsThatFile, itemsOnPanel } from '../filing';
 import { dayOf, filtersUsingPanel, itemsMatchingFilter, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
-import { inSortOrder, sortOf } from '../sorting';
+import { DEFAULT_FILTER_SORT, inSortOrder, sortOf } from '../sorting';
 import { useChosenLayout } from '../panels/chosenLayout';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import {
@@ -384,7 +384,10 @@ export function PanelBoard({
           // that back into a command the schema then refuses.
           rows: rows.map((row) => ({
             height: row.height,
-            cells: row.cells.map((cell) => ({ panelId: cell.panelId, span: cell.span })),
+            cells: row.cells.map((cell) => ({
+              panelId: cell.panelId,
+              span: cell.span,
+            })),
           })),
         },
       },
@@ -567,7 +570,8 @@ export function PanelBoard({
       // number it happens to be drawn at, which looks identical and is a size
       // somebody now has to undo. The divider says the same thing about a move
       // of no whole columns.
-      held.latest = moved === 0 ? held.from : withRowHeight(held.from, held.rowIndex, held.startHeight + moved);
+      held.latest =
+        moved === 0 ? held.from : withRowHeight(held.from, held.rowIndex, held.startHeight + moved);
     } else {
       // A twelfth of the row is what one column measures, so the gesture lands
       // on the grid the spans are counted in rather than on the pixel - which
@@ -1070,8 +1074,13 @@ export function PanelBoard({
                                   itemTypes,
                                   panel.filter ?? NO_CONDITIONS,
                                   today,
+                                  sortOf(panel) ?? DEFAULT_FILTER_SORT,
                                 )
-                              : inSortOrder(itemsOnPanel(items, filings, panel.id), sortOf(panel), itemTypes)
+                              : inSortOrder(
+                                  itemsOnPanel(items, filings, panel.id),
+                                  sortOf(panel),
+                                  itemTypes,
+                                )
                           }
                           itemTypes={itemTypes}
                           panelsInWorkspace={panelsInWorkspace}
@@ -1213,7 +1222,14 @@ export function PanelBoard({
               key={beingSorted.id}
               open
               panelName={beingSorted.name}
-              sort={sortOf(beingSorted)}
+              // A Filter nobody has sorted opens on what it goes by, and has no
+              // Manual to go back to.
+              sort={
+                panelGathers(beingSorted)
+                  ? (sortOf(beingSorted) ?? DEFAULT_FILTER_SORT)
+                  : sortOf(beingSorted)
+              }
+              canBeManual={!panelGathers(beingSorted)}
               onSave={(sort) => setSort(beingSorted.id, sort)}
               onCancel={() => {
                 setSorting(null);
@@ -1263,7 +1279,6 @@ export function PanelBoard({
           onPick={(dashboardId) => movePanelToDashboard(beingMoved.id, dashboardId)}
         />
       )}
-
     </div>
   );
 }
@@ -1290,7 +1305,10 @@ function deletePanelQuestion(panel: Panel, panelsInWorkspace: readonly Panel[]):
   const affected = filtersUsingPanel(panel.id, panelsInWorkspace);
   if (affected.length === 0) return `Delete ${panel.name}? ${goesWith}`;
   const uses = affected.length === 1 ? 'uses' : 'use';
-  const names = joinedBy(affected.map((one) => one.filter.name), 'and');
+  const names = joinedBy(
+    affected.map((one) => one.filter.name),
+    'and',
+  );
   const emptied = affected.filter((one) => one.leftEmpty).map((one) => one.filter.name);
   const emptyClause =
     emptied.length > 0 ? ` ${joinedBy(emptied, 'and')} will then show nothing.` : '';

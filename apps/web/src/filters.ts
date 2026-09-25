@@ -7,11 +7,13 @@ import type {
   Item,
   ItemType,
   PanelFilter,
+  PanelSort,
   Panel,
 } from '@cockpit/shared';
 import { NO_CONDITIONS, panelGathers, panelTakesItems } from '@cockpit/shared';
 import { filingsThatFile, itemsThatAreFiled } from './filing';
 import { PRIORITY_LABELS } from './priority';
+import { DEFAULT_FILTER_SORT, inSortOrder } from './sorting';
 
 /**
  * What a Filter shows, worked out here rather than asked for ("Add a Filter
@@ -164,44 +166,27 @@ function holdsFor(
   return due >= span.from && due <= span.to;
 }
 
-/** The priorities in the order a Filter reads them, highest first. */
-const BY_PRIORITY = { high: 0, normal: 1, low: 2 };
-
 /**
- * A Filter's rows, in the order it draws them.
+ * A Filter's rows, in the order they are drawn: by its sort, then oldest first
+ * wherever that leaves two tied ("Choose how a Filter's rows are sorted", issue
+ * 527).
  *
- * Its own function because it is its own rule. A Filter with only a Priority
- * or a Type condition mixes dated and undated Items freely - unlike a Due
- * date condition, neither says anything about whether an Item has one - which
- * is exactly what *no due date last* already handles rather than assumes
- * away.
+ * Its own function because a Filter's last tie-break is its own rule: a sorted
+ * Panel ends on the order you set, and a Filter has none. Adding Created
+ * ascending where the sort does not name it is that rule, and changes nothing
+ * where it does. An Item with no value for a criterion goes last in either
+ * direction, which is what lets a Filter with only a Priority or a Type
+ * condition mix dated and undated Items freely.
  */
-export function inFilterOrder(items: readonly Item[]): Item[] {
-  return items.slice().sort(sortsBefore);
-}
-
-/**
- * Where an Item sorts on a Filter: by due date, then by priority, then oldest
- * first - and anything with no due date last, whatever else it has.
- *
- * **No due date goes last rather than first**, though an undated Item may well
- * be old: a Filter is read top-down for what is closest, and a row that cannot
- * say when it is wanted has nothing to be at the top of the list about.
- */
-function sortsBefore(one: Item, other: Item): number {
-  const dueOne = one.dueDate ?? null;
-  const dueOther = other.dueDate ?? null;
-  if (dueOne !== dueOther) {
-    if (dueOne === null) return 1;
-    if (dueOther === null) return -1;
-    return dueOne < dueOther ? -1 : 1;
-  }
-  // An Item with no priority sorts after every Item that has one, for the
-  // reason an undated one sorts after every dated one.
-  const priorityOne = one.priority ? BY_PRIORITY[one.priority] : 3;
-  const priorityOther = other.priority ? BY_PRIORITY[other.priority] : 3;
-  if (priorityOne !== priorityOther) return priorityOne - priorityOther;
-  return one.createdAt < other.createdAt ? -1 : one.createdAt > other.createdAt ? 1 : 0;
+export function inFilterOrder(
+  items: readonly Item[],
+  sort: PanelSort,
+  itemTypes: readonly ItemType[],
+): Item[] {
+  const withTheTie = sort.some((criterion) => criterion.field === 'createdAt')
+    ? sort
+    : [...sort, { field: 'createdAt' as const, direction: 'asc' as const }];
+  return inSortOrder(items, withTheTie, itemTypes);
 }
 
 /**
@@ -230,6 +215,8 @@ export function itemsMatchingFilter(
   itemTypes: readonly ItemType[],
   filter: PanelFilter,
   on: Day,
+  /** How the Filter is sorted, which a Filter nobody has sorted answers with `DEFAULT_FILTER_SORT`. */
+  sort: PanelSort = DEFAULT_FILTER_SORT,
 ): Item[] {
   if (filter.conditions.length === 0) return [];
   const liveTypeIds = new Set(itemTypes.map((type) => type.id));
@@ -252,6 +239,8 @@ export function itemsMatchingFilter(
         ),
       ),
     ),
+    sort,
+    itemTypes,
   );
 }
 
@@ -425,7 +414,10 @@ function sentenceFor(
   panels: readonly Panel[],
 ): string {
   if (condition.field === 'priority') {
-    return `Priority is ${joinedBy(condition.values.map((value) => PRIORITY_LABELS[value]), 'or')}`;
+    return `Priority is ${joinedBy(
+      condition.values.map((value) => PRIORITY_LABELS[value]),
+      'or',
+    )}`;
   }
   if (condition.field === 'type') {
     const names = condition.values
@@ -515,8 +507,12 @@ export function shownOn(
   on: Day,
 ): string[] | null {
   if (item.completedAt) return null;
-  const ids = panelAndFilterIdsByItem(items, filings, panelsInWorkspace, itemTypes, on).get(item.id) ?? EMPTY_IDS;
-  const filed = filingsThatFile(filings, panelsInWorkspace).some((filing) => filing.itemId === item.id);
+  const ids =
+    panelAndFilterIdsByItem(items, filings, panelsInWorkspace, itemTypes, on).get(item.id) ??
+    EMPTY_IDS;
+  const filed = filingsThatFile(filings, panelsInWorkspace).some(
+    (filing) => filing.itemId === item.id,
+  );
   const places = panelsInWorkspace
     .filter((panel) => ids.has(panel.id))
     .map((panel) => {

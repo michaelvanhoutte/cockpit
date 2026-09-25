@@ -98,11 +98,7 @@ import {
   workspaceFromCommand,
   workspaceNamed,
 } from '../domain/workspaces.js';
-import {
-  itemTypeFromCommand,
-  itemTypeNamed,
-  ordersTypesExactly,
-} from '../domain/item-types.js';
+import { itemTypeFromCommand, itemTypeNamed, ordersTypesExactly } from '../domain/item-types.js';
 import { defaultScreenSizeId, screenSizeNamed } from '../domain/screen-sizes.js';
 import { decisionHistoryEntryFor } from '../domain/decision-history.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
@@ -476,19 +472,22 @@ function refuseUnlessAFilter(panel: { name: string; kind: PanelKind }) {
 }
 
 /**
- * Refuses a panel that is not a panel of items where its sort is being set
- * ("Sort a panel of items by the fields you choose", issue 526) - a panel of
- * text has no rows, and a Filter's order is its own question ("Choose how a
- * Filter's rows are sorted", issue 527). The fourth of the same family, for the
- * same reason.
+ * Refuses a sort for a panel with no rows to sort, and Manual for a Filter
+ * ("Sort a panel of items by the fields you choose", issue 526; "Choose how a
+ * Filter's rows are sorted", issue 527). A panel of text has no rows; a
+ * Filter's rows are gathered rather than filed, so it has no order of its own
+ * to go back to. The fourth of the same family, for the same reason.
  */
-function refuseUnlessPanelOfItems(panel: { name: string; kind: PanelKind }) {
-  if (!panelTakesItems(panel)) {
-    throw new PanelHoldsSomethingElseError(
-      panelGathers(panel)
-        ? `${panel.name} is a filter, which is not sorted this way`
-        : `${panel.name} holds text, so it has no rows to sort`,
-    );
+function refuseUnlessSortable(
+  panel: { name: string; kind: PanelKind },
+  sort: readonly unknown[] | null,
+) {
+  if (panelTakesItems(panel)) return;
+  if (!panelGathers(panel)) {
+    throw new PanelHoldsSomethingElseError(`${panel.name} holds text, so it has no rows to sort`);
+  }
+  if (sort === null) {
+    throw new PanelHoldsSomethingElseError(`${panel.name} is a filter, which is never Manual`);
   }
 }
 
@@ -599,11 +598,15 @@ function insertAppended(
   for (const { row, placement } of appended) {
     tx.insert(layoutRows)
       .values(row)
-      .onConflictDoNothing({ target: [layoutRows.layoutId, layoutRows.rowIndex] })
+      .onConflictDoNothing({
+        target: [layoutRows.layoutId, layoutRows.rowIndex],
+      })
       .run();
     tx.insert(panelPlacements)
       .values(placement)
-      .onConflictDoNothing({ target: [panelPlacements.layoutId, panelPlacements.panelId] })
+      .onConflictDoNothing({
+        target: [panelPlacements.layoutId, panelPlacements.panelId],
+      })
       .run();
   }
 }
@@ -697,7 +700,11 @@ function settleWorkspace(
   decided: { workspaceId: string; updatedAt: string },
 ): void {
   tx.update(items)
-    .set({ workspaceId: decided.workspaceId, workspaceDecided: true, updatedAt: decided.updatedAt })
+    .set({
+      workspaceId: decided.workspaceId,
+      workspaceDecided: true,
+      updatedAt: decided.updatedAt,
+    })
     .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
     .run();
 }
@@ -707,7 +714,11 @@ function settleWorkspace(
  * who sent it is shown. Both commands that carry an order ask it, because it is
  * the same question about the same rows.
  */
-function refuseAStaleOrder(db: AccountDb, tenantId: string, cmd: Arriving & { panelId: string }): void {
+function refuseAStaleOrder(
+  db: AccountDb,
+  tenantId: string,
+  cmd: Arriving & { panelId: string },
+): void {
   const stale = orderIsNotOfThePanel(listFilingsOnPanel(db, tenantId, cmd.panelId), cmd);
   if (stale) throw new PanelOrderStaleError(stale);
 }
@@ -726,8 +737,11 @@ function refuseAStaleOrder(db: AccountDb, tenantId: string, cmd: Arriving & { pa
  */
 function forTheLog<N extends CommandName>(name: N, payload: CommandPayload<N>): object {
   if (name !== 'connect_source_account') return payload;
-  const { sealedCredential: _sealed, credentialNonce: _nonce, ...rest } =
-    payload as CommandPayload<'connect_source_account'>;
+  const {
+    sealedCredential: _sealed,
+    credentialNonce: _nonce,
+    ...rest
+  } = payload as CommandPayload<'connect_source_account'>;
   return rest;
 }
 
@@ -818,7 +832,10 @@ export function runCommand<N extends CommandName>(
       // `associations` have no second unique index, so their bare calls below
       // mean only what they say.)
       db.transaction((tx) => {
-        tx.insert(workspaces).values(workspace).onConflictDoNothing({ target: workspaces.id }).run();
+        tx.insert(workspaces)
+          .values(workspace)
+          .onConflictDoNothing({ target: workspaces.id })
+          .run();
         // Its first dashboard, in the same act, so "every workspace has at
         // least one dashboard" holds from the moment the workspace exists
         // rather than from the next time somebody adds one ("Add and switch
@@ -1060,7 +1077,9 @@ export function runCommand<N extends CommandName>(
           // The whole list, over whatever is there: the question is saved at
           // once, so the later save standing is the same answer this app gives
           // everywhere else.
-          .set({ filterConditions: panelFilterAsStored(cmd.conditions, cmd.match) })
+          .set({
+            filterConditions: panelFilterAsStored(cmd.conditions, cmd.match),
+          })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
         tx.insert(commands).values(commandRow).run();
@@ -1070,7 +1089,7 @@ export function runCommand<N extends CommandName>(
     case 'set_panel_sort': {
       const cmd = payload as CommandPayload<'set_panel_sort'>;
       const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
-      refuseUnlessPanelOfItems(panel);
+      refuseUnlessSortable(panel, cmd.sort);
       db.transaction((tx) => {
         // The sort alone: the filings keep the order you set, which is what
         // going back to Manual gives back.
@@ -1566,13 +1585,23 @@ export function runCommand<N extends CommandName>(
       // legibility half of the decision is actually kept rather than intended.
       // The day mixing your own is wanted, this check is what relaxes.
       if (
-        !isPaletteTheme({ tint: cmd.color, bar: cmd.bar, ground: cmd.ground, header: cmd.header })
+        !isPaletteTheme({
+          tint: cmd.color,
+          bar: cmd.bar,
+          ground: cmd.ground,
+          header: cmd.header,
+        })
       ) {
         throw new UnknownThemeError();
       }
       db.transaction((tx) => {
         tx.update(workspaces)
-          .set({ color: cmd.color, bar: cmd.bar, ground: cmd.ground, header: cmd.header })
+          .set({
+            color: cmd.color,
+            bar: cmd.bar,
+            ground: cmd.ground,
+            header: cmd.header,
+          })
           .where(and(eq(workspaces.tenantId, tenantId), eq(workspaces.id, cmd.workspaceId)))
           .run();
         tx.insert(commands).values(commandRow).run();
@@ -1608,7 +1637,10 @@ export function runCommand<N extends CommandName>(
         // A retried capture whose command ID was lost still may not duplicate the item.
         // `status` is the dead column being satisfied rather than used: it is
         // NOT NULL with a CHECK and nothing reads it (schema.ts).
-        tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE }).onConflictDoNothing().run();
+        tx.insert(items)
+          .values({ ...asStored(item), status: DEAD_STATUS_VALUE })
+          .onConflictDoNothing()
+          .run();
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1634,7 +1666,9 @@ export function runCommand<N extends CommandName>(
       // A null panel is the Inbox, which is not a panel and so is nothing to
       // look up: the item comes off everything and, being filed nowhere, is
       // back in the Inbox.
-      const panel = cmd.panelId ? panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId) : null;
+      const panel = cmd.panelId
+        ? panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId)
+        : null;
       if (!panel && !getWorkspace(db, tenantId, cmd.workspaceId)) {
         throw new WorkspaceNotFoundError(cmd.workspaceId);
       }
@@ -1976,13 +2010,16 @@ export function runCommand<N extends CommandName>(
       // A withdrawal names no Panel to look up - `null` is the answer itself,
       // not something to resolve ("Re-propose the rest of the inbox the
       // moment you file one", issue 300).
-      const panel = cmd.panelId ? liveDestinationPanel(db, tenantId, existing.workspaceId, cmd.panelId) : null;
+      const panel = cmd.panelId
+        ? liveDestinationPanel(db, tenantId, existing.workspaceId, cmd.panelId)
+        : null;
       // Settling a routing is filing it, so an Item already on some Panel has
       // already answered the question this proposes - by hand, or by taking an
       // earlier proposal - and there is nothing left to overwrite, a
       // withdrawal included: it too would misattribute a live filing to a
       // decision that already happened.
-      const usable = (cmd.panelId === null || panel !== null) && !isItemFiled(db, tenantId, cmd.itemId);
+      const usable =
+        (cmd.panelId === null || panel !== null) && !isItemFiled(db, tenantId, cmd.itemId);
 
       if (!usable) {
         // Discarded, not refused: nothing a queued job sent is a mistake worth
@@ -2034,7 +2071,10 @@ export function runCommand<N extends CommandName>(
           })
           .onConflictDoUpdate({
             target: workspaceRoutingSummary.workspaceId,
-            set: { correction, correctionSetAt: correction === null ? null : cmd.issuedAt },
+            set: {
+              correction,
+              correctionSetAt: correction === null ? null : cmd.issuedAt,
+            },
           })
           .run();
         tx.insert(commands).values(commandRow).run();
@@ -2065,7 +2105,13 @@ export function runCommand<N extends CommandName>(
       if (!one.workspaceDecided || !other.workspaceDecided) everyWorkspaceSees(commandRow);
 
       db.transaction((tx) => {
-        settleDuplicate(tx, tenantId, pairOf(cmd.itemId, cmd.otherItemId), cmd.settled, cmd.issuedAt);
+        settleDuplicate(
+          tx,
+          tenantId,
+          pairOf(cmd.itemId, cmd.otherItemId),
+          cmd.settled,
+          cmd.issuedAt,
+        );
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -2140,11 +2186,17 @@ export function runCommand<N extends CommandName>(
     }
     case 'edit_pinned_example': {
       const cmd = payload as CommandPayload<'edit_pinned_example'>;
-      if (!getPinnedExample(db, tenantId, cmd.exampleId)) throw new PinnedExampleNotFoundError(cmd.exampleId);
+      if (!getPinnedExample(db, tenantId, cmd.exampleId))
+        throw new PinnedExampleNotFoundError(cmd.exampleId);
       db.transaction((tx) => {
         tx.update(pinnedTextExamples)
           .set({ ...pinnedExampleFieldsFrom(cmd), updatedAt: cmd.issuedAt })
-          .where(and(eq(pinnedTextExamples.tenantId, tenantId), eq(pinnedTextExamples.id, cmd.exampleId)))
+          .where(
+            and(
+              eq(pinnedTextExamples.tenantId, tenantId),
+              eq(pinnedTextExamples.id, cmd.exampleId),
+            ),
+          )
           .run();
         tx.insert(commands).values(commandRow).run();
       });
@@ -2152,12 +2204,18 @@ export function runCommand<N extends CommandName>(
     }
     case 'delete_pinned_example': {
       const cmd = payload as CommandPayload<'delete_pinned_example'>;
-      if (!getPinnedExample(db, tenantId, cmd.exampleId)) throw new PinnedExampleNotFoundError(cmd.exampleId);
+      if (!getPinnedExample(db, tenantId, cmd.exampleId))
+        throw new PinnedExampleNotFoundError(cmd.exampleId);
       db.transaction((tx) => {
         // Hard-deleted, not tombstoned - see `schema.ts`'s own comment on
         // `pinnedTextExamples` for why nothing here needs a `deletedAt`.
         tx.delete(pinnedTextExamples)
-          .where(and(eq(pinnedTextExamples.tenantId, tenantId), eq(pinnedTextExamples.id, cmd.exampleId)))
+          .where(
+            and(
+              eq(pinnedTextExamples.tenantId, tenantId),
+              eq(pinnedTextExamples.id, cmd.exampleId),
+            ),
+          )
           .run();
         tx.insert(commands).values(commandRow).run();
       });
@@ -2374,7 +2432,8 @@ export function runCommand<N extends CommandName>(
         // the re-read below has anything new to learn from.
         recordedCorrection =
           correction !== null &&
-          (existing.textsSettledAt === null || textCorrectionExistsFor(db, tenantId, correction.itemId));
+          (existing.textsSettledAt === null ||
+            textCorrectionExistsFor(db, tenantId, correction.itemId));
         db.transaction((tx) => {
           tx.update(items)
             // Both source columns, as the capture above (`asStored`, domain/items.ts).
@@ -2410,7 +2469,12 @@ export function runCommand<N extends CommandName>(
                   settledDescription: correction.settledDescription,
                   updatedAt: correction.updatedAt,
                 })
-                .where(and(eq(textCorrections.tenantId, tenantId), eq(textCorrections.itemId, correction.itemId)))
+                .where(
+                  and(
+                    eq(textCorrections.tenantId, tenantId),
+                    eq(textCorrections.itemId, correction.itemId),
+                  ),
+                )
                 .run();
             }
           }
