@@ -67,7 +67,7 @@ Consequences:
 
 **Moment 4** is the only binding moment and the only source of learning. Accepting and overriding both settle the routing and both append to the history, and an override is the stronger signal because it records the rejected answer alongside the correct one.
 
-**Moment 5 is gone, and the sentence I write outlived it.** ("Drop the nightly filing summary, keep the sentence you wrote", issue 392). It was built to keep the model's input bounded and to make what the system learned visible and editable; what shipped was a paragraph rewritten nightly, shown read-only, and fed into nothing, beside a correction that was already the highest-ranked input in the prompt. The correction sentence outlived it for a while and is gone too: Cockpit learns purely from what you do, with nothing you write by hand. Having Cockpit account for itself on demand rather than nightly is `text-learning.md`'s "What Cockpit says about itself".
+**Moment 5 is gone, and so is the sentence I wrote.** ("Drop the nightly filing summary, keep the sentence you wrote", issue 392). It was built to keep the model's input bounded and to make what the system learned visible and editable; what shipped was a paragraph rewritten nightly, shown read-only, and fed into nothing, beside a correction that was already the highest-ranked input in the prompt. The correction sentence outlived it for a while and is gone too: Cockpit learns purely from what you do, with nothing you write by hand. Having Cockpit account for itself on demand rather than nightly is `text-learning.md`'s "What Cockpit says about itself".
 
 ## 7. Moment 3 in slow motion
 
@@ -113,7 +113,7 @@ One non-obvious rule: when the filing was an *override*, the features behind the
 
 ## 11. Build order
 
-1. **Part 1**: decision history, proposed/settled states on associations, the classification job at moments 2 and 3, the re-suggest action, the settings screen showing the summary. *Shipped, except that the summary half was removed again (issue 392); the screen keeps the sentence I write.*
+1. **Part 1**: decision history, proposed/settled states on associations, the classification job at moments 2 and 3, the re-suggest action, the settings screen showing the summary. *Shipped, then removed: the summary half ("Drop the nightly filing summary, keep the sentence you wrote", issue 392) and the screen ("Remove the two learning settings screens, and the commands that write to them", issue 452).*
 2. **Instrument** the two measurements.
 3. **Part 2** (carry-over), only if the numbers justify it.
 4. **The summary as prompt input**, only when history size demands it. *Nothing to re-point: the summary was never made an input, which is why it was removed (issue 392).*
@@ -122,7 +122,7 @@ One non-obvious rule: when the filing was an *override*, the features behind the
 
 **task-creator.** The capture outbox transfers as the architecture's merge plan describes. The client-side refine-before-send path is retired: it is the late-and-synchronous pattern this document rejects and cannot work offline. Manual pickers survive with a changed meaning — a manual choice is a settled value and a history entry, not a hint to the enricher. The Notion destination retires with the stopgap, replacing its category vocabulary with Cockpit's panels and associations.
 
-**cockpit.** Part 1 needs the decision-history table; proposal state (origin, confidence, confirmed-at) on associations; a classification job on the existing enrichment queue; refresh-on-snapshot; the re-suggest command; and the nightly summary job with its settings screen (the job since removed, issue 392, the screen kept). Part 2 adds an embedding per item, the client-side resemblance scan, and a group-filing command with group undo. All of it fits the existing shapes — commands, queue jobs, snapshot plus push invalidation — with no new infrastructure.
+**cockpit.** Part 1 needs the decision-history table; proposal state (origin, confidence, confirmed-at) on associations; a classification job on the existing enrichment queue; refresh-on-snapshot; the re-suggest command; and the nightly summary job with its settings screen (both since removed). Part 2 adds an embedding per item, the client-side resemblance scan, and a group-filing command with group undo. All of it fits the existing shapes — commands, queue jobs, snapshot plus push invalidation — with no new infrastructure.
 
 ## 13. Open decisions
 

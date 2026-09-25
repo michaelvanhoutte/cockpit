@@ -434,6 +434,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       };
     });
   }
+
   /**
    * Every item in one Workspace's Inbox with a captured note - the rest of
    * the inbox a settled filing re-proposes ("Re-propose the rest of the

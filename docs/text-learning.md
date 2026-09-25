@@ -30,11 +30,9 @@ Every one of those is fixable by rewriting the prompt. One thing is not: **the w
 | Like / dislike | one tap | only when you remember | lowest | little |
 | Rules in words | one sentence | tiny | highest per token | prohibitions |
 
-**Settled titles and curated examples are one mechanism.** Both produce the same triple — captured note, what Cockpit proposed, what you settled on. The only difference is provenance, which is a column rather than a second system.
+**Only settled titles remain.** Curated examples and rules in words were built and then retired ("Remove the two learning settings screens, and the commands that write to them", issue 452): Cockpit learns purely from what you do, and nothing you write by hand steers it.
 
 **Like and dislike are already given for free, and better.** Not editing a suggestion is a like; editing it is a dislike *and* the right answer for that exact note. A paired negative beats an unpaired one, so the button is strictly worse than the edit somebody makes anyway. What the button was protecting — that a corpus of good answers never records the bad ones — is answered by storing the proposal alongside the correction, which is what "Learn where notes belong from where you actually file them" (issue 299) already does for Panels.
-
-**Rules in words earn their place because examples cannot say "don't".** Examples show what to do; a prohibition never appears in one, because the forbidden thing is precisely what is absent. That the 29 notes never hedge about unstated detail took a paragraph of analysis to notice and one sentence to state.
 
 ## The rules
 
@@ -106,7 +104,7 @@ The cost is real and was accepted knowingly: a Personal note's full text is sent
 ## Build order
 
 1. ~~**Prompt v6** — task register, a title target near 50 characters against the 200-character cap that stays a storage limit, and the hedge instruction dropped.~~ **Shipped** ("Propose a title that names the work, not the note", issue 391); the target is asked for as a ceiling, since "about 50" is not something a test can hold a model to. Independent of everything below.
-2. ~~**Remove the nightly half of issue 301** — the fan-out, the summary prompt and its contract test, `write_routing_summary`, the read-only summary. The Cron Trigger itself stays; it also resets the guest account.~~ **Shipped** ("Drop the nightly filing summary, keep the sentence you wrote", issue 392); `summary`/`summary_generated_at` keep what they hold and are read by nothing, which is what step 8 below drops.
+2. ~~**Remove the nightly half of issue 301** — the fan-out, the summary prompt and its contract test, `write_routing_summary`, the read-only summary. The Cron Trigger itself stays; it also resets the guest account.~~ **Shipped** ("Drop the nightly filing summary, keep the sentence you wrote", issue 392); `summary`/`summary_generated_at` keep what they hold and are read by nothing, which the `workspace_routing_summary` drop below removes.
 Both of the above have shipped. What is left, named rather than numbered so that citing one cannot rot into a wrong number:
 
 | Step | What it does | After |
@@ -115,11 +113,11 @@ Both of the above have shipped. What is left, named rather than numbered so that
 | **The evidence** | What it got right and what you corrected, as two lists on a screen — the sample of what stood, and the pairs with Cockpit's version struck through. | the store |
 | **Re-read the Inbox** | Correcting a text re-proposes everything still unfiled, as "Re-propose the rest of the inbox the moment you file one" (issue 300) already does for Panels. | the store |
 | **Try again** | A fresh suggestion now, the rejected one recorded — and what gets a tolerated-but-wrong title out of the sample that stood. | the store |
-| **Drop `workspace_routing_summary`** | Expand-then-contract, `pnpm backup:export` first, and only once the two steps that stopped reading it are live rather than merged. | the nightly half removed |
+| **Drop `workspace_routing_summary`** | Expand-then-contract, `pnpm backup:export` first, and only once the steps that stopped reading it are live rather than merged. | the nightly half removed |
 | **Cockpit's account of itself** | Generated when you open the screen it needs, stored nowhere. | a screen |
 
 ## Open decisions
 
 1. ~~How big the sample of what stood should be, and what is dropped first when the rest outgrows the prompt.~~ **Resolved** ("Cap the text-learning prompt to the last 30 days, and drop rules and pinned examples as inputs", issue 451): a plain rolling 30-day window, since writing style has no panel or project of its own to key staleness off the way routing does — no minimum for corrections, and a floor of 3 below which what stood is omitted entirely rather than shown as a coin flip.
 2. **Whether an edit needs to say which kind it was.** "Onboarding procedure stroomlijnen" is not a style correction — it reinterprets the note — and stored as style evidence it teaches the model to invent a verb. One tap at the moment of editing, *fixed the wording* against *changed what it's about*, would separate them. *Recommendation: measure how often it matters before building it, rather than adding a tap to every edit on a suspicion.*
-3. **Whether filing should get a rules block of its own**, now that the correction is moving to writing. It is the only way to state a rule Cockpit has not yet seen you follow. *Recommendation: leave it out until it is missed — filing already learns from what you actually do, which is the objection that removed the nightly summary in the first place.*
+3. **Whether filing should get a rules block of its own.** It is the only way to state a rule Cockpit has not yet seen you follow. *Recommendation: leave it out until it is missed — filing already learns from what you actually do, which is the objection that removed the nightly summary in the first place.*

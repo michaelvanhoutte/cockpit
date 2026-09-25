@@ -21,10 +21,14 @@ const A_NAME_THAT_LOOKS_LIKE_MARKUP = '<img src=x onerror=alert(1)>';
  */
 let signedInRole = 'user';
 
+/** The workspace the router says is open; none, unless a case opens one. */
+let openWorkspaceId: string | undefined;
+
 // Put back after every case, so a case added later renders the shell for the
 // ordinary user it reads as rather than for whichever role ran last.
 afterEach(() => {
   signedInRole = 'user';
+  openWorkspaceId = undefined;
 });
 
 // The router itself is not under test, and `to`/`params` are its props rather
@@ -45,7 +49,7 @@ vi.mock('@tanstack/react-router', () => ({
     params?: unknown;
   } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...rest}>{children}</a>,
   Outlet: () => null,
-  useParams: () => ({}),
+  useParams: () => (openWorkspaceId ? { workspaceId: openWorkspaceId } : {}),
   useNavigate: () => () => Promise.resolve(),
   // No item named, so the shell draws no form over itself - these cases are
   // about the chrome.
@@ -148,9 +152,13 @@ describe('Workspace management', () => {
   });
 
   describe('the account is not offered a way to hand-write what Cockpit learns from', () => {
-    it.each(['What Cockpit is told', 'What Cockpit has learned'])(
-      'has no %s entry in the header’s menu',
-      async (entry) => {
+    it.each([
+      { situation: 'inside no workspace', workspace: undefined },
+      { situation: 'inside a workspace', workspace: 'a-workspace' },
+    ])(
+      'has neither entry in the header’s menu, ',
+      async ({ workspace }) => {
+        openWorkspaceId = workspace;
         const user = userEvent.setup();
         render(
           <QueryClientProvider
@@ -163,7 +171,8 @@ describe('Workspace management', () => {
         await user.click(await screen.findByRole('button', { name: 'Settings' }));
 
         expect(await screen.findByRole('menuitem', { name: 'Manage types' })).toBeVisible();
-        expect(screen.queryByRole('menuitem', { name: entry })).toBeNull();
+        expect(screen.queryByRole('menuitem', { name: 'What Cockpit is told' })).toBeNull();
+        expect(screen.queryByRole('menuitem', { name: 'What Cockpit has learned' })).toBeNull();
       },
     );
   });

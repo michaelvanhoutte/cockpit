@@ -234,7 +234,7 @@ export const MIN_STOOD_FOR_PROMPT = 3;
  *
  * **`correctedItemIds` must already be windowed the same way `promptCorrections`
  * is** (`store.ts` - built from corrections whose own `recordedAt` is in the
- * window, not the all-time set `deriveWhatStood`'s own all-time caller uses).
+ * window, not every correction the account ever recorded).
  * An item counts as in-window here if *either* its own proposal or one of
  * its corrections is recent - not just the proposal - because a text
  * proposed long ago and corrected today still has to be counted as
@@ -243,12 +243,8 @@ export const MIN_STOOD_FOR_PROMPT = 3;
  * ratio directly beneath it read "0 of N proposed texts were corrected",
  * disagreeing with the correction the prompt had just shown.
  *
- * **A second, narrower view over the same `items` the window's own all-time
- * ratio is built from (`store.ts`), not a change to `deriveWhatStood`
- * itself.** That function still answers the window's "how is it doing"
- * screen unwindowed and unfloored - showing "0 of 1" there is fine, and
- * gating it on this issue's own floor would silently change a screen this
- * issue never asked to touch.
+ * **`deriveWhatStood` itself stays unwindowed and unfloored**; this is a
+ * narrower view over the same `items`, not a change to it.
  */
 export function deriveWhatStoodForPrompt(
   items: readonly JudgeableItem[],

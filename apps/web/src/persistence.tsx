@@ -28,6 +28,11 @@ export const persister: Persister = {
 export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * `v11` because the text-learning status a stored copy may still hold is the
+ * account's own rules and pinned examples, which nothing reads or clears now
+ * ("Remove the two learning settings screens, and the commands that write to
+ * them", issue 452).
+ *
  * `v10` because a Panel gained its sort ("Sort a panel of items by the fields
  * you choose", issue 526). A restored Panel from before it would answer
  * `undefined` where the type says a sort or `null`, and the Sort question opens
@@ -84,7 +89,7 @@ export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * the right way round: a cold open is a moment, a shell painted from a shape
  * the code no longer expects is a week.
  */
-export const CACHE_BUSTER = 'v10';
+export const CACHE_BUSTER = 'v11';
 
 /**
  * What is worth keeping on disk, which is everything the app paints itself from

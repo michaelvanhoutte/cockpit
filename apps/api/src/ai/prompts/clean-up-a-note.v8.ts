@@ -16,11 +16,10 @@ import { correctionStillVisible, type TextCorrectionEntry, type WhatStood } from
 
 /**
  * Re-exported rather than defined here since `v6` ("Propose a title that
- * names the work, not the note", issue 391) - the value now lives in
- * `packages/shared` so the window that shows "what Cockpit is told" (`docs/
- * text-learning.md`, "Where you see it, and change it") can build the same
- * length-target sentence `GUIDANCE_TITLE_LENGTH_TARGET` carries without
- * risking a second number that drifts from this one.
+ * names the work, not the note", issue 391) - the value lives in
+ * `packages/shared` beside the length-target sentence
+ * `GUIDANCE_TITLE_LENGTH_TARGET` carries, so there is never a second number
+ * that drifts from this one.
  *
  * **Asked for as a ceiling and never as a floor**, which is the only form of
  * it a test can hold the model to: "about 50" is not assertable, and half the
@@ -33,9 +32,7 @@ export { TITLE_TARGET };
  * Each guidance sentence below is imported by name from `packages/shared`
  * and interpolated at the exact spot it already occupied in the system
  * prompt, aliased to a shorter local name for readability - never read out
- * of the array by position, which is what makes "the lines shown are the
- * ones the prompt actually carries" (this issue's own test case) true by
- * construction, and what stops a reorder of the shared list from silently
+ * of a list by position, which is what stops a reorder from silently
  * rebinding a sentence to the wrong prompt slot.
  */
 
@@ -61,9 +58,9 @@ export { TITLE_TARGET };
  * learning.md`, "Scope: per account").
  *
  * **No `rules` or `pinnedExamples` parameter any more.** An account's own
- * written rules and pinned examples are still stored and still shown on the
- * window that reads and writes them - only this prompt stopped reading
- * either, in favour of learning purely from what this account actually does.
+ * written rules and pinned examples are still stored but nothing reads or
+ * writes them - this prompt learns purely from what this account actually
+ * does.
  *
  * Nothing else moves: language, the other readings, the Panel proposal, the
  * routing history and the shape of `schema` are `v6`'s.
@@ -385,8 +382,6 @@ function renderCorrections(corrections: readonly TextCorrectionEntry[]): string 
 function renderWhatStood(stood: WhatStood | null): string | null {
   if (stood === null) return null;
 
-  // Shared with the window's own "how it is doing" line (`packages/shared`),
-  // so the two can never say the same ratio two different ways.
   const ratio = textLearningRatioSentence(stood.proposedTotal, stood.correctedTotal);
   const lines = stood.sample.map((title) => `- "${title}"`);
   return `What stood: ${ratio} A sample of the titles nobody changed - weaker evidence than a correction, since it may mean good, tolerable, or simply not worth fixing:\n${lines.join('\n')}`;

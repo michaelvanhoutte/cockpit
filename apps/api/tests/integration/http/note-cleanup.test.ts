@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, describe, expect, inject, it, vi } from 'vitest';
 import { env, applyD1Migrations } from 'cloudflare:test';
-import { ACCOUNT_WIDE, type CommandName, type CommandPayload } from '@cockpit/shared';
+import { type CommandName, type CommandPayload } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
   DASHBOARD_ID,

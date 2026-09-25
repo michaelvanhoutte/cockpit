@@ -1278,8 +1278,7 @@ function filedItemIds(db: AccountDb, tenantId: string): Set<string> {
  * How this account has the Item's form drawn ("Let the item's form dock to
  * the side of the screen instead of opening as a dialog", issue 481),
  * resolved to `DEFAULT_ITEM_FORM_PRESENTATION` for an account that has never
- * written one - every account's starting condition, the
- * starting condition of the row it reads.
+ * written one - every account's starting condition.
  */
 export function getItemFormPresentation(db: AccountDb, tenantId: string): ItemFormPresentation {
   const row = db

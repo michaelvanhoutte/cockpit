@@ -28,8 +28,8 @@ export interface AttachmentRow {
  * What the download route reads (`apps/api/src/http/app.ts`) - an
  * `AttachmentRow` cut down to what serving the file back needs, named once
  * here and imported everywhere it is passed across a layer: `repo.ts`,
- * `store.ts`, `rpc.ts` and `index.ts`, the same way `PinnedExampleEntry`
- * (`domain/pinned-text-examples.ts`) is.
+ * `store.ts`, `rpc.ts` and `index.ts`, the same way the other account-wide
+ * types are.
  */
 export type AttachmentForDownload = Pick<
   AttachmentRow,
