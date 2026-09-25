@@ -75,7 +75,7 @@
     {
       "key": "Capture",
       "label": "Capture",
-      "browserWalks": 11,
+      "browserWalks": 8,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
@@ -281,9 +281,7 @@
       "label": "What Cockpit has learned",
       "parent": "Workspaces",
       "sourcePatterns": [
-        "packages/shared/src/domain/routing-summary.ts",
         "packages/shared/src/commands.ts",
-        "apps/web/src/components/RoutingSummaryWindow.tsx",
         "apps/web/src/pages/Layout.tsx",
         "apps/api/src/accounts/schema.ts",
         "apps/api/src/accounts/changes.ts",
@@ -293,28 +291,6 @@
         "apps/api/src/jobs/index.ts",
         "apps/api/src/jobs/enrichment.ts",
         "apps/api/src/domain/decision-history.ts"
-      ]
-    },
-    {
-      "key": "What Cockpit is told",
-      "label": "What Cockpit is told",
-      "parent": "Capture",
-      "sourcePatterns": [
-        "packages/shared/src/domain/text-learning-rules.ts",
-        "packages/shared/src/domain/pinned-text-examples.ts",
-        "packages/shared/src/commands.ts",
-        "apps/web/src/components/TextLearningRulesWindow.tsx",
-        "apps/web/src/pages/Layout.tsx",
-        "apps/api/src/accounts/schema.ts",
-        "apps/api/src/accounts/changes.ts",
-        "apps/api/src/accounts/command-service.ts",
-        "apps/api/src/accounts/repo.ts",
-        "apps/api/src/accounts/store.ts",
-        "apps/api/src/http/app.ts",
-        "apps/api/src/ai/index.ts",
-        "apps/api/src/ai/prompts/clean-up-a-note.v8.ts",
-        "apps/api/src/domain/text-corrections.ts",
-        "apps/api/src/domain/pinned-text-examples.ts"
       ]
     },
     {

@@ -1,8 +1,7 @@
 import { capture, expect, itemRow, openInbox, press, test, uniqueTitle } from './support/app';
 
 /**
- * F3, for the reason `text-learning-rules.test.ts` beside this file gives its
- * own walk: a menu leads to a window drawn over the workspace, and this one
+ * F3: a menu leads to a window drawn over the workspace, and this one
  * has two doors into the same table rather than one ("See the history of
  * what Cockpit proposed for the Inbox's items", issue 444).
  *

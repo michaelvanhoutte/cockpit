@@ -81,11 +81,6 @@ vi.mock('../../../src/api/queries', () => ({
   // The types window the shell now draws over the workspace reads them
   // (pages/Layout.tsx). It is shut in these cases, but it is mounted.
   itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => Promise.resolve({ itemTypes: [] }) },
-  textLearningStatusQuery: {
-    queryKey: ['textLearningStatus'],
-    queryFn: () =>
-      Promise.resolve({ rules: null, rulesSetAt: null, proposedTotal: 0, correctedTotal: 0 }),
-  },
   meQuery: {
     queryKey: ['me'],
     queryFn: () => Promise.resolve({ user: { id: 'user-michael', name: 'Michael' } }),

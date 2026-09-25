@@ -77,11 +77,23 @@ function perStack(name: string, url: string): string {
  * gate would never reach it. Nothing is disclosed by saying an address used to
  * exist - it is in the git history of a public repository either way.
  *
- * Both of these went with the list of names ("Sign in with Google, and retire
- * the list of names", issue 196). A retired address is kept here until no
- * browser can plausibly still be holding a build that asks for it.
+ * The first two went with the list of names ("Sign in with Google, and retire
+ * the list of names", issue 196); the rest are the read and the five commands
+ * behind the two learning settings screens ("Remove the two learning settings
+ * screens, and the commands that write to them", issue 452). A retired address
+ * is kept here until no browser can plausibly still be holding a build that
+ * asks for it.
  */
-export const RETIRED_PATHS: readonly string[] = ['/v1/users', '/v1/sign-in'];
+export const RETIRED_PATHS: readonly string[] = [
+  '/v1/users',
+  '/v1/sign-in',
+  '/v1/text-learning-rules',
+  '/v1/commands/set_text_learning_rules',
+  '/v1/commands/pin_text_example',
+  '/v1/commands/edit_pinned_example',
+  '/v1/commands/delete_pinned_example',
+  '/v1/commands/set_routing_summary_correction',
+];
 
 /**
  * The only paths that answer without a sign-in, and each is here for a stated

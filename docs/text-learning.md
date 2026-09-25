@@ -30,11 +30,9 @@ Every one of those is fixable by rewriting the prompt. One thing is not: **the w
 | Like / dislike | one tap | only when you remember | lowest | little |
 | Rules in words | one sentence | tiny | highest per token | prohibitions |
 
-**Settled titles and curated examples are one mechanism.** Both produce the same triple — captured note, what Cockpit proposed, what you settled on. The only difference is provenance, which is a column rather than a second system.
+**Only settled titles remain.** Curated examples and rules in words were built and then retired ("Remove the two learning settings screens, and the commands that write to them", issue 452): Cockpit learns purely from what you do, and nothing you write by hand steers it.
 
 **Like and dislike are already given for free, and better.** Not editing a suggestion is a like; editing it is a dislike *and* the right answer for that exact note. A paired negative beats an unpaired one, so the button is strictly worse than the edit somebody makes anyway. What the button was protecting — that a corpus of good answers never records the bad ones — is answered by storing the proposal alongside the correction, which is what "Learn where notes belong from where you actually file them" (issue 299) already does for Panels.
-
-**Rules in words earn their place because examples cannot say "don't".** Examples show what to do; a prohibition never appears in one, because the forbidden thing is precisely what is absent. That the 29 notes never hedge about unstated detail took a paragraph of analysis to notice and one sentence to state.
 
 ## The rules
 
@@ -52,17 +50,16 @@ The cost of counting what stood, stated plainly: a bad text you tolerated rather
 
 ## What is stored
 
-One table, per account, three kinds of row:
+One table, per account, two kinds of row:
 
 | Kind | The note | What Cockpit proposed | What you settled on |
 |---|---|---|---|
 | **Edited** — you changed a proposed text | yes | yes | yes |
-| **Pinned** — you wrote or pasted it deliberately | yes | — | yes |
 | **Rejected** — you asked for another suggestion | yes | yes | — |
 
 **The proposal is frozen at your first edit; your side stays live.** One row per Item, written the moment you first change either text, holding whatever Cockpit had proposed. Later edits to the same Item update the row's settled half rather than appending another, so the record always carries what you finally arrived at rather than a half-finished first pass. This is where it departs from `decision_history`, which is append-only because a filing is one act — editing a text is not.
 
-**The note's text is stored on the row, not joined from the Item.** A pasted example has no Item to join to, and a row must outlive an Item that has since been deleted.
+**The note's text is stored on the row, not joined from the Item.** A row must outlive an Item that has since been deleted.
 
 **What stood is derived, not stored.** An Item whose texts Cockpit proposed and nobody has changed already *is* that fact, and storing a row for each would mean a row per Item ever captured. The count and the sample are read from `items` directly. That needs one new column — when the texts were proposed — so a proposal can be told from the mechanical title capture writes when enrichment never ran, which is otherwise indistinguishable and would put notes Cockpit never read into the denominator.
 
@@ -78,7 +75,7 @@ Three sections, in a stated order of precedence, each bounded to a plain rolling
 
 If a window carries nothing qualifying for a section - or, for what stood, not enough - that section is simply absent from the prompt. Nothing forces older data in to fill the gap.
 
-**Your rules and pinned examples were retired as prompt inputs by the same issue.** Both are still stored and still shown on the window that reads and writes them ("Where you see it, and change it" below); only this prompt stopped reading either, in favour of learning purely from what you actually do. Deleting the tables themselves is separate, later work ("Drop the `account_text_rules` table", issue 453; "Drop the `pinned_text_examples` table", issue 454), once the UI and commands that write them are gone ("Remove the two learning settings screens, and the commands that write to them", issue 452).
+**Your rules and pinned examples are not prompt inputs, and cannot be written.** Cockpit learns purely from what you actually do; the screens and commands that wrote them are gone ("Remove the two learning settings screens, and the commands that write to them", issue 452). Their tables keep the rows they hold until "Drop the `account_text_rules` table" (issue 453) and "Drop the `pinned_text_examples` table" (issue 454) remove them.
 
 **That ratio is the point of the second section, more than the sample under it.** It is what stops a handful of corrections reading as systematic failure, and it is the one input here that gets better as the proposals do rather than drying up with them.
 
@@ -86,34 +83,15 @@ If a window carries nothing qualifying for a section - or, for what stood, not e
 
 The prompt's own built-in examples stay. They teach the language rule, the other-readings rule and the Panel rule, which style evidence does not.
 
-## Where you see it, and change it
+## Where you see it
 
-> **Every input that shapes a title is visible on one screen, and the ones you own are editable there.**
-
-| What shapes a title | How you see it | Yours to change |
-|---|---|---|
-| Cockpit's own guidance | in plain English, read-only | no — you override it below instead |
-| Your rules | a box you write | yes |
-| Pinned examples | a list you add to | yes |
-| Titles that stood | a count, and a sample of them | **Try again** reopens one |
-| Titles you corrected | the pairs, Cockpit's struck through | delete a row that teaches the wrong thing |
-| Titles you rejected | beside the corrections | |
-
-**Your rules and pinned examples stopped reaching the prompt with "Cap the text-learning prompt to the last 30 days, and drop rules and pinned examples as inputs" (issue 451).** Both rows above still describe this screen honestly — the box and the list are still there, still yours to change — but neither now does anything to a title Cockpit proposes; writing a rule no longer overrides the guidance below, since the prompt no longer reads it at all. That stops once the screens themselves are gone (issue 452) and the tables behind them follow (issues 453, 454).
-
-**The guidance is read-only because some of its lines are load-bearing** — the shape of the answer, the language rule, the refusal to invent a fact — and editing those breaks the feature rather than restyling it.
-
-**Showing what stood is a control rather than decoration.** Nobody scrolls back through hundreds of accepted titles, so one you tolerated rather than liked stays a weak positive forever. A sample of them on a screen already open is where that gets noticed, which is the cost named under "The rules" being paid off.
-
-**A screen that shows only what was recorded is a log, and a log with a delete button is not a control.** That is what this was first scoped as, and seeing it on screen is what killed it ("Try the corrections window on screen before building it", issue 393). Delete earns little on its own besides: a correction row reads its settled half live from the Item, so a row teaching the wrong thing is usually fixed by re-editing that Item's title, and delete is left for the note that should never have been evidence at all.
-
-**So the window ships when it first has a control on it**, not when there is first something to log — see the build order below.
+**There is no screen for it yet, and nothing here is yours to write.** What shapes a title is Cockpit's own guidance and the evidence above, and the evidence is what you did. Showing that evidence, with a control to correct it, is unbuilt: a screen that only logs what was recorded is not a control, and a log with a delete button is not one either ("Try the corrections window on screen before building it", issue 393). Anything that lands here has to earn its place with something to act on, and a correction row reads its settled half live from the Item, so a row teaching the wrong thing is fixed by re-editing that Item's title.
 
 ## What Cockpit says about itself
 
 A per-Item reason explains one decision and never says what rule is being followed; reading forty of them still does not. So Cockpit's account of what it has learned is written **for the whole account, on demand, when you open the screen** — and stored nowhere.
 
-That is the deliberate difference from "Show what the system learned, in a sentence you can correct" (issue 301), which this design removes. Its summary was generated nightly, persisted, shown read-only, and fed into nothing, while the correction beside it was labelled as a footnote to that summary and was secretly the highest-ranked input in the system. Generating on demand leaves nothing to go stale, nothing to overwrite, and no second text competing with your rules. Lines you agree with are promoted into your rules block, after which they are yours and Cockpit never touches them again.
+That is the deliberate difference from "Show what the system learned, in a sentence you can correct" (issue 301), which this design removes. Its summary was generated nightly, persisted, shown read-only, and fed into nothing, while the correction beside it was labelled as a footnote to that summary and was secretly the highest-ranked input in the system. Generating on demand leaves nothing to go stale, nothing to overwrite, and no second text competing with what you do.
 
 The Panel chip's own hover reason stays. It is not explanation of a rule but decision support at the moment of choosing, and without it the chip is a bare assertion.
 
@@ -126,24 +104,20 @@ The cost is real and was accepted knowingly: a Personal note's full text is sent
 ## Build order
 
 1. ~~**Prompt v6** — task register, a title target near 50 characters against the 200-character cap that stays a storage limit, and the hedge instruction dropped.~~ **Shipped** ("Propose a title that names the work, not the note", issue 391); the target is asked for as a ceiling, since "about 50" is not something a test can hold a model to. Independent of everything below.
-2. ~~**Remove the nightly half of issue 301** — the fan-out, the summary prompt and its contract test, `write_routing_summary`, the read-only summary. The Cron Trigger itself stays; it also resets the guest account.~~ **Shipped** ("Drop the nightly filing summary, keep the sentence you wrote", issue 392); `summary`/`summary_generated_at` keep what they hold and are read by nothing, which is what step 8 below drops.
+2. ~~**Remove the nightly half of issue 301** — the fan-out, the summary prompt and its contract test, `write_routing_summary`, the read-only summary. The Cron Trigger itself stays; it also resets the guest account.~~ **Shipped** ("Drop the nightly filing summary, keep the sentence you wrote", issue 392); `summary`/`summary_generated_at` keep what they hold and are read by nothing, which the `workspace_routing_summary` drop below removes.
 Both of the above have shipped. What is left, named rather than numbered so that citing one cannot rot into a wrong number:
 
 | Step | What it does | After |
 |---|---|---|
 | **The store** | The triple recorded at your first edit, the count and sample of what stood read from `items` beside it, prompt v8 reading both, each capped to the last 30 days ("Cap the text-learning prompt to the last 30 days, and drop rules and pinned examples as inputs", issue 451). Headless — it changes what titles say, and puts up no screen. | prompt v6 |
-| **The window** | Where every input becomes visible: Cockpit's own guidance in plain English, your rules in a box that overrides it, and how it is doing. The account-scoped rules replace the Workspace correction, which is read by nothing afterwards. | the store, and the nightly half removed |
-| **Pinned examples** | Add, edit and delete, onto that same window. Batch-paste was dropped from scope during "Pin an example of how you want a note written" (issue 397) — each example is added and edited one at a time. | the window |
-| **The evidence** | What it got right and what you corrected, as two lists on the same window — the sample of what stood, and the pairs with Cockpit's version struck through. | the window |
+| **The evidence** | What it got right and what you corrected, as two lists on a screen — the sample of what stood, and the pairs with Cockpit's version struck through. | the store |
 | **Re-read the Inbox** | Correcting a text re-proposes everything still unfiled, as "Re-propose the rest of the inbox the moment you file one" (issue 300) already does for Panels. | the store |
 | **Try again** | A fresh suggestion now, the rejected one recorded — and what gets a tolerated-but-wrong title out of the sample that stood. | the store |
-| **Drop `workspace_routing_summary`** | Expand-then-contract, `pnpm backup:export` first, and only once the two steps that stopped reading it are live rather than merged. | the nightly half removed, the window |
-| **Cockpit's account of itself** | Generated when you open the window, stored nowhere, promoted into your rules a line at a time. | the window |
-
-**The window arrives with the rules box rather than before it.** It was first scoped onto the store, so that nothing would accumulate unseen — but a screen with nothing to act on does not get opened, so it answered neither question. One step later it carries a control, and the store is unobservable for exactly that long.
+| **Drop `workspace_routing_summary`** | Expand-then-contract, `pnpm backup:export` first, and only once the steps that stopped reading it are live rather than merged. | the nightly half removed |
+| **Cockpit's account of itself** | Generated when you open the screen it needs, stored nowhere. | a screen |
 
 ## Open decisions
 
 1. ~~How big the sample of what stood should be, and what is dropped first when the rest outgrows the prompt.~~ **Resolved** ("Cap the text-learning prompt to the last 30 days, and drop rules and pinned examples as inputs", issue 451): a plain rolling 30-day window, since writing style has no panel or project of its own to key staleness off the way routing does — no minimum for corrections, and a floor of 3 below which what stood is omitted entirely rather than shown as a coin flip.
 2. **Whether an edit needs to say which kind it was.** "Onboarding procedure stroomlijnen" is not a style correction — it reinterprets the note — and stored as style evidence it teaches the model to invent a verb. One tap at the moment of editing, *fixed the wording* against *changed what it's about*, would separate them. *Recommendation: measure how often it matters before building it, rather than adding a tap to every edit on a suspicion.*
-3. **Whether filing should get a rules block of its own**, now that the correction is moving to writing. It is the only way to state a rule Cockpit has not yet seen you follow. *Recommendation: leave it out until it is missed — filing already learns from what you actually do, which is the objection that removed the nightly summary in the first place.*
+3. **Whether filing should get a rules block of its own.** It is the only way to state a rule Cockpit has not yet seen you follow. *Recommendation: leave it out until it is missed — filing already learns from what you actually do, which is the objection that removed the nightly summary in the first place.*

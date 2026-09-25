@@ -59,8 +59,8 @@ export interface AiService {
    *
    * **No `rules` or `pinnedExamples` parameter.** Both were read into this
    * prompt once; issue 451 stopped that, in favour of learning purely from
-   * what this account actually does. Both are still stored and still shown
-   * on the window that reads and writes them.
+   * what this account actually does. Both are still stored, and nothing
+   * reads or writes them.
    *
    * Answers a refusal rather than throwing for anything the model itself said:
    * an answer that will not parse or will not validate is a discarded proposal,

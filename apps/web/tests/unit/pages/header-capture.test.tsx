@@ -58,7 +58,7 @@ vi.mock('../../../src/components/InboxPanel', () => ({
 }));
 
 vi.mock('../../../src/api/queries', () => ({
-  // The shell draws the account's three management windows over the workspace
+  // The shell draws the account's management windows over the workspace
   // (pages/Layout.tsx). They are shut here - nothing in these cases opens
   // one - but they are mounted, so the hooks they call have to answer.
   useCommand: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
@@ -71,11 +71,6 @@ vi.mock('../../../src/api/queries', () => ({
     queryFn: () => Promise.resolve({ user: { id: 'user-michael', name: 'Michael' } }),
   },
   itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => Promise.resolve({ itemTypes: [] }) },
-  textLearningStatusQuery: {
-    queryKey: ['textLearningStatus'],
-    queryFn: () =>
-      Promise.resolve({ rules: null, rulesSetAt: null, proposedTotal: 0, correctedTotal: 0 }),
-  },
   workspacesQuery: {
     queryKey: ['workspaces'],
     queryFn: () => Promise.resolve({ workspaces: held.workspaces }),

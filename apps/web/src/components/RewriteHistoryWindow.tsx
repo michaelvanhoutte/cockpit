@@ -58,8 +58,7 @@ export function RewriteHistoryWindow({
   const { data, error, refetch } = useQuery({
     ...(itemId ? rewriteHistoryForItemQuery(itemId) : rewriteHistoryForWorkspaceQuery(workspaceId)),
     // Read on open, never ambient: this is a history table nobody watches
-    // while it is closed, the same reason `TextLearningRulesWindow` reads its
-    // own status only while open.
+    // while it is closed.
     enabled: open,
   });
   const entries = data?.entries ?? [];

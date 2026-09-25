@@ -13,7 +13,6 @@ import {
 } from '../domain/item-form-presentation.js';
 import { itemTypeSchema } from '../domain/item-type.js';
 import { filingSchema, layoutSchema, panelSchema } from '../domain/panel.js';
-import { routingSummarySchema } from '../domain/routing-summary.js';
 import { screenSizeSchema } from '../domain/screen-size.js';
 
 /**
@@ -56,17 +55,6 @@ export const workspaceSnapshotSchema = z.object({
    * was.
    */
   itemFormPresentation: itemFormPresentationSchema.default(DEFAULT_ITEM_FORM_PRESENTATION),
-  /**
-   * This Workspace's own sentence about where its notes belong ("Show what
-   * the system learned, in a sentence you can correct", issue 301). Null
-   * where no row exists yet, which is every Workspace nobody has written one
-   * for.
-   *
-   * **Narrower than it was**: the generated summary that used to ride along
-   * here is gone, along with the nightly job that wrote it ("Drop the nightly
-   * filing summary, keep the sentence you wrote", issue 392).
-   */
-  routingSummary: routingSummarySchema.nullable().default(null),
   /**
    * Which of the Items above say the same thing as which ("Flag a captured
    * note that says what another one already said", issue 407) - the pairs

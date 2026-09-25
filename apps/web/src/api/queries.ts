@@ -19,7 +19,6 @@ import {
   fetchRewriteHistoryForItem,
   fetchRewriteHistoryForWorkspace,
   fetchSnapshot,
-  fetchTextLearningStatus,
   fetchWorkspaces,
   sendCommand,
   setAccess,
@@ -56,20 +55,6 @@ export const workspacesQuery = queryOptions({
 export const itemTypesQuery = queryOptions({
   queryKey: ['itemTypes'],
   queryFn: fetchItemTypes,
-  staleTime: 60_000,
-});
-
-/**
- * What Cockpit is told, and what the account has written back ("Show what
- * Cockpit is told, and say how you want it changed", issue 398).
- *
- * Its own query rather than a slice of a snapshot, for the same reason
- * `itemTypesQuery` above has one: the window that reads this is outside any
- * workspace.
- */
-export const textLearningStatusQuery = queryOptions({
-  queryKey: ['textLearningStatus'],
-  queryFn: fetchTextLearningStatus,
   staleTime: 60_000,
 });
 
@@ -382,25 +367,9 @@ function everyWorkspaceCanSee(args: CommandArgs): boolean {
 }
 
 function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
-  if (
-    args.name === 'set_text_learning_rules' ||
-    args.name === 'pin_text_example' ||
-    args.name === 'edit_pinned_example' ||
-    args.name === 'delete_pinned_example'
-  ) {
-    // Its own query, outside any workspace snapshot - the same reason
-    // `itemTypesQuery` above is a slice of nothing. Without this, a pinned
-    // example just added, edited or deleted reads as stale until the SSE
-    // echo catches up ("Pin an example of how you want a note written",
-    // issue 397) - up to `LONGEST_WAIT_MS` behind a dropped connection, and
-    // long enough that a second press of Delete on a row already gone comes
-    // back a `PinnedExampleNotFoundError` the person reads as a bug.
-    return queryClient.invalidateQueries({ queryKey: ['textLearningStatus'] });
-  }
-
   if (args.name === 'disconnect_source_account') {
-    // Its own query, outside any workspace snapshot - the same reason the
-    // text-learning window's reads are, one branch up. Waited for rather than
+    // Its own query, outside any workspace snapshot - the same reason
+    // `itemTypesQuery` is. Waited for rather than
     // dropped, so the row is gone from the list by the time the window stops
     // saying the disconnect is in flight ("Connect a Microsoft Teams source
     // account", issue 485).

@@ -18,7 +18,6 @@ import {
   type Panel,
   type PossibleDuplicate,
   type RewriteAttemptStatus,
-  type RoutingSummary,
   type ScreenSize,
   type Source,
   type SourceAccount,
@@ -30,11 +29,9 @@ import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
-import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import {
   accountItemFormPresentation,
-  accountTextRules,
   associations,
   attachments,
   commands,
@@ -51,11 +48,9 @@ import {
   panelItems,
   panelPlacements,
   panels,
-  pinnedTextExamples,
   rewriteHistory,
   screenSizes,
   textCorrections,
-  workspaceRoutingSummary,
   workspaces,
 } from './schema.js';
 
@@ -1216,44 +1211,6 @@ export function textCorrectionExistsFor(db: AccountDb, tenantId: string, itemId:
   );
 }
 
-/** The columns a pinned example is read by, named for the reason `workspaceColumns` above is: shared between the list and the single-row reads so the two can never drift on which columns they carry. */
-const pinnedExampleColumns = {
-  id: pinnedTextExamples.id,
-  note: pinnedTextExamples.note,
-  title: pinnedTextExamples.title,
-  description: pinnedTextExamples.description,
-  createdAt: pinnedTextExamples.createdAt,
-  updatedAt: pinnedTextExamples.updatedAt,
-};
-
-/**
- * Every pinned example this account has ever added, oldest first - the same
- * "read whole, no retrieval step" convention `textCorrectionsForAccount`
- * above follows ("Pin an example of how you want a note written", issue
- * 397).
- */
-export function pinnedExamplesForAccount(db: AccountDb, tenantId: string): PinnedExampleEntry[] {
-  return db
-    .select(pinnedExampleColumns)
-    .from(pinnedTextExamples)
-    .where(eq(pinnedTextExamples.tenantId, tenantId))
-    .orderBy(asc(pinnedTextExamples.createdAt))
-    .all();
-}
-
-/** One pinned example, or `undefined` where the id names none - what `command-service.ts` checks before an edit or a delete. */
-export function getPinnedExample(
-  db: AccountDb,
-  tenantId: string,
-  exampleId: string,
-): PinnedExampleEntry | undefined {
-  return db
-    .select(pinnedExampleColumns)
-    .from(pinnedTextExamples)
-    .where(and(eq(pinnedTextExamples.tenantId, tenantId), eq(pinnedTextExamples.id, exampleId)))
-    .get();
-}
-
 /**
  * Every Item this account has ever proposed texts for, with enough to tell
  * whether it has actually been acted on - what `deriveWhatStood`
@@ -1318,74 +1275,10 @@ function filedItemIds(db: AccountDb, tenantId: string): Set<string> {
 }
 
 /**
- * Named columns rather than the whole row, which is what keeps
- * `summary`/`summary_generated_at` unread while they are still on the table -
- * the generated half is gone and dropping its columns is a later step
- * ("Drop the nightly filing summary, keep the sentence you wrote", issue 392;
- * `docs/text-learning.md`, "Build order").
- */
-const routingSummaryColumns = {
-  correction: workspaceRoutingSummary.correction,
-  correctionSetAt: workspaceRoutingSummary.correctionSetAt,
-};
-
-/**
- * One Workspace's own correction ("Show what the system learned, in a
- * sentence you can correct", issue 301), or null where no row exists yet -
- * a Workspace nobody has written a sentence for, which is every Workspace's
- * starting condition (`schema.ts`'s own comment on
- * `workspaceRoutingSummary`).
- *
- * **A row that holds only a summary reads back as a correction of null**, not
- * as no row at all: the generated columns are still populated on Workspaces
- * summarized before that half was removed, and this deliberately says nothing
- * about them.
- */
-export function getRoutingSummary(
-  db: AccountDb,
-  tenantId: string,
-  workspaceId: string,
-): RoutingSummary | null {
-  return (
-    db
-      .select(routingSummaryColumns)
-      .from(workspaceRoutingSummary)
-      .where(
-        and(
-          eq(workspaceRoutingSummary.tenantId, tenantId),
-          eq(workspaceRoutingSummary.workspaceId, workspaceId),
-        ),
-      )
-      .get() ?? null
-  );
-}
-
-/**
- * One account's own rules for how Cockpit writes a title and a message
- * ("Show what Cockpit is told, and say how you want it changed", issue 398),
- * or null where no row exists yet - every account's starting condition, the
- * same convention `getRoutingSummary` above follows for the Workspace-scoped
- * correction it reads.
- */
-export function getTextLearningRules(
-  db: AccountDb,
-  tenantId: string,
-): { rules: string | null; rulesSetAt: string | null } | null {
-  return (
-    db
-      .select({ rules: accountTextRules.rules, rulesSetAt: accountTextRules.rulesSetAt })
-      .from(accountTextRules)
-      .where(eq(accountTextRules.tenantId, tenantId))
-      .get() ?? null
-  );
-}
-
-/**
  * How this account has the Item's form drawn ("Let the item's form dock to
  * the side of the screen instead of opening as a dialog", issue 481),
  * resolved to `DEFAULT_ITEM_FORM_PRESENTATION` for an account that has never
- * written one - every account's starting condition, the same convention
- * `getTextLearningRules` above follows for the row it reads.
+ * written one - every account's starting condition.
  */
 export function getItemFormPresentation(db: AccountDb, tenantId: string): ItemFormPresentation {
   const row = db

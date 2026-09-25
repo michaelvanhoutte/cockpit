@@ -21,10 +21,14 @@ const A_NAME_THAT_LOOKS_LIKE_MARKUP = '<img src=x onerror=alert(1)>';
  */
 let signedInRole = 'user';
 
+/** The workspace the router says is open; none, unless a case opens one. */
+let openWorkspaceId: string | undefined;
+
 // Put back after every case, so a case added later renders the shell for the
 // ordinary user it reads as rather than for whichever role ran last.
 afterEach(() => {
   signedInRole = 'user';
+  openWorkspaceId = undefined;
 });
 
 // The router itself is not under test, and `to`/`params` are its props rather
@@ -45,7 +49,7 @@ vi.mock('@tanstack/react-router', () => ({
     params?: unknown;
   } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...rest}>{children}</a>,
   Outlet: () => null,
-  useParams: () => ({}),
+  useParams: () => (openWorkspaceId ? { workspaceId: openWorkspaceId } : {}),
   useNavigate: () => () => Promise.resolve(),
   // No item named, so the shell draws no form over itself - these cases are
   // about the chrome.
@@ -62,15 +66,7 @@ vi.mock('../../../src/api/queries', () => ({
   // The types window the shell now draws over the workspace reads them
   // (pages/Layout.tsx). It is shut in these cases, but it is mounted.
   itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => Promise.resolve({ itemTypes: [] }) },
-  // The "What Cockpit is told" window the shell now also draws over the
-  // workspace reads this (pages/Layout.tsx, components/
-  // TextLearningRulesWindow.tsx). Shut in these cases, but mounted.
-  textLearningStatusQuery: {
-    queryKey: ['textLearningStatus'],
-    queryFn: () =>
-      Promise.resolve({ rules: null, rulesSetAt: null, proposedTotal: 0, correctedTotal: 0 }),
-  },
-  // The shell draws the account's three management windows over the workspace
+  // The shell draws the account's management windows over the workspace
   // (pages/Layout.tsx). They are shut here - nothing in these cases opens
   // one - but they are mounted, so the hooks they call have to answer.
   useCommand: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
@@ -153,6 +149,32 @@ describe('Workspace management', () => {
       const header = container.querySelector('header')!;
       expect(within(header).getByText(A_NAME_THAT_LOOKS_LIKE_MARKUP)).toBeInTheDocument();
     });
+  });
+
+  describe('the account is not offered a way to hand-write what Cockpit learns from', () => {
+    it.each([
+      { situation: 'inside no workspace', workspace: undefined },
+      { situation: 'inside a workspace', workspace: 'a-workspace' },
+    ])(
+      'has neither entry in the header’s menu, ',
+      async ({ workspace }) => {
+        openWorkspaceId = workspace;
+        const user = userEvent.setup();
+        render(
+          <QueryClientProvider
+            client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+          >
+            <Layout />
+          </QueryClientProvider>,
+        );
+
+        await user.click(await screen.findByRole('button', { name: 'Settings' }));
+
+        expect(await screen.findByRole('menuitem', { name: 'Manage types' })).toBeVisible();
+        expect(screen.queryByRole('menuitem', { name: 'What Cockpit is told' })).toBeNull();
+        expect(screen.queryByRole('menuitem', { name: 'What Cockpit has learned' })).toBeNull();
+      },
+    );
   });
 });
 

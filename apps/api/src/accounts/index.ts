@@ -23,7 +23,6 @@ import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
-import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 
@@ -134,17 +133,11 @@ export interface Account {
   ): Promise<{ history: DecisionHistoryEntry[]; recentlyCaptured: string[] }>;
   /**
    * What a title or description proposal reads about how this account
-   * writes, and what the window that shows how it is doing reads back
-   * ("Learn how you write from the titles you correct", issue 394; "Show
-   * what Cockpit is told, and say how you want it changed", issue 398).
+   * writes ("Learn how you write from the titles you correct", issue 394).
    */
   textLearningContext(): Promise<{
-    rules: string | null;
-    rulesSetAt: string | null;
-    stood: WhatStood;
     promptCorrections: TextCorrectionEntry[];
     promptStood: WhatStood | null;
-    pinnedExamples: PinnedExampleEntry[];
   }>;
   /**
    * Every item in one Workspace's Inbox with a captured note - the rest of

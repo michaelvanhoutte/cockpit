@@ -54,7 +54,6 @@ import {
   PanelNameTakenError,
   PanelNotFoundError,
   PanelOrderStaleError,
-  PinnedExampleNotFoundError,
   ScreenSizeNameTakenError,
   ScreenSizeNotFoundError,
   SourceAccountNotFoundError,
@@ -73,8 +72,6 @@ import {
   getAttachmentForDownload,
   getItem,
   getItemFormPresentation,
-  getRoutingSummary,
-  getTextLearningRules,
   getWorkspace,
   itemsToRead,
   itemsWithUnsettledTexts,
@@ -91,7 +88,6 @@ import {
   listPanelsInWorkspace,
   listWorkspaces,
   meaningsToCompareWith,
-  pinnedExamplesForAccount,
   queueRewriteAttempt,
   recentlyCapturedUnfiled,
   recordRewriteOutcome,
@@ -106,11 +102,9 @@ import {
 } from './repo.js';
 import { couldStillBeActedOn, pairOf, saidAgainBy } from '../domain/duplicates.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
-import type { PinnedExampleEntry } from '../domain/pinned-text-examples.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import {
   correctionStillVisible,
-  deriveWhatStood,
   deriveWhatStoodForPrompt,
   textLearningWindowCutoff,
   withinTextLearningWindow,
@@ -177,7 +171,6 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         itemTypes: listItemTypes(db, accountName),
         screenSizes: listScreenSizes(db, accountName),
         itemFormPresentation: getItemFormPresentation(db, accountName),
-        routingSummary: getRoutingSummary(db, accountName, workspaceId),
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
       };
     });
@@ -392,9 +385,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
    * panel still exists, and what else it has captured lately and not yet
    * filed. No longer reads the Workspace's own correction ("Cap the routing
    * prompt to the last 50 decisions on panels that still exist, and drop the
-   * correction override", issue 450) - `getRoutingSummary` still answers it
-   * for the window that shows and lets you edit it (`snapshot` above), only
-   * this call stopped.
+   * correction override", issue 450).
    */
   routingContext(
     accountName: string,
@@ -409,63 +400,37 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
 
   /**
    * What a title or description proposal reads about how this account
-   * writes, and what the window that shows how it is doing reads back
-   * ("Learn how you write from the titles you correct", issue 394; "Show
-   * what Cockpit is told, and say how you want it changed", issue 398;
+   * writes ("Learn how you write from the titles you correct", issue 394;
    * `docs/text-learning.md`, "What goes into the prompt"). Per account rather
    * than per Workspace, deliberately unlike `routingContext` above (`docs/
    * text-learning.md`, "Scope: per account").
    *
-   * **Two different views over the same underlying rows, not one.** The HTTP
-   * layer's window reads `rules`, `rulesSetAt`, `stood.proposedTotal`,
-   * `stood.correctedTotal` and `pinnedExamples` back out, all-time and
-   * unbounded, exactly as before this issue - a screen this issue never asked
-   * to touch. The enrichment job reads `promptCorrections`/`promptStood`
-   * instead: the same corrections and the same judgeable items, narrowed to
-   * the last 30 days and, for `promptStood`, gated at a floor of 3 unchanged
-   * texts below which it is `null` ("Cap the text-learning prompt to the last
-   * 30 days, and drop rules and pinned examples as inputs", issue 451).
-   * `rules`/`pinnedExamples` are no longer read into the prompt at all - only
-   * the window still reads them.
+   * **Bounded to the last 30 days**: the corrections, and the ratio of
+   * corrected to judgeable items, which is `null` below a floor of 3 unchanged
+   * texts ("Cap the text-learning prompt to the last 30 days, and drop rules
+   * and pinned examples as inputs", issue 451).
    */
   textLearningContext(accountName: string): Answer<{
-    rules: string | null;
-    rulesSetAt: string | null;
-    stood: WhatStood;
     promptCorrections: TextCorrectionEntry[];
     promptStood: WhatStood | null;
-    pinnedExamples: PinnedExampleEntry[];
   }> {
     return this.#answer(accountName, (db) => {
       const corrections = textCorrectionsForAccount(db, accountName);
-      // The same test `renderOneTextCorrection` renders by, so a correction
-      // later edited back to Cockpit's own words counts nowhere rather than
-      // disagreeing between the two ("Learn how you write from the titles
-      // you correct", issue 394).
-      const correctedItemIds = new Set(
-        corrections.filter(correctionStillVisible).map((entry) => entry.itemId),
-      );
-      const rules = getTextLearningRules(db, accountName);
       const items = judgeableItemsForAccount(db, accountName);
       const cutoff = textLearningWindowCutoff(new Date());
       const promptCorrections = corrections.filter((entry) => withinTextLearningWindow(entry.recordedAt, cutoff));
-      // Windowed the same way `promptCorrections` is, not the all-time
-      // `correctedItemIds` above - `deriveWhatStoodForPrompt` needs to agree
-      // with exactly what `promptCorrections` shows, or a text corrected
-      // today whose proposal is otherwise stale would read as corrected in
-      // one section and uncounted in the other (issue 451's own review
-      // found this reintroducing the disagreement `correctedItemIds` above
-      // already exists to prevent).
+      // Windowed the same way `promptCorrections` is:
+      // `deriveWhatStoodForPrompt` has to agree with exactly what
+      // `promptCorrections` shows, or a text corrected today whose proposal is
+      // otherwise stale would read as corrected in one section and uncounted
+      // in the other. The same test `renderOneTextCorrection` renders by, so a
+      // correction later edited back to Cockpit's own words counts nowhere.
       const promptCorrectedItemIds = new Set(
         promptCorrections.filter(correctionStillVisible).map((entry) => entry.itemId),
       );
       return {
-        rules: rules?.rules ?? null,
-        rulesSetAt: rules?.rulesSetAt ?? null,
-        stood: deriveWhatStood(items, correctedItemIds),
         promptCorrections,
         promptStood: deriveWhatStoodForPrompt(items, promptCorrectedItemIds, cutoff),
-        pinnedExamples: pinnedExamplesForAccount(db, accountName),
       };
     });
   }
@@ -921,7 +886,6 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof PanelNotFoundError ||
         error instanceof LayoutNotFoundError ||
         error instanceof ScreenSizeNotFoundError ||
-        error instanceof PinnedExampleNotFoundError ||
         error instanceof SourceAccountNotFoundError
       ) {
         return { status: 'missing', what: error.message };

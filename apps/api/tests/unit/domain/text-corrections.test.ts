@@ -180,8 +180,8 @@ describe('Capture', () => {
   /**
    * "Cap the text-learning prompt to the last 30 days, and drop rules and
    * pinned examples as inputs" (issue 451): the prompt reads a narrower,
-   * floor-gated view over the same items - `deriveWhatStood` above still
-   * answers the window's own all-time, unfloored ratio unchanged.
+   * floor-gated view over the same items, and `deriveWhatStood` above is
+   * unchanged.
    */
   describe('What a proposal itself reads about the texts nobody corrected', () => {
     const CUTOFF = '2026-09-01T00:00:00.000Z';

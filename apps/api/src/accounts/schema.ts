@@ -1269,11 +1269,8 @@ export const duplicateSettlements = sqliteTable(
  * from view the moment a query excludes it, the same way `decisionHistoryFor-
  * Workspace` already does.
  *
- * **Holds only the "Edited" kind, not "Pinned" or "Rejected".** `item_id` is
- * `NOT NULL` and restricted to an Item that still exists, which a pinned
- * example - added or pasted with no Item behind it at all - cannot satisfy;
- * see `pinnedTextExamples` below for that kind's own table ("Pin an example
- * of how you want a note written", issue 397).
+ * **Holds only the "Edited" kind, not "Rejected".** `item_id` is `NOT NULL`
+ * and restricted to an Item that still exists.
  *
  * **Written only for a text Cockpit actually proposed.** `command-service.ts`
  * writes a row only where `items.texts_proposed_at` is set - an Item hand-
@@ -1314,13 +1311,14 @@ export const textCorrections = sqliteTable(
  * nightly job wrote them and nothing ever read them back, so that job is gone
  * and nothing writes them any more ("Drop the nightly filing summary, keep the
  * sentence you wrote", issue 392). They keep whatever they already hold -
- * expand-then-contract, and dropping them is its own step, once the
- * account-scoped rules block replaces this table (`docs/text-learning.md`,
- * "Build order"). Nothing may start reading them in the meantime.
+ * expand-then-contract, and dropping them is its own step, "Drop the
+ * workspace_routing_summary table" (issue 401). Nothing may start reading
+ * them in the meantime.
  *
- * `correction`/`correction_set_at` are written only by the
- * `set_routing_summary_correction` command, and that write has never touched
- * the other two columns.
+ * Nothing writes `correction`/`correction_set_at` any more either ("Remove
+ * the two learning settings screens, and the commands that write to them",
+ * issue 452); dropping the table is "Drop the workspace_routing_summary
+ * table", issue 401.
  *
  * **`workspace_id` is the primary key, not a separate `id`.** There is
  * exactly one correction per Workspace, ever, so a row is addressed by the
@@ -1368,10 +1366,11 @@ export const workspaceRoutingSummary = sqliteTable(
 );
 
 /**
- * One row per account: the rules an account writes for how Cockpit writes a
+ * One row per account: the rules an account wrote for how Cockpit writes a
  * title and a message ("Show what Cockpit is told, and say how you want it
- * changed", issue 398; `docs/text-learning.md`, "Where you see it, and
- * change it").
+ * changed", issue 398). Nothing reads or writes it any more ("Remove the two
+ * learning settings screens, and the commands that write to them", issue
+ * 452); dropping it is "Drop the `account_text_rules` table" (issue 453).
  *
  * **`tenant_id` is the primary key, not a separate `id`.** There is exactly
  * one rules box per account, ever, and inside one account's own store every
@@ -1385,8 +1384,8 @@ export const workspaceRoutingSummary = sqliteTable(
  * column null, the same convention `workspaceRoutingSummary` follows.
  *
  * **A different table from `workspace_routing_summary` above, not a
- * migration of it** - why, in `packages/shared/src/domain/text-learning-
- * rules.ts`. Nothing reads or writes across the two tables.
+ * migration of it**: that one is about filing and scoped to a Workspace, this
+ * one is about writing and scoped to the account.
  */
 export const accountTextRules = sqliteTable(
   'account_text_rules',
@@ -1427,8 +1426,10 @@ export const accountItemFormPresentation = sqliteTable(
 /**
  * A worked example of a note and the title and message chosen for it, added
  * by hand rather than corrected after the fact ("Pin an example of how you
- * want a note written", issue 397; `docs/text-learning.md`, "What is
- * stored" - the "Pinned" kind).
+ * want a note written", issue 397). Nothing reads or writes it any more
+ * ("Remove the two learning settings screens, and the commands that write to
+ * them", issue 452); dropping it is "Drop the `pinned_text_examples` table"
+ * (issue 454).
  *
  * **Its own table, not a `kind` column on `textCorrections` above.** That
  * table's primary key is the Item it corrected, `NOT NULL` and restricted

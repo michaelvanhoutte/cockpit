@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, describe, expect, inject, it, vi } from 'vitest';
 import { env, applyD1Migrations } from 'cloudflare:test';
-import { ACCOUNT_WIDE, type CommandName, type CommandPayload } from '@cockpit/shared';
+import { type CommandName, type CommandPayload } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
   DASHBOARD_ID,
@@ -748,32 +748,6 @@ describe('Capture', () => {
 
   /**
    * "Cap the routing prompt to the last 50 decisions on panels that still
-   * exist, and drop the correction override" (issue 450): the Workspace's own
-   * correction (`set_routing_summary_correction`) is no longer read into this
-   * call at all, whether or not one has been written - as far as an
-   * integration test can reach into a call whose actual routing is a live
-   * model's judgment call (tests/contract/clean-up-a-note.v8.test.ts proves
-   * the judgment itself).
-   */
-  it('never asks with a workspace correction, even once one has been written', async () => {
-    const response = await postChange('set_routing_summary_correction', {
-      commandId: nextId(),
-      issuedAt: '2026-09-09T09:00:00.000Z',
-      workspaceId: WORKSPACE_ID,
-      correction: 'Sign-off and audit-trail questions go to Laurens, not Compliance questions.',
-    });
-    expect(response.status).toBe(200);
-    theModelIs({ says: A_READING });
-
-    const itemId = await captureANote();
-    await untilTheNoteHasBeenRead(itemId);
-
-    expect(asked[0]!.system).not.toContain('Laurens, not Compliance questions');
-    expect(asked[0]!.system).not.toContain('written a correction');
-  });
-
-  /**
-   * "Cap the routing prompt to the last 50 decisions on panels that still
    * exist, and drop the correction override" (issue 450): the volume cap, the
    * Panel-existence filter and the Dashboard-existence filter it implies, all
    * read through `decisionHistoryForWorkspace` (`repo.ts`), which is what an
@@ -1383,47 +1357,6 @@ describe('Triage', () => {
       expect(asked[0]!.system).toContain('Corrected long after being proposed');
       // Four in-window Items now: three stood, one corrected - never "0 of 3".
       expect(asked[0]!.system).toContain('1 of 4 proposed texts were corrected');
-    });
-  });
-
-  /**
-   * "Cap the text-learning prompt to the last 30 days, and drop rules and
-   * pinned examples as inputs" (issue 451): both are still stored and still
-   * shown on the window that reads and writes them - only the prompt itself
-   * stopped reading either.
-   */
-  describe('the prompt no longer reads this account’s own rules or pinned examples', () => {
-    it('is built without a rule the account has written', async () => {
-      const response = await postChange('set_text_learning_rules', {
-        commandId: nextId(),
-        issuedAt: '2026-09-09T09:00:00.000Z',
-        workspaceId: ACCOUNT_WIDE,
-        rules: 'Never end a title with a question mark.',
-      });
-      expect(response.status).toBe(200);
-
-      const itemId = await captureANote();
-      await untilTheNoteHasBeenRead(itemId);
-
-      expect(asked[0]!.system).not.toContain('Never end a title with a question mark.');
-    });
-
-    it('is built without an example the account has pinned', async () => {
-      const response = await postChange('pin_text_example', {
-        commandId: nextId(),
-        issuedAt: '2026-09-09T09:00:00.000Z',
-        workspaceId: ACCOUNT_WIDE,
-        exampleId: nextId(),
-        note: 'bel novy ivm afspraak',
-        title: 'A pinned title nothing else in this test writes',
-        description: '',
-      });
-      expect(response.status).toBe(200);
-
-      const itemId = await captureANote();
-      await untilTheNoteHasBeenRead(itemId);
-
-      expect(asked[0]!.system).not.toContain('A pinned title nothing else in this test writes');
     });
   });
 });
