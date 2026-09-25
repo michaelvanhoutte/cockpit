@@ -396,7 +396,7 @@ test.describe('Panels', () => {
  */
 test.describe('Panels', () => {
   test.describe('a drag reaches a place that was not on screen when it started', () => {
-    test('scrolls the dashboard while an item is held at its bottom edge, until a panel below the fold is under the pointer', async ({
+    test('scrolls the dashboard while an item is held at its bottom edge, until a panel below the fold is under the pointer, and does the same for a panel dragged by its header', async ({
       page,
       isMobile,
     }) => {
@@ -453,6 +453,43 @@ test.describe('Panels', () => {
       await expect(question).toBeVisible();
       await press(question.getByRole('button', { name: 'Add it here as well' }), isMobile);
       await expect.poll(() => itemsOn(page, last)).toEqual([title]);
+
+      // **And a panel's header drag scrolls the dashboard too**, which the
+      // browser never does for a pointer gesture, and the arrangement drawn
+      // under the hand follows the scroll while the pointer is still. Held at
+      // the bottom until the gap under the last row is on screen, and dropped
+      // there: the panel takes a row of its own.
+      await scroller.evaluate((el) => (el.scrollTop = 0));
+      const gap = page.locator('main [data-testid="row-seam"]').last();
+      const gapInView = () =>
+        gap.evaluate((el) => {
+          const at = el.getBoundingClientRect();
+          return at.top >= 0 && at.bottom <= window.innerHeight;
+        });
+      expect(await gapInView(), 'the gap was already on screen').toBe(false);
+      const header = page.getByRole('region', { name: panel }).locator('header');
+      const box = await header.boundingBox();
+      if (!box) throw new Error('the panel’s header is not on screen');
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(over.x + over.width / 2, over.y + over.height - 6, { steps: 8 });
+      for (let held = 0; held < 200 && !(await gapInView()); held += 1) {
+        await page.mouse.move(over.x + over.width / 2, over.y + over.height - 6 + (held % 2));
+        await page.waitForTimeout(40);
+      }
+      expect(await gapInView(), 'the gap never scrolled into view').toBe(true);
+      const seam = await gap.boundingBox();
+      if (!seam) throw new Error('the gap is not on screen');
+      await page.mouse.move(seam.x + seam.width / 2, seam.y + seam.height / 2, { steps: 4 });
+      await page.mouse.up();
+      await expect
+        .poll(() =>
+          page
+            .locator('main [style*="grid-template-columns"]')
+            .last()
+            .evaluate((row) => [...row.querySelectorAll('section[aria-label]')].map((p) => p.getAttribute('aria-label'))),
+        )
+        .toEqual([panel]);
     });
   });
 });

@@ -13,7 +13,7 @@ import { ITEM_BEING_DRAGGED } from './dropAt';
  * **The two decisions are pure, for the reason the swipe's is** (swipe.ts):
  * jsdom scrolls nothing, so `scrollSpeed` and `boxToScroll` take pointer
  * position, box geometry and the box that was scrolling last, and the loop that
- * applies them is the browser walk's (tests/e2e/panels.test.ts).
+ * applies them is the browser walk's (tests/e2e/filing.test.ts).
  */
 
 /** A scrollable box as it is on the page right now. */

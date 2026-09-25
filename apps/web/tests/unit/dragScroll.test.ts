@@ -6,7 +6,7 @@ import type { ScrollBox } from '../../src/dragScroll';
  * F1, and this is where the rules live rather than in the loop that applies
  * them: jsdom scrolls nothing, so a test driving drag events against it would
  * measure nothing. That a drag really reaches what was off screen is
- * tests/e2e/panels.test.ts.
+ * tests/e2e/filing.test.ts.
  */
 
 const box = (over: Partial<ScrollBox> = {}): ScrollBox => ({
