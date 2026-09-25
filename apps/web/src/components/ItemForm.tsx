@@ -30,6 +30,7 @@ import {
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../api/client';
 import { snapshotQuery, useSendCommand, type CommandArgs } from '../api/queries';
 import { DescriptionBox } from './DescriptionBox';
+import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
 import { possibleDuplicatesOf } from '../duplicates';
 import { dueComingFriday, dueSevenDaysOut, dueToday } from '../dueDateShortcuts';
 import { filingsThatFile } from '../filing';
@@ -537,7 +538,7 @@ function TheForm({
   /** A file pasted into the form or dropped on it, outside the description text, is attached. */
   const takesFiles = (event: ReactDragEvent) => event.dataTransfer.types.includes('Files');
   const inTheDescriptionText = (target: EventTarget | null) =>
-    target instanceof Element && target.closest('.description-prose') !== null;
+    target instanceof Element && target.closest(`.${DESCRIPTION_TEXT_CLASS}`) !== null;
 
   // A callback ref rather than an object one: Radix's `Content` mounts behind
   // its own exit-animation machinery (`Presence`), so the node an object ref
@@ -1208,7 +1209,19 @@ function TheForm({
       <Dialog.Portal>
         {/* No scrim while docked - the page behind stays visible as well as
             clickable, which a dimming overlay over it would contradict. */}
-        {!docked && <Dialog.Overlay className="fixed inset-0 bg-black/30" />}
+        {/* A file let go just outside the form lands here, and is kept from
+            the browser for the reason the form's own drop is. */}
+        {!docked && (
+          <Dialog.Overlay
+            className="fixed inset-0 bg-black/30"
+            onDragOver={(event) => {
+              if (takesFiles(event)) event.preventDefault();
+            }}
+            onDrop={(event) => {
+              if (takesFiles(event)) event.preventDefault();
+            }}
+          />
+        )}
         <Dialog.Content
           ref={setContentEl}
           aria-describedby={undefined}
@@ -1757,7 +1770,8 @@ function TheForm({
                         </p>
                         {/* Dropped on, a file is attached by the form's own
                             drop, which takes one anywhere outside the
-                            description text (issue 442). */}
+                            description text ("Embed an image inline in an
+                            item's description", issue 442). */}
                         <div
                           className={`mt-1 flex flex-col gap-1.5 rounded-md border border-dashed px-3 py-2 ${
                             filesOver ? 'border-accent bg-accent-tint' : 'border-black/10'

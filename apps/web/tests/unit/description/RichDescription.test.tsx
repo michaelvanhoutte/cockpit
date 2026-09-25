@@ -173,6 +173,27 @@ describe('Item editing', () => {
 
       await waitFor(() => expect(changes.at(-1)).toBe(`ToXYler![photo.png](${ADDRESS}1)ances\n`));
     });
+
+    it('puts what is typed right after it after the image, as after a pasted word', async () => {
+      const { box, changes, uploading, user } = await anEditor('Tolerances');
+      await caretIn(user, box, 0, 5);
+      await paste(user, box, [aFile('photo.png', 'image/png')]);
+
+      await user.keyboard('XY');
+      uploading.landAll();
+
+      await waitFor(() => expect(changes.at(-1)).toBe(`Toler![photo.png](${ADDRESS}1)XYances\n`));
+    });
+
+    it('lands just after a code block it was put in, which takes no image', async () => {
+      const { box, changes, uploading, user } = await anEditor('```\nnpm test\n```');
+      await caretIn(user, box, 0, 3, 'code');
+
+      await paste(user, box, [aFile('photo.png', 'image/png')]);
+      uploading.landAll();
+
+      await waitFor(() => expect(changes.at(-1)).toBe(`\`\`\`\nnpm test\n\`\`\`\n\n![photo.png](${ADDRESS}1)\n`));
+    });
   });
 
   describe('while an image uploads, the text says so where it will land', () => {
@@ -314,12 +335,12 @@ async function anEditor(initial: string) {
 }
 
 /**
- * The caret, `offset` characters into the `paragraph`th paragraph. jsdom
- * has a selection ProseMirror reads once the document says it moved.
+ * The caret, `offset` characters into the `line`th line drawn as `drawnAs`.
+ * jsdom has a selection ProseMirror reads once the document says it moved.
  */
-async function caretIn(user: User, box: HTMLElement, paragraph: number, offset: number) {
+async function caretIn(user: User, box: HTMLElement, line: number, offset: number, drawnAs = 'p') {
   await user.click(box);
-  const text = box.querySelectorAll('p')[paragraph]!.firstChild!;
+  const text = box.querySelectorAll(drawnAs)[line]!.firstChild!;
   window.getSelection()!.collapse(text, offset);
   document.dispatchEvent(new Event('selectionchange'));
   // ProseMirror reads a moved selection on a timer of its own.

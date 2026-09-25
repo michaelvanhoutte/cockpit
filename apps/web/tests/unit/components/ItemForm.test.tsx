@@ -14,6 +14,7 @@ import type {
 } from '@cockpit/shared';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../../../src/api/client';
 import { DUE_DATE_SETTLES_MS, ItemForm, whatChanged } from '../../../src/components/ItemForm';
+import { DESCRIPTION_TEXT_CLASS } from '../../../src/description/textClass';
 import { dueComingFriday, dueSevenDaysOut, dueToday } from '../../../src/dueDateShortcuts';
 import { THE_BAR_LASTS_MS, UndoWhatJustHappened } from '../../../src/undo';
 
@@ -118,7 +119,7 @@ function FakeRichDescription({
         aria-label="Description"
         // The real editor's text carries this class, which is how the form
         // tells a drop into the text from one anywhere else.
-        className="description-prose"
+        className={DESCRIPTION_TEXT_CLASS}
         disabled={!editable}
         value={value}
         onChange={(event) => {
@@ -1374,6 +1375,11 @@ describe('Item editing', () => {
       { situation: 'the title', target: () => titleBox(), attached: 1 },
       { situation: 'empty space on the form', target: () => screen.getByRole('dialog'), attached: 1 },
       { situation: 'the description text', target: () => descriptionBox(), attached: 0 },
+      {
+        situation: 'the dimmed page just outside the form',
+        target: () => document.querySelector('.bg-black\\/30')!,
+        attached: 0,
+      },
     ])('never leaves a drop on $situation to the browser, which would open the file', async ({ target, attached }) => {
       await theForm(anItem());
       const carrying = { dataTransfer: { types: ['Files'], files: [aPhoto()] } };

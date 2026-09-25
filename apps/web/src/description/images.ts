@@ -77,10 +77,10 @@ function marker({ id, name, pos, order }: { id: string; name: string; pos: numbe
       dom.textContent = `Uploading ${name}…`;
       return dom;
     },
-    // `side` keeps a batch in the order it was given while its markers share a
-    // position, and is never negative, so a marker put at the cursor stays
-    // ahead of whatever is typed next.
-    { ...spec, key: id, side: order, ignoreSelection: true },
+    // `side` is negative, so the marker stays behind the cursor and what is
+    // typed next goes after the image, as it would after a pasted word; and
+    // it rises through a batch, which keeps the markers in the order given.
+    { ...spec, key: id, side: order - 1000, ignoreSelection: true },
   );
 }
 
@@ -163,8 +163,9 @@ export async function putImages(
 /**
  * The image, where its marker now is: inside the line where the marker sits
  * mid-text or on an empty line, and a paragraph of its own where it sits at
- * either end of a line or between blocks - so an image dropped between two
- * paragraphs lands between them rather than on the end of the first.
+ * either end of a line, between blocks, or in a line that takes no image - so
+ * an image dropped between two paragraphs lands between them rather than on
+ * the end of the first.
  */
 function land(view: EditorView, id: string, name: string, src: string, nextId: string | undefined) {
   const found = markerAt(view.state, id);
@@ -179,6 +180,10 @@ function land(view: EditorView, id: string, name: string, src: string, nextId: s
   let into = found.pos;
   let node = image;
   if (!line.inlineContent) {
+    node = own();
+  } else if (!line.canReplaceWith($pos.index(), $pos.index(), image.type)) {
+    // A line that takes no image - a code block - gets it after, not lost.
+    into = $pos.after();
     node = own();
   } else if (line.content.size > 0 && $pos.parentOffset === 0) {
     into = $pos.before();

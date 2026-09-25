@@ -25,6 +25,7 @@ import type { EditorView } from '@milkdown/prose/view';
 import { SHOWN, putImages, uploadMarkers, type UploadImage } from './images';
 import { safeHref } from './safeHref';
 import { descriptionSyntax } from './syntax';
+import { DESCRIPTION_TEXT_CLASS } from './textClass';
 import './description.css';
 
 /** Where a request for a link's address is parked while it is being typed. */
@@ -162,7 +163,7 @@ export default function RichDescription({
             'aria-label': label,
             role: 'textbox',
             'aria-multiline': 'true',
-            class: 'description-prose',
+            class: DESCRIPTION_TEXT_CLASS,
           },
         }));
       })
