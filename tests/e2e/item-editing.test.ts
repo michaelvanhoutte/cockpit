@@ -261,6 +261,28 @@ test.describe('Item editing', () => {
       await expect(priorityBox(page)).toHaveCount(0);
       await expect(itemRow(page, marked).getByLabel('High priority')).toHaveCount(0);
       await expect(itemRow(page, marked).getByText('Due Sep 30, 2026')).toHaveCount(0);
+
+      // Its type and its status, from the same form ("Change an item's type,
+      // and its status, from its form, and see where it is shown", issue 528):
+      // the type is still the one picked on the way back in, the Inbox is where
+      // Details says it is shown, and finishing it takes it off the list.
+      await openItem(page, marked, isMobile);
+      const types = form(page).getByLabel('Type');
+      const other = await types.locator('option:not(:checked)').first().getAttribute('value');
+      await types.selectOption(other!);
+      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+      await expect(priorityBox(page)).toHaveCount(0);
+
+      await openItem(page, marked, isMobile);
+      await expect(form(page).getByLabel('Type')).toHaveValue(other!);
+      await press(form(page).getByRole('tab', { name: 'Details' }), isMobile);
+      await expect(form(page).getByText('Shown on')).toBeVisible();
+      await expect(form(page).getByText('Inbox', { exact: true })).toBeVisible();
+      await press(form(page).getByRole('tab', { name: 'Item' }), isMobile);
+      await form(page).getByLabel('Status').selectOption('done');
+      await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
+      await expect(priorityBox(page)).toHaveCount(0);
+      await expect(itemRow(page, marked)).toHaveCount(0);
     });
   });
 

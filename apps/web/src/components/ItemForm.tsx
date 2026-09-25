@@ -32,6 +32,8 @@ import { DescriptionBox } from './DescriptionBox';
 import { possibleDuplicatesOf } from '../duplicates';
 import { dueComingFriday, dueSevenDaysOut, dueToday } from '../dueDateShortcuts';
 import { filingsThatFile } from '../filing';
+import { dayOf, shownOn } from '../filters';
+import { typeOf, typesOffered } from '../itemTypes';
 import {
   FIELDS,
   FIELD_NAMES,
@@ -123,12 +125,16 @@ export function whatChanged(
   description?: string | null;
   priority?: Priority | null;
   dueDate?: string | null;
+  typeId?: string | null;
+  done?: boolean;
 } {
   const changed: {
     title?: string;
     description?: string | null;
     priority?: Priority | null;
     dueDate?: string | null;
+    typeId?: string | null;
+    done?: boolean;
   } = {};
   const title = now.title.trim();
   const description = now.description.trim();
@@ -139,6 +145,9 @@ export function whatChanged(
   if (now.priority !== was.priority) changed.priority = now.priority;
   // A calendar date or null - nothing to trim either.
   if (now.dueDate !== was.dueDate) changed.dueDate = now.dueDate;
+  // An id from the list the form offers, or the none it opened on - not text either.
+  if (now.typeId !== was.typeId) changed.typeId = now.typeId;
+  if (now.done !== was.done) changed.done = now.done;
   return changed;
 }
 
@@ -815,10 +824,13 @@ function TheForm({
         description: item.description ?? '',
         priority: item.priority,
         dueDate: item.dueDate,
+        // A type since deleted reads as none, the way the row draws it.
+        typeId: typeOf(data?.itemTypes ?? [], item)?.id ?? null,
+        done: !!item.completedAt,
       };
       changeEditing(() => ({ was: from, now: { ...from } }));
     }
-  }, [item, editing]);
+  }, [item, editing, data?.itemTypes]);
 
   /**
    * Over the cap in a box that is actually being sent, not in one that merely
@@ -829,6 +841,17 @@ function TheForm({
    * with Save already disabled, and refuse a description-only edit for a title
    * nothing was going to send. What is refused is what would be written.
    */
+  const shownOnNames = item
+    ? shownOn(
+        item,
+        data?.items ?? [],
+        data?.filings ?? [],
+        data?.panels ?? [],
+        data?.dashboards ?? [],
+        data?.itemTypes ?? [],
+        dayOf(new Date()),
+      )
+    : [];
   const changing = editing ? whatChanged(editing.was, editing.now) : {};
   const overCap =
     (changing.title !== undefined && changing.title.length > TITLE_LENGTH
@@ -867,7 +890,7 @@ function TheForm({
      * would close on it and take what was typed with it.
      */
     const landed = async (
-      what: 'title' | 'description' | 'priority' | 'dueDate',
+      what: Field,
       change: CommandArgs,
     ): Promise<boolean> => {
       const answer = await send(change);
@@ -996,16 +1019,19 @@ function TheForm({
         closeRefused.current = false;
         setRefusal(null);
       }
-      if (committed.length === 0 || undoneCount.current !== undoneAtCall) return;
+      // A type cannot be put back to none - nothing sends that - so an item that
+      // had none has nothing to undo to.
+      const undoable = committed.filter(({ field, before }) => !(field === 'typeId' && before === null));
+      if (undoable.length === 0 || undoneCount.current !== undoneAtCall) return;
       offerToUndo({
-        what: `Changed the ${committed.map(({ field }) => FIELD_NAMES[field]).join(' and the ')}`,
+        what: `Changed the ${undoable.map(({ field }) => FIELD_NAMES[field]).join(' and the ')}`,
         // Queued behind any write still in flight, for the reason the writes
         // are queued behind each other: run alongside one, it could land first
         // and be overwritten by a value the person had already gone back past.
         undo: () => {
           undoneCount.current += 1;
           const run = inTurn.current.then(async () => {
-            for (const { field, before } of [...committed].reverse()) {
+            for (const { field, before } of [...undoable].reverse()) {
               const back = asStored({ ...held.now, [field]: before }, field);
               const answer = await send(fieldCommand(field, envelope(), back));
               if (!answer.applied) throw new Error(CHANGED_ELSEWHERE);
@@ -1472,8 +1498,49 @@ function TheForm({
                       (`-mx-1 … px-1` keeps that scroll from clipping the
                       buttons' `focus:ring-2`). */}
                     <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(10rem,1fr)_auto] gap-4 @lg:grid-cols-[18rem_minmax(0,1fr)] @lg:grid-rows-[auto_minmax(0,1fr)]">
+                      <div className="flex flex-col gap-3 @lg:col-start-1 @lg:row-start-1">
+                      {/* Type and status beside each other above the rest of the short fields (issue 528). */}
+                      <div className="flex gap-3">
+                        <label className="block min-w-0 flex-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                          Type
+                          <select
+                            disabled={saving}
+                            value={draft.typeId ?? ''}
+                            onChange={(e) => {
+                              // Nothing sets a type to none, so an empty pick is not a change.
+                              if (!e.target.value) return;
+                              setDraft({ ...draft, typeId: e.target.value });
+                              if (docked) void commitFields(['typeId']);
+                            }}
+                            className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                          >
+                            {/* Only while the item has none: nothing sets a type to none, so once one is picked it is not offered again. */}
+                            {draft.typeId === null && <option value="">No type</option>}
+                            {typesOffered(data?.itemTypes ?? [], data?.items ?? []).map((type) => (
+                              <option key={type.id} value={type.id}>
+                                {type.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="block min-w-0 flex-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                          Status
+                          <select
+                            disabled={saving}
+                            value={draft.done ? 'done' : 'open'}
+                            onChange={(e) => {
+                              setDraft({ ...draft, done: e.target.value === 'done' });
+                              if (docked) void commitFields(['done']);
+                            }}
+                            className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                          >
+                            <option value="open">To deal with</option>
+                            <option value="done">Done</option>
+                          </select>
+                        </label>
+                      </div>
                       {/* Priority and due date share a row (issue 480). */}
-                      <div className="flex gap-3 @lg:col-start-1 @lg:row-start-1">
+                      <div className="flex gap-3">
                         <label className="block flex-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">
                           Priority
                           <select
@@ -1552,6 +1619,7 @@ function TheForm({
                             ))}
                           </div>
                         </div>
+                      </div>
                       </div>
 
                       {/* Formatted, with the Markdown behind it one button away
@@ -1766,6 +1834,24 @@ function TheForm({
                         </dt>
                         <dd className="mt-1 text-ink-soft">
                           {new Date(item.updatedAt).toLocaleString()}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                          Shown on
+                        </dt>
+                        {/* A record, not a control: where an item is shown is
+                            decided by filing it and by the filters, not here. */}
+                        <dd className="mt-1 text-ink-soft">
+                          {shownOnNames === null ? (
+                            'Not shown on any panel while it is done.'
+                          ) : (
+                            <ul className="flex flex-col gap-0.5">
+                              {shownOnNames.map((name) => (
+                                <li key={name}>{name}</li>
+                              ))}
+                            </ul>
+                          )}
                         </dd>
                       </div>
                     </dl>

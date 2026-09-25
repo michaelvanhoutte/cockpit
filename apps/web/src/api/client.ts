@@ -345,6 +345,8 @@ const commandSenders = {
     api.v1.commands.set_next_action.$post({ json: p }),
   set_priority: (p: CommandPayload<'set_priority'>) =>
     api.v1.commands.set_priority.$post({ json: p }),
+  set_item_type: (p: CommandPayload<'set_item_type'>) =>
+    api.v1.commands.set_item_type.$post({ json: p }),
   set_due_date: (p: CommandPayload<'set_due_date'>) =>
     api.v1.commands.set_due_date.$post({ json: p }),
   set_title: (p: CommandPayload<'set_title'>) => api.v1.commands.set_title.$post({ json: p }),

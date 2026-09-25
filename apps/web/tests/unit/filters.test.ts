@@ -18,6 +18,7 @@ import {
   itemsMatchingFilter,
   panelAndFilterIdsByItem,
   saysWhatItShows,
+  shownOn,
 } from '../../src/filters';
 
 /**
@@ -833,6 +834,48 @@ describe('Panels', () => {
         'due-soon',
         'today',
       ]);
+    });
+  });
+
+  describe('the form lists where an item is shown, as dashboard and panel, or the inbox where it is filed nowhere', () => {
+    const dashboards = [{ id: 'today', name: 'Today' }];
+    const where = (item: Item, others: Item[], filings: Filing[], panels: Panel[]) =>
+      shownOn(item, [item, ...others], filings, panels, dashboards, [], TODAY);
+    const dueSoon = {
+      ...aPanel('due-soon', 'filter'),
+      name: 'Due soon',
+      filter: { conditions: [due('today')], match: 'all' as const },
+    };
+
+    it('names the one panel an item is filed on', () => {
+      const item = anItem('a');
+
+      expect(where(item, [], [filed('falcon', 'a')], [{ ...FALCON, name: 'Falcon' }])).toEqual([
+        'Today › Falcon',
+      ]);
+    });
+
+    it('names every panel and every filter, in panel order', () => {
+      const q3 = { ...aPanel('q3'), name: 'Q3 goals' };
+      const item = anItem('a', { dueDate: TODAY });
+
+      expect(
+        where(item, [], [filed('q3', 'a'), filed('falcon', 'a')], [
+          dueSoon,
+          { ...FALCON, name: 'Falcon' },
+          q3,
+        ]),
+      ).toEqual(['Today › Due soon', 'Today › Falcon', 'Today › Q3 goals']);
+    });
+
+    it('says the inbox where it is filed nowhere', () => {
+      expect(where(anItem('a'), [], [], [FALCON])).toEqual(['Inbox']);
+    });
+
+    it('says nothing is shown for a finished item, wherever it was filed', () => {
+      const item = anItem('a', { completedAt: '2026-09-01T08:00:00.000Z' });
+
+      expect(where(item, [], [filed('falcon', 'a')], [FALCON])).toBeNull();
     });
   });
 });

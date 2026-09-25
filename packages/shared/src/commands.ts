@@ -458,6 +458,13 @@ export const setPrioritySchema = commandEnvelopeSchema.extend({
 });
 export type SetPriorityCommand = z.infer<typeof setPrioritySchema>;
 
+/** set_item_type - the type an item is, changed after capture; never "none", which capture does not offer either ("Change an item's type, and its status, from its form, and see where it is shown", issue 528). */
+export const setItemTypeSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  typeId: z.string().min(1),
+});
+export type SetItemTypeCommand = z.infer<typeof setItemTypeSchema>;
+
 export const setDueDateSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   dueDate: z.iso.date().nullable(),
@@ -731,6 +738,7 @@ export const commandSchemas = {
   associate: associateSchema,
   set_next_action: setNextActionSchema,
   set_priority: setPrioritySchema,
+  set_item_type: setItemTypeSchema,
   set_due_date: setDueDateSchema,
   set_title: setTitleSchema,
   set_description: setDescriptionSchema,

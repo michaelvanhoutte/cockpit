@@ -1,17 +1,21 @@
 import type { Priority } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
 
-/** What the two boxes, the priority control and the due date hold, before anything is sent. */
+/** What the two boxes, the priority, type and status controls and the due date hold, before anything is sent. */
 export interface Draft {
   title: string;
   description: string;
   priority: Priority | null;
   /** ISO calendar date (`2026-09-30`), or `null` for none - the empty string the date input shows for "unset" is never stored in the draft. */
   dueDate: string | null;
+  /** The type the item is, or `null` where it has none (never had one, or its type was deleted) - only ever what the form opened on, never something a person can pick. */
+  typeId: string | null;
+  /** Whether the item is finished with; a dismissed item is not in the snapshot, so there is no third state. */
+  done: boolean;
 }
 
-/** The four fields the item's form edits, in the order they are sent. */
-export const FIELDS = ['title', 'description', 'priority', 'dueDate'] as const;
+/** The six fields the item's form edits, in the order they are sent. */
+export const FIELDS = ['title', 'description', 'priority', 'dueDate', 'typeId', 'done'] as const;
 export type Field = (typeof FIELDS)[number];
 
 /** What each field is called where a person is told it changed. */
@@ -20,6 +24,8 @@ export const FIELD_NAMES: Record<Field, string> = {
   description: 'description',
   priority: 'priority',
   dueDate: 'due date',
+  typeId: 'type',
+  done: 'status',
 };
 
 /**
@@ -27,7 +33,7 @@ export const FIELD_NAMES: Record<Field, string> = {
  * the same reading `whatChanged` compares on, so a value sent and a value
  * compared can never differ.
  */
-export function asStored(draft: Draft, field: Field): string | Priority | null {
+export function asStored(draft: Draft, field: Field): string | Priority | boolean | null {
   if (field === 'title') return draft.title.trim();
   if (field === 'description') return draft.description.trim() || null;
   return draft[field];
@@ -45,7 +51,7 @@ export function fieldCommand(
     workspaceId: string;
     itemId: string;
   },
-  value: string | Priority | null,
+  value: string | Priority | boolean | null,
 ): CommandArgs {
   switch (field) {
     case 'title':
@@ -67,6 +73,16 @@ export function fieldCommand(
       return {
         name: 'set_due_date',
         payload: { ...envelope, dueDate: value as string | null },
+      };
+    case 'typeId':
+      return {
+        name: 'set_item_type',
+        payload: { ...envelope, typeId: value as string },
+      };
+    case 'done':
+      return {
+        name: 'set_done',
+        payload: { ...envelope, done: value as boolean },
       };
   }
 }
