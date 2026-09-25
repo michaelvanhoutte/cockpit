@@ -20,6 +20,7 @@ import {
   saysWhatItShows,
   shownOn,
 } from '../../src/filters';
+import { DEFAULT_FILTER_SORT } from '../../src/sorting';
 
 /**
  * F1: what a Filter gathers is a view over the snapshot evaluated in the
@@ -484,7 +485,7 @@ describe('Panels', () => {
       // A tie at every step: two dates, two priorities on the nearer one, and
       // two ages on the higher of those - and an undated row last, though it is
       // the oldest thing here by six years.
-      expect(inFilterOrder(items).map((item) => item.id)).toEqual([
+      expect(inFilterOrder(items, DEFAULT_FILTER_SORT, []).map((item) => item.id)).toEqual([
         'soonest-high-older',
         'soonest-high',
         'soonest-low',
@@ -492,6 +493,16 @@ describe('Panels', () => {
         'later',
         'undated-but-oldest',
       ]);
+    });
+
+    it('goes oldest first wherever a chosen sort leaves two tied', () => {
+      const tied = [
+        anItem('newer', { priority: 'high', createdAt: '2026-09-02T08:00:00.000Z' }),
+        anItem('older', { priority: 'high', createdAt: '2026-09-01T08:00:00.000Z' }),
+      ];
+      expect(
+        inFilterOrder(tied, [{ field: 'priority', direction: 'desc' }], []).map((item) => item.id),
+      ).toEqual(['older', 'newer']);
     });
 
     it('draws them in that order rather than in the order they were filed', () => {

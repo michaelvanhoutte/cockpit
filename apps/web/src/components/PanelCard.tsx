@@ -85,9 +85,10 @@ export interface PanelCardProps {
    */
   onFilter: (openedFrom: HTMLElement | null) => void;
   /**
-   * Asked to open the question that says how this Panel of items is sorted
-   * ("Sort a panel of items by the fields you choose", issue 526). Never called
-   * for a Panel of text or a Filter, which are not offered the entry.
+   * Asked to open the question that says how this Panel is sorted ("Sort a panel
+   * of items by the fields you choose", issue 526; "Choose how a Filter's rows
+   * are sorted", issue 527). Never called for a Panel of text, which is not
+   * offered the entry.
    */
   onSort: (openedFrom: HTMLElement | null) => void;
   /**
@@ -154,9 +155,9 @@ export function PanelCard({
     ? saysWhatItShows(filter.conditions, itemTypes, panelsInWorkspace, filter.match)
     : null;
   /**
-   * How a Panel of items is sorted, read back as a sentence by the mark beside
-   * its name - and null while it is Manual, when there is no mark. Only a Panel
-   * that takes items is sorted this way.
+   * How a Panel is sorted, read back as a sentence by the mark beside its name
+   * - and null while it is Manual, or a Filter nobody has sorted, when there is
+   * no mark.
    */
   const sort = sortOf(panel);
   const sortedAs = sort ? saysHowItIsSorted(sort) : null;
@@ -242,10 +243,8 @@ export function PanelCard({
                 // only on a panel of text: a panel with nothing to gather has
                 // no conditions for this to be about.
                 ...(filter ? [{ label: 'Filter…', onSelect: onFilter }] : []),
-                // Only on a Panel of items: a Panel of text has no rows, and a
-                // Filter's order is its own question ("Choose how a Filter's
-                // rows are sorted", issue 527).
-                ...(panelTakesItems(panel) ? [{ label: 'Sort…', onSelect: onSort }] : []),
+                // Not on a Panel of text, which has no rows.
+                ...(panelTakesItems(panel) || filter ? [{ label: 'Sort…', onSelect: onSort }] : []),
                 {
                   label: 'Move to another dashboard',
                   unavailable: canMoveToAnotherDashboard
@@ -583,7 +582,7 @@ export function PanelCard({
             gathered={filter !== null}
             // A sorted Panel's rows go where the sort puts them, so none is
             // dragged to a new place in it.
-            sorted={sortedAs !== null}
+            sorted={sortedAs !== null && filter === null}
             emptyMessage={
               filter
                 ? filter.conditions.length === 0
@@ -596,7 +595,7 @@ export function PanelCard({
           />
         )}
       </div>
-
     </section>
+
   );
 }

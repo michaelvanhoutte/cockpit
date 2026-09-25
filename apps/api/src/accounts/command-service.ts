@@ -476,19 +476,22 @@ function refuseUnlessAFilter(panel: { name: string; kind: PanelKind }) {
 }
 
 /**
- * Refuses a panel that is not a panel of items where its sort is being set
- * ("Sort a panel of items by the fields you choose", issue 526) - a panel of
- * text has no rows, and a Filter's order is its own question ("Choose how a
- * Filter's rows are sorted", issue 527). The fourth of the same family, for the
- * same reason.
+ * Refuses a sort for a panel with no rows to sort, and Manual for a Filter
+ * ("Sort a panel of items by the fields you choose", issue 526; "Choose how a
+ * Filter's rows are sorted", issue 527). A panel of text has no rows; a
+ * Filter's rows are gathered rather than filed, so it has no order of its own
+ * to go back to. The fourth of the same family, for the same reason.
  */
-function refuseUnlessPanelOfItems(panel: { name: string; kind: PanelKind }) {
-  if (!panelTakesItems(panel)) {
-    throw new PanelHoldsSomethingElseError(
-      panelGathers(panel)
-        ? `${panel.name} is a filter, which is not sorted this way`
-        : `${panel.name} holds text, so it has no rows to sort`,
-    );
+function refuseUnlessSortable(
+  panel: { name: string; kind: PanelKind },
+  sort: readonly unknown[] | null,
+) {
+  if (panelTakesItems(panel)) return;
+  if (!panelGathers(panel)) {
+    throw new PanelHoldsSomethingElseError(`${panel.name} holds text, so it has no rows to sort`);
+  }
+  if (sort === null) {
+    throw new PanelHoldsSomethingElseError(`${panel.name} is a filter, which is never Manual`);
   }
 }
 
@@ -1060,7 +1063,9 @@ export function runCommand<N extends CommandName>(
           // The whole list, over whatever is there: the question is saved at
           // once, so the later save standing is the same answer this app gives
           // everywhere else.
-          .set({ filterConditions: panelFilterAsStored(cmd.conditions, cmd.match) })
+          .set({
+            filterConditions: panelFilterAsStored(cmd.conditions, cmd.match),
+          })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
         tx.insert(commands).values(commandRow).run();
@@ -1070,7 +1075,7 @@ export function runCommand<N extends CommandName>(
     case 'set_panel_sort': {
       const cmd = payload as CommandPayload<'set_panel_sort'>;
       const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
-      refuseUnlessPanelOfItems(panel);
+      refuseUnlessSortable(panel, cmd.sort);
       db.transaction((tx) => {
         // The sort alone: the filings keep the order you set, which is what
         // going back to Manual gives back.

@@ -45,13 +45,26 @@ async function send(command: string, body: Record<string, unknown>) {
 async function aPanel(kind: 'items' | 'text' | 'filter' = 'items'): Promise<string> {
   const dashboardId = nextId();
   expect(
-    (await send('add_dashboard', { workspaceId: WORKSPACE_ID, dashboardId, panelId: nextId(), name: `Today ${seq}` }))
-      .status,
+    (
+      await send('add_dashboard', {
+        workspaceId: WORKSPACE_ID,
+        dashboardId,
+        panelId: nextId(),
+        name: `Today ${seq}`,
+      })
+    ).status,
   ).toBe(200);
   const panelId = nextId();
   expect(
-    (await send('add_panel', { workspaceId: WORKSPACE_ID, dashboardId, panelId, name: `Reading list ${seq}`, kind }))
-      .status,
+    (
+      await send('add_panel', {
+        workspaceId: WORKSPACE_ID,
+        dashboardId,
+        panelId,
+        name: `Reading list ${seq}`,
+        kind,
+      })
+    ).status,
   ).toBe(200);
   return panelId;
 }
@@ -184,7 +197,10 @@ describe('Panels', () => {
         sql.exec('UPDATE panels SET sort_criteria = ? WHERE id = ?', stored, panelId),
       );
 
-      expect(await panelNow(panelId)).toMatchObject({ kind: 'items', sort: null });
+      expect(await panelNow(panelId)).toMatchObject({
+        kind: 'items',
+        sort: null,
+      });
     });
 
     it.each([
@@ -196,18 +212,54 @@ describe('Panels', () => {
           { field: 'dueDate', direction: 'desc' },
         ],
       },
-      { situation: 'a field nothing knows about', kind: 'items' as const, sort: [{ field: 'weather', direction: 'asc' }] },
-      { situation: 'a direction nothing knows about', kind: 'items' as const, sort: [{ field: 'title', direction: 'sideways' }] },
-      { situation: 'no field at all, where Manual is having no sort', kind: 'items' as const, sort: [] },
-      { situation: 'a panel of text, which has no rows', kind: 'text' as const, sort: BY_DUE_THEN_PRIORITY },
-      // Until "Choose how a Filter's rows are sorted" (issue 527).
-      { situation: 'a Filter, whose order is its own', kind: 'filter' as const, sort: BY_DUE_THEN_PRIORITY },
+      {
+        situation: 'a field nothing knows about',
+        kind: 'items' as const,
+        sort: [{ field: 'weather', direction: 'asc' }],
+      },
+      {
+        situation: 'a direction nothing knows about',
+        kind: 'items' as const,
+        sort: [{ field: 'title', direction: 'sideways' }],
+      },
+      {
+        situation: 'no field at all, where Manual is having no sort',
+        kind: 'items' as const,
+        sort: [],
+      },
+      {
+        situation: 'a panel of text, which has no rows',
+        kind: 'text' as const,
+        sort: BY_DUE_THEN_PRIORITY,
+      },
+      {
+        situation: 'no field at all, on a Filter',
+        kind: 'filter' as const,
+        sort: [],
+      },
+      {
+        situation: 'Manual, on a Filter, which has no order of its own',
+        kind: 'filter' as const,
+        sort: null,
+      },
     ])('refuses a sort of $situation, and stores nothing of it', async ({ kind, sort }) => {
       const panelId = await aPanel(kind);
 
       expect((await setSort(panelId, sort)).status).toBe(400);
 
       expect((await panelNow(panelId)).sort).toBeNull();
+    });
+
+    it('keeps a Filter’s sort as it keeps a panel’s, and reads a Filter nobody has sorted as having none', async () => {
+      const panelId = await aPanel('filter');
+      expect((await panelNow(panelId)).sort).toBeNull();
+
+      expect((await setSort(panelId, BY_DUE_THEN_PRIORITY)).status).toBe(200);
+
+      expect(await panelNow(panelId)).toMatchObject({
+        kind: 'filter',
+        sort: BY_DUE_THEN_PRIORITY,
+      });
     });
 
     it('refuses sorting a panel that has been deleted', async () => {

@@ -1,4 +1,4 @@
-import { panelTakesItems } from '@cockpit/shared';
+import { panelGathers, panelTakesItems } from '@cockpit/shared';
 import type {
   Item,
   ItemType,
@@ -18,16 +18,30 @@ import type {
  */
 
 /**
- * How a Panel draws its rows, or null for Manual - the one reading the board,
- * the mark and the drag all ask, so they cannot disagree about a Panel.
+ * How a Panel draws its rows by a sort of its own, or null where it has none -
+ * the one reading the board, the mark and the drag all ask, so they cannot
+ * disagree about a Panel.
  *
- * A Panel of items alone: nothing else is sorted this way. `?? null` because a
- * Panel restored from a copy stored before it had a sort carries none at all
- * (persistence.tsx, `CACHE_BUSTER`).
+ * For a Panel of items none is Manual; for a Filter none is the order nobody
+ * has changed (`DEFAULT_FILTER_SORT`), which is why the mark stays off it. A
+ * Panel of text is not sorted at all. `?? null` because a Panel restored from
+ * a copy stored before it had a sort carries none (persistence.tsx,
+ * `CACHE_BUSTER`).
  */
 export function sortOf(panel: Panel): PanelSort | null {
-  return panelTakesItems(panel) ? (panel.sort ?? null) : null;
+  return panelTakesItems(panel) || panelGathers(panel) ? (panel.sort ?? null) : null;
 }
+
+/**
+ * What a Filter nobody has sorted goes by - Due date ascending, then Priority
+ * descending, then Created ascending - so choosing nothing changes nothing on
+ * screen ("Choose how a Filter's rows are sorted", issue 527).
+ */
+export const DEFAULT_FILTER_SORT: PanelSort = [
+  { field: 'dueDate', direction: 'asc' },
+  { field: 'priority', direction: 'desc' },
+  { field: 'createdAt', direction: 'asc' },
+];
 
 /** What each field is called in the Sort question and in the mark's sentence. */
 export const SORT_FIELD_LABELS: Record<SortField, string> = {
@@ -44,7 +58,10 @@ export const SORT_DIRECTION_MEANS: Record<SortField, Record<SortDirection, strin
   priority: { asc: 'Low to High', desc: 'High to Low' },
   createdAt: { asc: 'Oldest first', desc: 'Newest first' },
   dueDate: { asc: 'Soonest first', desc: 'Latest first' },
-  type: { asc: 'In the order of your Types', desc: 'The order of your Types, reversed' },
+  type: {
+    asc: 'In the order of your Types',
+    desc: 'The order of your Types, reversed',
+  },
 };
 
 /**

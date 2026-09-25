@@ -28,7 +28,7 @@ import { scrollWhileDragging } from '../dragScroll';
 import { filingsThatFile, itemsOnPanel } from '../filing';
 import { dayOf, filtersUsingPanel, itemsMatchingFilter, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
-import { inSortOrder, sortOf } from '../sorting';
+import { DEFAULT_FILTER_SORT, inSortOrder, sortOf } from '../sorting';
 import { useChosenLayout } from '../panels/chosenLayout';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import {
@@ -1070,8 +1070,13 @@ export function PanelBoard({
                                   itemTypes,
                                   panel.filter ?? NO_CONDITIONS,
                                   today,
+                                  sortOf(panel) ?? DEFAULT_FILTER_SORT,
                                 )
-                              : inSortOrder(itemsOnPanel(items, filings, panel.id), sortOf(panel), itemTypes)
+                              : inSortOrder(
+                                  itemsOnPanel(items, filings, panel.id),
+                                  sortOf(panel),
+                                  itemTypes,
+                                )
                           }
                           itemTypes={itemTypes}
                           panelsInWorkspace={panelsInWorkspace}
@@ -1213,7 +1218,14 @@ export function PanelBoard({
               key={beingSorted.id}
               open
               panelName={beingSorted.name}
-              sort={sortOf(beingSorted)}
+              // A Filter nobody has sorted opens on what it goes by, and has no
+              // Manual to go back to.
+              sort={
+                panelGathers(beingSorted)
+                  ? (sortOf(beingSorted) ?? DEFAULT_FILTER_SORT)
+                  : sortOf(beingSorted)
+              }
+              canBeManual={!panelGathers(beingSorted)}
               onSave={(sort) => setSort(beingSorted.id, sort)}
               onCancel={() => {
                 setSorting(null);
@@ -1251,6 +1263,7 @@ export function PanelBoard({
       {beingMoved && (
         <MovePanelToDashboardPicker
           open
+
           panelName={beingMoved.name}
           dashboards={otherDashboards}
           refusal={refusalFor('move_panel_to_dashboard', beingMoved.id)}
@@ -1263,7 +1276,6 @@ export function PanelBoard({
           onPick={(dashboardId) => movePanelToDashboard(beingMoved.id, dashboardId)}
         />
       )}
-
     </div>
   );
 }
@@ -1290,7 +1302,10 @@ function deletePanelQuestion(panel: Panel, panelsInWorkspace: readonly Panel[]):
   const affected = filtersUsingPanel(panel.id, panelsInWorkspace);
   if (affected.length === 0) return `Delete ${panel.name}? ${goesWith}`;
   const uses = affected.length === 1 ? 'uses' : 'use';
-  const names = joinedBy(affected.map((one) => one.filter.name), 'and');
+  const names = joinedBy(
+    affected.map((one) => one.filter.name),
+    'and',
+  );
   const emptied = affected.filter((one) => one.leftEmpty).map((one) => one.filter.name);
   const emptyClause =
     emptied.length > 0 ? ` ${joinedBy(emptied, 'and')} will then show nothing.` : '';

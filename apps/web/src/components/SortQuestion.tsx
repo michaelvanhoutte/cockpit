@@ -15,9 +15,15 @@ import { SORT_DIRECTION_MEANS, SORT_FIELD_LABELS, directionFor } from '../sortin
 /** Manual is the order you set; Sorted is the rows below. */
 type Mode = 'manual' | 'sorted';
 
-const MODE_LABELS: Record<Mode, string> = { manual: 'Manual', sorted: 'Sorted' };
+const MODE_LABELS: Record<Mode, string> = {
+  manual: 'Manual',
+  sorted: 'Sorted',
+};
 
-const DIRECTION_LABELS: Record<SortDirection, string> = { asc: 'Ascending', desc: 'Descending' };
+const DIRECTION_LABELS: Record<SortDirection, string> = {
+  asc: 'Ascending',
+  desc: 'Descending',
+};
 
 /**
  * How a Panel of items draws its rows, asked in a form of its own ("Sort a
@@ -27,6 +33,10 @@ const DIRECTION_LABELS: Record<SortDirection, string> = { asc: 'Ascending', desc
  * question leaves them as they were until Save, which writes Manual as no sort
  * at all; Cancel and Escape discard everything. Read once when it opens, and
  * keyed on the Panel by the board, for the reasons `FilterQuestion` is.
+ *
+ * **A Filter is asked without the switch** ("Choose how a Filter's rows are
+ * sorted", issue 527): it is never Manual, and opens on what it goes by until
+ * somebody chooses otherwise.
  *
  * **Sorted always has a row once it has one**: the last row offers no Remove,
  * since a sort by nothing is Manual and the switch is where that is said.
@@ -41,6 +51,7 @@ function SortQuestion({
   onCancel,
   refusal,
   busy = false,
+  canBeManual = true,
   returnFocusTo,
 }: {
   panelName: string;
@@ -51,6 +62,8 @@ function SortQuestion({
   onCancel: () => void;
   refusal?: string | null;
   busy?: boolean;
+  /** False for a Filter, whose rows are gathered rather than filed: there is no order of its own to go back to. */
+  canBeManual?: boolean;
   returnFocusTo?: HTMLElement | null;
 }) {
   const [mode, setMode] = useState<Mode>(sort === null ? 'manual' : 'sorted');
@@ -84,10 +97,12 @@ function SortQuestion({
           // directions, ↑ ↓ and Remove fit on one line on a desktop.
           className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
-          <Dialog.Title className="text-base font-semibold">How is {panelName} sorted?</Dialog.Title>
+          <Dialog.Title className="text-base font-semibold">
+            How is {panelName} sorted?
+          </Dialog.Title>
           <Dialog.Description className="pt-2 text-sm text-ink-soft">
             {sorted
-              ? 'By the first of these, then the next wherever two tie, then the order you set.'
+              ? `By the first of these, then the next wherever two tie, then ${canBeManual ? 'the order you set' : 'oldest first'}.`
               : 'In the order you set, by dragging.'}
           </Dialog.Description>
 
@@ -98,16 +113,18 @@ function SortQuestion({
             }}
             className="pt-4"
           >
-            <Segmented
-              label="Manual or sorted"
-              name="sort-mode"
-              options={(['manual', 'sorted'] as const).map((value) => ({
-                value,
-                label: MODE_LABELS[value],
-              }))}
-              value={mode}
-              onChange={setMode}
-            />
+            {canBeManual && (
+              <Segmented
+                label="Manual or sorted"
+                name="sort-mode"
+                options={(['manual', 'sorted'] as const).map((value) => ({
+                  value,
+                  label: MODE_LABELS[value],
+                }))}
+                value={mode}
+                onChange={setMode}
+              />
+            )}
 
             {sorted && (
               <>
