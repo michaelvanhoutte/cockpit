@@ -3,7 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Attachment, Filing, Item, PossibleDuplicate, WorkspaceSnapshot } from '@cockpit/shared';
+import type {
+  Attachment,
+  Filing,
+  Item,
+  ItemType,
+  Panel,
+  PossibleDuplicate,
+  WorkspaceSnapshot,
+} from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../../../src/api/client';
 import { DUE_DATE_SETTLES_MS, ItemForm, whatChanged } from '../../../src/components/ItemForm';
 import { dueComingFriday, dueSevenDaysOut, dueToday } from '../../../src/dueDateShortcuts';
@@ -24,6 +32,9 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
 const held = vi.hoisted(() => ({
   items: [] as Item[],
   filings: [] as Filing[],
+  itemTypes: [] as ItemType[],
+  panels: [] as Panel[],
+  dashboards: [] as { id: string; name: string }[],
   duplicates: [] as PossibleDuplicate[],
   attachments: [] as Attachment[],
   itemFormPresentation: 'centered' as 'centered' | 'docked',
@@ -100,6 +111,9 @@ vi.mock('../../../src/api/queries', () => ({
       workspaceId,
       held.items,
       held.filings,
+      held.itemTypes,
+      held.panels,
+      held.dashboards,
       held.duplicates,
       held.attachments,
       held.itemFormPresentation,
@@ -109,6 +123,9 @@ vi.mock('../../../src/api/queries', () => ({
       return {
         items: held.items,
         filings: held.filings,
+        itemTypes: held.itemTypes,
+        panels: held.panels,
+        dashboards: held.dashboards,
         duplicates: held.duplicates,
         attachments: held.attachments,
         itemFormPresentation: held.itemFormPresentation,
@@ -149,6 +166,10 @@ function anItem(over: Partial<Item> = {}): Item {
     updatedAt: '2026-08-12T10:00:00.000Z',
     ...over,
   };
+}
+
+function aType(id: string, name: string): ItemType {
+  return { id, tenantId: 'tenant', name, color: '#000000', position: 0, createdAt: '2026-08-01T00:00:00.000Z' };
 }
 
 function anAttachment(over: Partial<Attachment> = {}): Attachment {
@@ -207,6 +228,9 @@ beforeEach(() => {
   held.quietly = false;
   held.gate = undefined;
   held.filings = [];
+  held.itemTypes = [];
+  held.panels = [];
+  held.dashboards = [];
   held.duplicates = [];
   held.attachments = [];
   held.itemFormPresentation = 'centered';
@@ -222,87 +246,104 @@ describe('Item editing', () => {
     it.each([
       {
         situation: 'the title edited and nothing else',
-        draft: { title: 'Part 12', description: '', priority: null, dueDate: null },
+        draft: { title: 'Part 12', description: '', priority: null, dueDate: null, typeId: null, done: false },
         asks: { title: 'Part 12' },
       },
       {
         situation: 'the description written and nothing else',
-        draft: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null },
+        draft: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, typeId: null, done: false },
         asks: { description: 'Tolerances' },
       },
       {
         situation: 'both',
-        draft: { title: 'Part 12', description: 'Tolerances', priority: null, dueDate: null },
+        draft: { title: 'Part 12', description: 'Tolerances', priority: null, dueDate: null, typeId: null, done: false },
         asks: { title: 'Part 12', description: 'Tolerances' },
       },
       {
         situation: 'neither',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, done: false },
         asks: {},
       },
       // Adding a space to the end of a title is not a change to the title: the
       // space would not be stored either.
       {
         situation: 'a title with a space added to the end',
-        draft: { title: 'Part 11 ', description: '', priority: null, dueDate: null },
+        draft: { title: 'Part 11 ', description: '', priority: null, dueDate: null, typeId: null, done: false },
         asks: {},
       },
       // Emptied is cleared, and there is no third state to send.
       {
         situation: 'a description emptied',
-        stored: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null },
-        draft: { title: 'Part 11', description: '   ', priority: null, dueDate: null },
+        stored: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, typeId: null, done: false },
+        draft: { title: 'Part 11', description: '   ', priority: null, dueDate: null, typeId: null, done: false },
         asks: { description: null },
       },
       {
         situation: 'a description that was never there and is still empty',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, done: false },
         asks: {},
       },
       {
         situation: 'the priority changed and nothing else',
-        draft: { title: 'Part 11', description: '', priority: 'high' as const, dueDate: null },
+        draft: { title: 'Part 11', description: '', priority: 'high' as const, dueDate: null, typeId: null, done: false },
         asks: { priority: 'high' },
       },
       {
         situation: 'the priority cleared to none',
-        stored: { title: 'Part 11', description: '', priority: 'low' as const, dueDate: null },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null },
+        stored: { title: 'Part 11', description: '', priority: 'low' as const, dueDate: null, typeId: null, done: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, done: false },
         asks: { priority: null },
       },
       {
         situation: 'a priority left as it was',
-        stored: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null },
-        draft: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null },
+        stored: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, typeId: null, done: false },
+        draft: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, typeId: null, done: false },
         asks: {},
       },
       {
         situation: 'a due date set on an item that had none',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30' },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', typeId: null, done: false },
         asks: { dueDate: '2026-09-30' },
       },
       {
         situation: 'a due date changed to another date',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30' },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-15' },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', typeId: null, done: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-15', typeId: null, done: false },
         asks: { dueDate: '2026-10-15' },
       },
       {
         situation: 'a due date cleared',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30' },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', typeId: null, done: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, done: false },
         asks: { dueDate: null },
       },
       {
+        situation: 'the type changed and nothing else',
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: 'task', done: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: 'idea', done: false },
+        asks: { typeId: 'idea' },
+      },
+      {
+        situation: 'a type left as it was',
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: 'task', done: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: 'task', done: false },
+        asks: {},
+      },
+      {
+        situation: 'the status set to done',
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, done: true },
+        asks: { done: true },
+      },
+      {
         situation: 'a due date left as it was',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30' },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30' },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', typeId: null, done: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', typeId: null, done: false },
         asks: {},
       },
     ])('$situation', ({ stored, draft, asks }) => {
       expect(
         whatChanged(
-          stored ?? { title: 'Part 11', description: '', priority: null, dueDate: null },
+          stored ?? { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, done: false },
           draft,
         ),
       ).toEqual(asks);
@@ -621,6 +662,189 @@ describe('Item editing', () => {
 
       await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
       expect(sent().map((change) => change.name)).toEqual(['set_description']);
+    });
+  });
+
+  describe('the form shows the item’s type and status, and changes them the way it changes priority', () => {
+    const typeBox = () => screen.getByLabelText('Type');
+    const statusBox = () => screen.getByLabelText('Status');
+    const optionsOf = (box: HTMLElement) =>
+      Array.from(box.querySelectorAll('option')).map((option) => option.textContent);
+    const TASK = aType('task', 'Task');
+    const IDEA = aType('idea', 'Idea');
+    const NOTE = aType('note', 'Note');
+
+    describe('the type', () => {
+      it('offers every type the account has and selects the one the item is', async () => {
+        held.itemTypes = [TASK, IDEA, NOTE];
+        await theForm(anItem({ typeId: 'idea' }));
+
+        expect(typeBox()).toHaveValue('idea');
+        expect(optionsOf(typeBox()).sort()).toEqual(['Idea', 'Note', 'Task']);
+      });
+
+      it.each([
+        { situation: 'its type was deleted', typeId: 'gone' },
+        { situation: 'it never had one', typeId: null },
+      ])('shows “No type”, selected, where $situation', async ({ typeId }) => {
+        held.itemTypes = [TASK, IDEA];
+        await theForm(anItem({ typeId }));
+
+        expect(typeBox()).toHaveValue('');
+        expect(optionsOf(typeBox())).toContain('No type');
+      });
+
+      it('stops offering “No type” once a type is picked', async () => {
+        held.itemTypes = [TASK, IDEA];
+        const user = await theForm(anItem({ typeId: null }));
+
+        await user.selectOptions(typeBox(), 'Idea');
+
+        expect(optionsOf(typeBox())).not.toContain('No type');
+      });
+
+      it('offers the types used last first, the rest in their own order', async () => {
+        held.itemTypes = [TASK, IDEA, NOTE];
+        await theForm(
+          anItem({ id: 'item-1', typeId: 'task' }),
+          [anItem({ id: 'item-2', typeId: 'note' })],
+        );
+
+        expect(optionsOf(typeBox())).toEqual(['Note', 'Task', 'Idea']);
+      });
+
+      it('sends only a type change when only the type changed, with the other changed fields', async () => {
+        held.itemTypes = [TASK, IDEA];
+        const user = await theForm(anItem({ typeId: 'task' }));
+
+        await user.selectOptions(typeBox(), 'Idea');
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent().map((change) => change.name)).toEqual(['set_item_type']);
+        expect(sent()[0]).toMatchObject({ payload: { typeId: 'idea' } });
+      });
+
+      it('sends nothing for a type left alone', async () => {
+        held.itemTypes = [TASK, IDEA];
+        const user = await theForm(anItem({ typeId: 'task' }));
+
+        await user.type(descriptionBox(), 'Notes');
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent().map((change) => change.name)).toEqual(['set_description']);
+      });
+
+      it('refuses, saying the item changed elsewhere, and keeps the form open', async () => {
+        held.itemTypes = [TASK, IDEA];
+        const user = await theForm(anItem({ typeId: 'task' }));
+        held.send.mockResolvedValueOnce({ ok: true as const, applied: false });
+
+        await user.selectOptions(typeBox(), 'Idea');
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() =>
+          expect(screen.getByRole('alert')).toHaveTextContent(/changed somewhere else/),
+        );
+        expect(held.close).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('the status', () => {
+      it.each([
+        { situation: 'an open item', completedAt: null, shown: 'open' },
+        { situation: 'a finished item', completedAt: '2026-09-01T08:00:00.000Z', shown: 'done' },
+      ])('selects the one $situation is', async ({ completedAt, shown }) => {
+        await theForm(anItem({ completedAt }));
+
+        expect(statusBox()).toHaveValue(shown);
+      });
+
+      it('offers to deal with and done, and never dismissed', async () => {
+        await theForm();
+
+        expect(optionsOf(statusBox())).toEqual(['To deal with', 'Done']);
+      });
+
+      it('sends a finish, alone, on Save', async () => {
+        const user = await theForm();
+
+        await user.selectOptions(statusBox(), 'Done');
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent().map((change) => change.name)).toEqual(['set_done']);
+        expect(sent()[0]).toMatchObject({ payload: { done: true } });
+      });
+
+      it('sends the way back for a finished item set to be dealt with', async () => {
+        const user = await theForm(anItem({ completedAt: '2026-09-01T08:00:00.000Z' }));
+
+        await user.selectOptions(statusBox(), 'To deal with');
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent()[0]).toMatchObject({ name: 'set_done', payload: { done: false } });
+      });
+    });
+
+    describe('a refusal of one of them', () => {
+      it('leaves the form open, names the refusal, and moves the baseline for the one that landed', async () => {
+        held.itemTypes = [TASK, IDEA];
+        const user = await theForm(anItem({ typeId: 'task' }));
+        held.send
+          .mockResolvedValueOnce({ ok: true as const, applied: true })
+          .mockRejectedValueOnce(new Error('Too many requests'));
+
+        await user.selectOptions(typeBox(), 'Idea');
+        await user.selectOptions(statusBox(), 'Done');
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Too many requests/));
+        expect(held.close).not.toHaveBeenCalled();
+
+        held.send.mockClear();
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent().map((change) => change.name)).toEqual(['set_done']);
+      });
+    });
+  });
+
+  describe('the form lists where the item is shown, read-only, at the bottom of Details', () => {
+    const detailsTab = async (user: ReturnType<typeof userEvent.setup>) =>
+      user.click(screen.getByRole('tab', { name: 'Details' }));
+
+    it('names the dashboard and panel it is filed on, and puts the list last', async () => {
+      held.dashboards = [{ id: 'd1', name: 'Work' }];
+      held.panels = [{ id: 'p1', tenantId: 't', dashboardId: 'd1', name: 'Falcon', kind: 'items', format: 'plain', body: '', readOnly: false, filter: null }];
+      held.filings = [{ panelId: 'p1', itemId: 'item-1', position: 0 }];
+      const user = await theForm();
+
+      await detailsTab(user);
+
+      const heading = screen.getByText('Shown on');
+      expect(heading.closest('dl')?.lastElementChild).toBe(heading.parentElement);
+      expect(screen.getByText('Work › Falcon')).toBeVisible();
+      expect(heading.parentElement?.querySelector('button, input, select')).toBeNull();
+    });
+
+    it('says the inbox where it is filed nowhere', async () => {
+      const user = await theForm();
+
+      await detailsTab(user);
+
+      expect(screen.getByText('Inbox')).toBeVisible();
+    });
+
+    it('says a finished item is not shown on any panel', async () => {
+      const user = await theForm(anItem({ completedAt: '2026-09-01T08:00:00.000Z' }));
+
+      await detailsTab(user);
+
+      expect(screen.getByText(/not shown on any panel while it is done/i)).toBeVisible();
     });
   });
 
@@ -1852,6 +2076,48 @@ describe('Item editing', () => {
         expect(sent().map((change) => change.name)).toEqual(['set_title', 'set_description']),
       );
       expect(await screen.findByText('Changed the title and the description')).toBeVisible();
+    });
+
+    describe('the type and the status are written as they are picked', () => {
+      it('writes a picked type at once, and undoes it to the type the item was', async () => {
+        held.itemTypes = [aType('task', 'Task'), aType('idea', 'Idea')];
+        const user = await dockedForm(anItem({ typeId: 'task' }), true);
+
+        await user.selectOptions(screen.getByLabelText('Type'), 'Idea');
+
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_item_type']));
+        const undo = await screen.findByText('Undo');
+        held.send.mockClear();
+        fireEvent.click(undo);
+
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_item_type']));
+        expect(sent()[0]).toMatchObject({ payload: { typeId: 'task' } });
+        await waitFor(() => expect(screen.getByLabelText('Type')).toHaveValue('task'));
+      });
+
+      it('offers no way back for an item that had no type, which nothing can restore', async () => {
+        held.itemTypes = [aType('task', 'Task')];
+        const user = await dockedForm(anItem({ typeId: null }), true);
+
+        await user.selectOptions(screen.getByLabelText('Type'), 'Task');
+
+        await waitFor(() => expect(held.send).toHaveBeenCalledTimes(1));
+        expect(screen.queryByText('Undo')).toBeNull();
+      });
+
+      it('writes a status at once, and undoes it', async () => {
+        const user = await dockedForm(anItem(), true);
+
+        await user.selectOptions(screen.getByLabelText('Status'), 'Done');
+
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_done']));
+        const undo = await screen.findByText('Undo');
+        held.send.mockClear();
+        fireEvent.click(undo);
+
+        await waitFor(() => expect(sent()[0]).toMatchObject({ name: 'set_done', payload: { done: false } }));
+        await waitFor(() => expect(screen.getByLabelText('Status')).toHaveValue('open'));
+      });
     });
 
     describe('and every write can be undone right after, and only right after', () => {

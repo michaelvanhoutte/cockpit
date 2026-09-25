@@ -280,7 +280,9 @@ const NOT_DONE_UNTIL_READ_BACK = new Set<ClientCommandName>([
   'set_title',
   'set_description',
   'set_priority',
+  'set_item_type',
   'set_due_date',
+  'set_done',
 ]);
 
 /**
