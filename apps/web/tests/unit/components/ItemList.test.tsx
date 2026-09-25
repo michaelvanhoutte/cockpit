@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
@@ -13,6 +13,7 @@ import type {
 } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
+import { landItem, liftItem } from '../../../src/itemInTheAir';
 import { ItemList } from '../../../src/components/ItemList';
 import { UndoWhatJustHappened } from '../../../src/undo';
 
@@ -172,7 +173,7 @@ const RESEARCH: Dashboard = {
 };
 
 function aPanel(id: string, dashboardId: string, name: string): Panel {
-  return { id, tenantId: 'tenant', dashboardId, name, kind: 'items' as const, format: 'plain' as const, body: '', readOnly: false, filter: null };
+  return { id, tenantId: 'tenant', dashboardId, name, kind: 'items' as const, format: 'plain' as const, body: '', readOnly: false, filter: null, sort: null };
 }
 
 function aWorkspace(id: string, name: string): Workspace {
@@ -238,11 +239,13 @@ async function showList({
   openDashboardId = null as string | null,
   panelId = null as string | null,
   gathered = false,
+  sorted = false,
 }: {
   items?: Item[];
   openDashboardId?: string | null;
   panelId?: string | null;
   gathered?: boolean;
+  sorted?: boolean;
 } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -254,6 +257,7 @@ async function showList({
           openDashboardId={openDashboardId}
           panelId={panelId}
           gathered={gathered}
+          sorted={sorted}
           emptyMessage="Nothing to deal with."
         />
       </UndoWhatJustHappened>
@@ -603,6 +607,7 @@ describe('Panels', () => {
           body: '',
           readOnly: false,
           filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }], match: 'all' as const },
+          sort: null,
         },
       ];
       held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
@@ -623,6 +628,7 @@ describe('Panels', () => {
         body: '',
         readOnly: false,
         filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }], match: 'all' as const },
+        sort: null,
       };
       held.panels = [...held.panels, gathers];
       held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
@@ -929,6 +935,75 @@ describe('Panels', () => {
       expect(held.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           payload: expect.objectContaining({ order: [finished.id, other.id, BART.id] }),
+        }),
+        expect.anything(),
+      );
+    });
+  });
+
+  /**
+   * Which order a sort draws is tests/unit/sorting.test.ts; what is asked here
+   * is what a sorted Panel's list does with a drop ("Sort a panel of items by
+   * the fields you choose", issue 526). That a real drag gets there is the walk
+   * in tests/e2e/filing.test.ts.
+   */
+  describe('a sorted panel takes no row it already holds, and files one arriving at the top of the order you set', () => {
+    const other = anItem('11111111-1111-7111-8111-000000000005', 'Renew the domain');
+
+    // Nothing in the air between cases, whatever the last one left carried.
+    beforeEach(landItem);
+
+    /** A row carried over the list, from wherever it was picked up; whether the list offered to take it. */
+    function carryOver(itemId: string): boolean {
+      liftItem(itemId);
+      return fireEvent.dragOver(theListBox(), {
+        dataTransfer: { types: [ITEM_BEING_DRAGGED], getData: () => itemId, setData: vi.fn(), dropEffect: '' },
+      });
+    }
+
+    it('refuses a row it holds, whichever list it was picked up from, and sends nothing', async () => {
+      held.items = [BART, other];
+      held.filings = [
+        { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+        { panelId: 'p-falcon', itemId: other.id, position: 1 },
+        // Also on another panel, which is where this drag is picked up.
+        { panelId: 'p-anna', itemId: other.id, position: 0 },
+      ];
+      await showList({ items: [BART, other], openDashboardId: TODAY.id, panelId: 'p-falcon', sorted: true });
+
+      // Not prevented is the pointer saying no.
+      expect(carryOver(other.id)).toBe(true);
+      await dropOnto(other.id);
+
+      expect(held.mutate).not.toHaveBeenCalled();
+    });
+
+    it('files a row from the Inbox at the top of the order you set, wherever it is let go', async () => {
+      const arriving = anItem('11111111-1111-7111-8111-000000000006', 'Apply the patch');
+      held.items = [BART, other, arriving];
+      held.filings = [
+        { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+        { panelId: 'p-falcon', itemId: other.id, position: 1 },
+      ];
+      await showList({ items: [other, BART], openDashboardId: TODAY.id, panelId: 'p-falcon', sorted: true });
+
+      expect(carryOver(arriving.id)).toBe(false);
+      // Let go past the last row, which on a panel in the order you set lands
+      // it at the bottom. jsdom lays nothing out and carries no pointer
+      // position on a drop, so both are handed over here.
+      document.querySelectorAll('[data-item-row]').forEach((row, at) => {
+        row.getBoundingClientRect = () => ({ top: at * 40, height: 40 }) as DOMRect;
+      });
+      const drop = createEvent.drop(theListBox(), {
+        dataTransfer: { types: [ITEM_BEING_DRAGGED], getData: () => arriving.id, setData: vi.fn() },
+      });
+      Object.defineProperty(drop, 'clientY', { value: 1000 });
+      fireEvent(theListBox(), drop);
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'move_item_to_panel',
+          payload: expect.objectContaining({ panelId: 'p-falcon', order: [arriving.id, BART.id, other.id] }),
         }),
         expect.anything(),
       );

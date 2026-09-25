@@ -19,6 +19,7 @@ import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
 import {
   filterConditionSchema,
   filterMatchSchema,
+  panelSortSchema,
   panelFormatSchema,
   panelKindSchema,
   panelNameSchema,
@@ -244,6 +245,21 @@ export const setPanelFilterSchema = commandEnvelopeSchema
     { message: 'a field appears once on a Filter', path: ['conditions'] },
   );
 export type SetPanelFilterCommand = z.infer<typeof setPanelFilterSchema>;
+
+/**
+ * set_panel_sort — how a Panel of items draws its rows, whole, or null for
+ * Manual ("Sort a panel of items by the fields you choose", issue 526).
+ *
+ * Whole for the reason `set_panel_filter` is. Null rather than an empty list is
+ * Manual, which `panelSortSchema` refuses, so there is one way to say it. The
+ * filings are never touched, so going back to Manual gives back the order you
+ * set.
+ */
+export const setPanelSortSchema = commandEnvelopeSchema.extend({
+  panelId: z.uuid(),
+  sort: panelSortSchema.nullable(),
+});
+export type SetPanelSortCommand = z.infer<typeof setPanelSortSchema>;
 
 /**
  * save_layout — one arrangement of a dashboard's panels, whole (architecture.md
@@ -719,6 +735,7 @@ export const commandSchemas = {
   set_panel_read_only: setPanelReadOnlySchema,
   set_panel_format: setPanelFormatSchema,
   set_panel_filter: setPanelFilterSchema,
+  set_panel_sort: setPanelSortSchema,
   save_layout: saveLayoutSchema,
   delete_layout: deleteLayoutSchema,
   create_screen_size: createScreenSizeSchema,

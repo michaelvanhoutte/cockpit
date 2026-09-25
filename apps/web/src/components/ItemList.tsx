@@ -11,6 +11,7 @@ import {
 import { CommandRefused } from '../api/client';
 import { itemsThatMayBeDuplicates, possibleDuplicatesOf } from '../duplicates';
 import { ITEM_BEING_DRAGGED, placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../dropAt';
+import { itemInTheAir } from '../itemInTheAir';
 import {
   filedOrderOnPanel,
   filingsThatFile,
@@ -65,6 +66,7 @@ export function ItemList({
   openDashboardId,
   panelId = null,
   gathered = false,
+  sorted = false,
   /** What the list says when it holds nothing. */
   emptyMessage,
   fillsTheRestOfItsColumn = false,
@@ -92,6 +94,14 @@ export function ItemList({
    * consequence of the Item, not a filing anybody made.
    */
   gathered?: boolean;
+  /**
+   * That the Panel draws these rows by a sort rather than in the order you set
+   * ("Sort a panel of items by the fields you choose", issue 526). A row of its
+   * own cannot be dragged to a new place in it - the pointer says no and no
+   * line is drawn - while an Item from elsewhere is still filed onto it, at the
+   * top of the order you set, and drawn where the sort puts it.
+   */
+  sorted?: boolean;
   emptyMessage: string;
   /**
    * That this list sits under other things in a column, and is to be as tall as
@@ -773,6 +783,15 @@ export function ItemList({
    */
   const [asking, setAsking] = useState<{ item: Item; at: number } | null>(null);
   const rows = useRef<HTMLUListElement>(null);
+  /**
+   * That a sorted Panel already holds the row in the air, from whichever list
+   * it was picked up in - which it takes no drop of, having no new place to
+   * put it. An Item from elsewhere is still filed onto it.
+   */
+  const alreadyHeldWhileSorted = () => {
+    const carried = itemInTheAir();
+    return sorted && carried !== null && items.some((item) => item.id === carried);
+  };
 
   /**
    * The gap under the pointer, measured from the rows as they are drawn.
@@ -811,7 +830,11 @@ export function ItemList({
     // the order the panel *holds* happens inside `move`.
     const drawn = items.map((item) => item.id);
     const wasAt = drawn.indexOf(itemId);
-    const gap = placeAfterMoving(gapUnder(event.clientY), wasAt === -1 ? null : wasAt);
+    // A sorted Panel has no place to aim at: a row already on it stays where
+    // the sort puts it, and one arriving goes to the top of the order you set,
+    // where a menu filing puts it too.
+    if (sorted && wasAt !== -1) return;
+    const gap = sorted ? 0 : placeAfterMoving(gapUnder(event.clientY), wasAt === -1 ? null : wasAt);
 
     // Dropped exactly where it started changes nothing, and sending it would
     // put a change in the undo bar that undoes to the same place.
@@ -894,8 +917,9 @@ export function ItemList({
           if (!event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
           // A gathered list takes no drop, so it must not say it would: no
           // `preventDefault` here is what makes the pointer read "no" over it
-          // rather than promising a filing the drop would decline.
-          if (gathered) return;
+          // rather than promising a filing the drop would decline. A sorted
+          // list says the same to a row it holds, which has nowhere new to go.
+          if (gathered || alreadyHeldWhileSorted()) return;
           // Both, and both are load-bearing: preventing the default is what
           // makes this a place a drop can happen at all, and stopping the
           // propagation is what keeps the panel underneath from taking the drop
@@ -906,8 +930,9 @@ export function ItemList({
           // **No line in the Inbox.** It is by age and has no order, so there
           // is no gap to land in - drawing one would promise a reorder that
           // cannot happen. A drop is still accepted here, because arriving
-          // from a panel means being taken off it.
-          if (panelId) setLandingAt(gapUnder(event.clientY));
+          // from a panel means being taken off it. None on a sorted Panel
+          // either, for the same reason.
+          if (panelId && !sorted) setLandingAt(gapUnder(event.clientY));
         }}
         // Only when the pointer has left this list rather than moved onto a row
         // inside it, which fires the same event.
@@ -916,7 +941,7 @@ export function ItemList({
         }}
         onDrop={(event) => {
           if (!event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
-          if (gathered) return;
+          if (gathered || alreadyHeldWhileSorted()) return;
           event.preventDefault();
           event.stopPropagation();
           drop(event);

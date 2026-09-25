@@ -489,8 +489,8 @@ describe('Backup', () => {
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
     // `0039-dashboard-order` adds it.
     dashboards: ['position'],
-    // `0038-item-source-connector` adds it.
-    items: ['source_connector'],
+    // `0040-panel-sort` adds it.
+    panels: ['sort_criteria'],
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */

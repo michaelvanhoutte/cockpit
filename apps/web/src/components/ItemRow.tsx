@@ -14,6 +14,7 @@ import { useCommand, useSendCommand } from '../api/queries';
 import { isCutOff } from '../cutOff';
 import { deadlineOf, dueDateLabel, type DeadlineLevel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
+import { landItem, liftItem } from '../itemInTheAir';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
 import { openableAtSource } from '../itemSource';
@@ -736,7 +737,9 @@ export function ItemRow({
         // without something it recognises on the transfer.
         event.dataTransfer.setData('text/plain', itemLabel(item));
         event.dataTransfer.effectAllowed = 'move';
+        liftItem(item.id);
       }}
+      onDragEnd={landItem}
       // `touch-action: pan-y` leaves vertical scrolling to the browser and
       // gives this the horizontal component. `select-none` stops a long press
       // turning the row into selected text mid-swipe, and is

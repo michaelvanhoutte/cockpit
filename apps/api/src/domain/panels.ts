@@ -65,6 +65,8 @@ export function firstPanelFor(
     // Not a Filter: a dashboard arrives with somewhere to file into, and a
     // Filter is the one Panel nothing can be filed onto.
     filterConditions: null,
+    // Manual: a Panel is drawn in the order its Items were filed until somebody sorts it.
+    sortCriteria: null,
     createdAt: dashboard.createdAt,
     deletedAt: null,
   };
@@ -143,6 +145,8 @@ export interface PanelRow {
   body: string;
   readOnly: boolean;
   filterConditions: string | null;
+  /** How the Panel's rows are sorted, as `panelSortAsStored` writes it, or null for Manual. */
+  sortCriteria: string | null;
   createdAt: string;
   deletedAt: string | null;
 }
@@ -176,6 +180,7 @@ export function panelFromCommand(cmd: AddPanelCommand, tenantId: string): PanelR
     // a predicate returning a boolean would not catch.
     kind: cmd.kind === 'filter' ? 'items' : cmd.kind,
     filterConditions: cmd.kind === 'filter' ? panelFilterAsStored([]) : null,
+    sortCriteria: null,
     // The characters as typed, until somebody asks for formatting: it is what
     // costs nothing to draw, and a panel with nothing in it has nothing to
     // format anyway.

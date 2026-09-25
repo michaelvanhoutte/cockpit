@@ -1,7 +1,8 @@
-import { type Page } from '@playwright/test';
+import { type Page, type Response } from '@playwright/test';
 import {
   ADA,
   captureBox,
+  choosePanelAction,
   dashboardBar,
   dragItemOnto,
   expect,
@@ -53,6 +54,15 @@ async function ownDashboardWithAPanel(
   await page.getByLabel('Name of the new panel').press('Enter');
   await expect(page.getByRole('region', { name: panel })).toBeVisible();
   return { dashboard, panel };
+}
+
+/** The server's answer to a change, which is what a walk waits on rather than on what is drawn. */
+function answerTo(page: Page, change: string): Promise<Response> {
+  return page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === `/v1/commands/${change}`,
+  );
 }
 
 /** Where the Inbox is: a column beside the dashboard, or a screen of its own. */
@@ -205,7 +215,7 @@ test.describe('Panels', () => {
       await expect(inbox(page).getByText(arriving)).toHaveCount(0);
     });
 
-    test('reorders a panel when a row is dropped inside the panel it is already on', async ({
+    test('reorders a panel when a row is dropped inside the panel it is already on, and not while it is sorted', async ({
       page,
       isMobile,
     }) => {
@@ -233,6 +243,46 @@ test.describe('Panels', () => {
       await dragItemOnto(page, third, { title: second, half: 'bottom' });
 
       await expect.poll(() => itemsOn(page, panel)).toEqual([second, third, first]);
+
+      // Sorted by Title ("Sort a panel of items by the fields you choose",
+      // issue 526): Chase, Read, Renew - and the mark says so.
+      const sorted = answerTo(page, 'set_panel_sort');
+      await choosePanelAction(page, panel, 'Sort…', isMobile);
+      const question = page.getByRole('dialog');
+      await press(question.getByText('Sorted', { exact: true }), isMobile);
+      await press(question.getByRole('button', { name: '+ Sort by…' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Title' }), isMobile);
+      await press(question.getByRole('button', { name: 'Save' }), isMobile);
+      expect((await sorted).status()).toBe(200);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([third, second, first]);
+      const onThePanel = page.getByRole('region', { name: panel });
+      await expect(onThePanel.getByRole('img', { name: 'Sorted: Title ascending' })).toBeVisible();
+
+      // Dragged to a new place in it, which a sorted panel does not take. That
+      // nothing changed is read back below, once it is Manual again.
+      await dragItemOnto(page, first, { title: third, half: 'top' });
+      await expect.poll(() => itemsOn(page, panel)).toEqual([third, second, first]);
+
+      // Still filed onto from the Inbox, where the Inbox is beside it: drawn
+      // where the sort puts it, and filed at the top of the order you set.
+      const arriving = uniqueTitle('Apply the patch');
+      if (!isMobile) {
+        await captureBox(page).fill(arriving);
+        await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+        await dragItemOnto(page, arriving, { title: first, half: 'bottom' });
+        await expect.poll(() => itemsOn(page, panel)).toEqual([arriving, third, second, first]);
+      }
+
+      // Back to Manual: the order you set, untouched by the sort or the drag.
+      const manual = answerTo(page, 'set_panel_sort');
+      await choosePanelAction(page, panel, 'Sort…', isMobile);
+      await press(question.getByText('Manual', { exact: true }), isMobile);
+      await press(question.getByRole('button', { name: 'Save' }), isMobile);
+      expect((await manual).status()).toBe(200);
+      await expect
+        .poll(() => itemsOn(page, panel))
+        .toEqual(isMobile ? [second, third, first] : [arriving, second, third, first]);
+      await expect(onThePanel.getByRole('img', { name: /^Sorted/ })).toHaveCount(0);
     });
   });
 });

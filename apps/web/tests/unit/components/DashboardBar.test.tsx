@@ -143,6 +143,7 @@ function aPanel(name: string, dashboardId: string): Panel {
     body: '',
     readOnly: false,
     filter: null,
+    sort: null,
   };
 }
 
@@ -928,6 +929,7 @@ describe('Layouts', () => {
     body: '',
     readOnly: false,
     filter: null,
+    sort: null,
   };
 
   /** The width the picker reads, which is what a screen is matched on. */

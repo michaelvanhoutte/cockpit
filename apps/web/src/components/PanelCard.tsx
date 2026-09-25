@@ -2,12 +2,14 @@ import {
   NO_CONDITIONS,
   panelGathers,
   panelHoldsText,
+  panelTakesItems,
   type Item,
   type ItemType,
   type Panel,
 } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { saysWhatItShows } from '../filters';
+import { saysHowItIsSorted, sortOf } from '../sorting';
 import { ItemList } from './ItemList';
 import { PanelAddItemForm } from './PanelAddItemForm';
 import { PanelText } from '../panels/PanelText';
@@ -27,9 +29,10 @@ import {
  * panel of text on a dashboard, and write in it", issue 250), and which of the
  * two is settled when the panel is made. Items come in the order they were
  * filed ("Panels hold the items filed into them, and the Inbox holds the rest",
- * issue 36); a rule for what *arrives* in a panel on its own is configuration
- * it does not have yet ("Panel configuration: connections and free-text
- * description", issue 35).
+ * issue 36) unless the panel is sorted by their fields ("Sort a panel of items
+ * by the fields you choose", issue 526); a rule for what *arrives* in a panel
+ * on its own is configuration it does not have yet ("Panel configuration:
+ * connections and free-text description", issue 35).
  *
  * **Moving is under the pointer.** Dragging the header onto another panel
  * joins that panel's row, and into the gap between two rows takes a row of
@@ -82,6 +85,12 @@ export interface PanelCardProps {
    */
   onFilter: (openedFrom: HTMLElement | null) => void;
   /**
+   * Asked to open the question that says how this Panel of items is sorted
+   * ("Sort a panel of items by the fields you choose", issue 526). Never called
+   * for a Panel of text or a Filter, which are not offered the entry.
+   */
+  onSort: (openedFrom: HTMLElement | null) => void;
+  /**
    * That this is the panel in the air, so it can say so. The board knows
    * which one it is; the card is what draws it.
    */
@@ -130,6 +139,7 @@ export function PanelCard({
   onReadOnlyChange,
   onFormatChange,
   onFilter,
+  onSort,
   lifted,
   onPickUp,
   refusal,
@@ -143,6 +153,13 @@ export function PanelCard({
   const shows = filter
     ? saysWhatItShows(filter.conditions, itemTypes, panelsInWorkspace, filter.match)
     : null;
+  /**
+   * How a Panel of items is sorted, read back as a sentence by the mark beside
+   * its name - and null while it is Manual, when there is no mark. Only a Panel
+   * that takes items is sorted this way.
+   */
+  const sort = sortOf(panel);
+  const sortedAs = sort ? saysHowItIsSorted(sort) : null;
   // Read once, said the many ways it is asked below: whether the menu is
   // open to being asked at all, whether the header is a tab stop or a name
   // and a role, whether a plain click starts a drag or does nothing.
@@ -225,6 +242,10 @@ export function PanelCard({
                 // only on a panel of text: a panel with nothing to gather has
                 // no conditions for this to be about.
                 ...(filter ? [{ label: 'Filter…', onSelect: onFilter }] : []),
+                // Only on a Panel of items: a Panel of text has no rows, and a
+                // Filter's order is its own question ("Choose how a Filter's
+                // rows are sorted", issue 527).
+                ...(panelTakesItems(panel) ? [{ label: 'Sort…', onSelect: onSort }] : []),
                 {
                   label: 'Move to another dashboard',
                   unavailable: canMoveToAnotherDashboard
@@ -424,6 +445,30 @@ export function PanelCard({
                     </svg>
                   </span>
                 )}
+                {/* That the rows go by a sort rather than the order somebody
+                    dragged them into, which is also why a row cannot be dragged
+                    to a new place here: hovering reads the sort back. Only
+                    while sorted, and kept at every width for the funnel's
+                    reason. */}
+                {sortedAs && (
+                  <span
+                    role="img"
+                    aria-label={sortedAs}
+                    title={sortedAs}
+                    className="shrink-0 text-ink-faint"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                      <path
+                        d="M3.5 1.5v9M1.5 8.5l2 2 2-2M7 2.5h4M7 5.5h3M7 8.5h2"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                )}
                 {/* How much is on it, said the way the Inbox says it - until the
                   panel is too narrow to say both, and then this is the one
                   that goes: the count is the one thing the list underneath
@@ -536,6 +581,9 @@ export function PanelCard({
             // dropped here, nothing is reordered, and no row offers to be
             // removed from a panel it was never put on.
             gathered={filter !== null}
+            // A sorted Panel's rows go where the sort puts them, so none is
+            // dragged to a new place in it.
+            sorted={sortedAs !== null}
             emptyMessage={
               filter
                 ? filter.conditions.length === 0

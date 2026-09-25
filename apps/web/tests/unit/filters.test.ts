@@ -96,6 +96,7 @@ function aPanel(id: string, kind: Panel['kind'] = 'items'): Panel {
     body: '',
     readOnly: false,
     filter: kind === 'filter' ? { conditions: [], match: 'all' } : null,
+    sort: null,
   };
 }
 

@@ -28,6 +28,11 @@ export const persister: Persister = {
 export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * `v10` because a Panel gained its sort ("Sort a panel of items by the fields
+ * you choose", issue 526). A restored Panel from before it would answer
+ * `undefined` where the type says a sort or `null`, and the Sort question opens
+ * on what it is handed.
+ *
  * `v9` because a snapshot gained the account's item-form presentation ("Let
  * the item's form dock to the side of the screen instead of opening as a
  * dialog", issue 481). A restored snapshot from before this moved would
@@ -79,7 +84,7 @@ export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * the right way round: a cold open is a moment, a shell painted from a shape
  * the code no longer expects is a week.
  */
-export const CACHE_BUSTER = 'v9';
+export const CACHE_BUSTER = 'v10';
 
 /**
  * What is worth keeping on disk, which is everything the app paints itself from

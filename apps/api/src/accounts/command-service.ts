@@ -61,6 +61,7 @@ import {
   isPaletteTheme,
   nearestScreenSize,
   panelFilterAsStored,
+  panelSortAsStored,
   panelGathers,
   panelHoldsText,
   panelTakesItems,
@@ -471,6 +472,23 @@ function refuseUnlessPanelOfText(panel: { name: string; kind: PanelKind }) {
 function refuseUnlessAFilter(panel: { name: string; kind: PanelKind }) {
   if (!panelGathers(panel)) {
     throw new PanelHoldsSomethingElseError(`${panel.name} is not a filter`);
+  }
+}
+
+/**
+ * Refuses a panel that is not a panel of items where its sort is being set
+ * ("Sort a panel of items by the fields you choose", issue 526) - a panel of
+ * text has no rows, and a Filter's order is its own question ("Choose how a
+ * Filter's rows are sorted", issue 527). The fourth of the same family, for the
+ * same reason.
+ */
+function refuseUnlessPanelOfItems(panel: { name: string; kind: PanelKind }) {
+  if (!panelTakesItems(panel)) {
+    throw new PanelHoldsSomethingElseError(
+      panelGathers(panel)
+        ? `${panel.name} is a filter, which is not sorted this way`
+        : `${panel.name} holds text, so it has no rows to sort`,
+    );
   }
 }
 
@@ -1043,6 +1061,21 @@ export function runCommand<N extends CommandName>(
           // once, so the later save standing is the same answer this app gives
           // everywhere else.
           .set({ filterConditions: panelFilterAsStored(cmd.conditions, cmd.match) })
+          .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_panel_sort': {
+      const cmd = payload as CommandPayload<'set_panel_sort'>;
+      const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      refuseUnlessPanelOfItems(panel);
+      db.transaction((tx) => {
+        // The sort alone: the filings keep the order you set, which is what
+        // going back to Manual gives back.
+        tx.update(panels)
+          .set({ sortCriteria: panelSortAsStored(cmd.sort) })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
         tx.insert(commands).values(commandRow).run();

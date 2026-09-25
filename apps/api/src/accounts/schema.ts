@@ -458,6 +458,15 @@ export const panels = sqliteTable(
      * read has to survive a shape it cannot parse rather than refuse it.
      */
     filterConditions: text('filter_conditions'),
+    /**
+     * How a Panel of items draws its rows, as the JSON `panelSortAsStored`
+     * writes, and NULL for Manual — the order its filings carry ("Sort a panel
+     * of items by the fields you choose", issue 526). Text read defensively and
+     * no CHECK, for the reasons `filter_conditions` gives: a shape this release
+     * cannot parse reads as Manual (`panelSortFrom`), and which fields a sort
+     * may name is the product's to extend.
+     */
+    sortCriteria: text('sort_criteria'),
     createdAt: text('created_at').notNull(),
     deletedAt: text('deleted_at'),
   },

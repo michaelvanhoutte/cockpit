@@ -19,6 +19,7 @@ import type {
   Layout,
   LayoutRow,
   Panel,
+  PanelSort,
   ScreenSize,
 } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
@@ -27,6 +28,7 @@ import { scrollWhileDragging } from '../dragScroll';
 import { filingsThatFile, itemsOnPanel } from '../filing';
 import { dayOf, filtersUsingPanel, itemsMatchingFilter, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
+import { inSortOrder, sortOf } from '../sorting';
 import { useChosenLayout } from '../panels/chosenLayout';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import {
@@ -55,13 +57,17 @@ import { PANEL_GAP, PanelCard } from './PanelCard';
  */
 const FilterQuestion = lazy(() => import('./FilterQuestion'));
 
+/** A Panel's Sort question, fetched only once *Sort…* is chosen, for the reason the Filter question is. */
+const SortQuestion = lazy(() => import('./SortQuestion'));
+
 /**
- * What happens when the Filter question's chunk does not arrive. The same
- * boundary `PanelText.tsx`'s `WhateverTheChunkDoes` and `DescriptionBox.tsx`'s
- * `WhateverTheEditorDoes` already draw, and for the same reason: without it
- * the whole board goes down with the one dialog that failed to fetch.
+ * What happens when the Filter or Sort question's chunk does not arrive. The
+ * same boundary `PanelText.tsx`'s `WhateverTheChunkDoes` and
+ * `DescriptionBox.tsx`'s `WhateverTheEditorDoes` already draw, and for the same
+ * reason: without it the whole board goes down with the one dialog that failed
+ * to fetch.
  */
-class WhateverFilteringDoes extends Component<
+class WhateverTheQuestionDoes extends Component<
   { children: ReactNode; onFailure: () => void },
   { broken: boolean }
 > {
@@ -201,6 +207,8 @@ export function PanelBoard({
   const [movingPanel, setMovingPanel] = useState<string | null>(null);
   /** Which Filter's conditions are being edited, if any. */
   const [filtering, setFiltering] = useState<string | null>(null);
+  /** Which Panel of items' sort is being asked, if any. */
+  const [sorting, setSorting] = useState<string | null>(null);
   /**
    * Every dashboard the panel could move to: the workspace's, minus the one
    * it is already on - in tab order, which is the order `dashboards` already
@@ -296,6 +304,7 @@ export function PanelBoard({
   const beingDeleted = panels.find((panel) => panel.id === deleting);
   const beingMoved = panels.find((panel) => panel.id === movingPanel);
   const beingFiltered = panels.find((panel) => panel.id === filtering);
+  const beingSorted = panels.find((panel) => panel.id === sorting);
 
   /**
    * The day it is where this person is looking, read once for the whole board
@@ -333,6 +342,7 @@ export function PanelBoard({
       | 'set_panel_read_only'
       | 'set_panel_format'
       | 'set_panel_filter'
+      | 'set_panel_sort'
       | 'move_panel_to_dashboard',
     id?: string,
   ) => {
@@ -855,6 +865,27 @@ export function PanelBoard({
     );
   };
 
+  /**
+   * How a Panel of items is sorted, saved whole, or null for Manual ("Sort a
+   * panel of items by the fields you choose", issue 526). Closed only once it
+   * lands, for the reason the Filter's is.
+   */
+  const setSort = (panelId: string, sort: PanelSort | null) => {
+    command.mutate(
+      {
+        name: 'set_panel_sort',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          panelId,
+          sort,
+        },
+      },
+      { onSuccess: () => setSorting(null) },
+    );
+  };
+
   const deletePanel = (panelId: string) => {
     command.mutate(
       {
@@ -1040,7 +1071,7 @@ export function PanelBoard({
                                   panel.filter ?? NO_CONDITIONS,
                                   today,
                                 )
-                              : itemsOnPanel(items, filings, panel.id)
+                              : inSortOrder(itemsOnPanel(items, filings, panel.id), sortOf(panel), itemTypes)
                           }
                           itemTypes={itemTypes}
                           panelsInWorkspace={panelsInWorkspace}
@@ -1056,6 +1087,7 @@ export function PanelBoard({
                             setDeleting(null);
                             setMovingPanel(null);
                             setFiltering(null);
+                            setSorting(null);
                             setRenaming({ id: panel.id, name: panel.name });
                           }}
                           onRename={renamePanel}
@@ -1068,6 +1100,7 @@ export function PanelBoard({
                             setRenaming(null);
                             setMovingPanel(null);
                             setFiltering(null);
+                            setSorting(null);
                             askedFrom.current = openedFrom;
                             setDeleting(panel.id);
                           }}
@@ -1077,6 +1110,7 @@ export function PanelBoard({
                             setRenaming(null);
                             setDeleting(null);
                             setFiltering(null);
+                            setSorting(null);
                             askedFrom.current = openedFrom;
                             setMovingPanel(panel.id);
                           }}
@@ -1087,8 +1121,18 @@ export function PanelBoard({
                             setRenaming(null);
                             setDeleting(null);
                             setMovingPanel(null);
+                            setSorting(null);
                             askedFrom.current = openedFrom;
                             setFiltering(panel.id);
+                          }}
+                          onSort={(openedFrom) => {
+                            command.reset();
+                            setRenaming(null);
+                            setDeleting(null);
+                            setMovingPanel(null);
+                            setFiltering(null);
+                            askedFrom.current = openedFrom;
+                            setSorting(panel.id);
                           }}
                           lifted={dragging?.id === panel.id}
                           onPickUp={(pointerId) => pickUp(panel.id, pointerId)}
@@ -1103,7 +1147,8 @@ export function PanelBoard({
                             // looking at it would read it.
                             (filtering === panel.id
                               ? null
-                              : refusalFor('set_panel_filter', panel.id))
+                              : refusalFor('set_panel_filter', panel.id)) ??
+                            (sorting === panel.id ? null : refusalFor('set_panel_sort', panel.id))
                           }
                           busy={command.isPending}
                         />
@@ -1133,7 +1178,7 @@ export function PanelBoard({
         // for a placeholder to stand in for - the dialog itself is the first
         // thing this ever draws, the same reason DescriptionBox.tsx's own
         // `Arriving` has no counterpart here.
-        <WhateverFilteringDoes onFailure={() => setFiltering(null)}>
+        <WhateverTheQuestionDoes onFailure={() => setFiltering(null)}>
           <Suspense fallback={null}>
             <FilterQuestion
               // Keyed on the Panel, so the rows it opens on are that Panel's: the
@@ -1157,7 +1202,29 @@ export function PanelBoard({
               returnFocusTo={askedFrom.current}
             />
           </Suspense>
-        </WhateverFilteringDoes>
+        </WhateverTheQuestionDoes>
+      )}
+
+      {beingSorted && (
+        <WhateverTheQuestionDoes onFailure={() => setSorting(null)}>
+          <Suspense fallback={null}>
+            <SortQuestion
+              // Keyed on the Panel, for the reason the Filter question is.
+              key={beingSorted.id}
+              open
+              panelName={beingSorted.name}
+              sort={sortOf(beingSorted)}
+              onSave={(sort) => setSort(beingSorted.id, sort)}
+              onCancel={() => {
+                setSorting(null);
+                command.reset();
+              }}
+              refusal={refusalFor('set_panel_sort', beingSorted.id)}
+              busy={command.isPending}
+              returnFocusTo={askedFrom.current}
+            />
+          </Suspense>
+        </WhateverTheQuestionDoes>
       )}
 
       {beingDeleted && (
