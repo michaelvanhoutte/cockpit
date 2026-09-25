@@ -512,6 +512,7 @@ export function PanelCard({
           rather than scrolling the well around it: a textarea that grew past
           the panel would put a second scrollbar inside the first. */}
       <div
+        data-drag-scroll={text ? undefined : 'panel'}
         className={`well min-h-0 flex-1 ${text ? 'flex flex-col overflow-hidden' : 'overflow-auto'}`}
       >
         {/* Above the list rather than instead of it. Refusing a rename says

@@ -7,8 +7,7 @@ import { DWELL_MS, dashboardToSwitchTo } from '../../src/switchWhileDragging';
  * measuring nothing. That a person can actually reach a dashboard they are not
  * on is tests/e2e/filing.test.ts.
  *
- * The scrolling half of the same issue has no rules here, because it needed no
- * code: the browser scrolls the container under a drag by itself.
+ * The scrolling half of the same issue is apps/web/tests/unit/dragScroll.test.ts.
  */
 
 describe('Panels', () => {
