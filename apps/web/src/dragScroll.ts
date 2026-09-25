@@ -204,12 +204,16 @@ export function useScrollWhileDraggingAnItem(): void {
     document.addEventListener('dragover', onOver, true);
     document.addEventListener('dragend', finish);
     document.addEventListener('drop', finish, true);
+    // A native drag whose source was unmounted mid-drag (the drop moved the row)
+    // never fires `dragend`; the first pointer event after it is the way to know.
+    document.addEventListener('pointermove', finish, true);
     return () => {
       finish();
       document.removeEventListener('dragstart', onStart);
       document.removeEventListener('dragover', onOver, true);
       document.removeEventListener('dragend', finish);
       document.removeEventListener('drop', finish, true);
+      document.removeEventListener('pointermove', finish, true);
     };
   }, []);
 }
