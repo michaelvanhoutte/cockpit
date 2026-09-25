@@ -832,6 +832,20 @@ function TheForm({
     }
   }, [item, editing, data?.itemTypes]);
 
+  /** Worked out only while Details is showing: it walks every filter against every item, which nothing else on the form needs on a keystroke. */
+  const shownOnNames =
+    tab === 'details' && item
+      ? shownOn(
+          item,
+          data?.items ?? [],
+          data?.filings ?? [],
+          data?.panels ?? [],
+          data?.dashboards ?? [],
+          data?.itemTypes ?? [],
+          dayOf(new Date()),
+        )
+      : [];
+
   /**
    * Over the cap in a box that is actually being sent, not in one that merely
    * holds too much.
@@ -841,17 +855,6 @@ function TheForm({
    * with Save already disabled, and refuse a description-only edit for a title
    * nothing was going to send. What is refused is what would be written.
    */
-  const shownOnNames = item
-    ? shownOn(
-        item,
-        data?.items ?? [],
-        data?.filings ?? [],
-        data?.panels ?? [],
-        data?.dashboards ?? [],
-        data?.itemTypes ?? [],
-        dayOf(new Date()),
-      )
-    : [];
   const changing = editing ? whatChanged(editing.was, editing.now) : {};
   const overCap =
     (changing.title !== undefined && changing.title.length > TITLE_LENGTH
