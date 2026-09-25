@@ -16,6 +16,7 @@ import {
 } from '@cockpit/shared';
 import { isAPeriod } from '../filters';
 import { MenuContent, menuItemClass } from './Menu';
+import { Segmented } from './Segmented';
 import { NO_TYPES } from '../itemTypes';
 import { PRIORITY_LABELS } from '../priority';
 
@@ -247,27 +248,14 @@ function MatchSwitch({
   onChange: (match: FilterMatch) => void;
 }) {
   return (
-    <div
-      role="radiogroup"
-      aria-label="How the conditions combine"
-      className="mb-3 inline-flex rounded-md border border-black/10 p-0.5 text-sm"
-    >
-      {FILTER_MATCHES.map((value) => (
-        <label key={value} className="relative">
-          <input
-            type="radio"
-            name="filter-match"
-            value={value}
-            checked={match === value}
-            onChange={() => onChange(value)}
-            className="peer sr-only"
-          />
-          <span className="block cursor-pointer rounded px-3 py-1 text-ink-soft peer-checked:bg-accent-tint peer-checked:font-medium peer-checked:text-accent-deep peer-focus-visible:ring-2 peer-focus-visible:ring-accent-soft/40">
-            {MATCH_LABELS[value]}
-          </span>
-        </label>
-      ))}
-    </div>
+    <Segmented
+      label="How the conditions combine"
+      name="filter-match"
+      options={FILTER_MATCHES.map((value) => ({ value, label: MATCH_LABELS[value] }))}
+      value={match}
+      onChange={onChange}
+      className="mb-3"
+    />
   );
 }
 

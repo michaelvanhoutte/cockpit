@@ -9,6 +9,7 @@ import {
   type SortDirection,
 } from '@cockpit/shared';
 import { MenuContent, menuItemClass } from './Menu';
+import { Segmented } from './Segmented';
 import { SORT_DIRECTION_MEANS, SORT_FIELD_LABELS, directionFor } from '../sorting';
 
 /** Manual is the order you set; Sorted is the rows below. */
@@ -216,49 +217,6 @@ function SortQuestion({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
-  );
-}
-
-/**
- * Two radios drawn as one segmented control, the shape the Filter question's
- * *All of these / Any of these* switch takes. `hint` is what hovering an
- * option says it means.
- */
-function Segmented<V extends string>({
-  label,
-  name,
-  options,
-  value,
-  onChange,
-}: {
-  label: string;
-  name: string;
-  options: readonly { value: V; label: string; hint?: string }[];
-  value: V;
-  onChange: (value: V) => void;
-}) {
-  return (
-    <div
-      role="radiogroup"
-      aria-label={label}
-      className="inline-flex rounded-md border border-black/10 p-0.5 text-sm"
-    >
-      {options.map((option) => (
-        <label key={option.value} className="relative" title={option.hint}>
-          <input
-            type="radio"
-            name={name}
-            value={option.value}
-            checked={value === option.value}
-            onChange={() => onChange(option.value)}
-            className="peer sr-only"
-          />
-          <span className="block cursor-pointer rounded px-3 py-1 text-ink-soft peer-checked:bg-accent-tint peer-checked:font-medium peer-checked:text-accent-deep peer-focus-visible:ring-2 peer-focus-visible:ring-accent-soft/40">
-            {option.label}
-          </span>
-        </label>
-      ))}
-    </div>
   );
 }
 

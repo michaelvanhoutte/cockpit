@@ -9,7 +9,7 @@ import {
 } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { saysWhatItShows } from '../filters';
-import { saysHowItIsSorted } from '../sorting';
+import { saysHowItIsSorted, sortOf } from '../sorting';
 import { ItemList } from './ItemList';
 import { PanelAddItemForm } from './PanelAddItemForm';
 import { PanelText } from '../panels/PanelText';
@@ -29,9 +29,10 @@ import {
  * panel of text on a dashboard, and write in it", issue 250), and which of the
  * two is settled when the panel is made. Items come in the order they were
  * filed ("Panels hold the items filed into them, and the Inbox holds the rest",
- * issue 36); a rule for what *arrives* in a panel on its own is configuration
- * it does not have yet ("Panel configuration: connections and free-text
- * description", issue 35).
+ * issue 36) unless the panel is sorted by their fields ("Sort a panel of items
+ * by the fields you choose", issue 526); a rule for what *arrives* in a panel
+ * on its own is configuration it does not have yet ("Panel configuration:
+ * connections and free-text description", issue 35).
  *
  * **Moving is under the pointer.** Dragging the header onto another panel
  * joins that panel's row, and into the gap between two rows takes a row of
@@ -157,7 +158,8 @@ export function PanelCard({
    * its name - and null while it is Manual, when there is no mark. Only a Panel
    * that takes items is sorted this way.
    */
-  const sortedAs = panelTakesItems(panel) && panel.sort ? saysHowItIsSorted(panel.sort) : null;
+  const sort = sortOf(panel);
+  const sortedAs = sort ? saysHowItIsSorted(sort) : null;
   // Read once, said the many ways it is asked below: whether the menu is
   // open to being asked at all, whether the header is a tab stop or a name
   // and a role, whether a plain click starts a drag or does nothing.

@@ -28,7 +28,7 @@ import { scrollWhileDragging } from '../dragScroll';
 import { filingsThatFile, itemsOnPanel } from '../filing';
 import { dayOf, filtersUsingPanel, itemsMatchingFilter, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
-import { inSortOrder } from '../sorting';
+import { inSortOrder, sortOf } from '../sorting';
 import { useChosenLayout } from '../panels/chosenLayout';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import {
@@ -1071,9 +1071,7 @@ export function PanelBoard({
                                   panel.filter ?? NO_CONDITIONS,
                                   today,
                                 )
-                              : panel.sort
-                                ? inSortOrder(itemsOnPanel(items, filings, panel.id), panel.sort, itemTypes)
-                                : itemsOnPanel(items, filings, panel.id)
+                              : inSortOrder(itemsOnPanel(items, filings, panel.id), sortOf(panel), itemTypes)
                           }
                           itemTypes={itemTypes}
                           panelsInWorkspace={panelsInWorkspace}
@@ -1215,7 +1213,7 @@ export function PanelBoard({
               key={beingSorted.id}
               open
               panelName={beingSorted.name}
-              sort={beingSorted.sort}
+              sort={sortOf(beingSorted)}
               onSave={(sort) => setSort(beingSorted.id, sort)}
               onCancel={() => {
                 setSorting(null);

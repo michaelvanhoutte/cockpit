@@ -1,6 +1,8 @@
+import { panelTakesItems } from '@cockpit/shared';
 import type {
   Item,
   ItemType,
+  Panel,
   PanelSort,
   Priority,
   SortCriterion,
@@ -14,6 +16,18 @@ import type {
  * Filter's rows are (`filters.ts`): the wire carries the Panel's sort and its
  * filings, and nothing about the order that makes.
  */
+
+/**
+ * How a Panel draws its rows, or null for Manual - the one reading the board,
+ * the mark and the drag all ask, so they cannot disagree about a Panel.
+ *
+ * A Panel of items alone: nothing else is sorted this way. `?? null` because a
+ * Panel restored from a copy stored before it had a sort carries none at all
+ * (persistence.tsx, `CACHE_BUSTER`).
+ */
+export function sortOf(panel: Panel): PanelSort | null {
+  return panelTakesItems(panel) ? (panel.sort ?? null) : null;
+}
 
 /** What each field is called in the Sort question and in the mark's sentence. */
 export const SORT_FIELD_LABELS: Record<SortField, string> = {
@@ -78,13 +92,14 @@ function compareValues(field: SortField, one: string | number, other: string | n
  *
  * **An Item with no value for a criterion goes after every Item that has one,
  * in either direction**, so turning a sort round never brings the undated or
- * untitled rows to the top.
+ * untitled rows to the top. Manual (null) is the order handed in.
  */
 export function inSortOrder(
   items: readonly Item[],
-  sort: PanelSort,
+  sort: PanelSort | null,
   itemTypes: readonly ItemType[],
 ): Item[] {
+  if (sort === null) return [...items];
   const typeRank = new Map(itemTypes.map((type, at) => [type.id, at]));
   return items.slice().sort((one, other) => {
     for (const { field, direction } of sort) {

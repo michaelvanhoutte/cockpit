@@ -11,6 +11,7 @@ import {
 import { CommandRefused } from '../api/client';
 import { itemsThatMayBeDuplicates, possibleDuplicatesOf } from '../duplicates';
 import { ITEM_BEING_DRAGGED, placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../dropAt';
+import { itemInTheAir } from '../itemInTheAir';
 import {
   filedOrderOnPanel,
   filingsThatFile,
@@ -783,25 +784,14 @@ export function ItemList({
   const [asking, setAsking] = useState<{ item: Item; at: number } | null>(null);
   const rows = useRef<HTMLUListElement>(null);
   /**
-   * That the row in the air was picked up from this list - which `dragover`
-   * cannot read off the drag itself, the id being readable only on the drop.
-   * What lets a sorted Panel say no to its own rows while still taking a filing.
+   * That a sorted Panel already holds the row in the air, from whichever list
+   * it was picked up in - which it takes no drop of, having no new place to
+   * put it. An Item from elsewhere is still filed onto it.
    */
-  const draggingOwnRow = useRef(false);
-  /**
-   * Forgotten when any drag starts, before this list's own `onDragStart` can
-   * say it is one of its rows: a row taken off this list mid-drag never fires
-   * the `dragend` that would otherwise clear it, and the next Item dragged in
-   * from elsewhere would be refused as though it were one of these.
-   */
-  useEffect(() => {
-    if (!sorted) return;
-    const forget = () => {
-      draggingOwnRow.current = false;
-    };
-    document.addEventListener('dragstart', forget, true);
-    return () => document.removeEventListener('dragstart', forget, true);
-  }, [sorted]);
+  const alreadyHeldWhileSorted = () => {
+    const carried = itemInTheAir();
+    return sorted && carried !== null && items.some((item) => item.id === carried);
+  };
 
   /**
    * The gap under the pointer, measured from the rows as they are drawn.
@@ -920,12 +910,6 @@ export function ItemList({
         // text saying it is empty - and letting go anywhere in the space below
         // did nothing, which is most of the panel.
         className={fillsTheRestOfItsColumn ? 'flex-1' : 'min-h-full'}
-        onDragStart={() => {
-          draggingOwnRow.current = true;
-        }}
-        onDragEnd={() => {
-          draggingOwnRow.current = false;
-        }}
         onDragOver={(event) => {
           // Only a row of ours. A panel dragged by its header crosses lists on
           // its way to another panel, and a list that offered it a place would
@@ -934,8 +918,8 @@ export function ItemList({
           // A gathered list takes no drop, so it must not say it would: no
           // `preventDefault` here is what makes the pointer read "no" over it
           // rather than promising a filing the drop would decline. A sorted
-          // list says the same to a row of its own, which has nowhere new to go.
-          if (gathered || (sorted && draggingOwnRow.current)) return;
+          // list says the same to a row it holds, which has nowhere new to go.
+          if (gathered || alreadyHeldWhileSorted()) return;
           // Both, and both are load-bearing: preventing the default is what
           // makes this a place a drop can happen at all, and stopping the
           // propagation is what keeps the panel underneath from taking the drop
@@ -957,7 +941,7 @@ export function ItemList({
         }}
         onDrop={(event) => {
           if (!event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
-          if (gathered || (sorted && draggingOwnRow.current)) return;
+          if (gathered || alreadyHeldWhileSorted()) return;
           event.preventDefault();
           event.stopPropagation();
           drop(event);

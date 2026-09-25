@@ -1969,13 +1969,13 @@ describe('Panels', () => {
       await choose(user, 'Project Falcon', 'Sort…');
       expect(await screen.findByRole('radio', { name: 'Sorted' })).toBeChecked();
       expect(screen.queryByRole('radiogroup', { name: 'Title direction' })).toBeNull();
-      expect(screen.getByRole('radio', { name: 'Sorted' }).closest('[role="dialog"]')).toHaveTextContent(ANY_ORDER_DESCRIPTION);
+      expect(screen.getByRole('radio', { name: 'Sorted' }).closest('[role="dialog"]')).toHaveTextContent(SORTED_DESCRIPTION);
     });
   });
 });
 
 /** What the Sort question says under its title while Sorted is chosen. */
-const ANY_ORDER_DESCRIPTION = 'By the first of these, then the next wherever two tie, then the order you set.';
+const SORTED_DESCRIPTION ='By the first of these, then the next wherever two tie, then the order you set.';
 
 /** A panel of items drawing its rows by a sort. */
 function aSortedPanel(id: string, name: string, sort: PanelSort): Panel {
