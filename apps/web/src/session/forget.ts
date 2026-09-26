@@ -4,6 +4,7 @@ import { forgetEveryRecentPanel } from '../recentPanels';
 import { forgetItemFormSize } from '../itemFormSize';
 import { forgetItemFormDockedWidth } from '../itemFormDockedWidth';
 import { forgetInboxWidth } from '../inboxWidth';
+import { forgetInboxCollapsed } from '../inboxCollapsed';
 import { forgetWhatJustHappened } from '../undo';
 import { forgetWelcomed } from '../welcoming';
 import { persister } from '../persistence';
@@ -56,6 +57,7 @@ export async function forgetEverything(queryClient: QueryClient): Promise<void> 
   forgetItemFormSize(browserStore());
   forgetItemFormDockedWidth(browserStore());
   forgetInboxWidth(browserStore());
+  forgetInboxCollapsed(browserStore());
   forgetWelcomed(browserStore());
   forgetWhatJustHappened();
 }
