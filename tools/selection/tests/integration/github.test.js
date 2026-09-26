@@ -125,6 +125,19 @@ describe('collect', () => {
     expect(collected.pulls[0].prRun.record).toEqual({ artifactId: 2 });
   });
 
+  it('fails the run with a clear message, not a bare stack trace, when an artifact is not a readable zip', async () => {
+    stubApi({
+      pulls: () => ok([rawPull({ number: 7 })]),
+      runs: (sha, event) => ok(sha === 'head1' && event === 'pull_request' ? runOf(11) : { workflow_runs: [] }),
+      artifacts: () => ok({ artifacts: [{ id: 9, name: 'test-selection-record', expired: false, created_at: '2026-02-10T01:00:00Z' }] }),
+      zip: () => ({ ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => Buffer.from('not a zip archive') }),
+    });
+
+    const failure = collect({ repo: 'o/r', since: new Date('2026-02-01'), fetchImpl: fetch });
+    await expect(failure).rejects.toBeInstanceOf(GitHubError);
+    await expect(failure).rejects.toThrow(/#7/);
+  });
+
   it('reads a documentation-only pull request as having no run, and its changed files instead', async () => {
     stubApi({
       pulls: () => ok([rawPull()]),

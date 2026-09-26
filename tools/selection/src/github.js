@@ -235,10 +235,24 @@ export async function findArtifact({ repo, runId, name, ...ctx }) {
   return { id: candidates[0].id };
 }
 
-/** The record inside one artifact — test-record.mjs's own `buildRecord` shape. */
+/**
+ * The record inside one artifact — test-record.mjs's own `buildRecord` shape.
+ *
+ * A malformed archive or a `record.json` that is not valid JSON is this
+ * repository's own writer failing, never attacker input reaching this far —
+ * `collect()` only ever reads a merged pull request's own artifact, which
+ * means the code that produced it already passed review. Caught anyway and
+ * turned into the same `GitHubError` every other gap here becomes, so a
+ * corrupt artifact fails the run with a clear message instead of a bare stack
+ * trace out of `zip.js`.
+ */
 export async function downloadRecord({ repo, artifactId, ...ctx }) {
   const zip = await requestZip(`/repos/${repo}/actions/artifacts/${artifactId}/zip`, ctx);
-  return readZipJson(zip, RECORD_FILE);
+  try {
+    return readZipJson(zip, RECORD_FILE);
+  } catch (error) {
+    throw new GitHubError(`The ${RECORD_ARTIFACT} artifact (id ${artifactId}) could not be read: ${error.message}`, { reason: 'bad-artifact' });
+  }
 }
 
 /** Every path a pull request's diff touches — asked only where its record is missing, to tell a documentation-only skip from a genuine gap. */
