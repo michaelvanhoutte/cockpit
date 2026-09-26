@@ -71,7 +71,7 @@ export function InboxChip({
       <span className="flex min-h-9 items-center gap-1.5">
         <span className="text-xs font-semibold uppercase tracking-[0.11em]">Inbox</span>
         {count !== null && <span className="text-xs tabular-nums">{count}</span>}
-        <span aria-hidden="true">»</span>
+        <span aria-hidden="true">Â»</span>
       </span>
     </button>
   );
@@ -119,7 +119,7 @@ export function InboxHeading({
             aria-label="Collapse the Inbox"
             className="-ml-1 rounded px-1 text-xs text-ink-faint hover:text-ink"
           >
-            «
+            Â«
           </button>
         )}
         <h2
