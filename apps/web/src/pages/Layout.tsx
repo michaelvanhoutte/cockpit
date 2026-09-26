@@ -126,6 +126,11 @@ function TheShell() {
    * Never on the page itself, which already is Capture.
    */
   const [capturing, setCapturing] = useState(false);
+  // Shrinking to a phone shuts the window for good, rather than leaving it to
+  // reopen when the screen widens again.
+  useEffect(() => {
+    if (!roomForTheInbox) setCapturing(false);
+  }, [roomForTheInbox]);
   const openCapture = () => {
     if (onCapture) return;
     if (roomForTheInbox) setCapturing(true);
@@ -930,7 +935,7 @@ function TheShell() {
 
       {/* Capture, over the workspace rather than instead of it, at a desk. */}
       <CaptureWindow
-        open={capturing && roomForTheInbox}
+        open={capturing}
         onClose={() => setCapturing(false)}
         startsIn={params.workspaceId ?? null}
       />
