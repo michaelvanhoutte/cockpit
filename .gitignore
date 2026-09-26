@@ -34,3 +34,4 @@ backups/
 
 # What the Test job selected, and why (scripts/ci-test.mjs)
 test-record/
+e2e-record/

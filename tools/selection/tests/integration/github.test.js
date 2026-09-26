@@ -106,6 +106,22 @@ describe('collect', () => {
     expect(collected.pulls[0].mainRun.record).toEqual({ packages: [], run: 2200 });
   });
 
+  it('reads the E2E record beside the Test record, and leaves it null for a run from before E2E recorded anything', async () => {
+    const artifact = (id, name) => ({ id, name, expired: false, created_at: '2026-02-10T01:00:00Z' });
+    stubApi({
+      pulls: () => ok([rawPull()]),
+      runs: (sha, event) => ok(sha === 'head1' && event === 'pull_request' ? runOf(11) : sha === 'merge1' && event === 'push' ? runOf(22) : { workflow_runs: [] }),
+      artifacts: (runId) => ok({ artifacts: runId === '11' ? [artifact(1, 'test-selection-record'), artifact(2, 'e2e-selection-record')] : [artifact(3, 'test-selection-record')] }),
+      zip: (artifactId) => ({ ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => zipOf({ artifactId: Number(artifactId) }) }),
+    });
+
+    const collected = await collect({ repo: 'o/r', since: new Date('2026-02-01'), fetchImpl: fetch });
+    expect(collected.pulls[0].prRun.record).toEqual({ artifactId: 1 });
+    expect(collected.pulls[0].prRun.e2eRecord).toEqual({ artifactId: 2 });
+    expect(collected.pulls[0].mainRun.record).toEqual({ artifactId: 3 });
+    expect(collected.pulls[0].mainRun.e2eRecord).toBeNull();
+  });
+
   it('picks the newest non-expired artifact, as the run\'s last attempt', async () => {
     stubApi({
       pulls: () => ok([rawPull()]),

@@ -60,7 +60,7 @@ function figuresTable(model) {
 
   const rows = [
     row('Pull requests merged', '', (window) => (window.pulls === 0 ? noDataCell : `<td class="num"><span class="fig">${window.pulls}</span></td>`)),
-    row('Misses', 'a test that failed on main and was not run on the pull request that merged it', (window) =>
+    row('Misses', 'a test file or E2E spec that failed on main and was not run on the pull request that merged it', (window) =>
       window.misses === null ? noDataCell : `<td class="num"><span class="fig${window.misses === 0 ? ' none' : ''}">${window.misses}</span></td>`,
     ),
     row('Forced to run everything', 'of the pull requests that ran a Test job at all: every package ran in full, so selection saved nothing', (window) =>
@@ -73,6 +73,12 @@ function figuresTable(model) {
       window.duration.pr === null && window.duration.main === null
         ? noDataCell
         : `<td class="num"><span class="fig">${humanMs(window.duration.pr)}</span><span class="of">main ${humanMs(window.duration.main)}</span></td>`,
+    ),
+    row('E2E forced to run every spec', 'of the pull requests whose E2E job left a record: every spec ran, so selection saved nothing', (window) =>
+      window.e2e.forcedFull === null ? noDataCell : countOfCell(window.e2e.forcedFull.count, window.e2e.forcedFull.of),
+    ),
+    row('E2E specs a typical pull request ran', 'the median, over pull requests that used selection at all', (window) =>
+      window.e2e.typicalSpecs === null ? noDataCell : `<td class="num"><span class="fig">${days(window.e2e.typicalSpecs)}</span></td>`,
     ),
     row('Documentation-only pull requests', 'skipped the Test job entirely', (window) => (window.docsOnly === null ? noDataCell : countOfCell(window.docsOnly.count, window.docsOnly.of))),
   ].join('');
@@ -103,11 +109,13 @@ function limits(model) {
   const ran = model.pulls.filter((pull) => pull.status === 'ran').length;
   const docsOnly = model.pulls.filter((pull) => pull.status === 'docs-only').length;
   const noRecord = model.pulls.filter((pull) => pull.status === 'no-record').length;
+  const e2eNoRecord = model.pulls.filter((pull) => pull.e2e.status === 'no-record').length;
 
   return `<div class="note"><b>What this does and does not measure</b><ul>
     ${period}
     <li><b>A pull request is read from its own last Test run</b>, and misses are read against <code>main</code>&rsquo;s own run of its merge &mdash; never a second guess at what should have run.</li>
     <li><b>${plural(model.pulls.length, 'merged pull request')} read: ${ran} ran a Test job, ${docsOnly} were documentation only, ${noRecord} carry no record.</b> A pull request with no record is counted in neither direction below: there is no telling what it would have done.</li>
+    <li><b>The E2E job is read the same way, from its own record.</b> ${plural(e2eNoRecord, 'pull request')} carry${e2eNoRecord === 1 ? 's' : ''} none &mdash; merged before E2E recorded anything, or its artifact expired &mdash; and are counted in neither direction for E2E.</li>
     <li><b>Any GitHub API failure fails the whole run</b>, rather than publishing a page with a pull request quietly missing from it.</li>
   </ul></div>`;
 }
@@ -125,16 +133,19 @@ function missesSection(model) {
     )
     .join('');
   return `<div class="card"><div class="tablewrap"><table>
-    <thead><tr><th>Pull request</th><th class="path">Test</th><th>Level</th><th>Reason</th></tr></thead>
+    <thead><tr><th>Pull request</th><th class="path">Test or spec</th><th>Level</th><th>Reason</th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div></div>`;
 }
 
 function forcedFullSection(model) {
-  if (model.forcedFull.length === 0) return '<div class="card"><p class="empty">Nothing forced a full run in this period.</p></div>';
-  const rows = model.forcedFull
+  // One list, the Test job's rules and the E2E job's each under its own name: one path can force both, and that is two reasons to fix.
+  const forced = [...model.forcedFull.map((row) => ({ ...row, tier: 'Vitest' })), ...model.e2eForcedFull.map((row) => ({ ...row, tier: 'E2E' }))].sort((a, b) => b.count - a.count);
+  if (forced.length === 0) return '<div class="card"><p class="empty">Nothing forced a full run in this period.</p></div>';
+  const rows = forced
     .map(
       (row) => `<tr>
+        <td>${row.tier}</td>
         <td>${esc(row.rule)}</td>
         <td class="path">${row.path ? esc(row.path) : '&mdash;'}</td>
         <td class="num"><span class="fig">${row.count}</span></td>
@@ -145,7 +156,7 @@ function forcedFullSection(model) {
     )
     .join('');
   return `<div class="card"><div class="tablewrap"><table>
-    <thead><tr><th>Rule</th><th class="path">Path</th><th class="num">Pull requests</th><th>Which</th></tr></thead>
+    <thead><tr><th>Job</th><th>Rule</th><th class="path">Path</th><th class="num">Pull requests</th><th>Which</th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div></div>`;
 }
@@ -222,12 +233,36 @@ function testFilesLists(pull) {
   `;
 }
 
+/** The E2E half of a pull request's drill-down: the tier's mode and reason, then each spec file with its result and why it ran. */
+function e2eDetails(e2e) {
+  if (e2e.status === 'docs-only') return '<p class="rownote">E2E skipped: documentation only.</p>';
+  if (e2e.status === 'no-record') return '<p class="rownote">E2E: no record.</p>';
+  const [tier] = e2e.packages;
+  if (!tier || tier.report === 'none') return '<p class="rownote">E2E: the run left no report, so which specs ran is not recorded.</p>';
+
+  const rows = tier.files
+    .map((file) => {
+      const why = file.status === 'not run' ? '' : tier.mode === 'full' ? 'every spec ran' : chainText(file.selectedBy);
+      return `<tr><td class="path">${esc(file.path)}</td><td>${esc(file.status)}</td><td>${esc(why)}</td></tr>`;
+    })
+    .join('');
+  const reason = tier.reason ? ` &middot; ${esc(tier.reason.rule)}${tier.reason.path ? ` (<span class="path">${esc(tier.reason.path)}</span>)` : ''}` : '';
+  return `<p class="rownote">E2E: ${plural(e2e.filesRun, 'spec')} of ${e2e.filesTotal} run &middot; ${esc(tier.mode)}${reason}</p>
+    <table class="pkgtable"><thead><tr><th>Spec</th><th>Result</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function e2eSummary(e2e) {
+  if (e2e.status === 'ran') return `E2E ${e2e.filesRun} of ${plural(e2e.filesTotal, 'spec')} run`;
+  return e2e.status === 'docs-only' ? 'E2E skipped' : 'E2E no record';
+}
+
 function pullTags(pull) {
   const tags = [];
   if (pull.status === 'docs-only') tags.push('<span class="tag docsonly">docs only</span>');
   if (pull.status === 'no-record') tags.push('<span class="tag norecord">no record</span>');
   if (pull.misses.length > 0) tags.push(`<span class="tag miss">${plural(pull.misses.length, 'miss')}</span>`);
   if (pull.status === 'ran' && pull.ranEverything) tags.push('<span class="tag forced">forced full</span>');
+  if (pull.e2e.status === 'ran' && pull.e2e.ranEverything) tags.push('<span class="tag forced">E2E forced full</span>');
   return tags.join('');
 }
 
@@ -240,12 +275,13 @@ function pullRow(pull) {
 
   const packageCount = pull.packages.length;
   return `<div class="pullrow">${header}
-    <p class="summary">${plural(packageCount, 'package')} &middot; ${plural(pull.filesRun, 'test file')} run</p>
+    <p class="summary">${plural(packageCount, 'package')} &middot; ${plural(pull.filesRun, 'test file')} run &middot; ${e2eSummary(pull.e2e)}</p>
     <details>
       <summary>Changed files, packages and tests</summary>
       ${changedFilesList(pull.changedFiles)}
       ${packagesTable(pull.packages)}
       ${testFilesLists(pull)}
+      ${e2eDetails(pull.e2e)}
     </details>
   </div>`;
 }
@@ -279,9 +315,9 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
     <p class="eyebrow">Cockpit &middot; ${esc(model.branch)}</p>
     <h1>Is test selection working?</h1>
     <p class="standfirst">
-      What CI's Test job selected and why, read across pull requests: whether a skipped test later
+      What CI's Test and E2E jobs selected and why, read across pull requests: whether a skipped test later
       failed on <code>main</code>, which paths keep forcing full runs, and which tests are selected
-      on nearly every pull request. Each pull request is read from its own last Test run.
+      on nearly every pull request. Each pull request is read from its own last run.
     </p>
     <div class="runmeta">
       <span>generated <b>${esc(stamp(model.generatedAt))}</b></span>
@@ -313,12 +349,12 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
   ${mostSelectedSection(model)}
 
   <h2>Pull requests</h2>
-  <p class="sectionnote">Newest first. Open one for its changed files, each package's mode and reason, and which test files ran and why.</p>
+  <p class="sectionnote">Newest first. Open one for its changed files, each package's mode and reason, which test files ran and why, and the same for its E2E specs.</p>
   ${pullsSection(model)}
 
   <footer>
     Generated by <code>tools/selection</code> from the pull request and Actions APIs and each Test job's
-    own selection record (<code>scripts/lib/test-record.mjs</code>).
+    own selection record (<code>scripts/lib/test-record.mjs</code>, and <code>scripts/lib/e2e-record.mjs</code> for E2E).
     <a href="${esc(explorerHref)}">Test explorer</a>
   </footer>
 

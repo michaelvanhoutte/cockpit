@@ -10,8 +10,11 @@
  * run on its head commit) **and from `main`'s push run of its merge commit** —
  * the two the model needs to tell a miss from a test that never had the
  * chance to run. Each carries the `test-selection-record` artifact
- * scripts/lib/test-record.mjs writes, read here with zip.js since Actions
+ * scripts/lib/test-record.mjs writes and the `e2e-selection-record` one
+ * scripts/lib/e2e-record.mjs writes, read here with zip.js since Actions
  * hands artifacts back as a zip and nothing else in this repository reads one.
+ * Either can be absent alone: a run from before E2E recorded anything has only
+ * the first.
  *
  * **Any failure to read one pull request's data fails the whole run.** A
  * report that quietly dropped a pull request would look complete while being
@@ -23,8 +26,8 @@
  * is not a failure; both come back as `null`, for model.js to tell apart.
  *
  * **Request cost**: up to two workflow-run lookups, two job lists, two
- * artifact lists and two zip downloads per pull request, plus one changed-file
- * listing where a record is missing — about ten requests each, so a
+ * artifact lists and four zip downloads per pull request, plus one changed-file
+ * listing where a record is missing — about twelve requests each, so a
  * fourteen-day window of a few dozen merges stays well inside the thousand
  * `GITHUB_TOKEN` allows an hour. `maxPulls` stops rather than spending it.
  */
@@ -35,6 +38,7 @@ const API = 'https://api.github.com';
 const PER_PAGE = 100;
 const WORKFLOW_PATH = '.github/workflows/ci.yml';
 const RECORD_ARTIFACT = 'test-selection-record';
+const E2E_RECORD_ARTIFACT = 'e2e-selection-record';
 const RECORD_FILE = 'record.json';
 const TEST_JOB = 'Test';
 
@@ -228,15 +232,24 @@ export function jobDurationMs(job) {
  * rule) holds here without this file needing to know what an attempt is.
  */
 export async function findArtifact({ repo, runId, name, ...ctx }) {
+  return (await findArtifacts({ repo, runId, names: [name], ...ctx }))[name];
+}
+
+/** `findArtifact` for several names from one listing, each `null` where the run uploaded none. */
+export async function findArtifacts({ repo, runId, names, ...ctx }) {
   const body = await requestJson(`/repos/${repo}/actions/runs/${runId}/artifacts?per_page=${PER_PAGE}`, ctx);
-  const candidates = (body.artifacts ?? []).filter((raw) => raw.name === name && !raw.expired);
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  return { id: candidates[0].id };
+  const found = {};
+  for (const name of names) {
+    const candidates = (body.artifacts ?? []).filter((raw) => raw.name === name && !raw.expired);
+    candidates.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    found[name] = candidates.length === 0 ? null : { id: candidates[0].id };
+  }
+  return found;
 }
 
 /**
- * The record inside one artifact — test-record.mjs's own `buildRecord` shape.
+ * The record inside one artifact — test-record.mjs's own `buildRecord` shape, or
+ * e2e-record.mjs's `buildE2eRecord`, which has the same one.
  *
  * A malformed archive or a `record.json` that is not valid JSON is this
  * repository's own writer failing, never attacker input reaching this far —
@@ -251,7 +264,7 @@ export async function downloadRecord({ repo, artifactId, ...ctx }) {
   try {
     return readZipJson(zip, RECORD_FILE);
   } catch (error) {
-    throw new GitHubError(`The ${RECORD_ARTIFACT} artifact (id ${artifactId}) could not be read: ${error.message}`, { reason: 'bad-artifact' });
+    throw new GitHubError(`The selection record artifact (id ${artifactId}) could not be read: ${error.message}`, { reason: 'bad-artifact' });
   }
 }
 
@@ -272,13 +285,18 @@ export async function listPullFiles({ repo, number, ...ctx }) {
  * @property {number} id
  * @property {number|null} testDurationMs
  * @property {object|null} record test-record.mjs's `buildRecord` shape, or `null` where the Test job uploaded none
+ * @property {object|null} e2eRecord e2e-record.mjs's `buildE2eRecord` shape, or `null` where the E2E job uploaded none
  */
 
-/** Everything one `ci.yml` run can tell this tool: its `Test` job's time, and the record it uploaded. @returns {Promise<Run>} */
+/** Everything one `ci.yml` run can tell this tool: its `Test` job's time, and the two records its Test and E2E jobs uploaded. @returns {Promise<Run>} */
 async function readRun({ repo, run, ...ctx }) {
-  const [jobs, artifact] = await Promise.all([listJobs({ repo, runId: run.id, ...ctx }), findArtifact({ repo, runId: run.id, name: RECORD_ARTIFACT, ...ctx })]);
-  const record = artifact ? await downloadRecord({ repo, artifactId: artifact.id, ...ctx }) : null;
-  return { id: run.id, testDurationMs: jobDurationMs(jobs.find((job) => job.name === TEST_JOB)), record };
+  const [jobs, artifacts] = await Promise.all([
+    listJobs({ repo, runId: run.id, ...ctx }),
+    findArtifacts({ repo, runId: run.id, names: [RECORD_ARTIFACT, E2E_RECORD_ARTIFACT], ...ctx }),
+  ]);
+  const download = (artifact) => (artifact ? downloadRecord({ repo, artifactId: artifact.id, ...ctx }) : null);
+  const [record, e2eRecord] = await Promise.all([download(artifacts[RECORD_ARTIFACT]), download(artifacts[E2E_RECORD_ARTIFACT])]);
+  return { id: run.id, testDurationMs: jobDurationMs(jobs.find((job) => job.name === TEST_JOB)), record, e2eRecord };
 }
 
 /**

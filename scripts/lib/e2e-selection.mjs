@@ -34,13 +34,18 @@ const SUPPORT = 'tests/e2e/support/';
 const REGISTRY = 'tools/test-explorer/concepts.json';
 const CONFIG = 'playwright.config.ts';
 
-/** A path that, changed, makes the registry useless as an answer to "which walks does this touch". */
-function forcesFull(path, packages) {
-  if (path.startsWith(SUPPORT) || path === REGISTRY || path === CONFIG) return true;
-  if (isTsconfig(path)) return true;
+/** The rule that makes `path`, changed, useless as an answer to "which walks does this touch", or null where it forces nothing. */
+function ruleForcingFull(path, packages) {
+  if (path.startsWith(SUPPORT) || path === REGISTRY || path === CONFIG) return 'e2e support, registry or config';
+  if (isTsconfig(path)) return 'any tsconfig';
   // A spec file sits outside every package; it is placed by its own walks below.
-  if (path.startsWith(SPECS)) return false;
-  return isOutsidePackages(path, packages);
+  if (path.startsWith(SPECS)) return null;
+  return isOutsidePackages(path, packages) ? 'outside every package' : null;
+}
+
+/** A `full` plan, its `reason` the sentence the job prints and `forced` the `{ rule, path }` the record keeps (scripts/lib/e2e-record.mjs); `path` is null where an event or an unreadable diff is to blame, not a file. */
+function full(rule, path, reason) {
+  return { mode: 'full', reason, forced: { rule, path } };
 }
 
 /** `--grep` for a set of areas: Playwright matches it against a walk's title path joined with spaces - project, file, then the outer `describe` - so an area is what follows the file. */
@@ -57,34 +62,36 @@ export function grepFor(areas) {
  * @param {{ key: string, sourcePatterns: string[] }[]} input.concepts the registry
  * @param {{ area: string | null, where: string }[]} input.walks the tier's listing (`walksIn`); `where` is relative to tests/e2e
  * @param {{ name: string, dir: string }[]} input.packages the workspace packages
- * @returns {{ mode: 'full', reason: string } | { mode: 'selected', areas: string[], grep: string | null }}
- *   `grep` is null when the areas own no walk at all, so there is nothing to run
+ * @returns {{ mode: 'full', reason: string, forced: { rule: string, path: string | null } } | { mode: 'selected', areas: string[], grep: string | null, changedBy: Record<string, string> }}
+ *   `grep` is null when the areas own no walk at all, so there is nothing to run;
+ *   `changedBy` names, per selected area, the first changed file that selected it
  */
 export function planE2eRun({ event, mergeBase, changedFiles = [], concepts, walks, packages }) {
   if (!concepts || !walks || !packages) throw new Error('planE2eRun needs the registry, the tier’s listing and the workspace package list.');
-  if (event !== 'pull_request') return { mode: 'full', reason: 'not a pull request' };
-  if (!mergeBase) return { mode: 'full', reason: 'no merge-base to diff against' };
+  if (event !== 'pull_request') return event === 'push' ? full('push to main', null, 'push to main') : full('not a pull request', null, 'not a pull request');
+  if (!mergeBase) return full('diff unreadable', null, 'no merge-base to diff against');
 
   const productFiles = changedFiles.filter((path) => !isNonProduct(path));
-  if (productFiles.length === 0) return { mode: 'full', reason: 'no product file in the diff' };
+  if (productFiles.length === 0) return full('no product file in the diff', null, 'no product file in the diff');
 
-  const areas = new Set();
+  const changedBy = new Map();
   for (const path of productFiles) {
-    if (forcesFull(path, packages)) return { mode: 'full', reason: `${path} is not attributable to an area` };
+    const rule = ruleForcingFull(path, packages);
+    if (rule) return full(rule, path, `${path} is not attributable to an area`);
 
     if (path.startsWith(SPECS)) {
       const own = walks.filter((walk) => `${SPECS}${walk.where}` === path);
-      if (own.length === 0 || own.some((walk) => walk.area === null)) return { mode: 'full', reason: `${path} has no area to place its walks under` };
-      for (const walk of own) areas.add(walk.area);
+      if (own.length === 0 || own.some((walk) => walk.area === null)) return full('spec with no area', path, `${path} has no area to place its walks under`);
+      for (const walk of own) if (!changedBy.has(walk.area)) changedBy.set(walk.area, path);
       continue;
     }
 
     const owners = matchingConcepts(concepts, path);
-    if (owners.length === 0) return { mode: 'full', reason: `${path} matches no area` };
-    for (const key of owners) areas.add(key);
+    if (owners.length === 0) return full('owned by no concept', path, `${path} matches no area`);
+    for (const key of owners) if (!changedBy.has(key)) changedBy.set(key, path);
   }
 
   const withWalks = new Set(walks.map((walk) => walk.area));
-  const selected = [...areas].filter((area) => withWalks.has(area)).sort();
-  return { mode: 'selected', areas: selected, grep: selected.length > 0 ? grepFor(selected) : null };
+  const selected = [...changedBy.keys()].filter((area) => withWalks.has(area)).sort();
+  return { mode: 'selected', areas: selected, grep: selected.length > 0 ? grepFor(selected) : null, changedBy: Object.fromEntries(selected.map((area) => [area, changedBy.get(area)])) };
 }

@@ -325,6 +325,16 @@ jobs:
       # (scripts/lib/e2e-selection.mjs); a push to `main` runs every walk, as
       # the `Test` job does. `fetch-depth: 0` is what places the merge-base.
       - run: node scripts/ci-e2e.mjs
+      # What this run selected and why (scripts/lib/e2e-record.mjs), on every run
+      # and whatever the walks did, and it can only add: the same rule as the
+      # `Test` job's record ("Show E2E in the test selection report", issue 541).
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        with:
+          name: e2e-selection-record
+          path: e2e-record/record.json
+          if-no-files-found: warn
       # Traces and screenshots are kept on failure only (playwright.config.ts),
       # so this uploads nothing of Playwright's on a green run.
       #

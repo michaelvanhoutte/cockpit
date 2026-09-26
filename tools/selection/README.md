@@ -6,7 +6,8 @@ selection working.** Reads what every Test job selected and why — the record
 writes and uploads on each run — across merged pull requests, and draws one
 HTML page: whether a skipped test later failed on `main`, which paths keep
 forcing a full run, which tests are selected on nearly every pull request, and
-each pull request's own selection in full. Keeps no state — the record already
+each pull request's own selection in full — for the E2E job's specs beside the Test job's test
+files. Keeps no state — the record already
 lives in every run's own artifact; this only reads it across many.
 
 ## Reading it without running it
@@ -69,6 +70,16 @@ what it would have done.
   the pull requests that ran it because their package was full, tracked on
   the side. Ties in the most common import chain keep whichever was seen
   first; the issue that scoped this report calls that "either is correct".
+- **E2E is read the same way, from its own record**
+  ([`scripts/lib/e2e-record.mjs`](../../scripts/lib/e2e-record.mjs), the `e2e-selection-record`
+  artifact of the same run). It has the Test record's shape — the whole browser tier as one package,
+  each spec file one of its files — so misses, forced-full rows and the per-pull-request table read
+  it with the functions they read the Test record with. A spec was selected because a changed file
+  belongs to the product area whose walks it holds, which is what its row says in place of an import
+  chain. A pull request whose run has no E2E record (merged before E2E recorded anything, or the
+  artifact expired) is `no record` for E2E and counted in neither direction there. An E2E miss sits in
+  the misses table with level `e2e`; E2E's forced-full rules get their own rows, marked E2E, since one
+  path can force both jobs.
 - **"Is selection working?" is per window (7 and 14 days by default) and says
   "none" rather than inventing a number**: a window with no pull requests, or
   where selection never ran at all, reads "none" for the figures that would
@@ -94,8 +105,8 @@ introduced. Only a genuinely absent record — expired, or a documentation-only
 pull request whose Test job never started — is not a failure.
 
 **Request cost**: up to two workflow-run lookups, two job lists, two artifact
-lists and two zip downloads per pull request, plus one changed-file listing
-where a record is missing — about ten requests each, so a fourteen-day window
+lists and four zip downloads per pull request, plus one changed-file listing
+where a record is missing — about twelve requests each, so a fourteen-day window
 of a few dozen merges stays well inside the thousand `GITHUB_TOKEN` allows an
 hour. `--max-pulls` stops rather than spending it.
 
