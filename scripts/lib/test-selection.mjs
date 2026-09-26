@@ -59,12 +59,12 @@ import { basename } from 'node:path';
 import { isNonProduct } from './what-changed.mjs';
 
 /** A changed path no package's own directory covers - the lockfile, any package.json, a workflow, and anything else at that altitude. */
-function isOutsidePackages(path, packages) {
+export function isOutsidePackages(path, packages) {
   return !packages.some((pkg) => path === pkg.dir || path.startsWith(`${pkg.dir}/`));
 }
 
 /** A tsconfig anywhere - it can `extends` another package's, so its reach is never provably local. */
-function isTsconfig(path) {
+export function isTsconfig(path) {
   return /^tsconfig.*\.json$/.test(basename(path));
 }
 

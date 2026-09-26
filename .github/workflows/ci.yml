@@ -305,6 +305,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
       # The budget, ahead of the browser download and the tier itself
       # ("Bring the browser tier back inside a budget", issue 509): `--list`
@@ -319,7 +321,10 @@ jobs:
       # browser needs.
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
+      # On a pull request this runs only the areas that own a changed file
+      # (scripts/lib/e2e-selection.mjs); a push to `main` runs every walk, as
+      # the `Test` job does. `fetch-depth: 0` is what places the merge-base.
+      - run: node scripts/ci-e2e.mjs
       # Traces and screenshots are kept on failure only (playwright.config.ts),
       # so this uploads nothing of Playwright's on a green run.
       #

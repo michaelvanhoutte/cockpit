@@ -7,25 +7,10 @@
 // there without a checkout or a real workspace; this is orchestration only,
 // the same split bundle-budget.mjs and dev.mjs use.
 //
-// What stands in for the merge-base with `main` is read off HEAD itself
-// rather than fetched or computed with `git merge-base`: the default checkout
-// for a pull_request event is GitHub's own merge of the PR against its base
-// (refs/pull/<n>/merge), kept current with `main` as `main` moves, so HEAD's
-// first parent is the base commit that merge was actually computed against -
-// no origin/main ref required, only enough history for that parent commit to
-// be present, which is what the Test job's checkout step asks for with
-// fetch-depth: 0. A textbook `git merge-base` would instead return the PR
-// branch's own fork point, which is only the same commit when the PR is
-// already caught up with `main` - using the fork point here would inflate
-// "changed" by everything `main` has gained since the PR forked, working
-// against the point of selecting less. (Reproducing a selection by hand:
-// diff against this parent, not against `git merge-base main HEAD`.)
-//
-// Any git command failing here - not just an unplaceable merge-base - falls
-// back to running every package in full: a diff this can't actually read is
-// exactly the case "nothing in the import graph can be trusted to attribute"
-// already exists to catch, and treating a failed `git diff` as "nothing
-// changed" would silently select too little rather than too much.
+// The merge-base is placed by scripts/lib/merge-base.mjs, which needs enough
+// history for HEAD's first parent to be present: what the Test job's checkout
+// step asks for with fetch-depth: 0. A git command failing there falls back to
+// running every package in full.
 //
 // Packages run concurrently, up to a limit, all of them always to completion
 // rather than one at a time stopping at the first failure: `pnpm -r test`,
@@ -46,6 +31,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
+import { placeMergeBase } from './lib/merge-base.mjs';
 import { buildRecord, renderSummary } from './lib/test-record.mjs';
 import { planTestRun } from './lib/test-selection.mjs';
 import { testablePackages } from './lib/workspace.mjs';
@@ -68,26 +54,7 @@ function capture(file, args) {
 
 const git = (args) => capture('git', args);
 
-/**
- * `{ mergeBase, changedFiles }` for a pull_request event, or both empty where
- * anything needed to place them can't be read - which planTestRun already
- * treats as "run everything", the same as an event that isn't a pull request.
- */
-function place(event) {
-  if (event !== 'pull_request') return { mergeBase: null, changedFiles: [] };
-  try {
-    // Oldest-parent-first: `[base, head]` for the synthetic merge commit a
-    // pull_request event checks out, `[parent]` for an ordinary commit.
-    const parents = git(['rev-list', '--parents', '-n', '1', 'HEAD']).split(/\s+/).slice(1);
-    if (parents.length !== 2) return { mergeBase: null, changedFiles: [] };
-    const mergeBase = parents[0];
-    const changedFiles = git(['diff', '--name-only', mergeBase, 'HEAD']).split('\n').filter(Boolean);
-    return { mergeBase, changedFiles };
-  } catch (error) {
-    console.error(paint('33', `Could not place a merge-base (${error.message}); running every package in full.`));
-    return { mergeBase: null, changedFiles: [] };
-  }
-}
+const place = (event) => placeMergeBase(event, git, (message) => console.error(paint('33', message)));
 
 let packages;
 try {
