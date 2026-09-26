@@ -239,6 +239,26 @@ describe('User management', () => {
     });
   });
 
+  describe('a user inactive three months or more stands out from one who isn’t', () => {
+    /** Relative to now, so the cases hold whenever they run. */
+    const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+
+    it.each([
+      { situation: 'signed in four months ago', lastSignedInAt: daysAgo(120), flagged: true },
+      { situation: 'signed in within three months', lastSignedInAt: daysAgo(7), flagged: false },
+      { situation: 'never signed in', lastSignedInAt: null, flagged: true },
+    ])('$situation: flagged is $flagged', async ({ lastSignedInAt, flagged }) => {
+      const person = { ...PEOPLE[1]!, lastSignedInAt };
+      reads.mockResolvedValue({ users: [PEOPLE[0]!, person] });
+      drawn();
+
+      const row = (await screen.findByText(person.name)).closest('tr')!;
+      const flag = within(row).queryByText(/inactive/i);
+      if (flagged) expect(flag).toBeVisible();
+      else expect(flag).toBeNull();
+    });
+  });
+
   describe('a person’s row opens a form carrying their name and their role', () => {
     /**
      * Opened from the row's own menu, which is the way a keyboard has - the
