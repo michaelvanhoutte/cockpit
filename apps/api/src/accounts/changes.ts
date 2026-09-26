@@ -110,6 +110,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_SOURCE_CONNECTOR,
     DASHBOARD_ORDER,
     PANEL_SORT,
+    ITEM_MEANINGS_READ_AT,
   ];
 }
 
@@ -138,6 +139,38 @@ export function accountChanges(accountId: string): readonly Change[] {
 const PANEL_SORT: Change = {
   name: '0040-panel-sort',
   statements: [{ sql: 'ALTER TABLE `panels` ADD COLUMN `sort_criteria` text' }],
+};
+
+/**
+ * An index on when a note was read, so the change stream's poll answers "any
+ * reading newer than my cursor?" by range rather than by visiting every reading
+ * the account holds (`collectInvalidations`, events.ts). Every open tab asks
+ * every three seconds, and `item_meanings_tenant_item` narrows by `tenant_id`
+ * alone for that question.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `CREATE INDEX`, and no statement that writes to a row.
+ * - **If it stops halfway:** it cannot. One statement, and a change's
+ *   statements and the record that they ran commit in one `transactionSync`
+ *   (store.ts).
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** there can be none. The index is
+ *   on a non-unique column, so it cannot reject a row.
+ * - **Rolled back after it has run:** an older release never names the index,
+ *   and the table it sits on is one it already reads, so nothing changes but
+ *   the polls costing what they did.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const ITEM_MEANINGS_READ_AT: Change = {
+  name: '0041-item-meanings-read-at',
+  statements: [
+    {
+      sql: 'CREATE INDEX `item_meanings_tenant_read_at` ON `item_meanings` (`tenant_id`,`read_at`)',
+    },
+  ],
 };
 
 /**

@@ -1158,6 +1158,8 @@ export const itemMeanings = sqliteTable(
     // than another account's reading (architecture, "`tenant_id` stays on
     // every row").
     index('item_meanings_tenant_item').on(t.tenantId, t.itemId),
+    // What the change stream's poll asks: any reading newer than my cursor.
+    index('item_meanings_tenant_read_at').on(t.tenantId, t.readAt),
     check('item_meanings_read_at_is_timestamp', isTimestamp('read_at')),
   ],
 );

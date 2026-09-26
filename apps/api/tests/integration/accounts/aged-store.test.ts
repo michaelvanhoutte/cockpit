@@ -1270,3 +1270,40 @@ describe('Workspace management', () => {
     });
   });
 });
+
+describe('Notes', () => {
+  describe('an account that predates the index on when a note was read gets it, and keeps its readings', () => {
+    /**
+     * `0041-item-meanings-read-at`: the change adds an index and no rows, and
+     * the one thing it could get wrong is losing the readings it sits on.
+     */
+    it('has the index afterwards and the same readings as before', async () => {
+      const name = 'aged-store-before-read-at-index';
+      await agedTo(name, justBefore('0041-item-meanings-read-at'));
+      await fillWithWhatIsAlreadyThere(name);
+      const readings = () =>
+        inStoreAsItIs(name, (sql) =>
+          sql
+            .exec<{ item_id: string; read_at: string }>(
+              'SELECT item_id, read_at FROM item_meanings ORDER BY item_id',
+            )
+            .toArray(),
+        );
+      const before = await readings();
+      expect(before.length).toBeGreaterThan(0);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(await readings()).toEqual(before);
+      const indexes = await inStoreAsItIs(name, (sql) =>
+        sql
+          .exec<{ name: string }>(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'item_meanings'",
+          )
+          .toArray()
+          .map((row) => row.name),
+      );
+      expect(indexes).toContain('item_meanings_tenant_read_at');
+    });
+  });
+});

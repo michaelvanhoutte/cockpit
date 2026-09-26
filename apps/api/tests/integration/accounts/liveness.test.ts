@@ -7,6 +7,7 @@ import {
   WORKSPACE_ID,
   alsoWorkspaces,
   asUser,
+  inTheStore,
   seedRegister,
   startFromEmpty,
   storeNamed,
@@ -123,6 +124,38 @@ describe('Live updates', () => {
       const nothingLeft = await changesSince(whenIt(events, WORKSPACE_ID)!);
 
       expect(nothingLeft.events).toEqual([]);
+    });
+  });
+});
+
+describe('Live updates', () => {
+  describe('a poll with nothing new reads no readings, however many an account holds', () => {
+    /**
+     * Every open tab asks every three seconds, so what one poll visits is paid
+     * for by every tab of every account. The plan is the proof: a unit cannot
+     * show which index a real store picks, and counting rows read would only
+     * restate it. The statement below is the one `collectInvalidations` runs
+     * for readings (events.ts), written out because a drizzle query cannot be
+     * handed to the store's own connection from here.
+     */
+    it('answers the readings query from the (tenant_id, read_at) index, by range', async () => {
+      const plan = await inTheStore((sql) =>
+        sql
+          .exec<{ detail: string }>(
+            `EXPLAIN QUERY PLAN
+             SELECT items.workspace_id, items.workspace_decided, item_meanings.read_at
+               FROM item_meanings
+               INNER JOIN items ON item_meanings.item_id = items.id
+              WHERE item_meanings.tenant_id = ? AND item_meanings.read_at > ?`,
+            ACCOUNT_NAME,
+            '2026-09-08T00:00:00.000Z',
+          )
+          .toArray()
+          .map((row) => row.detail),
+      );
+
+      expect(plan).toContainEqual(expect.stringContaining('item_meanings_tenant_read_at'));
+      expect(plan).toContainEqual(expect.stringMatching(/tenant_id=\? AND read_at>\?/));
     });
   });
 });
