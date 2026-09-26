@@ -2,7 +2,6 @@ import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
 import { filingsThatFile, itemsInTheInbox } from '../filing';
-import { CaptureForm } from './CaptureForm';
 import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
 import { RewriteHistoryWindow } from './RewriteHistoryWindow';
@@ -73,8 +72,7 @@ export function InboxHeading({ workspaceId, id }: { workspaceId: string; id?: st
 }
 
 /**
- * One workspace's Inbox, holding every item still to deal with, with capture as
- * its first row. Which items that is, is a view over the snapshot evaluated in
+ * One workspace's Inbox, holding every item still to deal with. Which items that is, is a view over the snapshot evaluated in
  * the client (architecture, "The read model: persisted snapshot, revalidate,
  * push"): the wire carries the workspace's open items and nothing about how
  * they are grouped.
@@ -134,20 +132,6 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
     // form above it leaves: as tall as the whole column, it overflowed by the
     // form's own height and always scrolled.
     <div className="flex min-h-full flex-col">
-      {/* Writing something down and seeing where it landed are the same
-          place: the box is the Inbox's first row. */}
-      <div className="border-b border-black/5 px-4 py-3">
-        <CaptureForm
-          workspaceId={workspaceId}
-          // Handed over as it is, `undefined` and all: a stored snapshot can
-          // predate the field, and the row has to tell that apart from an
-          // account that really has no types - it says "no types yet" for the
-          // second and waits quietly for the first.
-          types={data.itemTypes}
-          items={data.items}
-        />
-      </div>
-
       {showHowToFile && (
         <p className="border-b border-black/5 px-4 py-2 text-sm text-ink-faint">
           {HOW_TO_FILE_FROM_THE_INBOX}

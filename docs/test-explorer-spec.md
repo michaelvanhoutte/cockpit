@@ -308,7 +308,7 @@ the content is areas, not dotted concepts):
     "apps/api/src/accounts/repo.ts",
     "packages/shared/src/commands.ts",
     "packages/shared/src/domain/item.ts",
-    "apps/web/src/components/CaptureForm.tsx"
+    "apps/web/src/components/CaptureNote.tsx"
   ]
 }
 ```

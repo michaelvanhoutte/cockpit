@@ -1,9 +1,11 @@
 import {
   captureBox,
+  closeCapture,
   expect,
   expectNoSidewaysScroll,
   inbox,
   itemRow,
+  openCapture,
   openInbox,
   press,
   test,
@@ -14,8 +16,8 @@ import {
  * F3, because the capture control is reached by a tap on a 480px screen and by
  * a mouse on a 1280px one, and neither the viewport nor the touch event path
  * exists below a real browser — jsdom, where the F1 tests run, has no layout
- * engine at all. It is not re-proving CaptureForm's logic, which
- * apps/web/tests/unit/components/CaptureForm.test.tsx already owns; it proves
+ * engine at all. It is not re-proving the form's logic, which
+ * apps/web/tests/unit/components/CaptureNote.test.tsx already owns; it proves
  * the whole thing is tied together and usable on the device in hand.
  *
  * **A note being cleaned up after it is captured has no walk here, on purpose**
@@ -56,14 +58,21 @@ test.describe('Capture', () => {
     }) => {
       await openInbox(page, isMobile);
       await expectNoSidewaysScroll(page);
+      // No note box in the Inbox: the header's Capture tab is the only way in
+      // ("Capture over the screen you are on, and open it with C", issue 536).
+      await expect(captureBox(page)).toHaveCount(0);
 
+      await openCapture(page, isMobile);
       // Reachable, not merely present: an element rendered off the edge of a
       // phone satisfies toBeVisible and is still unusable.
       await expect(captureBox(page)).toBeInViewport();
+      await expectNoSidewaysScroll(page);
 
       const thought = uniqueTitle('Buy milk');
       await captureBox(page).fill(thought);
-      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(thought)).toBeVisible();
+      await closeCapture(page, isMobile);
 
       await expect(itemRow(page, thought)).toBeVisible();
       await expect(inbox(page).getByText(thought)).toBeVisible();
@@ -74,12 +83,8 @@ test.describe('Capture', () => {
   test.describe('capturing a thought shows it in the inbox as a thought', () => {
     test('says what kind of thing it is on its own row', async ({ page, isMobile }) => {
       await openInbox(page, isMobile);
+      await openCapture(page, isMobile);
 
-      const kind = page.getByLabel('What kind of thing this is');
-      await expect(kind).toBeInViewport();
-
-      const thought = uniqueTitle('Maybe split the pricing page');
-      await captureBox(page).fill(thought);
       // Chosen from the types the account has, which is all this row offers -
       // one is made in the window they are managed in ("Make a type where types
       // are managed, not while capturing", issue 203), and that walk is
@@ -87,8 +92,15 @@ test.describe('Capture', () => {
       // One of the two every account starts with ("Call the two standard types
       // Task and Note", issue 194) rather than a name this walk invents:
       // capture chooses among the types there are.
-      await kind.selectOption({ label: 'Note' });
-      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+      const kind = page.getByRole('group', { name: 'Type' }).getByRole('button', { name: 'Note' });
+      await expect(kind).toBeInViewport();
+
+      const thought = uniqueTitle('Maybe split the pricing page');
+      await captureBox(page).fill(thought);
+      await press(kind, isMobile);
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(thought)).toBeVisible();
+      await closeCapture(page, isMobile);
 
       // The word under the title, which is one of the two marks the type took
       // from the status ("Capture a thought or an action, and see which it

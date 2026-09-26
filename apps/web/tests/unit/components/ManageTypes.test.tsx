@@ -169,7 +169,7 @@ describe('Capture', () => {
   /**
    * The window's half of the rule ("Make a type where types are managed, not
    * while capturing", issue 203). That neither capture surface makes one is the
-   * other half, in tests/unit/components/CaptureForm.test.tsx and
+   * other half, in tests/unit/components/CaptureNote.test.tsx and
    * tests/unit/pages/CapturePage.test.tsx. Whether a name is actually free is
    * the account's rule, decided against a real unique index in
    * apps/api/tests/integration/http/item-changes.test.ts.

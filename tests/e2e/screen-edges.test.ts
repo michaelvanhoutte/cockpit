@@ -1,7 +1,6 @@
 import { type Locator, type Page } from '@playwright/test';
 import {
   capture,
-  captureBox,
   chooseTabAction,
   dashboardBar,
   dashboardTab,
@@ -191,18 +190,16 @@ test.describe('Screen edges', () => {
       await expectClearOfTheEdges(page, workspaceTabs(page), 'the workspace tabs', SIDEWAYS);
       // Two shapes, one Inbox: a column beside the dashboard where there is
       // room for one, a tab in the bar where there is not. Either way what
-      // sits against the left edge under the tabs is what you capture into.
+      // sits against the left edge under the tabs is the Inbox.
       //
-      // The box rather than the Inbox around it, because a list long enough to
-      // scroll is taller than the screen on purpose - measuring the panel would
-      // ask a scroller to fit, which is a different and wrong claim.
+      // Its heading rather than the Inbox around it, because a list long
+      // enough to scroll is taller than the screen on purpose - measuring the
+      // panel would ask a scroller to fit, which is a different and wrong
+      // claim.
       if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
-      // Looked at before it is measured. The box lives at the top of a column
-      // that scrolls, and every walk in this run shares one Inbox, so by here
-      // the column can be a dozen pixels down - which puts the box above its
-      // own scroller rather than under anything.
-      await captureBox(page).scrollIntoViewIfNeeded();
-      await expectClearOfTheEdges(page, captureBox(page), 'the capture box', SIDEWAYS);
+      const heading = page.getByRole('heading', { name: 'Inbox' }).first();
+      await heading.scrollIntoViewIfNeeded();
+      await expectClearOfTheEdges(page, heading, 'the Inbox heading', SIDEWAYS);
     });
 
     test('puts the end of a list clear of the home indicator', async ({ page, isMobile }) => {

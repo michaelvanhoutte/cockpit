@@ -1,5 +1,7 @@
 import {
   captureBox,
+  closeCapture,
+  openCapture,
   chooseRowAction,
   expect,
   expectNoSidewaysScroll,
@@ -52,9 +54,12 @@ test.describe('Capture', () => {
       // On offer at capture the moment it exists, without a reload.
       await openInbox(page, isMobile);
       const thought = uniqueTitle('Why is this slow?');
+      await openCapture(page, isMobile);
       await captureBox(page).fill(thought);
-      await page.getByLabel('What kind of thing this is').selectOption({ label: kind });
-      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('group', { name: 'Type' }).getByRole('button', { name: kind }), isMobile);
+      await captureBox(page).press('ControlOrMeta+Enter');
+      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(thought)).toBeVisible();
+      await closeCapture(page, isMobile);
       await expect(itemRow(page, thought).getByText(kind)).toBeVisible();
 
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);

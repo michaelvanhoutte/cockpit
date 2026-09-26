@@ -10,7 +10,7 @@ import {
   expect,
   expectNoSidewaysScroll,
   fileOnto,
-  captureBox,
+  inbox,
   itemRow,
   itemsOn,
   openDashboard,
@@ -949,7 +949,7 @@ test.describe('Panels', () => {
       // Inbox is the column already beside this dashboard; on a phone it is a
       // tab in the same bar.
       if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
-      await expect(captureBox(page)).toBeVisible();
+      await expect(inbox(page)).toBeVisible();
       await capture(page, chase, isMobile);
       await press(itemRow(page, chase).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);

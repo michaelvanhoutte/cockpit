@@ -75,7 +75,7 @@ const ACTION = aType('Action', 0);
 
 /**
  * The row, with the capture half wired to answer synchronously (mirroring
- * `CaptureForm.test.tsx`'s own `aForm`) and the filing half reading `held`
+ * `CaptureNote.test.tsx`'s own `thePage`) and the filing half reading `held`
  * fresh - through `useLatestSnapshot`, exactly as the component does - and
  * sending through `sent`, which a case can make resolve or reject.
  */

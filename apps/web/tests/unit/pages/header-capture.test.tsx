@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
-import { render, waitFor, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from '../../../src/pages/Layout';
 
@@ -10,6 +11,7 @@ import { Layout } from '../../../src/pages/Layout';
  */
 const params: { workspaceId?: string } = {};
 const held = { workspaces: [] as unknown[] };
+const navigated = vi.hoisted(() => vi.fn());
 
 /** The address the shell is rendered at, which is what says which tab is on. */
 const at = { pathname: '/w/ws-work' };
@@ -30,19 +32,23 @@ vi.mock('@tanstack/react-router', () => ({
     className,
     style,
     to,
+    title,
+    onClick,
   }: {
     children?: React.ReactNode;
     className?: string;
     style?: React.CSSProperties;
     to?: string;
+    title?: string;
+    onClick?: React.MouseEventHandler;
   }) => (
-    <a href={to} className={className} style={style}>
+    <a href={to} className={className} style={style} title={title} onClick={onClick}>
       {children}
     </a>
   ),
   Outlet: () => <div data-testid="the-page" />,
   useParams: () => params,
-  useNavigate: () => () => Promise.resolve(),
+  useNavigate: () => (args: unknown) => Promise.resolve(navigated(args)),
   useSearch: () => ({}),
   // The address, because which tab is filled is a question about the page you
   // are on rather than about the workspace you are in: capture is in none.
@@ -107,6 +113,20 @@ async function theShell({
   await waitFor(() => expect(client.getQueryData(['workspaces'])).toBeDefined());
   return { header: within(container.querySelector('header')!), container };
 }
+
+/** A screen wide enough for a window over it (`roomForTheInbox.ts`), or a phone. */
+function onA(screen: 'desk' | 'phone') {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: screen === 'desk',
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  }));
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  navigated.mockClear();
+});
 
 /** The color an element is filled with, as the browser reports it back. */
 function filledWith(element: Element | null | undefined): string {
@@ -192,6 +212,123 @@ describe('Capture', () => {
       expect(band).not.toBeNull();
       expect(band!.className).toContain('min-h-11');
       expect(band!.textContent).toBe('');
+    });
+  });
+
+  /**
+   * The tab and `C` are one way in: a window over the screen at a desk, the
+   * page on a phone ("Capture over the screen you are on, and open it with C",
+   * issue 536). The form's own rules are components/CaptureNote.test.tsx.
+   */
+  describe('the tab and C open Capture over the screen at a desk, and the page on a phone', () => {
+    const theWindow = () => screen.queryByRole('dialog', { name: 'Capture' });
+
+    it('opens a window from the tab at a desk, leaving the address alone', async () => {
+      onA('desk');
+      const { header } = await theShell();
+
+      await userEvent.click(header.getByRole('link', { name: 'Capture' }));
+
+      expect(theWindow()).toBeVisible();
+      expect(navigated).not.toHaveBeenCalled();
+    });
+
+    it('opens the same window from C, with the note box focused', async () => {
+      onA('desk');
+      await theShell();
+
+      fireEvent.keyDown(document.body, { key: 'c' });
+
+      expect(theWindow()).toBeVisible();
+      await waitFor(() => expect(screen.getByLabelText('What is on your mind?')).toHaveFocus());
+    });
+
+    it('closes on Escape', async () => {
+      onA('desk');
+      await theShell();
+      fireEvent.keyDown(document.body, { key: 'C' });
+
+      await userEvent.keyboard('{Escape}');
+
+      await waitFor(() => expect(theWindow()).toBeNull());
+    });
+
+    it('opens one window when C is pressed twice', async () => {
+      onA('desk');
+      await theShell();
+
+      fireEvent.keyDown(document.body, { key: 'c' });
+      fireEvent.keyDown(document.body, { key: 'c' });
+
+      expect(screen.getAllByRole('dialog', { name: 'Capture' })).toHaveLength(1);
+    });
+
+    it('leaves the tab a link to the page on a phone, opening no window', async () => {
+      onA('phone');
+      const { header } = await theShell();
+
+      fireEvent.click(header.getByRole('link', { name: 'Capture' }));
+      expect(theWindow()).toBeNull();
+    });
+
+    it('goes to the page from C on a phone, carrying the workspace it was pressed in', async () => {
+      onA('phone');
+      await theShell({ inside: 'ws-work' });
+
+      fireEvent.keyDown(document.body, { key: 'c' });
+
+      expect(theWindow()).toBeNull();
+      expect(navigated).toHaveBeenCalledWith({
+        to: '/capture',
+        state: { captureFrom: 'ws-work' },
+      });
+    });
+
+    it('says the key in the tab’s tooltip', async () => {
+      const { header } = await theShell();
+
+      expect(header.getByRole('link', { name: 'Capture' })).toHaveAttribute('title', 'Capture (C)');
+    });
+  });
+
+  describe('C opens Capture only when nothing else has the keys', () => {
+    it('types a c into a field instead', async () => {
+      onA('desk');
+      await theShell();
+      const field = document.createElement('input');
+      document.body.append(field);
+      field.focus();
+
+      fireEvent.keyDown(field, { key: 'c' });
+
+      expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
+      field.remove();
+    });
+
+    it('does nothing while a menu or another window is open', async () => {
+      onA('desk');
+      await theShell();
+      const open = document.createElement('div');
+      open.setAttribute('role', 'menu');
+      document.body.append(open);
+
+      fireEvent.keyDown(document.body, { key: 'c' });
+
+      expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
+      open.remove();
+    });
+
+    it.each([
+      { chord: 'Ctrl+C', held: { ctrlKey: true } },
+      { chord: 'Alt+C', held: { altKey: true } },
+      { chord: '⌘C', held: { metaKey: true } },
+    ])('does nothing for $chord, so Ctrl+C still copies', async ({ held: modifier }) => {
+      onA('desk');
+      await theShell();
+
+      fireEvent.keyDown(document.body, { key: 'c', ...modifier });
+
+      expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
     });
   });
 });

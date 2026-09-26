@@ -8,11 +8,11 @@ import { useCommand } from './api/queries';
  * Capturing a note - the one piece of choreography behind every front door in
  * the app.
  *
- * **Here rather than in either surface that runs it**, because there are two:
- * the Inbox's own row (components/CaptureForm.tsx) and the Capture page
- * (pages/CapturePage.tsx). They ask the question differently - one line and a
- * dropdown against a page of chips - and the answer they send has to be the
- * same one.
+ * **Here rather than in the form that runs it**, because that form is drawn in
+ * two places - the Capture page (pages/CapturePage.tsx) and the window over the
+ * screen you are on (components/CaptureWindow.tsx) - and the Panel's own
+ * *Add an item* row asks for the same thing. What they send has to be the same
+ * answer.
  *
  * **It used to make the type first**, where the name typed matched none of the
  * account's, and that was the only way a type came into existence. Types are
