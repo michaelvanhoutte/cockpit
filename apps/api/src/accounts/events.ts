@@ -60,17 +60,7 @@ export function collectInvalidations(
    * Inbox, so its reading is a change to all of them - which is what
    * `ACCOUNT_WIDE` says, exactly as a change to a Type does.
    */
-  const read = db
-    .select({
-      workspaceId: items.workspaceId,
-      workspaceDecided: items.workspaceDecided,
-      readAt: itemMeanings.readAt,
-    })
-    .from(itemMeanings)
-    .innerJoin(items, eq(itemMeanings.itemId, items.id))
-    .where(and(eq(itemMeanings.tenantId, tenantId), gt(itemMeanings.readAt, since)))
-    .all();
-  for (const row of read) {
+  for (const row of readingsSince(db, tenantId, since).all()) {
     sawChange(row.workspaceDecided ? row.workspaceId : ACCOUNT_WIDE, row.readAt);
   }
 
@@ -105,4 +95,21 @@ export function watermark(db: AccountDb, tenantId: string): string | undefined {
     .limit(1)
     .get();
   return row?.receivedAt;
+}
+
+/**
+ * The readings newer than a cursor, unrun - so the test that proves a poll with
+ * nothing new visits no readings can plan this very statement rather than a
+ * copy of it (`item_meanings_tenant_read_at` is what it is answered from).
+ */
+export function readingsSince(db: AccountDb, tenantId: string, since: string) {
+  return db
+    .select({
+      workspaceId: items.workspaceId,
+      workspaceDecided: items.workspaceDecided,
+      readAt: itemMeanings.readAt,
+    })
+    .from(itemMeanings)
+    .innerJoin(items, eq(itemMeanings.itemId, items.id))
+    .where(and(eq(itemMeanings.tenantId, tenantId), gt(itemMeanings.readAt, since)));
 }

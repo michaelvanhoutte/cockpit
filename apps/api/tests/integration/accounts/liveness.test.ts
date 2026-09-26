@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
-import { applyD1Migrations, env } from 'cloudflare:test';
+import { applyD1Migrations, env, runInDurableObject } from 'cloudflare:test';
 import type { ServerEvent } from '@cockpit/shared';
+import { createAccountDb } from '../../../src/accounts/client.js';
+import { readingsSince } from '../../../src/accounts/events.js';
 import {
   ACCOUNT_NAME,
   TASK_TYPE_ID,
   WORKSPACE_ID,
   alsoWorkspaces,
   asUser,
+  inTheStore,
   seedRegister,
   startFromEmpty,
   storeNamed,
@@ -123,6 +126,34 @@ describe('Live updates', () => {
       const nothingLeft = await changesSince(whenIt(events, WORKSPACE_ID)!);
 
       expect(nothingLeft.events).toEqual([]);
+    });
+  });
+
+  describe('checking for changes does not go through every note an account holds', () => {
+    /**
+     * Every open tab asks every three seconds, so what one check visits is paid
+     * for by every tab of every account. The plan is the proof: which index a
+     * real store answers from cannot be shown by a unit, and counting rows read
+     * would only restate it. It plans the statement `collectInvalidations` runs
+     * (`readingsSince`), not a copy.
+     */
+    it('looks only at the notes read since the last check', async () => {
+      await inTheStore(() => undefined);
+      const plan = await runInDurableObject(storeNamed(ACCOUNT_NAME), (_instance, state) => {
+        const { sql, params } = readingsSince(
+          createAccountDb(state.storage),
+          ACCOUNT_NAME,
+          '2026-09-08T00:00:00.000Z',
+        ).toSQL();
+        return state.storage.sql
+          .exec<{ detail: string }>(`EXPLAIN QUERY PLAN ${sql}`, ...params)
+          .toArray()
+          .map((row) => row.detail);
+      });
+
+      expect(plan).toContainEqual(
+        expect.stringMatching(/USING INDEX item_meanings_tenant_read_at \(tenant_id=\? AND read_at>\?\)/),
+      );
     });
   });
 });

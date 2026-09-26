@@ -487,8 +487,6 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0039-dashboard-order` adds it.
-    dashboards: ['position'],
     // `0040-panel-sort` adds it.
     panels: ['sort_criteria'],
   };

@@ -1153,11 +1153,12 @@ export const itemMeanings = sqliteTable(
     readAt: text('read_at').notNull(),
   },
   (t) => [
-    // Read per account and per item, which is the one access pattern this
-    // table has - scoped to the tenant so a routing bug returns nothing rather
-    // than another account's reading (architecture, "`tenant_id` stays on
-    // every row").
+    // Read per account and per item - scoped to the tenant so a routing bug
+    // returns nothing rather than another account's reading (architecture,
+    // "`tenant_id` stays on every row").
     index('item_meanings_tenant_item').on(t.tenantId, t.itemId),
+    // What the change stream's poll asks: any reading newer than my cursor.
+    index('item_meanings_tenant_read_at').on(t.tenantId, t.readAt),
     check('item_meanings_read_at_is_timestamp', isTimestamp('read_at')),
   ],
 );
