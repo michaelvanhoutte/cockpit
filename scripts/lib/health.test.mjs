@@ -196,7 +196,7 @@ describe('a deployment whose free-tier allowance is spent', () => {
 
   it('says the daily allowance is spent and when it clears, rather than blaming an update', () => {
     const { message } = readAnswer({ status: 200, body: spent });
-    assert.match(message, /daily allowance/);
+    assert.match(message, /daily Durable Objects allowance is spent/);
     assert.match(message, /00:00 UTC/);
     assert.doesNotMatch(message, /update that will not apply/);
   });

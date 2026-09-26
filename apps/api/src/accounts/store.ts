@@ -118,6 +118,22 @@ import { bringUpToDate, type Change } from './up-to-date.js';
 const R2_DELETE_BATCH = 1000;
 
 /**
+ * The answer for a spent daily allowance, with what Cloudflare said in the log:
+ * the answer names no cause, so this is the only place that says which limit
+ * ran out.
+ */
+function spentAllowance(error: unknown): Answer<never> {
+  console.error(
+    JSON.stringify({
+      level: 'error',
+      message: 'the daily Durable Objects allowance is spent',
+      cause: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  return { status: 'allowance-spent' };
+}
+
+/**
  * One account's data, in one Durable Object: its workspaces, items,
  * associations and change log. Reached by account name at runtime
  * (`env.ACCOUNT.idFromName(name)`), created on first touch, named nowhere in
@@ -874,7 +890,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     try {
       this.#bringUpToDate(accountName);
     } catch (error) {
-      if (allowanceSpent(error)) return { status: 'allowance-spent' };
+      if (allowanceSpent(error)) return spentAllowance(error);
       return { status: 'not-up-to-date', failure: (error as Error).message };
     }
     try {
@@ -930,7 +946,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         return { status: 'refused', what: error.message };
       }
       // After the errors above, whose messages can carry a name somebody typed.
-      if (allowanceSpent(error)) return { status: 'allowance-spent' };
+      if (allowanceSpent(error)) return spentAllowance(error);
       throw error;
     }
   }

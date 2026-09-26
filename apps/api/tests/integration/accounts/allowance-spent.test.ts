@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { applyD1Migrations, env, runInDurableObject, SELF } from 'cloudflare:test';
 import { PROBE_NAME } from '../../../src/accounts/probe.js';
-import { ACCOUNT_NAME, USER_ID, asUser, seedRegister, startFromEmpty, storeNamed } from '../seed.js';
+import {
+  ACCOUNT_NAME,
+  OTHER_ACCOUNT_NAME,
+  USER_ID,
+  asUser,
+  seedRegister,
+  startFromEmpty,
+  storeNamed,
+} from '../seed.js';
 
 /**
  * Integration level, through the real Worker and a real store, because what
@@ -34,19 +42,19 @@ beforeEach(async () => {
 describe('Accounts', () => {
   describe('a store that has spent its daily allowance says so', () => {
     it('answers as a spent allowance when it arrives while bringing the store up to date', async () => {
-      await spendAllowanceOf('a-fresh-account');
+      await spendAllowanceOf(OTHER_ACCOUNT_NAME);
 
-      expect(await storeNamed('a-fresh-account').workspaces('a-fresh-account')).toEqual({
+      expect(await storeNamed(OTHER_ACCOUNT_NAME).workspaces(OTHER_ACCOUNT_NAME)).toEqual({
         status: 'allowance-spent',
       });
     });
 
     it('answers as a spent allowance when it arrives while doing the work', async () => {
       // Up to date first, so what fails is the work and not the update.
-      expect((await storeNamed('a-busy-account').workspaces('a-busy-account')).status).toBe('ok');
-      await spendAllowanceOf('a-busy-account');
+      expect((await storeNamed(ACCOUNT_NAME).workspaces(ACCOUNT_NAME)).status).toBe('ok');
+      await spendAllowanceOf(ACCOUNT_NAME);
 
-      expect(await storeNamed('a-busy-account').workspaces('a-busy-account')).toEqual({
+      expect(await storeNamed(ACCOUNT_NAME).workspaces(ACCOUNT_NAME)).toEqual({
         status: 'allowance-spent',
       });
     });
@@ -88,10 +96,41 @@ describe('Accounts', () => {
       });
     });
 
-    it('leaves /health unchanged when the store is well', async () => {
-      const body = await (await SELF.fetch('http://cockpit.test/health')).json();
+    it('says so on /health when the store cannot even be reached to be asked', async () => {
+      // The stub itself failing, rather than the store answering: what the
+      // check has to read is the message, as the route's own fallback does.
+      vi.spyOn(env.ACCOUNT, 'get').mockImplementation(() => {
+        throw new Error(QUOTA);
+      });
 
-      expect(body).not.toHaveProperty('allowanceSpent');
+      expect(await (await SELF.fetch('http://cockpit.test/health')).json()).toMatchObject({
+        ok: false,
+        store: false,
+        allowanceSpent: true,
+      });
+    });
+
+    it('does not mistake a name somebody typed for the limit', async () => {
+      // A collision names what was typed, so a name that reads like the limit
+      // must still come back as the collision it is.
+      const name = QUOTA;
+      const make = (id: string) =>
+        asUser('http://cockpit.test/v1/commands/create_workspace', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            commandId: `018f2222-0000-7000-8000-00000000000${id}`,
+            issuedAt: '2026-09-26T10:00:00.000Z',
+            workspaceId: `018f2222-0000-7000-8000-00000000001${id}`,
+            panelId: `018f2222-0000-7000-8000-00000000002${id}`,
+            name,
+          }),
+        });
+      expect((await make('1')).status).toBe(200);
+
+      const again = await make('2');
+
+      expect(again.status).toBe(409);
     });
   });
 });

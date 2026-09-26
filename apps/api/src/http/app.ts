@@ -277,6 +277,13 @@ app.onError((err, c) => {
   if (err instanceof RefusedByAccountError) {
     return c.json({ error: err.message }, 400);
   }
+  // A 503 rather than a 500: nothing is wrong with the data or the code, the
+  // free tier has run out for the day. Also caught by message, for a call that
+  // met the limit outside the store's own answer.
+  if (err instanceof AllowanceSpentError || allowanceSpent(err)) {
+    console.error(JSON.stringify({ level: 'error', message: err.message, stack: err.stack }));
+    return c.json({ error: ALLOWANCE_SPENT_MESSAGE }, 503);
+  }
   // An account that cannot be found or cannot be brought up to date is the
   // server's problem, not the caller's - nobody names an account on a request,
   // it is resolved from who signed in - so it is a 500. The first of the two is
@@ -289,13 +296,6 @@ app.onError((err, c) => {
   // change and the underlying cause. That is the whole reason this path exists
   // rather than the default, which reports only `Rollback` and loses the real
   // error in the response and the logs alike.
-  // A 503 rather than a 500: nothing is wrong with the data or the code, the
-  // free tier has run out for the day. Also caught by message, for a call that
-  // met the limit outside the store's own answer.
-  if (err instanceof AllowanceSpentError || allowanceSpent(err)) {
-    console.error(JSON.stringify({ level: 'error', message: err.message, stack: err.stack }));
-    return c.json({ error: ALLOWANCE_SPENT_MESSAGE }, 503);
-  }
   if (err instanceof AccountNotInRegisterError || err instanceof AccountNotUpToDateError) {
     console.error(JSON.stringify({ level: 'error', message: err.message, stack: err.stack }));
     return c.json({ error: err.message }, 500);
@@ -431,7 +431,7 @@ const healthRoute = createRoute({
             store: z.boolean(),
             ai: z.boolean(),
             embeddings: z.boolean(),
-            allowanceSpent: z.boolean().optional(),
+            allowanceSpent: z.literal(true).optional(),
           }),
         },
       },

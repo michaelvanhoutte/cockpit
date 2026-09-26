@@ -88,8 +88,8 @@ export function readAnswer({ status, body }) {
     return {
       state: 'allowance-spent',
       message:
-        "answered, and said Cloudflare's free-tier daily allowance of Durable Object reads or writes " +
-        'is spent. Nothing is wrong with the update: it clears at 00:00 UTC, or on Workers Paid.',
+        "answered, and said Cloudflare's free-tier daily Durable Objects allowance is spent, so the " +
+        'update could not be checked. It clears at 00:00 UTC, or on Workers Paid.',
     };
   }
 
@@ -123,7 +123,8 @@ export function failureReport({ stopped, attempts, answer }, windowMs = WINDOW_M
  *
  * The deployment being unwell, unreachable, or up and failing are all things a
  * deployment settling can fix. A redirect and a page that is not ours both mean
- * something has been put in front of /health, and asking twenty more times only
+ * something has been put in front of /health, and a spent free-tier allowance
+ * clears at 00:00 UTC whatever the deploy does; asking twenty more times only
  * delays saying so.
  *
  * The list is here and nowhere else. An earlier version said "the two" in this

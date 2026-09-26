@@ -14,6 +14,7 @@ describe('Accounts', () => {
     it.each([
       { situation: 'the reads ran out', error: new Error(QUOTA) },
       { situation: 'the writes ran out', error: new Error(QUOTA.replace('read', 'written')) },
+      { situation: 'another daily limit ran out', error: new Error('Exceeded allowed duration in Durable Objects free tier.') },
       {
         situation: 'it happened inside a change, which wraps the cause',
         error: new ChangeFailedError('tenant-default', '0012-standard-types', new Error(QUOTA)),

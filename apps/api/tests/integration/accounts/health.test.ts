@@ -75,7 +75,11 @@ describe('Accounts', () => {
       // applied after a deploy, which is the case that used to answer `ok`.
       await inStoreAsItIs(PROBE_NAME, (sql) => sql.exec('CREATE TABLE commands (whatever text)'));
 
-      expect(await health()).toMatchObject({ ok: false, register: true, store: false });
+      // Not the limit: the field that says so is absent, or a broken update
+      // would be read as a wait for midnight.
+      const verdict = await health();
+      expect(verdict).toMatchObject({ ok: false, register: true, store: false });
+      expect(verdict).not.toHaveProperty('allowanceSpent');
     });
 
     it('is not healthy when the register cannot be read', async () => {
