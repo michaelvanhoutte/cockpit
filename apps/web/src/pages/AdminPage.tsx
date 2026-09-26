@@ -376,8 +376,14 @@ export function lastSignedInLabel(lastSignedInAt: string | null): string {
 export function isInactive(lastSignedInAt: string | null, now: Date = new Date()): boolean {
   const at = usableInstant(lastSignedInAt);
   if (at === null) return true;
+  // Day 1 first, then the day put back clamped: May 31 minus three months is
+  // "Feb 31", which `setUTCMonth` alone rolls into March.
   const cutoff = new Date(now);
+  const day = cutoff.getUTCDate();
+  cutoff.setUTCDate(1);
   cutoff.setUTCMonth(cutoff.getUTCMonth() - 3);
+  const daysThen = new Date(Date.UTC(cutoff.getUTCFullYear(), cutoff.getUTCMonth() + 1, 0)).getUTCDate();
+  cutoff.setUTCDate(Math.min(day, daysThen));
   return new Date(at).getTime() <= cutoff.getTime();
 }
 
