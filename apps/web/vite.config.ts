@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { manifest } from './manifest';
 
 // Dev serves web and API on one origin (vite proxies to wrangler), mirroring
 // production where both live on the same Cloudflare zone. No CORS.
@@ -75,23 +76,7 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/v1\//, /^\/health/, /^\/ingress\//, /^\/cdn-cgi\//],
         runtimeCaching: [],
       },
-      manifest: {
-        name: 'Cockpit',
-        short_name: 'Cockpit',
-        description: 'Unified inbox and dashboards',
-        start_url: '/',
-        display: 'standalone',
-        background_color: '#edebf7',
-        theme_color: '#6f62b5',
-        icons: [
-          {
-            src: '/icon.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
-            purpose: 'any maskable',
-          },
-        ],
-      },
+      manifest,
     }),
   ],
   server: {
