@@ -258,6 +258,17 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - run: node scripts/ci-test.mjs
+      # What this run selected and why (scripts/lib/test-record.mjs), on every run
+      # and whatever the tests did. It can only add: the step is allowed to fail
+      # without failing the job, and it runs after the tests have decided the
+      # job's result, so recording never changes the outcome (issue 539).
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        with:
+          name: test-selection-record
+          path: test-record/record.json
+          if-no-files-found: warn
       # `main` only: a pull request's uninstrumented run writes no coverage, and
       # an upload of nothing would put a warning on every green run.
       - uses: actions/upload-artifact@v4

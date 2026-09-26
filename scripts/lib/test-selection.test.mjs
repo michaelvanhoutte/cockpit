@@ -185,3 +185,46 @@ describe('planTestRun', () => {
     assert.equal(typeof isNonProduct, 'function');
   });
 });
+
+describe('planTestRun reasons', () => {
+  const reasons = (plan) => Object.fromEntries(plan.packages.map((pkg) => [pkg.dir, pkg.reason]));
+
+  it('gives no reason to a package that runs only what changed', () => {
+    const plan = forPR(['apps/api/src/index.ts']);
+    for (const pkg of PACKAGES) assert.equal(plan.packages.find((p) => p.dir === pkg.dir).reason, null, pkg.dir);
+  });
+
+  it('names the lockfile as what forced every package into full', () => {
+    const plan = forPR(['pnpm-lock.yaml']);
+    for (const pkg of PACKAGES) assert.deepEqual(reasons(plan)[pkg.dir], { rule: 'outside every package', path: 'pnpm-lock.yaml' }, pkg.dir);
+  });
+
+  it('names a nested tsconfig as what forced every package into full', () => {
+    const plan = forPR(['apps/web/tsconfig.json']);
+    for (const pkg of PACKAGES) assert.deepEqual(reasons(plan)[pkg.dir], { rule: 'any tsconfig', path: 'apps/web/tsconfig.json' }, pkg.dir);
+  });
+
+  it('names a migration as forcing its own package only', () => {
+    const plan = forPR(['apps/api/migrations/0042_x.sql']);
+    assert.deepEqual(reasons(plan), {
+      'packages/shared': null,
+      'apps/api': { rule: 'own migration', path: 'apps/api/migrations/0042_x.sql' },
+      'apps/web': null,
+    });
+  });
+
+  it('names the push to main as the reason for every package', () => {
+    const plan = planTestRun({ event: 'push', mergeBase: null, changedFiles: [], packages: PACKAGES });
+    for (const pkg of plan.packages) assert.deepEqual(pkg.reason, { rule: 'push to main', path: null }, pkg.dir);
+  });
+
+  it('names an unreadable diff as the reason for every package', () => {
+    const plan = planTestRun({ event: 'pull_request', mergeBase: null, changedFiles: [], packages: PACKAGES });
+    for (const pkg of plan.packages) assert.deepEqual(pkg.reason, { rule: 'diff unreadable', path: null }, pkg.dir);
+  });
+
+  it('never blames a documentation file for a package running in full', () => {
+    const plan = forPR(['docs/x.md', 'apps/api/migrations/0042_x.sql']);
+    assert.equal(reasons(plan)['apps/api'].path, 'apps/api/migrations/0042_x.sql');
+  });
+});

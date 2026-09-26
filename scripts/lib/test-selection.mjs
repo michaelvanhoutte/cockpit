@@ -68,14 +68,35 @@ export function isTsconfig(path) {
   return /^tsconfig.*\.json$/.test(basename(path));
 }
 
-/** A changed path that only speaks for one package's own suite. */
-function forcesThisPackageFull(path, dir) {
-  if (path === `${dir}/vitest.config.ts`) return true;
-  if (path === `${dir}/package.json`) return true;
-  if (path === `${dir}/wrangler.jsonc`) return true;
-  if (path.startsWith(`${dir}/migrations/`)) return true;
-  if (path.startsWith(`${dir}/`) && basename(path) === 'global-setup.ts') return true;
-  return false;
+/** The rule that makes `path` force `dir`'s own suite to run in full, or null where it forces nothing there. */
+function ruleForcingThisPackage(path, dir) {
+  if (path === `${dir}/vitest.config.ts`) return 'own vitest config';
+  if (path === `${dir}/package.json`) return 'own package.json';
+  if (path === `${dir}/wrangler.jsonc`) return 'own wrangler config';
+  if (path.startsWith(`${dir}/migrations/`)) return 'own migration';
+  if (path.startsWith(`${dir}/`) && basename(path) === 'global-setup.ts') return 'own global setup';
+  return null;
+}
+
+/** The first `{ rule, path }` that forces `dir`'s own suite to run in full, or null. */
+function ownReason(productFiles, dir) {
+  for (const path of productFiles) {
+    const rule = ruleForcingThisPackage(path, dir);
+    if (rule) return { rule, path };
+  }
+  return null;
+}
+
+/** The reason every package runs in full - `path` null where an event or an unreadable diff is to blame, not a file - or null where none applies. */
+function reasonForAll({ event, mergeBase, productFiles, packages }) {
+  if (event === 'push') return { rule: 'push to main', path: null };
+  if (event !== 'pull_request') return { rule: 'not a pull request', path: null };
+  if (!mergeBase) return { rule: 'diff unreadable', path: null };
+  for (const path of productFiles) {
+    if (isTsconfig(path)) return { rule: 'any tsconfig', path };
+    if (isOutsidePackages(path, packages)) return { rule: 'outside every package', path };
+  }
+  return null;
 }
 
 /**
@@ -86,6 +107,11 @@ function forcesThisPackageFull(path, dir) {
  * nothing in this module can go stale the way a hardcoded array of packages
  * already did once (see workspace.mjs's own comment). It also doubles as the
  * boundary `isOutsidePackages` reasons about.
+ *
+ * Each package carries `reason`: for a `full` run the `{ rule, path }` that
+ * forced it, null for `changed`. It comes out of the same decision that picks
+ * the mode, so a record of it (scripts/lib/test-record.mjs) cannot disagree
+ * with what ran.
  *
  * `changedFiles` and `mergeBase` are ignored - and every package forced to
  * `full` - for anything but a `pull_request` event, and where `mergeBase` is
@@ -98,11 +124,7 @@ export function planTestRun({ event, mergeBase, changedFiles = [], packages }) {
   if (!packages) throw new Error('planTestRun needs the workspace package list (scripts/lib/workspace.mjs).');
 
   const productFiles = changedFiles.filter((path) => !isNonProduct(path));
-
-  const forceAll =
-    event !== 'pull_request' ||
-    !mergeBase ||
-    productFiles.some((path) => isTsconfig(path) || isOutsidePackages(path, packages));
+  const forAll = reasonForAll({ event, mergeBase, productFiles, packages });
 
   // Coverage only on a push to `main`, the one place its report is published
   // (test-explorer); a pull request pays no instrumentation for a report nobody
@@ -111,10 +133,9 @@ export function planTestRun({ event, mergeBase, changedFiles = [], packages }) {
   const script = event === 'push' ? 'test:coverage' : 'test';
 
   return {
-    packages: packages.map((pkg) => ({
-      ...pkg,
-      mode: forceAll || productFiles.some((path) => forcesThisPackageFull(path, pkg.dir)) ? 'full' : 'changed',
-      script,
-    })),
+    packages: packages.map((pkg) => {
+      const reason = forAll ?? ownReason(productFiles, pkg.dir);
+      return { ...pkg, mode: reason ? 'full' : 'changed', reason, script };
+    }),
   };
 }

@@ -25,18 +25,24 @@
 // below is what keeps the speed this exists for without reproducing that.
 //
 
-import { readFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 import { placeMergeBase } from './lib/merge-base.mjs';
+import { buildRecord, renderSummary } from './lib/test-record.mjs';
 import { planTestRun } from './lib/test-selection.mjs';
 import { testablePackages } from './lib/workspace.mjs';
 import { paint, pnpmWorkspaceList, start } from './lib/processes.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const reporter = join(root, 'scripts', 'lib', 'vitest-record-reporter.mjs');
+
+// Where the record of this run goes (test-record.mjs), uploaded by the Test job.
+const recordDir = process.env.TEST_RECORD_DIR ?? join(root, 'test-record');
+const reportFor = (pkg) => join(recordDir, 'reports', `${pkg.name.replace(/[^\w.-]/g, '_')}.json`);
 
 /** Trimmed stdout from `file args...`, run in `root`. Throws with its stderr on a non-zero exit or a spawn failure. */
 function capture(file, args) {
@@ -86,7 +92,12 @@ function runOne(pkg, index) {
   // default, and the one time it changes upstream is not a moment to
   // discover a package the PR never touched failing the job on its behalf.
   if (pkg.mode === 'changed') args.push('--changed', mergeBase, '--passWithNoTests');
-  const child = start(args, `${pkg.name} (${pkg.mode})`, COLORS[index % COLORS.length], root);
+  // Our own reporter beside Vitest's usual ones (github-actions only where
+  // GITHUB_ACTIONS is set, which is what Vitest itself adds by default), so
+  // the record of what ran is written by the process that ran it.
+  args.push('--reporter=default', ...(process.env.GITHUB_ACTIONS ? ['--reporter=github-actions'] : []), `--reporter=${reporter}`);
+  const env = { COCKPIT_TEST_REPORT: reportFor(pkg), COCKPIT_REPO_ROOT: root, ...(pkg.mode === 'changed' ? { COCKPIT_TEST_GRAPH: '1' } : {}) };
+  const child = start(args, `${pkg.name} (${pkg.mode})`, COLORS[index % COLORS.length], root, env);
 
   return new Promise((resolve) => {
     let settled = false;
@@ -136,7 +147,35 @@ async function runAll(allPackages) {
   return failed;
 }
 
+rmSync(join(recordDir, 'reports'), { recursive: true, force: true });
 const failed = await runAll(plan.packages);
+
+/**
+ * Writes the record and its step summary. Never throws and never touches the
+ * exit code: what the tests made the job is what it stays, and a record that
+ * could not be written is a warning saying so ("recording never changes the
+ * job's outcome", issue 539).
+ */
+function writeRecord() {
+  try {
+    const reports = {};
+    for (const pkg of plan.packages) {
+      try {
+        reports[pkg.name] = JSON.parse(readFileSync(reportFor(pkg), 'utf8'));
+      } catch {
+        // No report: that package's process died before writing one, and the record says so.
+      }
+    }
+    const record = buildRecord({ event, baseCommit: mergeBase, changedFiles, plan, reports });
+    mkdirSync(recordDir, { recursive: true });
+    writeFileSync(join(recordDir, 'record.json'), `${JSON.stringify(record, null, 2)}\n`);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${renderSummary(record)}\n`);
+  } catch (error) {
+    console.error(paint('33', `\nThe test selection record could not be written (${error.message}); this run's result is unchanged.`));
+    if (process.env.GITHUB_ACTIONS) console.log(`::warning::The test selection record is missing from this run: ${error.message}`);
+  }
+}
+writeRecord();
 if (failed.length > 0) {
   console.error(paint('31', `\n${failed.join(', ')} failed.`));
   // process.exitCode rather than process.exit(): stdout/stderr are pipes on
