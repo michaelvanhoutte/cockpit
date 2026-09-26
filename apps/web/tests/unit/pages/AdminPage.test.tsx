@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { RegisteredUser } from '@cockpit/shared';
-import { AdminPage } from '../../../src/pages/AdminPage';
+import { AdminPage, isInactive } from '../../../src/pages/AdminPage';
 
 /**
  * F1: what the page draws from what it is given. That only an admin may read it
@@ -236,6 +236,35 @@ describe('User management', () => {
       const names = rows.slice(1).map((row) => within(row).getByText(/Recent|Stale|Never/).textContent);
 
       expect(names).toEqual(['Never', 'Stale', 'Recent']);
+    });
+  });
+
+  describe('a user inactive three months or more stands out from one who isn’t', () => {
+    /** Relative to now, so the cases hold whenever they run. */
+    const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+
+    it.each([
+      { situation: 'signed in four months ago', lastSignedInAt: daysAgo(120), flagged: true },
+      { situation: 'signed in within three months', lastSignedInAt: daysAgo(7), flagged: false },
+      { situation: 'never signed in', lastSignedInAt: null, flagged: true },
+    ])('$situation: flagged is $flagged', async ({ lastSignedInAt, flagged }) => {
+      const person = { ...PEOPLE[1]!, lastSignedInAt };
+      reads.mockResolvedValue({ users: [PEOPLE[0]!, person] });
+      drawn();
+
+      const row = (await screen.findByText(person.name)).closest('tr')!;
+      const flag = within(row).queryByText(/inactive/i);
+      if (flagged) expect(flag).toBeVisible();
+      else expect(flag).toBeNull();
+    });
+  });
+
+  describe('the three-month line falls on the calendar, even at a month end', () => {
+    it.each([
+      { situation: 'on the day three months back', at: '2026-02-28T00:00:00.000Z', inactive: true },
+      { situation: 'a day after it, though May 31 has no "Feb 31"', at: '2026-03-01T00:00:00.000Z', inactive: false },
+    ])('May 31: $situation', ({ at, inactive }) => {
+      expect(isInactive(at, new Date('2026-05-31T12:00:00.000Z'))).toBe(inactive);
     });
   });
 
