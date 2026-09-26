@@ -213,7 +213,7 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
         aria-label="What is on your mind?"
         autoFocus
         rows={4}
-        className="order-1 mt-2.5 w-full resize-none rounded-md border border-black/10 bg-white p-3 text-base leading-[1.5] text-ink shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 sm:mt-4 sm:min-h-56 sm:resize-y sm:px-5 sm:py-[18px]"
+        className="order-1 mt-2.5 w-full sm:order-none resize-none rounded-md border border-black/10 bg-white p-3 text-base leading-[1.5] text-ink shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 sm:mt-4 sm:min-h-56 sm:resize-y sm:px-5 sm:py-[18px]"
       />
 
       {/* The box that used to sit at the end of this row, dashed, naming a
