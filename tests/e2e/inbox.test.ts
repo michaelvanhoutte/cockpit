@@ -80,6 +80,31 @@ test.describe('Triage', () => {
       const cutLabel = inbox(page).getByText(tooLong);
       await cutLabel.hover();
       await expect(cutLabel).toHaveAttribute('title', tooLong);
+      // Collapsed to a chip, the dashboard takes the whole width, the bar is no
+      // taller than it was, and the column comes back at the width it had.
+      // Layout, so only a browser can say so; that the chip and the key are
+      // there at all is apps/web/tests/unit/router.test.tsx.
+      const band = dashboardBar(page).locator('xpath=..');
+      const dashboardColumn = page.locator('[data-drag-scroll="dashboard"]');
+      const [barHeight, dashboardWidth, columnWidth] = await Promise.all([
+        band.boundingBox().then((box) => box?.height),
+        dashboardColumn.boundingBox().then((box) => box?.width),
+        column.boundingBox().then((box) => box?.width),
+      ]);
+      await page.getByRole('button', { name: 'Collapse the Inbox' }).click();
+      await expect(column).toHaveCount(0);
+      const chip = page.getByRole('button', { name: /^Inbox/ });
+      await expect(chip).toBeVisible();
+      expect((await band.boundingBox())?.height).toBe(barHeight);
+      expect((await dashboardColumn.boundingBox())?.width).toBeGreaterThan(
+        (dashboardWidth ?? 0) + (columnWidth ?? 0),
+      );
+      await expectNoSidewaysScroll(page);
+      await page.keyboard.press('i');
+      await expect(column).toBeVisible();
+      expect((await column.boundingBox())?.width).toBe(columnWidth);
+      expect((await band.boundingBox())?.height).toBe(barHeight);
+
       // Not one of the views to switch between any more: it is not somewhere
       // you go, it is somewhere you are.
       await expect(dashboardBar(page).getByRole('link', { name: 'Inbox' })).toHaveCount(0);

@@ -25,6 +25,11 @@
  */
 export const DWELL_MS = 600;
 
+/** Whether a drag that began resting at `since` has rested the full dwell by `now`. */
+export function restedLongEnough(since: number, now: number): boolean {
+  return now - since >= DWELL_MS;
+}
+
 /**
  * The dashboard to switch to, or null for staying put.
  *
@@ -41,6 +46,6 @@ export function dashboardToSwitchTo(
   // Already looking at it: a switch to where you are is not a switch, and it
   // would put the drag back at the start of a page that had not moved.
   if (resting.dashboardId === openDashboardId) return null;
-  if (now - resting.since < DWELL_MS) return null;
+  if (!restedLongEnough(resting.since, now)) return null;
   return resting.dashboardId;
 }

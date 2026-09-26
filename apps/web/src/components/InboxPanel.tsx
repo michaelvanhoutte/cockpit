@@ -7,6 +7,76 @@ import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
 import { RewriteHistoryWindow } from './RewriteHistoryWindow';
 import { HOW_TO_FILE_FROM_THE_INBOX } from '../whatThingsAre';
+import { ITEM_BEING_DRAGGED } from '../dropAt';
+import { INBOX_KEY } from '../inboxCollapsed';
+import { restedLongEnough } from '../switchWhileDragging';
+
+/** How many items the Inbox holds, or null until the snapshot has arrived. */
+function useInboxCount(workspaceId: string): number | null {
+  const { data } = useQuery(snapshotQuery(workspaceId));
+  return data
+    ? itemsInTheInbox(data.items, filingsThatFile(data.filings ?? [], data.panels ?? [])).length
+    : null;
+}
+
+/**
+ * The collapsed Inbox: a chip in the leftmost slot of the Dashboard bar with its
+ * name, its count and the way back ("Collapse the Inbox to its heading, and open
+ * it again with one press", issue 535).
+ *
+ * **A row held on it opens the Inbox, and it is never a place to land** - the
+ * same gesture that switches dashboards on a tab (`DashboardBar.tsx`): a rest of
+ * the full dwell opens the column and the drag carries on into its list, and a
+ * row let go on the chip does nothing rather than being followed as a link.
+ * `className` is the bar's own tab look, so the bar is the height it is with the
+ * column open.
+ */
+export function InboxChip({
+  workspaceId,
+  onOpen,
+  className,
+}: {
+  workspaceId: string;
+  onOpen: () => void;
+  className: string;
+}) {
+  const count = useInboxCount(workspaceId);
+  /** Since when a row has rested here; a ref, for the reason the tabs' is. */
+  const restingSince = useRef<number | null>(null);
+  return (
+    <button
+      type="button"
+      className={className}
+      title={`Open the Inbox (${INBOX_KEY.toUpperCase()})`}
+      onClick={onOpen}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
+        event.preventDefault();
+        const now = Date.now();
+        if (restingSince.current === null) {
+          restingSince.current = now;
+          return;
+        }
+        if (!restedLongEnough(restingSince.current, now)) return;
+        restingSince.current = null;
+        onOpen();
+      }}
+      onDragLeave={() => {
+        restingSince.current = null;
+      }}
+      onDrop={(event) => {
+        if (event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) event.preventDefault();
+        restingSince.current = null;
+      }}
+    >
+      <span className="flex min-h-9 items-center gap-1.5">
+        <span className="text-xs font-semibold uppercase tracking-[0.11em]">Inbox</span>
+        {count !== null && <span className="text-xs tabular-nums">{count}</span>}
+        <span aria-hidden="true">»</span>
+      </span>
+    </button>
+  );
+}
 
 /**
  * The Inbox's name and how much is in it, drawn wherever the Inbox is headed:
@@ -23,11 +93,17 @@ import { HOW_TO_FILE_FROM_THE_INBOX } from '../whatThingsAre';
  * It costs no request of its own: the count is the same view over the same
  * snapshot the column below is already reading.
  */
-export function InboxHeading({ workspaceId, id }: { workspaceId: string; id?: string }) {
-  const { data } = useQuery(snapshotQuery(workspaceId));
-  const inbox = data
-    ? itemsInTheInbox(data.items, filingsThatFile(data.filings ?? [], data.panels ?? []))
-    : null;
+export function InboxHeading({
+  workspaceId,
+  id,
+  onCollapse,
+}: {
+  workspaceId: string;
+  id?: string;
+  /** Where the column can be collapsed: given only beside the dashboards, not on the phone's screen of its own. */
+  onCollapse?: () => void;
+}) {
+  const count = useInboxCount(workspaceId);
 
   /** The account-wide rewrite history, opened from this heading's own menu ("See the history of what Cockpit proposed for the Inbox's items", issue 444). */
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -36,6 +112,17 @@ export function InboxHeading({ workspaceId, id }: { workspaceId: string; id?: st
   return (
     <>
       <div className="flex items-baseline gap-2">
+        {onCollapse && (
+          <button
+            type="button"
+            onClick={onCollapse}
+            title={`Collapse the Inbox (${INBOX_KEY.toUpperCase()})`}
+            aria-label="Collapse the Inbox"
+            className="-ml-1 rounded px-1 text-xs text-ink-faint hover:text-ink"
+          >
+            «
+          </button>
+        )}
         <h2
           id={id}
           className="text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep"
@@ -45,8 +132,8 @@ export function InboxHeading({ workspaceId, id }: { workspaceId: string; id?: st
         <div className="ml-auto flex items-center gap-0.5">
           {/* Nothing where the snapshot has not arrived, rather than a zero: an
               Inbox that has not been read yet is not an empty one. */}
-          {inbox && (
-            <span className="text-xs tabular-nums text-ink-faint">{inbox.length}</span>
+          {count !== null && (
+            <span className="text-xs tabular-nums text-ink-faint">{count}</span>
           )}
           <RowMenu
             label="Actions for the Inbox"
