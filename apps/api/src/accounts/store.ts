@@ -17,6 +17,7 @@ import { inGroupsOf } from '../domain/attachments.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { AccountStoreRpc, RestoreReport } from './rpc.js';
 import { accountChanges } from './changes.js';
+import { allowanceSpent } from './allowance.js';
 import {
   CHANGE_LEDGER,
   accountTables,
@@ -873,11 +874,13 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     try {
       this.#bringUpToDate(accountName);
     } catch (error) {
+      if (allowanceSpent(error)) return { status: 'allowance-spent' };
       return { status: 'not-up-to-date', failure: (error as Error).message };
     }
     try {
       return { status: 'ok', value: work(this.#database()) };
     } catch (error) {
+      if (allowanceSpent(error)) return { status: 'allowance-spent' };
       if (
         error instanceof ItemNotFoundError ||
         error instanceof ItemTypeNotFoundError ||

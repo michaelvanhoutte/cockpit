@@ -188,3 +188,18 @@ describe('checkUntilHealthy', () => {
     assert.equal(result.ok, true);
   });
 });
+
+describe('a deployment whose free-tier allowance is spent', () => {
+  const spent = JSON.stringify({ ok: false, register: true, store: false, allowanceSpent: true });
+
+  it('says the daily allowance is spent and when it clears, rather than blaming an update', () => {
+    const { message } = readAnswer({ status: 200, body: spent });
+    assert.match(message, /daily allowance/);
+    assert.match(message, /00:00 UTC/);
+    assert.doesNotMatch(message, /update that will not apply/);
+  });
+
+  it('keeps the old wording for a change that will not apply', () => {
+    assert.match(readAnswer({ status: 200, body: unwell }).message, /update that will not apply/);
+  });
+});

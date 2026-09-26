@@ -19,6 +19,7 @@ import {
   whoCanBeDeleted,
 } from './register.js';
 import { describeForeignRows, type AccountBackup } from './backup.js';
+import { ALLOWANCE_SPENT_MESSAGE } from './allowance.js';
 import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
@@ -55,6 +56,14 @@ export class AccountNotUpToDateError extends Error {
   constructor(failure: string) {
     super(failure);
     this.name = 'AccountNotUpToDateError';
+  }
+}
+
+/** The free tier's daily allowance is spent; the message names the limit and no account. */
+export class AllowanceSpentError extends Error {
+  constructor() {
+    super(ALLOWANCE_SPENT_MESSAGE);
+    this.name = 'AllowanceSpentError';
   }
 }
 
@@ -483,5 +492,7 @@ function unwrap<T>(answer: Answer<T>): T {
       throw new RefusedByAccountError(answer.what);
     case 'not-up-to-date':
       throw new AccountNotUpToDateError(answer.failure);
+    case 'allowance-spent':
+      throw new AllowanceSpentError();
   }
 }

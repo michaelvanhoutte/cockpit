@@ -57,10 +57,15 @@ export interface AccountSnapshot {
  * rather than an exception: an exception crossing the binding arrives as a
  * plain `Error` with nothing left on it to branch on, so anything the caller
  * has to *decide* on has to be in the answer.
+ *
+ * `allowance-spent` is the free tier's daily reads or writes running out,
+ * whether it happened while bringing the store up to date or while doing the
+ * work - its own answer so nothing mistakes it for a change that will not apply.
  */
 export type Answer<T> =
   | { status: 'ok'; value: T }
   | { status: 'missing'; what: string }
   | { status: 'conflict'; what: string }
   | { status: 'refused'; what: string }
-  | { status: 'not-up-to-date'; failure: string };
+  | { status: 'not-up-to-date'; failure: string }
+  | { status: 'allowance-spent' };

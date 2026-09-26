@@ -1,6 +1,7 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import type { Env } from '../env.js';
 import { canReadMeaning } from '../embeddings/index.js';
+import { ALLOWANCE_SPENT_MESSAGE, allowanceSpent } from './allowance.js';
 
 /**
  * What `/health` is able to say about an account's data without opening
@@ -63,6 +64,11 @@ export interface Health {
    * which. Not part of the verdict, for the reason `ai` is not.
    */
   embeddings: boolean;
+  /**
+   * The store said no because the free tier's daily allowance is spent, not
+   * because an update will not apply. Absent otherwise.
+   */
+  allowanceSpent?: true;
   /** Why not, when something said no. */
   failure?: string;
 }
@@ -130,10 +136,15 @@ async function checkRegister(db: D1Database): Promise<{ failure?: string }> {
  * change list is only really applied on the first probe after a deploy. That is
  * the probe that matters, and it is one Durable Object request either way.
  */
-async function checkStore(env: Env): Promise<{ store: boolean; failure?: string }> {
+async function checkStore(
+  env: Env,
+): Promise<{ store: boolean; failure?: string; allowanceSpent?: true }> {
   try {
     const answer = await env.ACCOUNT.get(env.ACCOUNT.idFromName(PROBE_NAME)).workspaces(PROBE_NAME);
     if (answer.status === 'ok') return { store: true };
+    if (answer.status === 'allowance-spent') {
+      return { store: false, allowanceSpent: true, failure: ALLOWANCE_SPENT_MESSAGE };
+    }
     // `not-up-to-date` already carries the change and the underlying cause, so
     // it is passed through rather than wrapped; anything else cannot happen to
     // a store with no data in it, and is worth seeing whole if it ever does.
@@ -141,6 +152,9 @@ async function checkStore(env: Env): Promise<{ store: boolean; failure?: string 
       answer.status === 'not-up-to-date' ? answer.failure : `unexpectedly ${JSON.stringify(answer)}`;
     return { store: false, failure: why };
   } catch (error) {
+    if (allowanceSpent(error)) {
+      return { store: false, allowanceSpent: true, failure: ALLOWANCE_SPENT_MESSAGE };
+    }
     return { store: false, failure: `the health check's store could not be opened: ${message(error)}` };
   }
 }

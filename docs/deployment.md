@@ -637,7 +637,7 @@ own code. It is outside Cockpit's own gate (`PATHS_OUTSIDE_THE_GATE` in
 has to be told to leave it alone.
 
 `/health` returns `{"ok":true,"register":true,"store":true,"ai":true,"embeddings":true}`
-and nothing else, so it discloses only whether each half answered — never *why*
+and nothing else — plus `"allowanceSpent":true` while the free tier's daily allowance is spent, and only then — so it discloses only whether each half answered — never *why*
 one did not, since the reason an update will not apply names tables and columns
 and this endpoint answers anyone. That reason goes to the logs.
 
@@ -1050,6 +1050,7 @@ curl -i https://cockpit-staging.vanhoutte-michael.workers.dev/health
 |---|---|---|
 | `200 {"ok":true,...}` | Worker up, register answering, an account store openable. The deployment is fine. | *In the browser*, below |
 | `200 {"ok":true,...,"ai":false}` | The deployment is fine and will never clean up a captured note: no `ANTHROPIC_API_KEY` is set on it. Not an outage — every capture works and keeps the title it was typed with. | *Secrets and access* |
+| `200 {"ok":false,"register":true,"store":false,"allowanceSpent":true}` | The free tier's daily Durable Object reads or writes are spent. Nothing is broken: it clears at 00:00 UTC, or on Workers Paid. Every API request answers `503` while it lasts. | Wait, or upgrade |
 | `200 {"ok":false,"register":true,"store":false}` | A store would not open — most often an update that will not apply. | *At the deployment*, below |
 | `200 {"ok":false,"register":false,...}` | Either D1 did not answer, **or** somebody registered an account under the health check's own name, which makes it refuse to run rather than open their data. Two faults with one shape, so read the logs — the reason is never in the body. | *At the deployment*, below |
 | `200` with any other body | Something answered in front of the Worker rather than the Worker itself | *In the browser* |

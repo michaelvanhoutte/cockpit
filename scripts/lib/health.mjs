@@ -81,6 +81,17 @@ export function readAnswer({ status, body }) {
   }
   if (answer.ok) return { state: 'healthy', message: 'healthy.' };
 
+  // Waiting for the deploy to settle cannot fix this, but it is not a fault in
+  // the deploy either, so it is named as what it is rather than as an update.
+  if (answer.allowanceSpent === true) {
+    return {
+      state: 'unhealthy',
+      message:
+        "answered, and said Cloudflare's free-tier daily allowance of Durable Object reads is spent. " +
+        'Nothing is wrong with the update: it clears at 00:00 UTC, or on Workers Paid.',
+    };
+  }
+
   return {
     state: 'unhealthy',
     message:
