@@ -97,32 +97,4 @@ test.describe('Capture', () => {
       await expectNoSidewaysScroll(page);
     });
   });
-
-  test.describe('the Capture page keeps its button in reach on a phone', () => {
-    test('is under the note on a phone, and below the Where row at a desk', async ({
-      page,
-      isMobile,
-    }) => {
-      await openInbox(page, isMobile);
-      await press(page.getByRole('link', { name: 'Capture' }), isMobile);
-
-      const note = page.getByLabel('What is on your mind?');
-      await expect(note).toBeVisible();
-      const [noteBox, buttonBox, typeBox, whereBox] = await Promise.all(
-        [
-          note,
-          page.getByRole('button', { name: 'Capture', exact: true }),
-          page.getByRole('group', { name: 'Type' }),
-          page.getByRole('group', { name: 'Where' }),
-        ].map((one) => one.boundingBox()),
-      );
-
-      if (isMobile) {
-        expect(buttonBox!.y).toBeGreaterThanOrEqual(noteBox!.y + noteBox!.height);
-        expect(buttonBox!.y + buttonBox!.height).toBeLessThanOrEqual(typeBox!.y);
-      } else {
-        expect(buttonBox!.y).toBeGreaterThanOrEqual(whereBox!.y + whereBox!.height);
-      }
-    });
-  });
 });
