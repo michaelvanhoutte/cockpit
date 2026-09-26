@@ -18,6 +18,7 @@
  * guess at what should have run.
  */
 
+import { ownersText } from '../../../scripts/lib/e2e-record.mjs';
 import { productChanged } from '../../../scripts/lib/what-changed.mjs';
 
 const DAY_MS = 86_400_000;
@@ -35,10 +36,11 @@ export function median(values) {
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[Math.floor(mid)];
 }
 
-/** A chain in words: `itself changed`, the path sequence it was reached through, or the honest "no chain found" for a file Vitest selected on a trigger this graph does not carry. */
+/** A selection in words: `itself changed`, the path sequence a Vitest file was reached through, the honest "no chain found" for a file Vitest selected on a trigger this graph does not carry, or the concept and changed file that selected an E2E spec. */
 export function chainText(selectedBy) {
   if (!selectedBy) return 'selected by Vitest; no import chain found';
   if (selectedBy.kind === 'itself') return 'itself changed';
+  if (selectedBy.kind === 'concept') return ownersText(selectedBy);
   return selectedBy.chain.join(' → ');
 }
 
@@ -108,6 +110,32 @@ function forcedFullReasons(record) {
 
 const filesRunCount = (record) => record.packages.reduce((total, pkg) => total + pkg.files.filter((file) => file.status !== 'not run').length, 0);
 
+/**
+ * The E2E half of one pull request, read from the record the E2E job wrote
+ * (scripts/lib/e2e-record.mjs), which has the Test record's shape - the whole
+ * tier as one package, each spec file one of its files - so the functions above
+ * read it as they read that one. `docs-only` follows the pull request's own
+ * status (the job never started); a product pull request with no record is
+ * `no-record`, which is every one from before E2E recorded anything.
+ */
+function e2eModel(status, prE2e, mainE2e) {
+  const e2eStatus = prE2e ? 'ran' : status === 'docs-only' ? 'docs-only' : 'no-record';
+  const misses = missesOf(e2eStatus, prE2e, mainE2e);
+  if (e2eStatus !== 'ran') return { status: e2eStatus, misses, packages: [], filesRun: null, filesTotal: null, forcedFull: [], ranEverything: false, selecting: false };
+
+  const ranEverything = prE2e.packages.length > 0 && prE2e.packages.every((pkg) => pkg.mode === 'full');
+  return {
+    status: e2eStatus,
+    misses,
+    packages: prE2e.packages,
+    filesRun: filesRunCount(prE2e),
+    filesTotal: prE2e.packages.reduce((total, pkg) => total + pkg.files.length, 0),
+    forcedFull: forcedFullReasons(prE2e),
+    ranEverything,
+    selecting: !ranEverything,
+  };
+}
+
 /** @param {import('./github.js').PullData} pullData */
 export function pullModel({ pull, prRun, mainRun, files }) {
   const prRecord = prRun?.record ?? null;
@@ -118,6 +146,8 @@ export function pullModel({ pull, prRun, mainRun, files }) {
   // branch is reached only where there is a diff to read.
   const status = prRecord ? 'ran' : productChanged(files ?? []) ? 'no-record' : 'docs-only';
 
+  const e2e = e2eModel(status, prRun?.e2eRecord ?? null, mainRun?.e2eRecord ?? null);
+
   const base = {
     number: pull.number,
     title: pull.title,
@@ -125,7 +155,9 @@ export function pullModel({ pull, prRun, mainRun, files }) {
     mergedAt: pull.mergedAt,
     status,
     testDurationMs: { pr: prRun?.testDurationMs ?? null, main: mainRun?.testDurationMs ?? null },
-    misses: missesOf(status, prRecord, mainRecord),
+    // One list for both tiers: an E2E miss is told apart by its `level`, `e2e`.
+    misses: [...missesOf(status, prRecord, mainRecord), ...e2e.misses],
+    e2e,
   };
 
   if (status !== 'ran') {
@@ -163,6 +195,8 @@ function windowSummary(pulls, { days, now, coveredSince }) {
   const docsOnly = inWindow.filter((pull) => pull.status === 'docs-only');
   const forcedFullPulls = ran.filter((pull) => pull.ranEverything);
   const selecting = ran.filter((pull) => pull.selecting);
+  const e2eRan = inWindow.filter((pull) => pull.e2e.status === 'ran');
+  const e2eSelecting = e2eRan.filter((pull) => pull.e2e.selecting);
   const missCount = inWindow.reduce((total, pull) => total + pull.misses.length, 0);
 
   return {
@@ -185,14 +219,20 @@ function windowSummary(pulls, { days, now, coveredSince }) {
       main: inWindow.length === 0 ? null : median(ran.map((pull) => pull.testDurationMs.main).filter((ms) => ms !== null)),
     },
     docsOnly: inWindow.length === 0 ? null : { count: docsOnly.length, of: inWindow.length },
+    // The browser tier, counted over the pull requests whose E2E job left a
+    // record: one from before E2E recorded anything says nothing either way.
+    e2e: {
+      forcedFull: e2eRan.length === 0 ? null : { count: e2eRan.filter((pull) => pull.e2e.ranEverything).length, of: e2eRan.length },
+      typicalSpecs: e2eSelecting.length === 0 ? null : median(e2eSelecting.map((pull) => pull.e2e.filesRun)),
+    },
   };
 }
 
 /** Every distinct `{ rule, path }` that forced a full run, across every pull request that has one, worst (most pull requests) first. */
-function forcedFullTable(pulls) {
+function forcedFullTable(pulls, forcedOf = (pull) => pull.forcedFull) {
   const rows = new Map();
   for (const pull of pulls) {
-    for (const reason of pull.forcedFull) {
+    for (const reason of forcedOf(pull)) {
       const key = `${reason.rule}\u0000${reason.path ?? ''}`;
       if (!rows.has(key)) rows.set(key, { rule: reason.rule, path: reason.path, pulls: [] });
       rows.get(key).pulls.push(refOf(pull));
@@ -285,6 +325,11 @@ export function buildModel({ pulls: pullData, now, requestedDays, coveredSince, 
     windows: windows.map((days) => windowSummary(pulls, { days, now, coveredSince })),
     misses: pulls.flatMap((pull) => pull.misses.map((miss) => ({ ...miss, pull: refOf(pull) }))),
     forcedFull: forcedFullTable(pulls.filter((pull) => pull.status === 'ran')),
+    // The browser tier's own rules, apart from the Test job's: "push to main" forces both, and is two reasons.
+    e2eForcedFull: forcedFullTable(
+      pulls.filter((pull) => pull.e2e.status === 'ran'),
+      (pull) => pull.e2e.forcedFull,
+    ),
     mostSelected: mostSelectedTable(
       pulls.filter((pull) => pull.status === 'ran'),
       limit,

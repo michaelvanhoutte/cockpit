@@ -10,12 +10,12 @@ const pkg = ({ name = '@cockpit/pkg', dir = 'apps/pkg', mode = 'changed', reason
 const record = ({ event = 'pull_request', baseCommit = 'abc123', changedFiles = [], packages = [] }) => ({ event, baseCommit, changedFiles, packages });
 
 let nextNumber = 1;
-function pullData({ prRecord = null, mainRecord = null, files = null, mergedAt = NOW.toISOString(), title, ...rest } = {}) {
+function pullData({ prRecord = null, mainRecord = null, prE2e = null, mainE2e = null, files = null, mergedAt = NOW.toISOString(), title, ...rest } = {}) {
   const number = rest.number ?? nextNumber++;
   return {
     pull: { number, title: title ?? `Widen the thing (#${number})`, url: `https://github.com/o/r/pull/${number}`, mergedAt },
-    prRun: prRecord ? { id: number * 10, testDurationMs: 60_000, record: prRecord } : null,
-    mainRun: mainRecord ? { id: number * 10 + 1, testDurationMs: 400_000, record: mainRecord } : null,
+    prRun: prRecord ? { id: number * 10, testDurationMs: 60_000, record: prRecord, e2eRecord: prE2e } : null,
+    mainRun: mainRecord ? { id: number * 10 + 1, testDurationMs: 400_000, record: mainRecord, e2eRecord: mainE2e } : null,
     files,
   };
 }
@@ -81,6 +81,53 @@ describe('renderHtml', () => {
     // The per-file line reads "<path> via <rest of the chain>", not the file's
     // own path restated as the chain's own first hop.
     expect(html).toMatch(/apps\/pkg\/tests\/unit\/a\.test\.ts(?!\s*→)[^<]*<span class="chain">via apps\/pkg\/src\/b\.ts → apps\/pkg\/src\/x\.ts<\/span>/);
+  });
+
+  describe('E2E beside Vitest', () => {
+    const spec = ({ path, status = 'passed', selectedBy }) => file({ path, level: 'e2e', status, selectedBy });
+    const tier = (overrides) => record({ packages: [pkg({ name: 'e2e', dir: 'tests/e2e', ...overrides })] });
+    const withE2e = (prE2e, extra = {}) => pullData({ prRecord: record({ packages: [] }), prE2e, ...extra });
+
+    it('shows, per spec, its result and the concept and changed file that selected it, and the specs not run', () => {
+      const html = render([
+        withE2e(
+          tier({
+            files: [
+              spec({ path: 'tests/e2e/capture.test.ts', selectedBy: { kind: 'concept', owners: [{ concept: 'Capture', path: 'apps/web/src/capture/Box.tsx' }] } }),
+              spec({ path: 'tests/e2e/triage.test.ts', status: 'not run' }),
+            ],
+          }),
+        ),
+      ]);
+      expect(html).toContain('E2E 1 of 2 specs run');
+      expect(html).toContain('tests/e2e/capture.test.ts');
+      expect(html).toContain('owned by Capture, which `apps/web/src/capture/Box.tsx` changed');
+      expect(html).toContain('tests/e2e/triage.test.ts');
+    });
+
+    it('shows a spec that failed on main after the pull request skipped it as a miss at level e2e', () => {
+      const html = render([
+        withE2e(tier({ files: [spec({ path: 'tests/e2e/capture.test.ts', status: 'not run' })] }), {
+          mainRecord: record({ event: 'push', packages: [] }),
+          mainE2e: tier({ mode: 'full', reason: { rule: 'push to main', path: null }, files: [spec({ path: 'tests/e2e/capture.test.ts', status: 'failed' })] }),
+        }),
+      ]);
+      expect(html).toContain('1 miss');
+      expect(html).toContain('<td>e2e</td>');
+    });
+
+    it('names an E2E forced-full rule beside the Test job’s, under its own job', () => {
+      const html = render([withE2e(tier({ mode: 'full', reason: { rule: 'owned by no concept', path: 'apps/web/src/api/client.ts' }, files: [] }))]);
+      expect(html).toContain('<td>E2E</td>');
+      expect(html).toContain('owned by no concept');
+      expect(html).toContain('apps/web/src/api/client.ts');
+      expect(html).toContain('E2E forced full');
+    });
+
+    it('says "no record" for a pull request from before E2E recorded anything', () => {
+      const html = render([withE2e(null)]);
+      expect(html).toContain('E2E no record');
+    });
   });
 
   it('links to the other three published reports', () => {

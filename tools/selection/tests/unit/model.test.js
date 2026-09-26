@@ -17,6 +17,23 @@ function pullData({ prRecord = null, mainRecord = null, files = null, prDuration
   };
 }
 
+// The E2E job's record has the Test record's shape: the whole tier is one package `e2e`, each spec file one of its files.
+const spec = ({ path, status = 'passed', selectedBy }) => file({ path, level: 'e2e', status, selectedBy });
+const tier = ({ mode = 'changed', reason = null, report = 'written', files = [] }) => pkg({ name: 'e2e', dir: 'tests/e2e', mode, reason, report, files });
+const owned = (concept, path) => ({ kind: 'concept', owners: [{ concept, path }] });
+
+/** A pull request whose Test and E2E jobs both left a record, with main's run of its merge alike. */
+function pullWithE2e({ e2e, mainE2e = null, ...rest } = {}) {
+  const data = pullData({ prRecord: record({ packages: [] }), ...rest });
+  data.prRun.e2eRecord = e2e ? record({ packages: [e2e] }) : null;
+  if (mainE2e) {
+    data.mainRun = { id: 999, testDurationMs: null, record: record({ event: 'push', packages: [] }), e2eRecord: record({ event: 'push', packages: [mainE2e] }) };
+  }
+  return data;
+}
+
+const build = (pulls, now = new Date('2026-02-01')) => buildModel({ pulls, now, requestedDays: 30, coveredSince: new Date('2026-01-01') });
+
 describe('pullModel: Rule 1, a miss is a test that failed on main and was not run on the pull request', () => {
   it('failed on main, not run on the pull request: a miss', () => {
     const data = pullData({
@@ -246,5 +263,90 @@ describe('chainText', () => {
 
   it('joins a chain in order', () => {
     expect(chainText({ kind: 'chain', chain: ['a.test.ts', 'b.ts', 'c.ts'] })).toBe('a.test.ts → b.ts → c.ts');
+  });
+
+  it('names the concept that owns an E2E spec and the changed file that concept owns', () => {
+    expect(chainText(owned('Capture', 'apps/web/src/capture/Box.tsx'))).toBe('owned by Capture, which `apps/web/src/capture/Box.tsx` changed');
+  });
+});
+
+describe('pullModel: Rule 2, the report treats E2E specs as it treats Vitest test files', () => {
+  const failedOnMain = tier({ mode: 'full', reason: { rule: 'push to main', path: null }, files: [spec({ path: 'tests/e2e/capture.test.ts', status: 'failed' })] });
+
+  it('a spec that failed on main after the pull request skipped it: a miss, marked E2E', () => {
+    const data = pullWithE2e({ e2e: tier({ files: [spec({ path: 'tests/e2e/capture.test.ts', status: 'not run' })] }), mainE2e: failedOnMain });
+    expect(pullModel(data).misses).toEqual([{ path: 'tests/e2e/capture.test.ts', level: 'e2e', reason: null }]);
+  });
+
+  it('a spec that failed on main and ran on the pull request: not a miss', () => {
+    const data = pullWithE2e({ e2e: tier({ files: [spec({ path: 'tests/e2e/capture.test.ts', selectedBy: owned('Capture', 'a.ts') })] }), mainE2e: failedOnMain });
+    expect(pullModel(data).misses).toEqual([]);
+  });
+
+  it('a spec that failed on main where the pull request ran every spec: not a miss', () => {
+    const forced = tier({ mode: 'full', reason: { rule: 'owned by no concept', path: 'x.ts' }, files: [spec({ path: 'tests/e2e/capture.test.ts' })] });
+    expect(pullModel(pullWithE2e({ e2e: forced, mainE2e: failedOnMain })).misses).toEqual([]);
+  });
+
+  it('a documentation-only pull request skipped every spec, so main’s failed spec is a miss for it', () => {
+    const data = pullData({ files: ['docs/notes.md'] });
+    data.mainRun = { id: 9, testDurationMs: null, record: null, e2eRecord: record({ event: 'push', packages: [failedOnMain] }) };
+    const model = pullModel(data);
+    expect(model.e2e.status).toBe('docs-only');
+    expect(model.misses).toEqual([{ path: 'tests/e2e/capture.test.ts', level: 'e2e', reason: 'docs only' }]);
+  });
+
+  it('a pull request from before E2E recorded anything: no record, and no misses from it', () => {
+    const model = pullModel(pullWithE2e({ mainE2e: failedOnMain }));
+    expect(model.e2e.status).toBe('no-record');
+    expect(model.misses).toEqual([]);
+  });
+
+  it('counts the specs a pull request ran out of those it recorded', () => {
+    const data = pullWithE2e({
+      e2e: tier({ files: [spec({ path: 'tests/e2e/a.test.ts', selectedBy: owned('A', 'a.ts') }), spec({ path: 'tests/e2e/b.test.ts', status: 'not run' }), spec({ path: 'tests/e2e/c.test.ts', status: 'not run' })] }),
+    });
+    expect(pullModel(data).e2e).toMatchObject({ status: 'ran', filesRun: 1, filesTotal: 3, selecting: true, ranEverything: false });
+  });
+
+  it('lists the miss beside the Vitest ones in the report, naming its pull request', () => {
+    const data = pullWithE2e({ e2e: tier({ files: [spec({ path: 'tests/e2e/capture.test.ts', status: 'not run' })] }), mainE2e: failedOnMain });
+    expect(build([data]).misses).toMatchObject([{ path: 'tests/e2e/capture.test.ts', level: 'e2e', pull: { number: data.pull.number } }]);
+  });
+});
+
+describe('buildModel: the E2E forced-full rows count pull requests per E2E rule and path', () => {
+  const unowned = () => tier({ mode: 'full', reason: { rule: 'owned by no concept', path: 'apps/web/src/api/client.ts' }, files: [] });
+
+  it('four pull requests forced full by an unowned file: one E2E row, 4', () => {
+    const model = build(Array.from({ length: 4 }, () => pullWithE2e({ e2e: unowned() })));
+    expect(model.e2eForcedFull).toEqual([{ rule: 'owned by no concept', path: 'apps/web/src/api/client.ts', count: 4, pulls: expect.any(Array) }]);
+  });
+
+  it('keeps the E2E rows apart from the Test job’s, since one rule can force both', () => {
+    const reason = { rule: 'push to main', path: null };
+    const data = pullWithE2e({ e2e: tier({ mode: 'full', reason, files: [] }) });
+    data.prRun.record = record({ packages: [pkg({ mode: 'full', reason, files: [] })] });
+    const model = build([data]);
+    expect(model.forcedFull).toHaveLength(1);
+    expect(model.e2eForcedFull).toHaveLength(1);
+  });
+
+  it('leaves a pull request with no E2E record out of the rows and out of the window’s figures', () => {
+    const now = new Date('2026-02-15T00:00:00Z');
+    const model = buildModel({ pulls: [pullData({ mergedAt: now.toISOString(), prRecord: record({ packages: [] }) })], now, requestedDays: 7, coveredSince: new Date('2026-02-08'), windows: [7] });
+    expect(model.e2eForcedFull).toEqual([]);
+    expect(model.windows[0].e2e).toEqual({ forcedFull: null, typicalSpecs: null });
+  });
+});
+
+describe('buildModel: the summary carries E2E beside Vitest', () => {
+  const now = new Date('2026-02-15T00:00:00Z');
+
+  it('reads forced-full and the typical spec count over the pull requests that recorded E2E', () => {
+    const selecting = (count) => pullWithE2e({ mergedAt: now.toISOString(), e2e: tier({ files: Array.from({ length: count }, (_, index) => spec({ path: `tests/e2e/${index}.test.ts`, selectedBy: owned('A', 'a.ts') })) }) });
+    const forced = () => pullWithE2e({ mergedAt: now.toISOString(), e2e: tier({ mode: 'full', reason: { rule: 'push to main', path: null }, files: [] }) });
+    const model = buildModel({ pulls: [selecting(2), selecting(4), forced()], now, requestedDays: 7, coveredSince: new Date('2026-02-08'), windows: [7] });
+    expect(model.windows[0].e2e).toEqual({ forcedFull: { count: 1, of: 3 }, typicalSpecs: 3 });
   });
 });

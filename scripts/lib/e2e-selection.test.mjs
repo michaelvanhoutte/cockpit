@@ -43,7 +43,16 @@ describe('planE2eRun', () => {
   describe('a pull request', () => {
     it('runs only the area that owns a file listed under one area', () => {
       const result = plan(['apps/web/src/capture/Box.tsx']);
-      assert.deepEqual(result, { mode: 'selected', areas: ['Capture'], grep: grepFor(['Capture']) });
+      assert.deepEqual(result, { mode: 'selected', areas: ['Capture'], grep: grepFor(['Capture']), changedBy: { Capture: 'apps/web/src/capture/Box.tsx' } });
+    });
+
+    it('names, for each area, the first changed file it owns', () => {
+      const result = plan(['apps/api/src/domain/items.ts', 'apps/web/src/capture/Box.tsx']);
+      assert.deepEqual(result.changedBy, { Capture: 'apps/api/src/domain/items.ts', Triage: 'apps/api/src/domain/items.ts' });
+    });
+
+    it('names a changed spec file as what selected the areas it is written under', () => {
+      assert.deepEqual(plan(['tests/e2e/triage.test.ts']).changedBy, { Triage: 'tests/e2e/triage.test.ts' });
     });
 
     it('runs every area that owns a file listed under several', () => {
@@ -62,7 +71,7 @@ describe('planE2eRun', () => {
 
     it('runs nothing for areas that own no walk yet', () => {
       const result = plan(['apps/web/src/capture/Box.tsx'], { walks: [] });
-      assert.deepEqual(result, { mode: 'selected', areas: [], grep: null });
+      assert.deepEqual(result, { mode: 'selected', areas: [], grep: null, changedBy: {} });
     });
 
     it('runs the areas a changed spec file is written under', () => {
@@ -116,6 +125,32 @@ describe('planE2eRun', () => {
 
     it('a diff with no product file in it', () => {
       assert.equal(plan(['docs/architecture.md']).mode, 'full');
+    });
+  });
+
+  // The `{ rule, path }` the record keeps (scripts/lib/e2e-record.mjs) and the
+  // report's forced-full rows group on.
+  describe('the rule that forced every walk', () => {
+    it('is "owned by no concept", and the path, for a file no area owns', () => {
+      assert.deepEqual(plan(['apps/web/src/api/client.ts', 'apps/web/src/capture/Box.tsx']).forced, { rule: 'owned by no concept', path: 'apps/web/src/api/client.ts' });
+    });
+
+    it('is "push to main", with no path, for a push', () => {
+      assert.deepEqual(plan(['apps/web/src/capture/Box.tsx'], { event: 'push' }).forced, { rule: 'push to main', path: null });
+    });
+
+    it('is "diff unreadable", with no path, for a merge-base that could not be placed', () => {
+      assert.deepEqual(plan(['apps/web/src/capture/Box.tsx'], { mergeBase: null }).forced, { rule: 'diff unreadable', path: null });
+    });
+
+    it('names the rule and the path for support code, a tsconfig, or a file outside every package', () => {
+      assert.deepEqual(plan(['tests/e2e/support/app.ts']).forced, { rule: 'e2e support, registry or config', path: 'tests/e2e/support/app.ts' });
+      assert.deepEqual(plan(['apps/api/tsconfig.json']).forced, { rule: 'any tsconfig', path: 'apps/api/tsconfig.json' });
+      assert.deepEqual(plan(['pnpm-lock.yaml']).forced, { rule: 'outside every package', path: 'pnpm-lock.yaml' });
+    });
+
+    it('is "spec with no area" for a spec file the listing cannot place', () => {
+      assert.deepEqual(plan(['tests/e2e/deleted.test.ts']).forced, { rule: 'spec with no area', path: 'tests/e2e/deleted.test.ts' });
     });
   });
 });
