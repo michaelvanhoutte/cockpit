@@ -880,7 +880,6 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     try {
       return { status: 'ok', value: work(this.#database()) };
     } catch (error) {
-      if (allowanceSpent(error)) return { status: 'allowance-spent' };
       if (
         error instanceof ItemNotFoundError ||
         error instanceof ItemTypeNotFoundError ||
@@ -930,6 +929,8 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       ) {
         return { status: 'refused', what: error.message };
       }
+      // After the errors above, whose messages can carry a name somebody typed.
+      if (allowanceSpent(error)) return { status: 'allowance-spent' };
       throw error;
     }
   }
