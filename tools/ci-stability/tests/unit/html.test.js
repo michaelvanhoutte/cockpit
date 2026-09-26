@@ -99,10 +99,16 @@ describe('renderHtml', () => {
     expect(html).toContain('Test explorer');
   });
 
-  it('links to the lead-time page, the third of the published site', () => {
+  it('links to the lead-time page', () => {
     const html = render({ runs: [run()] });
     expect(html).toContain('href="../lead-time/"');
     expect(html).toContain('Lead time');
+  });
+
+  it('links to the test-selection page', () => {
+    const html = render({ runs: [run()] });
+    expect(html).toContain('href="../selection/"');
+    expect(html).toContain('Test selection');
   });
 
   it('escapes a job name rather than letting it write markup into the page', () => {

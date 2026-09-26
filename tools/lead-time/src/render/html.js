@@ -549,10 +549,11 @@ export function renderHtml(model) {
       ${commitUrl ? `<span>commit <a href="${esc(commitUrl)}" target="_blank" rel="noopener"><b>${esc(model.commit.slice(0, 7))}</b></a></span>` : ''}
       <span>merged pull requests read <b>${model.coverage.pulls}</b></span>
       <span>covering <b>${coveredPhrase(model.coverage.actualDays)}</b></span>
-      <!-- The other two pages of the published site, assembled by ci.yml's
+      <!-- The other three pages of the published site, assembled by ci.yml's
            Publish job; they resolve there and nowhere else. -->
       <span><a href="../"><b>Test explorer &rarr;</b></a></span>
       <span><a href="../stability/"><b>CI stability &rarr;</b></a></span>
+      <span><a href="../selection/"><b>Test selection &rarr;</b></a></span>
     </div>
   </header>
 
