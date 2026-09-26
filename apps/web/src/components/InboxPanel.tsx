@@ -103,10 +103,7 @@ export function InboxHeading({
   /** Where the column can be collapsed: given only beside the dashboards, not on the phone's screen of its own. */
   onCollapse?: () => void;
 }) {
-  const { data } = useQuery(snapshotQuery(workspaceId));
-  const inbox = data
-    ? itemsInTheInbox(data.items, filingsThatFile(data.filings ?? [], data.panels ?? []))
-    : null;
+  const count = useInboxCount(workspaceId);
 
   /** The account-wide rewrite history, opened from this heading's own menu ("See the history of what Cockpit proposed for the Inbox's items", issue 444). */
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -135,8 +132,8 @@ export function InboxHeading({
         <div className="ml-auto flex items-center gap-0.5">
           {/* Nothing where the snapshot has not arrived, rather than a zero: an
               Inbox that has not been read yet is not an empty one. */}
-          {inbox && (
-            <span className="text-xs tabular-nums text-ink-faint">{inbox.length}</span>
+          {count !== null && (
+            <span className="text-xs tabular-nums text-ink-faint">{count}</span>
           )}
           <RowMenu
             label="Actions for the Inbox"
