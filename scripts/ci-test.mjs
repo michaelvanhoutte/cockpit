@@ -56,7 +56,7 @@ const reporter = join(root, 'scripts', 'lib', 'vitest-record-reporter.mjs');
 
 // Where the record of this run goes (test-record.mjs), uploaded by the Test job.
 const recordDir = process.env.TEST_RECORD_DIR ?? join(root, 'test-record');
-const reportFor = (pkg) => join(recordDir, 'reports', `${pkg.name.replace(/[^w.-]/g, '_')}.json`);
+const reportFor = (pkg) => join(recordDir, 'reports', `${pkg.name.replace(/[^\w.-]/g, '_')}.json`);
 
 /** Trimmed stdout from `file args...`, run in `root`. Throws with its stderr on a non-zero exit or a spawn failure. */
 function capture(file, args) {
@@ -201,13 +201,10 @@ function writeRecord() {
     }
     const record = buildRecord({ event, baseCommit: mergeBase, changedFiles, plan, reports });
     mkdirSync(recordDir, { recursive: true });
-    writeFileSync(join(recordDir, 'record.json'), `${JSON.stringify(record, null, 2)}
-`);
-    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${renderSummary(record)}
-`);
+    writeFileSync(join(recordDir, 'record.json'), `${JSON.stringify(record, null, 2)}\n`);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${renderSummary(record)}\n`);
   } catch (error) {
-    console.error(paint('33', `
-The test selection record could not be written (${error.message}); this run's result is unchanged.`));
+    console.error(paint('33', `\nThe test selection record could not be written (${error.message}); this run's result is unchanged.`));
     if (process.env.GITHUB_ACTIONS) console.log(`::warning::The test selection record is missing from this run: ${error.message}`);
   }
 }
