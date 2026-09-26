@@ -31,6 +31,7 @@ import {
 import {
   AccountNotInRegisterError,
   AccountNotUpToDateError,
+  AllowanceSpentError,
   ConflictInAccountError,
   NotFoundInAccountError,
   RefusedByAccountError,
@@ -55,6 +56,7 @@ import {
   type RegisterBackup,
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
+import { ALLOWANCE_SPENT_MESSAGE, allowanceSpent } from '../accounts/allowance.js';
 import { attachmentR2Key } from '../domain/attachments.js';
 import {
   CannotReadMeaningError,
@@ -275,6 +277,13 @@ app.onError((err, c) => {
   if (err instanceof RefusedByAccountError) {
     return c.json({ error: err.message }, 400);
   }
+  // A 503 rather than a 500: nothing is wrong with the data or the code, the
+  // free tier has run out for the day. Also caught by message, for a call that
+  // met the limit outside the store's own answer.
+  if (err instanceof AllowanceSpentError || allowanceSpent(err)) {
+    console.error(JSON.stringify({ level: 'error', message: err.message, stack: err.stack }));
+    return c.json({ error: ALLOWANCE_SPENT_MESSAGE }, 503);
+  }
   // An account that cannot be found or cannot be brought up to date is the
   // server's problem, not the caller's - nobody names an account on a request,
   // it is resolved from who signed in - so it is a 500. The first of the two is
@@ -422,6 +431,7 @@ const healthRoute = createRoute({
             store: z.boolean(),
             ai: z.boolean(),
             embeddings: z.boolean(),
+            allowanceSpent: z.literal(true).optional(),
           }),
         },
       },
@@ -1099,13 +1109,17 @@ const routes = app
     return c.json(holdings, 200);
   })
   .openapi(healthRoute, async (c) => {
-    const { register, store, ai, embeddings, failure } = await checkHealth(c.env);
+    const { register, store, ai, embeddings, failure, allowanceSpent: spent } = await checkHealth(c.env);
     // The reason goes to the logs and not into the body: this endpoint answers
     // anyone at all, and why a change would not apply names tables and columns.
     if (failure) {
       console.error(JSON.stringify({ level: 'error', message: `unhealthy: ${failure}` }));
     }
-    return c.json({ ok: register && store, register, store, ai, embeddings }, 200);
+    // Present only when the limit is spent, so a healthy answer is unchanged.
+    return c.json(
+      { ok: register && store, register, store, ai, embeddings, ...(spent ? { allowanceSpent: true } : {}) },
+      200,
+    );
   })
   .openapi(workspacesRoute, async (c) => {
     const account = await openAccount(c.env, c.get('visitor').accountName);

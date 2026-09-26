@@ -81,6 +81,18 @@ export function readAnswer({ status, body }) {
   }
   if (answer.ok) return { state: 'healthy', message: 'healthy.' };
 
+  // Its own state, and not worth retrying: the deploy settling cannot clear it,
+  // and it is no fault in the deploy either, so it is named as what it is
+  // rather than as an update that will not apply.
+  if (answer.allowanceSpent === true) {
+    return {
+      state: 'allowance-spent',
+      message:
+        "answered, and said Cloudflare's free-tier daily Durable Objects allowance is spent, so the " +
+        'update could not be checked. It clears at 00:00 UTC, or on Workers Paid.',
+    };
+  }
+
   return {
     state: 'unhealthy',
     message:
@@ -111,7 +123,8 @@ export function failureReport({ stopped, attempts, answer }, windowMs = WINDOW_M
  *
  * The deployment being unwell, unreachable, or up and failing are all things a
  * deployment settling can fix. A redirect and a page that is not ours both mean
- * something has been put in front of /health, and asking twenty more times only
+ * something has been put in front of /health, and a spent free-tier allowance
+ * clears at 00:00 UTC whatever the deploy does; asking twenty more times only
  * delays saying so.
  *
  * The list is here and nowhere else. An earlier version said "the two" in this
