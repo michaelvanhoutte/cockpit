@@ -91,6 +91,9 @@ async function captureWithoutAWorkspace(
     expect(buttonBox!.y).toBeGreaterThanOrEqual(noteBox!.y + noteBox!.height);
     expect(buttonBox!.y + buttonBox!.height).toBeLessThanOrEqual(typeBox!.y);
   } else {
+    // And the note stays first, above the chips: it once sorted last at a desk
+    // because only the phone's ordering was undone for the other rows.
+    expect(noteBox!.y + noteBox!.height).toBeLessThanOrEqual(typeBox!.y);
     expect(buttonBox!.y).toBeGreaterThanOrEqual(whereBox!.y + whereBox!.height);
   }
 
