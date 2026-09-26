@@ -421,6 +421,33 @@ test.describe('Panels', () => {
       // open, because it is where you just put something.
       await expect.poll(() => itemsOn(page, toRead)).toEqual([title]);
       await expect(page.getByRole('heading', { name: elsewhere, level: 2 })).toBeVisible();
+
+      // And the other end of the same gesture: with the Inbox collapsed to its
+      // chip, the row is held on the chip until the column opens under it, and
+      // let go in the column's list - back in the Inbox, which stays open.
+      await page.getByRole('button', { name: 'Collapse the Inbox' }).click();
+      const chip = page.getByRole('button', { name: /^Inbox/ });
+      await expect(chip).toBeVisible();
+      const held = page.getByRole('region', { name: toRead }).getByRole('listitem').first();
+      const heldAt = await held.boundingBox();
+      const chipAt = await chip.boundingBox();
+      if (!heldAt || !chipAt) throw new Error('the row or the chip is not on screen');
+      await page.mouse.move(heldAt.x + heldAt.width / 2, heldAt.y + heldAt.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(chipAt.x + chipAt.width / 2, chipAt.y + chipAt.height / 2, { steps: 8 });
+      for (let rested = 0; rested < 12; rested += 1) {
+        await page.mouse.move(chipAt.x + chipAt.width / 2, chipAt.y + chipAt.height / 2 + (rested % 2));
+        await page.waitForTimeout(100);
+      }
+      await expect(page.getByRole('complementary', { name: 'Inbox' })).toBeVisible();
+      const list = await inbox(page).boundingBox();
+      if (!list) throw new Error('the Inbox is not on screen');
+      await page.mouse.move(list.x + list.width / 2, list.y + list.height / 2, { steps: 8 });
+      await page.mouse.up();
+
+      await expect.poll(() => itemsOn(page, toRead)).toEqual([]);
+      await expect(inbox(page).getByText(title)).toBeVisible();
+      await expect(page.getByRole('complementary', { name: 'Inbox' })).toBeVisible();
     });
   });
 });

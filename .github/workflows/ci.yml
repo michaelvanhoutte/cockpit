@@ -258,6 +258,17 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - run: node scripts/ci-test.mjs
+      # What this run selected and why (scripts/lib/test-record.mjs), on every run
+      # and whatever the tests did. It can only add: the step is allowed to fail
+      # without failing the job, and it runs after the tests have decided the
+      # job's result, so recording never changes the outcome (issue 539).
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        with:
+          name: test-selection-record
+          path: test-record/record.json
+          if-no-files-found: warn
       # `main` only: a pull request's uninstrumented run writes no coverage, and
       # an upload of nothing would put a warning on every green run.
       - uses: actions/upload-artifact@v4
@@ -294,6 +305,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
       # The budget, ahead of the browser download and the tier itself
       # ("Bring the browser tier back inside a budget", issue 509): `--list`
@@ -308,7 +321,10 @@ jobs:
       # browser needs.
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
+      # On a pull request this runs only the areas that own a changed file
+      # (scripts/lib/e2e-selection.mjs); a push to `main` runs every walk, as
+      # the `Test` job does. `fetch-depth: 0` is what places the merge-base.
+      - run: node scripts/ci-e2e.mjs
       # Traces and screenshots are kept on failure only (playwright.config.ts),
       # so this uploads nothing of Playwright's on a green run.
       #

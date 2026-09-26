@@ -529,6 +529,204 @@ describe('Triage', () => {
       expect(window.localStorage.getItem('cockpit.inbox-width')).toBeNull();
     });
   });
+
+  describe('the Inbox collapses to a chip in the Dashboard bar and reopens as it was', () => {
+    const collapse = () => screen.getByRole('button', { name: 'Collapse the Inbox' });
+    const chip = () => screen.queryByRole('button', { name: /^Inbox/ });
+    const bar = () => screen.getByRole('navigation', { name: 'Dashboards' });
+
+    async function onAResearchDashboard() {
+      withRoomForTheInbox();
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+      expect(await screen.findByLabelText('Capture a note or to-do')).toBeVisible();
+    }
+
+    it('takes the column away for a chip that names the Inbox, and the chip brings it back', async () => {
+      const user = userEvent.setup();
+      await onAResearchDashboard();
+      expect(chip()).toBeNull();
+
+      await user.click(collapse());
+
+      expect(inboxColumn()).toBeNull();
+      expect(chip()).toBeVisible();
+      expect(screen.queryByRole('heading', { name: 'Inbox', level: 2 })).toBeNull();
+
+      await user.click(chip()!);
+
+      expect(inboxColumn()).toBeVisible();
+      expect(chip()).toBeNull();
+    });
+
+    it('puts the chip at the left of the bar, before the dashboards', async () => {
+      const user = userEvent.setup();
+      await onAResearchDashboard();
+      await user.click(collapse());
+
+      expect(chip()!.nextElementSibling).toBe(bar());
+    });
+
+    it('reopens at the width the column was dragged to', async () => {
+      window.localStorage.setItem('cockpit.inbox-width', '360');
+      const user = userEvent.setup();
+      await onAResearchDashboard();
+
+      await user.click(collapse());
+      await user.click(chip()!);
+
+      expect(inboxColumn()).toHaveStyle({ width: '360px' });
+    });
+
+    it('names the key in both buttons’ tooltips', async () => {
+      const user = userEvent.setup();
+      await onAResearchDashboard();
+      expect(collapse()).toHaveAttribute('title', 'Collapse the Inbox (I)');
+
+      await user.click(collapse());
+
+      expect(chip()).toHaveAttribute('title', 'Open the Inbox (I)');
+    });
+
+    it('is not offered where there is no column to collapse', async () => {
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+
+      expect(screen.queryByRole('button', { name: 'Collapse the Inbox' })).toBeNull();
+    });
+
+    it('is remembered across a reload and in every workspace, and kept for the visit where the browser refuses it', async () => {
+      const user = userEvent.setup();
+      await onAResearchDashboard();
+      await user.click(collapse());
+      expect(window.localStorage.getItem('cockpit.inbox-collapsed')).toBe('1');
+      cleanup();
+
+      // The reload, and another workspace, read the same browser-wide choice.
+      await open('/w/ws-personal/d/ws-personal-research', [work, personal]);
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+      expect(inboxColumn()).toBeNull();
+      expect(chip()).toBeVisible();
+      cleanup();
+
+      window.localStorage.clear();
+      const refuse = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('quota');
+      });
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      await screen.findByRole('navigation', { name: 'Dashboards' });
+      await user.click(collapse());
+      expect(inboxColumn()).toBeNull();
+      refuse.mockRestore();
+      expect(window.localStorage.getItem('cockpit.inbox-collapsed')).toBeNull();
+    });
+
+    describe('I toggles it, and only when nothing else has the keys', () => {
+      it('collapses and reopens it from anywhere on a dashboard', async () => {
+        const user = userEvent.setup();
+        await onAResearchDashboard();
+
+        await user.keyboard('i');
+        expect(inboxColumn()).toBeNull();
+        await user.keyboard('i');
+        expect(inboxColumn()).toBeVisible();
+      });
+
+      it('types an i in a field and leaves the Inbox where it is', async () => {
+        const user = userEvent.setup();
+        await onAResearchDashboard();
+        const box = screen.getByLabelText('Capture a note or to-do');
+
+        await user.click(box);
+        await user.keyboard('i');
+
+        expect(box).toHaveValue('i');
+        expect(inboxColumn()).toBeVisible();
+      });
+
+      it.each([
+        { situation: 'Ctrl held', keys: '{Control>}i{/Control}' },
+        { situation: 'Alt held', keys: '{Alt>}i{/Alt}' },
+        { situation: '⌘ held', keys: '{Meta>}i{/Meta}' },
+      ])('does nothing with $situation', async ({ keys }) => {
+        const user = userEvent.setup();
+        await onAResearchDashboard();
+
+        await user.keyboard(keys);
+
+        expect(inboxColumn()).toBeVisible();
+      });
+
+      it('does nothing while a menu is open', async () => {
+        const user = userEvent.setup();
+        await onAResearchDashboard();
+        await user.click(screen.getByRole('button', { name: 'Actions for the Inbox' }));
+        expect(await screen.findByRole('menu')).toBeVisible();
+
+        fireEvent.keyDown(window, { key: 'i' });
+
+        // Asked with `hidden`: an open menu hides everything behind it from the
+        // accessibility tree, so the column is there and only unreachable.
+        expect(screen.getByRole('complementary', { name: 'Inbox', hidden: true })).toBeInTheDocument();
+      });
+
+      it('toggles once for a key held down, not repeatedly', async () => {
+        await onAResearchDashboard();
+
+        fireEvent.keyDown(window, { key: 'i' });
+        fireEvent.keyDown(window, { key: 'i', repeat: true });
+
+        expect(inboxColumn()).toBeNull();
+      });
+    });
+
+    describe('a row held on the chip opens the Inbox and is never a place to land', () => {
+      const ITEM = 'application/x-cockpit-item';
+      const aDragOf = (types: string[]) => ({ dataTransfer: { types } });
+
+      it('opens the Inbox once the row has rested the full dwell, and it stays open', async () => {
+        const user = userEvent.setup();
+        await onAResearchDashboard();
+        await user.click(collapse());
+        const clock = vi.spyOn(Date, 'now');
+
+        clock.mockReturnValue(1_000_000);
+        fireEvent.dragOver(chip()!, aDragOf([ITEM]));
+        expect(inboxColumn()).toBeNull();
+        clock.mockReturnValue(1_000_000 + 600);
+        fireEvent.dragOver(chip()!, aDragOf([ITEM]));
+
+        expect(inboxColumn()).toBeVisible();
+        clock.mockRestore();
+      });
+
+      it('does not follow a row let go on the chip as a link, and does not open', async () => {
+        const user = userEvent.setup();
+        await onAResearchDashboard();
+        await user.click(collapse());
+
+        const notPrevented = fireEvent.drop(chip()!, aDragOf([ITEM]));
+
+        expect(notPrevented).toBe(false);
+        expect(inboxColumn()).toBeNull();
+      });
+
+      it('ignores anything that is not a row', async () => {
+        const user = userEvent.setup();
+        await onAResearchDashboard();
+        await user.click(collapse());
+        const clock = vi.spyOn(Date, 'now');
+
+        clock.mockReturnValue(1_000_000);
+        fireEvent.dragOver(chip()!, aDragOf(['text/plain']));
+        clock.mockReturnValue(1_000_000 + 5_000);
+        fireEvent.dragOver(chip()!, aDragOf(['text/plain']));
+
+        expect(inboxColumn()).toBeNull();
+        clock.mockRestore();
+      });
+    });
+  });
 });
 
 describe('Dashboards', () => {

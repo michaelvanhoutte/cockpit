@@ -364,6 +364,30 @@ export function lastSignedInLabel(lastSignedInAt: string | null): string {
 }
 
 /**
+ * Whether nobody has signed in as this person for three months or more, or
+ * ever ("Flag the users nobody has signed in as for months, on the admin page",
+ * issue 344). Never having signed in counts: an admin clearing out the
+ * register wants those as much as the lapsed ones.
+ *
+ * **Calendar months in UTC**, matching the date the row shows, and no finer:
+ * whether the line falls on the second is not a question this register is big
+ * enough to ask. An unusable value reads as "never", the same as the label.
+ */
+export function isInactive(lastSignedInAt: string | null, now: Date = new Date()): boolean {
+  const at = usableInstant(lastSignedInAt);
+  if (at === null) return true;
+  // Day 1 first, then the day put back clamped: May 31 minus three months is
+  // "Feb 31", which `setUTCMonth` alone rolls into March.
+  const cutoff = new Date(now);
+  const day = cutoff.getUTCDate();
+  cutoff.setUTCDate(1);
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - 3);
+  const daysThen = new Date(Date.UTC(cutoff.getUTCFullYear(), cutoff.getUTCMonth() + 1, 0)).getUTCDate();
+  cutoff.setUTCDate(Math.min(day, daysThen));
+  return new Date(at).getTime() <= cutoff.getTime();
+}
+
+/**
  * Why this role cannot be chosen for this person, or `null` when it can.
  *
  * **Both reasons are about the same danger and are said differently**, because
@@ -599,7 +623,17 @@ function Row({
       <td className="py-2 pr-4 text-ink-faint">{user.email ?? 'no address — cannot sign in'}</td>
       <td className="py-2 pr-4">{roleName(user.role)}</td>
       <td className="py-2 pr-4 text-ink-faint">{user.accountName}</td>
-      <td className="py-2 pr-4 text-ink-faint">{lastSignedInLabel(user.lastSignedInAt)}</td>
+      <td className="py-2 pr-4 text-ink-faint">
+        {lastSignedInLabel(user.lastSignedInAt)}
+        {/* Said in words beside the date, since colour alone says nothing to a
+            screen reader. The row stays where it is: this only marks it, and
+            deleting is the row's own menu. */}
+        {isInactive(user.lastSignedInAt) && (
+          <span className="ml-2 rounded bg-due-soft px-1.5 py-0.5 text-xs text-due-ink">
+            Inactive 3 months+
+          </span>
+        )}
+      </td>
       <td className="py-2">
         <RowMenu
           label={`Actions for ${user.name}`}

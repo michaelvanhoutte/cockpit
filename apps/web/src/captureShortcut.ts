@@ -1,3 +1,5 @@
+import { isTypedInto, somethingIsOpenOverThePage } from './inboxCollapsed';
+
 /**
  * Whether a key press is the one that opens Capture ("Capture over the screen
  * you are on, and open it with C", issue 536).
@@ -13,13 +15,5 @@ export function opensCapture(event: KeyboardEvent, doc: Document = document): bo
   // Already taken by whoever handled it first, and a key held down is not a
   // second press.
   if (event.defaultPrevented || event.repeat || event.isComposing) return false;
-  if (typesInto(event.target)) return false;
-  // A menu or a window has the keys while it is open, and a modal one has made
-  // everything behind it inert besides.
-  return !doc.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]');
-}
-
-function typesInto(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
+  return !isTypedInto(event.target) && !somethingIsOpenOverThePage(doc);
 }

@@ -31,3 +31,6 @@ playwright-report/
 # choice becoming a commit.
 backups/
 *.partial
+
+# What the Test job selected, and why (scripts/ci-test.mjs)
+test-record/

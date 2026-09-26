@@ -8,7 +8,7 @@ import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, refusalFrom, snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
 import { DashboardBar } from '../components/DashboardBar';
-import { InboxHeading, InboxPanel } from '../components/InboxPanel';
+import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { CaptureWindow } from '../components/CaptureWindow';
 import { ItemForm } from '../components/ItemForm';
 import { LoadFailure } from '../components/LoadFailure';
@@ -24,6 +24,13 @@ import { captureStateFor } from './CapturePage';
 import { browserStore } from '../lastVisited';
 import { clampInboxWidth, readInboxWidth, writeInboxWidth } from '../inboxWidth';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
+import {
+  isTypedInto,
+  readInboxCollapsed,
+  somethingIsOpenOverThePage,
+  togglesTheInbox,
+  writeInboxCollapsed,
+} from '../inboxCollapsed';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useScrollWhileDraggingAnItem } from '../dragScroll';
 
@@ -155,6 +162,42 @@ function TheShell() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [hasWorkspaces]);
+
+  /**
+   * Whether the Inbox column is collapsed to a chip in the bar ("Collapse the
+   * Inbox to its heading, and open it again with one press", issue 535).
+   * Read once, like the width, and kept for this visit even where the browser
+   * refuses the write. The width is untouched by it, so reopening is the width
+   * it had.
+   */
+  const [inboxCollapsed, setInboxCollapsed] = useState(() => readInboxCollapsed(browserStore()));
+  const collapseInbox = useCallback((collapsed: boolean) => {
+    setInboxCollapsed(collapsed);
+    writeInboxCollapsed(browserStore(), collapsed);
+  }, []);
+  const collapsedRef = useRef(inboxCollapsed);
+  collapsedRef.current = inboxCollapsed;
+  const inWorkspace = params.workspaceId !== undefined;
+  useEffect(() => {
+    if (!roomForTheInbox || !inWorkspace) return;
+    const onKey = (event: KeyboardEvent) => {
+      const toggles = togglesTheInbox(
+        {
+          key: event.key,
+          ctrlKey: event.ctrlKey,
+          altKey: event.altKey,
+          metaKey: event.metaKey,
+          repeat: event.repeat,
+          defaultPrevented: event.defaultPrevented,
+          typing: isTypedInto(event.target),
+        },
+        somethingIsOpenOverThePage(),
+      );
+      if (toggles) collapseInbox(!collapsedRef.current);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [roomForTheInbox, inWorkspace, collapseInbox]);
 
   /**
    * How wide the Inbox column is drawn - the chosen preference, and the drag
@@ -792,13 +835,29 @@ function TheShell() {
       >
         {params.workspaceId && (
           <>
-            {roomForTheInbox && (
+            {roomForTheInbox && !inboxCollapsed && (
               <div
                 className={`ml-1 ${inboxColumnClassName} bg-[color-mix(in_srgb,var(--ground)_90%,var(--tint))] px-4 pt-2 pb-1.5`}
                 style={inboxColumnStyle}
               >
-                <InboxHeading workspaceId={params.workspaceId} id={INBOX_HEADING} />
+                <InboxHeading
+                  workspaceId={params.workspaceId}
+                  id={INBOX_HEADING}
+                  onCollapse={() => collapseInbox(true)}
+                />
               </div>
+            )}
+            {/* The chip is drawn here rather than inside the bar: the bar scrolls
+                sideways once a workspace has many dashboards, and the chip is
+                the leftmost thing in it that has to stay put. 50px tall, the
+                open heading's own height (its 36px menu with `pt-2`/`pb-1.5`),
+                so the band is the same height collapsed. */}
+            {roomForTheInbox && inboxCollapsed && (
+              <InboxChip
+                workspaceId={params.workspaceId}
+                onOpen={() => collapseInbox(false)}
+                className="ml-1 shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-2 pb-1.5 text-sm text-accent-deep hover:bg-white/8"
+              />
             )}
             <DashboardBar
               workspaceId={params.workspaceId}
@@ -853,7 +912,7 @@ function TheShell() {
             'calc(var(--spacing) + var(--edge-left)) calc(var(--spacing) + var(--edge-right))',
         }}
       >
-        {params.workspaceId && roomForTheInbox && (
+        {params.workspaceId && roomForTheInbox && !inboxCollapsed && (
           <>
             <aside
               ref={inboxColumnRef}

@@ -73,6 +73,27 @@ async function captureWithoutAWorkspace(
   await page.goto('/capture');
   const box = captureBox(page);
   await expect(box).toBeVisible();
+
+  // Where the button sits ("Keep the Capture button in reach on a phone", issue
+  // 534): directly under the note on a phone, so the keyboard does not cover
+  // it, and below the Where row at a desk. Asserted here because this is the
+  // walk already on that page, and the area's walk ceiling has no room for one
+  // of its own.
+  const [noteBox, buttonBox, typeBox, whereBox] = await Promise.all(
+    [
+      box,
+      page.getByRole('button', { name: 'Capture', exact: true }),
+      page.getByRole('group', { name: 'Type' }),
+      page.getByRole('group', { name: 'Where' }),
+    ].map((one) => one.boundingBox()),
+  );
+  if (isMobile) {
+    expect(buttonBox!.y).toBeGreaterThanOrEqual(noteBox!.y + noteBox!.height);
+    expect(buttonBox!.y + buttonBox!.height).toBeLessThanOrEqual(typeBox!.y);
+  } else {
+    expect(buttonBox!.y).toBeGreaterThanOrEqual(whereBox!.y + whereBox!.height);
+  }
+
   await box.fill(title);
   // The button here and the shortcut in the walk below, so both ways in are
   // driven. Enter alone is a new line now, which is what a box of several lines

@@ -7,25 +7,10 @@
 // there without a checkout or a real workspace; this is orchestration only,
 // the same split bundle-budget.mjs and dev.mjs use.
 //
-// What stands in for the merge-base with `main` is read off HEAD itself
-// rather than fetched or computed with `git merge-base`: the default checkout
-// for a pull_request event is GitHub's own merge of the PR against its base
-// (refs/pull/<n>/merge), kept current with `main` as `main` moves, so HEAD's
-// first parent is the base commit that merge was actually computed against -
-// no origin/main ref required, only enough history for that parent commit to
-// be present, which is what the Test job's checkout step asks for with
-// fetch-depth: 0. A textbook `git merge-base` would instead return the PR
-// branch's own fork point, which is only the same commit when the PR is
-// already caught up with `main` - using the fork point here would inflate
-// "changed" by everything `main` has gained since the PR forked, working
-// against the point of selecting less. (Reproducing a selection by hand:
-// diff against this parent, not against `git merge-base main HEAD`.)
-//
-// Any git command failing here - not just an unplaceable merge-base - falls
-// back to running every package in full: a diff this can't actually read is
-// exactly the case "nothing in the import graph can be trusted to attribute"
-// already exists to catch, and treating a failed `git diff` as "nothing
-// changed" would silently select too little rather than too much.
+// The merge-base is placed by scripts/lib/merge-base.mjs, which needs enough
+// history for HEAD's first parent to be present: what the Test job's checkout
+// step asks for with fetch-depth: 0. A git command failing there falls back to
+// running every package in full.
 //
 // Packages run concurrently, up to a limit, all of them always to completion
 // rather than one at a time stopping at the first failure: `pnpm -r test`,
@@ -40,17 +25,24 @@
 // below is what keeps the speed this exists for without reproducing that.
 //
 
-import { readFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
+import { placeMergeBase } from './lib/merge-base.mjs';
+import { buildRecord, renderSummary } from './lib/test-record.mjs';
 import { planTestRun } from './lib/test-selection.mjs';
 import { testablePackages } from './lib/workspace.mjs';
 import { paint, pnpmWorkspaceList, start } from './lib/processes.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const reporter = join(root, 'scripts', 'lib', 'vitest-record-reporter.mjs');
+
+// Where the record of this run goes (test-record.mjs), uploaded by the Test job.
+const recordDir = process.env.TEST_RECORD_DIR ?? join(root, 'test-record');
+const reportFor = (pkg) => join(recordDir, 'reports', `${pkg.name.replace(/[^\w.-]/g, '_')}.json`);
 
 /** Trimmed stdout from `file args...`, run in `root`. Throws with its stderr on a non-zero exit or a spawn failure. */
 function capture(file, args) {
@@ -62,26 +54,7 @@ function capture(file, args) {
 
 const git = (args) => capture('git', args);
 
-/**
- * `{ mergeBase, changedFiles }` for a pull_request event, or both empty where
- * anything needed to place them can't be read - which planTestRun already
- * treats as "run everything", the same as an event that isn't a pull request.
- */
-function place(event) {
-  if (event !== 'pull_request') return { mergeBase: null, changedFiles: [] };
-  try {
-    // Oldest-parent-first: `[base, head]` for the synthetic merge commit a
-    // pull_request event checks out, `[parent]` for an ordinary commit.
-    const parents = git(['rev-list', '--parents', '-n', '1', 'HEAD']).split(/\s+/).slice(1);
-    if (parents.length !== 2) return { mergeBase: null, changedFiles: [] };
-    const mergeBase = parents[0];
-    const changedFiles = git(['diff', '--name-only', mergeBase, 'HEAD']).split('\n').filter(Boolean);
-    return { mergeBase, changedFiles };
-  } catch (error) {
-    console.error(paint('33', `Could not place a merge-base (${error.message}); running every package in full.`));
-    return { mergeBase: null, changedFiles: [] };
-  }
-}
+const place = (event) => placeMergeBase(event, git, (message) => console.error(paint('33', message)));
 
 let packages;
 try {
@@ -119,7 +92,12 @@ function runOne(pkg, index) {
   // default, and the one time it changes upstream is not a moment to
   // discover a package the PR never touched failing the job on its behalf.
   if (pkg.mode === 'changed') args.push('--changed', mergeBase, '--passWithNoTests');
-  const child = start(args, `${pkg.name} (${pkg.mode})`, COLORS[index % COLORS.length], root);
+  // Our own reporter beside Vitest's usual ones (github-actions only where
+  // GITHUB_ACTIONS is set, which is what Vitest itself adds by default), so
+  // the record of what ran is written by the process that ran it.
+  args.push('--reporter=default', ...(process.env.GITHUB_ACTIONS ? ['--reporter=github-actions'] : []), `--reporter=${reporter}`);
+  const env = { COCKPIT_TEST_REPORT: reportFor(pkg), COCKPIT_REPO_ROOT: root, ...(pkg.mode === 'changed' ? { COCKPIT_TEST_GRAPH: '1' } : {}) };
+  const child = start(args, `${pkg.name} (${pkg.mode})`, COLORS[index % COLORS.length], root, env);
 
   return new Promise((resolve) => {
     let settled = false;
@@ -169,7 +147,35 @@ async function runAll(allPackages) {
   return failed;
 }
 
+rmSync(join(recordDir, 'reports'), { recursive: true, force: true });
 const failed = await runAll(plan.packages);
+
+/**
+ * Writes the record and its step summary. Never throws and never touches the
+ * exit code: what the tests made the job is what it stays, and a record that
+ * could not be written is a warning saying so ("recording never changes the
+ * job's outcome", issue 539).
+ */
+function writeRecord() {
+  try {
+    const reports = {};
+    for (const pkg of plan.packages) {
+      try {
+        reports[pkg.name] = JSON.parse(readFileSync(reportFor(pkg), 'utf8'));
+      } catch {
+        // No report: that package's process died before writing one, and the record says so.
+      }
+    }
+    const record = buildRecord({ event, baseCommit: mergeBase, changedFiles, plan, reports });
+    mkdirSync(recordDir, { recursive: true });
+    writeFileSync(join(recordDir, 'record.json'), `${JSON.stringify(record, null, 2)}\n`);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${renderSummary(record)}\n`);
+  } catch (error) {
+    console.error(paint('33', `\nThe test selection record could not be written (${error.message}); this run's result is unchanged.`));
+    if (process.env.GITHUB_ACTIONS) console.log(`::warning::The test selection record is missing from this run: ${error.message}`);
+  }
+}
+writeRecord();
 if (failed.length > 0) {
   console.error(paint('31', `\n${failed.join(', ')} failed.`));
   // process.exitCode rather than process.exit(): stdout/stderr are pipes on
