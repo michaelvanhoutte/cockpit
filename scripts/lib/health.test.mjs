@@ -71,7 +71,9 @@ describe('readAnswer', () => {
 describe('worthRetrying', () => {
   it('waits only on what settling could fix', () => {
     assert.deepEqual(
-      ['healthy', 'unhealthy', 'unreachable', 'failing', 'redirected', 'not-ours', 'error'].filter(worthRetrying),
+      ['healthy', 'unhealthy', 'unreachable', 'failing', 'redirected', 'not-ours', 'error', 'allowance-spent'].filter(
+        worthRetrying,
+      ),
       ['unhealthy', 'unreachable', 'failing'],
     );
   });
@@ -197,6 +199,14 @@ describe('a deployment whose free-tier allowance is spent', () => {
     assert.match(message, /daily allowance/);
     assert.match(message, /00:00 UTC/);
     assert.doesNotMatch(message, /update that will not apply/);
+  });
+
+  it('stops asking at once, since waiting for the deploy to settle cannot clear it', async () => {
+    let asked = 0;
+    const result = await checkUntilHealthy(async () => (asked += 1, { status: 200, body: spent }), fast());
+
+    assert.equal(result.stopped, 'not-worth-retrying');
+    assert.equal(asked, 1);
   });
 
   it('keeps the old wording for a change that will not apply', () => {

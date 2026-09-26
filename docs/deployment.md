@@ -637,9 +637,12 @@ own code. It is outside Cockpit's own gate (`PATHS_OUTSIDE_THE_GATE` in
 has to be told to leave it alone.
 
 `/health` returns `{"ok":true,"register":true,"store":true,"ai":true,"embeddings":true}`
-and nothing else — plus `"allowanceSpent":true` while the free tier's daily allowance is spent, and only then — so it discloses only whether each half answered — never *why*
+and nothing else, so it discloses only whether each half answered — never *why*
 one did not, since the reason an update will not apply names tables and columns
-and this endpoint answers anyone. That reason goes to the logs.
+and this endpoint answers anyone. That reason goes to the logs. The one exception is `"allowanceSpent":true`, added
+while the free tier's daily allowance is spent: it names a limit rather than a
+table, and it is what keeps that failure from reading as an update that will not
+apply.
 
 **`ai` is reported and is deliberately not part of `ok`.** It says whether this
 environment has an `ANTHROPIC_API_KEY` — never what it is, and nothing about it

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { applyD1Migrations, env, runInDurableObject, SELF } from 'cloudflare:test';
 import { PROBE_NAME } from '../../../src/accounts/probe.js';
-import { ACCOUNT_NAME, asUser, seedRegister, startFromEmpty, storeNamed } from '../seed.js';
+import { ACCOUNT_NAME, USER_ID, asUser, seedRegister, startFromEmpty, storeNamed } from '../seed.js';
 
 /**
  * Integration level, through the real Worker and a real store, because what
@@ -61,6 +61,17 @@ describe('Accounts', () => {
       expect(error).toMatch(/allowance/);
       expect(error).not.toContain(ACCOUNT_NAME);
       expect(error).not.toMatch(/brought up to date/);
+    });
+
+    it('answers 503 for a call that meets the limit outside an answer from the store', async () => {
+      // How many workspaces an account holds is read directly rather than
+      // through an answer, so the limit reaches the route as a bare error.
+      await spendAllowanceOf(ACCOUNT_NAME);
+
+      const response = await asUser(`http://cockpit.test/v1/admin/users/${USER_ID}/account`);
+
+      expect(response.status).toBe(503);
+      expect(((await response.json()) as { error: string }).error).toMatch(/allowance/);
     });
 
     it('lets /health say the limit is spent alongside store: false', async () => {

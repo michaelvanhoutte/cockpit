@@ -81,14 +81,15 @@ export function readAnswer({ status, body }) {
   }
   if (answer.ok) return { state: 'healthy', message: 'healthy.' };
 
-  // Waiting for the deploy to settle cannot fix this, but it is not a fault in
-  // the deploy either, so it is named as what it is rather than as an update.
+  // Its own state, and not worth retrying: the deploy settling cannot clear it,
+  // and it is no fault in the deploy either, so it is named as what it is
+  // rather than as an update that will not apply.
   if (answer.allowanceSpent === true) {
     return {
-      state: 'unhealthy',
+      state: 'allowance-spent',
       message:
-        "answered, and said Cloudflare's free-tier daily allowance of Durable Object reads is spent. " +
-        'Nothing is wrong with the update: it clears at 00:00 UTC, or on Workers Paid.',
+        "answered, and said Cloudflare's free-tier daily allowance of Durable Object reads or writes " +
+        'is spent. Nothing is wrong with the update: it clears at 00:00 UTC, or on Workers Paid.',
     };
   }
 
