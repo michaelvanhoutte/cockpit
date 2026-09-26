@@ -207,6 +207,9 @@ export function CapturePage() {
         }}
         className="flex min-h-0 flex-1 flex-col"
       >
+        {/* On a phone the button and any refusal are ordered up under the note
+            (`order-*`) and the rest follows in the order it is written here,
+            which is the desk's. */}
         {/* **A box of several lines, one step above the page in size and no
             more.** What gets captured is a thought as it was had, which is
             often two sentences and sometimes a paragraph; one line high made
@@ -228,7 +231,7 @@ export function CapturePage() {
           aria-label="What is on your mind?"
           autoFocus
           rows={4}
-          className="mt-2.5 w-full resize-none rounded-md border border-black/10 bg-white p-3 text-base leading-[1.5] text-ink shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 sm:mt-4 sm:min-h-56 sm:resize-y sm:px-5 sm:py-[18px]"
+          className="order-1 mt-2.5 w-full resize-none rounded-md border border-black/10 bg-white p-3 text-base leading-[1.5] text-ink shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 sm:mt-4 sm:min-h-56 sm:resize-y sm:px-5 sm:py-[18px]"
         />
 
         {/* The box that used to sit at the end of this row, dashed, naming a
@@ -279,10 +282,10 @@ export function CapturePage() {
           </span>
         </Choice>
 
-        {/* Last on a phone and pinned to the bottom of the screen, where a
-            thumb is; beside the note's own hint at a desk, where a mouse is
-            already. */}
-        <div className="order-last mt-auto flex items-center gap-3.5 sm:order-none sm:mt-[22px]">
+        {/* Directly under the note on a phone, so it stays above the on-screen
+            keyboard and the browser's toolbars; below the Where row, beside the
+            note's own hint, at a desk. */}
+        <div className="order-2 mt-3 flex items-center gap-3.5 sm:order-none sm:mt-[22px]">
           <button
             type="submit"
             disabled={busy || !chosen}
@@ -296,7 +299,7 @@ export function CapturePage() {
         </div>
 
         {refused && (
-          <p role="alert" className="order-last pt-2 text-sm text-over sm:order-none">
+          <p role="alert" className="order-3 pt-2 text-sm text-over sm:order-none">
             {refused}
           </p>
         )}
@@ -306,7 +309,7 @@ export function CapturePage() {
         {justCaptured.length > 0 && (
           <section
             aria-labelledby={JUST_CAPTURED}
-            className="mt-[18px] border-t border-[rgb(41_43_49/0.08)] pt-3 sm:mt-auto"
+            className="order-5 mt-[18px] border-t border-[rgb(41_43_49/0.08)] pt-3 sm:order-none sm:mt-auto"
           >
             <div className="flex items-baseline gap-2">
               <h2
@@ -390,7 +393,7 @@ function Choice({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mt-3.5 flex flex-col gap-2 sm:mt-5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
+    <div className="order-4 mt-3.5 flex flex-col gap-2 sm:order-none sm:mt-5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
       <span
         aria-hidden="true"
         className="text-[11px] font-semibold tracking-[0.11em] text-ink-faint uppercase sm:w-[74px] sm:shrink-0 sm:text-xs"
