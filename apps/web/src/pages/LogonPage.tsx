@@ -124,4 +124,3 @@ function Refusal() {
     </p>
   );
 }
-
