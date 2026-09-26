@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
-import { applyD1Migrations, env } from 'cloudflare:test';
+import { applyD1Migrations, env, runInDurableObject } from 'cloudflare:test';
 import type { ServerEvent } from '@cockpit/shared';
+import { createAccountDb } from '../../../src/accounts/client.js';
+import { readingsSince } from '../../../src/accounts/events.js';
 import {
   ACCOUNT_NAME,
   TASK_TYPE_ID,
@@ -126,36 +128,32 @@ describe('Live updates', () => {
       expect(nothingLeft.events).toEqual([]);
     });
   });
-});
 
-describe('Live updates', () => {
-  describe('a poll with nothing new reads no readings, however many an account holds', () => {
+  describe('checking for changes does not go through every note an account holds', () => {
     /**
-     * Every open tab asks every three seconds, so what one poll visits is paid
-     * for by every tab of every account. The plan is the proof: a unit cannot
-     * show which index a real store picks, and counting rows read would only
-     * restate it. The statement below is the one `collectInvalidations` runs
-     * for readings (events.ts), written out because a drizzle query cannot be
-     * handed to the store's own connection from here.
+     * Every open tab asks every three seconds, so what one check visits is paid
+     * for by every tab of every account. The plan is the proof: which index a
+     * real store answers from cannot be shown by a unit, and counting rows read
+     * would only restate it. It plans the statement `collectInvalidations` runs
+     * (`readingsSince`), not a copy.
      */
-    it('answers the readings query from the (tenant_id, read_at) index, by range', async () => {
-      const plan = await inTheStore((sql) =>
-        sql
-          .exec<{ detail: string }>(
-            `EXPLAIN QUERY PLAN
-             SELECT items.workspace_id, items.workspace_decided, item_meanings.read_at
-               FROM item_meanings
-               INNER JOIN items ON item_meanings.item_id = items.id
-              WHERE item_meanings.tenant_id = ? AND item_meanings.read_at > ?`,
-            ACCOUNT_NAME,
-            '2026-09-08T00:00:00.000Z',
-          )
+    it('looks only at the notes read since the last check', async () => {
+      await inTheStore(() => undefined);
+      const plan = await runInDurableObject(storeNamed(ACCOUNT_NAME), (_instance, state) => {
+        const { sql, params } = readingsSince(
+          createAccountDb(state.storage),
+          ACCOUNT_NAME,
+          '2026-09-08T00:00:00.000Z',
+        ).toSQL();
+        return state.storage.sql
+          .exec<{ detail: string }>(`EXPLAIN QUERY PLAN ${sql}`, ...params)
           .toArray()
-          .map((row) => row.detail),
-      );
+          .map((row) => row.detail);
+      });
 
-      expect(plan).toContainEqual(expect.stringContaining('item_meanings_tenant_read_at'));
-      expect(plan).toContainEqual(expect.stringMatching(/tenant_id=\? AND read_at>\?/));
+      expect(plan).toContainEqual(
+        expect.stringMatching(/USING INDEX item_meanings_tenant_read_at \(tenant_id=\? AND read_at>\?\)/),
+      );
     });
   });
 });

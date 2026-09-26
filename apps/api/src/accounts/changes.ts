@@ -161,8 +161,11 @@ const PANEL_SORT: Change = {
  * - **Rolled back after it has run:** an older release never names the index,
  *   and the table it sits on is one it already reads, so nothing changes but
  *   the polls costing what they did.
+ * - **What it costs to build:** one pass over the account's readings, inside the
+ *   request that first opens the account after a deploy. Bounded by what one
+ *   poll cost before it.
  * - **A backup restored from before it:** the restore replays the recorded
- *   changes, so this one applies the next time the account is opened.
+ *   changes and brings the account up to date, so this one applies then.
  */
 const ITEM_MEANINGS_READ_AT: Change = {
   name: '0041-item-meanings-read-at',
