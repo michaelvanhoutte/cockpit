@@ -391,11 +391,12 @@ describe('Lead time', () => {
     });
   });
 
-  describe('it is published beside the other two pages', () => {
-    it('links to the test explorer and the CI stability page, one directory up', () => {
+  describe('it is published beside the other three pages', () => {
+    it('links to the test explorer, the CI stability page and the test-selection page, one directory up', () => {
       const html = render({ pulls: [pull()] });
       expect(html).toContain('href="../"');
       expect(html).toContain('href="../stability/"');
+      expect(html).toContain('href="../selection/"');
     });
   });
 });

@@ -57,3 +57,32 @@ jobs:
         with:
           name: lead-time-report
           path: tools/lead-time/out/
+
+  # Whether test selection is working: misses, what forces a full run, and
+  # which tests are selected most often, read across pull requests ("Publish a
+  # test selection report", issue 540). Nightly for the same reason as
+  # lead-time above: up to ten requests per pull request read, which a run on
+  # every merge would burn through this workflow's shared hourly allowance.
+  selection:
+    name: Selection
+    runs-on: ubuntu-latest
+    # Reads pull requests, their files, the Actions API and each Test run's own
+    # artifact, all through the workflow's own token. Nothing else, and no
+    # write anywhere.
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+      - name: Work out whether test selection is working
+        run: node tools/selection/src/cli.js --out tools/selection/out/index.html
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-selection-report
+          path: tools/selection/out/

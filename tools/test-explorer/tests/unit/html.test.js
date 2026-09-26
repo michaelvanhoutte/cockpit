@@ -13,18 +13,23 @@ describe('renderHtml', () => {
     warnings: [],
   };
 
-  it('links to the CI stability page, the other half of the published site', () => {
-    // The two are assembled into one site by ci.yml's Publish job, and each is
-    // reachable from the other; the stability page's own suite asserts the
-    // return link. Without this, half the pair could be dropped silently.
+  it('links to the CI stability page, one of the four reports assembled into one site', () => {
+    // Assembled into one site by ci.yml's Publish job, and each is reachable
+    // from the other; the stability page's own suite asserts the return link.
+    // Without this, one of the four could be dropped silently.
     const html = renderHtml(model, { repoRelPrefix: '../../..' });
     expect(html).toContain('href="stability/"');
     expect(html).toContain('CI stability');
   });
 
-  it('links to the lead-time page, the third of the published site', () => {
+  it('links to the lead-time page', () => {
     const html = renderHtml(model, { repoRelPrefix: '../../..' });
     expect(html).toContain('href="lead-time/"');
+  });
+
+  it('links to the test-selection page', () => {
+    const html = renderHtml(model, { repoRelPrefix: '../../..' });
+    expect(html).toContain('href="selection/"');
   });
 });
 

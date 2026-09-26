@@ -502,11 +502,11 @@ jobs:
       group: pages
       cancel-in-progress: false
     steps:
-      # The site is three reports, so it is assembled here rather than uploaded by
+      # The site is four reports, so it is assembled here rather than uploaded by
       # whichever job finished last: the explorer at the root, the stability
-      # page one directory down at /stability/ and the lead-time page at
-      # /lead-time/. Each stays downloadable on its own as the artifact its job
-      # uploaded.
+      # page one directory down at /stability/, the lead-time page at
+      # /lead-time/ and the test-selection page at /selection/. Each stays
+      # downloadable on its own as the artifact its job uploaded.
       - name: Take the test explorer's report
         uses: actions/download-artifact@v4
         with:
@@ -527,23 +527,36 @@ jobs:
       # rather than from a successful run, so a night where another report's
       # job failed still yields this page ("Run the lead-time report nightly,
       # and publish it beside the other two", issue 515).
-      - name: Find the latest lead-time page
-        id: lead-time
-        # Reads the run and artifact lists; a refused call is a missing page, as
-        # below. **The artifact is trusted through its run, not its name or
-        # branch**: a pull request from a fork branched `main` uploads an
-        # artifact of any name whose `head_branch` reads `main`, and this job
-        # would publish it on the site's own origin. So only the runs of
-        # nightly.yml itself, on `main`, started by its schedule or by a person
-        # with write access, in this repository, are read from.
+      # The runs both lookups below trust: only nightly.yml's own, on `main`,
+      # started by its schedule or by a person with write access, in this
+      # repository — never a pull request from a fork branched `main`, which
+      # could otherwise upload an artifact of any name whose `head_branch`
+      # reads `main` and have this job publish it on the site's own origin.
+      # One request shared by both reports below, rather than one each.
+      - name: List nightly's eligible runs on main
+        id: nightly-runs
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly.yml/runs?branch=main&per_page=50" \
-            --jq '[.workflow_runs[] | select((.event == "schedule" or .event == "workflow_dispatch") and .head_repository.full_name == env.GITHUB_REPOSITORY) | .id]')
+          # `-c`: $GITHUB_OUTPUT is a key=value file, one entry per line, and
+          # `gh api --jq`'s own array output is pretty-printed across several -
+          # writing that in unchanged would corrupt the file and silence both
+          # steps that read this output below.
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly.yml/runs?branch=main&per_page=50" |
+            jq -c '[.workflow_runs[] | select((.event == "schedule" or .event == "workflow_dispatch") and .head_repository.full_name == env.GITHUB_REPOSITORY) | .id]')
+          echo "runs=$runs" >> "$GITHUB_OUTPUT"
+      - name: Find the latest lead-time page
+        id: lead-time
+        # A refused call is a missing page, as below. The artifact is trusted
+        # through the run list found above, not its name or branch.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUNS: ${{ steps.nightly-runs.outputs.runs }}
+        run: |
           id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=lead-time-report&per_page=100" |
-            jq -r --argjson runs "$runs" '[.artifacts[] | select(.expired == false and (.workflow_run.id as $r | $runs | index($r)))] | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty')
+            jq -r --argjson runs "${RUNS:-[]}" '[.artifacts[] | select(.expired == false and (.workflow_run.id as $r | $runs | index($r)))] | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty')
           echo "run-id=$id" >> "$GITHUB_OUTPUT"
       - name: Take the lead-time page, if there is one
         if: ${{ steps.lead-time.outputs.run-id != '' }}
@@ -554,6 +567,27 @@ jobs:
           name: lead-time-report
           path: site/lead-time/
           run-id: ${{ steps.lead-time.outputs.run-id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      # Built nightly too ("Publish a test selection report", issue 540), for
+      # the same reason and by the same route as the lead-time page above.
+      - name: Find the latest test-selection page
+        id: selection
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUNS: ${{ steps.nightly-runs.outputs.runs }}
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=test-selection-report&per_page=100" |
+            jq -r --argjson runs "${RUNS:-[]}" '[.artifacts[] | select(.expired == false and (.workflow_run.id as $r | $runs | index($r)))] | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty')
+          echo "run-id=$id" >> "$GITHUB_OUTPUT"
+      - name: Take the test-selection page, if there is one
+        if: ${{ steps.selection.outputs.run-id != '' }}
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: test-selection-report
+          path: site/selection/
+          run-id: ${{ steps.selection.outputs.run-id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-pages-artifact@v3
         with:
