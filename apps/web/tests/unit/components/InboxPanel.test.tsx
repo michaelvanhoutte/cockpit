@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Filing, Item, WorkspaceSnapshot } from '@cockpit/shared';
 import { InboxHeading, InboxPanel } from '../../../src/components/InboxPanel';
@@ -113,9 +113,9 @@ async function showWorkspace(items: Item[], filings: Filing[] = []) {
       <InboxPanel workspaceId="ws-work" />
     </QueryClientProvider>,
   );
-  // The capture box is the Inbox's first row, and the first thing drawn once
-  // the snapshot has arrived - the heading is up before it, on no data at all.
-  await screen.findByLabelText('Capture a note or to-do');
+  // The heading is up before the snapshot, on no data at all: the panel is
+  // drawn once it has arrived.
+  await waitFor(() => expect(screen.queryByText('Loading…')).toBeNull());
   return container;
 }
 
@@ -195,13 +195,12 @@ describe('Onboarding', () => {
 
 
 describe('Capture', () => {
-  describe('what you capture appears in the Inbox you captured it into', () => {
-    it('offers the box as the first row of the Inbox, with the items under it', async () => {
+  describe('the header is the only way in to capturing', () => {
+    it('has no note box and no capture button in the Inbox', async () => {
       const inbox = await showWorkspace([anItem('Buy milk')]);
 
-      const box = within(inbox).getByLabelText('Capture a note or to-do');
-      const row = within(inbox).getByRole('listitem');
-      expect(box.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(within(inbox).queryByLabelText('Capture a note or to-do')).toBeNull();
+      expect(within(inbox).queryByRole('button', { name: 'Capture' })).toBeNull();
     });
   });
 });

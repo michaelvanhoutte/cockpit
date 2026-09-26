@@ -4,7 +4,7 @@ import { isLinkedWorktree, portsFor } from '../../scripts/lib/ports.mjs';
 import {
   chooseRowAction,
   chooseTabAction,
-  captureBox,
+  inbox,
   deleteWorkspace,
   expect,
   itemRow,
@@ -105,7 +105,7 @@ test.describe('Capture', () => {
       // walk is already in - which is why this is not `openInbox`, that goes to
       // the first workspace.
       if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
-      await expect(captureBox(page)).toBeVisible();
+      await expect(inbox(page)).toBeVisible();
       const said = uniqueTitle('Review the plan');
       await saveFromTeams(page, said);
       const row = itemRow(page, said);

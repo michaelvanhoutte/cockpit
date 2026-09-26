@@ -9,6 +9,7 @@ import { meQuery, refusalFrom, snapshotQuery, useCommand, workspacesQuery } from
 import { useServerEvents } from '../api/useServerEvents';
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
+import { CaptureWindow } from '../components/CaptureWindow';
 import { ItemForm } from '../components/ItemForm';
 import { LoadFailure } from '../components/LoadFailure';
 import { ManageTypes } from '../components/ManageTypes';
@@ -18,6 +19,8 @@ import { WorkspaceTabs, stripTabClass } from '../components/WorkspaceTabs';
 import { WHAT_A_WORKSPACE_IS } from '../whatThingsAre';
 import { OpensItemForms } from '../itemForm';
 import { litForChrome } from '../chrome';
+import { opensCapture } from '../captureShortcut';
+import { captureStateFor } from './CapturePage';
 import { browserStore } from '../lastVisited';
 import { clampInboxWidth, readInboxWidth, writeInboxWidth } from '../inboxWidth';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
@@ -121,6 +124,44 @@ function TheShell() {
   });
   useScrollWhileDraggingAnItem();
   const roomForTheInbox = useRoomForTheInbox();
+
+  /**
+   * Whether Capture is open as a window over the screen ("Capture over the
+   * screen you are on, and open it with C", issue 536). Only at a desk, which
+   * is where there is a screen to leave visible behind it - the room the Inbox
+   * asks for is the same room; on a phone the tab and `C` go to the page.
+   * Never on the page itself, which already is Capture.
+   */
+  const [capturing, setCapturing] = useState(false);
+  // Shrinking to a phone shuts the window for good, rather than leaving it to
+  // reopen when the screen widens again.
+  useEffect(() => {
+    if (!roomForTheInbox) setCapturing(false);
+  }, [roomForTheInbox]);
+  const openCapture = () => {
+    if (onCapture) return;
+    if (roomForTheInbox) setCapturing(true);
+    else
+      void navigate({
+        to: '/capture',
+        state: captureStateFor(params.workspaceId),
+      });
+  };
+  // Read at press time through a ref, so the one listener never goes stale
+  // and is not taken off and put back on every render.
+  const openCaptureNow = useRef(openCapture);
+  openCaptureNow.current = openCapture;
+  const hasWorkspaces = (data?.workspaces.length ?? 0) > 0;
+  useEffect(() => {
+    if (!hasWorkspaces) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (!opensCapture(event)) return;
+      event.preventDefault();
+      openCaptureNow.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [hasWorkspaces]);
 
   /**
    * Whether the Inbox column is collapsed to a chip in the bar ("Collapse the
@@ -597,9 +638,11 @@ function TheShell() {
               same reason: it is not a workspace, and the strip beside it scrolls
               within itself, which would carry Capture off the screen.
 
-              **A tab now, not a window** ("Capture Page", artboard 2a): it goes
-              to a screen of its own (pages/CapturePage.tsx), so the ellipsis
-              that meant a window opens has gone with the window.
+              **Over the screen you are on at a desk, and a screen of its own on
+              a phone** ("Capture over the screen you are on, and open it with
+              C", issue 536): the window is components/CaptureWindow.tsx and the
+              page is pages/CapturePage.tsx. `C` does the same from the
+              keyboard, and the tooltip says so.
 
               **Wherever there is a workspace to have been captured from**,
               rather than only inside one - which is what lets it stay in the
@@ -621,6 +664,27 @@ function TheShell() {
             <>
               <Link
                 to="/capture"
+                // Which workspace it was pressed in, for the page a phone gets
+                // (pages/CapturePage.tsx). At a desk it is the window's own.
+                state={captureStateFor(params.workspaceId)}
+                title="Capture (C)"
+                onClick={(event) => {
+                  // A plain press opens the window at a desk; a modified one
+                  // (a new tab, a new window) and a phone keep the link.
+                  if (
+                    !roomForTheInbox ||
+                    onCapture ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey ||
+                    event.button !== 0
+                  ) {
+                    return;
+                  }
+                  event.preventDefault();
+                  setCapturing(true);
+                }}
                 className={`${stripTabClass(onCapture)} self-end px-4`}
                 style={
                   onCapture
@@ -926,6 +990,13 @@ function TheShell() {
         open={managing === 'types'}
         onClose={() => setManaging(null)}
         returnFocusTo={settingsMenu.current}
+      />
+
+      {/* Capture, over the workspace rather than instead of it, at a desk. */}
+      <CaptureWindow
+        open={capturing}
+        onClose={() => setCapturing(false)}
+        startsIn={params.workspaceId ?? null}
       />
 
       {/* The Item's form, drawn over whatever the address below resolves to and

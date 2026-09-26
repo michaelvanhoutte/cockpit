@@ -4,9 +4,12 @@ import {
   STARTING_WORKSPACE,
   capture,
   captureBox,
+  closeCapture,
+  openCapture,
   dashboardTab,
   deleteWorkspace,
   expect,
+  inbox,
   itemRow,
   makeWorkspace,
   openDashboard,
@@ -1025,10 +1028,10 @@ test.describe('Item editing', () => {
         // click - not merely filling a value in - is what actually proves,
         // since a click Playwright judges blocked by a covering overlay
         // throws rather than landing.
-        await captureBox(page).click({ timeout: 5_000 });
+        await openCapture(page, isMobile);
         await captureBox(page).fill('Still usable behind the docked form');
         await expect(captureBox(page)).toHaveValue('Still usable behind the docked form');
-        await captureBox(page).fill('');
+        await closeCapture(page, isMobile);
 
         // Resized by dragging its own left edge, unlike the centered
         // presentation's bottom-right corner - dragged toward the right edge
@@ -1068,7 +1071,7 @@ test.describe('Item editing', () => {
         // had just proven immediately forgotten by its own next step).
         await press(form(page).getByRole('button', { name: 'Close' }), isMobile);
         await page.reload();
-        await expect(captureBox(page)).toBeVisible();
+        await expect(inbox(page)).toBeVisible();
         await openItem(page, thought, isMobile);
         await expect(form(page).getByRole('button', { name: 'Center' })).toBeVisible();
         const reopened = (await form(page).boundingBox())!;
@@ -1180,12 +1183,16 @@ test.describe('Item editing', () => {
         // box, so a run of notes can be typed one after another: real focus,
         // and a real dialog that would otherwise take it.
         const captured = uniqueTitle('Capture follow');
+        await openCapture(page, isMobile);
         await captureBox(page).fill(captured);
-        await captureBox(page).press('Enter');
+        await captureBox(page).press('ControlOrMeta+Enter');
         followedTo = captured;
         await expect(titleBox(page)).toHaveValue(captured);
-        await expect(itemRow(page, captured)).toHaveAttribute('aria-current', 'true');
         await expect(captureBox(page)).toBeFocused();
+        // Closed before the row is looked at: the window makes what is behind
+        // it inert, and a row behind it is not one a walk can ask about.
+        await closeCapture(page, isMobile);
+        await expect(itemRow(page, captured)).toHaveAttribute('aria-current', 'true');
 
         // One open form changing its Item, so Back leaves the page rather than
         // stepping back through the rows it has followed.
@@ -1233,7 +1240,7 @@ test.describe('Item editing', () => {
         );
         await page.reload();
         await readBack;
-        await expect(captureBox(page)).toBeVisible();
+        await expect(inbox(page)).toBeVisible();
         await openItem(page, captured, isMobile);
         await expect(priorityBox(page)).toHaveValue('high');
         await expect(titleBox(page)).toHaveValue(captured);

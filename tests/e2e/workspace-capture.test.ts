@@ -1,6 +1,9 @@
 import {
   STARTING_WORKSPACE,
+  capture,
   captureBox,
+  closeCapture,
+  openCapture,
   expect,
   expectNoSidewaysScroll,
   inbox,
@@ -49,8 +52,13 @@ const CAPTURED_FROM = STARTING_WORKSPACE;
 const ELSEWHERE = 'Elsewhere';
 
 /**
- * Goes to the capture page from the header and writes a note there, without
+ * Goes to the capture page by its address and writes a note there, without
  * saying which workspace it belongs to.
+ *
+ * **By its address rather than the tab**, because that is reaching Capture
+ * from outside a workspace, which is what starts Where on *Any workspace*: the
+ * tab and `C` start it on the workspace you are in ("Capture over the screen
+ * you are on, and open it with C", issue 536).
  *
  * **It waits on what the page says it just did.** The page has no Inbox beside
  * it - it belongs to no workspace - so the row under the box is the only thing
@@ -62,8 +70,8 @@ async function captureWithoutAWorkspace(
   title: string,
   isMobile: boolean,
 ): Promise<void> {
-  await press(page.getByRole('link', { name: 'Capture' }), isMobile);
-  const box = page.getByLabel('What is on your mind?');
+  await page.goto('/capture');
+  const box = captureBox(page);
   await expect(box).toBeVisible();
 
   // Where the button sits ("Keep the Capture button in reach on a phone", issue
@@ -169,13 +177,14 @@ test.describe('Capture', () => {
       await openInbox(page, isMobile);
 
       const note = uniqueTitle('Book the venue deposit');
-      await press(page.getByRole('link', { name: 'Capture' }), isMobile);
+      await openCapture(page, isMobile);
       await press(page.getByRole('button', { name: ELSEWHERE }), isMobile);
-      const box = page.getByLabel('What is on your mind?');
+      const box = captureBox(page);
       await box.fill(note);
       // The shortcut rather than the button, which is the other way in.
       await box.press('ControlOrMeta+Enter');
-      await expect(itemRow(page, note)).toBeVisible();
+      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(note)).toBeVisible();
+      await closeCapture(page, isMobile);
 
       await openTheInboxOf(page, ELSEWHERE, isMobile);
       await expect(itemRow(page, note)).toBeVisible();
@@ -185,19 +194,44 @@ test.describe('Capture', () => {
 
   });
 
-  test.describe('the inbox’s own box still captures into the workspace you are in', () => {
-    test('makes it that workspace’s own, as it always did', async ({
+  test.describe('Capture starts on the workspace you are in, and C opens it at a desk', () => {
+    test('makes the note that workspace’s own, without a choice being made', async ({
       page,
       isMobile,
     }) => {
       await openInbox(page, isMobile);
 
+      await openCapture(page, isMobile);
+      await expect(
+        page.getByRole('group', { name: 'Where' }).getByRole('button', { name: CAPTURED_FROM }),
+      ).toHaveAttribute('aria-pressed', 'true');
+      await closeCapture(page, isMobile);
+
       const note = uniqueTitle('Reply to Bart');
-      await captureBox(page).fill(note);
-      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+      await capture(page, note, isMobile);
 
       await expect(itemRow(page, note)).toBeVisible();
       await expect(itemRow(page, note).getByText('Any workspace')).toHaveCount(0);
+
+      // And `C` does the same at a desk, with the note in the Inbox beside the
+      // window before it closes and Escape putting you back where you were. A
+      // phone has no screen to leave visible: there `C` opens the page, which
+      // is everything above.
+      if (isMobile) return;
+      const where = page.url();
+      const second = uniqueTitle('Call the plumber');
+      await page.keyboard.press('c');
+      await expect(page.getByRole('dialog', { name: 'Capture', exact: true })).toBeVisible();
+      await expect(captureBox(page)).toBeFocused();
+      await captureBox(page).fill(second);
+      await captureBox(page).press('ControlOrMeta+Enter');
+      // Asked of the column by its element rather than its role: the window
+      // makes it inert to one.
+      await expect(page.locator('aside', { hasText: second })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog', { name: 'Capture', exact: true })).toBeHidden();
+      expect(page.url()).toBe(where);
+      await expect(itemRow(page, second)).toBeVisible();
     });
   });
 });

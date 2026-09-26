@@ -6,6 +6,7 @@ import {
   dragDashboardTabOnto,
   expect,
   expectNoSidewaysScroll,
+  inbox,
   makeWorkspace,
   openFirstWorkspace,
   press,
@@ -82,7 +83,7 @@ test.describe('Dashboards', () => {
       if (isMobile) {
         await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
       }
-      await expect(page.getByLabel('Capture a note or to-do')).toBeVisible();
+      await expect(inbox(page)).toBeVisible();
 
       // Reachable by its own address, which is what makes a dashboard something
       // you can link to and come back to.

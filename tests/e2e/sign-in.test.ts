@@ -2,7 +2,7 @@ import {
   ADA,
   MICHAEL,
   addressOf,
-  captureBox,
+  capture,
   dashboardBar,
   expect,
   inbox,
@@ -161,7 +161,7 @@ test.describe('Sign-in', () => {
       if (isMobile) {
         await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
       }
-      await expect(captureBox(page)).toBeVisible();
+      await expect(inbox(page)).toBeVisible();
       await expect
         .poll(async () => (await whatTheBrowserStillHolds(page)).storedQueries.length)
         .toBeGreaterThan(1);
@@ -215,8 +215,7 @@ test.describe('Accounts', () => {
       if (isMobile) {
         await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
       }
-      await captureBox(page).fill(thought);
-      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+      await capture(page, thought, isMobile);
       await expect(itemRow(page, thought)).toBeVisible();
 
       await press(page.getByRole('button', { name: 'Settings' }), isMobile);

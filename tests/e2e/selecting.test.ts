@@ -2,7 +2,6 @@ import { type Page } from '@playwright/test';
 import {
   ADA,
   capture,
-  captureBox,
   dashboardBar,
   expect,
   holdRow,
@@ -69,7 +68,7 @@ async function ownDashboardWithAPanel(
  */
 async function goToTheInbox(page: Page, isMobile: boolean): Promise<void> {
   if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
-  await expect(captureBox(page)).toBeVisible();
+  await expect(inbox(page)).toBeVisible();
 }
 
 async function goToTheDashboard(page: Page, dashboard: string, isMobile: boolean): Promise<void> {

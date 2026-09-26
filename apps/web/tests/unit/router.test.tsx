@@ -266,11 +266,9 @@ describe('Triage', () => {
       await open('/w/ws-work/d/ws-work-research', [work, personal]);
 
       await screen.findByRole('navigation', { name: 'Dashboards' });
-      // The Inbox itself, not merely a column: capture is its first row
-      // wherever it is rendered. Waited for, because the column paints before
-      // the snapshot behind it has arrived.
-      expect(await screen.findByLabelText('Capture a note or to-do')).toBeVisible();
-      expect(inboxColumn()).toBeVisible();
+      // The Inbox itself, not merely a column, waited for because the column
+      // paints before the snapshot behind it has arrived.
+      expect(await screen.findByRole('complementary', { name: 'Inbox' })).toBeVisible();
       // And it is no longer one of the views to switch between, because it is
       // not something you switch to any more.
       expect(screen.queryByRole('link', { name: 'Inbox' })).toBeNull();
@@ -541,7 +539,7 @@ describe('Triage', () => {
       withRoomForTheInbox();
       await open('/w/ws-work/d/ws-work-research', [work, personal]);
       await screen.findByRole('navigation', { name: 'Dashboards' });
-      expect(await screen.findByLabelText('Capture a note or to-do')).toBeVisible();
+      expect(await screen.findByRole('complementary', { name: 'Inbox' })).toBeVisible();
     }
 
     it('takes the column away for a chip that names the Inbox, and the chip brings it back', async () => {
@@ -637,13 +635,16 @@ describe('Triage', () => {
       it('types an i in a field and leaves the Inbox where it is', async () => {
         const user = userEvent.setup();
         await onAResearchDashboard();
-        const box = screen.getByLabelText('Capture a note or to-do');
+        // Any field will do: the Inbox has none of its own any more.
+        const box = document.createElement('input');
+        document.body.append(box);
 
         await user.click(box);
         await user.keyboard('i');
 
         expect(box).toHaveValue('i');
         expect(inboxColumn()).toBeVisible();
+        box.remove();
       });
 
       it.each([
@@ -759,7 +760,7 @@ describe('Dashboards', () => {
 
       await open('/w/ws-work', [work, personal]);
 
-      expect(await screen.findByLabelText('Capture a note or to-do')).toBeVisible();
+      expect(await screen.findByRole('region', { name: 'Inbox' })).toBeVisible();
     });
 
     it('opens the first dashboard when the one remembered is no longer there', async () => {
@@ -789,7 +790,7 @@ describe('Dashboards', () => {
       });
 
       await open('/w/ws-work', [work, personal]);
-      expect(await screen.findByLabelText('Capture a note or to-do')).toBeVisible();
+      expect(await screen.findByRole('region', { name: 'Inbox' })).toBeVisible();
     });
 
     it('opens from the copy it already has when the workspace cannot be read', async () => {

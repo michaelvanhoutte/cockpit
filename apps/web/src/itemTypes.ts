@@ -54,7 +54,7 @@ export function typesOffered(types: readonly ItemType[], items: readonly Item[])
 /**
  * What a capture surface says where the account has no types at all, which is
  * reachable by deleting every one of them. Said the same way by both front
- * doors - the Capture page's chip row and the Inbox's own row - because they
+ * doors - the Capture form and the Panel's *Add an item* row - because they
  * refuse the same capture for the same reason, and it names the one window that
  * gets you out of it.
  */

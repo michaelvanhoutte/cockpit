@@ -501,7 +501,7 @@ export async function openDashboard(page: Page, name: string, isMobile: boolean)
 export async function openInbox(page: Page, isMobile: boolean): Promise<void> {
   await openFirstWorkspace(page, isMobile);
   if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
-  await expect(captureBox(page)).toBeVisible();
+  await expect(inbox(page)).toBeVisible();
 }
 
 /**
@@ -648,8 +648,34 @@ export async function groundOf(page: Page): Promise<string> {
   });
 }
 
+/** The note box of Capture, whether it is drawn as a window or as the page. */
 export function captureBox(page: Page): Locator {
-  return page.getByLabel('Capture a note or to-do');
+  return page.getByLabel('What is on your mind?');
+}
+
+/**
+ * Opens Capture from the header's tab: a window over the screen at a desk, the
+ * page on a phone ("Capture over the screen you are on, and open it with C",
+ * issue 536). The walk about `C` itself presses the key rather than calling
+ * this.
+ */
+export async function openCapture(page: Page, isMobile: boolean): Promise<void> {
+  await press(page.locator('header').first().getByRole('link', { name: 'Capture' }), isMobile);
+  await expect(captureBox(page)).toBeVisible();
+}
+
+/**
+ * Leaves Capture the way its screen allows: Escape closes the window at a desk,
+ * and Back leaves the page on a phone - which is what the tab pushed.
+ */
+export async function closeCapture(page: Page, isMobile: boolean): Promise<void> {
+  if (isMobile) {
+    await page.goBack();
+  } else {
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'Capture', exact: true })).toBeHidden();
+  }
+  await expect(captureBox(page)).toBeHidden();
 }
 
 /**
@@ -673,18 +699,22 @@ export function itemRow(page: Page, title: string): Locator {
 }
 
 /**
- * Captures a thought and waits until it is on screen. Used as arrangement by
- * tests about something else — the capture walk itself asserts its way through
- * the same steps rather than calling this, because a helper that both arranges
- * and asserts is a helper that can make its own test vacuous.
+ * Captures a thought through the header's Capture tab, into the workspace you
+ * are in, and waits until it is in the Inbox. Used as arrangement by tests
+ * about something else — the capture walk itself asserts its way through the
+ * same steps rather than calling this, because a helper that both arranges and
+ * asserts is a helper that can make its own test vacuous.
+ *
+ * Leaves the screen you were on, Inbox screen included on a phone.
  */
 export async function capture(page: Page, title: string, isMobile: boolean): Promise<void> {
+  await openCapture(page, isMobile);
   await captureBox(page).fill(title);
-  // The Inbox's own button, which captures into the workspace you are in. The
-  // header's Capture opens a screen of its own, where where it goes is a
-  // question rather than an assumption ("Capture Page", artboard 2a), so this
-  // has to say which of the two it means.
-  await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+  await captureBox(page).press('ControlOrMeta+Enter');
+  // What the form says it just did, which is the only thing on screen that can
+  // while the Inbox is behind a window or not drawn at all.
+  await expect(page.getByRole('region', { name: 'Just captured' }).getByText(title)).toBeVisible();
+  await closeCapture(page, isMobile);
   await expect(itemRow(page, title)).toBeVisible();
 }
 

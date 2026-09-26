@@ -1,6 +1,5 @@
 import {
   capture,
-  captureBox,
   dashboardBar,
   expect,
   expectNoSidewaysScroll,
@@ -51,7 +50,7 @@ test.describe('Triage', () => {
         const tab = dashboardBar(page).getByRole('link', { name: 'Inbox' });
         await expect(tab).toBeVisible();
         await press(tab, isMobile);
-        await expect(captureBox(page)).toBeInViewport();
+        await expect(inbox(page)).toBeInViewport();
         await expectNoSidewaysScroll(page);
         return;
       }
@@ -60,7 +59,6 @@ test.describe('Triage', () => {
       // workspace opened on, and the Inbox beside it - and neither pushed the
       // other off.
       await expect(column).toBeInViewport();
-      await expect(captureBox(page)).toBeInViewport();
       await expect(dashboard).toBeInViewport();
       await expectNoSidewaysScroll(page);
 

@@ -1,7 +1,7 @@
 import { type Page, type Response } from '@playwright/test';
 import {
   ADA,
-  captureBox,
+  capture,
   choosePanelAction,
   dashboardBar,
   dragItemOnto,
@@ -68,7 +68,7 @@ function answerTo(page: Page, change: string): Promise<Response> {
 /** Where the Inbox is: a column beside the dashboard, or a screen of its own. */
 async function goToTheInbox(page: Page, isMobile: boolean): Promise<void> {
   if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
-  await expect(captureBox(page)).toBeVisible();
+  await expect(inbox(page)).toBeVisible();
 }
 
 async function goToTheDashboard(page: Page, dashboard: string, isMobile: boolean): Promise<void> {
@@ -86,8 +86,7 @@ test.describe('Panels', () => {
       const title = uniqueTitle('Reply to Bart');
 
       await goToTheInbox(page, isMobile);
-      await captureBox(page).fill(title);
-      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+      await capture(page, title, isMobile);
       await expect(inbox(page).getByText(title)).toBeVisible();
 
       await fileOnto(page, title, panel, isMobile);
@@ -113,8 +112,7 @@ test.describe('Panels', () => {
       const title = uniqueTitle('Renew the domain');
 
       await goToTheInbox(page, isMobile);
-      await captureBox(page).fill(title);
-      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+      await capture(page, title, isMobile);
       await fileOnto(page, title, panel, isMobile);
 
       await goToTheDashboard(page, dashboard, isMobile);
@@ -150,8 +148,7 @@ test.describe('Triage', () => {
       const title = uniqueTitle('Filed by mistake');
 
       await goToTheInbox(page, isMobile);
-      await captureBox(page).fill(title);
-      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+      await capture(page, title, isMobile);
       await fileOnto(page, title, panel, isMobile);
       await expect(inbox(page).getByText(title)).toHaveCount(0);
 
@@ -194,8 +191,7 @@ test.describe('Panels', () => {
 
       await goToTheInbox(page, isMobile);
       for (const title of [first, second, arriving]) {
-        await captureBox(page).fill(title);
-        await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+        await capture(page, title, isMobile);
         await expect(itemRow(page, title)).toBeVisible();
       }
       await fileOnto(page, first, panel, isMobile);
@@ -226,8 +222,7 @@ test.describe('Panels', () => {
 
       await goToTheInbox(page, isMobile);
       for (const title of [first, second, third]) {
-        await captureBox(page).fill(title);
-        await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+        await capture(page, title, isMobile);
         await expect(itemRow(page, title)).toBeVisible();
       }
       for (const title of [first, second, third]) await fileOnto(page, title, panel, isMobile);
@@ -267,8 +262,7 @@ test.describe('Panels', () => {
       // where the sort puts it, and filed at the top of the order you set.
       const arriving = uniqueTitle('Apply the patch');
       if (!isMobile) {
-        await captureBox(page).fill(arriving);
-        await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+        await capture(page, arriving, isMobile);
         await dragItemOnto(page, arriving, { title: first, half: 'bottom' });
         await expect.poll(() => itemsOn(page, panel)).toEqual([arriving, third, second, first]);
       }
@@ -314,8 +308,7 @@ test.describe('Panels', () => {
 
       const title = uniqueTitle('Belongs on both');
       await goToTheInbox(page, isMobile);
-      await captureBox(page).fill(title);
-      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+      await capture(page, title, isMobile);
       await fileOnto(page, title, panel, isMobile);
       await goToTheDashboard(page, dashboard, isMobile);
       await expect.poll(() => itemsOn(page, panel)).toEqual([title]);
@@ -377,8 +370,7 @@ test.describe('Panels', () => {
       await expect(page.getByRole('region', { name: panel })).toBeVisible();
 
       const title = uniqueTitle('Goes to the other dashboard');
-      await captureBox(page).fill(title);
-      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+      await capture(page, title, isMobile);
       await expect(itemRow(page, title)).toBeVisible();
 
       // Picked up on this dashboard, held over the other one's name until the
@@ -491,8 +483,7 @@ test.describe('Panels', () => {
 
       const title = uniqueTitle('Goes far down');
       await goToTheInbox(page, isMobile);
-      await captureBox(page).fill(title);
-      await press(inbox(page).getByRole('button', { name: 'Capture' }), isMobile);
+      await capture(page, title, isMobile);
       await fileOnto(page, title, panel, isMobile);
       await goToTheDashboard(page, dashboard, isMobile);
       await expect.poll(() => itemsOn(page, panel)).toEqual([title]);
