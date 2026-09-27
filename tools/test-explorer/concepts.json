@@ -357,6 +357,12 @@
       "sourcePatterns": ["apps/web/src/components/Menu.tsx"]
     },
     {
+      "key": "Management windows",
+      "label": "Management windows",
+      "parent": "Across the app",
+      "sourcePatterns": ["apps/web/src/components/ManageWindow.tsx"]
+    },
+    {
       "key": "Deleting",
       "label": "Deleting",
       "parent": "Across the app",

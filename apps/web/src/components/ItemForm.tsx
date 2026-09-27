@@ -5,7 +5,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -14,9 +13,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ACCOUNT_WIDE,
   DEFAULT_ITEM_FORM_PRESENTATION,
-  MAX_ATTACHMENT_SIZE,
   TITLE_LENGTH,
-  attachmentContentTypeSchema,
   connectorNamed,
   itemHasOpenReadings,
   itemLabel,
@@ -29,6 +26,7 @@ import {
 } from '@cockpit/shared';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../api/client';
 import { snapshotQuery, useSendCommand, type CommandArgs } from '../api/queries';
+import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { DescriptionBox } from './DescriptionBox';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
 import { possibleDuplicatesOf } from '../duplicates';
@@ -82,19 +80,6 @@ const DUE_DATE_SHORTCUTS: { label: string; dueDate: (now: Date) => string }[] = 
   { label: 'Fri', dueDate: dueComingFriday },
   { label: '+7d', dueDate: dueSevenDaysOut },
 ];
-
-/** A byte count as a person reads it - the units this product's own cap is stated in (issue 441). */
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ['KB', 'MB', 'GB'];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
-}
 
 /** Whether a paste landing here is a text box's to handle rather than the form's. */
 function isATextBox(target: EventTarget | null): boolean {
@@ -434,20 +419,7 @@ function TheForm({
   const [filesOver, setFilesOver] = useState(false);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const attachFiles = async (files: Iterable<File>) => {
-    // Checked whole, before anything uploads - a rejection two files back
-    // in the same drop must not be a message the next, valid file's own
-    // success quietly clears.
-    const rejections: string[] = [];
-    const accepted: File[] = [];
-    for (const file of files) {
-      if (file.size > MAX_ATTACHMENT_SIZE) {
-        rejections.push(`"${file.name}" is over the ${formatFileSize(MAX_ATTACHMENT_SIZE)} limit.`);
-      } else if (!attachmentContentTypeSchema.safeParse(file.type).success) {
-        rejections.push(`"${file.name}" is not a kind of file Cockpit accepts.`);
-      } else {
-        accepted.push(file);
-      }
-    }
+    const { accepted, rejections } = checkAttachmentFiles(files);
     setAttachmentError(rejections.length > 0 ? rejections.join(' ') : null);
 
     for (const file of accepted) {
@@ -536,7 +508,6 @@ function TheForm({
   const descriptionCell = useRef<HTMLDivElement | null>(null);
 
   /** A file pasted into the form or dropped on it, outside the description text, is attached. */
-  const takesFiles = (event: ReactDragEvent) => event.dataTransfer.types.includes('Files');
   const inTheDescriptionText = (target: EventTarget | null) =>
     target instanceof Element && target.closest(`.${DESCRIPTION_TEXT_CLASS}`) !== null;
 

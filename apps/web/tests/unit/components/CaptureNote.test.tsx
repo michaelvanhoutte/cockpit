@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Item, ItemType } from '@cockpit/shared';
-import { CommandRefused } from '../../../src/api/client';
+import { MAX_ATTACHMENT_SIZE, type Item, type ItemType } from '@cockpit/shared';
+import { CommandRefused, uploadAttachment } from '../../../src/api/client';
 import { CaptureNote, NO_WORKSPACE, STILL_READING } from '../../../src/components/CaptureNote';
 import { NO_TYPES } from '../../../src/itemTypes';
+
+vi.mock('../../../src/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/api/client')>()),
+  uploadAttachment: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
+}));
 
 /**
  * F1: the page is chips, a box and a list, and every rule here is what it sends
@@ -37,10 +42,17 @@ const held = vi.hoisted(() => ({
    * must not do - so it is a spy that never answers rather than a fixture.
    */
   asksForTypesOnTheirOwn: vi.fn(),
+  /**
+   * Held rather than answered on the spot, for a test that needs the request
+   * still in flight - `isPending` follows this, and `settle()` answers it
+   * with whatever `refuses` says at the time.
+   */
+  pending: false,
+  settle: () => {},
 }));
 
 vi.mock('../../../src/api/queries', () => ({
-  useCommand: () => ({ mutate: held.mutate, isPending: false }),
+  useCommand: () => ({ mutate: held.mutate, isPending: held.pending }),
   workspacesQuery: {
     queryKey: ['workspaces'],
     queryFn: () => Promise.resolve({ workspaces: held.workspaces }),
@@ -105,6 +117,7 @@ async function thePage({
   items = [] as Item[],
   cameFrom = 'ws-home',
   startsIn = null,
+  heldMutation = false,
 }: {
   /**
    * Null for an account that has not answered what types it has, and
@@ -115,11 +128,19 @@ async function thePage({
   cameFrom?: string;
   /** The workspace Where starts on, or null for *Any workspace*. */
   startsIn?: string | null;
+  /**
+   * True for a test that needs a capture still in flight - `busy` (and
+   * `held.pending`) stays true until the test calls `held.settle()`, which
+   * answers with whatever `held.refuses` says at that moment.
+   */
+  heldMutation?: boolean;
 } = {}) {
   held.types = types;
   held.items = items;
   held.workspaces = [WORK, HOME];
   held.refuses = null;
+  held.pending = false;
+  held.settle = () => {};
   localStorage.clear();
   localStorage.setItem('cockpit.last-visited.workspace', cameFrom);
 
@@ -127,8 +148,17 @@ async function thePage({
   // and `onError` is what puts the note back and says why.
   held.mutate = vi.fn(
     (_args, options?: { onSuccess?: () => void; onError?: (e: Error) => void }) => {
-      if (held.refuses) options?.onError?.(held.refuses);
-      else options?.onSuccess?.();
+      const answer = () => {
+        held.pending = false;
+        if (held.refuses) options?.onError?.(held.refuses);
+        else options?.onSuccess?.();
+      };
+      if (heldMutation) {
+        held.pending = true;
+        held.settle = answer;
+      } else {
+        answer();
+      }
     },
   );
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -150,15 +180,28 @@ async function thePage({
 
 const box = () => screen.getByLabelText('What is on your mind?');
 const chip = (name: string) => screen.getByRole('button', { name });
-const captured = () =>
-  held.mutate.mock.calls.map(([args]) => args).find((args) => args.name === 'capture_item');
+const capturedCalls = () =>
+  held.mutate.mock.calls.map(([args]) => args).filter((args) => args.name === 'capture_item');
+const captured = () => capturedCalls()[0];
 const everythingAsked = () => held.mutate.mock.calls.map(([args]) => args.name);
 const justCaptured = () => screen.queryAllByRole('listitem');
+
+const aPhoto = () => new File(['bytes'], 'photo.png', { type: 'image/png' });
+/** Matches that file by name, since two `File`s compare equal whatever they hold. */
+const aPhotoFile = expect.objectContaining({ name: 'photo.png' });
+function aFile(name: string, type: string, size?: number): File {
+  const file = new File(['bytes'], name, { type });
+  if (size !== undefined) Object.defineProperty(file, 'size', { value: size });
+  return file;
+}
+const carrying = (...files: File[]) => ({ dataTransfer: { types: ['Files'], files } });
 
 describe('Capture', () => {
   beforeEach(() => {
     held.mutate.mockClear();
     held.asksForTypesOnTheirOwn.mockClear();
+    vi.mocked(uploadAttachment).mockClear();
+    vi.mocked(uploadAttachment).mockResolvedValue({ ok: true as const, applied: true });
   });
 
   describe('the capture page writes down a note, what kind of thing it is, and where it goes', () => {
@@ -539,6 +582,247 @@ describe('Capture', () => {
       await user.click(chip('Capture'));
 
       expect(screen.queryByText('Just captured')).toBeNull();
+    });
+  });
+
+  /**
+   * "Drop files and paste images while capturing a message", issue 557. There
+   * is no Item yet to attach to, so a file dropped or pasted waits as a chip
+   * in the box until Capture makes one; what actually lands in R2 is proved
+   * through the real interface in apps/api/tests/integration/http/attachments.test.ts.
+   */
+  describe('a file dropped or pasted anywhere on the form queues as an attachment, never as text', () => {
+    it.each([
+      { situation: 'the message box', target: () => box() },
+      { situation: 'empty space on the form', target: () => chip('Any workspace') },
+    ])('queues one dropped on $situation, highlighting the form while it is dragged over', async ({ target }) => {
+      await thePage();
+
+      fireEvent.dragOver(target(), carrying(aPhoto()));
+      expect(box().closest('form')).toHaveClass('ring-accent');
+      fireEvent.drop(target(), carrying(aPhoto()));
+
+      expect(box().closest('form')).not.toHaveClass('ring-accent');
+      expect(await screen.findByText('photo.png')).toBeVisible();
+      expect(uploadAttachment).not.toHaveBeenCalled();
+    });
+
+    it('queues several files dropped at once, all of them', async () => {
+      await thePage();
+
+      fireEvent.drop(box(), carrying(aPhoto(), aFile('doc.pdf', 'application/pdf')));
+
+      expect(await screen.findByText('photo.png')).toBeVisible();
+      expect(screen.getByText('doc.pdf')).toBeVisible();
+    });
+
+    it('queues a file pasted with the cursor in the message box, and writes nothing into it', async () => {
+      const user = await thePage();
+      await user.type(box(), 'Ask Ada');
+
+      fireEvent.paste(box(), { clipboardData: { files: [aPhoto()], types: ['Files'], getData: () => '' } });
+
+      expect(await screen.findByText('photo.png')).toBeVisible();
+      expect(box()).toHaveValue('Ask Ada');
+    });
+
+    it('queues a file pasted with the cursor on no field', async () => {
+      await thePage();
+
+      fireEvent.paste(chip('Action'), {
+        clipboardData: { files: [aPhoto()], types: ['Files'], getData: () => '' },
+      });
+
+      expect(await screen.findByText('photo.png')).toBeVisible();
+    });
+
+    it('lets a queued chip be removed before Capture is pressed', async () => {
+      const user = await thePage();
+      fireEvent.drop(box(), carrying(aPhoto()));
+      await screen.findByText('photo.png');
+
+      await user.click(screen.getByRole('button', { name: 'Remove photo.png' }));
+
+      expect(screen.queryByText('photo.png')).toBeNull();
+    });
+  });
+
+  describe('a queued file is checked against the allowlist and the 25MB cap before it queues', () => {
+    it('refuses an oversized file by name, and does not queue it', async () => {
+      await thePage();
+
+      fireEvent.drop(box(), carrying(aFile('huge.png', 'image/png', MAX_ATTACHMENT_SIZE + 1)));
+
+      expect(screen.getByRole('alert')).toHaveTextContent('"huge.png" is over the 25 MB limit.');
+      expect(screen.queryByText('huge.png')).toBeNull();
+    });
+
+    it('refuses a disallowed type by name, and does not queue it', async () => {
+      await thePage();
+
+      fireEvent.drop(box(), carrying(aFile('notes.txt', 'text/plain')));
+
+      expect(screen.getByRole('alert')).toHaveTextContent('"notes.txt" is not a kind of file Cockpit accepts.');
+      expect(screen.queryByText('notes.txt')).toBeNull();
+    });
+
+    it('queues the valid files in a multi-file drop even where one is refused', async () => {
+      await thePage();
+
+      fireEvent.drop(box(), carrying(aFile('notes.txt', 'text/plain'), aPhoto()));
+
+      expect(await screen.findByText('photo.png')).toBeVisible();
+      expect(screen.getByRole('alert')).toHaveTextContent('"notes.txt" is not a kind of file Cockpit accepts.');
+    });
+  });
+
+  describe('queued files upload to the item only once Capture has made it', () => {
+    it('clears the chip queue the moment Capture is pressed, before any upload resolves', async () => {
+      let resolveUpload: (value: { ok: true; applied: true }) => void = () => {};
+      vi.mocked(uploadAttachment).mockImplementationOnce(
+        () => new Promise((resolve) => (resolveUpload = resolve)),
+      );
+      const user = await thePage();
+      fireEvent.drop(box(), carrying(aPhoto()));
+      await screen.findByText('photo.png');
+      await user.type(box(), 'Ask Ada about the backup window');
+
+      await user.click(chip('Capture'));
+
+      expect(screen.queryByText('photo.png')).toBeNull();
+      await act(async () => resolveUpload({ ok: true, applied: true }));
+    });
+
+    it('sends each queued file as an attachment against the item Capture just made', async () => {
+      const user = await thePage();
+      fireEvent.drop(box(), carrying(aPhoto()));
+      await screen.findByText('photo.png');
+      await user.type(box(), 'Ask Ada about the backup window');
+
+      await user.click(chip('Capture'));
+
+      await waitFor(() =>
+        expect(uploadAttachment).toHaveBeenCalledWith(
+          expect.objectContaining({
+            itemId: captured().payload.itemId,
+            workspaceId: 'ws-home',
+            file: aPhotoFile,
+          }),
+        ),
+      );
+    });
+
+    it('does not block or cross-attach when a second note is captured while the first note’s file is still uploading', async () => {
+      let resolveFirst: (value: { ok: true; applied: true }) => void = () => {};
+      vi.mocked(uploadAttachment).mockImplementationOnce(
+        () => new Promise((resolve) => (resolveFirst = resolve)),
+      );
+      const user = await thePage();
+
+      fireEvent.drop(box(), carrying(aPhoto()));
+      await screen.findByText('photo.png');
+      await user.type(box(), 'First note');
+      await user.click(chip('Capture'));
+
+      fireEvent.drop(box(), carrying(aFile('second.pdf', 'application/pdf')));
+      await screen.findByText('second.pdf');
+      await user.type(box(), 'Second note');
+      await user.click(chip('Capture'));
+
+      await waitFor(() =>
+        expect(uploadAttachment).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({
+            itemId: capturedCalls()[1]!.payload.itemId,
+            file: expect.objectContaining({ name: 'second.pdf' }),
+          }),
+        ),
+      );
+      await act(async () => resolveFirst({ ok: true, applied: true }));
+    });
+  });
+
+  describe('a refused capture puts the queued files back, not just the message', () => {
+    it('puts the note text and the queued files back in the box', async () => {
+      const user = await thePage();
+      held.refuses = new CommandRefused(404, 'workspace ws-home not found');
+      fireEvent.drop(box(), carrying(aPhoto()));
+      await screen.findByText('photo.png');
+      await user.type(box(), 'Ask Ada about the backup window');
+
+      await user.click(chip('Capture'));
+
+      expect(screen.getByRole('alert')).toHaveTextContent('workspace ws-home not found');
+      expect(box()).toHaveValue('Ask Ada about the backup window');
+      expect(screen.getByText('photo.png')).toBeVisible();
+      expect(uploadAttachment).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Found in review: a file dropped while the previous capture is still
+     * waiting on an answer used to queue anyway, and a refusal then replaced
+     * it with the older snapshot - losing it with no error and no way to
+     * revoke its object URL. Refused so it stays in hand for the next try,
+     * instead of being taken and then quietly dropped.
+     */
+    it('refuses a file dropped while a capture is still in flight, rather than losing it to a later refusal', async () => {
+      const user = await thePage({ heldMutation: true });
+      fireEvent.drop(box(), carrying(aPhoto()));
+      await screen.findByText('photo.png');
+      await user.type(box(), 'Ask Ada about the backup window');
+      await user.click(chip('Capture'));
+      expect(screen.queryByText('photo.png')).toBeNull();
+
+      fireEvent.drop(box(), carrying(aFile('backup.pdf', 'application/pdf')));
+
+      expect(screen.queryByText('backup.pdf')).toBeNull();
+      held.refuses = new CommandRefused(404, 'workspace ws-home not found');
+      await act(async () => held.settle());
+      expect(screen.getByText('photo.png')).toBeVisible();
+      expect(screen.queryByText('backup.pdf')).toBeNull();
+    });
+  });
+
+  describe('a file that fails to upload after a successful capture says so, without undoing the capture', () => {
+    it('names the failed file, still attaches the others, and leaves the item captured', async () => {
+      vi.mocked(uploadAttachment).mockImplementation((args) =>
+        args.file.name === 'bad.pdf'
+          ? Promise.reject(new CommandRefused(413, '"bad.pdf" could not be attached.'))
+          : Promise.resolve({ ok: true as const, applied: true }),
+      );
+      const user = await thePage();
+      fireEvent.drop(box(), carrying(aPhoto(), aFile('bad.pdf', 'application/pdf')));
+      await screen.findByText('photo.png');
+      await user.type(box(), 'Ask Ada about the backup window');
+
+      await user.click(chip('Capture'));
+
+      expect(captured()).toBeDefined();
+      expect(justCaptured()).toHaveLength(1);
+      await waitFor(() => expect(uploadAttachment).toHaveBeenCalledTimes(2));
+      expect(await screen.findByRole('alert')).toHaveTextContent('"bad.pdf" could not be attached.');
+    });
+
+    /**
+     * Found in review: each failure inside the upload loop replaced
+     * `queueError` instead of joining it, so only the last of several
+     * failures was ever shown.
+     */
+    it('names every file that fails, not just the last one', async () => {
+      vi.mocked(uploadAttachment).mockImplementation((args) =>
+        Promise.reject(new CommandRefused(413, `"${args.file.name}" could not be attached.`)),
+      );
+      const user = await thePage();
+      fireEvent.drop(box(), carrying(aFile('one.pdf', 'application/pdf'), aFile('two.pdf', 'application/pdf')));
+      await screen.findByText('one.pdf');
+      await user.type(box(), 'Ask Ada about the backup window');
+
+      await user.click(chip('Capture'));
+
+      await waitFor(() => expect(uploadAttachment).toHaveBeenCalledTimes(2));
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('"one.pdf" could not be attached.');
+      expect(alert).toHaveTextContent('"two.pdf" could not be attached.');
     });
   });
 });

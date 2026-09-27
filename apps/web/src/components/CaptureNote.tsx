@@ -1,7 +1,9 @@
-import { useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import type { ItemType, Workspace } from '@cockpit/shared';
+import { useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { uuidv7, type ItemType, type Workspace } from '@cockpit/shared';
+import { CommandRefused, uploadAttachment } from '../api/client';
 import { snapshotQuery, workspacesQuery } from '../api/queries';
+import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { howLongAgo, useCapture } from '../capture';
 import { NO_TYPES, typesOffered } from '../itemTypes';
@@ -85,6 +87,88 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
   const [justCaptured, setJustCaptured] = useState<Captured[]>([]);
   const form = useRef<HTMLFormElement>(null);
   const { ask, busy } = useCapture();
+  const queryClient = useQueryClient();
+
+  /**
+   * A file dropped or pasted before the note is captured ("Drop files and
+   * paste images while capturing a message", issue 557). There is no Item
+   * yet to attach it to, so it waits here as a chip, and uploads once
+   * Capture has made one.
+   */
+  const [queued, setQueued] = useState<QueuedFile[]>([]);
+  const [queueError, setQueueError] = useState<string | null>(null);
+  /** A file being dragged over the form anywhere a drop would queue it. */
+  const [filesOver, setFilesOver] = useState(false);
+  const queuedRef = useRef(queued);
+  queuedRef.current = queued;
+  // Revokes whatever object URLs are still outstanding on the way out - a
+  // queued file's own thumbnail is the one thing here that leaks if nobody
+  // frees it.
+  useEffect(
+    () => () => {
+      for (const file of queuedRef.current) if (file.previewUrl) URL.revokeObjectURL(file.previewUrl);
+    },
+    [],
+  );
+
+  const queueFiles = (files: Iterable<File>) => {
+    const { accepted, rejections } = checkAttachmentFiles(files);
+    setQueueError(rejections.length > 0 ? rejections.join(' ') : null);
+    if (accepted.length === 0) return;
+    setQueued((was) => [
+      ...was,
+      ...accepted.map((file) => ({
+        id: uuidv7(),
+        file,
+        previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+      })),
+    ]);
+  };
+
+  const removeQueued = (id: string) => {
+    setQueued((was) => {
+      const gone = was.find((file) => file.id === id);
+      if (gone?.previewUrl) URL.revokeObjectURL(gone.previewUrl);
+      return was.filter((file) => file.id !== id);
+    });
+  };
+
+  /**
+   * Attaches whatever was queued to the Item Capture just made, one at a
+   * time and without the box waiting on any of it - a second capture started
+   * while these are still uploading reads its own queue, not this one.
+   *
+   * A file that fails says so by name and leaves the others to keep
+   * uploading: the capture already landed, and nothing here can undo it.
+   */
+  const uploadQueued = async (files: QueuedFile[], itemId: string, workspaceId: string) => {
+    if (files.length === 0) return;
+    // Collected across the whole batch, not set as each one fails - a
+    // rejection two files back must not be a message the next file's own
+    // failure quietly clears.
+    const failures: string[] = [];
+    for (const queuedFile of files) {
+      try {
+        await uploadAttachment({
+          itemId,
+          workspaceId,
+          attachmentId: queuedFile.id,
+          commandId: uuidv7(),
+          file: queuedFile.file,
+        });
+      } catch (failure) {
+        failures.push(
+          failure instanceof CommandRefused
+            ? failure.message
+            : `"${queuedFile.file.name}" could not be attached.`,
+        );
+      } finally {
+        if (queuedFile.previewUrl) URL.revokeObjectURL(queuedFile.previewUrl);
+      }
+    }
+    if (failures.length > 0) setQueueError(failures.join(' '));
+    void queryClient.invalidateQueries({ queryKey: ['snapshot', workspaceId] });
+  };
 
   /**
    * The type chosen, as against the one that was pressed: **every Item has a
@@ -141,28 +225,44 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
       return;
     }
 
+    // The workspace this is captured against, the same one `ask` is given
+    // below - read once, so what the queued files upload against on success
+    // is exactly what the note itself was captured against.
+    const targetWorkspace = belongsTo ?? from;
+    // What was queued when Capture was pressed, not the state as it stands
+    // by the time an answer comes back - a second capture may have already
+    // queued files of its own by then.
+    const queuedAtSubmit = queued;
+
     ask(
       {
         message: trimmed,
         typeId: chosen.id,
         // The workspace chosen, or the one this was captured from - and the
         // difference between the two is the whole of `decided`.
-        workspaceId: belongsTo ?? from,
+        workspaceId: targetWorkspace,
         decided: belongsTo !== null,
       },
       {
         asking: () => {
           setMessage('');
           setRefused(null);
+          // The chip queue empties with the box, the same "never waits on
+          // it" principle already stated for note-reading - a capture the
+          // server refuses puts both back (`refused`, below).
+          setQueued([]);
+          setQueueError(null);
         },
-        captured: (captureType) => {
+        captured: (captureType, itemId) => {
           setJustCaptured((already) => [
             { at: Date.now(), message: trimmed, typeId: captureType, workspaceId: belongsTo },
             ...already,
           ]);
+          void uploadQueued(queuedAtSubmit, itemId, targetWorkspace);
         },
         refused: (why) => {
           setMessage(trimmed);
+          setQueued(queuedAtSubmit);
           setRefused(why);
         },
       },
@@ -187,7 +287,39 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
           form.current?.requestSubmit();
         }
       }}
-      className="flex min-h-0 flex-1 flex-col"
+      // A file dropped anywhere on the form queues it as an attachment,
+      // never as text - the box holds a thought, not an image (docs/ideas.md,
+      // "Capture and the task creator"). Never left to the browser, which
+      // would otherwise open the file in Cockpit's place.
+      onDragOver={(event) => {
+        if (!takesFiles(event)) return;
+        event.preventDefault();
+        setFilesOver(!busy);
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFilesOver(false);
+      }}
+      onDrop={(event) => {
+        if (!takesFiles(event)) return;
+        event.preventDefault();
+        setFilesOver(false);
+        // A capture in flight already emptied the queue for its own
+        // `refused` to put back - queuing a new file into that same window
+        // would be lost the moment a refusal restores the older snapshot.
+        if (busy) return;
+        if (event.dataTransfer.files.length > 0) queueFiles(Array.from(event.dataTransfer.files));
+      }}
+      // Pasted anywhere on the form, including with the cursor in the
+      // message box: unlike the Item form's own description text, this box
+      // is plain text and cannot hold an image, so there is no second branch
+      // where the paste is the field's own.
+      onPaste={(event) => {
+        const files = Array.from(event.clipboardData.files);
+        if (files.length === 0 || busy) return;
+        event.preventDefault();
+        queueFiles(files);
+      }}
+      className={`flex min-h-0 flex-1 flex-col${filesOver ? ' ring-2 ring-accent' : ''}`}
     >
       {/* On a phone the button and any refusal are ordered up under the note
           (`order-*`) and the rest follows in the order it is written here,
@@ -215,6 +347,52 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
         rows={4}
         className="order-1 mt-2.5 w-full sm:order-none resize-none rounded-md border border-black/10 bg-white p-3 text-base leading-[1.5] text-ink shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 sm:mt-4 sm:min-h-56 sm:resize-y sm:px-5 sm:py-[18px]"
       />
+
+      {/* What is queued to attach once Capture is pressed, one chip per
+          file - the same chip the Item form's own attachments use. */}
+      {queued.length > 0 && (
+        <ul
+          aria-label="Files to attach"
+          className="order-1 mt-2 flex flex-wrap gap-1.5 sm:order-none"
+        >
+          {queued.map((file) => (
+            <li
+              key={file.id}
+              className="flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm"
+            >
+              {file.previewUrl ? (
+                <img
+                  src={file.previewUrl}
+                  alt=""
+                  className="h-8 w-8 shrink-0 rounded object-cover"
+                />
+              ) : (
+                <span className="shrink-0 text-lg" aria-hidden="true">
+                  📄
+                </span>
+              )}
+              <span className="min-w-0">
+                <span className="block max-w-40 truncate font-medium text-ink">{file.file.name}</span>
+                <span className="block text-xs text-ink-faint">{formatFileSize(file.file.size)}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => removeQueued(file.id)}
+                title="Remove"
+                aria-label={`Remove ${file.file.name}`}
+                className="shrink-0 rounded-md border border-black/10 px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {queueError && (
+        <p role="alert" className="order-1 pt-1 text-sm text-over sm:order-none">
+          {queueError}
+        </p>
+      )}
 
       {/* The box that used to sit at the end of this row, dashed, naming a
           type that was not there yet, is gone: types are made in the window
@@ -345,6 +523,15 @@ const SHORTCUT =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent)
     ? '⌘↵'
     : 'Ctrl ↵';
+
+/** A file dropped or pasted before there is an Item to attach it to, waiting as a chip until Capture makes one. */
+interface QueuedFile {
+  /** Also the attachment id it uploads under, once there is an Item to send it against. */
+  id: string;
+  file: File;
+  /** An object URL for an image's own thumbnail, or null for anything else - freed once removed, uploaded, or the form unmounts. */
+  previewUrl: string | null;
+}
 
 /** One note this page has captured, as this page remembers it. */
 interface Captured {

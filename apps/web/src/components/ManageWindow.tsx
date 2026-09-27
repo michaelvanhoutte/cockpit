@@ -1,4 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
+import { takesFiles } from '../attachmentQueue';
 
 /**
  * The window a list of named things is managed in: the dashboards of a
@@ -60,7 +61,18 @@ export function ManageWindow({
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && canClose && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/30" />
+        {/* A file let go outside whatever this window holds is kept from the
+            browser, which would otherwise navigate away to open it - the
+            same guard the Item form's own overlay carries. */}
+        <Dialog.Overlay
+          className="fixed inset-0 bg-black/30"
+          onDragOver={(event) => {
+            if (takesFiles(event)) event.preventDefault();
+          }}
+          onDrop={(event) => {
+            if (takesFiles(event)) event.preventDefault();
+          }}
+        />
         <Dialog.Content
           ref={ref}
           // The title is the whole of what this is, so there is no separate
