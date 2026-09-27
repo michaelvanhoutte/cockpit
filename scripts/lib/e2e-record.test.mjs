@@ -5,6 +5,8 @@
 //
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
 import { buildE2eRecord, failedSpecFiles, ownersText, renderE2eSummary } from './e2e-record.mjs';
@@ -142,5 +144,17 @@ describe('the E2E summary', () => {
 
   it('joins several owners', () => {
     assert.equal(ownersText({ owners: [{ concept: 'A', path: 'a' }, { concept: 'B', path: null }] }), 'owned by A, which `a` changed; owned by B');
+  });
+});
+
+describe('the tests/e2e/ prefix', () => {
+  it('shares its constant with test-selection.mjs rather than redefining it', () => {
+    // Mirrors e2e-selection.test.mjs's own source-level assertion of the
+    // same thing: importing SPECS here and using it inline would pass even
+    // if e2e-record.mjs carried its own separate copy of the same literal.
+    const path = fileURLToPath(new URL('./e2e-record.mjs', import.meta.url));
+    const source = readFileSync(path, 'utf8');
+    assert.match(source, /import\s*\{[^}]*\bSPECS\b[^}]*\}\s*from\s*'\.\/test-selection\.mjs';/, 'e2e-record.mjs should import SPECS rather than duplicate it');
+    assert.doesNotMatch(source, /const SPECS = /, 'e2e-record.mjs should not redefine SPECS itself');
   });
 });

@@ -36,6 +36,13 @@
 //   as its own check rather than folded into the rule above, because a
 //   tsconfig can `extends` another package's and so isn't safely attributable
 //   to only the package it lives under.
+// - **`tests/e2e/`** sits outside every package too, but forces nothing here:
+//   its own tier already selects itself in scripts/lib/e2e-selection.mjs, so
+//   forcing every Vitest package for a path Vitest never runs against would
+//   only pay for coverage nothing needed ("Stop a tests/e2e/ change forcing
+//   the Test job's Vitest packages into full", issue 556). A changed file
+//   still under `tests/e2e/` alongside something genuinely unattributable -
+//   the lockfile, a tsconfig - still forces full, attributed to that file.
 // - A package's own `vitest.config.ts`, its own `package.json`, a migration
 //   under its `migrations/`, its own `wrangler.jsonc` (the binding and
 //   Durable Object config `@cloudflare/vitest-pool-workers` runs its suite
@@ -57,6 +64,9 @@
 import { basename } from 'node:path';
 
 import { isNonProduct } from './what-changed.mjs';
+
+/** E2E specs and their support code - outside every package's own directory, but already placed by scripts/lib/e2e-selection.mjs's own tier, so a change here forces nothing in this module. Shared rather than duplicated, so the two modules cannot drift into disagreeing about the same path. */
+export const SPECS = 'tests/e2e/';
 
 /** A changed path no package's own directory covers - the lockfile, any package.json, a workflow, and anything else at that altitude. */
 export function isOutsidePackages(path, packages) {
@@ -94,6 +104,7 @@ function reasonForAll({ event, mergeBase, productFiles, packages }) {
   if (!mergeBase) return { rule: 'diff unreadable', path: null };
   for (const path of productFiles) {
     if (isTsconfig(path)) return { rule: 'any tsconfig', path };
+    if (path.startsWith(SPECS)) continue;
     if (isOutsidePackages(path, packages)) return { rule: 'outside every package', path };
   }
   return null;

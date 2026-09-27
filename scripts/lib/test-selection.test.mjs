@@ -174,6 +174,40 @@ describe('planTestRun', () => {
     for (const pkg of PACKAGES) assert.equal(modeOf(plan, pkg.dir), 'full', pkg.dir);
   });
 
+  it('runs every package selectively for an E2E spec, leaving its tier to scripts/lib/e2e-selection.mjs', () => {
+    const plan = forPR(['tests/e2e/capture.test.ts']);
+    for (const pkg of PACKAGES) assert.equal(modeOf(plan, pkg.dir), 'changed', pkg.dir);
+  });
+
+  it('runs every package selectively for E2E support code', () => {
+    const plan = forPR(['tests/e2e/support/fixtures.ts']);
+    for (const pkg of PACKAGES) assert.equal(modeOf(plan, pkg.dir), 'changed', pkg.dir);
+  });
+
+  it('runs every package selectively for an E2E spec alongside a product file in one package', () => {
+    const plan = forPR(['tests/e2e/capture.test.ts', 'apps/api/src/index.ts']);
+    for (const pkg of PACKAGES) assert.equal(modeOf(plan, pkg.dir), 'changed', pkg.dir);
+  });
+
+  it('still forces every package into full for an E2E spec alongside the lockfile', () => {
+    const plan = forPR(['tests/e2e/capture.test.ts', 'pnpm-lock.yaml']);
+    for (const pkg of PACKAGES) assert.equal(modeOf(plan, pkg.dir), 'full', pkg.dir);
+  });
+
+  it('still forces every package into full for playwright.config.ts, which sits outside tests/e2e/ itself', () => {
+    const plan = forPR(['playwright.config.ts']);
+    for (const pkg of PACKAGES) assert.equal(modeOf(plan, pkg.dir), 'full', pkg.dir);
+  });
+
+  it('still forces every package into full for a tsconfig under tests/e2e/, agreeing with e2e-selection.mjs’s own precedence', () => {
+    // e2e-selection.mjs's ruleForcingFull checks isTsconfig before its own
+    // SPECS exemption, so the two modules must order the same checks the
+    // same way or a future tests/e2e/tsconfig.json would silently escape
+    // this one while still forcing full there.
+    const plan = forPR(['tests/e2e/tsconfig.json']);
+    for (const pkg of PACKAGES) assert.equal(modeOf(plan, pkg.dir), 'full', pkg.dir);
+  });
+
   it('shares its non-product path list with the what-changed classifier, so the two cannot drift apart', () => {
     // Asserted against the source rather than by behaviour alone: importing
     // isNonProduct here and calling it inline would pass even if
@@ -226,5 +260,10 @@ describe('planTestRun reasons', () => {
   it('never blames a documentation file for a package running in full', () => {
     const plan = forPR(['docs/x.md', 'apps/api/migrations/0042_x.sql']);
     assert.equal(reasons(plan)['apps/api'].path, 'apps/api/migrations/0042_x.sql');
+  });
+
+  it('never blames an E2E spec for a package running in full, naming the lockfile instead', () => {
+    const plan = forPR(['tests/e2e/capture.test.ts', 'pnpm-lock.yaml']);
+    for (const pkg of PACKAGES) assert.deepEqual(reasons(plan)[pkg.dir], { rule: 'outside every package', path: 'pnpm-lock.yaml' }, pkg.dir);
   });
 });

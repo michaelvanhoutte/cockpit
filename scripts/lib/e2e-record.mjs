@@ -16,8 +16,7 @@
 //
 
 import { isNonProduct } from './what-changed.mjs';
-
-const SPECS = 'tests/e2e/';
+import { SPECS } from './test-selection.mjs';
 
 /** Every spec file the Playwright JSON report (`--reporter=json`) records a failed walk in, as the path the listing gives: relative to tests/e2e. */
 export function failedSpecFiles(report) {
