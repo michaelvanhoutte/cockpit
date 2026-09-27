@@ -302,9 +302,9 @@ describe('Lead time', () => {
     const build = (pulls, windows = [7]) =>
       buildModel({ pulls, now: NOW, requestedDays: Math.max(...windows), coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows });
 
-    it('answers one pull request in a window as both its median and its p90', () => {
+    it('answers one pull request in a window as both its median and its p95', () => {
       const [window] = build([finished(1, 60, 10)]).windows;
-      expect(window.parts.round).toEqual({ median: 10 * MIN, p90: 10 * MIN, count: 1, pulls: 1 });
+      expect(window.parts.round).toEqual({ median: 10 * MIN, p95: 10 * MIN, count: 1, pulls: 1 });
       expect(window.parts.beforeFirstPush.pulls).toBe(1);
     });
 
@@ -398,6 +398,26 @@ describe('Lead time', () => {
       expect(build([]).windows[0].harness).toBeNull();
     });
 
+    it("gives a pull request its own harness, in the same shape as a window's, over its own rounds only", () => {
+      const [pullModelled] = build([
+        merged({
+          commits: [
+            commit('a', 0, [check('Test', 2, 8), check('E2E (F3)', 3, 12)]),
+            commit('b', 30, [check('Test', 31, 36), check('claude-review', 31, 45), check('Security review', 31, 40)]),
+          ],
+        }),
+      ]).pulls;
+      expect(pullModelled.harness.rounds).toBe(2);
+      expect(pullModelled.harness.kinds.checks).toEqual({ ms: 15 * MIN, runs: 3, last: 1 });
+      expect(pullModelled.harness.kinds['security-review']).toEqual({ ms: 4 * MIN, runs: 1, last: 0 });
+      expect(pullModelled.harness.kinds['code-review']).toEqual({ ms: 5 * MIN, runs: 1, last: 1 });
+    });
+
+    it('gives a pull request no check ran on a harness of zeroes, not null, since that is what it did', () => {
+      const [pullModelled] = build([merged({ commits: [commit('a', 0)] })]).pulls;
+      expect(pullModelled.harness).toEqual({ rounds: 0, kinds: { checks: { ms: 0, runs: 0, last: 0 }, 'code-review': { ms: 0, runs: 0, last: 0 }, 'security-review': { ms: 0, runs: 0, last: 0 } } });
+    });
+
     it('reads pull requests no check ran on as no harness figures, not as a harness that held nothing', () => {
       const [window] = build([merged({ commits: [commit('a', 0)] })]).windows;
       expect(window.pulls.total).toBe(1);
@@ -421,15 +441,6 @@ describe('Lead time', () => {
       expect(model.windows[0].rounds.perPull).toMatchObject({ count: 1, pulls: 1 });
     });
 
-    it('says how long a review held anyone up beside how long it ran, since a review beside the tests holds nobody until they finish', () => {
-      const [pullModelled] = build([
-        merged({ commits: [commit('a', 0, [check('Test', 2, 12), check('claude-review', 2, 20), check('Security review', 2, 8)])] }),
-      ]).pulls;
-      expect(minutes(pullModelled.reviews['code-review'].ms)).toBe(18);
-      expect(minutes(pullModelled.reviews['code-review'].heldMs)).toBe(8);
-      // It finished before the tests did, so it held the round for none of it.
-      expect(pullModelled.reviews['security-review']).toMatchObject({ runs: 1, heldMs: 6 * MIN });
-    });
   });
 
   describe('a pull request is weighed as time coding and fixing against time in the harness', () => {

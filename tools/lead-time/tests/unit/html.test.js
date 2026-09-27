@@ -54,7 +54,7 @@ const render = ({ pulls = [pull()], requestedDays = 14, coveredDays = requestedD
 
 /** One pull request's row, so a case looks at that row and nothing else on the page. */
 const rowOf = (html, number) => {
-  const rows = html.split('<h2>The numbers behind it</h2>')[0].split('<div class="pullrow">');
+  const rows = html.split('<footer>')[0].split('<div class="pullrow">');
   return rows.find((each) => each.includes(`<b>#${number}</b>`));
 };
 const stripOf = (html, number) => rowOf(html, number).split('<div class="track">')[1].split('</div>')[0];
@@ -86,28 +86,14 @@ describe('Lead time', () => {
       const html = render({ pulls: [pull({ number: 1, body: withRecord() }), pull({ number: 2 }), pull({ number: 3 })] });
       expect(html).toContain('1 of 3 merged pull requests carry a session record');
     });
-
-    it('reads a window with no pull requests as no data, and never as a zero', () => {
-      const html = render({ pulls: [pull({ mergedAt: at(-8 * 24 * 60), createdAt: at(-8 * 24 * 60 - 60) })], windows: [7, 14] });
-      const [week] = html.split('<h2>Where the harness minutes go</h2>')[0].split('<tbody>')[1].split('</tr>');
-      // The seven-day column is the first after the row heading; nothing merged in it.
-      expect(week).toContain('no data');
-      expect(week).not.toMatch(/<span class="fig">0<\/span>/);
-      expect(html.split('<h2>Where the harness minutes go</h2>')[1].split('<h2>')[0]).toContain('no data');
-    });
   });
 
   describe('a figure says what it was made from once, and never as a zero it did not measure', () => {
     it('says the pull requests behind a per-pull-request figure once, not twice', () => {
-      const html = render({ pulls: [pull({ number: 1 }), pull({ number: 2 })] });
+      const recorded = (number) => pull({ number, body: withRecord(0), commits: [commit('a', 0, [check('Test', 10, 20)])] });
+      const html = render({ pulls: [recorded(1), recorded(2)] });
       expect(html).toContain('2 pull requests');
       expect(html).not.toMatch(/(\d+ pull requests?), \1/);
-    });
-
-    it('reads a window whose pull requests had no check run on them as no rounds to count, not as zero of zero', () => {
-      const html = render({ pulls: [pull({ commits: [commit('a', 0)] })], windows: [7] });
-      expect(html).not.toContain('of 0 rounds');
-      expect(html.split('<h2>Where the harness minutes go</h2>')[1].split('<h2>')[0]).toContain('no data');
     });
 
     it('reads the time to merge from the pull request, so time away is in it', () => {
@@ -368,6 +354,157 @@ describe('Lead time', () => {
     it('says how few one pull request rests on, and that the median is its own ratio', () => {
       const html = render({ pulls: [recorded(1, 30)] });
       expect(sectionOf(html)).toContain('Median ratio 3.0×</b> over 1 pull request: that one pull request&rsquo;s own ratio');
+    });
+  });
+
+  describe('evolution: one point per pull request read, positioned by when it merged', () => {
+    const sectionOf = (html) => html.split('<h2>Evolution</h2>')[1].split('<h2>')[0];
+
+    it('says there is not enough data rather than drawing a chart of one point', () => {
+      expect(sectionOf(render({ pulls: [pull()] }))).toContain('Not enough merged pull requests');
+      expect(sectionOf(render({ pulls: [] }))).toContain('Not enough merged pull requests');
+    });
+
+    it('offers All, Last 7 days and Last 3 days as tabs, with All selected by default, and no script to drive them', () => {
+      const html = render({
+        pulls: [
+          pull({ number: 1, mergedAt: at(60), commits: [commit('a', 0, [check('Test', 2, 12)])] }),
+          pull({ number: 2, mergedAt: at(120), commits: [commit('b', 60, [check('Test', 62, 72)])] }),
+        ],
+      });
+      const section = sectionOf(html);
+      expect(section).toContain('<input type="radio" name="evozoom" id="evozoom-all" class="tabradio" checked>');
+      expect(section).toContain('<label for="evozoom-all" class="tablabel">All</label>');
+      expect(section).toContain('<label for="evozoom-7" class="tablabel">Last 7 days</label>');
+      expect(section).toContain('<label for="evozoom-3" class="tablabel">Last 3 days</label>');
+      expect(html).not.toMatch(/<script\b/i);
+    });
+
+    it("zooms each tab to its own cutoff from when the report was generated, leaving an older pull request out of it", () => {
+      const old = pull({
+        number: 1,
+        mergedAt: at(-10 * 24 * 60),
+        createdAt: at(-10 * 24 * 60 - 60),
+        commits: [commit('a', -10 * 24 * 60 - 30, [check('Test', -10 * 24 * 60 - 20, -10 * 24 * 60 - 10)])],
+      });
+      const html = render({
+        pulls: [
+          old,
+          pull({ number: 2, mergedAt: at(60), commits: [commit('b', 0, [check('Test', 2, 12)])] }),
+          pull({ number: 3, mergedAt: at(120), commits: [commit('c', 60, [check('Test', 62, 72)])] }),
+        ],
+      });
+      const after = (id) => html.split(`id="evopanel-${id}"`)[1];
+      // Both merged recently, so both are inside every tab; the ten-day-old one is only in "All".
+      expect(after('all')).toContain('#1 A change\nTests and checks');
+      expect(after('7')).not.toContain('#1 A change\nTests and checks');
+      expect(after('3')).not.toContain('#1 A change\nTests and checks');
+      expect(after('7')).toContain('#2 A change\nTests and checks');
+      expect(after('3')).toContain('#2 A change\nTests and checks');
+    });
+
+    it('scales every zoom tab to the same maximum, so a pull request draws the same size whichever tab is open', () => {
+      const old = pull({
+        number: 1,
+        mergedAt: at(-10 * 24 * 60 + 210),
+        createdAt: at(-10 * 24 * 60 - 60),
+        // Held 200 minutes — outside every zoom preset but "All", and big enough to
+        // dominate a scale computed only from "All"'s own pull requests.
+        commits: [commit('a', -10 * 24 * 60, [check('Test', -10 * 24 * 60 + 2, -10 * 24 * 60 + 202)])],
+      });
+      // Both recent enough to be in every tab, each on its own held minutes.
+      const recentA = pull({ number: 2, mergedAt: at(60), commits: [commit('b', 0, [check('Test', 2, 12)])] });
+      const recentB = pull({ number: 3, mergedAt: at(120), commits: [commit('c', 60, [check('Test', 62, 67)])] });
+      const html = render({ pulls: [old, recentA, recentB] });
+      const heightOf = (id) => {
+        const panel = html.split(`id="evopanel-${id}"`)[1];
+        return Number(panel.match(/<rect class="evobar checks"[^>]*height="([\d.]+)"><title>#2\b/)[1]);
+      };
+      // Without a shared scale, "7" would size #2's bar against only #2 and #3 (much
+      // taller); "all" sizes it against #1's 200 minutes too (a sliver). They must agree.
+      expect(heightOf('7')).toBeCloseTo(heightOf('all'));
+    });
+
+    it('shows there is no span of time to plot, rather than collapsing every bar onto one point, where every pull request merged in the same second', () => {
+      const html = render({
+        pulls: [
+          pull({ number: 1, mergedAt: at(60), commits: [commit('a', 0, [check('Test', 2, 12)])] }),
+          pull({ number: 2, mergedAt: at(60), commits: [commit('b', 0, [check('Test', 2, 12)])] }),
+        ],
+      });
+      expect(sectionOf(html)).toContain('no span of time to plot');
+    });
+
+    it("stacks each pull request's own held minutes by kind, and leaves out a kind that held none of it", () => {
+      const html = render({
+        pulls: [
+          pull({ number: 1, mergedAt: at(60), commits: [commit('a', 0, [check('Test', 2, 12)])] }),
+          pull({ number: 2, mergedAt: at(120), commits: [commit('b', 60, [check('Test', 62, 72), check('claude-review', 62, 82)])] }),
+        ],
+      });
+      const section = sectionOf(html);
+      expect(section).toContain('#1 A change\nTests and checks: 10m 00s');
+      expect(section).toContain('#2 A change\nTests and checks: 10m 00s');
+      expect(section).toContain('#2 A change\nCode review: 10m 00s');
+      // Pull request 1's round was held entirely by checks, so it has nothing to say about code review.
+      expect(section).not.toContain('#1 A change\nCode review');
+    });
+
+    it("sizes a pull request's dot by its own lines changed, on every panel", () => {
+      const html = render({
+        pulls: [
+          pull({ number: 1, mergedAt: at(60), additions: 5, deletions: 0, commits: [commit('a', 0, [check('Test', 2, 12)])] }),
+          pull({ number: 2, mergedAt: at(120), additions: 500, deletions: 0, commits: [commit('b', 60, [check('Test', 62, 72)])] }),
+        ],
+      });
+      const section = sectionOf(html);
+      expect(section).toContain('#1 A change · 5 lines changed');
+      expect(section).toContain('#2 A change · 500 lines changed');
+      const radiusOf = (number) => Number(section.match(new RegExp(`<circle class="evodot" cx="[^"]+" cy="[^"]+" r="([\\d.]+)"><title>#${number}`))[1]);
+      expect(radiusOf(2)).toBeGreaterThan(radiusOf(1));
+    });
+
+    it('reads start to merge, rounds to merge and the share of red rounds from the pull request itself', () => {
+      const html = render({
+        pulls: [
+          pull({ number: 1, mergedAt: at(60), commits: [commit('a', 0, [check('Test', 2, 12)])] }),
+          pull({
+            number: 2,
+            mergedAt: at(300),
+            commits: [commit('b', 0, [check('Test', 2, 12, 'failure')]), commit('c', 20, [check('Test', 22, 32)])],
+          }),
+        ],
+      });
+      const section = sectionOf(html);
+      expect(section).toContain('#1 A change · 1h 00m to merge');
+      expect(section).toContain('#1 A change · 1 round');
+      expect(section).toContain('#2 A change · 2 rounds');
+      // One round of the two failed.
+      expect(section).toContain('#2 A change · 50% of its rounds red');
+    });
+
+    it('never places a day tick before the scale itself, even where every pull request merged inside one day', () => {
+      const html = render({
+        pulls: [
+          pull({ number: 1, mergedAt: at(60), commits: [commit('a', 0, [check('Test', 2, 12)])] }),
+          pull({ number: 2, mergedAt: at(120), commits: [commit('b', 60, [check('Test', 62, 72)])] }),
+        ],
+      });
+      // The day-tick text is the only one centred; the y-axis ticks are end-anchored.
+      const xs = [...sectionOf(html).matchAll(/<text class="etick" x="(-?[\d.]+)"[^>]*text-anchor="middle">/g)].map((match) => Number(match[1]));
+      expect(xs.length).toBeGreaterThan(0);
+      expect(xs.every((x) => x >= 52)).toBe(true);
+    });
+
+    it('escapes a pull request title inside the chart, rather than letting it write markup into the page', () => {
+      const html = render({
+        pulls: [
+          pull({ number: 1, mergedAt: at(60), title: '<script>alert(1)</script>', commits: [commit('a', 0, [check('Test', 2, 12)])] }),
+          pull({ number: 2, mergedAt: at(120), commits: [commit('b', 60, [check('Test', 62, 72)])] }),
+        ],
+      });
+      expect(sectionOf(html)).not.toContain('<script>alert(1)</script>');
+      expect(sectionOf(html)).toContain('&lt;script&gt;');
     });
   });
 
