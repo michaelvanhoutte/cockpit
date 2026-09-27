@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { AWAY_MS, CHECK_KINDS, LONG_ROUND_MS, REVIEW_CHECKS, kindOf } from '../model.js';
+import { AWAY_MS, CHECK_KINDS, kindOf } from '../model.js';
 import { layoutScatter, radiusFor } from './scatter.js';
 import { fitTo, partsOf, scaleFor } from './strips.js';
 
@@ -57,91 +57,6 @@ function windowHeading(window) {
 
 /** "No data" is a claim about the window, and is never drawn as the zero a count would be. */
 const noData = '<span class="fig none">no data</span>';
-const noDataCell = `<td class="num">${noData}</td>`;
-
-/** A figure's median and p90 beside what it was made from. */
-function durationCell(figure, unit = 'round') {
-  if (!figure) return noDataCell;
-  // A figure with one item per pull request has a second count that would only repeat the first.
-  const counts = unit === 'pull request' ? plural(figure.pulls, unit) : `${plural(figure.count, unit)}, ${plural(figure.pulls, 'pull request')}`;
-  return `<td class="num"><span class="fig">${humanMs(figure.median)}</span><span class="of">p90 ${humanMs(figure.p90)} &middot; ${counts}</span></td>`;
-}
-
-/** Rounds to merge are a count, so a median of them is not a duration. */
-function roundsCell(perPull) {
-  if (!perPull) return noDataCell;
-  const number = (value) => (Number.isInteger(value) ? String(value) : value.toFixed(1));
-  return `<td class="num"><span class="fig">${number(perPull.median)}</span><span class="of">p90 ${number(perPull.p90)} &middot; ${plural(perPull.pulls, 'pull request')}</span></td>`;
-}
-
-function countCell(count, of, unit) {
-  // A count of nothing out of nothing is not a zero, it is no rounds to count.
-  if (of === 0) return noDataCell;
-  return `<td class="num"><span class="fig">${count}</span><span class="of">of ${plural(of, unit)}</span></td>`;
-}
-
-function figuresTable(model) {
-  const windows = model.windows;
-  const row = (label, note, cell) =>
-    `<tr><th scope="row">${label}${note ? `<span class="rownote">${note}</span>` : ''}</th>${windows.map((window) => cell(window)).join('')}</tr>`;
-
-  const rows = [
-    row('Pull requests merged', 'with a session record: coding and local review are only over these', (window) =>
-      window.pulls.total === 0
-        ? noDataCell
-        : `<td class="num"><span class="fig">${window.pulls.total}</span><span class="of">${window.pulls.withRecord} with a record</span></td>`,
-    ),
-    row('Start to merge', 'from the session&rsquo;s start where recorded, else the first commit', (window) => durationCell(window.parts.total, 'pull request')),
-    row('Rounds to merge', 'a round is a push and the checks that ran on it', (window) => roundsCell(window.rounds?.perPull ?? null)),
-    row('Wait per round', 'a push to the last check finishing', (window) => durationCell(window.parts.round)),
-    row(`Rounds past ${LONG_ROUND_MS / 60_000} minutes`, 'a round longer than that', (window) =>
-      window.rounds ? countCell(window.rounds.overTenMinutes, window.rounds.count, 'round') : noDataCell,
-    ),
-    row('Red rounds', 'a check ended failed on that push', (window) =>
-      window.rounds ? countCell(window.rounds.red, window.rounds.count, 'round') : noDataCell,
-    ),
-    row('Flukes', 'a failure re-run to a pass on the same commit', (window) =>
-      window.flukes
-        ? `<td class="num"><span class="fig">${window.flukes.count}</span><span class="of">in ${plural(window.flukes.pulls, 'pull request')} &middot; cost ${humanMs(window.flukes.ms)}</span></td>`
-        : noDataCell,
-    ),
-    row('Before the first push', 'coding: only where the pull request has a record', (window) => durationCell(window.parts.beforeFirstPush, 'pull request')),
-    row('Fixing between rounds', 'from a round finishing to the next push', (window) => durationCell(window.parts.fixing, 'gap')),
-    row('Waiting to merge', 'the last round finishing to the merge', (window) => durationCell(window.parts.waitingToMerge, 'pull request')),
-    row('Local review', 'before the first push; only where the pull request has a record', (window) => durationCell(window.localReviews.ms, 'pull request')),
-  ].join('');
-
-  return `<div class="card"><div class="tablewrap"><table>
-    <thead><tr><th></th>${windows.map((window) => `<th class="num">${esc(windowHeading(window))}</th>`).join('')}</tr></thead>
-    <tbody>${rows}</tbody>
-  </table></div></div>`;
-}
-
-function harnessCards(model) {
-  return `<div class="cards">${model.windows
-    .map((window) => {
-      const heading = `<h3>${esc(windowHeading(window))}</h3>`;
-      if (!window.harness) return `<div class="card pad">${heading}<p class="empty">${noData}</p></div>`;
-
-      const totalMs = KINDS.reduce((total, kind) => total + window.harness.kinds[kind].ms, 0);
-      const rows = KINDS.map((kind) => {
-        const each = window.harness.kinds[kind];
-        const share = totalMs > 0 ? (each.ms / totalMs) * 100 : 0;
-        return `<tr>
-          <th scope="row"><span class="swatch ${kind}"></span>${KIND_LABEL[kind]}</th>
-          <td class="num"><span class="fig">${humanMs(each.ms)}</span><span class="bar"><span class="fill ${kind}" style="width:${share.toFixed(1)}%"></span></span></td>
-          <td class="num">${each.runs}</td>
-          <td class="num">${each.last} <span class="of">of ${plural(window.harness.rounds, 'round')}</span></td>
-        </tr>`;
-      }).join('');
-
-      return `<div class="card pad">${heading}<div class="tablewrap"><table>
-        <thead><tr><th></th><th class="num">Held rounds for</th><th class="num">Runs</th><th class="num">Last to finish</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table></div></div>`;
-    })
-    .join('')}</div>`;
-}
 
 /**
  * What a reader who took the page's totals for the whole would get wrong, each said
@@ -462,58 +377,232 @@ function balance(model) {
   </div>`;
 }
 
-const reviewCells = (pull, kind) => {
-  const review = pull.reviews[kind];
-  return review.runs === 0
-    ? '<td class="num dur">&mdash;</td><td class="num dur">&mdash;</td><td class="num dur">&mdash;</td>'
-    : `<td class="num">${review.runs}</td><td class="num dur">${humanMs(review.ms)}</td><td class="num dur">${humanMs(review.heldMs)}</td>`;
-};
+/**
+ * The evolution panels: every merged pull request in the zoomed range, positioned
+ * on the x-axis by when it actually merged (never by index — a quiet week must
+ * look quieter), each panel its own y-scale since minutes, a count and a
+ * percentage do not share one. Every panel also carries a size lane of its own:
+ * a dot per pull request, sized by its lines changed, in its own row below the
+ * bars rather than drawn over them — stacked atop the bars themselves, a size
+ * dot reads fine on a quiet day and becomes an illegible blob on a busy one,
+ * since it is fighting the bar's own colour for the same pixels.
+ */
+const EVO = { width: 900, left: 52, right: 12, top: 10 };
+const EVO_LANE = { height: 26, gap: 10 };
 
-const localReviewCell = (pull) => {
-  if (!pull.recorded) return '<td class="num dur"><span class="tag unrecorded">not recorded</span></td>';
-  if (!pull.localReviews) return '<td class="num dur">none marked</td>';
-  return `<td class="num dur">${plural(pull.localReviews.count, 'review')}, ${humanMs(pull.localReviews.ms)}</td>`;
-};
+/** A pull request's size-dot radius in the lane: 2 to 9px, so the smallest change is still a mark and the largest cannot swallow its neighbours. `maxLines` is always at least 1 — see `evoScales`. */
+function evoRadius(lines, maxLines) {
+  return 2 + 7 * Math.sqrt(Math.max(0, lines) / maxLines);
+}
 
-function numbersTable(model) {
-  if (model.pulls.length === 0) return '<div class="card"><p class="empty">No merged pull requests in this period.</p></div>';
+/**
+ * Midnight UTC of every day the read pull requests span, for the shared x-axis —
+ * never before `t0` itself: the first midnight at or after it can still be days
+ * away where every pull request merged inside one day, and a tick from before the
+ * scale's own start would sit far off it, not merely near its edge.
+ */
+function evoDayTicks(t0, t1) {
+  const start = new Date(t0);
+  start.setUTCHours(0, 0, 0, 0);
+  const ticks = [];
+  for (let t = start.getTime(); t <= t1; t += 86_400_000) if (t >= t0) ticks.push(t);
+  return ticks.length ? ticks : [t0];
+}
 
-  const sum = (pick) => model.pulls.reduce((total, pull) => total + pick(pull), 0);
-  const reviewTotal = (kind) => `<td class="num">${sum((pull) => pull.reviews[kind].runs)}</td><td class="num dur">${humanMs(sum((pull) => pull.reviews[kind].ms))}</td><td class="num dur">${humanMs(sum((pull) => pull.reviews[kind].heldMs))}</td>`;
+/** The plot's x scale (by time), shared by every panel and its lane alike. */
+function evoPx(t0, t1) {
+  const span = Math.max(1, t1 - t0);
+  const plotW = EVO.width - EVO.left - EVO.right;
+  return { px: (t) => EVO.left + ((t - t0) / span) * plotW, plotW };
+}
 
-  const body = model.pulls
-    .map(
-      (pull) => `<tr>
-        <td class="pr"><a href="${esc(pull.url)}" target="_blank" rel="noopener">#${esc(pull.number)}</a> <span class="title">${esc(pull.title)}</span></td>
-        <td class="num"><span class="add">+${pull.size.additions}</span> <span class="del">&minus;${pull.size.deletions}</span></td>
-        <td class="num">${pull.rounds.length}</td>
-        <td class="num">${pull.rounds.filter((round) => round.red).length}</td>
-        ${Object.keys(REVIEW_CHECKS)
-          .map((kind) => reviewCells(pull, kind))
-          .join('')}
-        ${localReviewCell(pull)}
-      </tr>`,
-    )
+/** The bar plot's own axis and gridlines: the y-scale and the box, but not the shared day ticks. */
+function evoValueAxis(t0, t1, maxY, plotH, yFormat) {
+  const { plotW } = evoPx(t0, t1);
+  const py = (v) => EVO.top + plotH - (Math.min(v, maxY) / maxY) * plotH;
+  let out = `<line class="eaxis" x1="${EVO.left}" y1="${EVO.top}" x2="${EVO.left}" y2="${EVO.top + plotH}"/><line class="eaxis" x1="${EVO.left}" y1="${EVO.top + plotH}" x2="${EVO.left + plotW}" y2="${EVO.top + plotH}"/>`;
+  for (let i = 0; i <= 3; i += 1) {
+    const y = py((maxY / 3) * i);
+    out += `<line class="egrid" x1="${EVO.left}" y1="${y.toFixed(1)}" x2="${EVO.left + plotW}" y2="${y.toFixed(1)}"/><text class="etick" x="${(EVO.left - 6).toFixed(1)}" y="${(y + 3.5).toFixed(1)}" text-anchor="end">${esc(yFormat((maxY / 3) * i))}</text>`;
+  }
+  return { svg: out, py };
+}
+
+/** The day labels shared by a panel's bars and its lane, drawn once at the very bottom. */
+function evoDayAxis(t0, t1, y) {
+  const { px } = evoPx(t0, t1);
+  return evoDayTicks(t0, t1)
+    .map((t) => `<text class="etick" x="${px(t).toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle">${esc(day(new Date(t).toISOString()).slice(5))}</text>`)
     .join('');
+}
 
-  return `<div class="card"><div class="tablewrap"><table class="numbers">
-    <thead>
-      <tr class="group"><th></th><th></th><th></th><th></th><th colspan="3" class="num">Code review</th><th colspan="3" class="num">Security review</th><th></th></tr>
-      <tr><th>Pull request</th><th class="num">Lines</th><th class="num">Rounds</th><th class="num">Red</th>
-        <th class="num">Runs</th><th class="num">Total time</th><th class="num">Held anyone up</th>
-        <th class="num">Runs</th><th class="num">Total time</th><th class="num">Held anyone up</th>
-        <th class="num">Local review</th></tr>
-    </thead>
-    <tbody>${body}</tbody>
-    <tfoot><tr>
-      <td>${plural(model.pulls.length, 'pull request')}</td>
-      <td class="num"><span class="add">+${sum((pull) => pull.size.additions)}</span> <span class="del">&minus;${sum((pull) => pull.size.deletions)}</span></td>
-      <td class="num">${sum((pull) => pull.rounds.length)}</td>
-      <td class="num">${sum((pull) => pull.rounds.filter((round) => round.red).length)}</td>
-      ${reviewTotal('code-review')}${reviewTotal('security-review')}
-      <td></td>
-    </tr></tfoot>
-  </table></div></div>`;
+/** The size lane: one dot per pull request, in its own row so it never competes with a bar's own colour for the same pixels. */
+function evoSizeLane(pulls, t0, t1, maxLines, top) {
+  const { px, plotW } = evoPx(t0, t1);
+  const laneY = top + EVO_LANE.height / 2;
+  const dots = pulls
+    .map((pull) => {
+      const lines = pull.size.additions + pull.size.deletions;
+      return `<circle class="evodot" cx="${px(Date.parse(pull.mergedAt)).toFixed(1)}" cy="${laneY.toFixed(1)}" r="${evoRadius(lines, maxLines).toFixed(1)}"><title>${esc(evoTitle(pull))} · ${plural(lines, 'line')} changed</title></circle>`;
+    })
+    .join('');
+  return `<line class="elanesep" x1="${EVO.left}" y1="${top.toFixed(1)}" x2="${EVO.left + plotW}" y2="${top.toFixed(1)}"/><text class="etick" x="${(EVO.left - 6).toFixed(1)}" y="${(laneY + 3.5).toFixed(1)}" text-anchor="end">size</text>${dots}`;
+}
+
+/** A panel's full height: its bars, the size lane below them, and the day labels under that. */
+function evoHeight(plotH) {
+  return EVO.top + plotH + EVO_LANE.gap + EVO_LANE.height + 20;
+}
+
+const evoTitle = (pull) => `#${pull.number} ${pull.title}`;
+
+/** The tail every panel shares: the size lane below the bars, the day labels under that, and the svg wrapper around all of it. */
+function evoPanel(pulls, t0, t1, maxLines, plotH, axisSvg, barsSvg) {
+  const laneTop = EVO.top + plotH + EVO_LANE.gap;
+  return `<svg viewBox="0 0 ${EVO.width} ${evoHeight(plotH)}" class="evochart">${axisSvg}${barsSvg}${evoSizeLane(pulls, t0, t1, maxLines, laneTop)}${evoDayAxis(t0, t1, laneTop + EVO_LANE.height + 14)}</svg>`;
+}
+
+/** Where the harness minutes go, stacked by kind, one bar per pull request. `maxY` is shared across every zoom tab — see `evoScales` — so the same pull request draws at the same height whichever tab is open. */
+function evoHarness(pulls, t0, t1, maxLines, maxY) {
+  const { px, plotW } = evoPx(t0, t1);
+  const plotH = 150;
+  const barW = Math.max(1.5, Math.min(6, plotW / pulls.length - 1));
+  const bars = pulls
+    .map((pull) => {
+      const cx = px(Date.parse(pull.mergedAt));
+      let y = EVO.top + plotH;
+      return KINDS.map((kind) => {
+        const ms = pull.harness.kinds[kind].ms;
+        if (ms <= 0) return '';
+        const h = plotH * (Math.min(ms, maxY) / maxY);
+        const rect = `<rect class="evobar ${kind}" x="${(cx - barW / 2).toFixed(1)}" y="${(y - h).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}"><title>${esc(`${evoTitle(pull)}\n${KIND_LABEL[kind]}: ${humanMs(ms)}`)}</title></rect>`;
+        y -= h;
+        return rect;
+      }).join('');
+    })
+    .join('');
+  const { svg: axis } = evoValueAxis(t0, t1, maxY, plotH, (v) => `${minuteTick(v)}m`);
+  return evoPanel(pulls, t0, t1, maxLines, plotH, axis, bars);
+}
+
+/** One value per pull request, as a bar — used for lead time, rounds and the red-round rate. `maxY` is shared across every zoom tab, like `evoHarness`'s. */
+function evoBar(pulls, t0, t1, maxLines, { cls, maxY, yFormat, valueOf, titleOf }) {
+  const { px, plotW } = evoPx(t0, t1);
+  const plotH = 100;
+  const barW = Math.max(1.5, Math.min(6, plotW / pulls.length - 1));
+  const { svg: axis, py } = evoValueAxis(t0, t1, maxY, plotH, yFormat);
+  const bars = pulls
+    .map((pull) => {
+      const value = valueOf(pull);
+      if (value <= 0) return '';
+      const cx = px(Date.parse(pull.mergedAt));
+      const y = py(value);
+      return `<rect class="evobar ${cls}" x="${(cx - barW / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${(EVO.top + plotH - y).toFixed(1)}"><title>${esc(titleOf(pull, value))}</title></rect>`;
+    })
+    .join('');
+  return evoPanel(pulls, t0, t1, maxLines, plotH, axis, bars);
+}
+
+/**
+ * The scales every zoom tab shares, from every pull request read — never from just
+ * the pulls a narrower tab shows. Without this, the same pull request would draw
+ * at a different bar height and dot size depending on which tab happened to be
+ * open, since each tab's own subset would set its own maximum.
+ */
+function evoScales(pulls) {
+  return {
+    maxLines: Math.max(1, ...pulls.map((pull) => pull.size.additions + pull.size.deletions)),
+    harnessMaxY: Math.max(60_000, ...pulls.map((pull) => KINDS.reduce((sum, kind) => sum + pull.harness.kinds[kind].ms, 0))),
+    leadMaxY: Math.max(60_000, ...pulls.map((pull) => pull.totalMs)),
+    roundsMaxY: Math.max(1, ...pulls.map((pull) => pull.rounds.length)),
+  };
+}
+
+/**
+ * Where the harness minutes go, how long a pull request took start to merge, how
+ * many rounds it took and how many ran red — one point per merged pull request in
+ * range, not one per window, so a trend is something to see rather than two
+ * snapshots to compare by eye.
+ */
+function evolution(pulls, scales) {
+  const sorted = [...pulls].sort((a, b) => Date.parse(a.mergedAt) - Date.parse(b.mergedAt));
+  if (sorted.length < 2) return '<div class="card pad"><p class="empty">Not enough merged pull requests in this period to show a trend.</p></div>';
+
+  const t0 = Date.parse(sorted[0].mergedAt);
+  const t1 = Date.parse(sorted[sorted.length - 1].mergedAt);
+  // GitHub's merge times are to the second, so more than one pull request merging in the
+  // same second is a batch or a merge queue, not a coincidence — and leaves no span to plot.
+  if (t1 === t0) return '<div class="card pad"><p class="empty">Every pull request in this period merged at the same moment, so there is no span of time to plot.</p></div>';
+
+  const legend = `<div class="legend">${KINDS.map((kind) => `<span class="key"><span class="swatch ${kind}"></span>${KIND_LABEL[kind]}</span>`).join('')}</div>`;
+
+  const rounds = (pull) => pull.rounds.length;
+  const redShare = (pull) => (pull.rounds.length ? pull.rounds.filter((round) => round.red).length / pull.rounds.length : 0);
+
+  return `<div class="card pad">
+    <h3>Where the harness minutes go</h3>
+    ${legend}
+    ${evoHarness(sorted, t0, t1, scales.maxLines, scales.harnessMaxY)}
+    <h3>Start to merge</h3>
+    ${evoBar(sorted, t0, t1, scales.maxLines, {
+      cls: 'lead',
+      maxY: scales.leadMaxY,
+      yFormat: (v) => `${minuteTick(v)}m`,
+      valueOf: (pull) => pull.totalMs,
+      titleOf: (pull, v) => `${evoTitle(pull)} · ${humanMs(v)} to merge`,
+    })}
+    <h3>Rounds to merge</h3>
+    ${evoBar(sorted, t0, t1, scales.maxLines, {
+      cls: 'rounds',
+      maxY: scales.roundsMaxY,
+      yFormat: (v) => String(Math.round(v)),
+      valueOf: rounds,
+      titleOf: (pull, v) => `${evoTitle(pull)} · ${plural(v, 'round')}`,
+    })}
+    <h3>Red rounds</h3>
+    ${evoBar(sorted, t0, t1, scales.maxLines, {
+      cls: 'red',
+      maxY: 1,
+      yFormat: (v) => `${Math.round(v * 100)}%`,
+      valueOf: redShare,
+      titleOf: (pull, v) => `${evoTitle(pull)} · ${Math.round(v * 100)}% of its rounds red`,
+    })}
+  </div>`;
+}
+
+/**
+ * How far back a zoom preset reaches, from the model's own `generatedAt` — never
+ * `Date.now()`, so the page renders the same way whenever it is opened. Each id
+ * here is also a literal selector in styles.css's `.tabs` rules
+ * (`#evozoom-<id>:checked ~ #evopanel-<id>`) — change one and change the other,
+ * since nothing else ties them together.
+ */
+const EVO_ZOOM = [
+  { id: 'all', label: 'All' },
+  { id: '7', label: 'Last 7 days' },
+  { id: '3', label: 'Last 3 days' },
+];
+
+/**
+ * The zoom tabs around `evolution`: one pre-rendered panel per preset, switched by
+ * plain radio buttons and a CSS sibling selector — no script, so the page keeps
+ * needing nothing but itself. Every preset's data is already on the page either
+ * way; the tabs only change which of it is shown. Every preset shares one set of
+ * scales (`evoScales`, over every pull request read) rather than each computing
+ * its own, so a pull request's bars and dot are the same size in every tab.
+ */
+function evolutionZoomTabs(model) {
+  const now = Date.parse(model.generatedAt);
+  const pullsFor = (preset) =>
+    preset.id === 'all' ? model.pulls : model.pulls.filter((pull) => Date.parse(pull.mergedAt) >= now - Number(preset.id) * 86_400_000);
+  const scales = evoScales(model.pulls);
+
+  const inputs = EVO_ZOOM.map(
+    (preset, index) =>
+      `<input type="radio" name="evozoom" id="evozoom-${preset.id}" class="tabradio"${index === 0 ? ' checked' : ''}><label for="evozoom-${preset.id}" class="tablabel">${esc(preset.label)}</label>`,
+  ).join('');
+  const panels = EVO_ZOOM.map((preset) => `<div class="tabpanel" id="evopanel-${preset.id}">${evolution(pullsFor(preset), scales)}</div>`).join('');
+  return `<div class="tabs">${inputs}${panels}</div>`;
 }
 
 /**
@@ -559,13 +648,9 @@ export function renderHtml(model) {
 
   ${limits(model)}
 
-  <h2>The figures</h2>
-  <p class="sectionnote">Each carries the counts it was made from, because a median over four rounds and one over four hundred are different claims.</p>
-  ${figuresTable(model)}
-
-  <h2>Where the harness minutes go</h2>
-  <p class="sectionnote">The time each kind of check held a round: from the moment the one before it finished, so two running together are counted once and the last to finish is the one charged. Runs are the times it ran; a review that finished before the tests held nobody up.</p>
-  ${harnessCards(model)}
+  <h2>Evolution</h2>
+  <p class="sectionnote">One point per merged pull request read, not one window, positioned by when it merged &mdash; so a trend is something to see rather than a pair of snapshots to compare by eye. Each panel's own size lane carries the pull request's lines changed. Zoom in with the tabs below; every day's data is already on this page, so nothing is fetched to do it.</p>
+  ${evolutionZoomTabs(model)}
 
   <h2>Coding against the harness</h2>
   <p class="sectionnote">Minutes spent writing and fixing against minutes spent in the harness, the rounds plus local review. Every pull request pays a fixed harness cost, so a small change sits above the dashed line whatever it did; read the minutes beside the ratio. No line is drawn as healthy, since there is no accepted benchmark for this ratio: the reference is the window&rsquo;s own median.</p>
@@ -573,10 +658,6 @@ export function renderHtml(model) {
 
   <h2>Each pull request, start to merge</h2>
   ${strips(model)}
-
-  <h2>The numbers behind it</h2>
-  <p class="sectionnote">Over every merged pull request read, not one window. A review&rsquo;s total time is the time it ran; the time it held anyone up is only the part of a round it was the one still running. The two differ because reviews run beside the tests.</p>
-  ${numbersTable(model)}
 
   <footer>
     Generated by <code>tools/lead-time</code> from the pull request and Actions APIs and each pull request&rsquo;s session record.

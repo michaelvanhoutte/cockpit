@@ -75,8 +75,8 @@ export function classify({ status, conclusion }) {
 }
 
 /**
- * Median and p90 of a set of durations, in milliseconds. Median averages the
- * middle pair on an even count; p90 is nearest-rank, so it is always a duration
+ * Median and p95 of a set of durations, in milliseconds. Median averages the
+ * middle pair on an even count; p95 is nearest-rank, so it is always a duration
  * that really happened. One value is therefore both, which is the honest answer
  * for a figure with one thing behind it. `null` for none.
  */
@@ -85,8 +85,8 @@ export function quantiles(values) {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = sorted.length / 2;
   const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[Math.floor(mid)];
-  const rank = Math.max(1, Math.ceil(0.9 * sorted.length));
-  return { median, p90: sorted[rank - 1], count: sorted.length };
+  const rank = Math.max(1, Math.ceil(0.95 * sorted.length));
+  return { median, p95: sorted[rank - 1], count: sorted.length };
 }
 
 /**
@@ -275,24 +275,6 @@ function readRecord(body, firstCommit) {
 }
 
 /**
- * How many times a review check ran on the pull request and for how long — the runs
- * that ran, not the skipped ones — and how much of that anyone actually waited for
- * (`heldMs`): a review that ran beside the tests holds nobody up until they finish.
- */
-function reviewsOf(commits, rounds) {
-  const result = {};
-  for (const [kind, name] of Object.entries(REVIEW_CHECKS)) {
-    const ran = commits.flatMap((commit) => commit.checks).filter((check) => check.name === name && classify(check) !== 'skipped');
-    result[kind] = {
-      runs: ran.length,
-      ms: sum(ran.map((check) => (time(check.completedAt) ?? NaN) - (time(check.startedAt) ?? NaN)).filter((ms) => Number.isFinite(ms) && ms >= 0)),
-      heldMs: sum(rounds.flatMap((round) => round.held).filter((held) => held.name === name).map((held) => held.ms)),
-    };
-  }
-  return result;
-}
-
-/**
  * One merged pull request, cut into the parts it spent.
  *
  * @param {import('./github.js').Pull} pull
@@ -368,8 +350,11 @@ export function pullModel(pull) {
     waitingToMergeMs: waitingToMerge,
     totalMs: Math.max(0, mergedAt - startMs),
     flukes: rounds.flatMap((round) => round.flukes),
-    reviews: reviewsOf(pull.commits, rounds),
     localReviews: record.localReviews,
+    // What each kind of check held this pull request's own rounds up for, the same
+    // shape a window's `harness` is in — so the evolution chart can plot one pull
+    // request's kinds the same way it reads a window's.
+    harness: harnessOf(rounds),
     notes,
   };
 }
@@ -388,7 +373,7 @@ function harnessOf(rounds) {
   return { rounds: rounds.length, kinds };
 }
 
-/** One window's picture: the pull requests merged in it, and every part's median and p90. */
+/** One window's picture: the pull requests merged in it, and every part's median and p95. */
 function windowModel(pulls, { days, now, coveredSince }) {
   const since = now.getTime() - days * DAY_MS;
   const inWindow = pulls.filter((pull) => {

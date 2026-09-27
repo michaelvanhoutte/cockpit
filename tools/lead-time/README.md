@@ -61,7 +61,7 @@ A pull request is one line, cut into parts:
   passing one finishing. A failure the next push fixed is a red round; two jobs that share a
   name in different workflows are two checks, not one re-run.
 - **Ready or draft**: a round in which the code review or the security review ran is `ready`,
-  since a draft skips both. Their runs and total time are on each pull request under `reviews`.
+  since a draft skips both.
 - **A conclusion it does not know is neither a pass nor a fail**, and is named in the round's
   `unrecognised`.
 - **Time nobody wrote down reads as not recorded, never zero.** A pull request with no record
@@ -73,10 +73,11 @@ A pull request is one line, cut into parts:
   `pulls.withoutRecord` says how many pull requests the record-based figures left out. A pull
   request closed without merging is in no figure.
 
-Over each window the model gives the median and p90 of every part, the rounds per pull request,
+Over each window the model gives the median and p95 of every part, the rounds per pull request,
 how many rounds ran past ten minutes, and what each kind of check held rounds up for (`harness`:
-minutes, runs, and rounds it finished last). `pulls` in the model is the per-pull-request detail
-behind them.
+minutes, runs, and rounds it finished last). Each pull request carries the same `harness` shape
+for its own rounds, so the page can plot one pull request the way it reads a window. `pulls` in
+the model is the per-pull-request detail behind them.
 
 **Coding against the harness** is each pull request's `balance`, and over a window its `balance`
 holds the dots and the median of their ratios. Coding is the time before the first push plus the
@@ -90,8 +91,13 @@ Every measurement on it is the model's; the renderer lays them out and sums the 
 the totals leave out, always and not only when something is unusual: the period actually covered
 (not the one asked for, where the fetch was capped), that time before the session's start is not
 measured, that only merged pull requests count, and how many carry a session record. Then the
-figures over each window, where the harness minutes go, coding against the harness, a strip per
-pull request, and the numbers behind them.
+evolution panels, coding against the harness, and a strip per pull request.
+
+- **Evolution is four panels, one point per pull request read** (not one per window), positioned
+  by when it actually merged: where the harness minutes go (stacked by kind), start to merge,
+  rounds to merge, and the share of a pull request's rounds that were red. A dot's size is the
+  pull request's own lines changed, the same on every panel, so a trend is something to see
+  rather than two window snapshots to compare by eye.
 
 - **Coding against the harness is a scatter** (`src/render/scatter.js`): a dot per pull request
   that carries a record, minutes coding and fixing across and minutes in the harness up, on one
@@ -108,8 +114,6 @@ pull request, and the numbers behind them.
   part, so it never looks like coding that took no time.
 - **No script and nothing fetched**: styles are inline, and the only addresses are links a reader
   follows, to pull requests and the commit. Light and dark follow the reader's setting.
-- **The harness cards are per window; the numbers table is over every pull request read**, which is
-  the same set unless `--days` reaches back further than the widest window.
 
 ## How a page gets built
 
