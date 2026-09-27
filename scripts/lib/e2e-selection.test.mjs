@@ -6,6 +6,8 @@
 //
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
 import { grepFor, planE2eRun } from './e2e-selection.mjs';
@@ -168,5 +170,18 @@ describe('grepFor', () => {
   it('escapes a title that holds a regular-expression character', () => {
     const grep = new RegExp(grepFor(['Panels (grid)']));
     assert.ok(grep.test('desktop x.test.ts Panels (grid) a title'));
+  });
+});
+
+describe('the tests/e2e/ prefix', () => {
+  it('shares its constant with test-selection.mjs rather than redefining it', () => {
+    // Asserted against the source rather than by behaviour alone, mirroring
+    // test-selection.test.mjs's own isNonProduct-sharing test - importing
+    // SPECS here and using it inline would pass even if e2e-selection.mjs
+    // carried its own separate copy of the same literal.
+    const path = fileURLToPath(new URL('./e2e-selection.mjs', import.meta.url));
+    const source = readFileSync(path, 'utf8');
+    assert.match(source, /import\s*\{[^}]*\bSPECS\b[^}]*\}\s*from\s*'\.\/test-selection\.mjs';/, 'e2e-selection.mjs should import SPECS rather than duplicate it');
+    assert.doesNotMatch(source, /const SPECS = /, 'e2e-selection.mjs should not redefine SPECS itself');
   });
 });

@@ -26,10 +26,9 @@
 //
 
 import { isNonProduct } from './what-changed.mjs';
-import { isOutsidePackages, isTsconfig } from './test-selection.mjs';
+import { isOutsidePackages, isTsconfig, SPECS } from './test-selection.mjs';
 import { matchingConcepts } from '../../tools/test-explorer/src/analyze/concepts.js';
 
-const SPECS = 'tests/e2e/';
 const SUPPORT = 'tests/e2e/support/';
 const REGISTRY = 'tools/test-explorer/concepts.json';
 const CONFIG = 'playwright.config.ts';
