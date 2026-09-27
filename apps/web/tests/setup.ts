@@ -47,3 +47,12 @@ document.elementFromPoint = () => null;
  */
 Element.prototype.setPointerCapture = function setPointerCapture() {};
 Element.prototype.releasePointerCapture = function releasePointerCapture() {};
+
+/**
+ * Object URLs, which jsdom does not implement at all - a queued attachment's
+ * thumbnail (`CaptureNote.tsx`) asks for one before it has anything else to
+ * show an image by. What it points at is fictional; that a real one really
+ * renders the file is a browser behaviour, not something this can prove.
+ */
+URL.createObjectURL = () => 'blob:mock';
+URL.revokeObjectURL = () => {};
