@@ -10,7 +10,7 @@ import { ManageWindow } from '../../../src/components/ManageWindow';
  * the one Capture's own window needs now that it takes files
  * ("Drop files and paste images while capturing a message", issue 557).
  */
-describe('ManageWindow', () => {
+describe('Management windows', () => {
   it('keeps a file dropped on the backdrop from the browser', () => {
     render(
       <ManageWindow title="Things" open onClose={() => {}}>
