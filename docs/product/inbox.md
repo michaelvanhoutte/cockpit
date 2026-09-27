@@ -8,6 +8,8 @@ Its name and the number in it head the column from the Dashboard bar, in the lef
 
 **Capture has one way in: the header's Capture tab, and `C`.** The Inbox has no note box of its own. At a desk both open Capture as a window over the screen you are on — a note of several lines, the Types as chips, a row of Workspaces, and what has just been captured under it — and Escape puts you back where you were, the note already in the Inbox beside it. On a phone both open the Capture page, where capture is the primary use. `C` works anywhere inside Cockpit except while typing in a field, while a menu or window is open, or with Ctrl, Alt or ⌘ held; the tab's tooltip reads *Capture (C)*.
 
+**A file dropped or pasted anywhere on the form, or chosen with its own Add button, becomes an Attachment on the note** — queued as a chip until Capture makes the Item, then uploaded to it; see Attachment in the glossary for how one is added and drawn.
+
 **Where starts on the Workspace you are in**, in the window and on the page, and on *Any workspace* only when Capture is reached from outside one — a typed `/capture`, or the installed app's shortcut. A different Workspace chosen in the window holds until the window closes, so several notes for one customer cost one choice; reopening starts on the current Workspace again. A note left on *Any workspace* waits in every Workspace's Inbox until somebody says where it belongs; the Workspace it was captured *from* is recorded either way. `/capture` is the page at every width, because a link and the installed app's shortcut open it; the window has no address of its own, like the Types window.
 
 Processing an Item today means one of:

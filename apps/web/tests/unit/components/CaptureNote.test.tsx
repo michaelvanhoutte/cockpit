@@ -647,6 +647,60 @@ describe('Capture', () => {
     });
   });
 
+  /**
+   * Found after shipping: the form gave no sign that dropping or pasting a
+   * file was possible at all. Mirrors the Item form's own Attachments box -
+   * a "Drag a file here, or" hint and an Add button, both shown whether or
+   * not anything is queued yet.
+   */
+  describe('an Add button and a drag hint say a file can be attached, before anyone has tried', () => {
+    it('always shows the drag hint and the Add button, even with nothing queued', async () => {
+      await thePage();
+
+      expect(screen.getByText('Drag a file here, or')).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Add' })).toBeVisible();
+    });
+
+    it('replaces the drag hint with the chip once something is queued', async () => {
+      await thePage();
+
+      fireEvent.drop(box(), carrying(aPhoto()));
+
+      expect(await screen.findByText('photo.png')).toBeVisible();
+      expect(screen.queryByText('Drag a file here, or')).toBeNull();
+    });
+
+    it('queues a file chosen through the picker the same way a dropped one queues', async () => {
+      const user = await thePage();
+
+      await user.upload(screen.getByLabelText('Files to attach'), aPhoto());
+
+      expect(await screen.findByText('photo.png')).toBeVisible();
+      expect(uploadAttachment).not.toHaveBeenCalled();
+    });
+
+    it('queues several files chosen at once, all of them', async () => {
+      const user = await thePage();
+
+      await user.upload(screen.getByLabelText('Files to attach'), [
+        aPhoto(),
+        aFile('doc.pdf', 'application/pdf'),
+      ]);
+
+      expect(await screen.findByText('photo.png')).toBeVisible();
+      expect(screen.getByText('doc.pdf')).toBeVisible();
+    });
+
+    it('refuses a disallowed file chosen through the picker, the same as a dropped one', async () => {
+      const user = await thePage();
+
+      await user.upload(screen.getByLabelText('Files to attach'), aFile('notes.txt', 'text/plain'));
+
+      expect(screen.getByRole('alert')).toHaveTextContent('"notes.txt" is not a kind of file Cockpit accepts.');
+      expect(screen.queryByText('notes.txt')).toBeNull();
+    });
+  });
+
   describe('a queued file is checked against the allowlist and the 25MB cap before it queues', () => {
     it('refuses an oversized file by name, and does not queue it', async () => {
       await thePage();

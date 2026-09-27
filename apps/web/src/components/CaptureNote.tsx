@@ -99,6 +99,7 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
   const [queueError, setQueueError] = useState<string | null>(null);
   /** A file being dragged over the form anywhere a drop would queue it. */
   const [filesOver, setFilesOver] = useState(false);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const queuedRef = useRef(queued);
   queuedRef.current = queued;
   // Revokes whatever object URLs are still outstanding on the way out - a
@@ -348,46 +349,69 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
         className="order-1 mt-2.5 w-full sm:order-none resize-none rounded-md border border-black/10 bg-white p-3 text-base leading-[1.5] text-ink shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 sm:mt-4 sm:min-h-56 sm:resize-y sm:px-5 sm:py-[18px]"
       />
 
-      {/* What is queued to attach once Capture is pressed, one chip per
-          file - the same chip the Item form's own attachments use. */}
-      {queued.length > 0 && (
-        <ul
-          aria-label="Files to attach"
-          className="order-1 mt-2 flex flex-wrap gap-1.5 sm:order-none"
-        >
-          {queued.map((file) => (
-            <li
-              key={file.id}
-              className="flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm"
-            >
-              {file.previewUrl ? (
-                <img
-                  src={file.previewUrl}
-                  alt=""
-                  className="h-8 w-8 shrink-0 rounded object-cover"
-                />
-              ) : (
-                <span className="shrink-0 text-lg" aria-hidden="true">
-                  📄
-                </span>
-              )}
-              <span className="min-w-0">
-                <span className="block max-w-40 truncate font-medium text-ink">{file.file.name}</span>
-                <span className="block text-xs text-ink-faint">{formatFileSize(file.file.size)}</span>
+      {/* Files queued to attach once Capture is pressed - shown whether or
+          not anything is queued yet, the same "Drag a file here, or" plus
+          Add button the Item form's own Attachments box always shows, so
+          there is something on screen naming drop, paste and a picker all
+          three before anyone has tried any of them. */}
+      <div
+        className={`order-1 mt-2 flex flex-col gap-1.5 rounded-md border border-dashed px-3 py-2 sm:order-none ${
+          filesOver ? 'border-accent bg-accent-tint' : 'border-black/10'
+        }`}
+      >
+        {queued.map((file) => (
+          <div
+            key={file.id}
+            className="flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm"
+          >
+            {file.previewUrl ? (
+              <img
+                src={file.previewUrl}
+                alt=""
+                className="h-8 w-8 shrink-0 rounded object-cover"
+              />
+            ) : (
+              <span className="shrink-0 text-lg" aria-hidden="true">
+                📄
               </span>
-              <button
-                type="button"
-                onClick={() => removeQueued(file.id)}
-                title="Remove"
-                aria-label={`Remove ${file.file.name}`}
-                className="shrink-0 rounded-md border border-black/10 px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink"
-              >
-                ✕
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+            )}
+            <span className="min-w-0">
+              <span className="block max-w-40 truncate font-medium text-ink">{file.file.name}</span>
+              <span className="block text-xs text-ink-faint">{formatFileSize(file.file.size)}</span>
+            </span>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => removeQueued(file.id)}
+              title="Remove"
+              aria-label={`Remove ${file.file.name}`}
+              className="shrink-0 rounded-md border border-black/10 px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+        {queued.length === 0 && <p className="text-sm text-ink-faint">Drag a file here, or</p>}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => attachmentInputRef.current?.click()}
+          className="self-start rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+        >
+          Add
+        </button>
+        <input
+          ref={attachmentInputRef}
+          type="file"
+          multiple
+          aria-label="Files to attach"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files && e.target.files.length > 0) queueFiles(e.target.files);
+            e.target.value = '';
+          }}
+        />
+      </div>
       {queueError && (
         <p role="alert" className="order-1 pt-1 text-sm text-over sm:order-none">
           {queueError}
