@@ -8,9 +8,14 @@ name: Nightly
 # down with it.
 #
 # **Each report is its own job**, so adding one is adding a job and one failing
-# costs no other. `main`'s `Publish` job (ci.yml) takes each report's newest
-# artifact from a run on `main`, not the newest successful run, for the same
-# reason: a run where another job failed still has this one's page.
+# costs no other. `publish.yml`, shared with `ci.yml`'s own call to it, takes
+# each report's newest artifact from a run on `main`, not the newest successful
+# run, for the same reason: a run where another job failed still has this
+# one's page. Calling it here too, rather than only from `ci.yml`, means a
+# scheduled run goes live the same night instead of waiting on the next
+# unrelated merge, and a manual run is "publish this now" while working on a
+# report ("Publish nightly's reports the same night, and make a manual run go
+# live too", issue 563).
 #
 # Not `contract.yml`, which spends money and holds its own secrets, and not
 # `ci.yml`, which would run the whole suite.
@@ -86,3 +91,19 @@ jobs:
         with:
           name: test-selection-report
           path: tools/selection/out/
+
+  # Puts tonight's reports live, alongside whatever the last merge to `main`
+  # published — `!cancelled()` so one report's failed build still lets the
+  # other's page out, the same tolerance `needs` already gives the jobs above.
+  # A manual dispatch reaches this job too, since it is not gated on the
+  # schedule that started the run, only on being on `main`.
+  publish:
+    name: Publish
+    needs: [lead-time, selection]
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+      actions: read
+    uses: ./.github/workflows/publish.yml
