@@ -1,0 +1,168 @@
+name: Publish
+
+# The four reports' one publish path, called from wherever a fresh one exists —
+# ci.yml after a merge (the test explorer, the stability report) and
+# nightly.yml after its own run (the lead-time report, the test-selection
+# report) — so a report goes live as soon as something built it, not only when
+# the next unrelated merge happens to carry it in ("Publish nightly's reports
+# the same night, and make a manual run go live too", issue 563).
+#
+# Every report is fetched the same way regardless of which workflow called
+# this one: the newest artifact from an eligible run of either workflow on
+# `main`, never the newest *successful* run, so one report's failure never
+# costs another's page — the same tolerance "Run the lead-time report
+# nightly, and publish it beside the other two" (issue 515) established for
+# the lead-time and test-selection reports, now true of all four.
+on:
+  workflow_call:
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+      # download-artifact and the `gh api` calls below read across runs through
+      # the Actions API, which the workflow-level block above withholds by default.
+      actions: read
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      # A local composite action (`./.github/actions/find-artifact`, below)
+      # only resolves once the tree it lives in is on the runner — nothing
+      # here otherwise touches the checkout, since every other step reads
+      # artifacts through the API rather than the tree.
+      - uses: actions/checkout@v4
+
+      # Trusts only a run of ci.yml or nightly.yml, on `main`, started by a
+      # push, a schedule, or a person with write access dispatching one by
+      # hand — never a pull request from a fork branched `main`, which could
+      # otherwise upload an artifact of any name whose `head_branch` reads
+      # `main` and have this job publish it on the site's own origin.
+      #
+      # One workflow at a time, its own scoped endpoint rather than one call
+      # across every workflow in the repository: `actions/runs` would compete
+      # for its fixed page against codeql.yml, deploy-staging.yml and every
+      # other push-triggered workflow, and could age a still-valid nightly run
+      # out of the window sooner than this repository merges. Both are
+      # continue-on-error, so a transient failure on one still lets the
+      # other's reports publish, rather than failing every report at once.
+      - name: List ci.yml's eligible runs on main
+        id: ci-runs
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&per_page=50" |
+            jq -c '[.workflow_runs[] | select((.event == "push" or .event == "workflow_dispatch") and .head_repository.full_name == env.GITHUB_REPOSITORY) | .id]')
+          echo "runs=$runs" >> "$GITHUB_OUTPUT"
+      - name: List nightly.yml's eligible runs on main
+        id: nightly-runs
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly.yml/runs?branch=main&per_page=50" |
+            jq -c '[.workflow_runs[] | select((.event == "schedule" or .event == "workflow_dispatch") and .head_repository.full_name == env.GITHUB_REPOSITORY) | .id]')
+          echo "runs=$runs" >> "$GITHUB_OUTPUT"
+      - name: Combine the eligible runs
+        id: runs
+        env:
+          CI_RUNS: ${{ steps.ci-runs.outputs.runs }}
+          NIGHTLY_RUNS: ${{ steps.nightly-runs.outputs.runs }}
+        run: |
+          runs=$(jq -sc 'add' <<< "${CI_RUNS:-[]}"$'\n'"${NIGHTLY_RUNS:-[]}")
+          echo "runs=$runs" >> "$GITHUB_OUTPUT"
+
+      # The site is four reports, assembled here rather than uploaded by
+      # whichever job finished last: the explorer at the root, the stability
+      # page one directory down at /stability/, the lead-time page at
+      # /lead-time/ and the test-selection page at /selection/. Each stays
+      # downloadable on its own as the artifact its own job uploaded.
+      - name: Find the test explorer's report
+        id: explorer
+        uses: ./.github/actions/find-artifact
+        with:
+          name: test-explorer-report
+          runs: ${{ steps.runs.outputs.runs }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Take the test explorer's report
+        # It is not allowed to be missing — it is the page — so this one is
+        # never continue-on-error the way the other three are.
+        uses: actions/download-artifact@v4
+        with:
+          name: test-explorer-report
+          path: site/
+          run-id: ${{ steps.explorer.outputs.run-id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Find the stability report
+        id: stability
+        continue-on-error: true
+        uses: ./.github/actions/find-artifact
+        with:
+          name: ci-stability-report
+          runs: ${{ steps.runs.outputs.runs }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Take the stability report, if there is one
+        if: ${{ steps.stability.outputs.run-id != '' }}
+        # A page that cannot be fetched costs this page and never the site.
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-stability-report
+          path: site/stability/
+          run-id: ${{ steps.stability.outputs.run-id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Find the lead-time page
+        id: lead-time
+        continue-on-error: true
+        uses: ./.github/actions/find-artifact
+        with:
+          name: lead-time-report
+          runs: ${{ steps.runs.outputs.runs }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Take the lead-time page, if there is one
+        if: ${{ steps.lead-time.outputs.run-id != '' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: lead-time-report
+          path: site/lead-time/
+          run-id: ${{ steps.lead-time.outputs.run-id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Find the test-selection page
+        id: selection
+        continue-on-error: true
+        uses: ./.github/actions/find-artifact
+        with:
+          name: test-selection-report
+          runs: ${{ steps.runs.outputs.runs }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Take the test-selection page, if there is one
+        if: ${{ steps.selection.outputs.run-id != '' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: test-selection-report
+          path: site/selection/
+          run-id: ${{ steps.selection.outputs.run-id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+      - id: deploy
+        uses: actions/deploy-pages@v4

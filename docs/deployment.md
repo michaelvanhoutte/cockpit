@@ -982,15 +982,19 @@ Then, by hand (no API, or deliberately not automated):
    asked for, so the default is a decision rather than something nobody looked at.
    It is a dashboard setting with no API to read it back from.
 
-4. **GitHub Pages**, at Settings → Pages → Source: **GitHub Actions**. CI's
-   `Publish` job deploys the four reports there from `main` — the test explorer
+4. **GitHub Pages**, at Settings → Pages → Source: **GitHub Actions**. `publish.yml`
+   deploys the four reports there from `main` — the test explorer
    (`tools/test-explorer/README.md`), the CI stability page
    (`tools/ci-stability/README.md`), the lead-time page
    (`tools/lead-time/README.md`) and the test-selection page
-   (`tools/selection/README.md`) — and until this is set that job fails, which
-   puts `main` red on every commit. Not automated: `configure-pages`'s
-   `enablement` input refuses `GITHUB_TOKEN` and wants a stored personal access
-   token, which buys one settings click at the price of a long-lived credential.
+   (`tools/selection/README.md`) — called from both `ci.yml`'s `Publish` job on
+   every merge and `nightly.yml`'s own `Publish` job, so a nightly run goes
+   live the same night rather than waiting on the next merge ("Publish
+   nightly's reports the same night, and make a manual run go live too", issue
+   563). Until this is set, both callers fail, which puts `main` red on every
+   commit. Not automated: `configure-pages`'s `enablement` input refuses
+   `GITHUB_TOKEN` and wants a stored personal access token, which buys one
+   settings click at the price of a long-lived credential.
 
 ### Commit attribution
 

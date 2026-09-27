@@ -1,0 +1,35 @@
+name: Find artifact
+description: The run that produced the newest eligible artifact of a given name, or empty if there is none.
+
+inputs:
+  name:
+    description: The artifact's name.
+    required: true
+  runs:
+    description: A JSON array of trusted workflow_run ids, from an eligible-runs lookup.
+    required: true
+  github-token:
+    required: true
+
+outputs:
+  run-id:
+    description: The eligible run whose artifact is newest, or empty.
+    value: ${{ steps.find.outputs.run-id }}
+
+runs:
+  using: composite
+  steps:
+    # Server-side filtered to this one name, so it competes for its own
+    # hundred-row page rather than every artifact type this repository
+    # uploads — the same reason the runs lookup this reads from is filtered
+    # server-side to one workflow at a time.
+    - id: find
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        RUNS: ${{ inputs.runs }}
+        NAME: ${{ inputs.name }}
+      run: |
+        id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$NAME&per_page=100" |
+          jq -r --argjson runs "${RUNS:-[]}" '[.artifacts[] | select(.expired == false and (.workflow_run.id as $r | $runs | index($r)))] | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty')
+        echo "run-id=$id" >> "$GITHUB_OUTPUT"
