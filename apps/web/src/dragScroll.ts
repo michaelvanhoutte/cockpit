@@ -34,13 +34,14 @@ export interface ScrollBox {
 export const BAND_PX = 64;
 
 /**
- * The slowest and the fastest a box scrolls, in pixels per frame. The slowest
- * is not zero because a browser rounds a scroll of less than a pixel to none.
+ * The slowest and the fastest a box scrolls, in pixels per second — not per
+ * frame, so a 120Hz screen scrolls no faster than a 60Hz one.
  */
-export const MIN_SPEED_PX = 2;
-export const MAX_SPEED_PX = 22;
+export const MIN_SPEED_PX_PER_SEC = 60;
+export const MAX_SPEED_PX_PER_SEC = 480;
 
-const eased = (fraction: number) => MIN_SPEED_PX + (MAX_SPEED_PX - MIN_SPEED_PX) * Math.min(1, fraction);
+const eased = (fraction: number) =>
+  MIN_SPEED_PX_PER_SEC + (MAX_SPEED_PX_PER_SEC - MIN_SPEED_PX_PER_SEC) * fraction ** 2;
 
 /**
  * The band is a third of the box at most, so the top's and the bottom's never
@@ -49,9 +50,9 @@ const eased = (fraction: number) => MIN_SPEED_PX + (MAX_SPEED_PX - MIN_SPEED_PX)
 const bandOf = (box: ScrollBox) => Math.min(BAND_PX, (box.bottom - box.top) / 3);
 
 /**
- * Pixels per frame the pointer's height scrolls this box by: negative is up,
- * zero is not at all. Linear in how far into the band the pointer is, so it
- * eases in from the inner side of the band and is fastest at the edge.
+ * Pixels per second the pointer's height scrolls this box by: negative is up,
+ * zero is not at all. Eases in from the inner side of the band as the pointer
+ * goes further in, and is fastest at the edge.
  *
  * **The band is inside the edge, never past it**: above the dashboard is its
  * bar, where resting a drag on a tab switches dashboards, so a pointer past the
@@ -86,12 +87,14 @@ function inBand(point: { x: number; y: number }, box: ScrollBox): boolean {
 /**
  * Which box scrolls, and how fast - one at a time.
  *
- * **The box that was scrolling keeps scrolling until the pointer leaves its
- * band**, even where it has run out of room: heading for a panel further down
- * scrolls the dashboard, and the panels sliding past under the pointer must not
- * take over. To scroll a panel's own list, go into that panel and then to its
- * edge. Otherwise the innermost box that can scroll where the pointer is wins,
- * a panel's list before the dashboard around it.
+ * **A scrolling dashboard keeps scrolling until the pointer leaves its band**,
+ * even where a panel with room of its own slides under the pointer: heading
+ * for a panel further down scrolls the dashboard, and the panels sliding past
+ * must not take over. **A scrolling panel that runs out of room hands the
+ * scroll to the dashboard around it** instead of holding a pointer that can no
+ * longer move it. To scroll a panel's own list, go into that panel and then to
+ * its edge, before it runs out. Otherwise the innermost box that can scroll
+ * where the pointer is wins, a panel's list before the dashboard around it.
  *
  * **A panel drag scrolls only the dashboard**, since nothing in a list is
  * aimed at. The Inbox is not a box at all, so its edges ask nothing of anyone:
@@ -105,9 +108,14 @@ export function boxToScroll(
 ): { id: string; speed: number } | null {
   const candidates = boxes.filter((box) => dragging === 'item' || box.kind === 'dashboard');
   const held = candidates.find((box) => box.id === scrollingLast);
-  if (held && inBand(point, held)) return { id: held.id, speed: scrollSpeed(point.y, held) };
+  if (held && inBand(point, held)) {
+    const speed = scrollSpeed(point.y, held);
+    if (speed !== 0 || held.kind === 'dashboard') return { id: held.id, speed };
+  }
   for (const kind of ['panel', 'dashboard'] as const) {
     for (const box of candidates) {
+      // Already known, above: a held box only reaches here out of band or exhausted, either way 0.
+      if (box.id === held?.id) continue;
       if (box.kind !== kind || point.x < box.left || point.x >= box.right) continue;
       const speed = scrollSpeed(point.y, box);
       if (speed !== 0) return { id: box.id, speed };
@@ -141,6 +149,26 @@ function boxesOnScreen(): { element: HTMLElement; box: ScrollBox }[] {
   });
 }
 
+/** The most a frame's gap counts for, so a tab backgrounded mid-drag doesn't jump the full absence in one step. */
+const MAX_FRAME_MS = 100;
+
+/**
+ * How far a box moves for one frame: `speedPxPerSec` is the rate from
+ * `scrollSpeed`, `dtMs` the time since the previous frame, and `carry` the
+ * fraction of a pixel left over from previous frames, since `scrollTop` only
+ * takes whole pixels and a slow scroll's per-frame distance can be under one.
+ */
+export function scrollStep(
+  speedPxPerSec: number,
+  dtMs: number,
+  carry: number,
+): { pixels: number; carry: number } {
+  const dt = Math.min(Math.max(dtMs, 0), MAX_FRAME_MS);
+  const raw = carry + (speedPxPerSec * dt) / 1000;
+  const pixels = Math.trunc(raw);
+  return { pixels, carry: raw - pixels };
+}
+
 /**
  * Runs the scrolling for one drag, one step a frame, until the returned
  * function is called. `point` is where the pointer is now, or null before it
@@ -154,8 +182,12 @@ export function scrollWhileDragging(options: {
 }): () => void {
   let frame = 0;
   let scrollingLast: string | null = null;
-  const step = () => {
+  let lastTime: number | null = null;
+  let carry = 0;
+  const step = (time: number) => {
     const point = options.point();
+    const dtMs = lastTime === null ? 0 : time - lastTime;
+    lastTime = time;
     if (point) {
       const found = boxesOnScreen();
       const chosen = boxToScroll(
@@ -164,12 +196,17 @@ export function scrollWhileDragging(options: {
         scrollingLast,
         options.dragging,
       );
+      if (chosen?.id !== scrollingLast) carry = 0;
       scrollingLast = chosen?.id ?? null;
       const target = chosen && found.find((f) => f.box.id === chosen.id);
       if (target && chosen.speed !== 0) {
-        const before = target.element.scrollTop;
-        target.element.scrollTop = before + chosen.speed;
-        if (target.element.scrollTop !== before) options.afterScroll?.();
+        const { pixels, carry: nextCarry } = scrollStep(chosen.speed, dtMs, carry);
+        carry = nextCarry;
+        if (pixels !== 0) {
+          const before = target.element.scrollTop;
+          target.element.scrollTop = before + pixels;
+          if (target.element.scrollTop !== before) options.afterScroll?.();
+        }
       }
     }
     frame = requestAnimationFrame(step);
