@@ -260,7 +260,7 @@ function MatchSwitch({
 }
 
 /** The fields a condition can be about, in the order *+ Add a condition* offers them. */
-const FIELD_ORDER: readonly FilterCondition['field'][] = ['dueDate', 'priority', 'type', 'panel'];
+const FIELD_ORDER: readonly FilterCondition['field'][] = ['dueDate', 'priority', 'type', 'panel', 'status'];
 
 /** What each field is called on the add menu and beside its row. */
 const FIELD_LABELS: Record<FilterCondition['field'], string> = {
@@ -268,14 +268,16 @@ const FIELD_LABELS: Record<FilterCondition['field'], string> = {
   priority: 'Priority',
   type: 'Type',
   panel: 'Panel',
+  status: 'Status',
 };
 
-/** A fresh row for a field just added - nothing chosen yet, except Due date, which has always defaulted to *today*. */
+/** A fresh row for a field just added - nothing chosen yet, except Due date, which has always defaulted to *today*, and Status, which has nothing to choose at all. */
 function defaultConditionFor(field: FilterCondition['field']): FilterCondition {
   if (field === 'dueDate') return { field: 'dueDate', window: 'today', orOverdue: true };
   if (field === 'priority') return { field: 'priority', values: [] };
   if (field === 'type') return { field: 'type', values: [] };
-  return { field: 'panel', values: [] };
+  if (field === 'panel') return { field: 'panel', values: [] };
+  return { field: 'status' };
 }
 
 /** One row, dispatched to the control its field takes. */
@@ -334,7 +336,31 @@ function ConditionRow({
       />
     );
   }
+  if (row.field === 'status') {
+    return <StatusConditionRow at={at} onRemove={onRemove} />;
+  }
   return <DueConditionRow at={at} row={row} onChange={onChange} onRemove={onRemove} />;
+}
+
+/**
+ * The Status row: nothing to choose, since In progress is the only answer a
+ * Filter can ever ask for it - the row exists to be removed, not to be
+ * changed ("Mark an item In progress, and see since when", issue 568).
+ */
+function StatusConditionRow({ at, onRemove }: { at: number; onRemove: () => void }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-sm text-ink-soft">Status is In progress</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Remove condition ${at + 1}`}
+        className="ml-auto shrink-0 rounded-md px-2 py-1 text-sm text-ink-faint hover:bg-accent-tint hover:text-accent-deep"
+      >
+        Remove
+      </button>
+    </div>
+  );
 }
 
 /** What each window is called on the form, in the order the question offers them. */

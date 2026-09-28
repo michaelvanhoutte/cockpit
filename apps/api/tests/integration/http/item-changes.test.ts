@@ -139,6 +139,17 @@ describe('Offline', () => {
         }),
       },
       {
+        situation: 'starting it',
+        name: 'set_started',
+        change: (targetId, requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-08-12T11:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId: targetId,
+          started: true,
+        }),
+      },
+      {
         situation: 'saying what kind of thing it is',
         name: 'set_item_type',
         change: (targetId, requestId) => ({
@@ -269,6 +280,17 @@ describe('Triage', () => {
           workspaceId: WORKSPACE_ID,
           itemId: goneItemId,
           done: true,
+        }),
+      },
+      {
+        situation: 'starting it',
+        name: 'set_started',
+        change: (requestId) => ({
+          commandId: requestId,
+          issuedAt: '2026-08-12T10:00:00.000Z',
+          workspaceId: WORKSPACE_ID,
+          itemId: goneItemId,
+          started: true,
         }),
       },
       {
@@ -813,6 +835,115 @@ describe('Item editing', () => {
       expect(await response.json()).toEqual({ ok: true, applied: false });
       const [item] = await storedIn('items', 'id', itemId);
       expect(item?.type_id).toBe(TASK_TYPE_ID);
+    });
+  });
+});
+
+describe('Triage', () => {
+  /**
+   * "Mark an item In progress, and see since when" (issue 568) - the
+   * transitions its own statement list draws out, proved here against a real
+   * store rather than at L1 (`apps/api/tests/unit/domain/items.test.ts`),
+   * which proves the pure handler alone.
+   */
+  describe('starting work on an item, and taking that back', () => {
+    const setStarted = (itemId: string, started: boolean, at = '2026-08-12T12:00:00.000Z') =>
+      postChange('set_started', {
+        commandId: nextId(),
+        issuedAt: at,
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        started,
+      });
+
+    it('starts it now', async () => {
+      const itemId = await captureAnItem();
+
+      const response = await setStarted(itemId, true, '2026-09-04T10:00:00.000Z');
+
+      expect(response.status).toBe(200);
+      const [item] = await storedIn('items', 'id', itemId);
+      expect(item?.started_at).toBe('2026-09-04T10:00:00.000Z');
+    });
+
+    it('clears the start time, back to To do', async () => {
+      const itemId = await captureAnItem();
+      await setStarted(itemId, true, '2026-09-04T10:00:00.000Z');
+
+      const response = await setStarted(itemId, false, '2026-09-04T11:00:00.000Z');
+
+      expect(response.status).toBe(200);
+      const [item] = await storedIn('items', 'id', itemId);
+      expect(item?.started_at).toBe(null);
+    });
+
+    it('keeps the same start time through marking it done and undoing that', async () => {
+      const itemId = await captureAnItem();
+      await setStarted(itemId, true, '2026-09-04T10:00:00.000Z');
+
+      await postChange('set_done', {
+        commandId: nextId(),
+        issuedAt: '2026-09-04T11:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        done: true,
+      });
+      await postChange('set_done', {
+        commandId: nextId(),
+        issuedAt: '2026-09-04T12:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        done: false,
+      });
+
+      const [item] = await storedIn('items', 'id', itemId);
+      expect(item?.completed_at).toBe(null);
+      expect(item?.started_at).toBe('2026-09-04T10:00:00.000Z');
+    });
+
+    it('leaves the start time unchanged when it is started again', async () => {
+      const itemId = await captureAnItem();
+      await setStarted(itemId, true, '2026-09-04T10:00:00.000Z');
+
+      const response = await setStarted(itemId, true, '2026-09-04T11:00:00.000Z');
+
+      expect(response.status).toBe(200);
+      const [item] = await storedIn('items', 'id', itemId);
+      expect(item?.started_at).toBe('2026-09-04T10:00:00.000Z');
+    });
+
+    it('refuses to start a dismissed item', async () => {
+      const itemId = await captureAnItem();
+      await postChange('set_dismissed', {
+        commandId: nextId(),
+        issuedAt: '2026-09-04T09:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        dismissed: true,
+      });
+
+      const response = await setStarted(itemId, true, '2026-09-04T10:00:00.000Z');
+
+      expect(response.status).toBe(404);
+      const [item] = await storedIn('items', 'id', itemId);
+      expect(item?.started_at).toBe(null);
+    });
+
+    it('refuses to start a finished item', async () => {
+      const itemId = await captureAnItem();
+      await postChange('set_done', {
+        commandId: nextId(),
+        issuedAt: '2026-09-04T09:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        done: true,
+      });
+
+      const response = await setStarted(itemId, true, '2026-09-04T10:00:00.000Z');
+
+      expect(response.status).toBe(404);
+      const [item] = await storedIn('items', 'id', itemId);
+      expect(item?.started_at).toBe(null);
     });
   });
 });

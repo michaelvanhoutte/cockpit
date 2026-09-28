@@ -7,6 +7,7 @@ import {
   itemLabel,
   itemReadingSchema,
   itemSchema,
+  itemStatus,
   itemTitleSchema,
   textsFromCapture,
   workspaceNameSchema,
@@ -111,6 +112,29 @@ describe('Item editing', () => {
       },
     ])('$situation', ({ item, shows }) => {
       expect(itemLabel(item)).toBe(shows);
+    });
+  });
+
+  /**
+   * L1: which of To do, In progress or Done an item reads as is a pure
+   * decision over its two times ("Mark an item In progress, and see since
+   * when", issue 568). That the row and a Filter actually ask it is
+   * apps/web/tests/unit/components/ItemRow.test.tsx and
+   * apps/web/tests/unit/filters.test.ts.
+   */
+  describe('an item’s status is worked out from when it started and when it was finished with', () => {
+    it.each([
+      { situation: 'neither happened yet', startedAt: null, completedAt: null, status: 'to_do' },
+      { situation: 'started and not finished with', startedAt: '2026-09-04T10:00:00.000Z', completedAt: null, status: 'in_progress' },
+      { situation: 'finished with, never started', startedAt: null, completedAt: '2026-09-04T10:00:00.000Z', status: 'done' },
+      {
+        situation: 'finished with, having been started first',
+        startedAt: '2026-09-04T09:00:00.000Z',
+        completedAt: '2026-09-04T10:00:00.000Z',
+        status: 'done',
+      },
+    ])('$situation is $status', ({ startedAt, completedAt, status }) => {
+      expect(itemStatus({ startedAt, completedAt })).toBe(status);
     });
   });
 
@@ -275,6 +299,7 @@ describe('Capture', () => {
       typeId: null,
       nextAction: null,
       completedAt: null,
+      startedAt: null,
       priority: null,
       dueDate: null,
       dueDateSetAt: null,

@@ -515,6 +515,7 @@ function anItem(over: Partial<Item> = {}): Item {
     typeId: null,
     nextAction: null,
     completedAt: null,
+    startedAt: null,
     priority: null,
     dueDate: null,
     dueDateSetAt: null,

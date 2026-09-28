@@ -487,8 +487,9 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0040-panel-sort` adds it.
-    panels: ['sort_criteria'],
+    // `0042-item-started-at` adds it; `0041-item-meanings-read-at` adds only
+    // an index, no column.
+    items: ['started_at'],
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */

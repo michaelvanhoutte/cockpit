@@ -45,6 +45,7 @@ function anItem(
     typeId: holding.typeId ?? null,
     nextAction: null,
     completedAt: null,
+    startedAt: null,
     priority: holding.priority ?? null,
     dueDate: holding.dueDate ?? null,
     dueDateSetAt: null,

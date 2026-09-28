@@ -328,6 +328,7 @@ const commandSenders = {
   reorder_item_types: (p: CommandPayload<'reorder_item_types'>) =>
     api.v1.commands.reorder_item_types.$post({ json: p }),
   set_done: (p: CommandPayload<'set_done'>) => api.v1.commands.set_done.$post({ json: p }),
+  set_started: (p: CommandPayload<'set_started'>) => api.v1.commands.set_started.$post({ json: p }),
   set_dismissed: (p: CommandPayload<'set_dismissed'>) => api.v1.commands.set_dismissed.$post({ json: p }),
   associate: (p: CommandPayload<'associate'>) => api.v1.commands.associate.$post({ json: p }),
   set_next_action: (p: CommandPayload<'set_next_action'>) =>

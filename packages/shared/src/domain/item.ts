@@ -135,6 +135,8 @@ export const itemSchema = z.object({
   nextAction: z.string().nullable(),
   /** When this was finished with — a time rather than a flag ("An item is either yours to deal with or finished with", issue 154; architecture.md §4.4). App-owned: a re-sync never clears it. */
   completedAt: z.iso.datetime().nullable(),
+  /** When work on this started, cleared by going back to To do and kept by finishing with it ("Mark an item In progress, and see since when", issue 568). See `itemStatus`. */
+  startedAt: z.iso.datetime().nullable(),
   priority: prioritySchema.nullable(),
   dueDate: z.iso.date().nullable(),
   /** When `dueDate` was last set, non-null exactly when `dueDate` is - what a row's own colour ramps from ("Colour an action's own deadline as it approaches, and mark it red once passed", issue 473). Null on an item that carried a due date before this shipped; the ramp falls back to `createdAt` for those. */
@@ -193,6 +195,24 @@ export function workspaceIsDecided(item: Pick<Item, 'workspaceDecided'>): boolea
 /** Whether this Item has another reading genuinely worth offering right now (issue 297). */
 export function itemHasOpenReadings(item: Pick<Item, 'readings' | 'textsSettledAt'>): boolean {
   return item.textsSettledAt === null && !!item.readings && item.readings.length > 0;
+}
+
+/** The three things an Item can be ("Mark an item In progress, and see since when", issue 568). */
+export const ITEM_STATUSES = ['to_do', 'in_progress', 'done'] as const;
+export const itemStatusSchema = z.enum(ITEM_STATUSES);
+export type ItemStatus = z.infer<typeof itemStatusSchema>;
+
+/**
+ * An Item's status, worked out from its two times rather than stored as a
+ * third ("Mark an item In progress, and see since when", issue 568): finished
+ * with wins regardless of whether it was started first, which is what lets
+ * marking something done directly from To do be undone back to To do, and
+ * marking it done from In progress be undone back to In progress.
+ */
+export function itemStatus(item: Pick<Item, 'startedAt' | 'completedAt'>): ItemStatus {
+  if (item.completedAt) return 'done';
+  if (item.startedAt) return 'in_progress';
+  return 'to_do';
 }
 
 /** What an Association can point at (functional-definition.md §4.2). */

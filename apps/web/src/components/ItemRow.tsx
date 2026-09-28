@@ -4,6 +4,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   itemHasOpenReadings,
   itemLabel,
+  itemStatus,
   uuidv7,
   workspaceIsDecided,
   type Item,
@@ -231,6 +232,19 @@ export function ItemRow({
     workspaceId,
     itemId: item.id,
   });
+
+  /** To do, In progress or Done ("Mark an item In progress, and see since when", issue 568). Done never reaches this row - `stillOpen`, `filing.ts`. */
+  const status = itemStatus(item);
+
+  /**
+   * Starting work, and taking that back - no undo bar either way, unlike
+   * marking done or dismissing: both leave the row on screen with the same
+   * menu, offering the way back at once rather than for as long as a bar
+   * lasts.
+   */
+  const setStarted = (started: boolean) => {
+    command.mutate({ name: 'set_started', payload: { ...envelope(), started } });
+  };
 
   /**
    * Finishing with it, and the way back offered for as long as the bar lasts
@@ -587,6 +601,15 @@ export function ItemRow({
             Not a duplicate
           </M.Item>
         )}
+        {status === 'in_progress' ? (
+          <M.Item className={menuItemClass} onSelect={() => setStarted(false)}>
+            Back to To do
+          </M.Item>
+        ) : (
+          <M.Item className={menuItemClass} onSelect={() => setStarted(true)}>
+            Mark In progress
+          </M.Item>
+        )}
         <M.Item className={menuItemClass} onSelect={markDone}>
           Mark done
         </M.Item>
@@ -908,6 +931,15 @@ export function ItemRow({
           <span className="flex min-w-0 gap-1 text-xs text-ink-faint">
             {itemType && (
               <span className="shrink-0 text-accent-deep">{itemType.name}</span>
+            )}
+            {/* Beside the type, the one thing worth saying about status on a
+                row that already leaves Done off it - a row wears no mark at
+                all for To do, its own long-standing default ("Mark an item In
+                progress, and see since when", issue 568). */}
+            {status === 'in_progress' && (
+              <span className="shrink-0 rounded-full bg-accent-tint px-1.5 text-accent-deep">
+                In progress
+              </span>
             )}
             <span className="truncate">
               {itemType ? '· ' : ''}
