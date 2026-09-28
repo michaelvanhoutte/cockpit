@@ -82,8 +82,10 @@ describe('Capture', () => {
       const system = systemFor([], null);
       expect(system).not.toContain('Corrections');
       expect(system).not.toContain('What stood');
-      // Never claims evidence exists with nothing following it.
+      // Never claims evidence exists with nothing following it - neither in
+      // the section's own intro nor in the fixed rules ahead of it.
       expect(system).not.toContain('you have proposed in the last 30 days');
+      expect(system).not.toContain('were received');
     });
 
     it('introduces the evidence it carries, only once it actually carries some', () => {
