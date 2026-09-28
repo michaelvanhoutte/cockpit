@@ -10,7 +10,7 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import { panelTakesItems } from '@cockpit/shared';
+import { CLAUDE_CODE, panelTakesItems } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';
@@ -73,6 +73,7 @@ import {
   getAttachmentForDownload,
   getItem,
   getItemFormPresentation,
+  getSourceAccount,
   getWorkspace,
   itemsToRead,
   itemsWithUnsettledTexts,
@@ -572,6 +573,35 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       accountName,
       (db) => sealedCredentialOf(db, accountName, sourceAccountId) ?? null,
     );
+  }
+
+  /**
+   * The sealed credential of one Claude Code connection this Workspace holds,
+   * for the test route about to fire it ("Connect a workspace to Claude
+   * Code", issue 569).
+   *
+   * **Checked against the Workspace and the connector, unlike
+   * `sealedCredential` above.** That one is read only for a push already
+   * matched to its connection by `connectionUnder`; this is read for a
+   * request naming a Workspace and a row id directly, so it has to rule out
+   * both another Workspace's row and a Teams row itself - the same 404
+   * `disconnect_source_account` gives for the first of those
+   * (command-service.ts).
+   */
+  claudeCodeCredential(
+    accountName: string,
+    workspaceId: string,
+    sourceAccountId: string,
+  ): Answer<{ sealedCredential: string; credentialNonce: string }> {
+    return this.#answer(accountName, (db) => {
+      const held = getSourceAccount(db, accountName, sourceAccountId);
+      if (!held || held.workspaceId !== workspaceId || held.connectorId !== CLAUDE_CODE) {
+        throw new SourceAccountNotFoundError(sourceAccountId);
+      }
+      // The row this just confirmed exists is the row this reads - there is
+      // nothing between the two calls that could make the second miss.
+      return sealedCredentialOf(db, accountName, sourceAccountId)!;
+    });
   }
 
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */

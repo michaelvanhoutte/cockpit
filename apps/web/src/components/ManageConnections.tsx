@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react';
 import { queryOptions, useQuery } from '@tanstack/react-query';
 import {
+  CLAUDE_CODE,
+  TEAMS,
   connectorNamed,
   sourceAccountListSchema,
   uuidv7,
@@ -8,7 +10,8 @@ import {
   type SourceAccountList,
 } from '@cockpit/shared';
 import { api, refusal } from '../api/client';
-import { refusalFrom, useCommand } from '../api/queries';
+import { refusalFrom, useCommand, useConnectClaudeCode, useTestClaudeCodeConnection } from '../api/queries';
+import { ConnectClaudeCode } from './ConnectClaudeCode';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
@@ -36,8 +39,8 @@ async function fetchSourceAccounts(workspaceId: string): Promise<SourceAccountLi
  *
  * The query key (`['sourceAccounts', workspaceId]`) is matched by
  * `api/queries.ts`'s own `afterChanging` invalidation on
- * `disconnect_source_account`, which lives there beside every other
- * command's invalidation rather than here.
+ * `disconnect_source_account`, and by `useConnectClaudeCode`/
+ * `useTestClaudeCodeConnection`'s own invalidation there.
  */
 const sourceAccountsQuery = (workspaceId: string) =>
   queryOptions({
@@ -60,9 +63,24 @@ function connectTeamsPath(workspaceId: string): string {
 }
 
 /**
+ * The connectors a workspace can add ("Connect a workspace to Claude Code",
+ * issue 569): what the Add-a-connection list offers, whether or not anything
+ * of that kind is connected yet. A plain constant, the same way the Teams
+ * card was hardcoded here before it - adding a third means adding it here,
+ * nowhere else.
+ */
+const AVAILABLE_CONNECTORS = [TEAMS, CLAUDE_CODE] as const;
+
+/**
  * Where a Workspace's source accounts are managed ("Connect a Microsoft Teams
- * source account", issue 485): what is connected, a card to connect a Teams
- * account, and Disconnect on each row.
+ * source account", issue 485; "Connect a workspace to Claude Code", issue
+ * 569): what is connected, and what can be added.
+ *
+ * **Two lists, not a list with one connector's card fixed above it.** What is
+ * connected can be acted on - Disconnect for Teams, and for Claude Code also
+ * Test again and Edit…; what can be added is a compact row per connector,
+ * each offering Connect except Claude Code once one is already held, a
+ * workspace being allowed only one (rule 6).
  *
  * **Workspace-scoped, unlike `ManageTypes` beside it.** A connection belongs
  * to the Workspace that made it and no other Workspace ever sees it, which is
@@ -71,7 +89,8 @@ function connectTeamsPath(workspaceId: string): string {
  *
  * **What it shows is always what is stored.** The list is never served from a
  * copy (`sourceAccountsQuery`) and nothing here is drawn before the server has
- * agreed to it: connecting comes back from Microsoft as a fresh read, and
+ * agreed to it: connecting Teams comes back from Microsoft as a fresh read,
+ * connecting or testing Claude Code waits for the server's own answer, and
  * disconnecting waits for the row to be gone. An optimistic row is the one
  * thing this window must not draw - it would say a credential exists.
  */
@@ -99,13 +118,18 @@ export default function ManageConnections({
     enabled: open,
   });
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  const [claudeCodeForm, setClaudeCodeForm] = useState(false);
+  const [claudeCodeFormPending, setClaudeCodeFormPending] = useState(false);
+  const [claudeCodeMessage, setClaudeCodeMessage] = useState<string | null>(null);
   const askedFrom = useRef<HTMLElement | null>(null);
+  const claudeCodeOpenedFrom = useRef<HTMLElement | null>(null);
   /**
    * The window itself, which the focus goes back to once a disconnect has
    * taken the row's menu with the row - the reason `ManageTypes` keeps one.
    */
   const list = useRef<HTMLDivElement>(null);
   const command = useCommand();
+  const testClaudeCode = useTestClaudeCodeConnection(workspaceId);
 
   const connected = data?.sourceAccounts ?? [];
   /**
@@ -116,6 +140,7 @@ export default function ManageConnections({
   const answered = data !== undefined;
   const listFailed = Boolean(error) && !answered;
   const beingDisconnected = connected.find((account) => account.id === disconnecting);
+  const claudeCodeConnected = connected.find((account) => account.connectorId === CLAUDE_CODE);
 
   const startDisconnecting = (account: SourceAccount, openedFrom: HTMLElement | null) => {
     command.reset();
@@ -128,13 +153,20 @@ export default function ManageConnections({
     command.reset();
   };
 
+  const openClaudeCodeForm = (openedFrom: HTMLElement | null) => {
+    claudeCodeOpenedFrom.current = openedFrom;
+    setClaudeCodeMessage(null);
+    setClaudeCodeForm(true);
+  };
+
   /**
-   * Closing drops the disconnect being asked about as well as shutting the
-   * window, so what the tabs unmount is never a question left half-answered
-   * over a row nobody has touched.
+   * Closing drops the disconnect being asked about and the Claude Code form,
+   * as well as shutting the window, so what the tabs unmount is never a
+   * question or a form left half-answered.
    */
   const close = () => {
     stopAsking();
+    setClaudeCodeForm(false);
     onClose();
   };
 
@@ -143,7 +175,7 @@ export default function ManageConnections({
    * with this window open over it - a whole-page navigation like signing in,
    * rather than a popup nothing else in this app uses.
    */
-  const connect = () => {
+  const connectTeams = () => {
     window.location.assign(connectTeamsPath(workspaceId));
   };
 
@@ -156,7 +188,7 @@ export default function ManageConnections({
       title={`Connections of ${workspaceName}`}
       open={open}
       onClose={close}
-      canClose={!command.isPending}
+      canClose={!command.isPending && !testClaudeCode.isPending && !claudeCodeFormPending}
       returnFocusTo={returnFocusTo}
       ref={list}
     >
@@ -164,51 +196,60 @@ export default function ManageConnections({
         The accounts this workspace is connected to. No other workspace sees them.
       </p>
 
-      {/* Above the list, where every other management window puts the control
-          that makes something: the list has no ceiling, so a card below it
-          would be a control whose reachability depends on how much is already
-          connected - and it is the one control a workspace with nothing needs
-          most. */}
-      <div className="mt-4 flex items-center gap-3 rounded-md border border-black/10 p-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">{connectorNamed('teams')}</p>
-          <p className="text-sm text-ink-faint">
-            Sign in with Microsoft. Cockpit reads who you are and nothing else.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={connect}
-          disabled={command.isPending}
-          className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
-        >
-          Connect
-        </button>
-      </div>
-
-      {/* What the trip to Microsoft came back with. Said here rather than on
-          the card, because it is about the journey rather than about the
-          control - and it says nothing about *why*: every reason names
-          something an attacker got wrong or something only an operator can
-          fix, and the one thing that helps is pressing Connect again. */}
       {outcome === 'refused' && (
         <p role="alert" className="pt-3 text-sm text-over">
           That did not connect. Nothing was stored. Try again.
         </p>
       )}
 
-      <section className="-mx-2 mt-4 min-h-0 flex-1 overflow-y-auto">
+      <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+        Connected
+      </h3>
+      <section className="-mx-2 mt-2 min-h-0 flex-1 overflow-y-auto">
         <ul>
           {connected.map((account) => (
             <li key={account.id} className="border-b border-black/5 px-4 py-2 last:border-b-0">
               <div className="flex items-center gap-3">
-                <span className="min-w-0 flex-1 truncate text-sm">{account.displayName}</span>
-                <span className="shrink-0 text-sm text-ink-faint">
-                  {connectorNamed(account.connectorId)}
-                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm">{account.displayName}</p>
+                  <p className="text-sm text-ink-faint">
+                    {account.lastTestedAt
+                      ? `${connectorNamed(account.connectorId)} · last worked ${new Date(account.lastTestedAt).toLocaleString()}`
+                      : connectorNamed(account.connectorId)}
+                  </p>
+                </div>
                 <RowMenu
                   label={`Actions for ${account.displayName}`}
                   entries={[
+                    ...(account.connectorId === CLAUDE_CODE
+                      ? [
+                          {
+                            label: 'Test again',
+                            keepsFocus: true,
+                            onSelect: () => {
+                              setClaudeCodeMessage(null);
+                              testClaudeCode.mutate(account.id, {
+                                onSuccess: (result) => {
+                                  if (!result.accepted) setClaudeCodeMessage(result.message);
+                                },
+                                // The request itself failing (offline, a 5xx,
+                                // the row having just been disconnected
+                                // elsewhere) is not the same as Claude
+                                // refusing the test, but both leave the row
+                                // exactly as it was - so both get the same
+                                // one line rather than one of them getting
+                                // none at all (found in review).
+                                onError: () =>
+                                  setClaudeCodeMessage('That did not reach the server. Try again.'),
+                              });
+                            },
+                          },
+                          {
+                            label: 'Edit…',
+                            onSelect: (openedFrom: HTMLElement | null) => openClaudeCodeForm(openedFrom),
+                          },
+                        ]
+                      : []),
                     {
                       label: 'Disconnect',
                       destructive: true,
@@ -223,7 +264,11 @@ export default function ManageConnections({
         {beingDisconnected && (
           <DeleteQuestion
             open
-            question={`Disconnect ${beingDisconnected.displayName}? Cockpit forgets the sign-in it was connected with.`}
+            question={`Disconnect ${beingDisconnected.displayName}? Cockpit forgets ${
+              beingDisconnected.connectorId === CLAUDE_CODE
+                ? 'the routine trigger it was connected with'
+                : 'the sign-in it was connected with'
+            }.`}
             confirmLabel={`Yes, disconnect ${beingDisconnected.displayName}`}
             confirmText="Disconnect"
             canConfirm={!command.isPending}
@@ -252,12 +297,62 @@ export default function ManageConnections({
           </div>
         )}
         {answered && connected.length === 0 && !isFetching && (
-          <p className="px-4 py-4 text-sm text-ink-faint">
-            Nothing connected yet. Connect one above.
+          <p className="px-4 py-4 text-sm text-ink-faint">Nothing connected yet. Add one below.</p>
+        )}
+        {claudeCodeMessage && (
+          <p role="alert" className="px-4 py-2 text-sm text-over">
+            {claudeCodeMessage}
           </p>
         )}
       </section>
-      <CloseWindow disabled={command.isPending} />
+
+      <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+        Add a connection
+      </h3>
+      <div className="mt-2 flex flex-col gap-2">
+        {AVAILABLE_CONNECTORS.map((connectorId) => (
+          <div
+            key={connectorId}
+            className="flex items-center gap-3 rounded-md border border-black/10 p-3"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">{connectorNamed(connectorId)}</p>
+              <p className="text-sm text-ink-faint">
+                {connectorId === TEAMS
+                  ? 'Sign in with Microsoft. Cockpit reads who you are and nothing else.'
+                  : 'A routine that starts a Claude Code session on this workspace’s items.'}
+              </p>
+            </div>
+            {connectorId === CLAUDE_CODE && claudeCodeConnected ? (
+              <span className="shrink-0 text-sm text-ink-faint">Connected - one per workspace</span>
+            ) : (
+              <button
+                type="button"
+                // Two rows both reading "Connect" need two names for anyone
+                // not reading them side by side - a screen reader, or a test.
+                aria-label={`Connect ${connectorNamed(connectorId)}`}
+                onClick={(event) =>
+                  connectorId === TEAMS ? connectTeams() : openClaudeCodeForm(event.currentTarget)
+                }
+                disabled={command.isPending || testClaudeCode.isPending || claudeCodeFormPending}
+                className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+              >
+                Connect
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <ConnectClaudeCode
+        open={claudeCodeForm}
+        workspaceId={workspaceId}
+        returnFocusTo={claudeCodeOpenedFrom.current}
+        onClose={() => setClaudeCodeForm(false)}
+        onPendingChange={setClaudeCodeFormPending}
+      />
+
+      <CloseWindow disabled={command.isPending || testClaudeCode.isPending || claudeCodeFormPending} />
     </ManageWindow>
   );
 }
