@@ -113,6 +113,9 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_MEANINGS_READ_AT,
     ITEM_STARTED_AT,
     CONNECTOR_ACCOUNTS_LAST_TESTED_AT,
+    AGENTS,
+    HIDDEN_DASHBOARD_AGENTS,
+    ACCOUNT_AGENT_SETTINGS,
   ];
 }
 
@@ -238,6 +241,143 @@ const CONNECTOR_ACCOUNTS_LAST_TESTED_AT: Change = {
   name: '0043-connector-accounts-last-tested-at',
   statements: [
     { sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `last_tested_at` text' },
+  ],
+};
+
+/**
+ * Every Agent an account has made ("Keep your agents in a dock, and choose
+ * which each dashboard shows", issue 570) - see `schema.ts` for what each
+ * column carries and why it is created whole, with `position` and
+ * `deleted_at` already on it, the same reason `0008-item-types` gives.
+ *
+ * The colour and engine lists are written out rather than built from
+ * `AGENT_COLORS`/`AGENT_ENGINES`, for the reason `0006-panel-items`'s own
+ * position bound is: a change that has shipped may never be edited, and a
+ * constant that later moved would rewrite this statement for the accounts
+ * that had not applied it yet. The constraints test is what notices if the
+ * two stop agreeing.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): two `CREATE` statements, and no statement that writes to
+ *   a row.
+ * - **If it stops halfway:** it cannot leave a half-built table behind - a
+ *   change's statements and the record that they ran commit in one
+ *   `transactionSync` (store.ts), and both statements are `IF NOT EXISTS`.
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** there can be none - the table
+ *   is new and starts empty.
+ * - **Rolled back after it has run:** an older release never names the
+ *   table, so an Agent made under the new release is simply unread until the
+ *   release goes forward again.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const AGENTS: Change = {
+  name: '0044-agents',
+  statements: [
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`agents\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`name\` text NOT NULL,
+	\`folded_name\` text NOT NULL,
+	\`color\` text NOT NULL,
+	\`engine\` text NOT NULL,
+	\`message\` text NOT NULL,
+	\`asks_for_prompt\` integer NOT NULL,
+	\`starts_in_progress\` integer NOT NULL,
+	\`position\` integer DEFAULT 0 NOT NULL,
+	\`created_at\` text NOT NULL,
+	\`deleted_at\` text,
+	CONSTRAINT "agents_color_is_known" CHECK(color IN ('#6f62b5', '#3a72c8', '#c06a45', '#3f8f78', '#a8548c', '#b58a2f', '#4f8fa8', '#7d8f3f')),
+	CONSTRAINT "agents_engine_is_known" CHECK(engine IN ('claude-code')),
+	CONSTRAINT "agents_position_is_an_order" CHECK(position >= 0),
+	CONSTRAINT "agents_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10))),
+	CONSTRAINT "agents_deleted_at_is_timestamp" CHECK(deleted_at IS NULL OR (datetime(deleted_at) IS NOT NULL AND substr(deleted_at, 11, 1) = 'T' AND substr(deleted_at, -1) = 'Z' AND length(deleted_at) >= 20 AND date(deleted_at) = substr(deleted_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE UNIQUE INDEX IF NOT EXISTS `agents_tenant_live_folded_name` ON `agents` (`tenant_id`,`folded_name`) WHERE `deleted_at` IS NULL',
+    },
+  ],
+};
+
+/**
+ * Which Agents are hidden on which Dashboard ("Hiding and showing are per
+ * dashboard", issue 570) - see `schema.ts` for why neither `dashboards` nor
+ * `agents` needs cleaning up after by this table's own RESTRICT.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: two `CREATE`
+ *   statements, and no statement that writes to a row.
+ * - **If it stops halfway:** it cannot leave a half-built table behind, for
+ *   the reason `0044-agents` above gives.
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** there can be none - the table
+ *   is new and starts empty.
+ * - **Rolled back after it has run:** an older release never names the
+ *   table, so a hide made under the new release is simply unread until the
+ *   release goes forward again - every Agent shows on every Dashboard again
+ *   in the meantime, which is the safe direction for this to fail towards.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const HIDDEN_DASHBOARD_AGENTS: Change = {
+  name: '0045-hidden-dashboard-agents',
+  statements: [
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`hidden_dashboard_agents\` (
+	\`tenant_id\` text NOT NULL,
+	\`dashboard_id\` text NOT NULL,
+	\`agent_id\` text NOT NULL,
+	\`hidden_at\` text NOT NULL,
+	PRIMARY KEY(\`dashboard_id\`, \`agent_id\`),
+	FOREIGN KEY (\`dashboard_id\`) REFERENCES \`dashboards\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`agent_id\`) REFERENCES \`agents\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "hidden_dashboard_agents_hidden_at_is_timestamp" CHECK(hidden_at IS NULL OR (datetime(hidden_at) IS NOT NULL AND substr(hidden_at, 11, 1) = 'T' AND substr(hidden_at, -1) = 'Z' AND length(hidden_at) >= 20 AND date(hidden_at) = substr(hidden_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `hidden_dashboard_agents_tenant_dashboard` ON `hidden_dashboard_agents` (`tenant_id`,`dashboard_id`)',
+    },
+  ],
+};
+
+/**
+ * The account-wide switch for Ask Claude ("Ask Claude... can be turned off
+ * everywhere and on again from the dock's '…'", issue 570) - one row per
+ * account, written the first time anybody touches the switch and read as
+ * enabled where it holds no row yet, which `getAskClaudeEnabled` (repo.ts)
+ * is what makes true rather than a default this table carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `CREATE TABLE`,
+ *   and no statement that writes to a row.
+ * - **If it stops halfway:** it cannot. One statement, and a change's
+ *   statements and the record that they ran commit in one `transactionSync`
+ *   (store.ts).
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** there can be none - the table
+ *   is new and starts empty.
+ * - **Rolled back after it has run:** an older release never names the
+ *   table, so a switch thrown under the new release is simply unread until
+ *   the release goes forward again.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const ACCOUNT_AGENT_SETTINGS: Change = {
+  name: '0046-account-agent-settings',
+  statements: [
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`account_agent_settings\` (
+	\`tenant_id\` text PRIMARY KEY NOT NULL,
+	\`ask_claude_enabled\` integer NOT NULL
+) STRICT`,
+    },
   ],
 };
 

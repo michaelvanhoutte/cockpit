@@ -1,7 +1,9 @@
 import type {
+  Agent,
   Association,
   Dashboard,
   Filing,
+  HiddenAgent,
   Item,
   ItemType,
   Layout,
@@ -45,6 +47,14 @@ export interface AccountSnapshot {
    * every pair are Items this snapshot already carries.
    */
   duplicates: PossibleDuplicate[];
+  /** Every live Agent of the account, in dock order (issue 570). */
+  agents: Agent[];
+  /** Which Agents are hidden on which of this Workspace's Dashboards (issue 570). */
+  hiddenAgents: HiddenAgent[];
+  /** Whether this Workspace holds a live Claude Code connection (issue 570). */
+  hasClaudeCodeConnection: boolean;
+  /** The account-wide Ask Claude switch (issue 570). */
+  askClaudeEnabled: boolean;
   /** POC (own-event refetch): the newest change this snapshot is built on. */
   upTo: string | undefined;
 }

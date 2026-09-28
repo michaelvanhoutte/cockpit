@@ -111,6 +111,10 @@ async function open(
       itemFormPresentation: presentation,
       duplicates: [],
       filings: [],
+      agents: [],
+      hiddenAgents: [],
+      hasClaudeCodeConnection: false,
+      askClaudeEnabled: true,
       generatedAt: '2026-08-31T10:00:00.000Z',
     };
     // Answered already unless a case asked for it to be held: every other case
@@ -1025,6 +1029,10 @@ describe('Sign-in', () => {
     itemFormPresentation: 'centered',
     duplicates: [],
         filings: [],
+        agents: [],
+        hiddenAgents: [],
+        hasClaudeCodeConnection: false,
+        askClaudeEnabled: true,
         generatedAt: '2026-08-31T10:00:00.000Z',
       });
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

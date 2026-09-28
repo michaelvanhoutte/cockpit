@@ -365,6 +365,15 @@ const commandSenders = {
     api.v1.commands.delete_item_type.$post({ json: p }),
   reorder_item_types: (p: CommandPayload<'reorder_item_types'>) =>
     api.v1.commands.reorder_item_types.$post({ json: p }),
+  create_agent: (p: CommandPayload<'create_agent'>) => api.v1.commands.create_agent.$post({ json: p }),
+  update_agent: (p: CommandPayload<'update_agent'>) => api.v1.commands.update_agent.$post({ json: p }),
+  delete_agent: (p: CommandPayload<'delete_agent'>) => api.v1.commands.delete_agent.$post({ json: p }),
+  hide_agent_on_dashboard: (p: CommandPayload<'hide_agent_on_dashboard'>) =>
+    api.v1.commands.hide_agent_on_dashboard.$post({ json: p }),
+  show_agent_on_dashboard: (p: CommandPayload<'show_agent_on_dashboard'>) =>
+    api.v1.commands.show_agent_on_dashboard.$post({ json: p }),
+  set_ask_claude_enabled: (p: CommandPayload<'set_ask_claude_enabled'>) =>
+    api.v1.commands.set_ask_claude_enabled.$post({ json: p }),
   set_done: (p: CommandPayload<'set_done'>) => api.v1.commands.set_done.$post({ json: p }),
   set_started: (p: CommandPayload<'set_started'>) => api.v1.commands.set_started.$post({ json: p }),
   set_dismissed: (p: CommandPayload<'set_dismissed'>) => api.v1.commands.set_dismissed.$post({ json: p }),
