@@ -12,7 +12,7 @@ import { dashboardToSwitchTo } from '../switchWhileDragging';
 import { layoutsOf } from '../panels/arrangement';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LayoutPicker } from './LayoutPicker';
-import { SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
+import { RowMenu, SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
 import { NameQuestion } from './NameQuestion';
 import { RowForm } from './RowForm';
 import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_HOLDS, WHAT_A_PANEL_IS } from '../whatThingsAre';
@@ -252,6 +252,13 @@ export function DashboardBar({
       a form open on a dashboard nothing holds would save into nothing. */
   const beingEdited = dashboards.find((d) => d.id === editing?.id);
   const beingDeleted = dashboards.find((d) => d.id === deleting);
+  /**
+   * The dashboard you are on, whose own actions the bar's visible "…" offers -
+   * the same entries the tab's own menu offers ("Give the open workspace and
+   * dashboard their own "…", and split the header's menu into settings and
+   * you", issue 567).
+   */
+  const openDashboard = dashboards.find((d) => d.id === openDashboardId);
   /** How many panels the question is about, which is what it says goes with it. */
   const panelsGoingWithIt = (data?.panels ?? []).filter(
     (panel) => panel.dashboardId === beingDeleted?.id,
@@ -524,6 +531,15 @@ export function DashboardBar({
             panels={(data?.panels ?? []).filter((p) => p.dashboardId === openDashboardId)}
           />
           <AddPanel workspaceId={workspaceId} dashboardId={openDashboardId} />
+          {/* The open dashboard's own actions - the same entries its tab's
+              own menu offers, since a right-click said nothing was there. */}
+          {openDashboard && (
+            <RowMenu
+              label={`Actions for ${openDashboard.name}`}
+              entries={entriesFor(openDashboard)}
+              onChrome
+            />
+          )}
         </div>
       )}
 

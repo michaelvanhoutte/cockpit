@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from '../../../src/pages/Layout';
@@ -137,7 +137,7 @@ describe('Workspace management', () => {
         </QueryClientProvider>,
       );
 
-      await user.click(await screen.findByRole('button', { name: 'Settings' }));
+      await user.click(await screen.findByRole('button', { name: 'Account settings' }));
       await user.click(await screen.findByRole('menuitem', { name: entry }));
 
       expect(await screen.findByRole('dialog', { name: entry })).toBeVisible();
@@ -168,13 +168,71 @@ describe('Workspace management', () => {
           </QueryClientProvider>,
         );
 
-        await user.click(await screen.findByRole('button', { name: 'Settings' }));
+        await user.click(await screen.findByRole('button', { name: 'Account settings' }));
 
         expect(await screen.findByRole('menuitem', { name: 'Manage types' })).toBeVisible();
         expect(screen.queryByRole('menuitem', { name: 'What Cockpit is told' })).toBeNull();
         expect(screen.queryByRole('menuitem', { name: 'What Cockpit has learned' })).toBeNull();
       },
     );
+  });
+});
+
+describe('Across the app', () => {
+  describe('the header splits its menu into the account’s settings and who you are', () => {
+    // "Give the open workspace and dashboard their own ‘…’, and
+    // split the header's menu into settings and you", issue 567: the one menu
+    // used to carry the account's settings and the signed-in person together,
+    // which is not the same job twice.
+    it('holds only Manage types behind the gear', async () => {
+      const user = userEvent.setup();
+      render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Layout />
+        </QueryClientProvider>,
+      );
+
+      await user.click(await screen.findByRole('button', { name: 'Account settings' }));
+
+      expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
+        'Manage types',
+      ]);
+    });
+
+    // Whether Admin joins these two is a question of role rather than of
+    // where the entry lives, and is held once, below, in "User management".
+    it('holds who you are behind the profile', async () => {
+      const user = userEvent.setup();
+      render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Layout />
+        </QueryClientProvider>,
+      );
+
+      await user.click(await screen.findByRole('button', { name: 'Profile' }));
+
+      expect(await screen.findByText('Signed in as Michael')).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: 'Sign out' })).toBeVisible();
+      expect(screen.queryByRole('menuitem', { name: 'Manage types' })).toBeNull();
+    });
+
+    it('shows the signed-in person’s initial on the profile control', async () => {
+      render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Layout />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Profile' })).toHaveTextContent('M'),
+      );
+    });
   });
 });
 
@@ -199,10 +257,10 @@ describe('User management', () => {
         </QueryClientProvider>,
       );
 
-      await user.click(await screen.findByRole('button', { name: 'Settings' }));
+      await user.click(await screen.findByRole('button', { name: 'Profile' }));
       // Awaited on something that is always there, so the absent case is a
       // menu that has finished opening rather than one that has not started.
-      expect(await screen.findByRole('menuitem', { name: 'Manage types' })).toBeVisible();
+      expect(await screen.findByRole('menuitem', { name: 'Sign out' })).toBeVisible();
 
       expect(screen.queryByRole('menuitem', { name: 'Admin' }) !== null).toBe(offered);
     });

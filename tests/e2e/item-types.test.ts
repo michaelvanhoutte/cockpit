@@ -37,7 +37,7 @@ test.describe('Capture', () => {
     }) => {
       await openInbox(page, isMobile);
 
-      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await press(page.getByRole('button', { name: 'Account settings' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Manage types' }), isMobile);
       // Over the workspace rather than instead of it, like the dashboards'
       // list and the workspaces'.
@@ -62,7 +62,7 @@ test.describe('Capture', () => {
       await closeCapture(page, isMobile);
       await expect(itemRow(page, thought).getByText(kind)).toBeVisible();
 
-      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await press(page.getByRole('button', { name: 'Account settings' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Manage types' }), isMobile);
       const renamed = uniqueTitle('Renamed');
       await chooseRowAction(page, kind, 'Edit…', isMobile);

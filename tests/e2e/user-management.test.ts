@@ -63,7 +63,7 @@ async function setAccess(page: Page, who: string, entry: 'Disable' | 'Enable', i
 
 /** Leaves as whoever is signed in. */
 async function signOut(page: Page, isMobile: boolean) {
-  await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+  await press(page.getByRole('button', { name: 'Profile' }), isMobile);
   await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
 }
 
@@ -80,7 +80,7 @@ async function signOut(page: Page, isMobile: boolean) {
  *
  * Separate from `signOutAndIn` because it is also how somebody signs in when
  * there is nobody to sign out: a refused sign-in leaves the browser on the
- * logon page, with no Settings menu to leave from.
+ * logon page, with no Profile menu to leave from.
  */
 async function signInPastTheQuestion(page: Page, address: string, isMobile: boolean) {
   await signInWith(page, address, isMobile);
@@ -120,7 +120,7 @@ test.describe('User management', () => {
     }) => {
       await signIn(page, MICHAEL, isMobile);
 
-      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await press(page.getByRole('button', { name: 'Profile' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Admin' }), isMobile);
 
       await expect(page).toHaveURL(/\/admin$/);
@@ -165,7 +165,7 @@ test.describe('User management', () => {
 
       // Now hers: a person the register did not hold a minute ago signs in and
       // arrives in an account of her own.
-      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await press(page.getByRole('button', { name: 'Profile' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
       await signInWith(page, anna.address, isMobile);
 
@@ -226,7 +226,7 @@ test.describe('User management', () => {
       // Hers now: she is offered the way in rather than having to know the
       // address, and the page answers her.
       await signOutAndIn(page, anna.address, isMobile);
-      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await press(page.getByRole('button', { name: 'Profile' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Admin' }), isMobile);
       await expect(page.getByRole('heading', { name: 'Who can sign in' })).toBeVisible();
 

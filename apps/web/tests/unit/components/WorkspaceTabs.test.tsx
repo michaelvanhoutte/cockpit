@@ -209,6 +209,41 @@ describe('Workspace management', () => {
     });
   });
 
+  describe('the workspace you are in also carries the menu as a visible "…"', () => {
+    // "Give the open workspace and dashboard their own "…", and split the
+    // header's menu into settings and you", issue 567: a menu reachable only
+    // by right-click, a long press or the menu key was invisible until found.
+    it('offers the same entries the tab’s own menu offers', async () => {
+      const { user } = showTabs(['Work', 'Personal', 'Acme'], { here: 'ws-personal' });
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Personal' }));
+
+      expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
+        'Edit…',
+        'Manage connections…',
+        'Delete',
+      ]);
+    });
+
+    it('is not offered for a workspace you are not on', async () => {
+      showTabs(['Work', 'Personal'], { here: 'ws-work' });
+
+      expect(await screen.findByRole('button', { name: 'Actions for Work' })).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Actions for Personal' })).toBeNull();
+    });
+
+    it('returns the focus to it once what it opened is closed', async () => {
+      const { user } = showTabs(['Work', 'Personal'], { here: 'ws-personal' });
+      const button = await screen.findByRole('button', { name: 'Actions for Personal' });
+
+      await user.click(button);
+      await user.click(screen.getByRole('menuitem', { name: 'Edit…' }));
+      await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+      await waitFor(() => expect(button).toHaveFocus());
+    });
+  });
+
   describe('changing a workspace sends only what actually changed', () => {
     // An untouched box must send nothing, or it would carry the value the form
     // opened with over an edit made somewhere else in the meantime - and a

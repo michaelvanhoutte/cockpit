@@ -15,7 +15,7 @@ import { litForChrome } from '../chrome';
 import { useConnections } from '../connections';
 import { useTabDrag } from '../tabDrag';
 import { DeleteQuestion } from './DeleteQuestion';
-import { SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
+import { RowMenu, SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
 import { RowForm } from './RowForm';
 
 /**
@@ -238,6 +238,13 @@ export function WorkspaceTabs({
    */
   const beingDeleted = workspaces.find((w) => w.id === deleting);
   const beingEdited = workspaces.find((w) => w.id === editing?.id);
+  /**
+   * The workspace you are in, whose own actions the header's visible "…"
+   * offers - the same entries the tab's own menu offers, since a right-click
+   * said nothing was there ("Give the open workspace and dashboard their own
+   * "…", and split the header's menu into settings and you", issue 567).
+   */
+  const openWorkspace = workspaces.find((w) => w.id === params.workspaceId);
 
   const confirmDelete = (workspaceId: string) => {
     command.mutate(
@@ -367,60 +374,97 @@ export function WorkspaceTabs({
 
   return (
     <>
-      {/* Scrolls within itself rather than widening the page: with enough
-          workspaces a plain row pushed a 480px phone to 571px and took the
-          whole page sideways with it. The scrollbar is hidden, the way a tab
-          strip's is everywhere - drag, trackpad and keyboard focus all still
-          move it, and a strip cut off at the edge already says there is more.
+      {/* The strip and its own trailing button share this row's width, at the
+          tighter of the two gaps the header uses: the wide `gap-4` between
+          the header's own sections left too little of a 480px phone for the
+          strip once this button and the header's own split joined it, and a
+          single long tab name could no longer be scrolled wholly into view
+          ("Give the open workspace and dashboard their own "…", and split
+          the header's menu into settings and you", issue 567). */}
+      <div className="flex min-w-0 flex-1 items-end gap-1">
+        {/* Scrolls within itself rather than widening the page: with enough
+            workspaces a plain row pushed a 480px phone to 571px and took the
+            whole page sideways with it. The scrollbar is hidden, the way a tab
+            strip's is everywhere - drag, trackpad and keyboard focus all still
+            move it, and a strip cut off at the edge already says there is more.
 
-          Named, because it is not the only bar of links in this header: the
-          dashboards of the workspace you are in sit under it, and two unnamed
-          navigations are two identical landmarks to choose between. */}
-      <nav
-        ref={drag.strip}
-        aria-label="Workspaces"
-        className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
-        {shown.map((ws) => {
-          const here = ws.id === params.workspaceId;
-          return (
-            <SurfaceMenu key={ws.id} label={`Actions for ${ws.name}`} entries={entriesFor(ws)}>
-              <Link
-                ref={here ? bringIntoView : undefined}
-                to="/w/$workspaceId"
-                params={{ workspaceId: ws.id }}
-                onClick={opensOnPress(here)}
-                {...drag.tabProps(ws.id)}
-                className={`${stripTabClass(here)} px-3${
-                  drag.inTheAir === ws.id ? ' opacity-60' : ''
-                }`}
-                style={
-                  {
-                    // The band's own colour rather than the workspace's stored
-                    // one, so the tab you are on and the strip it runs into are
-                    // the same fill even when the stored copy is from an older
-                    // palette (`paint`, pages/Layout.tsx).
-                    ...(here ? { backgroundColor: bar } : undefined),
-                    // Lifted towards white before it is drawn on the chrome
-                    // (`chrome.ts`), which is where the reason is.
-                    '--tab-mark': litForChrome(ws.color),
-                  } as React.CSSProperties
-                }
-              >
-                <span
-                  className="mr-1.5 inline-block size-2 rounded-full align-middle bg-[var(--tab-mark)]"
-                  // Only the one you are in glows. It is the cheapest way to
-                  // say *this* workspace with a mark this small, and a bar of
-                  // glowing dots would say nothing at all.
-                  style={here ? { boxShadow: `0 0 8px ${ws.color}` } : undefined}
-                />
-                {ws.name}
-              </Link>
-            </SurfaceMenu>
-          );
-        })}
-        {children}
-      </nav>
+            Named, because it is not the only bar of links in this header: the
+            dashboards of the workspace you are in sit under it, and two unnamed
+            navigations are two identical landmarks to choose between. */}
+        <nav
+          ref={drag.strip}
+          aria-label="Workspaces"
+          className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {shown.map((ws) => {
+            const here = ws.id === params.workspaceId;
+            return (
+              <SurfaceMenu key={ws.id} label={`Actions for ${ws.name}`} entries={entriesFor(ws)}>
+                <Link
+                  ref={here ? bringIntoView : undefined}
+                  to="/w/$workspaceId"
+                  params={{ workspaceId: ws.id }}
+                  onClick={opensOnPress(here)}
+                  {...drag.tabProps(ws.id)}
+                  className={`${stripTabClass(here)} px-3${
+                    drag.inTheAir === ws.id ? ' opacity-60' : ''
+                  }`}
+                  style={
+                    {
+                      // The band's own colour rather than the workspace's stored
+                      // one, so the tab you are on and the strip it runs into are
+                      // the same fill even when the stored copy is from an older
+                      // palette (`paint`, pages/Layout.tsx).
+                      ...(here ? { backgroundColor: bar } : undefined),
+                      // Lifted towards white before it is drawn on the chrome
+                      // (`chrome.ts`), which is where the reason is.
+                      '--tab-mark': litForChrome(ws.color),
+                    } as React.CSSProperties
+                  }
+                >
+                  <span
+                    className="mr-1.5 inline-block size-2 rounded-full align-middle bg-[var(--tab-mark)]"
+                    // Only the one you are in glows. It is the cheapest way to
+                    // say *this* workspace with a mark this small, and a bar of
+                    // glowing dots would say nothing at all.
+                    style={here ? { boxShadow: `0 0 8px ${ws.color}` } : undefined}
+                  />
+                  {ws.name}
+                </Link>
+              </SurfaceMenu>
+            );
+          })}
+          {children}
+        </nav>
+
+        {/* The open workspace's own actions, at the right of this row rather
+            than inside the strip above: the strip scrolls within itself,
+            which would carry a fixed button off screen along with the tabs.
+            The same entries the tab's own menu offers, from the same list, so
+            nothing is offered here that a right-click could not already
+            reach.
+
+            **Gone below `sm`, the same width the wordmark already gives way
+            at.** A touchscreen already has this menu a press away with no
+            button at all - pressing the tab you are already on opens it,
+            "the only way in that needs no gesture at all" (`Menu.tsx`,
+            `SurfaceMenu`) - so the width this costs is spent only where a
+            pointer has no such press to reach for. A 480px strip crowded with
+            enough workspaces had no room left for it once this joined the
+            header's own split: the current tab could no longer be scrolled
+            wholly into view (found in review, `workspace-management.test.ts`,
+            "the tab strip stays inside the screen however many workspaces
+            there are"). */}
+        {openWorkspace && (
+          <div className="hidden shrink-0 sm:block">
+            <RowMenu
+              label={`Actions for ${openWorkspace.name}`}
+              entries={entriesFor(openWorkspace)}
+              onChrome
+            />
+          </div>
+        )}
+      </div>
 
       {/* Read from the list, so a form left open on a workspace deleted in
           another tab closes rather than saving into nothing. */}

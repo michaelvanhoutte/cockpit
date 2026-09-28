@@ -1,4 +1,5 @@
 import {
+  chooseRowAction,
   chooseTabAction,
   dashboardBar,
   dashboardTab,
@@ -177,14 +178,14 @@ test.describe('Dashboards', () => {
       // The dashboard being deleted is the one being looked at.
       const itsAddress = page.url();
 
-      // The tab itself is how what can be done to a dashboard is reached
-      // ("Change a workspace or a dashboard on the tab it is", issue 267): a
-      // right-click with a mouse, a press on the tab you are on with a finger.
-      // Which gesture opens a menu is a browser question, and the form it
-      // opens is a dialog over the workspace rather than a screen, which is a
-      // stacking and focus-trapping question only a browser answers.
+      // From the bar's own visible "…" this time, rather than the tab's
+      // right-click - the same entries, from the same list ("Give the open
+      // workspace and dashboard their own "…", and split the header's menu
+      // into settings and you", issue 567). The form it opens is a dialog
+      // over the workspace rather than a screen, which is a stacking and
+      // focus-trapping question only a browser answers.
       const renamed = uniqueTitle('Renamed');
-      await chooseTabAction(page, dashboardTab(page, doomed), 'Edit…', isMobile);
+      await chooseRowAction(page, doomed, 'Edit…', isMobile);
       await page.getByLabel(`Name of ${doomed}`).fill(renamed);
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
       // In the bar, which is the only place a dashboard's name is now: the
