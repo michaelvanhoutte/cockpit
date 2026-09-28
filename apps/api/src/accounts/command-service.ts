@@ -1,4 +1,5 @@
 import { and, eq, exists, notExists, sql } from 'drizzle-orm';
+import { CLAUDE_CODE } from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import {
@@ -2065,6 +2066,12 @@ export function runCommand<N extends CommandName>(
             credentialNonce: cmd.credentialNonce,
             connectedAt: cmd.issuedAt,
             updatedAt: cmd.issuedAt,
+            // A connect is only ever written once whatever proved it worked
+            // has already happened - Microsoft's own identity token here,
+            // Claude accepting a test session for Claude Code
+            // ("Connect a workspace to Claude Code", issue 569) - so
+            // `issuedAt` is as true a "last worked" as a dedicated test.
+            lastTestedAt: cmd.issuedAt,
           })
           // **Named at the account, not at the id, and that is the rule
           // rather than a detail**: connecting the same tenant+account again
@@ -2086,8 +2093,38 @@ export function runCommand<N extends CommandName>(
               encryptedCredential: cmd.sealedCredential,
               credentialNonce: cmd.credentialNonce,
               updatedAt: cmd.issuedAt,
+              lastTestedAt: cmd.issuedAt,
             },
           })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'mark_source_account_tested': {
+      const cmd = payload as CommandPayload<'mark_source_account_tested'>;
+      // The same 404 `disconnect_source_account` below gives, and for the
+      // same reason: the id is the one handle a request holds on a
+      // connection, so naming another Workspace's, or one already gone, is
+      // refused rather than quietly marking nothing. `connectorId` is
+      // checked here too, and not only by the one caller that exists today
+      // (the Claude Code test route, via `claudeCodeCredential`,
+      // store.ts) - this is the layer that actually writes the row, so it
+      // is the layer that must not take a Teams row's word for having been
+      // tested (found in review).
+      const held = getSourceAccount(db, tenantId, cmd.sourceAccountId);
+      if (!held || held.workspaceId !== cmd.workspaceId || held.connectorId !== CLAUDE_CODE) {
+        throw new SourceAccountNotFoundError(cmd.sourceAccountId);
+      }
+      db.transaction((tx) => {
+        tx.update(connectorAccounts)
+          .set({ lastTestedAt: cmd.issuedAt })
+          .where(
+            and(
+              eq(connectorAccounts.tenantId, tenantId),
+              eq(connectorAccounts.id, cmd.sourceAccountId),
+            ),
+          )
           .run();
         tx.insert(commands).values(commandRow).run();
       });

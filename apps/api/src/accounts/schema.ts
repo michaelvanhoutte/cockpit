@@ -1620,6 +1620,15 @@ export const connectorAccounts = sqliteTable(
     credentialNonce: text('credential_nonce').notNull(),
     connectedAt: text('connected_at').notNull(),
     updatedAt: text('updated_at').notNull(),
+    /**
+     * The last time this connection was proven to still work: set alongside
+     * `connected_at`/`updated_at` on every connect or reconnect, and moved
+     * again by nothing but a passing Test again ("Connect a workspace to
+     * Claude Code", issue 569). Nullable and carries no CHECK, the same shape
+     * `due_date_set_at` and `texts_settled_at` are - a column added later that
+     * every existing row simply takes as NULL.
+     */
+    lastTestedAt: text('last_tested_at'),
   },
   (t) => [
     // What the window reads: one Workspace's accounts, oldest first.

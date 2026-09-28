@@ -11,6 +11,7 @@ import {
   CommandRefused,
   addUser,
   changeUser,
+  connectClaudeCode,
   deleteUser,
   fetchAccountHoldings,
   fetchItemTypes,
@@ -22,6 +23,7 @@ import {
   fetchWorkspaces,
   sendCommand,
   setAccess,
+  testClaudeCodeConnection,
 } from './client';
 
 /**
@@ -448,5 +450,41 @@ export function useCommand() {
     // already has this change in it and `isPending` covers the re-read; for the
     // rest it is `undefined` and nothing waits.
     onSuccess: (_result, args) => afterChanging(queryClient, args),
+  });
+}
+
+/**
+ * Connecting, or editing with a new token, a workspace's Claude Code routine
+ * ("Connect a workspace to Claude Code", issue 569). The list is re-read only
+ * where Claude actually accepted the test - a refusal changes nothing stored,
+ * so there is nothing to invalidate for.
+ */
+export function useConnectClaudeCode(workspaceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Parameters<typeof connectClaudeCode>[1]) =>
+      connectClaudeCode(workspaceId, body),
+    onSuccess: (outcome) => {
+      if (outcome.accepted) {
+        return queryClient.invalidateQueries({ queryKey: ['sourceAccounts', workspaceId] });
+      }
+    },
+  });
+}
+
+/**
+ * Testing a Claude Code connection already held, without changing what it
+ * holds (issue 569, "Test again") - re-reads the list on acceptance, the same
+ * as `useConnectClaudeCode` above, so the row's "last worked" catches up.
+ */
+export function useTestClaudeCodeConnection(workspaceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sourceAccountId: string) => testClaudeCodeConnection(workspaceId, sourceAccountId),
+    onSuccess: (outcome) => {
+      if (outcome.accepted) {
+        return queryClient.invalidateQueries({ queryKey: ['sourceAccounts', workspaceId] });
+      }
+    },
   });
 }

@@ -253,6 +253,16 @@ export interface Account {
   sealedCredential(
     sourceAccountId: string,
   ): Promise<{ sealedCredential: string; credentialNonce: string } | null>;
+  /**
+   * The sealed credential of one Claude Code connection this Workspace holds,
+   * for the test route about to fire it ("Connect a workspace to Claude
+   * Code", issue 569). Throws `SourceAccountNotFoundError` where the row is
+   * not there, is not this Workspace's, or is not Claude Code's.
+   */
+  claudeCodeCredential(
+    workspaceId: string,
+    sourceAccountId: string,
+  ): Promise<{ sealedCredential: string; credentialNonce: string }>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
   applyChange<N extends CommandName>(
     name: N,
@@ -319,6 +329,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.connectionUnder(accountName, workspaceId, connectorId, externalAccountKey)),
     sealedCredential: async (sourceAccountId) =>
       unwrap(await store.sealedCredential(accountName, sourceAccountId)),
+    claudeCodeCredential: async (workspaceId, sourceAccountId) =>
+      unwrap(await store.claudeCodeCredential(accountName, workspaceId, sourceAccountId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
   };

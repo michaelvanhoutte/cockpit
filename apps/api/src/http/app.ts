@@ -8,8 +8,12 @@ import {
   attachmentContentTypeSchema,
   changeUserSchema,
   userDeletedSchema,
+  claudeCodeOutcomeSchema,
+  CLAUDE_CODE,
   commandResultSchema,
   commandSchemas,
+  connectClaudeCodeSchema,
+  connectorNamed,
   MAX_ATTACHMENT_SIZE,
   itemTypeListSchema,
   registeredUserListSchema,
@@ -89,8 +93,9 @@ import {
 } from '../auth/gate.js';
 import { endpointsFor, exchangeCode, issuerFor, keysOf, teamsIssuerFor } from '../auth/issuer.js';
 import { authorizationUrl, identityFrom, newAttempt, replyBelongsTo } from '../auth/oidc.js';
-import { seal, sealingKey } from '../connectors/credential-crypto.js';
+import { open, seal, sealingKey } from '../connectors/credential-crypto.js';
 import { teamsAccountFrom } from '../connectors/teams.js';
+import { testClaudeCodeConnection } from '../connectors/claude-code.js';
 import {
   GUEST_ACCOUNT_NAME,
   endSession,
@@ -795,6 +800,69 @@ const sourceAccountsRoute = createRoute({
   },
 });
 
+/** What every Claude Code route answers where this deployment has no `CONNECTOR_CREDENTIAL_KEY` to seal or open a credential with at all. */
+const NO_SEALING_KEY_MESSAGE = 'This environment cannot connect a source account.';
+
+/**
+ * Connecting, or editing with a new token, a workspace's Claude Code routine
+ * ("Connect a workspace to Claude Code", issue 569). One route for both: a
+ * routine already connected is refreshed rather than duplicated, exactly as
+ * reconnecting a Teams account is (`connect_source_account`,
+ * command-service.ts) - so pressing Connect again with a new token *is*
+ * editing.
+ *
+ * **A request the browser makes, not a navigation** - unlike Teams, there is
+ * no third party to visit and come back from, so what the OAuth pair above
+ * is to Teams, this one route is to Claude Code.
+ */
+const claudeCodeConnectRoute = createRoute({
+  method: 'post',
+  path: '/v1/workspaces/{workspaceId}/connections/claude-code/connect',
+  request: {
+    params: z.object({ workspaceId: z.string() }),
+    body: {
+      required: true,
+      content: { 'application/json': { schema: connectClaudeCodeSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Whether Claude accepted the test session',
+      content: { 'application/json': { schema: claudeCodeOutcomeSchema } },
+    },
+    404: {
+      description: 'Unknown workspace',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
+ * Testing a Claude Code connection this Workspace already holds, without
+ * changing what it holds ("Connect a workspace to Claude Code", issue 569,
+ * "Test again"). The credential this fires with is read and opened here,
+ * server-side, and never sent by the browser - the same standing rule 3
+ * ("the token never leaves the server once stored") gives every other read
+ * of this connection.
+ */
+const claudeCodeTestRoute = createRoute({
+  method: 'post',
+  path: '/v1/workspaces/{workspaceId}/connections/claude-code/{sourceAccountId}/test',
+  request: {
+    params: z.object({ workspaceId: z.string(), sourceAccountId: z.string() }),
+  },
+  responses: {
+    200: {
+      description: 'Whether Claude accepted the test session',
+      content: { 'application/json': { schema: claudeCodeOutcomeSchema } },
+    },
+    404: {
+      description: 'Unknown workspace or connection',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
 /**
  * Every rewrite attempt for one item, most recent first - the table opened
  * from that item's own menu (issue 444).
@@ -1144,6 +1212,94 @@ const routes = app
     // workspace id this request could name that reaches somebody else's
     // connections, the same reasoning the attachment download route records.
     return c.json({ sourceAccounts: await account.sourceAccounts(workspaceId) }, 200);
+  })
+  // --- connecting a Claude Code routine: one request, tested before stored ---
+  //
+  // Kept among the `.openapi()` routes rather than beside Teams's own
+  // connect/callback pair further down: those are plain `.get()` navigations
+  // (`app.get`, not `app.openapi`), and TypeScript stops carrying the
+  // `OpenAPIHono` route-map type through the chain the moment a plain method
+  // call appears in it - every `.openapi()` call after one silently types its
+  // handler's `c` as `any` instead of failing loudly. Found by the cascade of
+  // `Parameter 'c' implicitly has an 'any' type` errors this produced when
+  // these two were first written in after that pair, one for every command
+  // route already past them.
+  .openapi(claudeCodeConnectRoute, async (c) => {
+    const { workspaceId } = c.req.valid('param');
+    const { routineUrl, token } = c.req.valid('json');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    if (!(await account.workspaces()).some((workspace) => workspace.id === workspaceId)) {
+      return c.json({ error: `no such workspace: ${workspaceId}` }, 404);
+    }
+
+    const key = await sealingKey(c.env.CONNECTOR_CREDENTIAL_KEY);
+    if (!key) {
+      return c.json({ accepted: false, message: NO_SEALING_KEY_MESSAGE }, 200);
+    }
+
+    const outcome = await testClaudeCodeConnection(routineUrl, token);
+    if (!outcome.accepted) return c.json(outcome, 200);
+
+    // Both halves sealed together, so the routine's own address is exactly as
+    // unreadable from the row as the token is - there is nowhere else this
+    // application would keep it (rule 3, "the token never leaves the server
+    // once stored").
+    const sealed = await seal(JSON.stringify({ routineUrl, token }), key);
+    await change(c, 'connect_source_account', {
+      commandId: uuidv7(),
+      issuedAt: new Date().toISOString(),
+      workspaceId,
+      sourceAccountId: uuidv7(),
+      connectorId: CLAUDE_CODE,
+      // A constant rather than something read off the reply, unlike Teams's
+      // own identity key: there is nothing here that names an account at a
+      // source, and a fixed key is what makes the unique index
+      // (`connector_accounts_one_per_account`, accounts/schema.ts) enforce
+      // "one Claude Code connection per workspace" - pressing Connect again
+      // upserts onto this same key rather than ever adding a second row.
+      externalAccountKey: 'connection',
+      displayName: connectorNamed(CLAUDE_CODE),
+      ...sealed,
+    });
+    return c.json({ accepted: true }, 200);
+  })
+  // --- testing a Claude Code connection already held -------------------------
+  .openapi(claudeCodeTestRoute, async (c) => {
+    const { workspaceId, sourceAccountId } = c.req.valid('param');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    // Throws where the row is not there, is not this Workspace's, or is not
+    // Claude Code's - `onError` turns that into the same 404
+    // `disconnect_source_account` gives for a mismatched Workspace.
+    const sealed = await account.claudeCodeCredential(workspaceId, sourceAccountId);
+
+    const key = await sealingKey(c.env.CONNECTOR_CREDENTIAL_KEY);
+    if (!key) {
+      return c.json({ accepted: false, message: NO_SEALING_KEY_MESSAGE }, 200);
+    }
+    // A distinct message from the one above: the environment can seal and
+    // open credentials just fine, but this one row's own bytes will not
+    // open under the key it has - a rotated `CONNECTOR_CREDENTIAL_KEY` being
+    // the likely cause, not something wrong with connecting in general
+    // (found in review - the two used to share one message).
+    const opened = await open(sealed, key);
+    if (!opened) {
+      return c.json(
+        { accepted: false, message: 'This connection could not be read. Reconnect it.' },
+        200,
+      );
+    }
+
+    const { routineUrl, token } = JSON.parse(opened) as { routineUrl: string; token: string };
+    const outcome = await testClaudeCodeConnection(routineUrl, token);
+    if (!outcome.accepted) return c.json(outcome, 200);
+
+    await change(c, 'mark_source_account_tested', {
+      commandId: uuidv7(),
+      issuedAt: new Date().toISOString(),
+      workspaceId,
+      sourceAccountId,
+    });
+    return c.json({ accepted: true }, 200);
   })
   .openapi(rewriteHistoryForWorkspaceRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');

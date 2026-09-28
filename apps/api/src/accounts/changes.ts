@@ -111,6 +111,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     DASHBOARD_ORDER,
     PANEL_SORT,
     ITEM_MEANINGS_READ_AT,
+    CONNECTOR_ACCOUNTS_LAST_TESTED_AT,
   ];
 }
 
@@ -173,6 +174,37 @@ const ITEM_MEANINGS_READ_AT: Change = {
     {
       sql: 'CREATE INDEX `item_meanings_tenant_read_at` ON `item_meanings` (`tenant_id`,`read_at`)',
     },
+  ],
+};
+
+/**
+ * When a connected source account was last proven to still work ("Connect a
+ * workspace to Claude Code", issue 569) - see `schema.ts` for what the column
+ * carries and why it has no CHECK, the shape `PANEL_SORT` above uses for the
+ * same reason.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** it cannot. One statement, and a change's
+ *   statements and the record that they ran commit in one `transactionSync`
+ *   (store.ts).
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** there can be none. Every
+ *   connected source account takes NULL, which the window reads as "not
+ *   tested since this shipped" until its next connect, reconnect or Test
+ *   again.
+ * - **Rolled back after it has run:** an older release never reads the
+ *   column, so a connection tested under the new release simply looks
+ *   untested again until the release goes forward.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const CONNECTOR_ACCOUNTS_LAST_TESTED_AT: Change = {
+  name: '0042-connector-accounts-last-tested-at',
+  statements: [
+    { sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `last_tested_at` text' },
   ],
 };
 

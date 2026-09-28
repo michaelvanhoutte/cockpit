@@ -56,7 +56,7 @@ test.describe('Connector management', () => {
       // Out to the issuer, choose an account there, and back - the whole page
       // leaves, which is why the window has to be reopened by what comes back
       // rather than by anything this walk does.
-      await press(window.getByRole('button', { name: 'Connect' }), isMobile);
+      await press(window.getByRole('button', { name: 'Connect Microsoft Teams' }), isMobile);
       await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
 
       const back = page.getByRole('dialog');
@@ -65,7 +65,7 @@ test.describe('Connector management', () => {
 
       // The same account again is the same row, not a second one - the rule the
       // store keeps, seen here as what a person is shown.
-      await press(back.getByRole('button', { name: 'Connect' }), isMobile);
+      await press(back.getByRole('button', { name: 'Connect Microsoft Teams' }), isMobile);
       await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
       await expect(page.getByRole('dialog').getByText('michael@example.com')).toHaveCount(1);
 

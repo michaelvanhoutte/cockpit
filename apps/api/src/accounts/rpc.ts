@@ -226,6 +226,16 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     accountName: string,
     sourceAccountId: string,
   ): Awaitable<Answer<{ sealedCredential: string; credentialNonce: string } | null>>;
+  /**
+   * The sealed credential of one Claude Code connection this Workspace holds,
+   * for the test route about to fire it (issue 569) - `missing` where the row
+   * is not there, is not this Workspace's, or is not Claude Code's.
+   */
+  claudeCodeCredential(
+    accountName: string,
+    workspaceId: string,
+    sourceAccountId: string,
+  ): Awaitable<Answer<{ sealedCredential: string; credentialNonce: string }>>;
   changesSince(
     accountName: string,
     since: string,

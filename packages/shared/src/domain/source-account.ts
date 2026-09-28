@@ -2,19 +2,29 @@ import { z } from 'zod';
 
 /**
  * A source account a Workspace has connected - a Microsoft Teams sign-in
- * today, and whatever else is connected later ("Connect a Microsoft Teams
- * source account", issue 485).
+ * ("Connect a Microsoft Teams source account", issue 485), a Claude Code
+ * routine trigger (issue 569), and whatever else is connected later.
  *
  * **The credential is never part of this shape.** It is sealed in the
  * Workspace's own store and read by nothing that answers a browser, so the
  * wire carries only what a row has to say: which source it is, whose account
- * at that source, and when it was connected.
+ * at that source, when it was connected, and when it last worked.
  */
 export const TEAMS = 'teams';
 
+/**
+ * A workspace's routine trigger - one Claude Code session started and
+ * reported back, rather than an account signed in to (issue 569). It still
+ * fills the same row a source account does: the store keys on `connectorId`
+ * alone, not on what kind of thing is connected.
+ */
+export const CLAUDE_CODE = 'claude-code';
+
 /** What a connector is called on screen; its id is what the store keys on. */
 export function connectorNamed(connectorId: string): string {
-  return connectorId === TEAMS ? 'Microsoft Teams' : connectorId;
+  if (connectorId === TEAMS) return 'Microsoft Teams';
+  if (connectorId === CLAUDE_CODE) return 'Claude Code';
+  return connectorId;
 }
 
 export const sourceAccountSchema = z.object({
@@ -28,6 +38,13 @@ export const sourceAccountSchema = z.object({
    */
   displayName: z.string(),
   connectedAt: z.iso.datetime(),
+  /**
+   * The last time this connection was proven to still work - connecting or
+   * reconnecting it counts, and so does pressing Test again (issue 569).
+   * `null` for a connector nothing ever tests after connecting: what "last
+   * worked" means is specific to a connector that can be tested at all.
+   */
+  lastTestedAt: z.iso.datetime().nullable(),
 });
 export type SourceAccount = z.infer<typeof sourceAccountSchema>;
 
@@ -35,3 +52,30 @@ export const sourceAccountListSchema = z.object({
   sourceAccounts: sourceAccountSchema.array(),
 });
 export type SourceAccountList = z.infer<typeof sourceAccountListSchema>;
+
+/**
+ * What the form posts to connect - or, pressed again with a new token, to
+ * edit - a workspace's Claude Code routine (issue 569): the routine's own
+ * trigger address and the token it was given to fire with. Never a command:
+ * a client-postable command payload is public API by convention
+ * (`commandSchemas`), and this one carries a bare token on its way to being
+ * sealed.
+ */
+export const connectClaudeCodeSchema = z.object({
+  routineUrl: z.string().min(1).max(2048),
+  token: z.string().min(1).max(4096),
+});
+export type ConnectClaudeCode = z.infer<typeof connectClaudeCodeSchema>;
+
+/**
+ * What connecting, editing or testing a Claude Code connection answers: Claude
+ * accepted the test session, or it did not and here is why, in words a person
+ * typed the wrong thing or hit a limit can read (issue 569, rule 1). Nothing
+ * more than that on success - the row itself is read back from the source
+ * accounts list, the one place any of it is drawn.
+ */
+export const claudeCodeOutcomeSchema = z.discriminatedUnion('accepted', [
+  z.object({ accepted: z.literal(true) }),
+  z.object({ accepted: z.literal(false), message: z.string() }),
+]);
+export type ClaudeCodeOutcome = z.infer<typeof claudeCodeOutcomeSchema>;

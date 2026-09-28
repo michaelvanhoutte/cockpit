@@ -1958,6 +1958,7 @@ export function sourceAccountsIn(
       connectorId: connectorAccounts.connectorId,
       displayName: connectorAccounts.displayName,
       connectedAt: connectorAccounts.connectedAt,
+      lastTestedAt: connectorAccounts.lastTestedAt,
     })
     .from(connectorAccounts)
     .where(
@@ -2037,9 +2038,13 @@ export function getSourceAccount(
   db: AccountDb,
   tenantId: string,
   sourceAccountId: string,
-): { id: string; workspaceId: string } | undefined {
+): { id: string; workspaceId: string; connectorId: string } | undefined {
   return db
-    .select({ id: connectorAccounts.id, workspaceId: connectorAccounts.workspaceId })
+    .select({
+      id: connectorAccounts.id,
+      workspaceId: connectorAccounts.workspaceId,
+      connectorId: connectorAccounts.connectorId,
+    })
     .from(connectorAccounts)
     .where(
       and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.id, sourceAccountId)),

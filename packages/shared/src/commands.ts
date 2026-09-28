@@ -614,6 +614,19 @@ export const disconnectSourceAccountSchema = commandEnvelopeSchema.extend({
 export type DisconnectSourceAccountCommand = z.infer<typeof disconnectSourceAccountSchema>;
 
 /**
+ * mark_source_account_tested - a connection proven to still work without
+ * changing what it holds ("Connect a workspace to Claude Code", issue 569,
+ * "Test again"). Written by the test route once Claude has actually accepted
+ * a session, never posted as JSON by a client: the credential that call was
+ * made with is never handed back to the browser to prove first (rule 3,
+ * "the token never leaves the server once stored").
+ */
+export const markSourceAccountTestedSchema = commandEnvelopeSchema.extend({
+  sourceAccountId: z.string().min(1),
+});
+export type MarkSourceAccountTestedCommand = z.infer<typeof markSourceAccountTestedSchema>;
+
+/**
  * set_duplicate_settled — a flagged pair settled as not a duplicate, or that
  * settling taken back ("Say a flagged pair is not a duplicate", issue 408;
  * `docs/routing-learning.md`, "Cockpit may replace what it proposed and never
@@ -691,6 +704,7 @@ export const commandSchemas = {
   propose_item_panel: proposeItemPanelSchema,
   connect_source_account: connectSourceAccountSchema,
   disconnect_source_account: disconnectSourceAccountSchema,
+  mark_source_account_tested: markSourceAccountTestedSchema,
   set_duplicate_settled: setDuplicateSettledSchema,
 } as const;
 
@@ -708,7 +722,11 @@ export type SelfSentCommandName =
   // Sent by the callback Microsoft returns to, which is a navigation rather
   // than a request a page makes - and which carries a sealed credential no
   // browser may ever hand over (see `connectSourceAccountSchema` above).
-  | 'connect_source_account';
+  | 'connect_source_account'
+  // Sent by the Claude Code connect/test routes once Claude has actually
+  // answered, never posted as JSON directly (see `markSourceAccountTestedSchema`
+  // above).
+  | 'mark_source_account_tested';
 
 /**
  * The commands a client sends, which is every command with a generic JSON

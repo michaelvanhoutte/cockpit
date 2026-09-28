@@ -2,11 +2,14 @@ import { hc } from 'hono/client';
 import type { AppType } from '@cockpit/api';
 import {
   accountHoldingsSchema,
+  claudeCodeOutcomeSchema,
   itemTypeListSchema,
   registeredUserListSchema,
   rewriteHistoryResponseSchema,
   userDeletedSchema,
   type AccountHoldings,
+  type ClaudeCodeOutcome,
+  type ConnectClaudeCode,
   signedInSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
@@ -257,6 +260,41 @@ export async function fetchRewriteHistoryForItem(itemId: string): Promise<Rewrit
   });
   if (!res.ok) throw refusal('rewrite history', res.status);
   return rewriteHistoryResponseSchema.parse(await res.json());
+}
+
+/**
+ * Connects, or edits with a new token, a workspace's Claude Code routine -
+ * tested before anything is stored or changed ("Connect a workspace to
+ * Claude Code", issue 569). Its own function rather than a `commandSenders`
+ * entry: what it posts is a bare routine address and token on their way to
+ * being sealed, never a command payload a client may send as-is.
+ */
+export async function connectClaudeCode(
+  workspaceId: string,
+  body: ConnectClaudeCode,
+): Promise<ClaudeCodeOutcome> {
+  const res = await api.v1.workspaces[':workspaceId'].connections['claude-code'].connect.$post({
+    param: { workspaceId },
+    json: body,
+  });
+  if (!res.ok) throw refusal('connecting Claude Code', res.status);
+  return claudeCodeOutcomeSchema.parse(await res.json());
+}
+
+/**
+ * Tests a Claude Code connection already held, without changing what it
+ * holds (issue 569, "Test again"). The credential it fires with is read and
+ * opened server-side; nothing here ever sees it.
+ */
+export async function testClaudeCodeConnection(
+  workspaceId: string,
+  sourceAccountId: string,
+): Promise<ClaudeCodeOutcome> {
+  const res = await api.v1.workspaces[':workspaceId'].connections['claude-code'][
+    ':sourceAccountId'
+  ].test.$post({ param: { workspaceId, sourceAccountId } });
+  if (!res.ok) throw refusal('testing Claude Code', res.status);
+  return claudeCodeOutcomeSchema.parse(await res.json());
 }
 
 /** One sender per command; adding a command extends this map and nothing else. */
