@@ -1,7 +1,8 @@
+import type Anthropic from '@anthropic-ai/sdk';
 import { afterAll, describe, expect, it } from 'vitest';
 import { ClaudeAiService, type ProposalRead } from '../../src/ai/index.js';
 import { TITLE_LENGTH } from '@cockpit/shared';
-import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v8.js';
+import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v9.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../src/domain/text-corrections.js';
 
@@ -42,16 +43,20 @@ const key = process.env.ANTHROPIC_API_KEY ?? '';
  * still holds - one per way of asking, since the two cost different amounts.
  */
 function tallied(name: string): ClaudeAiService {
-  const spent = { calls: 0, input: 0, output: 0 };
+  // Cache reads and writes beside the uncached input, since what a call costs
+  // turns on them ("Enable prompt caching on the note-cleanup prompt", issue 584).
+  const spent = { calls: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
   afterAll(() => console.log(`${name}: ${JSON.stringify(spent)}`));
   return new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined, (_model, usage) => {
     spent.calls += 1;
     spent.input += usage.input_tokens;
+    spent.cacheRead += usage.cache_read_input_tokens ?? 0;
+    spent.cacheWrite += usage.cache_creation_input_tokens ?? 0;
     spent.output += usage.output_tokens;
   });
 }
-const reading = tallied('clean-up-a-note.v8 on capture');
-const rereading = tallied('clean-up-a-note.v8 texts only');
+const reading = tallied('clean-up-a-note.v9 on capture');
+const rereading = tallied('clean-up-a-note.v9 texts only');
 
 const NO_STOOD: WhatStood | null = null;
 
@@ -243,7 +248,7 @@ describe('Capture', () => {
         expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
         // The cases in this file are only evidence about the version they ran
         // against, so the version is said out loud once.
-        expect(buildCleanUpANote(null, [], NO_STOOD).version).toBe('v8');
+        expect(buildCleanUpANote(null, [], NO_STOOD).version).toBe('v9');
       });
 
       it('does not pad a note that is already shorter than the target', async () => {
@@ -518,7 +523,7 @@ describe('Capture', () => {
    * questions ("Propose where a captured note belongs, without filing it
    * there", issue 298) - the same shape the prompt's own worked example is,
    * deliberately neither the same note nor the same panel name as that
-   * example (`clean-up-a-note.v8.ts`'s last example pairs "Compliance
+   * example (`clean-up-a-note.v9.ts`'s last example pairs "Compliance
    * questions" with the Part 11 audit trail note). A pass on the exact note
    * and panel name the prompt was shown the answer to would prove recall
    * rather than generalisation - the failure this tier exists to catch, per
@@ -689,6 +694,71 @@ describe('Capture', () => {
         expect(proposal.title).not.toMatch(MARKERS.Dutch);
         expect(proposal.message).not.toMatch(MARKERS.Dutch);
       });
+    });
+  });
+
+  /**
+   * What only the real API can say ("Enable prompt caching on the
+   * note-cleanup prompt, restructured so the fixed content is a stable
+   * prefix", issue 584): a request that asks for its fixed half to be kept and
+   * one that gets it kept answer identically, so the usage the API reports is
+   * the only evidence the second happened. The two notes differ, as a real
+   * account's back-to-back captures do; their account, and so their panels,
+   * does not. Both ways of asking are held to it, since each sends a fixed half
+   * of its own.
+   */
+  describe('notes read back to back for one account pay the full rate for the fixed instructions only once', () => {
+    it.each([
+      {
+        situation: 'on capture',
+        ask: (service: ClaudeAiService, note: string) => service.cleanUpNote(note, [], [], [], [], NO_STOOD),
+      },
+      {
+        situation: 'when only the texts are re-read',
+        ask: (service: ClaudeAiService, note: string) => service.rewriteTexts(note, [], NO_STOOD),
+      },
+    ])('reads the fixed instructions back at the lower rate on the second of two notes, $situation', async ({ ask }) => {
+      const usages: Anthropic.Usage[] = [];
+      const service = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined, (_model, usage) => {
+        usages.push(usage);
+      });
+
+      expect('proposal' in (await ask(service, 'offerte leverancier nog aftekenen'))).toBe(true);
+      expect('proposal' in (await ask(service, 'book the room for the CAPA review'))).toBe(true);
+
+      expect(usages[1]!.cache_read_input_tokens ?? 0).toBeGreaterThan(0);
+    });
+  });
+
+  /**
+   * The upper end of what a real account hands this prompt: the decision
+   * history is capped at 50 entries ("Cap the routing prompt to the last 50
+   * decisions on panels that still exist, and drop the correction override",
+   * issue 450), so a full window is the largest the per-account half after
+   * the cached instructions gets. Answered at all is the property - `read`
+   * throws on anything that will not parse or validate.
+   */
+  describe('an account with a full decision history still gets a usable proposal', () => {
+    it('answers with a proposal when fifty past filings ride along with the note', async () => {
+      const panels = [
+        { id: '018f0000-0000-7000-8000-000000000005', name: 'Suppliers' },
+        { id: '018f0000-0000-7000-8000-000000000006', name: 'Hiring' },
+      ];
+      const history: DecisionHistoryEntry[] = Array.from({ length: 50 }, (_, i) => {
+        const panel = panels[i % 2]!;
+        return {
+          capturedMessage: `${panel.name === 'Suppliers' ? 'leverancier' : 'kandidaat'} ${i} opvolgen`,
+          itemTitle: `Follow up ${i}`,
+          proposedPanelId: panel.id,
+          proposedPanelName: panel.name,
+          proposedPanelReason: `about ${panel.name.toLowerCase()}`,
+          chosenPanelId: panel.id,
+          chosenPanelName: panel.name,
+          decidedAt: `2026-08-${String((i % 28) + 1).padStart(2, '0')}T09:00:00.000Z`,
+        };
+      });
+
+      await read('factuur van de leverancier klopt niet, nakijken', panels, history);
     });
   });
 });

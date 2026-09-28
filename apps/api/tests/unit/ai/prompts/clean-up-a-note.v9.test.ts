@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v8.js';
+import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v9.js';
+import type { DecisionHistoryEntry } from '../../../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../../../src/domain/text-corrections.js';
 
 /**
@@ -15,17 +16,88 @@ import type { TextCorrectionEntry, WhatStood } from '../../../../src/domain/text
 const A_STOOD_SAMPLE: WhatStood = { proposedTotal: 10, correctedTotal: 2, sample: ['A title that stood'] };
 
 function systemFor(corrections: readonly TextCorrectionEntry[], stood: WhatStood | null): string {
-  return buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, corrections, stood).system;
+  return whole(buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, corrections, stood));
 }
 
+/** The system prompt as the model reads it, both halves in order. */
+function whole(prompt: ReturnType<typeof buildCleanUpANote>): string {
+  return `${prompt.system.instructions}\n\n${prompt.system.context}`;
+}
+
+const A_CORRECTION: TextCorrectionEntry = {
+  itemId: 'item-1',
+  capturedMessage: 'novi bellen over de levering',
+  proposedTitle: 'Novi bellen over de levering',
+  proposedDescription: null,
+  settledTitle: 'Novy bellen over de levering',
+  settledDescription: null,
+  recordedAt: '2026-09-09T10:00:00.000Z',
+};
+
+const A_DECISION: DecisionHistoryEntry = {
+  capturedMessage: 'gdpr retention question for legal',
+  itemTitle: 'Ask legal about GDPR retention',
+  proposedPanelId: 'panel-2',
+  proposedPanelName: 'Contracts',
+  proposedPanelReason: 'a legal question',
+  chosenPanelId: 'panel-2',
+  chosenPanelName: 'Contracts',
+  decidedAt: '2026-09-01T09:00:00.000Z',
+};
+
 describe('Capture', () => {
+  /**
+   * Issue 584: the part of what a proposal is told that no account and no
+   * note changes has to come first and read identically every time, or no two
+   * calls can share it at the cache rate. Checked across an account with
+   * nothing and one with something in every input, since any one input
+   * leaking into it would be enough to split it.
+   */
+  describe('what a proposal is told reads the same for every account, until its own record begins', () => {
+    const built = [
+      // An account with nothing yet.
+      buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], null),
+      // An account with something in every input.
+      buildCleanUpANote(
+        { panels: [{ id: 'panel-2', name: 'Legal questions' }], history: [A_DECISION], recentlyCaptured: ['still waiting to be filed'] },
+        [A_CORRECTION],
+        A_STOOD_SAMPLE,
+      ),
+    ];
+
+    it('opens with the same rules and worked examples, whatever the account has', () => {
+      expect(built[1]!.system.instructions).toBe(built[0]!.system.instructions);
+      expect(built[0]!.system.instructions).toContain('Examples.');
+      expect(built[0]!.system.instructions).toContain('Note: call jan');
+    });
+
+    it('opens a re-read of the texts with the same rules and examples too, whatever the account has', () => {
+      const bare = buildCleanUpANote(null, [], null).system;
+      const withEvidence = buildCleanUpANote(null, [A_CORRECTION], A_STOOD_SAMPLE).system;
+
+      expect(withEvidence.instructions).toBe(bare.instructions);
+      expect(withEvidence.context).toContain('Novy bellen');
+      // Nothing of the account's own to say, so nothing at all after the rules.
+      expect(bare.context).toBe('');
+    });
+
+    it("carries each of the account's own panels, history, captures and corrections after the rules", () => {
+      const { context } = built[1]!.system;
+      for (const own of ['Legal questions', 'gdpr retention question', 'still waiting to be filed', 'Novy bellen', 'A title that stood']) {
+        expect(context).toContain(own);
+      }
+    });
+  });
+
   describe('What a proposal reads about how this account writes', () => {
     it('carries nothing at all, rather than a placeholder, when the account has neither corrections nor what stood', () => {
       const system = systemFor([], null);
       expect(system).not.toContain('Corrections');
       expect(system).not.toContain('What stood');
-      // Never claims evidence exists with nothing following it.
+      // Never claims evidence exists with nothing following it - neither in
+      // the section's own intro nor in the fixed rules ahead of it.
       expect(system).not.toContain('you have proposed in the last 30 days');
+      expect(system).not.toContain('were received');
     });
 
     it('introduces the evidence it carries, only once it actually carries some', () => {
@@ -102,8 +174,8 @@ describe('Capture', () => {
       { situation: 'what else was captured lately', text: 'another note waiting' },
       { situation: 'a panel line in any example', text: 'panel:' },
     ])('leaves out $situation', ({ text }) => {
-      expect(buildCleanUpANote(ROUTING, [], null).system).toContain(text);
-      expect(buildCleanUpANote(null, [], null).system).not.toContain(text);
+      expect(whole(buildCleanUpANote(ROUTING, [], null))).toContain(text);
+      expect(whole(buildCleanUpANote(null, [], null))).not.toContain(text);
     });
 
     it('asks for no panel in the answer', () => {
@@ -114,10 +186,10 @@ describe('Capture', () => {
     });
 
     it('keeps every rule about the two texts, and every example of them', () => {
-      const withPanels = buildCleanUpANote(ROUTING, [], null).system;
-      const withoutPanels = buildCleanUpANote(null, [], null).system;
+      const withPanels = whole(buildCleanUpANote(ROUTING, [], null));
+      const withoutPanels = whole(buildCleanUpANote(null, [], null));
       // Everything before the Panels paragraph is the texts' own guidance.
-      const textsGuidance = withPanels.slice(0, withPanels.indexOf('You are also given the panels'));
+      const textsGuidance = withPanels.slice(0, withPanels.indexOf('Further down, after the examples'));
 
       expect(withoutPanels.startsWith(textsGuidance)).toBe(true);
       for (const example of ['title: Novy bellen over de afspraak van volgende week', "meaning: \"'jan' is short for the month January\""]) {

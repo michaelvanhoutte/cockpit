@@ -1,5 +1,5 @@
 import type { DecisionHistoryEntry } from '../../domain/decision-history.js';
-import { renderHistory, renderRecentlyCaptured } from './clean-up-a-note.v8.js';
+import { renderHistory, renderRecentlyCaptured } from './clean-up-a-note.v9.js';
 
 /**
  * The one Item a panel is being chosen for: what was captured, and the two
@@ -33,9 +33,9 @@ function descriptionShown(description: string): string {
  * message and readings on every Item, on the model chosen for writing them,
  * to keep one field ("Use a cheaper model for panel-only re-proposal", issue
  * 583). Picking one of a short list or none is a narrower task than writing
- * a title, so this carries the routing half of `clean-up-a-note.v8` - the
+ * a title, so this carries the routing half of `clean-up-a-note` - the
  * panels, the decision history and what else was captured lately, in the
- * same words - and none of its writing guidance.
+ * words `v8` used for them - and none of its writing guidance.
  *
  * Moment 2 (`cleanUpACapturedNote`) still routes through `clean-up-a-note`,
  * because it is writing the texts on the same call anyway.
@@ -64,7 +64,7 @@ export function buildChooseAPanel(
     /**
      * Haiku 4.5, at $1/$5 per million tokens against Opus 5's $5/$25: the
      * cheapest model that holds the routing properties
-     * `clean-up-a-note.v8`'s contract cases hold Opus 5 to
+     * `clean-up-a-note`'s contract cases hold Opus 5 to
      * (`tests/contract/choose-a-panel.v1.test.ts`). Sonnet 5 held them too,
      * and was not needed.
      *

@@ -13,6 +13,8 @@ import {
   signInAs,
   startFromEmpty,
 } from '../seed.js';
+import { handleQueue } from '../../../src/jobs/index.js';
+import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 
 /**
  * Integration level: a real store, a real queue, and the settling filing
@@ -75,17 +77,20 @@ function stubTheModel(): void {
     const sent = JSON.parse(
       input instanceof Request ? await input.clone().text() : String(init?.body ?? '{}'),
     ) as {
-      system: string;
+      system: string | { text: string }[];
       messages: { content: string }[];
       output_config: { format: { schema: { properties: Record<string, unknown> } } };
     };
+    // A panel-only question goes as one string; a call writing texts as blocks, the fixed half first and cached
+    // ("Enable prompt caching on the note-cleanup prompt", issue 584). Read here as the one text the model sees.
+    const system = typeof sent.system === 'string' ? sent.system : sent.system.map((block) => block.text).join('\n\n');
     const content = sent.messages[0]!.content;
     // A panel-only question is told apart by the answer it asks for.
     const panelOnly = 'panelId' in sent.output_config.format.schema.properties;
     const note = panelOnly ? (JSON.parse(/^Captured note: (.*)$/m.exec(content)![1]!) as string) : content;
     asked.push(note);
 
-    const answer = await answerFor(note, sent.system, content);
+    const answer = await answerFor(note, system, content);
     if (answer === 'fails') throw new Error('the model could not be reached');
     return Response.json({
       id: 'msg_1',
@@ -279,8 +284,22 @@ async function aWhileLongerThanAJobWouldTake(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 300));
 }
 
-beforeEach(async () => {
-  await applyD1Migrations(env.DB, inject('migrations'));
+/** A queue batch of `jobs`, for driving a refresh through `handleQueue` directly. */
+function batchOf(...jobs: EnrichmentJob[]) {
+  const acked: string[] = [];
+  const messages = jobs.map((job, index) => ({
+    id: `message-${index + 1}`,
+    timestamp: new Date(),
+    body: job as unknown,
+    attempts: 1,
+    ack: () => acked.push(`message-${index + 1}`),
+    retry: () => {},
+  }));
+  const batch = { queue: 'cockpit-enrichment', messages, ackAll: () => {}, retryAll: () => {} };
+  return { batch: batch as unknown as Parameters<typeof handleQueue>[0], acked };
+}
+
+beforeEach(async () => {  await applyD1Migrations(env.DB, inject('migrations'));
   await startFromEmpty();
   await seedRegister();
   await alsoWorkspaces();

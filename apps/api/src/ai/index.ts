@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
-import { buildCleanUpANote } from './prompts/clean-up-a-note.v8.js';
+import { buildCleanUpANote } from './prompts/clean-up-a-note.v9.js';
 import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v1.js';
 import { readPanelChoice, readProposal, type PanelRead, type ProposalRead } from './note-texts.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
@@ -186,7 +186,12 @@ export class ClaudeAiService implements AiService {
   /** One call, constrained to the prompt's own schema: its text, or that the model declined. */
   async #ask(
     // `effort` is null for a model that refuses the field (`choose-a-panel.v1`).
-    prompt: { model: string; effort: 'low' | null; system: string; schema: Record<string, unknown> },
+    prompt: {
+      model: string;
+      effort: 'low' | null;
+      system: string | { instructions: string; context: string };
+      schema: Record<string, unknown>;
+    },
     content: string,
   ): Promise<{ text: string | undefined } | { refused: string }> {
     const answer = await this.#client.messages.create({
@@ -199,7 +204,33 @@ export class ClaudeAiService implements AiService {
        * parse.
        */
       max_tokens: 8_192,
-      system: prompt.system,
+      /**
+       * `clean-up-a-note`'s fixed half carries the breakpoint, so every call
+       * with the same schema reads it back at the cache rate for five minutes
+       * after the last one ("Enable prompt caching on the note-cleanup
+       * prompt, restructured so the fixed content is a stable prefix", issue
+       * 584). **The schema is part of what is cached**: a capture's carries
+       * this account's panel ids as an `enum`, and a different
+       * `output_config.format` invalidates the cache, so that prefix is shared
+       * by one account's captures with an unchanged set of panels, never
+       * across accounts; a texts-only re-read has no `enum`, so its prefix is
+       * shared more widely. The API gives the schema no breakpoint of its own.
+       * Nothing after the marker is cached: `context` changes with every note
+       * filed or captured, and a second breakpoint on it would pay the write
+       * premium far more often than it was read back.
+       *
+       * `choose-a-panel` goes as the one string it is, uncached: it runs on
+       * Haiku 4.5, which caches nothing shorter than 4,096 tokens, and its
+       * fixed part is a fraction of that.
+       */
+      system:
+        typeof prompt.system === 'string'
+          ? prompt.system
+          : [
+              { type: 'text', text: prompt.system.instructions, cache_control: { type: 'ephemeral' } },
+              // Left out rather than sent empty, which the API refuses.
+              ...(prompt.system.context === '' ? [] : [{ type: 'text' as const, text: prompt.system.context }]),
+            ],
       messages: [{ role: 'user', content }],
       output_config: {
         // Constrained to the prompt's own schema, which is what makes the

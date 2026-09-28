@@ -55,16 +55,27 @@ function stubTheModel(): void {
     if (url.hostname !== 'api.anthropic.com') throw new Error(`the suite tried to reach ${url.origin}`);
     const sent = JSON.parse(
       input instanceof Request ? await input.clone().text() : String(init?.body ?? '{}'),
-    ) as { system: string; messages: { content: string }[] };
-    const note = sent.messages[0]!.content;
-    asked.push({ note, system: sent.system });
+    ) as {
+      system: string | { text: string }[];
+      messages: { content: string }[];
+      output_config: { format: { schema: { properties: Record<string, unknown> } } };
+    };
+    const content = sent.messages[0]!.content;
+    // A refresh asks the panel-only question, told apart by the answer it asks for, and sends the note quoted
+    // beside the item's title and description ("Use a cheaper model for panel-only re-proposal", issue 583).
+    const panelOnly = 'panelId' in sent.output_config.format.schema.properties;
+    const note = panelOnly ? (JSON.parse(/^Captured note: (.*)$/m.exec(content)![1]!) as string) : content;
+    // A capture's call goes as blocks, the fixed half first and cached ("Enable prompt caching on the note-cleanup
+    // prompt", issue 584); a refresh's as one string. Read here as the one text the model sees.
+    const system = typeof sent.system === 'string' ? sent.system : sent.system.map((block) => block.text).join('\n\n');
+    asked.push({ note, system });
     await whileAsked(note);
     return Response.json({
       id: 'msg_1',
       type: 'message',
       role: 'assistant',
       model: 'claude-opus-5',
-      content: [{ type: 'text', text: JSON.stringify(PROPOSES_NOTHING) }],
+      content: [{ type: 'text', text: JSON.stringify(panelOnly ? PROPOSES_NOTHING.panel : PROPOSES_NOTHING) }],
       stop_reason: 'end_turn',
       usage: { input_tokens: 1, output_tokens: 1 },
     });
