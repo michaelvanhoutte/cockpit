@@ -203,7 +203,6 @@ export function buildCleanUpANote(
   system: { instructions: string; context: string };
   schema: Record<string, unknown>;
 } {
-
   // Either section may be absent - a window with nothing qualifying, or
   // `stood` handed in as `null` because too little stood in it to say
   // anything - and nothing forces older data in to fill the gap (`docs/
