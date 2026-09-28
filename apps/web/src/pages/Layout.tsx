@@ -76,6 +76,11 @@ function paint(workspace: Painted | undefined): Painted {
   return { color, bar: theme.bar, ground: theme.ground, header: theme.header };
 }
 
+/** What the profile control shows in place of a photograph nobody has set. */
+function initialOf(name: string | undefined): string {
+  return name?.trim().charAt(0).toUpperCase() || '?';
+}
+
 /**
  * The app shell: workspace tabs on top (the workspace color identity from the
  * functional definition's container hierarchy), the active workspace below.
@@ -726,13 +731,15 @@ function TheShell() {
             <AddWorkspace />
           </WorkspaceTabs>
 
-          {/* The same control as every other menu in the app (components/
-              Menu.tsx). It used to be a bordered pill, given that weight
-              because three faint characters did not read as a control - which
-              an icon with a hover and a focus state does without inventing a
-              second look for the one menu in the header. */}
+          {/* The account's own settings - just the types, today. Split from
+              who-you-are below ("Give the open workspace and dashboard their
+              own "…", and split the header's menu into settings and you",
+              issue 567): the one menu here used to hold both, which is where
+              people looked for the workspace's own actions (now above) and
+              did not find them - a single "…" was carrying three unrelated
+              jobs. */}
           <DropdownMenu.Root>
-            <MenuTrigger label="Settings" onChrome ref={settingsMenu} />
+            <MenuTrigger label="Account settings" onChrome ref={settingsMenu} />
             <MenuContent
               onCloseAutoFocus={(event) => {
                 const claimed = opening.current;
@@ -761,6 +768,32 @@ function TheShell() {
               >
                 Manage types
               </DropdownMenu.Item>
+            </MenuContent>
+          </DropdownMenu.Root>
+
+          {/* Who you are, and the way out - a circle carrying your initial
+              rather than the three dots every other menu opens with, so the
+              two controls read as different jobs rather than as one menu cut
+              in half. */}
+          <DropdownMenu.Root>
+            {/* Not "Account": that reads as a substring of the gear's own
+                "Account settings" and a lookup for one would find both. */}
+            <DropdownMenu.Trigger
+              aria-label="Profile"
+              // A permanent circle of tint rather than the ghost icon every
+              // other trigger wears (`menuButtonClassName`, Menu.tsx): this is
+              // an avatar carrying who you are, not a hint that something is
+              // pressable, so it keeps a fill at rest. `/10` resting to `/20`
+              // pressed is the same doubling `AddPanel` (DashboardBar.tsx)
+              // already uses for a chrome control that stays tinted.
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-medium text-chrome-ink hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-chrome-ink-soft data-[state=open]:bg-white/20"
+            >
+              {initialOf(me?.user.name)}
+            </DropdownMenu.Trigger>
+            <MenuContent>
+              <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
+                {me ? `Signed in as ${me.user.name}` : 'Signed in'}
+              </DropdownMenu.Label>
               {/* A link rather than an entry that opens a window, and the only
                   one here: the admin pages are about the environment rather
                   than this account, so there is no workspace to keep behind
@@ -777,14 +810,6 @@ function TheShell() {
                   <Link to="/admin">Admin</Link>
                 </DropdownMenu.Item>
               )}
-              {/* Who you are, and the way out. Both in the menu rather than on
-                  the bar: the tabs are the thing you use all day and the header
-                  is already full on a phone, while this is read once when you
-                  wonder whose Cockpit you are looking at. */}
-              <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
-              <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
-                {me ? `Signed in as ${me.user.name}` : 'Signed in'}
-              </DropdownMenu.Label>
               <DropdownMenu.Item onSelect={() => leave.mutate()} className={menuItemClass}>
                 Sign out
               </DropdownMenu.Item>

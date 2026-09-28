@@ -526,6 +526,43 @@ describe('Dashboards', () => {
     });
   });
 
+  describe('the dashboard you are on also carries the menu as a visible "…"', () => {
+    // "Give the open workspace and dashboard their own "…", and split the
+    // header's menu into settings and you", issue 567: a menu reachable only
+    // by right-click, a long press or the menu key was invisible until found.
+    it('offers the same entries the tab’s own menu offers, beside + Panel', async () => {
+      const { user } = showBar(['Dashboard 1', 'Research'], {
+        openDashboardId: 'ws-work-research',
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Research' }));
+
+      expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
+        'Edit…',
+        'Delete',
+      ]);
+    });
+
+    it('is not drawn where there is no dashboard open, the bar being the Inbox’s too', async () => {
+      showBar(['Dashboard 1', 'Research'], { openDashboardId: null });
+
+      await screen.findByRole('link', { name: 'Dashboard 1' });
+      expect(screen.queryByRole('button', { name: /^Actions for/ })).toBeNull();
+    });
+
+    it('says why a workspace’s last dashboard cannot be deleted, the same as the tab’s own menu', async () => {
+      const { user } = showBar(['Dashboard 1'], { openDashboardId: 'ws-work-dashboard 1' });
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Dashboard 1' }));
+
+      expect(
+        await screen.findByRole('menuitem', {
+          name: 'Delete: A workspace keeps its last dashboard',
+        }),
+      ).toBeVisible();
+    });
+  });
+
   describe('changing a dashboard sends only what actually changed', () => {
     it.each([
       { situation: 'a new name', typed: 'Reading', sends: ['rename_dashboard'] },

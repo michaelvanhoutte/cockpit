@@ -67,14 +67,14 @@ test.describe('Sign-in', () => {
         .first()
         .waitFor({ state: 'visible' });
       await pastOnboarding(page, isMobile);
-      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await press(page.getByRole('button', { name: 'Profile' }), isMobile);
       await expect(page.getByText(`Signed in as ${MICHAEL}`)).toBeVisible();
       await page.keyboard.press('Escape');
 
       await page.reload();
 
       await expect(dashboardBar(page)).toBeVisible();
-      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await press(page.getByRole('button', { name: 'Profile' }), isMobile);
       await expect(page.getByText(`Signed in as ${MICHAEL}`)).toBeVisible();
     });
 
@@ -109,7 +109,7 @@ test.describe('Sign-in', () => {
         .waitFor({ state: 'visible' });
       await pastOnboarding(page, isMobile);
 
-      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await press(page.getByRole('button', { name: 'Profile' }), isMobile);
       await expect(page.getByText(`Signed in as ${name}`)).toBeVisible();
     });
   });
@@ -139,7 +139,7 @@ test.describe('Sign-in', () => {
         .waitFor({ state: 'visible' });
       await pastOnboarding(page, isMobile);
 
-      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await press(page.getByRole('button', { name: 'Profile' }), isMobile);
       await expect(page.getByText('Signed in as Guest')).toBeVisible();
     });
   });
@@ -166,7 +166,7 @@ test.describe('Sign-in', () => {
         .poll(async () => (await whatTheBrowserStillHolds(page)).storedQueries.length)
         .toBeGreaterThan(1);
 
-      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await press(page.getByRole('button', { name: 'Profile' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
 
       await expect(page.getByRole('link', { name: 'Continue with Google' })).toBeVisible();
@@ -218,7 +218,7 @@ test.describe('Accounts', () => {
       await capture(page, thought, isMobile);
       await expect(itemRow(page, thought)).toBeVisible();
 
-      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await press(page.getByRole('button', { name: 'Profile' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
       await expect(page.getByRole('link', { name: 'Continue with Google' })).toBeVisible();
 
@@ -236,7 +236,7 @@ test.describe('Accounts', () => {
       await expect(workspaceTab(page, workspace)).toHaveCount(0);
       await expect(itemRow(page, thought)).toHaveCount(0);
       // And it is genuinely Michael looking, rather than an empty screen.
-      await press(page.getByRole('button', { name: 'Settings' }), isMobile);
+      await press(page.getByRole('button', { name: 'Profile' }), isMobile);
       await expect(page.getByText(`Signed in as ${MICHAEL}`)).toBeVisible();
     });
   });

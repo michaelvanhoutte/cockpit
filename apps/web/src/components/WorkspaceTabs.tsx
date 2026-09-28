@@ -15,7 +15,7 @@ import { litForChrome } from '../chrome';
 import { useConnections } from '../connections';
 import { useTabDrag } from '../tabDrag';
 import { DeleteQuestion } from './DeleteQuestion';
-import { SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
+import { RowMenu, SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
 import { RowForm } from './RowForm';
 
 /**
@@ -238,6 +238,13 @@ export function WorkspaceTabs({
    */
   const beingDeleted = workspaces.find((w) => w.id === deleting);
   const beingEdited = workspaces.find((w) => w.id === editing?.id);
+  /**
+   * The workspace you are in, whose own actions the header's visible "…"
+   * offers - the same entries the tab's own menu offers, since a right-click
+   * said nothing was there ("Give the open workspace and dashboard their own
+   * "…", and split the header's menu into settings and you", issue 567).
+   */
+  const openWorkspace = workspaces.find((w) => w.id === params.workspaceId);
 
   const confirmDelete = (workspaceId: string) => {
     command.mutate(
@@ -421,6 +428,19 @@ export function WorkspaceTabs({
         })}
         {children}
       </nav>
+
+      {/* The open workspace's own actions, pinned at the right of the header
+          rather than inside the strip above: the strip scrolls within itself,
+          which would carry a fixed button off screen along with the tabs. The
+          same entries the tab's own menu offers, from the same list, so
+          nothing is offered here that a right-click could not already reach. */}
+      {openWorkspace && (
+        <RowMenu
+          label={`Actions for ${openWorkspace.name}`}
+          entries={entriesFor(openWorkspace)}
+          onChrome
+        />
+      )}
 
       {/* Read from the list, so a form left open on a workspace deleted in
           another tab closes rather than saving into nothing. */}

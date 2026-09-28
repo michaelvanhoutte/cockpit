@@ -78,9 +78,12 @@ test.describe('Connector management', () => {
 
       // Reopened from scratch, which is the claim the issue makes about this
       // window: what it shows is what is stored, never what the last press
-      // guessed.
+      // guessed. From the workspace's own visible "…" this time, rather than
+      // the tab's right-click - the same entries, from the same list ("Give
+      // the open workspace and dashboard their own "…", and split the
+      // header's menu into settings and you", issue 567).
       await press(page.getByRole('button', { name: 'Done' }), isMobile);
-      await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
+      await chooseRowAction(page, workspace, 'Manage connections…', isMobile);
       await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
 
       await press(page.getByRole('button', { name: 'Done' }), isMobile);

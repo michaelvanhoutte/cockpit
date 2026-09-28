@@ -279,22 +279,35 @@ export interface MenuEntry {
  *
  * One component rather than the same dozen lines in each: what they offer
  * differs, how a row offers it does not. A workspace, a dashboard and a panel
- * open their own menu instead and carry `SurfaceMenu` below - a workspace and
- * a dashboard because they are tabs rather than rows, a panel because its
- * header is the trigger already, under the pointer, and a kebab beside it
- * would be a second control doing what the header already can.
+ * open a `SurfaceMenu` on the tab or header itself, a workspace and a
+ * dashboard because they are tabs rather than rows and a panel because its
+ * header is the trigger already, under the pointer. **The open one also gets
+ * this component** - a visible "…" elsewhere, fed the same entries
+ * (`WorkspaceTabs.tsx`, `DashboardBar.tsx`), since a menu reachable only by
+ * gesture was invisible until found ("Give the open workspace and dashboard
+ * their own "…", and split the header's menu into settings and you", issue
+ * 567).
  *
  * The entries are named for the action alone - "Rename", "Delete" - because the
  * control that opened them is named for the row, so a reader who cannot see the
  * screen has already been told which one this is.
  */
-export function RowMenu({ label, entries }: { label: string; entries: MenuEntry[] }) {
+export function RowMenu({
+  label,
+  entries,
+  onChrome = false,
+}: {
+  label: string;
+  entries: MenuEntry[];
+  /** Whether this one sits on the chrome rather than on the sheet - see `MenuTrigger`. */
+  onChrome?: boolean;
+}) {
   const chose = useRef(false);
   const trigger = useRef<HTMLButtonElement>(null);
 
   return (
     <DropdownMenu.Root>
-      <MenuTrigger label={label} ref={trigger} />
+      <MenuTrigger label={label} onChrome={onChrome} ref={trigger} />
       <MenuContent
         onCloseAutoFocus={(event) => {
           // Choosing an entry usually opens something that takes the focus
