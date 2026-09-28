@@ -63,7 +63,7 @@ type Answer = { says: typeof PROPOSES_NOTHING } | 'fails';
  * panel-only call - which `note` is read out of, so one `answerFor` covers
  * both kinds of call.
  */
-let answerFor: (note: string, system: string, asked: string) => Answer = () => ({ says: PROPOSES_NOTHING });
+let answerFor: (note: string, system: string, asked: string) => Answer | Promise<Answer> = () => ({ says: PROPOSES_NOTHING });
 let asked: string[] = [];
 
 function stubTheModel(): void {
@@ -87,7 +87,7 @@ function stubTheModel(): void {
     const note = panelOnly ? (JSON.parse(/^Captured note: (.*)$/m.exec(content)![1]!) as string) : content;
     asked.push(note);
 
-    const answer = answerFor(note, sent.system, content);
+    const answer = await answerFor(note, sent.system, content);
     if (answer === 'fails') throw new Error('the model could not be reached');
     return Response.json({
       id: 'msg_1',
@@ -210,6 +210,63 @@ async function routingOf(itemId: string): Promise<string | null> {
   );
   return rows[0]?.proposed_panel_id ?? null;
 }
+
+type RewriteRow = {
+  item_id: string;
+  status: string;
+  message: string | null;
+  title_after: string | null;
+  description_after: string | null;
+  proposed_panel_id: string | null;
+  proposed_panel_reason: string | null;
+};
+
+/** Every rewrite-history row in the account - read straight out of the store. */
+async function historyRows(): Promise<RewriteRow[]> {
+  return inStoreAsItIs(ACCOUNT_NAME, (sql) =>
+    sql
+      .exec<RewriteRow>(
+        `SELECT item_id, status, message, title_after, description_after, proposed_panel_id, proposed_panel_reason
+         FROM rewrite_history WHERE tenant_id = ?`,
+        ACCOUNT_NAME,
+      )
+      .toArray(),
+  );
+}
+
+/**
+ * An unfiled item with a captured note, written directly with no
+ * `capture_item` behind it - so no capture-time cleanup ever asks about it or
+ * records a row for it, and whatever the model is asked and the history holds
+ * afterwards is the refresh's alone.
+ */
+async function anUnfiledNote(note: string, proposedPanelId: string | null = null): Promise<string> {
+  const itemId = nextId();
+  await inStoreAsItIs(ACCOUNT_NAME, (sql) =>
+    sql.exec(
+      `INSERT INTO items
+         (id, tenant_id, workspace_id, source, captured_message, title, description, status, unseen,
+          proposed_panel_id, proposed_panel_reason, created_at, updated_at)
+       VALUES (?, ?, ?, 'internal', ?, ?, 'What it said before', 'to_process', 0, ?, ?, ?, ?)`,
+      itemId,
+      ACCOUNT_NAME,
+      WORKSPACE_ID,
+      note,
+      `Before: ${note}`,
+      proposedPanelId,
+      proposedPanelId === null ? null : 'an earlier reason',
+      nextIssuedAt(),
+      nextIssuedAt(),
+    ),
+  );
+  return itemId;
+}
+
+const aRefreshOf = (workspaceId: string): EnrichmentJob => ({
+  kind: 're-propose-panels',
+  accountName: ACCOUNT_NAME,
+  workspaceId,
+});
 
 /** Waits for a refresh to have written this proposal - the completion signal every case waits on. */
 async function untilRouted(itemId: string, panelId: string): Promise<void> {
@@ -634,6 +691,125 @@ describe('Triage', () => {
         timeout: 15_000,
         interval: 50,
       });
+    });
+  });
+});
+
+/**
+ * "Give reproposePanels the same rewrite-history logging reproposeTexts
+ * already has" (issue 581). Driven through `handleQueue` with items written
+ * directly, as "filing several items in quick succession" above is, so the
+ * refresh is the only thing that ever asks the model or writes a row here.
+ */
+describe('Rewrite history', () => {
+  /**
+   * One refresh over an item in every situation it can end in. The one it
+   * cannot is the item going between the read and the write: items are only
+   * ever tombstoned, and the history row queued for one refuses its hard
+   * deletion, so the store cannot produce that case.
+   */
+  async function aRefreshOverEverySituation() {
+    const compliance = await aPanel('Compliance questions');
+    const temporary = await aPanel('Temporary');
+    answerFor = async (note) => {
+      switch (note) {
+        case 'a note that fits a panel':
+          return { says: proposing(compliance, 'a compliance question') };
+        case 'a note the model makes nothing of':
+          // Not a panel choice at all, so the answer is discarded.
+          return { says: { ...PROPOSES_NOTHING, panel: {} as typeof PROPOSES_NOTHING.panel } };
+        case 'a note whose panel goes while it is read': {
+          const deleted = await postChange('delete_panel', {
+            commandId: nextId(),
+            issuedAt: '2026-09-10T10:00:02.000Z',
+            workspaceId: WORKSPACE_ID,
+            panelId: temporary,
+          });
+          expect(deleted.status).toBe(200);
+          return { says: proposing(temporary) };
+        }
+        case 'a note that fails':
+          return 'fails';
+        default:
+          return { says: PROPOSES_NOTHING };
+      }
+    };
+    const ids = {
+      fits: await anUnfiledNote('a note that fits a panel'),
+      madeNothingOf: await anUnfiledNote('a note the model makes nothing of'),
+      nothingFits: await anUnfiledNote('a note nothing fits'),
+      noLongerFits: await anUnfiledNote('a note whose panel no longer fits', compliance),
+      panelGoes: await anUnfiledNote('a note whose panel goes while it is read'),
+      fails: await anUnfiledNote('a note that fails'),
+    };
+
+    await handleQueue(batchOf(aRefreshOf(WORKSPACE_ID)).batch, env);
+
+    return { compliance, ids };
+  }
+
+  describe('a refresh after a filing records what it proposed for every item it read', () => {
+    it('keeps exactly one record for every item the refresh asks the model about', async () => {
+      await aRefreshOverEverySituation();
+
+      const rows = await historyRows();
+      const recorded = rows.map((row) => row.item_id).sort();
+      const askedAbout = [...new Set(asked)];
+      expect(askedAbout).toHaveLength(6);
+      expect(new Set(recorded).size).toBe(recorded.length);
+      // Every item's note is asked about by the refresh and by nothing else,
+      // so a call the refresh makes without recording it shows up here as
+      // one more note asked about than there are records.
+      expect(recorded).toHaveLength(askedAbout.length);
+      expect(rows.every((row) => row.status !== 'pending')).toBe(true);
+    });
+
+    it('records each outcome, with the panel and its reason where one was proposed', async () => {
+      const { compliance, ids } = await aRefreshOverEverySituation();
+      const rows = await historyRows();
+      const rowFor = (itemId: string) => rows.find((row) => row.item_id === itemId);
+
+      const expected = [
+        { situation: 'a panel fits', itemId: ids.fits, status: 'rewritten', panel: compliance, reason: 'a compliance question', message: /proposed a panel/ },
+        { situation: 'the model makes nothing of it', itemId: ids.madeNothingOf, status: 'left-as-is', panel: null, reason: null, message: /not a panel choice/ },
+        { situation: 'nothing fits, and nothing did before', itemId: ids.nothingFits, status: 'left-as-is', panel: null, reason: null, message: /no panel fit/ },
+        { situation: 'nothing fits any more', itemId: ids.noLongerFits, status: 'rewritten', panel: null, reason: null, message: /withdrew the panel proposed before/ },
+        { situation: 'the panel goes while it is read', itemId: ids.panelGoes, status: 'left-as-is', panel: null, reason: null, message: /panel went/ },
+        { situation: 'the model cannot be reached', itemId: ids.fails, status: 'failed', panel: null, reason: null, message: /./ },
+      ];
+      for (const { situation, itemId, status, panel, reason, message } of expected) {
+        const row = rowFor(itemId);
+        expect(row, situation).toBeDefined();
+        expect({ situation, status: row!.status }).toEqual({ situation, status });
+        expect({ situation, panel: row!.proposed_panel_id, reason: row!.proposed_panel_reason }).toEqual({ situation, panel, reason });
+        expect(row!.message, situation).toMatch(message);
+        // Only the panel is ever re-proposed here, never the two texts.
+        expect({ situation, title: row!.title_after, description: row!.description_after }).toEqual({
+          situation,
+          title: null,
+          description: null,
+        });
+      }
+    });
+
+    it('records nothing where there was nothing to refresh', async () => {
+      await aPanel('Compliance questions');
+
+      await handleQueue(batchOf(aRefreshOf(WORKSPACE_ID)).batch, env);
+
+      expect(asked).toEqual([]);
+      expect(await historyRows()).toEqual([]);
+    });
+
+    it('records nothing, and asks nothing, where this environment has no API key', async () => {
+      await aPanel('Compliance questions');
+      await anUnfiledNote('a note nothing fits');
+      env.ANTHROPIC_API_KEY = '';
+
+      await handleQueue(batchOf(aRefreshOf(WORKSPACE_ID)).batch, env);
+
+      expect(asked).toEqual([]);
+      expect(await historyRows()).toEqual([]);
     });
   });
 });
