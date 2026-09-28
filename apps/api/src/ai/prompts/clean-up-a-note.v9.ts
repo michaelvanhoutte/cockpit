@@ -85,7 +85,7 @@ Almost every note has none. A note that is merely terse, or short, or missing de
 
 A reading's message may say nothing beyond what its title already says, where the note has nothing more to add - do not repeat the same message under two readings to fill the field.
 
-Further down, after the examples, you are given what is this account's own: the panels it has already set up, its decision history, and what else has been captured recently - and, where it has any, its own record of how the titles and messages you proposed were received.
+Further down, after the examples, you are given what is this account's own: the panels it has already set up, its decision history, and what else has been captured recently.
 
 The panels are buckets this account files its own notes into, each named for what belongs there. Where this note clearly belongs on one of them, name its id and say in a few words why, about the note and the panel rather than about yourself - "a compliance question, about the validation protocol" rather than "I chose this because it mentions compliance". Most notes belong on none of them: a panel is not owed a note merely for being the closest match, and naming the wrong one costs more than naming none. Only name one where you are confident a person filing their own notes would put it there themselves.
 
@@ -195,10 +195,11 @@ export function buildCleanUpANote(
   // anything - and nothing forces older data in to fill the gap (`docs/
   // text-learning.md`, "What goes into the prompt"; issue 451).
   //
-  // **The intro sentence rides inside this same computed value, not fixed in
-  // `instructions`.** `v7` could state "you are also given..." unconditionally
-  // because `renderCorrections`/`renderWhatStood` always rendered a truthful
-  // placeholder when empty; `v8`'s sections can both be genuinely absent, and
+  // **The intro sentence rides inside this same computed value, and
+  // `instructions` never mentions this record.** `v7` could state "you are
+  // also given..." unconditionally because `renderCorrections`/
+  // `renderWhatStood` always rendered a truthful placeholder when empty; since
+  // `v8` both sections can be genuinely absent, and
   // a fixed sentence claiming evidence exists with nothing following it would
   // tell the model it has vocabulary evidence it was never actually given -
   // worst for a new or quiet account, exactly the population likeliest to

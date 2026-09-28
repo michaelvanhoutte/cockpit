@@ -161,7 +161,9 @@ export class ClaudeAiService implements AiService {
       /**
        * The breakpoint closes the fixed half, so every call with the same
        * schema reads it back at the cache rate for five minutes after the
-       * last one (issue 584). **The schema is part of what is cached**: it
+       * last one ("Enable prompt caching on the note-cleanup prompt,
+       * restructured so the fixed content is a stable prefix", issue 584).
+       * **The schema is part of what is cached**: it
        * carries this account's panel ids as an `enum`, and a different
        * `output_config.format` invalidates the cache, so the prefix is shared
        * by calls for one account with an unchanged set of panels - a repropose

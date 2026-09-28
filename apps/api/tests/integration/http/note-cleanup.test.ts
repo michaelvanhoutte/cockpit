@@ -98,7 +98,8 @@ function theModelIs(answering: Answering): void {
     const sent = JSON.parse(
       input instanceof Request ? await input.clone().text() : String(init?.body ?? '{}'),
     ) as { system: { text: string }[]; messages: { content: string }[] };
-    // Sent as blocks, the fixed half first and cached (issue 584); read here as the one text the model sees.
+    // Sent as blocks, the fixed half first and cached ("Enable prompt caching on the note-cleanup prompt", issue 584);
+    // read here as the one text the model sees.
     const system = sent.system.map((block) => block.text).join('\n\n');
     asked.push({ system, note: sent.messages[0]!.content });
 
