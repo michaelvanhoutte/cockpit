@@ -591,16 +591,26 @@ async function panelsOrEmpty(
  * Shared by `cleanUpACapturedNote` (moment 2) and `reproposePanels` below
  * (the settle-triggered refresh), because the write and its one race are the
  * same regardless of which call proposed the Panel.
+ *
+ * **A write the store discarded answers so**, rather than `routed`: the Item
+ * was filed, or the Panel went, since the read - and a rewrite-history row
+ * must not claim a proposal nobody will see.
  */
 async function applyProposedPanelIfAny(
   account: Account,
   item: { id: string; workspaceId: string },
   panel: RoutingCandidate | null,
   currentProposedPanelId: string | null,
-): Promise<'routed' | 'withdrawn' | 'no panel fit' | 'the item went while it was being read'> {
+): Promise<
+  | 'routed'
+  | 'withdrawn'
+  | 'no panel fit'
+  | 'the item went while it was being read'
+  | 'the item was filed or the panel went while it was being read'
+> {
   if (!panel && currentProposedPanelId === null) return 'no panel fit';
   try {
-    await account.applyChange('propose_item_panel', {
+    const written = await account.applyChange('propose_item_panel', {
       commandId: crypto.randomUUID(),
       issuedAt: new Date().toISOString(),
       workspaceId: item.workspaceId,
@@ -608,6 +618,7 @@ async function applyProposedPanelIfAny(
       panelId: panel?.panelId ?? null,
       reason: panel?.reason ?? '',
     });
+    if (!written.applied) return 'the item was filed or the panel went while it was being read';
     return panel ? 'routed' : 'withdrawn';
   } catch (error) {
     if (error instanceof NotFoundInAccountError) return 'the item went while it was being read';
@@ -696,7 +707,24 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
   const { promptCorrections, promptStood } = await account.textLearningContext();
 
   for (const candidate of candidates) {
+    // Queued before the model is asked, for the same reason and with the same
+    // fresh id `reproposeTexts` below gives: every call this refresh pays for
+    // is a row in the history ("Give reproposePanels the same rewrite-history
+    // logging reproposeTexts already has", issue 581).
+    const attemptId = crypto.randomUUID();
     try {
+      await recordHistory(() =>
+        account.queueRewriteAttempt({
+          id: attemptId,
+          tenantId: job.accountName,
+          workspaceId: candidate.workspaceId,
+          itemId: candidate.id,
+          titleBefore: candidate.title,
+          descriptionBefore: candidate.description,
+          attemptedAt: new Date().toISOString(),
+        }),
+      );
+
       // Panels, history and recent captures are each read fresh, and against
       // the candidate's own Workspace rather than the one this refresh was
       // triggered from - an Item still undecided between Workspaces is read
@@ -716,6 +744,12 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
         promptStood,
       );
       if (!('proposal' in read)) {
+        await recordHistory(() =>
+          account.recordRewriteOutcome(attemptId, {
+            status: 'left-as-is',
+            message: `nothing was refreshed: ${read.discarded}`,
+          }),
+        );
         say(candidate.id, `nothing was refreshed: ${read.discarded}`);
         continue;
       }
@@ -725,12 +759,30 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
         read.proposal.panel,
         candidate.proposedPanelId,
       );
-      say(candidate.id, routed === 'routed' || routed === 'withdrawn' ? routed : `nothing was refreshed: ${routed}`);
+      const changed = routed === 'routed' || routed === 'withdrawn';
+      // The texts are never written here, so `titleAfter` and
+      // `descriptionAfter` stay empty: a withdrawal is a change too, recorded
+      // as one with no Panel named.
+      await recordHistory(() =>
+        account.recordRewriteOutcome(attemptId, {
+          status: changed ? 'rewritten' : 'left-as-is',
+          proposedPanelId: routed === 'routed' ? (read.proposal.panel?.panelId ?? null) : null,
+          proposedPanelReason: routed === 'routed' ? (read.proposal.panel?.reason ?? null) : null,
+          message: changed ? `panel ${routed}` : `nothing was refreshed: ${routed}`,
+        }),
+      );
+      say(candidate.id, changed ? routed : `nothing was refreshed: ${routed}`);
     } catch (error) {
       // Worth trying again another time, but not worth losing the rest of
       // this refresh over: the queue's own retry is for the whole job, and a
       // model that was rate-limited on Item 3 will be rate-limited on Items
       // 4 through N too, redelivered or not.
+      await recordHistory(() =>
+        account.recordRewriteOutcome(attemptId, {
+          status: 'failed',
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
       console.error(
         JSON.stringify({
           level: 'error',

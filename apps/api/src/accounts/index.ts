@@ -156,7 +156,7 @@ export interface Account {
    */
   unfiledItemsInWorkspace(
     workspaceId: string,
-  ): Promise<{ id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[]>;
+  ): Promise<{ id: string; workspaceId: string; title: string; description: string | null; capturedMessage: string; proposedPanelId: string | null }[]>;
   /**
    * Every item in the whole account with a captured note whose texts nobody
    * has settled - what a correction re-proposes texts for ("Re-read the rest

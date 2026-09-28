@@ -1337,11 +1337,13 @@ export function unfiledItemsInWorkspace(
   db: AccountDb,
   tenantId: string,
   workspaceId: string,
-): { id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[] {
+): { id: string; workspaceId: string; title: string; description: string | null; capturedMessage: string; proposedPanelId: string | null }[] {
   return db
     .select({
       id: items.id,
       workspaceId: items.workspaceId,
+      title: items.title,
+      description: items.description,
       capturedMessage: items.capturedMessage,
       proposedPanelId: items.proposedPanelId,
     })
@@ -1361,6 +1363,8 @@ export function unfiledItemsInWorkspace(
     .map((row) => ({
       id: row.id,
       workspaceId: row.workspaceId,
+      title: row.title,
+      description: row.description,
       capturedMessage: row.capturedMessage!,
       proposedPanelId: row.proposedPanelId,
     }));
