@@ -211,11 +211,9 @@ async function titleOf(itemId: string, accountName: string = ACCOUNT_NAME): Prom
 
 /**
  * `itemsWithUnsettledTexts`'s own candidate ids, read directly rather than
- * through a correction's fan-out - the one case in this file that needs it.
- * A deleted-Workspace candidate is refused (`WorkspaceNotFoundError`) before
- * it ever reaches the model, by `panelsThatTakeItems` alone, so `asked`
- * cannot tell "excluded from the query" apart from "included, and refused a
- * step later" - only the query's own answer can.
+ * through a correction's fan-out - the one case in this file that needs it,
+ * because what it asserts is the candidate list itself, not what the model
+ * was asked.
  */
 async function unsettledCandidateIds(accountName: string = ACCOUNT_NAME): Promise<string[]> {
   return runInDurableObject(storeNamed(accountName), (_instance, state) =>
@@ -387,11 +385,7 @@ describe('Triage', () => {
       // (`repo.ts`), it would be a permanent candidate: nothing can ever
       // settle its texts, since no UI can reach an Item in a deleted
       // Workspace, so it would be pulled into every re-read for as long as
-      // the account exists. (`panelsThatTakeItems` throws for a deleted
-      // Workspace before a model call is ever reached either way - what this
-      // asserts is that the candidate list itself excludes it, not the
-      // job-level outcome, which a caught `WorkspaceNotFoundError` already
-      // makes indistinguishable through `asked` alone.)
+      // the account exists.
       const orphaned = await captureANote('a note in a workspace about to be deleted', { workspaceId: 'ws-atlas' });
       expect(
         (
@@ -437,6 +431,22 @@ describe('Triage', () => {
       expect(
         systemsSeen.some((system) => system.includes('"Call jan" became "Call Jan about the invoice, today"')),
       ).toBe(true);
+    });
+
+    it('asks about the texts alone, never where an Item belongs', async () => {
+      await aPanel('Compliance questions');
+      const waiting = await captureANote('a note about validation');
+      const correcting = await anItemAlreadyProposedFor('call jan about the invoice', 'Call jan');
+      answerFor = (note) =>
+        note === 'a note about validation' ? { says: proposing('Validate the submission') } : { says: proposing('A title') };
+      env.ANTHROPIC_API_KEY = A_KEY;
+
+      expect((await correctTitle(correcting, 'Call Jan about the invoice')).status).toBe(200);
+
+      await untilTitled(waiting, 'Validate the submission');
+      // Every call here is the re-read's: nothing was captured with a key set.
+      expect(systemsSeen.length).toBeGreaterThan(0);
+      for (const system of systemsSeen) expect(system).not.toContain('Compliance questions');
     });
   });
 

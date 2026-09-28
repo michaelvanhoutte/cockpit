@@ -15,7 +15,7 @@ import type { TextCorrectionEntry, WhatStood } from '../../../../src/domain/text
 const A_STOOD_SAMPLE: WhatStood = { proposedTotal: 10, correctedTotal: 2, sample: ['A title that stood'] };
 
 function systemFor(corrections: readonly TextCorrectionEntry[], stood: WhatStood | null): string {
-  return buildCleanUpANote([], [], [], corrections, stood).system;
+  return buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, corrections, stood).system;
 }
 
 describe('Capture', () => {
@@ -81,6 +81,48 @@ describe('Capture', () => {
 
       expect(system).toContain('2 of 10 proposed texts were corrected');
       expect(system).toContain('A title that stood');
+    });
+  });
+
+  /**
+   * A correction's re-read writes only the two texts ("Use a cheaper model for
+   * panel-only re-proposal", issue 583), so it neither sends nor asks for
+   * anything a Panel would need - while every rule about the texts stays.
+   */
+  describe('re-reading the texts asks nothing about where a note belongs', () => {
+    const ROUTING = {
+      panels: [{ id: 'panel-1', name: 'Compliance questions' }],
+      history: [],
+      recentlyCaptured: ['another note waiting'],
+    };
+
+    it.each([
+      { situation: 'the Panels on offer', text: 'Compliance questions' },
+      { situation: 'the decision history', text: 'Decision history' },
+      { situation: 'what else was captured lately', text: 'another note waiting' },
+      { situation: 'a panel line in any example', text: 'panel:' },
+    ])('leaves out $situation', ({ text }) => {
+      expect(buildCleanUpANote(ROUTING, [], null).system).toContain(text);
+      expect(buildCleanUpANote(null, [], null).system).not.toContain(text);
+    });
+
+    it('asks for no panel in the answer', () => {
+      const { schema } = buildCleanUpANote(null, [], null);
+
+      expect(schema.properties).not.toHaveProperty('panel');
+      expect(schema.required).toEqual(['language', 'title', 'message', 'readings']);
+    });
+
+    it('keeps every rule about the two texts, and every example of them', () => {
+      const withPanels = buildCleanUpANote(ROUTING, [], null).system;
+      const withoutPanels = buildCleanUpANote(null, [], null).system;
+      // Everything before the Panels paragraph is the texts' own guidance.
+      const textsGuidance = withPanels.slice(0, withPanels.indexOf('You are also given the panels'));
+
+      expect(withoutPanels.startsWith(textsGuidance)).toBe(true);
+      for (const example of ['title: Novy bellen over de afspraak van volgende week', "meaning: \"'jan' is short for the month January\""]) {
+        expect(withoutPanels).toContain(example);
+      }
     });
   });
 });

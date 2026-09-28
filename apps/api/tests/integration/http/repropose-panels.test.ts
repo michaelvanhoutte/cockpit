@@ -40,7 +40,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 const WS2 = 'ws-atlas';
 
 /** A reading naming a panel, everything else held fixed since only `panel` is ever read here. */
-const proposing = (panelId: string, reason = 'because') => ({
+const proposing = (panelId: string, reason = 'because'): typeof PROPOSES_NOTHING => ({
   language: 'English',
   title: 'A title',
   message: 'A message',
@@ -56,8 +56,14 @@ const PROPOSES_NOTHING = {
   panel: { panelId: '', reason: '' },
 };
 
-type Answer = { says: unknown } | 'fails';
-let answerFor: (note: string, system: string) => Answer | Promise<Answer> = () => ({ says: PROPOSES_NOTHING });
+type Answer = { says: typeof PROPOSES_NOTHING } | 'fails';
+/**
+ * `asked` is what the item arrived as: the whole captured note for a call
+ * writing texts, and the note, title and description for a refresh's own
+ * panel-only call - which `note` is read out of, so one `answerFor` covers
+ * both kinds of call.
+ */
+let answerFor: (note: string, system: string, asked: string) => Answer | Promise<Answer> = () => ({ says: PROPOSES_NOTHING });
 let asked: string[] = [];
 
 function stubTheModel(): void {
@@ -70,18 +76,25 @@ function stubTheModel(): void {
     }
     const sent = JSON.parse(
       input instanceof Request ? await input.clone().text() : String(init?.body ?? '{}'),
-    ) as { system: string; messages: { content: string }[] };
-    const note = sent.messages[0]!.content;
+    ) as {
+      system: string;
+      messages: { content: string }[];
+      output_config: { format: { schema: { properties: Record<string, unknown> } } };
+    };
+    const content = sent.messages[0]!.content;
+    // A panel-only question is told apart by the answer it asks for.
+    const panelOnly = 'panelId' in sent.output_config.format.schema.properties;
+    const note = panelOnly ? (JSON.parse(/^Captured note: (.*)$/m.exec(content)![1]!) as string) : content;
     asked.push(note);
 
-    const answer = await answerFor(note, sent.system);
+    const answer = await answerFor(note, sent.system, content);
     if (answer === 'fails') throw new Error('the model could not be reached');
     return Response.json({
       id: 'msg_1',
       type: 'message',
       role: 'assistant',
       model: 'claude-opus-5',
-      content: [{ type: 'text', text: JSON.stringify(answer.says) }],
+      content: [{ type: 'text', text: JSON.stringify(panelOnly ? answer.says.panel : answer.says) }],
       stop_reason: 'end_turn',
       usage: { input_tokens: 1, output_tokens: 1 },
     });
@@ -327,6 +340,32 @@ describe('Triage', () => {
       const settling = await captureANote('call jan about the invoice');
 
       await fileOnto(settling, elsewhere);
+
+      await untilRouted(waiting, compliance);
+    });
+
+    it('reads each item as it now stands, including a title somebody corrected', async () => {
+      const compliance = await aPanel('Compliance questions');
+      const elsewhere = await aPanel('Somewhere else');
+      // Keyed on the corrected title alone, which the captured note never
+      // carries - so only a refresh reading the item as it now stands can
+      // route it.
+      answerFor = (_note, _system, item) =>
+        item.includes('Title: "Validate the Part 11 submission"')
+          ? { says: proposing(compliance, 'a compliance question') }
+          : { says: PROPOSES_NOTHING };
+      const waiting = await captureANote('check the thing before friday');
+      const retitled = await postChange('set_title', {
+        commandId: nextId(),
+        issuedAt: nextIssuedAt(),
+        workspaceId: WORKSPACE_ID,
+        itemId: waiting,
+        title: 'Validate the Part 11 submission',
+      });
+      expect(retitled.status).toBe(200);
+      const settling = await captureANote('call jan about the invoice');
+
+      await moveOnto(settling, elsewhere);
 
       await untilRouted(waiting, compliance);
     });
@@ -588,6 +627,38 @@ describe('Triage', () => {
       await untilRouted(waiting, compliance);
     });
 
+    it('withdraws a stale proposal without asking, once the item\'s workspace has no panel left to offer', async () => {
+      const elsewhere = await aPanel('Somewhere else');
+      // Atlas's one Panel goes, so an item still undecided there has nowhere
+      // it could be proposed - while the proposal it already carries names
+      // that very Panel. Both written directly: the app refuses to delete a
+      // Workspace's last Panel, and the item has no capture behind it for the
+      // reason the case below gives.
+      const waiting = nextId();
+      await inStoreAsItIs(ACCOUNT_NAME, (sql) => {
+        sql.exec('UPDATE panels SET deleted_at = ? WHERE id = ?', nextIssuedAt(), `${WS2}-panel-1`);
+        sql.exec(
+          `INSERT INTO items
+             (id, tenant_id, workspace_id, workspace_decided, source, captured_message, title, status, unseen,
+              proposed_panel_id, proposed_panel_reason, created_at, updated_at)
+           VALUES (?, ?, ?, 0, 'internal', ?, 'Typed by hand', 'to_process', 0, ?, 'because', ?, ?)`,
+          waiting,
+          ACCOUNT_NAME,
+          WS2,
+          'a note with nowhere left to go',
+          `${WS2}-panel-1`,
+          nextIssuedAt(),
+          nextIssuedAt(),
+        );
+      });
+      const settling = await captureANote('call jan about the invoice');
+
+      await moveOnto(settling, elsewhere);
+
+      await vi.waitFor(async () => expect(await routingOf(waiting)).toBeNull(), { timeout: 15_000, interval: 50 });
+      expect(asked).not.toContain('a note with nowhere left to go');
+    });
+
     it('withdraws a stale proposal once a refresh concludes nothing fits any more', async () => {
       const compliance = await aPanel('Compliance questions');
       const elsewhere = await aPanel('Somewhere else');
@@ -645,7 +716,8 @@ describe('Rewrite history', () => {
         case 'a note that fits a panel':
           return { says: proposing(compliance, 'a compliance question') };
         case 'a note the model makes nothing of':
-          return { says: {} };
+          // Not a panel choice at all, so the answer is discarded.
+          return { says: { ...PROPOSES_NOTHING, panel: {} as typeof PROPOSES_NOTHING.panel } };
         case 'a note whose panel goes while it is read': {
           const deleted = await postChange('delete_panel', {
             commandId: nextId(),
@@ -677,7 +749,7 @@ describe('Rewrite history', () => {
   }
 
   describe('a refresh after a filing records what it proposed for every item it read', () => {
-    it('keeps one record for each item the model was asked about, and none for any it was not', async () => {
+    it('keeps exactly one record for every item the refresh asks the model about', async () => {
       await aRefreshOverEverySituation();
 
       const rows = await historyRows();
@@ -699,7 +771,7 @@ describe('Rewrite history', () => {
 
       const expected = [
         { situation: 'a panel fits', itemId: ids.fits, status: 'rewritten', panel: compliance, reason: 'a compliance question', message: /proposed a panel/ },
-        { situation: 'the model makes nothing of it', itemId: ids.madeNothingOf, status: 'left-as-is', panel: null, reason: null, message: /not a proposal/ },
+        { situation: 'the model makes nothing of it', itemId: ids.madeNothingOf, status: 'left-as-is', panel: null, reason: null, message: /not a panel choice/ },
         { situation: 'nothing fits, and nothing did before', itemId: ids.nothingFits, status: 'left-as-is', panel: null, reason: null, message: /no panel fit/ },
         { situation: 'nothing fits any more', itemId: ids.noLongerFits, status: 'rewritten', panel: null, reason: null, message: /withdrew the panel proposed before/ },
         { situation: 'the panel goes while it is read', itemId: ids.panelGoes, status: 'left-as-is', panel: null, reason: null, message: /panel went/ },

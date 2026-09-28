@@ -179,6 +179,38 @@ export function readProposal(raw: unknown, offeredPanelIds: readonly string[]): 
 }
 
 /**
+ * Either the Panel an Item belongs on - `null` where none fits, a real answer
+ * - or why nothing usable came back.
+ */
+export type PanelRead = { panel: RoutingCandidate | null } | { discarded: string };
+
+/**
+ * Reads a panel-only answer (`choose-a-panel.v1`), by the same rules
+ * `readProposal` reads the `panel` riding on a full one.
+ *
+ * **An answer that is not a panel choice at all is discarded, not read as
+ * "none fits"**, unlike the `panel` beside a title and message: there it
+ * cannot sink the texts, but here it is the whole answer, and reading it as
+ * none would withdraw a standing proposal on the strength of a reply that
+ * said nothing. The Item keeps whatever proposal it had.
+ */
+export function readPanelChoice(raw: unknown, offeredPanelIds: readonly string[]): PanelRead {
+  if (typeof raw !== 'string') return { discarded: 'the answer carried no text' };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { discarded: 'the answer was not JSON' };
+  }
+
+  if (!panelCandidateShape.safeParse(parsed).success) {
+    return { discarded: 'the answer was not a panel choice' };
+  }
+  return { panel: readPanelCandidate(parsed, offeredPanelIds) };
+}
+
+/**
  * One panel proposal, checked against its shape and then against the ids this
  * call actually offered - the empty id, an id not offered, and a reason left
  * empty all read as "no proposal" rather than as a reason to throw away the
