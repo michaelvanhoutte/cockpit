@@ -12,6 +12,7 @@ import type {
 } from '@cockpit/shared';
 import type { AccountSnapshot, Answer } from './answer.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
+import type { UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
@@ -113,7 +114,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   unfiledItemsInWorkspace(
     accountName: string,
     workspaceId: string,
-  ): Awaitable<Answer<{ id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[]>>;
+  ): Awaitable<Answer<UnfiledCandidate[]>>;
   /**
    * Every item in the whole account with a captured note whose texts nobody
    * has settled - what a correction re-proposes texts for ("Re-read the rest

@@ -1337,12 +1337,14 @@ export function unfiledItemsInWorkspace(
   db: AccountDb,
   tenantId: string,
   workspaceId: string,
-): { id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[] {
+): UnfiledCandidate[] {
   return db
     .select({
       id: items.id,
       workspaceId: items.workspaceId,
       capturedMessage: items.capturedMessage,
+      title: items.title,
+      description: items.description,
       proposedPanelId: items.proposedPanelId,
     })
     .from(items)
@@ -1362,8 +1364,23 @@ export function unfiledItemsInWorkspace(
       id: row.id,
       workspaceId: row.workspaceId,
       capturedMessage: row.capturedMessage!,
+      title: row.title,
+      description: row.description,
       proposedPanelId: row.proposedPanelId,
     }));
+}
+
+/**
+ * One Item a settled filing's refresh reads again: the note and the two texts
+ * it carries now are what the panel choice is read from (`choose-a-panel.v1`).
+ */
+export interface UnfiledCandidate {
+  id: string;
+  workspaceId: string;
+  capturedMessage: string;
+  title: string;
+  description: string | null;
+  proposedPanelId: string | null;
 }
 
 /**
