@@ -7,6 +7,7 @@ import {
   applySetDismissed,
   applySetDone,
   applySetDueDate,
+  applySetStarted,
   applySetTitle,
   asStored,
   captureItem,
@@ -44,6 +45,9 @@ const done = (item: Item, at: string, isDone: boolean) =>
 
 const dismissed = (item: Item, at: string, isDismissed: boolean) =>
   applySetDismissed(item, { ...request, issuedAt: at, itemId: 'x', dismissed: isDismissed });
+
+const started = (item: Item, at: string, isStarted: boolean) =>
+  applySetStarted(item, { ...request, issuedAt: at, itemId: 'x', started: isStarted });
 
 const titled = (item: Item, at: string, title: string) =>
   applySetTitle(item, { ...request, issuedAt: at, itemId: item.id, title })!;
@@ -201,7 +205,7 @@ describe('Capture', () => {
 });
 
 describe('Triage', () => {
-  describe('an item is either yours to deal with or finished with', () => {
+  describe('finishing with an item, and taking that back', () => {
     it.each([
       { situation: 'finished with', act: (i: Item) => done(i, LATER, true), finished: LATER },
       {
@@ -221,6 +225,45 @@ describe('Triage', () => {
     it('says when it was last changed, whichever way it went', () => {
       expect(done(anItem(), LATER, true)?.updatedAt).toBe(LATER);
       expect(done(anItem(), LATER, false)?.updatedAt).toBe(LATER);
+    });
+  });
+
+  /**
+   * "Mark an item In progress, and see since when" (issue 568). Which of To
+   * do, In progress or Done an item reads as is a pure decision over these two
+   * times alone (`itemStatus`, `@cockpit/shared`); what is proved here is that
+   * the two handlers write them the way that decision needs.
+   */
+  describe('starting work on an item, and taking that back', () => {
+    it('records when it was started', () => {
+      expect(started(anItem(), LATER, true)?.startedAt).toBe(LATER);
+    });
+
+    it('clears the start time, back to To do', () => {
+      const begun = started(anItem(), LATER, true)!;
+      expect(started(begun, LATEST, false)?.startedAt).toBeNull();
+    });
+
+    /**
+     * A redelivered or repeated start is not a second start - the same
+     * first-answer-wins rule `decideWorkspace` states for where an item
+     * belongs.
+     */
+    it('leaves the start time unchanged when it is started again', () => {
+      const begun = started(anItem(), LATER, true)!;
+      expect(started(begun, LATEST, true)?.startedAt).toBe(LATER);
+    });
+
+    it.each([
+      { situation: 'straight from To do', act: (i: Item) => done(i, LATEST, true), backTo: null },
+      {
+        situation: 'from In progress',
+        act: (i: Item) => done(started(i, LATER, true)!, LATEST, true),
+        backTo: LATER,
+      },
+    ])('keeps the start time undoing Done needs, finished with $situation', ({ act, backTo }) => {
+      const finished = act(anItem())!;
+      expect(done(finished, '2026-08-12T10:00:03.000Z', false)?.startedAt).toBe(backTo);
     });
   });
 
@@ -251,6 +294,7 @@ describe('Offline', () => {
     it.each([
       { situation: 'finishing with it', act: (i: Item) => done(i, LATER, true) },
       { situation: 'dismissing it', act: (i: Item) => dismissed(i, LATER, true) },
+      { situation: 'starting it', act: (i: Item) => started(i, LATER, true) },
     ])('leaves the item alone rather than undoing the newer change when $situation', ({ act }) => {
       expect(act(anItem({ updatedAt: LATEST }))).toBeNull();
     });

@@ -14,6 +14,7 @@ import {
   type SetNextActionCommand,
   type SetItemTypeCommand,
   type SetPriorityCommand,
+  type SetStartedCommand,
   type SetTitleCommand,
   type Source,
   type StoredSource,
@@ -110,6 +111,7 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     typeId: cmd.typeId,
     nextAction: cmd.nextAction ?? null,
     completedAt: null,
+    startedAt: null,
     priority: null,
     dueDate: null,
     dueDateSetAt: null,
@@ -161,6 +163,30 @@ export function applySetDone(item: Item, cmd: SetDoneCommand): Item | null {
   return {
     ...item,
     completedAt: cmd.done ? cmd.issuedAt : null,
+    updatedAt: cmd.issuedAt,
+  };
+}
+
+/**
+ * Starting work on an item, and taking that back ("Mark an item In progress,
+ * and see since when", issue 568).
+ *
+ * **Starting again while already started keeps the time it first happened**,
+ * the same first-answer-wins rule `decideWorkspace` above states for where an
+ * Item belongs: a redelivered or repeated command is not a second start.
+ *
+ * **Left alone by `applySetDone`, in both directions.** Finishing with an
+ * item keeps whatever this last wrote, which is what lets undoing Done return
+ * to In progress rather than to To do - and `itemStatus` reads Done off
+ * `completedAt` alone, so an item finished with straight from To do carries no
+ * start time to begin with and undoing it returns there instead. Nothing here
+ * has to know which of the two that will be.
+ */
+export function applySetStarted(item: Item, cmd: SetStartedCommand): Item | null {
+  if (isStale(item, cmd.issuedAt)) return null;
+  return {
+    ...item,
+    startedAt: cmd.started ? (item.startedAt ?? cmd.issuedAt) : null,
     updatedAt: cmd.issuedAt,
   };
 }

@@ -49,6 +49,7 @@ function anItemOf(type: ItemType | null, at: number): Item {
     typeId: type?.id ?? null,
     nextAction: null,
     completedAt: null,
+    startedAt: null,
     priority: null,
     dueDate: null,
     dueDateSetAt: null,

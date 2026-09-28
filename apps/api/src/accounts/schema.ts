@@ -910,6 +910,13 @@ export const items = sqliteTable(
      * the trade `workspaces.deleted_at` already records.
      */
     completedAt: text('completed_at'),
+    /**
+     * When work on this started ("Mark an item In progress, and see since
+     * when", issue 568) - `itemStatus` (`@cockpit/shared`) reads To do,
+     * In progress and Done off this and `completed_at` together. Nullable and
+     * carries no CHECK, the same trade `completed_at` above already records.
+     */
+    startedAt: text('started_at'),
     priority: text('priority').$type<Priority>(),
     dueDate: text('due_date'),
     /**

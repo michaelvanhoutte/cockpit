@@ -197,6 +197,7 @@ function anItem(id: string, title: string): Item {
     typeId: null,
     nextAction: null,
     completedAt: null,
+    startedAt: null,
     priority: null,
     dueDate: null,
     dueDateSetAt: null,
@@ -2436,6 +2437,7 @@ describe('Onboarding', () => {
       expect(screen.getByRole('menuitem', { name: 'Priority' })).toBeVisible();
       expect(screen.getByRole('menuitem', { name: 'Type' })).toBeVisible();
       expect(screen.getByRole('menuitem', { name: 'Panel' })).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: 'Status' })).toBeVisible();
     });
 
     it('stops offering to add once every field is already on the filter', async () => {
@@ -2446,6 +2448,7 @@ describe('Onboarding', () => {
             { field: 'priority', values: ['high'] },
             { field: 'type', values: [] },
             { field: 'panel', values: [] },
+            { field: 'status' },
           ]),
         ],
       });

@@ -207,14 +207,29 @@ export const panelConditionSchema = z.object({
 export type PanelCondition = z.infer<typeof panelConditionSchema>;
 
 /**
- * One row of a Filter's question: a Due date, a Priority, a Type or a Panel
- * condition.
+ * One condition on a Filter, on whether an Item is In progress ("Mark an item
+ * In progress, and see since when", issue 568).
+ *
+ * **Nothing to choose beyond the field itself**, unlike Priority, Type or
+ * Panel: a Filter only ever sees an Item still open (`itemsThatAreFiled`,
+ * `apps/web/src/filing.ts`), which is already either To do or In progress, so
+ * asking for one is the whole of what there is to ask.
+ */
+export const statusConditionSchema = z.object({
+  field: z.literal('status'),
+});
+export type StatusCondition = z.infer<typeof statusConditionSchema>;
+
+/**
+ * One row of a Filter's question: a Due date, a Priority, a Type, a Panel or
+ * a Status condition.
  */
 export const filterConditionSchema = z.discriminatedUnion('field', [
   dueConditionSchema,
   priorityConditionSchema,
   typeConditionSchema,
   panelConditionSchema,
+  statusConditionSchema,
 ]);
 export type FilterCondition = z.infer<typeof filterConditionSchema>;
 

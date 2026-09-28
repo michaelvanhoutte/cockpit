@@ -10,7 +10,7 @@ export interface Draft {
   dueDate: string | null;
   /** The type the item is, or `null` where it has none (never had one, or its type was deleted) - only ever what the form opened on, never something a person can pick. */
   typeId: string | null;
-  /** Whether the item is finished with; a dismissed item is not in the snapshot, so there is no third state. */
+  /** Whether the item is finished with. The form's Status control is still this one flag - it does not yet offer In progress ("Mark an item In progress, and see since when", issue 568). */
   done: boolean;
 }
 

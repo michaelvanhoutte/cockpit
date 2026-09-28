@@ -50,7 +50,7 @@ import {
   textCorrectionExistsFor,
 } from './repo.js';
 import { attachmentFromCommand } from '../domain/attachments.js';
-import { pairOf } from '../domain/duplicates.js';
+import { couldStillBeActedOn, pairOf } from '../domain/duplicates.js';
 import {
   ACCOUNT_WIDE,
   DEFAULT_SCREEN_SIZE_NAME,
@@ -108,6 +108,7 @@ import {
   applySetDescription,
   applySetDismissed,
   applySetDone,
+  applySetStarted,
   applySetDueDate,
   applySetNextAction,
   applySetItemType,
@@ -2188,6 +2189,38 @@ export function runCommand<N extends CommandName>(
           .run();
         tx.insert(commands).values(commandRow).run();
       });
+      break;
+    }
+    case 'set_started': {
+      const cmd = payload as CommandPayload<'set_started'>;
+      // The same rule `couldStillBeActedOn` already states for a possible
+      // duplicate (domain/duplicates.ts): a dismissed Item is not one work can
+      // be said to have started on, the same reach `add_attachment` above
+      // already refuses on one - and neither is a finished one, which
+      // `set_started` alone among the sibling commands here has reason to
+      // check: left unrefused, starting an Item already done would sit
+      // invisibly behind `itemStatus`'s completedAt-first reading until the
+      // Item was undone, and then read as In progress from a moment nothing
+      // about undoing Done ever meant to record ("Mark an item In progress,
+      // and see since when", issue 568).
+      const existing = getItem(db, tenantId, cmd.itemId);
+      if (!existing || !couldStillBeActedOn(existing)) throw new ItemNotFoundError(cmd.itemId);
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+
+      const updated = applySetStarted(existing, cmd);
+      if (updated === null) {
+        // Stale by last-write-wins: log the command, change nothing.
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+      } else {
+        db.transaction((tx) => {
+          tx.update(items)
+            .set(asStored(updated))
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+          tx.insert(commands).values(commandRow).run();
+        });
+      }
       break;
     }
     default: {

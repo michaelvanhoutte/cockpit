@@ -41,6 +41,7 @@ function anItem(id: string, completedAt: string | null = null): Item {
     typeId: null,
     nextAction: null,
     completedAt,
+    startedAt: null,
     priority: null,
     dueDate: null,
     dueDateSetAt: null,
