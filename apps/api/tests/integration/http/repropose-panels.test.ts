@@ -40,7 +40,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 const WS2 = 'ws-atlas';
 
 /** A reading naming a panel, everything else held fixed since only `panel` is ever read here. */
-const proposing = (panelId: string, reason = 'because') => ({
+const proposing = (panelId: string, reason = 'because'): typeof PROPOSES_NOTHING => ({
   language: 'English',
   title: 'A title',
   message: 'A message',
@@ -56,8 +56,14 @@ const PROPOSES_NOTHING = {
   panel: { panelId: '', reason: '' },
 };
 
-type Answer = { says: unknown } | 'fails';
-let answerFor: (note: string, system: string) => Answer = () => ({ says: PROPOSES_NOTHING });
+type Answer = { says: typeof PROPOSES_NOTHING } | 'fails';
+/**
+ * `asked` is what the item arrived as: the whole captured note for a call
+ * writing texts, and the note, title and description for a refresh's own
+ * panel-only call - which `note` is read out of, so one `answerFor` covers
+ * both kinds of call.
+ */
+let answerFor: (note: string, system: string, asked: string) => Answer = () => ({ says: PROPOSES_NOTHING });
 let asked: string[] = [];
 
 function stubTheModel(): void {
@@ -70,18 +76,25 @@ function stubTheModel(): void {
     }
     const sent = JSON.parse(
       input instanceof Request ? await input.clone().text() : String(init?.body ?? '{}'),
-    ) as { system: string; messages: { content: string }[] };
-    const note = sent.messages[0]!.content;
+    ) as {
+      system: string;
+      messages: { content: string }[];
+      output_config: { format: { schema: { properties: Record<string, unknown> } } };
+    };
+    const content = sent.messages[0]!.content;
+    // A panel-only question is told apart by the answer it asks for.
+    const panelOnly = 'panelId' in sent.output_config.format.schema.properties;
+    const note = panelOnly ? /^Captured note: (.*)\nTitle: /s.exec(content)![1]! : content;
     asked.push(note);
 
-    const answer = answerFor(note, sent.system);
+    const answer = answerFor(note, sent.system, content);
     if (answer === 'fails') throw new Error('the model could not be reached');
     return Response.json({
       id: 'msg_1',
       type: 'message',
       role: 'assistant',
       model: 'claude-opus-5',
-      content: [{ type: 'text', text: JSON.stringify(answer.says) }],
+      content: [{ type: 'text', text: JSON.stringify(panelOnly ? answer.says.panel : answer.says) }],
       stop_reason: 'end_turn',
       usage: { input_tokens: 1, output_tokens: 1 },
     });
@@ -270,6 +283,32 @@ describe('Triage', () => {
       const settling = await captureANote('call jan about the invoice');
 
       await fileOnto(settling, elsewhere);
+
+      await untilRouted(waiting, compliance);
+    });
+
+    it('reads each item as it now stands, including a title somebody corrected', async () => {
+      const compliance = await aPanel('Compliance questions');
+      const elsewhere = await aPanel('Somewhere else');
+      // Keyed on the corrected title alone, which the captured note never
+      // carries - so only a refresh reading the item as it now stands can
+      // route it.
+      answerFor = (_note, _system, item) =>
+        item.includes('Title: Validate the Part 11 submission')
+          ? { says: proposing(compliance, 'a compliance question') }
+          : { says: PROPOSES_NOTHING };
+      const waiting = await captureANote('check the thing before friday');
+      const retitled = await postChange('set_title', {
+        commandId: nextId(),
+        issuedAt: nextIssuedAt(),
+        workspaceId: WORKSPACE_ID,
+        itemId: waiting,
+        title: 'Validate the Part 11 submission',
+      });
+      expect(retitled.status).toBe(200);
+      const settling = await captureANote('call jan about the invoice');
+
+      await moveOnto(settling, elsewhere);
 
       await untilRouted(waiting, compliance);
     });

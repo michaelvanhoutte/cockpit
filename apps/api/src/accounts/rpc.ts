@@ -113,7 +113,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   unfiledItemsInWorkspace(
     accountName: string,
     workspaceId: string,
-  ): Awaitable<Answer<{ id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[]>>;
+  ): Awaitable<Answer<{ id: string; workspaceId: string; capturedMessage: string; title: string; description: string | null; proposedPanelId: string | null }[]>>;
   /**
    * Every item in the whole account with a captured note whose texts nobody
    * has settled - what a correction re-proposes texts for ("Re-read the rest

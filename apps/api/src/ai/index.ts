@@ -1,11 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
 import { buildCleanUpANote } from './prompts/clean-up-a-note.v8.js';
-import { readProposal, type ProposalRead } from './note-texts.js';
+import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v1.js';
+import { readPanelChoice, readProposal, type PanelRead, type ProposalRead } from './note-texts.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 
-export type { NoteTexts, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
+export type { NoteTexts, PanelRead, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
+export type { ItemToPlace } from './prompts/choose-a-panel.v1.js';
 
 /**
  * The AI layer behind a project-owned interface (architecture, "AI layer"):
@@ -13,22 +15,21 @@ export type { NoteTexts, ProposalRead, ReadingCandidate, RoutingCandidate } from
  * testable with the model faked. Enrichment runs on ingest, in jobs; nothing a
  * person waits for waits on a model call.
  *
- * **One method, and one again.** `summarizeFilingPatterns` was the second,
- * and it wrote a paragraph nothing ever read back ("Drop the nightly filing
- * summary, keep the sentence you wrote", issue 392). What learning there is
- * happens inside the one call below, from the decision history it already
- * reads.
+ * **No method that nothing reads back.** `summarizeFilingPatterns` wrote a
+ * paragraph nothing ever read ("Drop the nightly filing summary, keep the
+ * sentence you wrote", issue 392). What learning there is happens inside the
+ * calls below, from the decision history and corrections they already read.
  *
- * One method, because one thing asks: a captured note being cleaned up into a
- * title and a message ("Clean up a captured note into a clear title and a
- * fuller message", issue 296), which now also answers with the other ways the
- * note could genuinely be read ("Offer the other readings when a captured note
- * says two things", issue 297) and which Panel it belongs on, where one
- * clearly fits ("Propose where a captured note belongs, without filing it
- * there", issue 298) - the same call each time, not a second ask, so it stays
- * one method rather than becoming several. Plain-English panel rules are still
- * their own issue and land as their own thing to read, rather than as a
- * placeholder here that nothing calls and no test covers.
+ * `cleanUpNote` is a captured note being cleaned up into a title and a message
+ * ("Clean up a captured note into a clear title and a fuller message", issue
+ * 296), which also answers with the other ways the note could genuinely be
+ * read ("Offer the other readings when a captured note says two things",
+ * issue 297) and which Panel it belongs on, where one clearly fits ("Propose
+ * where a captured note belongs, without filing it there", issue 298) - one
+ * call on capture, since both halves are wanted then. The two re-reads of the
+ * rest of an inbox each want only one half, so each asks for only that half
+ * (`rewriteTexts`, `choosePanel`; issue 583) rather than paying for both and
+ * throwing one away.
  */
 export interface AiService {
   /**
@@ -76,6 +77,32 @@ export interface AiService {
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood | null,
   ): Promise<ProposalRead>;
+
+  /**
+   * `cleanUpNote` with nothing asked about Panels - the same prompt, the same
+   * model, and its `panel` always `null` - for a correction's re-read of the
+   * rest of the inbox, which writes only the texts ("Use a cheaper model for
+   * panel-only re-proposal", issue 583).
+   */
+  rewriteTexts(
+    capturedMessage: string,
+    corrections: readonly TextCorrectionEntry[],
+    stood: WhatStood | null,
+  ): Promise<ProposalRead>;
+
+  /**
+   * Which of `panels` an Item belongs on, and nothing else - for a settled
+   * filing's refresh of the rest of the inbox, which writes only the Panel
+   * (`choose-a-panel.v1`, issue 583). `history` and `recentlyCaptured` are
+   * what `cleanUpNote` takes under the same names. Refuses and throws on
+   * the same terms as `cleanUpNote`.
+   */
+  choosePanel(
+    item: ItemToPlace,
+    panels: readonly { id: string; name: string }[],
+    history: readonly DecisionHistoryEntry[],
+    recentlyCaptured: readonly string[],
+  ): Promise<PanelRead>;
 }
 
 /**
@@ -95,8 +122,14 @@ export function aiFor(env: Env): AiService | null {
 /** The Claude-backed implementation. Constructed by `aiFor` and nowhere else. */
 export class ClaudeAiService implements AiService {
   readonly #client: Anthropic;
+  readonly #onUsage: ((model: string, usage: Anthropic.Usage) => void) | undefined;
 
-  constructor(apiKey: string, workspaceId?: string) {
+  /**
+   * `onUsage` hears every successful call's model and token counts. Only the
+   * contract tier passes one, to say what a prompt costs to run.
+   */
+  constructor(apiKey: string, workspaceId?: string, onUsage?: (model: string, usage: Anthropic.Usage) => void) {
+    this.#onUsage = onUsage;
     this.#client = new Anthropic({
       apiKey,
       // The header is only sent where there is one to send: a key scoped to the
@@ -123,18 +156,51 @@ export class ClaudeAiService implements AiService {
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood | null,
   ): Promise<ProposalRead> {
-    const prompt = buildCleanUpANote(panels, history, recentlyCaptured, corrections, stood);
+    const prompt = buildCleanUpANote({ panels, history, recentlyCaptured }, corrections, stood);
+    const answer = await this.#ask(prompt, capturedMessage);
+    return 'refused' in answer ? { discarded: answer.refused } : readProposal(answer.text, panels.map((panel) => panel.id));
+  }
+
+  async rewriteTexts(
+    capturedMessage: string,
+    corrections: readonly TextCorrectionEntry[],
+    stood: WhatStood | null,
+  ): Promise<ProposalRead> {
+    const prompt = buildCleanUpANote(null, corrections, stood);
+    const answer = await this.#ask(prompt, capturedMessage);
+    // No Panel was offered, so none can be read back.
+    return 'refused' in answer ? { discarded: answer.refused } : readProposal(answer.text, []);
+  }
+
+  async choosePanel(
+    item: ItemToPlace,
+    panels: readonly { id: string; name: string }[],
+    history: readonly DecisionHistoryEntry[],
+    recentlyCaptured: readonly string[],
+  ): Promise<PanelRead> {
+    const prompt = buildChooseAPanel(item, panels, history, recentlyCaptured);
+    const answer = await this.#ask(prompt, prompt.message);
+    return 'refused' in answer ? { discarded: answer.refused } : readPanelChoice(answer.text, panels.map((panel) => panel.id));
+  }
+
+  /** One call, constrained to the prompt's own schema: its text, or that the model declined. */
+  async #ask(
+    // `effort` is null for a model that refuses the field (`choose-a-panel.v1`).
+    prompt: { model: string; effort: 'low' | null; system: string; schema: Record<string, unknown> },
+    content: string,
+  ): Promise<{ text: string | undefined } | { refused: string }> {
     const answer = await this.#client.messages.create({
       model: prompt.model,
       /**
        * Room for the reasoning as well as the answer, since thinking is on by
-       * default on this model and is counted here. A note's two texts are a few
-       * hundred tokens; the headroom is what stops a long note being cut off
-       * mid-JSON, which reaches `readProposal` as an answer that will not parse.
+       * default on the texts' model and is counted here. A note's two texts are
+       * a few hundred tokens; the headroom is what stops a long note being cut
+       * off mid-JSON, which reaches `readProposal` as an answer that will not
+       * parse.
        */
       max_tokens: 8_192,
       system: prompt.system,
-      messages: [{ role: 'user', content: capturedMessage }],
+      messages: [{ role: 'user', content }],
       output_config: {
         // Constrained to the prompt's own schema, which is what makes the
         // language a field the answer commits to before it writes anything -
@@ -147,15 +213,15 @@ export class ClaudeAiService implements AiService {
         // the request is right and only its typing is behind; the contract
         // tests are what would notice if that stopped being true. Drop the cast
         // when the SDK names the field.
-        effort: prompt.effort,
+        ...(prompt.effort ? { effort: prompt.effort } : {}),
       } as Anthropic.OutputConfig,
     });
 
     // A refusal is the model declining, not a fault: it reaches here as a
     // successful call with nothing usable in it, which is exactly what a
     // discarded proposal is.
-    if (answer.stop_reason === 'refusal') return { discarded: 'the model declined the note' };
-    const text = answer.content.find((block) => block.type === 'text');
-    return readProposal(text?.text, panels.map((panel) => panel.id));
+    this.#onUsage?.(prompt.model, answer.usage);
+    if (answer.stop_reason === 'refusal') return { refused: 'the model declined the note' };
+    return { text: answer.content.find((block) => block.type === 'text')?.text };
   }
 }
