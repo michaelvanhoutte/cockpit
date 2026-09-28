@@ -27,6 +27,7 @@ import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
+import type { RefreshAsk } from '../jobs/debounce.js';
 
 export type { AccountSnapshot } from './answer.js';
 export type { AccountBackup } from './backup.js';
@@ -169,6 +170,14 @@ export interface Account {
     { id: string; workspaceId: string; title: string; description: string | null; capturedMessage: string }[]
   >;
   /**
+   * Records an ask for one refresh as the latest, and reads back the latest -
+   * what debounces the settle-triggered refreshes ("Debounce the
+   * settle-triggered repropose fan-out across a real time window", issue
+   * 582). Written and read by the enrichment jobs and by nothing else.
+   */
+  recordRefreshAsk(refresh: string, ask: RefreshAsk): Promise<null>;
+  latestRefreshAsk(refresh: string): Promise<RefreshAsk | null>;
+  /**
    * Queues one rewrite attempt, "Pending" until `recordRewriteOutcome` below
    * settles it ("See the history of what Cockpit proposed for the Inbox's
    * items", issue 444). Written by the enrichment job (and the route that
@@ -310,6 +319,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     unfiledItemsInWorkspace: async (workspaceId) =>
       unwrap(await store.unfiledItemsInWorkspace(accountName, workspaceId)),
     itemsWithUnsettledTexts: async () => unwrap(await store.itemsWithUnsettledTexts(accountName)),
+    recordRefreshAsk: async (refresh, ask) => unwrap(await store.recordRefreshAsk(accountName, refresh, ask)),
+    latestRefreshAsk: async (refresh) => unwrap(await store.latestRefreshAsk(accountName, refresh)),
     queueRewriteAttempt: async (attempt) => unwrap(await store.queueRewriteAttempt(accountName, attempt)),
     recordRewriteOutcome: async (attemptId, outcome) =>
       unwrap(await store.recordRewriteOutcome(accountName, attemptId, outcome)),

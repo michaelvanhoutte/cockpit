@@ -16,6 +16,7 @@ import {
 } from '../embeddings/index.js';
 import { couldStillBeActedOn, whatAnItemSays } from '../domain/duplicates.js';
 import type { QueuedRewriteAttempt } from '../domain/rewrite-history.js';
+import { debounceSecondsFor, isSuperseded, type RefreshAsk } from './debounce.js';
 
 /**
  * Three jobs on the account's own classification: reading a captured note and
@@ -98,6 +99,13 @@ export interface ReproposePanelsJob {
   kind: 're-propose-panels';
   accountName: string;
   workspaceId: string;
+  /**
+   * The ask this message was queued for, which it runs only while no later
+   * one has been recorded (`isSuperseded`, `debounce.ts`). Optional for one
+   * release, for the reason `CleanUpJob.attemptId` gives: a message from
+   * before the debounce carries none, and simply runs.
+   */
+  ask?: RefreshAsk | undefined;
 }
 
 /**
@@ -146,7 +154,11 @@ export interface ReadWhatItMeansJob {
 export interface ReproposeTextsJob {
   kind: 're-propose-texts';
   accountName: string;
+  /** The ask this message was queued for - `ReproposePanelsJob.ask`, per account rather than per Workspace. */
+  ask?: RefreshAsk | undefined;
 }
+
+const refreshAskSchema = z.object({ at: z.number().int().nonnegative(), id: z.uuid() });
 
 export const enrichmentJobSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -167,10 +179,12 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     // client that created it generated (`commandEnvelopeSchema.workspaceId`,
     // packages/shared), and this is carried straight from there.
     workspaceId: z.string().min(1),
+    ask: refreshAskSchema.optional(),
   }),
   z.object({
     kind: z.literal('re-propose-texts'),
     accountName: z.string().min(1),
+    ask: refreshAskSchema.optional(),
   }),
 ]);
 
@@ -634,21 +648,79 @@ async function applyProposedPanelIfAny(
  * queues nothing its consumer would only discard.
  */
 export async function enqueueRepropose(env: Env, accountName: string, workspaceId: string): Promise<void> {
+  await askForRefresh(
+    env,
+    accountName,
+    panelsRefresh(workspaceId),
+    (ask) => ({ kind: 're-propose-panels', accountName, workspaceId, ask }),
+    `the refresh of workspace ${workspaceId}'s Inbox, asked for by a settled filing,`,
+  );
+}
+
+/** Which refresh a Workspace's panel re-proposal is, to the record of asks: one per Workspace. */
+function panelsRefresh(workspaceId: string): string {
+  return `re-propose-panels:${workspaceId}`;
+}
+
+/** Which refresh the account's text re-read is, to the record of asks: one per account. */
+const TEXTS_REFRESH = 're-propose-texts';
+
+/**
+ * Queues one refresh, delayed by the debounce window, and then records it as
+ * the latest ask for that refresh ("Debounce the settle-triggered repropose
+ * fan-out across a real time window", issue 582) - sent first and recorded
+ * second, for the reason `isSuperseded` gives. Neither failing fails whatever
+ * asked: the filing or the correction has already happened, and a refresh
+ * lost or run twice is the whole cost.
+ */
+async function askForRefresh(
+  env: Env,
+  accountName: string,
+  refresh: string,
+  jobFor: (ask: RefreshAsk) => EnrichmentJob,
+  whatWasAsked: string,
+): Promise<void> {
   if (!env.ANTHROPIC_API_KEY) return;
 
-  const job: EnrichmentJob = { kind: 're-propose-panels', accountName, workspaceId };
+  const ask: RefreshAsk = { at: Date.now(), id: crypto.randomUUID() };
   try {
-    await env.ENRICHMENT.send(job);
+    await env.ENRICHMENT.send(jobFor(ask), {
+      delaySeconds: debounceSecondsFor(env.REPROPOSE_DEBOUNCE_SECONDS),
+    });
   } catch (error) {
     console.error(
       JSON.stringify({
         level: 'error',
-        message: `a filing settled but the rest of workspace ${workspaceId} was not queued for a refresh: ${
+        message: `${whatWasAsked} was not queued: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      }),
+    );
+    return;
+  }
+  try {
+    const account = await openAccount(env, accountName);
+    await account.recordRefreshAsk(refresh, ask);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `${whatWasAsked} was queued and not recorded as the latest ask, so an earlier one may run as well: ${
           error instanceof Error ? error.message : String(error)
         }`,
       }),
     );
   }
+}
+
+/**
+ * Whether a later ask has taken this refresh's place - checked once the
+ * account is open and before anything is read, so a refresh that runs reads
+ * the backlog as it stands then.
+ */
+async function aLaterAskTookItsPlace(account: Account, refresh: string, ask: RefreshAsk | undefined): Promise<boolean> {
+  if (ask === undefined) return false;
+  return isSuperseded(await account.latestRefreshAsk(refresh), ask);
 }
 
 /**
@@ -695,6 +767,10 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
       return sayForWorkspace(job.workspaceId, 'nothing was refreshed: the account is no longer in the register');
     }
     throw error;
+  }
+
+  if (await aLaterAskTookItsPlace(account, panelsRefresh(job.workspaceId), job.ask)) {
+    return sayForWorkspace(job.workspaceId, 'nothing was refreshed yet: a later filing queued the refresh that will');
   }
 
   const candidates = await account.unfiledItemsInWorkspace(job.workspaceId);
@@ -793,21 +869,13 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
  * no key queues nothing its consumer would only discard.
  */
 export async function enqueueReproposeTexts(env: Env, accountName: string): Promise<void> {
-  if (!env.ANTHROPIC_API_KEY) return;
-
-  const job: EnrichmentJob = { kind: 're-propose-texts', accountName };
-  try {
-    await env.ENRICHMENT.send(job);
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        level: 'error',
-        message: `a correction was recorded but account ${accountName} was not queued for a re-read: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      }),
-    );
-  }
+  await askForRefresh(
+    env,
+    accountName,
+    TEXTS_REFRESH,
+    (ask) => ({ kind: 're-propose-texts', accountName, ask }),
+    `the re-read of account ${accountName}'s Inbox, asked for by a correction,`,
+  );
 }
 
 /**
@@ -846,6 +914,10 @@ export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<
       return sayForAccount(job.accountName, 'nothing was re-read: the account is no longer in the register');
     }
     throw error;
+  }
+
+  if (await aLaterAskTookItsPlace(account, TEXTS_REFRESH, job.ask)) {
+    return sayForAccount(job.accountName, 'nothing was re-read yet: a later correction queued the re-read that will');
   }
 
   const candidates = await account.itemsWithUnsettledTexts();
