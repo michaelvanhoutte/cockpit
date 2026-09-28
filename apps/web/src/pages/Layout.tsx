@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
@@ -7,6 +7,10 @@ import { ADMIN, DEFAULT_WORKSPACE_THEME, isPaletteTheme, themeOf, uuidv7 } from 
 import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, refusalFrom, snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
+// Out of the initial bundle - the same boundary `ManageConnections` draws
+// around itself in WorkspaceTabs.tsx - since the dock is not what the shell
+// has to paint first.
+const AgentDock = lazy(() => import('../components/AgentDock'));
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { CaptureWindow } from '../components/CaptureWindow';
@@ -31,6 +35,7 @@ import {
   togglesTheInbox,
   writeInboxCollapsed,
 } from '../inboxCollapsed';
+import { readAgentDockHidden, togglesTheAgentDock, writeAgentDockHidden } from '../agentDockHidden';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useScrollWhileDraggingAnItem } from '../dragScroll';
 
@@ -203,6 +208,39 @@ function TheShell() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [roomForTheInbox, inWorkspace, collapseInbox]);
+
+  /**
+   * Whether the agents' dock is hidden ("Keep your agents in a dock, and
+   * choose which each dashboard shows", issue 570) - the same shape
+   * `inboxCollapsed` above carries, and for the same reason.
+   */
+  const [agentDockHidden, setAgentDockHidden] = useState(() => readAgentDockHidden(browserStore()));
+  const hideAgentDock = useCallback((hidden: boolean) => {
+    setAgentDockHidden(hidden);
+    writeAgentDockHidden(browserStore(), hidden);
+  }, []);
+  const agentDockHiddenRef = useRef(agentDockHidden);
+  agentDockHiddenRef.current = agentDockHidden;
+  useEffect(() => {
+    if (!roomForTheInbox || !inWorkspace) return;
+    const onKey = (event: KeyboardEvent) => {
+      const toggles = togglesTheAgentDock(
+        {
+          key: event.key,
+          ctrlKey: event.ctrlKey,
+          altKey: event.altKey,
+          metaKey: event.metaKey,
+          repeat: event.repeat,
+          defaultPrevented: event.defaultPrevented,
+          typing: isTypedInto(event.target),
+        },
+        somethingIsOpenOverThePage(),
+      );
+      if (toggles) hideAgentDock(!agentDockHiddenRef.current);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [roomForTheInbox, inWorkspace, hideAgentDock]);
 
   /**
    * How wide the Inbox column is drawn - the chosen preference, and the drag
@@ -784,6 +822,16 @@ function TheShell() {
                 >
                   Manage types
                 </DropdownMenu.Item>
+                {/* The dock's own visibility, not its content - the dock's
+                    own "…" is where an agent is hidden or Ask Claude is
+                    switched, the same split "Manage types" already draws
+                    against the types themselves. */}
+                <DropdownMenu.Item
+                  className={menuItemClass}
+                  onSelect={() => hideAgentDock(!agentDockHidden)}
+                >
+                  {agentDockHidden ? 'Show the agents’ dock' : 'Hide the agents’ dock'}
+                </DropdownMenu.Item>
               </MenuContent>
             </DropdownMenu.Root>
 
@@ -1024,6 +1072,28 @@ function TheShell() {
           <Outlet />
         </div>
       </main>
+
+      {/* The dock: every Agent, reachable from whichever Dashboard is open
+          ("Keep your agents in a dock, and choose which each dashboard
+          shows", issue 570). Needs an actual Dashboard open, not merely a
+          Workspace, since hiding one is scoped to it; hidden on a phone,
+          where there is no drag, the same room `roomForTheInbox` answers for
+          the Inbox column - a desk-sized screen either way. */}
+      {params.workspaceId && params.dashboardId && roomForTheInbox && !agentDockHidden && (
+        // No fallback: a beat of nothing where the dock will be costs less
+        // than a placeholder shaped like it, the same call `ManageConnections`
+        // makes for its own chunk.
+        <Suspense fallback={null}>
+          <AgentDock
+            workspaceId={params.workspaceId}
+            dashboardId={params.dashboardId}
+            agents={workspace.data?.agents ?? []}
+            hiddenAgents={workspace.data?.hiddenAgents ?? []}
+            hasClaudeCodeConnection={workspace.data?.hasClaudeCodeConnection ?? false}
+            askClaudeEnabled={workspace.data?.askClaudeEnabled ?? true}
+          />
+        </Suspense>
+      )}
 
       {/* The account's list of types, over the workspace rather than instead
           of it. Here rather than in a page, because there is no page: the

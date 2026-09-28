@@ -10,6 +10,8 @@ import {
 } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import {
+  AGENT_COLORS,
+  AGENT_ENGINES,
   associationKindSchema,
   GRID_COLUMNS,
   ITEM_FORM_PRESENTATIONS,
@@ -24,6 +26,7 @@ import {
   storedSourceSchema,
 } from '@cockpit/shared';
 import type {
+  AgentEngine,
   AssociationKind,
   ItemFormPresentation,
   ItemReading,
@@ -758,6 +761,85 @@ export const itemTypes = sqliteTable(
     check('item_types_deleted_at_is_timestamp', isTimestamp('deleted_at')),
   ],
 );
+
+/**
+ * A named instruction for Claude, kept in the dock ("Keep your agents in a
+ * dock, and choose which each dashboard shows", issue 570). Account-wide, the
+ * same scope `itemTypes` above has and for the same reason: which Agents you
+ * have is not a fact about any one Workspace.
+ *
+ * **Tombstoned, not deleted**, exactly as `itemTypes` is: `hiddenDashboardAgents`
+ * below points at one under RESTRICT, and a row that stays is what keeps that
+ * key satisfied without either table having to clean up after the other.
+ */
+export const agents = sqliteTable(
+  'agents',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    name: text('name').notNull(),
+    foldedName: text('folded_name').notNull(),
+    color: text('color').notNull(),
+    engine: text('engine').notNull().$type<AgentEngine>(),
+    message: text('message').notNull(),
+    asksForPrompt: integer('asks_for_prompt', { mode: 'boolean' }).notNull(),
+    startsInProgress: integer('starts_in_progress', { mode: 'boolean' }).notNull(),
+    position: integer('position').notNull().default(0),
+    createdAt: text('created_at').notNull(),
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [
+    uniqueIndex('agents_tenant_live_folded_name')
+      .on(t.tenantId, t.foldedName)
+      .where(sql`${t.deletedAt} IS NULL`),
+    check('agents_color_is_known', oneOf('color', AGENT_COLORS)),
+    check('agents_engine_is_known', oneOf('engine', AGENT_ENGINES)),
+    check('agents_position_is_an_order', sql.raw('position >= 0')),
+    check('agents_created_at_is_timestamp', isTimestamp('created_at')),
+    check('agents_deleted_at_is_timestamp', isTimestamp('deleted_at')),
+  ],
+);
+
+/**
+ * Which Agents are hidden on which Dashboard ("Hiding and showing are per
+ * dashboard", issue 570) - one row per hide, removed by the matching show.
+ *
+ * **No cleanup on either side's delete.** Both `dashboards` and `agents` are
+ * tombstoned rather than erased, so a row here never outlives the id it
+ * names - it simply stops mattering, because a tombstoned Dashboard is read
+ * by nothing and a tombstoned Agent is filtered out of the live list the dock
+ * draws its "hidden here" count from (`listHiddenAgents`, repo.ts). RESTRICT
+ * is therefore never asked to refuse anything a real delete would have hit.
+ */
+export const hiddenDashboardAgents = sqliteTable(
+  'hidden_dashboard_agents',
+  {
+    tenantId: text('tenant_id').notNull(),
+    dashboardId: text('dashboard_id')
+      .notNull()
+      .references(() => dashboards.id, { onDelete: 'restrict' }),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'restrict' }),
+    hiddenAt: text('hidden_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.dashboardId, t.agentId] }),
+    index('hidden_dashboard_agents_tenant_dashboard').on(t.tenantId, t.dashboardId),
+    check('hidden_dashboard_agents_hidden_at_is_timestamp', isTimestamp('hidden_at')),
+  ],
+);
+
+/**
+ * The account-wide switch for Ask Claude ("Ask Claude... can be turned off
+ * everywhere and on again from the dock's '…'", issue 570) - one row per
+ * account, the same shape `accountItemFormPresentation` below is and for the
+ * same reason: one fact about the account, not a list of them.
+ */
+export const accountAgentSettings = sqliteTable('account_agent_settings', {
+  tenantId: text('tenant_id').primaryKey(),
+  askClaudeEnabled: integer('ask_claude_enabled', { mode: 'boolean' }).notNull(),
+});
 
 export const items = sqliteTable(
   'items',

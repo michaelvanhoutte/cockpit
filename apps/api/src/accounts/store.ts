@@ -39,6 +39,8 @@ import {
 import { createAccountDb, type AccountDb } from './client.js';
 import { collectInvalidations, watermark } from './events.js';
 import {
+  AgentNameTakenError,
+  AgentNotFoundError,
   AttachmentIdTakenError,
   DashboardNameTakenError,
   DashboardNotFoundError,
@@ -69,18 +71,22 @@ import {
   decisionHistoryForWorkspace,
   everyMeaning,
   forgetMeaning,
+  getAskClaudeEnabled,
   getAttachment,
   getAttachmentForDownload,
   getItem,
   getItemFormPresentation,
   getSourceAccount,
   getWorkspace,
+  hasClaudeCodeConnection,
   itemsToRead,
   itemsWithUnsettledTexts,
   judgeableItemsForAccount,
+  listAgents,
   listAssociationsForWorkspace,
   listAttachmentsInWorkspace,
   listDuplicatesInWorkspace,
+  listHiddenAgents,
   listItemTypes,
   listScreenSizes,
   listDashboards,
@@ -191,6 +197,10 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         screenSizes: listScreenSizes(db, accountName),
         itemFormPresentation: getItemFormPresentation(db, accountName),
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
+        agents: listAgents(db, accountName),
+        hiddenAgents: listHiddenAgents(db, accountName, workspaceId),
+        hasClaudeCodeConnection: hasClaudeCodeConnection(db, accountName, workspaceId),
+        askClaudeEnabled: getAskClaudeEnabled(db, accountName),
       };
     });
   }
@@ -930,6 +940,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       if (
         error instanceof ItemNotFoundError ||
         error instanceof ItemTypeNotFoundError ||
+        error instanceof AgentNotFoundError ||
         error instanceof WorkspaceNotFoundError ||
         error instanceof DashboardNotFoundError ||
         error instanceof PanelNotFoundError ||
@@ -946,6 +957,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof LayoutSizeTakenError ||
         error instanceof ScreenSizeNameTakenError ||
         error instanceof AttachmentIdTakenError ||
+        error instanceof AgentNameTakenError ||
         // A refusal to say out loud rather than a shape problem: the request is
         // well formed and names a dashboard that exists, and the answer is that
         // this one may not go.

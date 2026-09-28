@@ -3,7 +3,9 @@ import { CLAUDE_CODE } from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import {
+  accountAgentSettings,
   accountItemFormPresentation,
+  agents,
   associations,
   attachments,
   commands,
@@ -11,6 +13,7 @@ import {
   dashboards,
   DEAD_STATUS_VALUE,
   decisionHistory,
+  hiddenDashboardAgents,
   items,
   itemTypes,
   layoutRows,
@@ -24,6 +27,7 @@ import {
 } from './schema.js';
 import {
   commandAlreadyApplied,
+  getAgent,
   getAttachment,
   getDashboard,
   getItem,
@@ -34,8 +38,10 @@ import {
   getSourceAccount,
   getWorkspace,
   isItemFiled,
+  lastAgentPosition,
   lastDashboardPosition,
   lastWorkspacePosition,
+  listAgents,
   listDashboards,
   lastItemTypePosition,
   listFilingsOnPanel,
@@ -100,6 +106,7 @@ import {
   itemTypeNamed,
   ordersTypesExactly,
 } from '../domain/item-types.js';
+import { agentFromCommand, agentNamed } from '../domain/agents.js';
 import { defaultScreenSizeId, screenSizeNamed } from '../domain/screen-sizes.js';
 import { decisionHistoryEntryFor } from '../domain/decision-history.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
@@ -145,6 +152,21 @@ export class ItemTypeOrderStaleError extends Error {
   constructor() {
     super('the types changed while they were being put in order');
     this.name = 'ItemTypeOrderStaleError';
+  }
+}
+
+export class AgentNotFoundError extends Error {
+  constructor(agentId: string) {
+    super(`agent ${agentId} not found`);
+    this.name = 'AgentNotFoundError';
+  }
+}
+
+/** The same collision `ItemTypeNameTakenError` names, for the dock's own list. */
+export class AgentNameTakenError extends Error {
+  constructor(name: string) {
+    super(`an agent called ${name} already exists`);
+    this.name = 'AgentNameTakenError';
   }
 }
 
@@ -1888,6 +1910,126 @@ export function runCommand<N extends CommandName>(
             .where(and(eq(itemTypes.tenantId, tenantId), eq(itemTypes.id, typeId)))
             .run();
         });
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'create_agent': {
+      const cmd = payload as CommandPayload<'create_agent'>;
+      const already = listAgents(db, tenantId);
+      // A name another agent has is refused, the same rule `create_item_type`
+      // enforces and for the same reason: the dock is the one place an
+      // agent's name is typed, so a collision here is the only one there is.
+      const alreadyCalledThat = agentNamed(already, cmd.name);
+      if (alreadyCalledThat) throw new AgentNameTakenError(alreadyCalledThat.name);
+      db.transaction((tx) => {
+        tx.insert(agents)
+          .values({
+            ...agentFromCommand(cmd, tenantId, lastAgentPosition(db, tenantId)),
+            foldedName: foldName(cmd.name),
+            deletedAt: null,
+          })
+          .onConflictDoNothing()
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'update_agent': {
+      const cmd = payload as CommandPayload<'update_agent'>;
+      const live = listAgents(db, tenantId);
+      const agent = live.find((candidate) => candidate.id === cmd.agentId);
+      if (!agent) throw new AgentNotFoundError(cmd.agentId);
+      // Its own name back is not a collision, the same carve-out `rename_item_type` makes.
+      const taken = agentNamed(live, cmd.name);
+      if (taken && taken.id !== cmd.agentId) throw new AgentNameTakenError(cmd.name);
+      db.transaction((tx) => {
+        tx.update(agents)
+          .set({
+            name: cmd.name,
+            foldedName: foldName(cmd.name),
+            color: cmd.color,
+            message: cmd.message,
+            asksForPrompt: cmd.asksForPrompt,
+            startsInProgress: cmd.startsInProgress,
+          })
+          .where(and(eq(agents.tenantId, tenantId), eq(agents.id, cmd.agentId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'delete_agent': {
+      const cmd = payload as CommandPayload<'delete_agent'>;
+      if (!getAgent(db, tenantId, cmd.agentId)) throw new AgentNotFoundError(cmd.agentId);
+      db.transaction((tx) => {
+        // Tombstoned, never erased - the same reason `delete_item_type`
+        // leaves its row behind: `hiddenDashboardAgents` points at this id
+        // under RESTRICT, and a row that stays is what keeps that key
+        // satisfied without a second statement to clean up after this one.
+        tx.update(agents)
+          .set({ deletedAt: cmd.issuedAt })
+          .where(and(eq(agents.tenantId, tenantId), eq(agents.id, cmd.agentId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'hide_agent_on_dashboard': {
+      const cmd = payload as CommandPayload<'hide_agent_on_dashboard'>;
+      if (!getAgent(db, tenantId, cmd.agentId)) throw new AgentNotFoundError(cmd.agentId);
+      if (!getDashboard(db, tenantId, cmd.workspaceId, cmd.dashboardId)) {
+        throw new DashboardNotFoundError(cmd.dashboardId);
+      }
+      db.transaction((tx) => {
+        tx.insert(hiddenDashboardAgents)
+          .values({
+            tenantId,
+            dashboardId: cmd.dashboardId,
+            agentId: cmd.agentId,
+            hiddenAt: cmd.issuedAt,
+          })
+          // Already hidden here is not a failure: a second hide, from a
+          // retried command or a second tab, leaves exactly one row - the
+          // same idempotence `create_agent`'s bare insert promises.
+          .onConflictDoNothing()
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'show_agent_on_dashboard': {
+      const cmd = payload as CommandPayload<'show_agent_on_dashboard'>;
+      if (!getAgent(db, tenantId, cmd.agentId)) throw new AgentNotFoundError(cmd.agentId);
+      if (!getDashboard(db, tenantId, cmd.workspaceId, cmd.dashboardId)) {
+        throw new DashboardNotFoundError(cmd.dashboardId);
+      }
+      db.transaction((tx) => {
+        // Not hidden here is not a failure, the same reason the hide above
+        // is not one: undoing an undo is a no-op, not a collision.
+        tx.delete(hiddenDashboardAgents)
+          .where(
+            and(
+              eq(hiddenDashboardAgents.tenantId, tenantId),
+              eq(hiddenDashboardAgents.dashboardId, cmd.dashboardId),
+              eq(hiddenDashboardAgents.agentId, cmd.agentId),
+            ),
+          )
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_ask_claude_enabled': {
+      const cmd = payload as CommandPayload<'set_ask_claude_enabled'>;
+      db.transaction((tx) => {
+        tx.insert(accountAgentSettings)
+          .values({ tenantId, askClaudeEnabled: cmd.enabled })
+          .onConflictDoUpdate({
+            target: accountAgentSettings.tenantId,
+            set: { askClaudeEnabled: cmd.enabled },
+          })
+          .run();
         tx.insert(commands).values(commandRow).run();
       });
       break;

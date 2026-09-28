@@ -2,14 +2,17 @@ import { alias } from 'drizzle-orm/sqlite-core';
 import { and, asc, desc, eq, exists, gt, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
 import type { Column } from 'drizzle-orm';
 import {
+  CLAUDE_CODE,
   DEFAULT_ITEM_FORM_PRESENTATION,
   REWRITE_HISTORY_LIMIT,
   panelFilterFrom,
   panelSortFrom,
+  type Agent,
   type Association,
   type Attachment,
   type Dashboard,
   type Filing,
+  type HiddenAgent,
   type Item,
   type ItemFormPresentation,
   type ItemType,
@@ -31,7 +34,9 @@ import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import {
+  accountAgentSettings,
   accountItemFormPresentation,
+  agents,
   associations,
   attachments,
   commands,
@@ -39,6 +44,7 @@ import {
   dashboards,
   decisionHistory,
   duplicateSettlements,
+  hiddenDashboardAgents,
   itemDuplicates,
   itemMeanings,
   items,
@@ -1597,6 +1603,100 @@ export function lastItemTypePosition(db: AccountDb, tenantId: string): number | 
 /** One live type, or null - what a capture naming a type is checked against. */
 export function getItemType(db: AccountDb, tenantId: string, typeId: string): ItemType | null {
   return listItemTypes(db, tenantId).find((type) => type.id === typeId) ?? null;
+}
+
+// --- Agents, and what the dock draws (issue 570) ------------------------------
+
+/** Every live Agent of the account, in dock order - the same "position first, createdAt breaks a tie" `listItemTypes` reads by. */
+export function listAgents(db: AccountDb, tenantId: string): Agent[] {
+  return db
+    .select({
+      id: agents.id,
+      tenantId: agents.tenantId,
+      name: agents.name,
+      color: agents.color,
+      engine: agents.engine,
+      message: agents.message,
+      asksForPrompt: agents.asksForPrompt,
+      startsInProgress: agents.startsInProgress,
+      position: agents.position,
+      createdAt: agents.createdAt,
+    })
+    .from(agents)
+    .where(and(eq(agents.tenantId, tenantId), isNull(agents.deletedAt)))
+    .orderBy(agents.position, agents.createdAt)
+    .all();
+}
+
+/** One live Agent, or null - what editing, deleting or hiding one is checked against. */
+export function getAgent(db: AccountDb, tenantId: string, agentId: string): Agent | null {
+  return listAgents(db, tenantId).find((agent) => agent.id === agentId) ?? null;
+}
+
+/** The highest position any of this account's Agents holds, or null - deleted Agents count, the same reason `lastItemTypePosition` counts them. */
+export function lastAgentPosition(db: AccountDb, tenantId: string): number | null {
+  const row = db
+    .select({ highest: max(agents.position) })
+    .from(agents)
+    .where(eq(agents.tenantId, tenantId))
+    .get();
+  return row?.highest ?? null;
+}
+
+/**
+ * Which Agents are hidden on which of one Workspace's Dashboards ("Hiding
+ * and showing are per dashboard", issue 570).
+ *
+ * **Joined against live Dashboards only.** A hide made on a Dashboard since
+ * deleted has nothing left to draw it on, and this is what makes "the
+ * dashboard deleted → its hidden list goes with it" true of the read rather
+ * than needing a delete of its own - see `hiddenDashboardAgents` in
+ * `schema.ts`. Joined against live Agents for the same reason, on the other
+ * side of the same row: a hide naming a since-deleted Agent is exactly as
+ * unreadable as one naming a since-deleted Dashboard.
+ */
+export function listHiddenAgents(db: AccountDb, tenantId: string, workspaceId: string): HiddenAgent[] {
+  return db
+    .select({
+      dashboardId: hiddenDashboardAgents.dashboardId,
+      agentId: hiddenDashboardAgents.agentId,
+    })
+    .from(hiddenDashboardAgents)
+    .innerJoin(
+      dashboards,
+      and(eq(dashboards.id, hiddenDashboardAgents.dashboardId), isNull(dashboards.deletedAt)),
+    )
+    .innerJoin(agents, and(eq(agents.id, hiddenDashboardAgents.agentId), isNull(agents.deletedAt)))
+    .where(and(eq(hiddenDashboardAgents.tenantId, tenantId), eq(dashboards.workspaceId, workspaceId)))
+    .all();
+}
+
+/** Whether one Workspace holds a live Claude Code connection - the other half of whether Ask Claude is drawn there. */
+export function hasClaudeCodeConnection(db: AccountDb, tenantId: string, workspaceId: string): boolean {
+  return (
+    db
+      .select({ id: connectorAccounts.id })
+      .from(connectorAccounts)
+      .where(
+        and(
+          eq(connectorAccounts.tenantId, tenantId),
+          eq(connectorAccounts.workspaceId, workspaceId),
+          eq(connectorAccounts.connectorId, CLAUDE_CODE),
+        ),
+      )
+      .limit(1)
+      .all().length > 0
+  );
+}
+
+/** The account-wide Ask Claude switch - enabled where nobody has ever thrown it, the direction `accountAgentSettings` carries no row for. */
+export function getAskClaudeEnabled(db: AccountDb, tenantId: string): boolean {
+  const row = db
+    .select({ askClaudeEnabled: accountAgentSettings.askClaudeEnabled })
+    .from(accountAgentSettings)
+    .where(eq(accountAgentSettings.tenantId, tenantId))
+    .get();
+  return row?.askClaudeEnabled ?? true;
 }
 
 // --- what Items mean, and which of them say the same thing (issue 407) -------

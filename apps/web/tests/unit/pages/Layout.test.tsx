@@ -184,7 +184,7 @@ describe('Across the app', () => {
     // split the header's menu into settings and you", issue 567: the one menu
     // used to carry the account's settings and the signed-in person together,
     // which is not the same job twice.
-    it('holds only Manage types behind the gear', async () => {
+    it('holds the account’s own settings behind the gear, and nothing about who is signed in', async () => {
       const user = userEvent.setup();
       render(
         <QueryClientProvider
@@ -198,6 +198,7 @@ describe('Across the app', () => {
 
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Manage types',
+        'Hide the agents’ dock',
       ]);
     });
 
