@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
-import { buildCleanUpANote } from './prompts/clean-up-a-note.v8.js';
+import { buildCleanUpANote } from './prompts/clean-up-a-note.v9.js';
 import { readProposal, type ProposalRead } from './note-texts.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
@@ -123,6 +123,31 @@ export class ClaudeAiService implements AiService {
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood | null,
   ): Promise<ProposalRead> {
+    const { read } = await this.cleanUpNoteWithUsage(
+      capturedMessage,
+      panels,
+      history,
+      recentlyCaptured,
+      corrections,
+      stood,
+    );
+    return read;
+  }
+
+  /**
+   * `cleanUpNote`, with what the call cost beside what it answered - the one
+   * place a cache hit can be seen, since a request that asked for caching and
+   * got none still answers exactly the same. Not on `AiService`: nothing
+   * product-side reads it, and the contract tests are what do.
+   */
+  async cleanUpNoteWithUsage(
+    capturedMessage: string,
+    panels: readonly { id: string; name: string }[],
+    history: readonly DecisionHistoryEntry[],
+    recentlyCaptured: readonly string[],
+    corrections: readonly TextCorrectionEntry[],
+    stood: WhatStood | null,
+  ): Promise<{ read: ProposalRead; usage: Anthropic.Usage }> {
     const prompt = buildCleanUpANote(panels, history, recentlyCaptured, corrections, stood);
     const answer = await this.#client.messages.create({
       model: prompt.model,
@@ -133,7 +158,23 @@ export class ClaudeAiService implements AiService {
        * mid-JSON, which reaches `readProposal` as an answer that will not parse.
        */
       max_tokens: 8_192,
-      system: prompt.system,
+      /**
+       * The breakpoint closes the fixed half, so every call with the same
+       * schema reads it back at the cache rate for five minutes after the
+       * last one (issue 584). **The schema is part of what is cached**: it
+       * carries this account's panel ids as an `enum`, and a different
+       * `output_config.format` invalidates the cache, so the prefix is shared
+       * by calls for one account with an unchanged set of panels - a repropose
+       * run, a burst of captures, a contract run - never across accounts. The
+       * API gives the schema no breakpoint of its own. Nothing after this
+       * marker is cached: `context` changes with every note filed or captured,
+       * and a second breakpoint on it would pay the write premium far more
+       * often than it was read back.
+       */
+      system: [
+        { type: 'text', text: prompt.system.instructions, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: prompt.system.context },
+      ],
       messages: [{ role: 'user', content: capturedMessage }],
       output_config: {
         // Constrained to the prompt's own schema, which is what makes the
@@ -154,8 +195,10 @@ export class ClaudeAiService implements AiService {
     // A refusal is the model declining, not a fault: it reaches here as a
     // successful call with nothing usable in it, which is exactly what a
     // discarded proposal is.
-    if (answer.stop_reason === 'refusal') return { discarded: 'the model declined the note' };
+    if (answer.stop_reason === 'refusal') {
+      return { read: { discarded: 'the model declined the note' }, usage: answer.usage };
+    }
     const text = answer.content.find((block) => block.type === 'text');
-    return readProposal(text?.text, panels.map((panel) => panel.id));
+    return { read: readProposal(text?.text, panels.map((panel) => panel.id)), usage: answer.usage };
   }
 }

@@ -70,11 +70,13 @@ function stubTheModel(): void {
     }
     const sent = JSON.parse(
       input instanceof Request ? await input.clone().text() : String(init?.body ?? '{}'),
-    ) as { system: string; messages: { content: string }[] };
+    ) as { system: { text: string }[]; messages: { content: string }[] };
+    // Sent as blocks, the fixed half first and cached (issue 584); read here as the one text the model sees.
+    const system = sent.system.map((block) => block.text).join('\n\n');
     const note = sent.messages[0]!.content;
     asked.push(note);
 
-    const answer = answerFor(note, sent.system);
+    const answer = answerFor(note, system);
     if (answer === 'fails') throw new Error('the model could not be reached');
     return Response.json({
       id: 'msg_1',

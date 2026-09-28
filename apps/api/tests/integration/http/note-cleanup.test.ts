@@ -27,7 +27,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
  * horizontal dependency - the model, at the network boundary, exactly as the
  * issuer is faked for signing in (tests/integration/issuer.ts). Whether the
  * real model obeys the prompt is the contract tier's question
- * (tests/contract/clean-up-a-note.v8.test.ts).
+ * (tests/contract/clean-up-a-note.v9.test.ts).
  *
  * **The queue is real.** The pool runs this Worker's declared consumer, so a
  * capture really does put a message on a queue and the consumer really does
@@ -97,8 +97,10 @@ function theModelIs(answering: Answering): void {
 
     const sent = JSON.parse(
       input instanceof Request ? await input.clone().text() : String(init?.body ?? '{}'),
-    ) as { system: string; messages: { content: string }[] };
-    asked.push({ system: sent.system, note: sent.messages[0]!.content });
+    ) as { system: { text: string }[]; messages: { content: string }[] };
+    // Sent as blocks, the fixed half first and cached (issue 584); read here as the one text the model sees.
+    const system = sent.system.map((block) => block.text).join('\n\n');
+    asked.push({ system, note: sent.messages[0]!.content });
 
     if (whileReading) await whileReading();
 
@@ -575,7 +577,7 @@ describe('Capture', () => {
    * the same model call reads the account's decision history and what else
    * has been captured lately - both rendered into the system prompt, which is
    * as far as an integration test can reach into a call whose actual routing
-   * is a live model's judgment call (tests/contract/clean-up-a-note.v8.test.ts
+   * is a live model's judgment call (tests/contract/clean-up-a-note.v9.test.ts
    * proves the judgment itself).
    */
   describe('a proposal is asked with the account’s decision history and its recent, unfiled captures', () => {

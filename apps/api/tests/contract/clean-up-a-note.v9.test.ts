@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ClaudeAiService } from '../../src/ai/index.js';
 import { TITLE_LENGTH } from '@cockpit/shared';
-import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v8.js';
+import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v9.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../src/domain/text-corrections.js';
 
@@ -195,7 +195,7 @@ describe('Capture', () => {
       expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
       // The cases in this file are only evidence about the version they ran
       // against, so the version is said out loud once.
-      expect(buildCleanUpANote([], [], [], [], NO_STOOD).version).toBe('v8');
+      expect(buildCleanUpANote([], [], [], [], NO_STOOD).version).toBe('v9');
     });
 
     it('does not pad a note that is already shorter than the target', async () => {
@@ -469,7 +469,7 @@ describe('Capture', () => {
    * questions ("Propose where a captured note belongs, without filing it
    * there", issue 298) - the same shape the prompt's own worked example is,
    * deliberately neither the same note nor the same panel name as that
-   * example (`clean-up-a-note.v8.ts`'s last example pairs "Compliance
+   * example (`clean-up-a-note.v9.ts`'s last example pairs "Compliance
    * questions" with the Part 11 audit trail note). A pass on the exact note
    * and panel name the prompt was shown the answer to would prove recall
    * rather than generalisation - the failure this tier exists to catch, per
@@ -639,6 +639,59 @@ describe('Capture', () => {
       expect(proposal.language).toContain('English');
       expect(proposal.title).not.toMatch(MARKERS.Dutch);
       expect(proposal.message).not.toMatch(MARKERS.Dutch);
+    });
+  });
+
+  /**
+   * What only the real API can say ("Enable prompt caching on the
+   * note-cleanup prompt, restructured so the fixed content is a stable
+   * prefix", issue 584): a request that asks for its fixed half to be kept and
+   * one that gets it kept answer identically, so the usage the API reports is
+   * the only evidence the second happened. The two notes differ, as a real
+   * account's back-to-back captures do; their account, and so their panels,
+   * does not.
+   */
+  describe('notes read back to back for one account pay the full rate for the fixed instructions only once', () => {
+    it('reads the fixed instructions back at the lower rate on the second of two notes', async () => {
+      const first = await reading.cleanUpNoteWithUsage('offerte leverancier nog aftekenen', [], [], [], [], NO_STOOD);
+      expect('proposal' in first.read).toBe(true);
+
+      const second = await reading.cleanUpNoteWithUsage('book the room for the CAPA review', [], [], [], [], NO_STOOD);
+
+      expect('proposal' in second.read).toBe(true);
+      expect(second.usage.cache_read_input_tokens ?? 0).toBeGreaterThan(0);
+    });
+  });
+
+  /**
+   * The upper end of what a real account hands this prompt: the decision
+   * history is capped at 50 entries ("Cap the routing prompt to the last 50
+   * decisions on panels that still exist, and drop the correction override",
+   * issue 450), so a full window is the largest the per-account half after
+   * the cached instructions gets. Answered at all is the property - `read`
+   * throws on anything that will not parse or validate.
+   */
+  describe('an account with a full decision history still gets a usable proposal', () => {
+    it('answers with a proposal when fifty past filings ride along with the note', async () => {
+      const panels = [
+        { id: '018f0000-0000-7000-8000-000000000005', name: 'Suppliers' },
+        { id: '018f0000-0000-7000-8000-000000000006', name: 'Hiring' },
+      ];
+      const history: DecisionHistoryEntry[] = Array.from({ length: 50 }, (_, i) => {
+        const panel = panels[i % 2]!;
+        return {
+          capturedMessage: `${panel.name === 'Suppliers' ? 'leverancier' : 'kandidaat'} ${i} opvolgen`,
+          itemTitle: `Follow up ${i}`,
+          proposedPanelId: panel.id,
+          proposedPanelName: panel.name,
+          proposedPanelReason: `about ${panel.name.toLowerCase()}`,
+          chosenPanelId: panel.id,
+          chosenPanelName: panel.name,
+          decidedAt: `2026-08-${String((i % 28) + 1).padStart(2, '0')}T09:00:00.000Z`,
+        };
+      });
+
+      await read('factuur van de leverancier klopt niet, nakijken', panels, history);
     });
   });
 });
