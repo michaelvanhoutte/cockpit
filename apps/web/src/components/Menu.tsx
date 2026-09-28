@@ -19,6 +19,14 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
  * what a browser and a phone use for this, and as an icon it is the size this
  * file says it is.
  *
+ * **One deliberate exception.** The account's own gear (`pages/Layout.tsx`)
+ * sits beside the workspace's own dots, both on the chrome, and two identical
+ * triplets side by side told nobody which was which (found on staging: they
+ * read as one undifferentiated pair rather than two controls). `children`
+ * lets a call site swap the glyph without losing the look or the behaviour -
+ * the accessible name still carries what the walks and the tests reach for,
+ * and a gear still opens a menu the same three ways everything else does.
+ *
  * One component rather than one class string, so a call site cannot take the
  * look without the behaviour: the trigger carries its own accessible name,
  * which is what the walks and the tests reach for.
@@ -29,6 +37,7 @@ export function MenuTrigger({
   onChrome = false,
   disabled = false,
   ref,
+  children,
 }: {
   label: string;
   className?: string;
@@ -60,6 +69,8 @@ export function MenuTrigger({
   disabled?: boolean | undefined;
   /** Held where something has to put the focus back on this control afterwards. */
   ref?: React.Ref<HTMLButtonElement>;
+  /** The glyph, where the three dots would read as one of a pair of them. */
+  children?: React.ReactNode;
 }) {
   return (
     <DropdownMenu.Trigger
@@ -68,7 +79,7 @@ export function MenuTrigger({
       {...(disabled ? { 'aria-disabled': true } : {})}
       className={`${menuButtonClassName(onChrome, className)}${disabled ? ' opacity-40' : ''}`}
     >
-      <MenuDots />
+      {children ?? <MenuDots />}
     </DropdownMenu.Trigger>
   );
 }
@@ -124,6 +135,25 @@ function MenuDots() {
       <circle cx="8" cy="3.2" r="1.5" />
       <circle cx="8" cy="8" r="1.5" />
       <circle cx="8" cy="12.8" r="1.5" />
+    </svg>
+  );
+}
+
+const GEAR_TEETH = [0, 45, 90, 135, 180, 225, 270, 315];
+
+/**
+ * The account's own glyph, beside the workspace's dots in the header
+ * ("Give the open workspace and dashboard their own "…", and split the
+ * header's menu into settings and you", issue 567) - the word the issue
+ * itself uses for this control, and a shape nothing else in the header wears.
+ */
+export function GearIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="size-4" fill="currentColor" aria-hidden="true">
+      {GEAR_TEETH.map((angle) => (
+        <rect key={angle} x="7.3" y="3" width="1.4" height="1.8" rx="0.3" transform={`rotate(${angle} 8 8)`} />
+      ))}
+      <circle cx="8" cy="8" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
     </svg>
   );
 }

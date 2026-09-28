@@ -13,7 +13,7 @@ import { CaptureWindow } from '../components/CaptureWindow';
 import { ItemForm } from '../components/ItemForm';
 import { LoadFailure } from '../components/LoadFailure';
 import { ManageTypes } from '../components/ManageTypes';
-import { MenuContent, MenuTrigger, menuItemClass } from '../components/Menu';
+import { GearIcon, MenuContent, MenuTrigger, menuItemClass } from '../components/Menu';
 import { NameQuestion } from '../components/NameQuestion';
 import { WorkspaceTabs, stripTabClass } from '../components/WorkspaceTabs';
 import { WHAT_A_WORKSPACE_IS } from '../whatThingsAre';
@@ -753,7 +753,9 @@ function TheShell() {
                 actions (now above) and did not find them - a single "…" was
                 carrying three unrelated jobs. */}
             <DropdownMenu.Root>
-              <MenuTrigger label="Account settings" onChrome ref={settingsMenu} />
+              <MenuTrigger label="Account settings" onChrome ref={settingsMenu}>
+                <GearIcon />
+              </MenuTrigger>
               <MenuContent
                 onCloseAutoFocus={(event) => {
                   const claimed = opening.current;
