@@ -42,14 +42,19 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 
 - **Custom commands.** Add the ability to define custom actions, e.g. "create a ticket in Linear in project X", and trigger them by dragging and dropping an action on top of them.
 - **Create commands by describing them in chat.** Use the chat to create commands quickly by simply describing them. The command is written to the corresponding markdown file of the Cockpit project; if the right file is not obvious, ask me first which one to use.
-- **Command bar.** Show commands in a command bar that can be shown or hidden, and reachable by right-clicking.
+- ~~**Command bar.** Show commands in a command bar that can be shown or hidden, and reachable by right-clicking.~~ *(Taken up by "Agents on items: start Claude Code on an item from a dock, and follow it there" (issue 574) as a dock of agents at the bottom of the screen.)*
 - **Age colouring.** Commands that have not been used recently are coloured differently.
 - **Command history UI.**
 - **Authentication skill.** Add a skill for commands that states which method is used to authenticate with each target system (Linear, Jira, Notion, ...) when authentication is needed.
 - **Commands run as durable background jobs.** Example: a Command button that appends text to this project's `ideas.md`. Dropping a note on it starts the operation asynchronously so I can carry on immediately, which means the job must survive a crash or a restart rather than sitting in an in-memory queue.
 - **Async task UI** showing every launched asynchronous task and its status, with enough detail to troubleshoot a failure and retry it. (Related to the command history UI above and to the operations items in §7.)
 - **Show the agents that are running.** Show the active Claude, coding and other agents, not only the tasks Cockpit itself launched.
-- **Run an agent on an Item.** Drag an agent or a command onto an action; that action then carries a small icon showing an agent is running on it.
+- ~~**Run an agent on an Item.** Drag an agent or a command onto an action; that action then carries a small icon showing an agent is running on it.~~ *(Taken up by the same issue 574, for Claude Code.)* What it left for later:
+  - **OpenAI as an engine.** Codex has no API to start a cloud task: it takes a ChatGPT sign-in, and starts only from its own app, its CLI or an `@codex` mention on GitHub. Revisit when that changes, or through OpenAI's API with the conversation held in Cockpit (the next bullet).
+  - **Chat agents, with the conversation in Cockpit.** A Claude Code session can't be shown inside Cockpit: `claude.ai/code` refuses to be framed on another site, and no API reads or writes a session. A chat panel means Cockpit holding the conversation itself through the Anthropic or OpenAI API (Claude Managed Agents has sessions, a live event stream and an idle signal), billed per token and never visible in the Claude Code app.
+  - **The session reporting its own outcome.** The scoping skill ends by telling Cockpit whether the Item is done or still to do, with links to the issues it filed, instead of you choosing *Agent finished* on the row.
+  - **Cockpit as the agents' one connector.** Cockpit holds the GitHub, Notion and Linear connections and which each agent may use, and offers them to the session as an MCP server added once on claude.ai - defined once for every engine, and carrying the run's status back too. The largest and most security-sensitive way to do it, since Cockpit then holds write access to those systems.
+  - **GitHub Issues as a Panel**, through a GitHub connector, so the ideas kept as Items and the ones already filed as issues are seen side by side.
 
 ## 4. Chat
 
