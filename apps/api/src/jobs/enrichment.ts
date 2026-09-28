@@ -7,7 +7,7 @@ import {
   NotFoundInAccountError,
 } from '../accounts/index.js';
 import { aiFor } from '../ai/index.js';
-import type { RoutingCandidate } from '../ai/index.js';
+import type { PanelRead, RoutingCandidate } from '../ai/index.js';
 import {
   asFarAsItReads,
   canReadMeaning,
@@ -697,11 +697,13 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
       // exactly as `cleanUpACapturedNote` reads it, not as if it already
       // belonged where the settle that triggered this happened to be.
       const panels = await panelsOrEmpty(account, candidate.workspaceId);
-      const { history, recentlyCaptured } = await account.routingContext(
-        candidate.workspaceId,
-        candidate.id,
-      );
-      const read = await ai.choosePanel(candidate, panels, history, recentlyCaptured);
+      // With no Panel to offer, "none fits" is the only possible answer, so it
+      // is given without asking - still withdrawing any proposal left standing.
+      let read: PanelRead = { panel: null };
+      if (panels.length > 0) {
+        const { history, recentlyCaptured } = await account.routingContext(candidate.workspaceId, candidate.id);
+        read = await ai.choosePanel(candidate, panels, history, recentlyCaptured);
+      }
       if (!('panel' in read)) {
         say(candidate.id, `nothing was refreshed: ${read.discarded}`);
         continue;

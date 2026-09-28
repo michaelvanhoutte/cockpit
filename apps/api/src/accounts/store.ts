@@ -101,6 +101,7 @@ import {
   sourceAccountsIn,
   textCorrectionsForAccount,
   unfiledItemsInWorkspace,
+  type UnfiledCandidate,
 } from './repo.js';
 import { couldStillBeActedOn, pairOf, saidAgainBy } from '../domain/duplicates.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
@@ -461,7 +462,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   unfiledItemsInWorkspace(
     accountName: string,
     workspaceId: string,
-  ): Answer<{ id: string; workspaceId: string; capturedMessage: string; title: string; description: string | null; proposedPanelId: string | null }[]> {
+  ): Answer<UnfiledCandidate[]> {
     return this.#answer(accountName, (db) => unfiledItemsInWorkspace(db, accountName, workspaceId));
   }
 

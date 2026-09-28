@@ -84,7 +84,7 @@ function stubTheModel(): void {
     const content = sent.messages[0]!.content;
     // A panel-only question is told apart by the answer it asks for.
     const panelOnly = 'panelId' in sent.output_config.format.schema.properties;
-    const note = panelOnly ? /^Captured note: (.*)\nTitle: /s.exec(content)![1]! : content;
+    const note = panelOnly ? (JSON.parse(/^Captured note: (.*)$/m.exec(content)![1]!) as string) : content;
     asked.push(note);
 
     const answer = answerFor(note, sent.system, content);
@@ -294,7 +294,7 @@ describe('Triage', () => {
       // carries - so only a refresh reading the item as it now stands can
       // route it.
       answerFor = (_note, _system, item) =>
-        item.includes('Title: Validate the Part 11 submission')
+        item.includes('Title: "Validate the Part 11 submission"')
           ? { says: proposing(compliance, 'a compliance question') }
           : { says: PROPOSES_NOTHING };
       const waiting = await captureANote('check the thing before friday');
@@ -568,6 +568,38 @@ describe('Triage', () => {
       await moveOnto(settling, elsewhere);
 
       await untilRouted(waiting, compliance);
+    });
+
+    it('withdraws a stale proposal without asking, once the item\'s workspace has no panel left to offer', async () => {
+      const elsewhere = await aPanel('Somewhere else');
+      // Atlas's one Panel goes, so an item still undecided there has nowhere
+      // it could be proposed - while the proposal it already carries names
+      // that very Panel. Both written directly: the app refuses to delete a
+      // Workspace's last Panel, and the item has no capture behind it for the
+      // reason the case below gives.
+      const waiting = nextId();
+      await inStoreAsItIs(ACCOUNT_NAME, (sql) => {
+        sql.exec('UPDATE panels SET deleted_at = ? WHERE id = ?', nextIssuedAt(), `${WS2}-panel-1`);
+        sql.exec(
+          `INSERT INTO items
+             (id, tenant_id, workspace_id, workspace_decided, source, captured_message, title, status, unseen,
+              proposed_panel_id, proposed_panel_reason, created_at, updated_at)
+           VALUES (?, ?, ?, 0, 'internal', ?, 'Typed by hand', 'to_process', 0, ?, 'because', ?, ?)`,
+          waiting,
+          ACCOUNT_NAME,
+          WS2,
+          'a note with nowhere left to go',
+          `${WS2}-panel-1`,
+          nextIssuedAt(),
+          nextIssuedAt(),
+        );
+      });
+      const settling = await captureANote('call jan about the invoice');
+
+      await moveOnto(settling, elsewhere);
+
+      await vi.waitFor(async () => expect(await routingOf(waiting)).toBeNull(), { timeout: 15_000, interval: 50 });
+      expect(asked).not.toContain('a note with nowhere left to go');
     });
 
     it('withdraws a stale proposal once a refresh concludes nothing fits any more', async () => {

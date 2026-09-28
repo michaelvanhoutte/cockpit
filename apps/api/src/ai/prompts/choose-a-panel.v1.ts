@@ -12,6 +12,18 @@ export interface ItemToPlace {
 }
 
 /**
+ * How much of a description the question carries. A description may run to
+ * 60,000 characters and every unfiled Item is asked about again on every
+ * settled filing, so all of it would be paid for over and over; where an Item
+ * belongs shows in its opening, which the note and title already carry.
+ */
+export const DESCRIPTION_SHOWN = 2_000;
+
+function descriptionShown(description: string): string {
+  return description.length <= DESCRIPTION_SHOWN ? description : `${description.slice(0, DESCRIPTION_SHOWN)}…`;
+}
+
+/**
  * What Cockpit asks Claude when all it wants back is where an Item belongs -
  * the settled-filing refresh of the rest of an Inbox ("Re-propose the rest of
  * the inbox the moment you file one", issue 300). Version 1.
@@ -69,7 +81,7 @@ An item is waiting in their inbox. You decide whether it clearly belongs on one 
 
 Where it clearly belongs on one of them, name its id and say in a few words why, about the item and the panel rather than about yourself - "a compliance question, about the validation protocol" rather than "I chose this because it mentions compliance". Most items belong on none of them: a panel is not owed an item merely for being the closest match, and naming the wrong one costs more than naming none. Only name one where you are confident a person filing their own notes would put it there themselves. Where none fits, answer with the empty id and the empty reason.
 
-The item arrives as the note that was captured, followed by the title and description it carries now. Read them as one piece of work; the title and description may have been corrected by the person themselves.
+The item arrives as the note that was captured, followed by the title and description it carries now, each quoted. Read them as one piece of work; the title and description may have been corrected by the person themselves.
 
 Panels:
 ${panelList}
@@ -82,7 +94,13 @@ You are also given what else has been captured in this workspace recently and no
 
 ${renderRecentlyCaptured(recentlyCaptured)}`,
 
-    message: `Captured note: ${item.capturedMessage}\nTitle: ${item.title}\nDescription: ${item.description ?? '(none)'}`,
+    // Each field quoted, so a note that itself runs over several lines cannot
+    // pass for the lines after it.
+    message: [
+      `Captured note: ${JSON.stringify(item.capturedMessage)}`,
+      `Title: ${JSON.stringify(item.title)}`,
+      `Description: ${item.description ? JSON.stringify(descriptionShown(item.description)) : '(none)'}`,
+    ].join('\n'),
 
     schema: {
       type: 'object',

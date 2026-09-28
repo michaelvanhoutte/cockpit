@@ -432,6 +432,22 @@ describe('Triage', () => {
         systemsSeen.some((system) => system.includes('"Call jan" became "Call Jan about the invoice, today"')),
       ).toBe(true);
     });
+
+    it('asks about the texts alone, never where an Item belongs', async () => {
+      await aPanel('Compliance questions');
+      const waiting = await captureANote('a note about validation');
+      const correcting = await anItemAlreadyProposedFor('call jan about the invoice', 'Call jan');
+      answerFor = (note) =>
+        note === 'a note about validation' ? { says: proposing('Validate the submission') } : { says: proposing('A title') };
+      env.ANTHROPIC_API_KEY = A_KEY;
+
+      expect((await correctTitle(correcting, 'Call Jan about the invoice')).status).toBe(200);
+
+      await untilTitled(waiting, 'Validate the submission');
+      // Every call here is the re-read's: nothing was captured with a key set.
+      expect(systemsSeen.length).toBeGreaterThan(0);
+      for (const system of systemsSeen) expect(system).not.toContain('Compliance questions');
+    });
   });
 
   describe('the honest edges', () => {
