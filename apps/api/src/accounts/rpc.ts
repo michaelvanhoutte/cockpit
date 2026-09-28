@@ -10,7 +10,7 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import type { AccountSnapshot, Answer } from './answer.js';
+import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
 import type { UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
@@ -247,6 +247,12 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     workspaceId: string,
     sourceAccountId: string,
   ): Awaitable<Answer<{ sealedCredential: string; credentialNonce: string }>>;
+  /** What a run just recorded as starting is fired with (issue 571) - `missing` where the run is not this Workspace's. */
+  agentRunToFire(
+    accountName: string,
+    workspaceId: string,
+    runId: string,
+  ): Awaitable<Answer<AgentRunToFire>>;
   changesSince(
     accountName: string,
     since: string,

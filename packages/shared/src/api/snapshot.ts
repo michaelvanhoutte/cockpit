@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { agentSchema, hiddenAgentSchema } from '../domain/agent.js';
+import { agentRunSchema } from '../domain/agent-run.js';
 import { attachmentSchema } from '../domain/attachment.js';
 import { possibleDuplicateSchema } from '../domain/duplicate.js';
 import {
@@ -80,6 +81,10 @@ export const workspaceSnapshotSchema = z.object({
   hasClaudeCodeConnection: z.boolean().default(false),
   /** The account-wide switch for Ask Claude, off the dock's own "…" (issue 570). */
   askClaudeEnabled: z.boolean().default(true),
+  /** Every open run on this Workspace's Items ("Drop an agent on an item to start a Claude Code session on it", issue 571) - at most one per Item. */
+  agentRuns: z.array(agentRunSchema).default([]),
+  /** Why Claude last refused this Workspace's Claude Code connection, until a start works again (issue 571); null while it is not failing. */
+  claudeCodeFailing: z.string().nullable().default(null),
   generatedAt: z.iso.datetime(),
   /**
    * POC (own-event refetch): the newest change this snapshot is built on, as

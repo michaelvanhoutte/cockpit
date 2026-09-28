@@ -8,7 +8,10 @@ import {
   attachmentContentTypeSchema,
   changeUserSchema,
   userDeletedSchema,
+  agentMessageFor,
   claudeCodeOutcomeSchema,
+  startAgentOutcomeSchema,
+  startAgentSchema,
   CLAUDE_CODE,
   commandResultSchema,
   commandSchemas,
@@ -95,7 +98,7 @@ import { endpointsFor, exchangeCode, issuerFor, keysOf, teamsIssuerFor } from '.
 import { authorizationUrl, identityFrom, newAttempt, replyBelongsTo } from '../auth/oidc.js';
 import { open, seal, sealingKey } from '../connectors/credential-crypto.js';
 import { teamsAccountFrom } from '../connectors/teams.js';
-import { testClaudeCodeConnection } from '../connectors/claude-code.js';
+import { fireRoutine, testClaudeCodeConnection } from '../connectors/claude-code.js';
 import {
   GUEST_ACCOUNT_NAME,
   endSession,
@@ -864,6 +867,43 @@ const claudeCodeTestRoute = createRoute({
 });
 
 /**
+ * Starting an Agent on an Item: a run recorded as starting, one call to
+ * Claude, and the answer written back to the run ("Drop an agent on an item
+ * to start a Claude Code session on it", issue 571). The drop and the row's
+ * own menu both come here.
+ *
+ * **In the request, never on a queue**, because a queue retries on its own
+ * and every retry is another session. The same start sent twice is one run
+ * and one call: `begin_agent_run` carries the start's own `commandId`, and a
+ * replay of it is answered without calling Claude again.
+ */
+const startAgentRoute = createRoute({
+  method: 'post',
+  path: '/v1/workspaces/{workspaceId}/items/{itemId}/agent-runs',
+  request: {
+    params: z.object({ workspaceId: z.string(), itemId: z.string() }),
+    body: {
+      required: true,
+      content: { 'application/json': { schema: startAgentSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: 'How the run stands once Claude has answered, or that this start was already made',
+      content: { 'application/json': { schema: startAgentOutcomeSchema } },
+    },
+    404: {
+      description: 'Unknown workspace, item or dashboard',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    409: {
+      description: 'This agent may not start on this item, in words',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
  * Every rewrite attempt for one item, most recent first - the table opened
  * from that item's own menu (issue 444).
  */
@@ -1237,7 +1277,7 @@ const routes = app
       return c.json({ accepted: false, message: NO_SEALING_KEY_MESSAGE }, 200);
     }
 
-    const outcome = await testClaudeCodeConnection(routineUrl, token);
+    const outcome = await testClaudeCodeConnection(routineUrl, token, c.env.CLAUDE_CODE_ROUTINES_ORIGIN);
     if (!outcome.accepted) return c.json(outcome, 200);
 
     // Both halves sealed together, so the routine's own address is exactly as
@@ -1290,7 +1330,7 @@ const routes = app
     }
 
     const { routineUrl, token } = JSON.parse(opened) as { routineUrl: string; token: string };
-    const outcome = await testClaudeCodeConnection(routineUrl, token);
+    const outcome = await testClaudeCodeConnection(routineUrl, token, c.env.CLAUDE_CODE_ROUTINES_ORIGIN);
     if (!outcome.accepted) return c.json(outcome, 200);
 
     await change(c, 'mark_source_account_tested', {
@@ -1300,6 +1340,110 @@ const routes = app
       sourceAccountId,
     });
     return c.json({ accepted: true }, 200);
+  })
+  // --- starting an agent on an item: recorded, then Claude called once -------
+  .openapi(startAgentRoute, async (c) => {
+    const { workspaceId, itemId } = c.req.valid('param');
+    const start = c.req.valid('json');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+
+    // Recorded as starting before Claude is called, so a request that dies
+    // after the call still leaves a run saying a session may exist. Every
+    // refusal is this call's: it throws, and `onError` answers it.
+    const begun = await account.applyChange('begin_agent_run', {
+      commandId: start.commandId,
+      issuedAt: start.issuedAt,
+      workspaceId,
+      runId: start.runId,
+      itemId,
+      agentId: start.agentId,
+      dashboardId: start.dashboardId,
+    });
+    if (!begun.applied) return c.json({ alreadyStarted: true }, 200);
+
+    /** Writes Claude's answer onto the run - true where it was stored. */
+    const settle = async (
+      outcome: Pick<CommandPayload<'settle_agent_run'>, 'status' | 'sessionUrl' | 'reason' | 'connectionFailing'>,
+    ): Promise<boolean> => {
+      try {
+        await account.applyChange('settle_agent_run', {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          runId: start.runId,
+          itemId,
+          ...outcome,
+        });
+        return true;
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            message: `run ${start.runId} could not be settled as ${outcome.status}`,
+            cause: error instanceof Error ? error.message : String(error),
+          }),
+        );
+        return false;
+      }
+    };
+
+    // Read straight after the start was recorded. Whatever stops it - the
+    // connection disconnected in another tab in between, or the read itself
+    // failing - Claude has not been called, so the run says it did not start
+    // rather than sitting on "starting" as though a session might exist.
+    let toFire: Awaited<ReturnType<typeof account.agentRunToFire>>;
+    try {
+      toFire = await account.agentRunToFire(workspaceId, start.runId);
+    } catch {
+      await settle({ status: 'failed', reason: 'Claude was not asked - try again.' });
+      return c.json({ alreadyStarted: false, status: 'failed' }, 200);
+    }
+    const key = await sealingKey(c.env.CONNECTOR_CREDENTIAL_KEY);
+    const opened = key ? await open(toFire, key) : null;
+    if (!opened) {
+      // Nothing was sent, so Claude cannot have started anything.
+      const reason = key ? 'This connection could not be read. Reconnect it.' : NO_SEALING_KEY_MESSAGE;
+      await settle({ status: 'failed', reason, connectionFailing: key !== null });
+      return c.json({ alreadyStarted: false, status: 'failed' }, 200);
+    }
+    const { routineUrl, token } = JSON.parse(opened) as { routineUrl: string; token: string };
+    const text = agentMessageFor(
+      { message: toFire.message },
+      {
+        title: toFire.item.title,
+        description: toFire.item.description,
+        // Where the Item came from, where it came from anywhere; otherwise
+        // the Dashboard it was started on, which is where it is shown.
+        link:
+          toFire.item.sourceLink ??
+          `${c.env.APP_ORIGIN}/w/${encodeURIComponent(workspaceId)}/d/${encodeURIComponent(start.dashboardId)}`,
+      },
+      start.prompt,
+    );
+
+    const answer = await fireRoutine(
+      routineUrl,
+      token,
+      text,
+      c.env.CLAUDE_CODE_ROUTINES_ORIGIN ? { origin: c.env.CLAUDE_CODE_ROUTINES_ORIGIN } : {},
+    );
+    if (answer.answered === 'refused') {
+      await settle({ status: 'failed', reason: answer.message, connectionFailing: answer.connection });
+      return c.json({ alreadyStarted: false, status: 'failed' }, 200);
+    }
+    if (answer.answered === 'unknown') {
+      await settle({ status: 'unknown' });
+      return c.json({ alreadyStarted: false, status: 'unknown' }, 200);
+    }
+    // Accepted: a session exists. Its link is stored where it can be; where
+    // it cannot - a link Claude did not give, or a write that failed - the
+    // run says the session started and its link was lost, never that nothing
+    // started (issue 571, "Stops halfway").
+    if (answer.sessionUrl && (await settle({ status: 'working', sessionUrl: answer.sessionUrl }))) {
+      return c.json({ alreadyStarted: false, status: 'working' }, 200);
+    }
+    await settle({ status: 'link_lost' });
+    return c.json({ alreadyStarted: false, status: 'link_lost' }, 200);
   })
   .openapi(rewriteHistoryForWorkspaceRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
@@ -1467,6 +1611,9 @@ const routes = app
   )
   .openapi(commandRoute('set_done'), async (c) => c.json(await change(c, 'set_done', c.req.valid('json')), 200))
   .openapi(commandRoute('set_started'), async (c) => c.json(await change(c, 'set_started', c.req.valid('json')), 200))
+  .openapi(commandRoute('finish_agent_run'), async (c) =>
+    c.json(await change(c, 'finish_agent_run', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('set_dismissed'), async (c) => c.json(await change(c, 'set_dismissed', c.req.valid('json')), 200))
   .openapi(commandRoute('associate'), async (c) => c.json(await change(c, 'associate', c.req.valid('json')), 200))
   .openapi(commandRoute('set_next_action'), async (c) => c.json(await change(c, 'set_next_action', c.req.valid('json')), 200))

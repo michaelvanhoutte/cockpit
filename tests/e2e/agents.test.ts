@@ -1,11 +1,27 @@
+import { resolve } from 'node:path';
+import { isLinkedWorktree, portsFor } from '../../scripts/lib/ports.mjs';
 import {
+  capture,
+  chooseRowAction,
+  chooseTabAction,
+  dashboardBar,
+  deleteWorkspace,
   expect,
   expectNoSidewaysScroll,
+  fileOnto,
+  itemRow,
+  makeWorkspace,
   openFirstWorkspace,
   press,
+  switchTo,
   test,
   uniqueTitle,
+  workspaceTab,
 } from './support/app';
+
+const root = resolve(__dirname, '..', '..');
+/** The stub the stack runs, which stands in for Claude Code's routines as well as for sign-in. */
+const issuer = `http://127.0.0.1:${portsFor(root, { linked: isLinkedWorktree(root), env: process.env }).e2eIssuer}`;
 
 /**
  * F3, because none of this exists below a real browser: the dock is drawn at
@@ -95,6 +111,158 @@ test.describe('Agents', () => {
       await expect(dock.getByRole('button', { name: renamed })).toHaveCount(0);
 
       await expectNoSidewaysScroll(page);
+    });
+  });
+
+  /**
+   * F3, because the drag is the browser's own: a tile carried off the dock,
+   * rows outlined while it is in the air, the dashboard scrolling under it,
+   * and a drop that starts Claude - none of which exists below a real page
+   * ("Drop an agent on an item to start a Claude Code session on it", issue
+   * 571). What a start records and refuses is
+   * apps/api/tests/integration/http/agent-runs.test.ts's; what a row draws
+   * and sends is apps/web/tests/unit/components/ItemRow.test.tsx's.
+   *
+   * **The scroll here is the capability, not the proof of Cockpit's own
+   * scrolling**: Chromium scrolls a native drag itself, so this passes with
+   * that switched off. That an agent's drag asks for it is
+   * apps/web/tests/unit/dragScroll.test.ts's.
+   *
+   * **Claude is the stub's stand-in routine** (scripts/lib/stub-issuer.mjs),
+   * which the stack fires in place of Anthropic's - so no walk starts a real
+   * session, and what it was sent can be read back.
+   *
+   * A phone has no dock and no drag, so it starts Ask Claude from the row's
+   * own menu, the way a keyboard does. It makes its own workspace, and puts it
+   * and its connection back, for the reason connections.test.ts records.
+   */
+  test.describe('an agent dropped on a dashboard row starts Claude on it', () => {
+    test('outlines the rows that take it, starts it where it is dropped, and ends when the agent finishes', async ({
+      page,
+      isMobile,
+    }) => {
+      await openFirstWorkspace(page, isMobile);
+      const workspace = uniqueTitle('With Claude');
+      await makeWorkspace(page, workspace, isMobile);
+      await switchTo(page, workspace, isMobile);
+
+      await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
+      await press(page.getByRole('dialog').getByRole('button', { name: 'Connect Claude Code' }), isMobile);
+      await page.getByLabel('Routine trigger URL').fill(`${issuer}/v1/claude_code/routines/trig_e2e/fire`);
+      await page.getByLabel('Routine token').fill('e2e-token');
+      await press(page.getByRole('button', { name: 'Connect', exact: true }), isMobile);
+      await expect(page.getByRole('dialog').getByText(/last worked/)).toBeVisible();
+      await press(page.getByRole('button', { name: 'Done' }), isMobile);
+
+      const asked = uniqueTitle('Chase the invoice');
+      // A phone's Inbox is a screen of its own, reached from this workspace.
+      if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      await capture(page, asked, isMobile);
+      await fileOnto(page, asked, 'Panel 1', isMobile);
+      const onTheDashboard = () => page.locator('[data-drag-scroll="dashboard"]');
+      const agent = uniqueTitle('Scope it');
+
+      if (isMobile) {
+        await press(dashboardBar(page).getByRole('link', { name: 'Dashboard 1' }), isMobile);
+        await press(itemRow(page, asked).getByRole('button', { name: 'Item actions' }), isMobile);
+        await press(page.getByRole('menuitem', { name: 'Start Ask Claude…' }), isMobile);
+      } else {
+        const dock = page.getByRole('toolbar', { name: 'Agents' });
+        await press(dock.getByRole('button', { name: '+ New agent' }), isMobile);
+        await page.getByLabel('Name of the agent').fill(agent);
+        await press(page.getByRole('button', { name: 'Save' }), isMobile);
+        await expect(dock.getByRole('button', { name: agent })).toBeVisible();
+
+        // One row left in the Inbox, and one filed on a panel below the fold
+        // of a dashboard too short to show it.
+        const unfiled = uniqueTitle('Still in the Inbox');
+        await capture(page, unfiled, isMobile);
+        const far = uniqueTitle('Far down');
+        await page.setViewportSize({ width: 1280, height: 560 });
+        for (const name of [uniqueTitle('B'), uniqueTitle('C'), uniqueTitle('D'), uniqueTitle('E'), far]) {
+          await press(page.getByRole('button', { name: '+ Panel' }), isMobile);
+          await page.getByLabel('Name of the new panel').fill(name);
+          await page.getByLabel('Name of the new panel').press('Enter');
+          await expect(page.getByRole('region', { name })).toBeAttached();
+        }
+        const deep = uniqueTitle('Scope the rollout');
+        await capture(page, deep, isMobile);
+        await fileOnto(page, deep, far, isMobile);
+        const farRow = page.getByRole('region', { name: far }).getByRole('listitem').filter({ hasText: deep });
+        // Inside the dashboard's own box rather than the window, since the
+        // dock covers the bottom of the window.
+        const seen = () =>
+          farRow.evaluate((el) => {
+            const at = el.getBoundingClientRect();
+            const box = document.querySelector('[data-drag-scroll="dashboard"]')!.getBoundingClientRect();
+            return at.top >= box.top && at.bottom <= box.bottom;
+          });
+        expect(await seen(), 'the far row was on screen before the drag').toBe(false);
+
+        // Carried off the dock by hand, `page.mouse` rather than `dragTo`, for
+        // the reason filing.test.ts's own edge walk gives: `dragTo` scrolls
+        // its target into view itself.
+        const tile = await dock.getByRole('button', { name: agent }).boundingBox();
+        const over = await onTheDashboard().boundingBox();
+        if (!tile || !over) throw new Error('the tile or the dashboard is not on screen');
+        await page.mouse.move(tile.x + tile.width / 2, tile.y + tile.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(over.x + over.width / 2, over.y + over.height / 2, { steps: 8 });
+        await expect(itemRow(page, asked)).toHaveAttribute('data-takes-agent', '');
+        await expect(itemRow(page, unfiled)).not.toHaveAttribute('data-takes-agent', '');
+        for (let held = 0; held < 100 && !(await seen()); held += 1) {
+          await page.mouse.move(over.x + over.width - 30, over.y + over.height - 6 + (held % 2));
+          await page.waitForTimeout(60);
+        }
+        expect(await seen(), 'the far row never scrolled into view').toBe(true);
+        const at = await farRow.boundingBox();
+        if (!at) throw new Error('the far row is not on screen');
+        await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2, { steps: 8 });
+        await page.mouse.up();
+
+        const chip = farRow.getByRole('link', { name: `${agent} · Claude is working ↗` });
+        await expect(chip).toHaveAttribute('href', /\/claude-code\/session\/session_stub_/);
+        await expect(itemRow(page, unfiled).getByText(/Claude/)).toHaveCount(0);
+
+        // Agent finished: Done - the Item is done, so it leaves the panel.
+        await press(farRow.getByRole('button', { name: 'Item actions' }), isMobile);
+        await press(page.getByRole('menuitem', { name: 'Agent finished: Done' }), isMobile);
+        await expect(farRow).toHaveCount(0);
+
+        // Back to a window the connections list fits in, for putting things back.
+        await page.setViewportSize({ width: 1280, height: 720 });
+        // Ask Claude, which asks what to ask before it starts.
+        await dock.getByText('Ask Claude', { exact: true }).dragTo(itemRow(page, asked));
+      }
+
+      const box = page.getByRole('dialog', { name: `About “${asked}”` });
+      await expect(box).toBeVisible();
+      await box.getByLabel('What to ask Claude').fill('Who do we chase first?');
+      await press(box.getByRole('button', { name: 'Send to Claude' }), isMobile);
+      await expect(
+        itemRow(page, asked).getByRole('link', { name: 'Ask Claude · Claude is working ↗' }),
+      ).toBeVisible();
+      const fired = (await (await fetch(`${issuer}/claude-code/fired`)).json()) as { text: string }[];
+      expect(fired.some((sent) => sent.text.includes('Who do we chase first?') && sent.text.includes(asked))).toBe(true);
+
+      // Agent finished: Still to do - the chip goes, and the row stays.
+      await press(itemRow(page, asked).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Agent finished: Still to do' }), isMobile);
+      await expect(itemRow(page, asked).getByText(/Claude is working/)).toHaveCount(0);
+      await expect(itemRow(page, asked)).toBeVisible();
+
+      await expectNoSidewaysScroll(page);
+      if (!isMobile) {
+        const dock = page.getByRole('toolbar', { name: 'Agents' });
+        await dock.getByRole('button', { name: agent }).click({ button: 'right' });
+        await press(page.getByRole('menuitem', { name: 'Delete…' }), isMobile);
+        await press(page.getByRole('button', { name: `Yes, delete ${agent}` }), isMobile);
+      }
+      await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
+      await chooseRowAction(page, 'Claude Code', 'Disconnect', isMobile);
+      await press(page.getByRole('button', { name: 'Yes, disconnect Claude Code' }), isMobile);
+      await press(page.getByRole('button', { name: 'Done' }), isMobile);
+      await deleteWorkspace(page, workspace, isMobile);
     });
   });
 });

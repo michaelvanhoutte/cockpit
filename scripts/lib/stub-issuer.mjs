@@ -70,6 +70,38 @@ export async function startStubIssuer({ port, seedPath }) {
   const accounts = accountsIn(seedPath);
   /** Codes are single-use: spent once, gone, exactly as a real one is. */
   const issued = new Map();
+  /** Every routine fire answered, newest last - what `/claude-code/fired` lists, for a walk to read back what was sent. */
+  const fired = [];
+
+  /**
+   * Answers a routine fire the way Anthropic's API does: the error envelope
+   * for a refusal, and `claude_code_session_url` for a session.
+   */
+  function fireRoutine(routineId, request, response) {
+    let body = '';
+    request.on('data', (chunk) => (body += chunk));
+    request.on('end', () => {
+      const token = (request.headers.authorization ?? '').replace(/^Bearer /, '');
+      let text = '';
+      try {
+        text = JSON.parse(body || '{}').text ?? '';
+      } catch {
+        // A body that is not JSON is sent nothing, as Anthropic's would be.
+      }
+      if (token === 'refused') {
+        fired.push({ routineId, text, answered: 401 });
+        return json(response, { type: 'error', error: { type: 'authentication_error', message: 'bad token' } }, 401);
+      }
+      const sessionId = `session_stub_${randomUUID()}`;
+      fired.push({ routineId, text, answered: 200 });
+      if (token === 'no-link') return json(response, { type: 'routine_fire' });
+      json(response, {
+        type: 'routine_fire',
+        claude_code_session_id: sessionId,
+        claude_code_session_url: `${issuer}/claude-code/session/${sessionId}`,
+      });
+    });
+  }
 
   const server = createServer((request, response) => {
     const url = new URL(request.url, issuer);
@@ -123,6 +155,22 @@ export async function startStubIssuer({ port, seedPath }) {
           },
         ),
       });
+    }
+
+    // A stand-in Claude Code routine ("Drop an agent on an item to start a
+    // Claude Code session on it", issue 571): the API reaches it instead of
+    // Anthropic where `CLAUDE_CODE_ROUTINES_ORIGIN` names this issuer, so an
+    // agent can be started locally without a real routine, and without a
+    // browser walk starting real sessions. The token says how it answers:
+    // `refused` a 401, `no-link` an acceptance with no session link, anything
+    // else a session.
+    const fire = url.pathname.match(/^\/v1\/claude_code\/routines\/([^/]+)\/fire$/);
+    if (fire && request.method === 'POST') return fireRoutine(fire[1], request, response);
+    if (url.pathname === '/claude-code/fired') return json(response, fired);
+    if (url.pathname.startsWith('/claude-code/session/')) {
+      return response
+        .writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+        .end('<!doctype html><meta charset="utf-8"><title>Claude Code session</title><h1>A stand-in Claude Code session</h1>');
     }
 
     if (url.pathname === '/authorize') return authorize(url, response);

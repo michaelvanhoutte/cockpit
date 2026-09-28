@@ -52,6 +52,7 @@ const ADA: SourceAccount = {
   displayName: 'Ada Lovelace',
   connectedAt: '2026-09-18T09:00:00.000Z',
   lastTestedAt: null,
+  failingBecause: null,
 };
 
 const MICHAEL: SourceAccount = {
@@ -60,6 +61,7 @@ const MICHAEL: SourceAccount = {
   displayName: 'Michael',
   connectedAt: '2026-09-18T09:05:00.000Z',
   lastTestedAt: null,
+  failingBecause: null,
 };
 
 const CLAUDE: SourceAccount = {
@@ -68,6 +70,7 @@ const CLAUDE: SourceAccount = {
   displayName: 'Claude Code',
   connectedAt: '2026-09-18T09:10:00.000Z',
   lastTestedAt: '2026-09-18T09:10:00.000Z',
+  failingBecause: null,
 };
 
 let sent: ReturnType<typeof vi.fn>;
@@ -326,6 +329,22 @@ describe('Connector management', () => {
 
       expect(await screen.findByRole('dialog', { name: 'Connect Claude Code' })).toBeInTheDocument();
       expect(screen.getByRole('textbox', { name: 'Routine trigger URL' })).toHaveValue('');
+    });
+  });
+});
+
+describe('Agents', () => {
+  describe('a connection Claude refused says so on its row until a start works', () => {
+    it.each([
+      { situation: 'failing', failingBecause: 'The token is wrong or was revoked.', says: 'Failing: The token is wrong or was revoked.' },
+      { situation: 'working', failingBecause: null, says: null },
+    ])('a Claude Code connection $situation', async ({ failingBecause, says }) => {
+      held.sourceAccounts = [{ ...CLAUDE, failingBecause }];
+
+      showWindow();
+
+      await screen.findByText(/last worked/);
+      expect(screen.queryByText(/^Failing:/)?.textContent ?? null).toBe(says);
     });
   });
 });

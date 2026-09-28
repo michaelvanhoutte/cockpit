@@ -49,7 +49,8 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 - **Commands run as durable background jobs.** Example: a Command button that appends text to this project's `ideas.md`. Dropping a note on it starts the operation asynchronously so I can carry on immediately, which means the job must survive a crash or a restart rather than sitting in an in-memory queue.
 - **Async task UI** showing every launched asynchronous task and its status, with enough detail to troubleshoot a failure and retry it. (Related to the command history UI above and to the operations items in §7.)
 - **Show the agents that are running.** Show the active Claude, coding and other agents, not only the tasks Cockpit itself launched.
-- **Run an agent on an Item.** Drag an agent or a command onto an action; that action then carries a small icon showing an agent is running on it.
+- **Run an agent on an Item.** Drag an agent or a command onto an action; that action then carries a small icon showing an agent is running on it. *(Implemented for Claude Code: "Drop an agent on an item to start a Claude Code session on it", issue 571.)*
+- **The session reports its own outcome.** A Claude Code session started on an Item says itself when it is done, and names the issues it filed, instead of somebody choosing *Agent finished*.
 
 ## 4. Chat
 

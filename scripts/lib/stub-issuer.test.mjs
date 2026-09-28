@@ -170,3 +170,30 @@ describe('the stub issuer signs people in the way Google does', () => {
     );
   });
 });
+
+describe('the stub issuer stands in for a Claude Code routine the way Anthropic answers one', () => {
+  const fire = (token) =>
+    fetch(`${issuer.origin}/v1/claude_code/routines/trig_local/fire`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ text: `sent with ${token}` }),
+    });
+
+  it('starts a session, naming its link, and remembers what it was sent', async () => {
+    const answer = await fire('any-token');
+
+    assert.equal(answer.status, 200);
+    const { claude_code_session_url: link } = await answer.json();
+    assert.match(link, /\/claude-code\/session\/session_stub_/);
+    assert.equal((await fetch(link)).status, 200);
+    const fired = await (await fetch(`${issuer.origin}/claude-code/fired`)).json();
+    assert.equal(fired.at(-1).text, 'sent with any-token');
+  });
+
+  it('refuses the token it is told to, and gives no link where it is told not to', async () => {
+    assert.equal((await fire('refused')).status, 401);
+    const noLink = await fire('no-link');
+    assert.equal(noLink.status, 200);
+    assert.equal((await noLink.json()).claude_code_session_url, undefined);
+  });
+});

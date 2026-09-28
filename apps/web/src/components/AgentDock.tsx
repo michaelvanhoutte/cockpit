@@ -10,8 +10,9 @@ import {
   colorNoAgentIsUsing,
   uuidv7,
 } from '@cockpit/shared';
-import type { Agent, HiddenAgent } from '@cockpit/shared';
+import type { Agent, AgentRun, HiddenAgent } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
+import { AGENT_BEING_DRAGGED, landAgent, liftAgent } from '../agentInTheAir';
 import { useCommand, useSendCommand } from '../api/queries';
 import { AgentForm } from './AgentForm';
 import { ContextMenuContent, destructiveItemClass, menuItemClass, MenuContent, MenuTrigger } from './Menu';
@@ -47,6 +48,8 @@ export function AgentDock({
   hiddenAgents,
   hasClaudeCodeConnection,
   askClaudeEnabled,
+  agentRuns = [],
+  claudeCodeFailing = null,
 }: {
   /** This Dashboard's own Workspace - what a hide or show is scoped to. */
   workspaceId: string;
@@ -55,6 +58,10 @@ export function AgentDock({
   hiddenAgents: HiddenAgent[];
   hasClaudeCodeConnection: boolean;
   askClaudeEnabled: boolean;
+  /** Every open run in this Workspace - what each tile's count is read off (issue 571). */
+  agentRuns?: readonly AgentRun[];
+  /** Why Claude last refused this Workspace's Claude Code connection, said on the dock until a start works (issue 571). */
+  claudeCodeFailing?: string | null;
 }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -75,6 +82,8 @@ export function AgentDock({
     hasClaudeCodeConnection,
   });
   const hiddenHere = agents.filter((agent) => hiddenIdsHere.includes(agent.id));
+  /** How many open runs each Agent has in this Workspace - a tile's count, live with the snapshot it is read off (issue 571). */
+  const runningFor = (agentId: string) => agentRuns.filter((run) => run.agentId === agentId).length;
 
   const accountEnvelope = () => ({
     commandId: uuidv7(),
@@ -240,7 +249,8 @@ export function AgentDock({
             tile.kind === 'ask-claude' ? (
               <div
                 key={ASK_CLAUDE_ID}
-                className="flex shrink-0 items-center gap-1.5 rounded-md border border-black/10 px-3 py-1.5 text-sm"
+                {...pickedUpAs(ASK_CLAUDE_ID, ASK_CLAUDE_NAME)}
+                className="flex shrink-0 cursor-grab items-center gap-1.5 rounded-md border border-black/10 px-3 py-1.5 text-sm"
               >
                 <span
                   aria-hidden="true"
@@ -248,16 +258,33 @@ export function AgentDock({
                   style={{ backgroundColor: ASK_CLAUDE_COLOR }}
                 />
                 {ASK_CLAUDE_NAME}
+                <RunCount count={runningFor(ASK_CLAUDE_ID)} />
               </div>
             ) : (
               <AgentTile
                 key={tile.agent.id}
                 agent={tile.agent}
+                running={runningFor(tile.agent.id)}
                 onEdit={startEditing}
                 onHide={hide}
                 onDelete={startDeleting}
               />
             ),
+          )}
+
+          {/* What stands between these tiles and Claude, where something does
+              ("Drop an agent on an item to start a Claude Code session on
+              it", issue 571): no connection to start through, or one Claude
+              last refused - said until a start through it works. */}
+          {!hasClaudeCodeConnection && agents.length > 0 && (
+            <span className="shrink-0 text-xs text-ink-faint">
+              Connect Claude Code to this workspace to start an agent.
+            </span>
+          )}
+          {hasClaudeCodeConnection && claudeCodeFailing && (
+            <span role="status" className="shrink-0 text-xs text-over-deep">
+              Claude Code is failing: {claudeCodeFailing}
+            </span>
           )}
 
           <DropdownMenu.Root>
@@ -297,11 +324,10 @@ export function AgentDock({
       )}
       {beingDeleted && (
         // Names no usage the way ManageTypes' own delete question does
-        // ("3 items across 2 workspaces will stop having a type"), because
-        // nothing yet links an Agent to an Item to count: "Drop an agent on
-        // an item to start a Claude Code session on it" is its own issue,
-        // out of scope here (issue 570, "Out of scope / open questions").
-        // Retrofit this question once that lands.
+        // ("3 items across 2 workspaces will stop having a type"): a run
+        // outlives its Agent, keeping its link and naming "a deleted agent"
+        // ("Drop an agent on an item to start a Claude Code session on it",
+        // issue 571), so deleting one takes nothing from any Item.
         <DeleteQuestion
           open
           question={`Delete ${beingDeleted.name}?`}
@@ -322,14 +348,50 @@ export function AgentDock({
 // is, since neither has to be there the moment the app first paints.
 export default AgentDock;
 
-/** One made Agent's tile: a colour dot, its name, and its own menu. */
+/**
+ * What makes a tile something to drop on an Item ("Drop an agent on an item
+ * to start a Claude Code session on it", issue 571): carried under its own
+ * type, and recorded as in the air so every row that will take it can say so
+ * before the drop.
+ */
+function pickedUpAs(agentId: string, name: string) {
+  return {
+    draggable: true,
+    onDragStart: (event: React.DragEvent) => {
+      event.dataTransfer.setData(AGENT_BEING_DRAGGED, agentId);
+      // Its own type *and* text, for the reason a row's own drag gives:
+      // Firefox starts no drag without something it recognises.
+      event.dataTransfer.setData('text/plain', name);
+      event.dataTransfer.effectAllowed = 'copy';
+      liftAgent(agentId);
+    },
+    onDragEnd: landAgent,
+  };
+}
+
+/** How many of this Agent's runs are open in this Workspace, where any are. */
+function RunCount({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <span
+      className="rounded-full bg-accent-tint px-1.5 text-xs tabular-nums text-accent-deep"
+      title={`${count} open ${count === 1 ? 'run' : 'runs'} in this workspace`}
+    >
+      {count}
+    </span>
+  );
+}
+
+/** One made Agent's tile: a colour dot, its name, its open runs, and its own menu. */
 function AgentTile({
   agent,
+  running,
   onEdit,
   onHide,
   onDelete,
 }: {
   agent: Agent;
+  running: number;
   onEdit: (agent: Agent, openedFrom: HTMLElement | null) => void;
   onHide: (agentId: string) => void;
   onDelete: (agent: Agent, openedFrom: HTMLElement | null) => void;
@@ -344,7 +406,8 @@ function AgentTile({
           ref={tile}
           type="button"
           onClick={() => onEdit(agent, tile.current)}
-          className="flex shrink-0 items-center gap-1.5 rounded-md border border-black/10 px-3 py-1.5 text-sm hover:border-accent"
+          {...pickedUpAs(agent.id, agent.name)}
+          className="flex shrink-0 cursor-grab items-center gap-1.5 rounded-md border border-black/10 px-3 py-1.5 text-sm hover:border-accent"
         >
           <span
             aria-hidden="true"
@@ -352,6 +415,7 @@ function AgentTile({
             style={{ backgroundColor: agent.color }}
           />
           {agent.name}
+          <RunCount count={running} />
         </button>
       </ContextMenu.Trigger>
       <ContextMenuContent

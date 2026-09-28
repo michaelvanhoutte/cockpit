@@ -184,9 +184,15 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
           // this, the bar is visible and its text is read, but the Undo
           // button under a click does nothing at all - not refused, just
           // inert.
-          className="pointer-events-auto fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right)_+_var(--docked-form-w,0px))] pb-[calc(1rem_+_var(--edge-bottom))] pl-[calc(1rem_+_var(--edge-left))]"
+          //
+          // **On the bar, not on the strip it is centred in**, which spans the
+          // whole bottom of the window: a strip that took presses swallowed
+          // every one on the agents' dock under it for as long as an offer
+          // lasted ("Drop an agent on an item to start a Claude Code session
+          // on it", issue 571).
+          className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right)_+_var(--docked-form-w,0px))] pb-[calc(1rem_+_var(--edge-bottom))] pl-[calc(1rem_+_var(--edge-left))]"
         >
-          <div className="flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
+          <div className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
             <span className="min-w-0 flex-1 truncate">{failure ?? held.what}</span>
             <button
               type="button"

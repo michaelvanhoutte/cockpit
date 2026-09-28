@@ -1,5 +1,6 @@
 import type {
   Agent,
+  AgentRun,
   Association,
   Dashboard,
   Filing,
@@ -12,6 +13,19 @@ import type {
   ScreenSize,
   Workspace,
 } from '@cockpit/shared';
+
+/**
+ * What a run just recorded as starting is fired with (issue 571): the sealed
+ * credential of the connection, the Agent's template, and the Item's words.
+ * Sealed still - only the Worker holds the key to open it.
+ */
+export interface AgentRunToFire {
+  sourceAccountId: string;
+  sealedCredential: string;
+  credentialNonce: string;
+  message: string;
+  item: { title: string; description: string | null; sourceLink: string | null };
+}
 
 /** The full read model for one workspace, as the store answers it. */
 export interface AccountSnapshot {
@@ -55,6 +69,10 @@ export interface AccountSnapshot {
   hasClaudeCodeConnection: boolean;
   /** The account-wide Ask Claude switch (issue 570). */
   askClaudeEnabled: boolean;
+  /** Every open run on this Workspace's Items (issue 571). */
+  agentRuns: AgentRun[];
+  /** Why Claude last refused this Workspace's Claude Code connection, or null (issue 571). */
+  claudeCodeFailing: string | null;
   /** POC (own-event refetch): the newest change this snapshot is built on. */
   upTo: string | undefined;
 }

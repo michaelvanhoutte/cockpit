@@ -45,6 +45,14 @@ export const sourceAccountSchema = z.object({
    * worked" means is specific to a connector that can be tested at all.
    */
   lastTestedAt: z.iso.datetime().nullable(),
+  /**
+   * Why Claude last refused to start a session through this connection, in
+   * words, until one starts again ("Drop an agent on an item to start a
+   * Claude Code session on it", issue 571) - null while nothing says it is
+   * failing. Defaulted so an answer from before this field reads as not
+   * failing rather than as broken.
+   */
+  failingBecause: z.string().nullable().default(null),
 });
 export type SourceAccount = z.infer<typeof sourceAccountSchema>;
 

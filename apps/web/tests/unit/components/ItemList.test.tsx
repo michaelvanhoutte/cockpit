@@ -43,6 +43,8 @@ const held = vi.hoisted(() => ({
   refuses: null as Error | null,
   /** That a change is still going, which is what stops a question being closed. */
   pending: false,
+  /** Every start of an agent asked for, and what it answers. */
+  startAgent: vi.fn((_args?: unknown) => Promise.resolve()),
 }));
 
 /**
@@ -77,6 +79,7 @@ vi.mock('../../../src/api/queries', async () => {
       };
     },
     useSendCommand: () => held.send,
+    useStartAgent: () => ({ mutateAsync: held.startAgent }),
     workspacesQuery: {
       queryKey: ['workspaces'],
       queryFn: () => Promise.resolve({ workspaces: held.workspaces }),
@@ -127,6 +130,8 @@ vi.mock('../../../src/api/queries', async () => {
         hiddenAgents: [],
         hasClaudeCodeConnection: false,
         askClaudeEnabled: true,
+        agentRuns: [],
+        claudeCodeFailing: null,
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),
     }),

@@ -141,6 +141,19 @@ export interface Env {
    */
   BOT_FRAMEWORK_METADATA_URL?: string;
   /**
+   * Where Claude Code routines are fired, in place of Anthropic's own API.
+   * Unset everywhere but local development and the browser suite, which point
+   * it at the stub issuer's stand-in routine (scripts/lib/stub-issuer.mjs) - so
+   * starting an agent on an Item can be driven without a real routine, and
+   * without every walk starting a real session ("Drop an agent on an item to
+   * start a Claude Code session on it", issue 571).
+   *
+   * Absent from every environment block for the reason `BOT_FRAMEWORK_METADATA_URL`
+   * above is: a deployment that set it would send its routine tokens wherever
+   * it pointed.
+   */
+  CLAUDE_CODE_ROUTINES_ORIGIN?: string;
+  /**
    * Whether this environment offers a way in without a Google account at all
    * ("Sign in as a guest, without a password", issue 354). Set on production,
    * and on the two local stacks so the control can be driven at all;

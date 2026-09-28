@@ -21,7 +21,7 @@ import {
 import { describeForeignRows, type AccountBackup } from './backup.js';
 import { ALLOWANCE_SPENT_MESSAGE } from './allowance.js';
 import type { RestoreReport } from './rpc.js';
-import type { AccountSnapshot, Answer } from './answer.js';
+import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
 import type { UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
@@ -273,6 +273,8 @@ export interface Account {
     workspaceId: string,
     sourceAccountId: string,
   ): Promise<{ sealedCredential: string; credentialNonce: string }>;
+  /** What a run just recorded as starting is fired with (issue 571). */
+  agentRunToFire(workspaceId: string, runId: string): Promise<AgentRunToFire>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
   applyChange<N extends CommandName>(
     name: N,
@@ -343,6 +345,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.sealedCredential(accountName, sourceAccountId)),
     claudeCodeCredential: async (workspaceId, sourceAccountId) =>
       unwrap(await store.claudeCodeCredential(accountName, workspaceId, sourceAccountId)),
+    agentRunToFire: async (workspaceId, runId) =>
+      unwrap(await store.agentRunToFire(accountName, workspaceId, runId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
   };

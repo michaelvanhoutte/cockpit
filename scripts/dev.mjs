@@ -187,6 +187,13 @@ if (running.api) {
         'MS_BOT_APP_ID:cockpit-local-bot',
         '--var',
         `BOT_FRAMEWORK_METADATA_URL:${issuer.origin}/botframework/.well-known/openidconfiguration`,
+        // Claude Code routines are fired at the issuer's stand-in rather than
+        // at Anthropic, so starting an agent on an item is drivable here
+        // without a real routine (scripts/lib/stub-issuer.mjs). Connect Claude
+        // Code with `<issuer>/v1/claude_code/routines/trig_local/fire` and any
+        // token; `refused` is answered as a revoked one.
+        '--var',
+        `CLAUDE_CODE_ROUTINES_ORIGIN:${issuer.origin}`,
         // Production sets this and staging deliberately does not, which is what
         // decides where "Continue as guest" works ("Sign in as a guest, without
         // a password", issue 354). Set here so the control can be driven

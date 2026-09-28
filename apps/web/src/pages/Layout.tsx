@@ -1091,6 +1091,8 @@ function TheShell() {
             hiddenAgents={workspace.data?.hiddenAgents ?? []}
             hasClaudeCodeConnection={workspace.data?.hasClaudeCodeConnection ?? false}
             askClaudeEnabled={workspace.data?.askClaudeEnabled ?? true}
+            agentRuns={workspace.data?.agentRuns ?? []}
+            claudeCodeFailing={workspace.data?.claudeCodeFailing ?? null}
           />
         </Suspense>
       )}
