@@ -627,6 +627,7 @@ const itemColumns = {
   typeId: items.typeId,
   nextAction: items.nextAction,
   completedAt: items.completedAt,
+  startedAt: items.startedAt,
   priority: items.priority,
   dueDate: items.dueDate,
   dueDateSetAt: items.dueDateSetAt,

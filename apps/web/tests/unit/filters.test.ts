@@ -45,6 +45,7 @@ function anItem(
     priority?: Priority | null;
     typeId?: string | null;
     completedAt?: string | null;
+    startedAt?: string | null;
     createdAt?: string;
     workspaceId?: string;
   } = {},
@@ -71,6 +72,7 @@ function anItem(
     typeId: holding.typeId ?? null,
     nextAction: null,
     completedAt: holding.completedAt ?? null,
+    startedAt: holding.startedAt ?? null,
     priority: holding.priority ?? null,
     dueDate: holding.dueDate ?? null,
     dueDateSetAt: null,
@@ -409,6 +411,24 @@ describe('Panels', () => {
     });
   });
 
+  /**
+   * "Mark an item In progress, and see since when" (issue 568). Both cases
+   * are still-open items - a Filter never sees a Done one at all
+   * (`itemsThatAreFiled`, `filing.ts`) - so this is the whole of what a Status
+   * condition has to tell apart.
+   */
+  describe('a Status condition matches an item In progress, and no other', () => {
+    it.each([
+      { situation: 'started, In progress', startedAt: '2026-09-04T10:00:00.000Z', drawn: true },
+      { situation: 'not started, To do', startedAt: null, drawn: false },
+    ])('an item that is $situation', ({ startedAt, drawn }) => {
+      const item = anItem('a', { startedAt });
+      expect(
+        shown([item], [filed('falcon', item.id)], [{ field: 'status' }]),
+      ).toEqual(drawn ? [item.id] : []);
+    });
+  });
+
   describe('a due window follows the calendar of whoever is looking', () => {
     /**
      * Every case is measured from the same Thursday, so what changes between
@@ -560,6 +580,7 @@ describe('Panels', () => {
     const priority = (...values: Priority[]): FilterCondition => ({ field: 'priority', values });
     const type = (...values: string[]): FilterCondition => ({ field: 'type', values });
     const panel = (...values: string[]): FilterCondition => ({ field: 'panel', values });
+    const status = (): FilterCondition => ({ field: 'status' });
 
     it.each([
       { situation: 'nothing chosen', conditions: [] as FilterCondition[], itemTypes: [] as ItemType[], reads: 'Nothing chosen yet' },
@@ -646,6 +667,12 @@ describe('Panels', () => {
         itemTypes: [],
         panels: [wiki, aPanel('journal', 'text')],
         reads: 'Filed on wiki',
+      },
+      {
+        situation: 'status is In progress',
+        conditions: [status()],
+        itemTypes: [],
+        reads: 'In progress',
       },
     ])('reads $situation', ({ conditions, itemTypes, panels = [], reads }) => {
       expect(saysWhatItShows(conditions, itemTypes, panels)).toBe(reads);

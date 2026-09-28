@@ -38,6 +38,39 @@ test.describe('Triage', () => {
 });
 
 /**
+ * F3, and specifically on both projects, for the same device-dependent-menu
+ * reason as dismissing above ("Mark an item In progress, and see since when",
+ * issue 568).
+ *
+ * What it does not do is re-prove the times an item's status is worked out
+ * from: that is settled without a browser in
+ * packages/shared/tests/unit/domain/item.test.ts, and that the two commands
+ * write them the way that needs is
+ * apps/api/tests/integration/http/item-changes.test.ts. What is only true
+ * here is that a person can actually reach the menu entry, and see the pill
+ * it turns on and off.
+ */
+test.describe('Triage', () => {
+  test.describe('starting work on an item shows a pill on its row, and taking that back removes it', () => {
+    test('wears a pill once started, and none once back to To do', async ({ page, isMobile }) => {
+      await openInbox(page, isMobile);
+      const thought = uniqueTitle('Draft the proposal');
+      await capture(page, thought, isMobile);
+
+      await press(itemRow(page, thought).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Mark In progress' }), isMobile);
+
+      await expect(itemRow(page, thought).getByText('In progress')).toBeVisible();
+
+      await press(itemRow(page, thought).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Back to To do' }), isMobile);
+
+      await expect(itemRow(page, thought).getByText('In progress')).toHaveCount(0);
+    });
+  });
+});
+
+/**
  * F3, because an undo is a thing that appears, is pressed, and goes: what the
  * bar offers and when it stops offering it is settled without a browser in
  * apps/web/tests/unit/undo.test.tsx, and which change is sent in

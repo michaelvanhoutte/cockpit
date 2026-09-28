@@ -445,6 +445,13 @@ export const setDismissedSchema = commandEnvelopeSchema.extend({
 });
 export type SetDismissedCommand = z.infer<typeof setDismissedSchema>;
 
+/** set_started — a flag rather than a pair of commands each way, the same choice `set_done` and `set_dismissed` make ("Mark an item In progress, and see since when", issue 568). */
+export const setStartedSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  started: z.boolean(),
+});
+export type SetStartedCommand = z.infer<typeof setStartedSchema>;
+
 export const associateSchema = commandEnvelopeSchema.extend({
   associationId: z.uuid(),
   itemId: z.uuid(),
@@ -689,6 +696,7 @@ export const commandSchemas = {
   add_item_to_panel: addItemToPanelSchema,
   remove_item_from_panel: removeItemFromPanelSchema,
   set_done: setDoneSchema,
+  set_started: setStartedSchema,
   set_dismissed: setDismissedSchema,
   associate: associateSchema,
   set_next_action: setNextActionSchema,

@@ -10,7 +10,7 @@ import type {
   PanelSort,
   Panel,
 } from '@cockpit/shared';
-import { NO_CONDITIONS, panelGathers, panelTakesItems } from '@cockpit/shared';
+import { NO_CONDITIONS, itemStatus, panelGathers, panelTakesItems } from '@cockpit/shared';
 import { filingsThatFile, itemsThatAreFiled } from './filing';
 import { PRIORITY_LABELS } from './priority';
 import { DEFAULT_FILTER_SORT, inSortOrder } from './sorting';
@@ -153,6 +153,9 @@ function holdsFor(
   }
   if (condition.field === 'panel') {
     return condition.values.some((id) => livePanelIds.has(id) && filedPanelIds.has(id));
+  }
+  if (condition.field === 'status') {
+    return itemStatus(item) === 'in_progress';
   }
   const due = item.dueDate ?? null;
   if (condition.window === 'none') return due === null;
@@ -434,6 +437,9 @@ function sentenceFor(
       .map((id) => liveItemsPanels.find((panel) => panel.id === id)?.name)
       .filter((name): name is string => name !== undefined);
     return `Filed on ${joinedBy(names, 'or')}`;
+  }
+  if (condition.field === 'status') {
+    return 'In progress';
   }
   const reads = WINDOW_READS[condition.window];
   const widened = condition.orOverdue && isAPeriod(condition.window);

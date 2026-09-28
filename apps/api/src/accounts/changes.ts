@@ -111,6 +111,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     DASHBOARD_ORDER,
     PANEL_SORT,
     ITEM_MEANINGS_READ_AT,
+    ITEM_STARTED_AT,
     CONNECTOR_ACCOUNTS_LAST_TESTED_AT,
   ];
 }
@@ -178,6 +179,38 @@ const ITEM_MEANINGS_READ_AT: Change = {
 };
 
 /**
+ * When work on an Item started, so it can be In progress rather than only To
+ * do or Done ("Mark an item In progress, and see since when", issue 568) -
+ * see `schema.ts` for what the column carries.
+ *
+ * **One `ADD COLUMN` and no backfill.** Every existing Item already reads as
+ * To do or Done exactly as it did before this shipped - `itemStatus`
+ * (`@cockpit/shared`) only calls something In progress once this column holds
+ * a time, and nothing here can have written one yet.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** it cannot. One statement, and a change's
+ *   statements and the record that they ran commit in one `transactionSync`
+ *   (store.ts).
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** there can be none - every
+ *   existing Item reads with no start time, which is To do or Done exactly as
+ *   it is today.
+ * - **Rolled back after it has run:** an older release never names the
+ *   column, so a row an In progress Item wrote reads there as an ordinary To
+ *   do Item until the next release, and loses nothing.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes and brings the account up to date, so this one applies then.
+ */
+const ITEM_STARTED_AT: Change = {
+  name: '0042-item-started-at',
+  statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `started_at` text' }],
+};
+
+/**
  * When a connected source account was last proven to still work ("Connect a
  * workspace to Claude Code", issue 569) - see `schema.ts` for what the column
  * carries and why it has no CHECK, the shape `PANEL_SORT` above uses for the
@@ -202,7 +235,7 @@ const ITEM_MEANINGS_READ_AT: Change = {
  *   changes, so this one applies the next time the account is opened.
  */
 const CONNECTOR_ACCOUNTS_LAST_TESTED_AT: Change = {
-  name: '0042-connector-accounts-last-tested-at',
+  name: '0043-connector-accounts-last-tested-at',
   statements: [
     { sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `last_tested_at` text' },
   ],

@@ -49,6 +49,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
     typeId: null,
     nextAction: null,
     completedAt: null,
+    startedAt: null,
     priority: null,
     dueDate: null,
     dueDateSetAt: null,
@@ -233,6 +234,7 @@ describe('Triage', () => {
     it.each([
       { option: 'Mark done', name: 'set_done', field: 'done' },
       { option: 'Dismiss', name: 'set_dismissed', field: 'dismissed' },
+      { option: 'Mark In progress', name: 'set_started', field: 'started' },
     ])('$option', async ({ option, name, field }) => {
       const user = userEvent.setup();
       const { mutate } = aRow();
@@ -244,6 +246,21 @@ describe('Triage', () => {
       expect(asked.name).toBe(name);
       expect(asked.payload[field]).toBe(true);
       expect(asked.payload.itemId).toBe('item-1');
+    });
+
+    it('sends Back to To do in place of Mark In progress once the item is started', async () => {
+      const user = userEvent.setup();
+      const { mutate } = aRow({ item: anItem({ startedAt: '2026-09-04T10:00:00.000Z' }) });
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      expect(screen.queryByRole('menuitem', { name: 'Mark In progress' })).toBeNull();
+
+      await user.click(await screen.findByText('Back to To do'));
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('set_started');
+      expect(asked.payload.started).toBe(false);
     });
 
     // The four the app stopped having ("An item is either yours to deal with or
@@ -1102,6 +1119,21 @@ describe('Triage', () => {
       aRowOf(undefined);
 
       expect(screen.getByText('Make appointment with Novy')).toBeInTheDocument();
+    });
+  });
+
+  /** "Mark an item In progress, and see since when" (issue 568). */
+  describe('an item In progress wears a pill beside its type, and one To do wears none', () => {
+    it('wears an In progress pill once started', () => {
+      aRow({ item: anItem({ startedAt: '2026-09-04T10:00:00.000Z' }) });
+
+      expect(screen.getByText('In progress')).toBeInTheDocument();
+    });
+
+    it('wears no pill at all for an item still To do', () => {
+      aRow({ item: anItem({ startedAt: null }) });
+
+      expect(screen.queryByText('In progress')).toBeNull();
     });
   });
 
