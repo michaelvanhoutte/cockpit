@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readProposal } from '../../../src/ai/note-texts.js';
+import { readPanelChoice, readProposal } from '../../../src/ai/note-texts.js';
 
 /**
  * L1: reading an answer back is a pure decision over a string, so every way an
@@ -266,6 +266,51 @@ describe('Capture', () => {
           panel: null,
         },
       });
+    });
+  });
+});
+
+describe('Triage', () => {
+  /**
+   * A refresh asks for the Panel alone ("Use a cheaper model for panel-only
+   * re-proposal", issue 583), so the answer is read by the rules above - and
+   * one more, because nothing else rides on it: an answer that says nothing
+   * must not read as "none fits", which would withdraw a standing proposal.
+   */
+  describe('a refreshed panel choice is read as strictly as one riding on the texts', () => {
+    const OFFERED = ['panel-1', 'panel-2'];
+
+    it.each([
+      {
+        situation: 'a panel that was offered, with a reason',
+        raw: JSON.stringify({ panelId: 'panel-1', reason: 'a compliance question' }),
+        expected: { panel: { panelId: 'panel-1', reason: 'a compliance question' } },
+      },
+      {
+        situation: 'the empty id - the model proposing nothing',
+        raw: JSON.stringify({ panelId: '', reason: '' }),
+        expected: { panel: null },
+      },
+      {
+        situation: 'a panel never offered',
+        raw: JSON.stringify({ panelId: 'panel-9', reason: 'a reason' }),
+        expected: { panel: null },
+      },
+      {
+        situation: 'a panel with no reason',
+        raw: JSON.stringify({ panelId: 'panel-1', reason: ' ' }),
+        expected: { panel: null },
+      },
+    ])('reads $situation', ({ raw, expected }) => {
+      expect(readPanelChoice(raw, OFFERED)).toEqual(expected);
+    });
+
+    it.each([
+      { situation: 'no text at all', raw: undefined },
+      { situation: 'text that is not JSON', raw: 'Compliance questions' },
+      { situation: 'JSON that is not a panel choice', raw: JSON.stringify({ panel: 'panel-1' }) },
+    ])('discards $situation rather than reading it as none fitting', ({ raw }) => {
+      expect(readPanelChoice(raw, OFFERED)).toHaveProperty('discarded');
     });
   });
 });

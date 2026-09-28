@@ -18,6 +18,7 @@ import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { AccountStoreRpc, RestoreReport } from './rpc.js';
 import { accountChanges } from './changes.js';
 import { allowanceSpent } from './allowance.js';
+import { laterOf, type RefreshAsk } from '../jobs/debounce.js';
 import {
   CHANGE_LEDGER,
   accountTables,
@@ -39,6 +40,8 @@ import {
 import { createAccountDb, type AccountDb } from './client.js';
 import { collectInvalidations, watermark } from './events.js';
 import {
+  AgentNameTakenError,
+  AgentNotFoundError,
   AttachmentIdTakenError,
   DashboardNameTakenError,
   DashboardNotFoundError,
@@ -69,18 +72,22 @@ import {
   decisionHistoryForWorkspace,
   everyMeaning,
   forgetMeaning,
+  getAskClaudeEnabled,
   getAttachment,
   getAttachmentForDownload,
   getItem,
   getItemFormPresentation,
   getSourceAccount,
   getWorkspace,
+  hasClaudeCodeConnection,
   itemsToRead,
   itemsWithUnsettledTexts,
   judgeableItemsForAccount,
+  listAgents,
   listAssociationsForWorkspace,
   listAttachmentsInWorkspace,
   listDuplicatesInWorkspace,
+  listHiddenAgents,
   listItemTypes,
   listScreenSizes,
   listDashboards,
@@ -101,6 +108,7 @@ import {
   sourceAccountsIn,
   textCorrectionsForAccount,
   unfiledItemsInWorkspace,
+  type UnfiledCandidate,
 } from './repo.js';
 import { couldStillBeActedOn, pairOf, saidAgainBy } from '../domain/duplicates.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
@@ -190,6 +198,10 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         screenSizes: listScreenSizes(db, accountName),
         itemFormPresentation: getItemFormPresentation(db, accountName),
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
+        agents: listAgents(db, accountName),
+        hiddenAgents: listHiddenAgents(db, accountName, workspaceId),
+        hasClaudeCodeConnection: hasClaudeCodeConnection(db, accountName, workspaceId),
+        askClaudeEnabled: getAskClaudeEnabled(db, accountName),
       };
     });
   }
@@ -461,7 +473,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   unfiledItemsInWorkspace(
     accountName: string,
     workspaceId: string,
-  ): Answer<{ id: string; workspaceId: string; capturedMessage: string; proposedPanelId: string | null }[]> {
+  ): Answer<UnfiledCandidate[]> {
     return this.#answer(accountName, (db) => unfiledItemsInWorkspace(db, accountName, workspaceId));
   }
 
@@ -476,6 +488,28 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     { id: string; workspaceId: string; title: string; description: string | null; capturedMessage: string }[]
   > {
     return this.#answer(accountName, (db) => itemsWithUnsettledTexts(db, accountName));
+  }
+
+  /**
+   * Records an ask for one refresh as the latest, unless a later one is
+   * already recorded ("Debounce the settle-triggered repropose fan-out across
+   * a real time window", issue 582).
+   *
+   * **In the object's key-value storage, not a table.** It is a scheduling
+   * hint rather than the account's data: nothing reads it but the refresh it
+   * gates, a backup skips it with the rest of `_cf_` (`backup.ts`), and
+   * losing it costs one refresh running twice. Synchronous, so the read and
+   * the write below cannot have another ask land between them.
+   */
+  recordRefreshAsk(accountName: string, refresh: string, ask: RefreshAsk): Answer<null> {
+    const key = refreshAskKey(accountName, refresh);
+    this.ctx.storage.kv.put(key, laterOf(this.ctx.storage.kv.get<RefreshAsk>(key) ?? null, ask));
+    return { status: 'ok', value: null };
+  }
+
+  /** The latest ask recorded for one refresh, or null where none ever was. */
+  latestRefreshAsk(accountName: string, refresh: string): Answer<RefreshAsk | null> {
+    return { status: 'ok', value: this.ctx.storage.kv.get<RefreshAsk>(refreshAskKey(accountName, refresh)) ?? null };
   }
 
   /**
@@ -929,6 +963,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       if (
         error instanceof ItemNotFoundError ||
         error instanceof ItemTypeNotFoundError ||
+        error instanceof AgentNotFoundError ||
         error instanceof WorkspaceNotFoundError ||
         error instanceof DashboardNotFoundError ||
         error instanceof PanelNotFoundError ||
@@ -945,6 +980,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof LayoutSizeTakenError ||
         error instanceof ScreenSizeNameTakenError ||
         error instanceof AttachmentIdTakenError ||
+        error instanceof AgentNameTakenError ||
         // A refusal to say out loud rather than a shape problem: the request is
         // well formed and names a dashboard that exists, and the answer is that
         // this one may not go.
@@ -1028,4 +1064,9 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       new Date().toISOString(),
     );
   }
+}
+
+/** Where one refresh's latest ask is kept - carrying the account's name for the reason every query filters on it (`rpc.ts`). */
+function refreshAskKey(accountName: string, refresh: string): string {
+  return `refresh-ask:${accountName}:${refresh}`;
 }

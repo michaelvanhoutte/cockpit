@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { ClaudeAiService } from '../../src/ai/index.js';
+import type Anthropic from '@anthropic-ai/sdk';
+import { afterAll, describe, expect, it } from 'vitest';
+import { ClaudeAiService, type ProposalRead } from '../../src/ai/index.js';
 import { TITLE_LENGTH } from '@cockpit/shared';
 import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v9.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
@@ -35,9 +36,58 @@ import type { TextCorrectionEntry, WhatStood } from '../../src/domain/text-corre
  */
 
 const key = process.env.ANTHROPIC_API_KEY ?? '';
-const reading = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined);
+
+/**
+ * A service whose calls are tallied under `name`, and said once at the end of
+ * the run, so a prompt change can be priced from the same run that proved it
+ * still holds - one per way of asking, since the two cost different amounts.
+ */
+function tallied(name: string): ClaudeAiService {
+  // Cache reads and writes beside the uncached input, since what a call costs
+  // turns on them ("Enable prompt caching on the note-cleanup prompt", issue 584).
+  const spent = { calls: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+  afterAll(() => console.log(`${name}: ${JSON.stringify(spent)}`));
+  return new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined, (_model, usage) => {
+    spent.calls += 1;
+    spent.input += usage.input_tokens;
+    spent.cacheRead += usage.cache_read_input_tokens ?? 0;
+    spent.cacheWrite += usage.cache_creation_input_tokens ?? 0;
+    spent.output += usage.output_tokens;
+  });
+}
+const reading = tallied('clean-up-a-note.v9 on capture');
+const rereading = tallied('clean-up-a-note.v9 texts only');
 
 const NO_STOOD: WhatStood | null = null;
+
+/**
+ * The two calls that write a note's texts: on capture, where the same answer
+ * also names a Panel, and a correction's re-read of the rest of the inbox,
+ * which asks for the texts alone ("Use a cheaper model for panel-only
+ * re-proposal", issue 583). Every rule about the texts binds both, so every
+ * case about the texts runs against both.
+ */
+const WAYS = [
+  {
+    situation: 'read on capture',
+    ask: (note: string, corrections: readonly TextCorrectionEntry[]) =>
+      reading.cleanUpNote(note, [], [], [], corrections, NO_STOOD),
+  },
+  {
+    situation: 're-read after a title is corrected',
+    ask: (note: string, corrections: readonly TextCorrectionEntry[]) =>
+      rereading.rewriteTexts(note, corrections, NO_STOOD),
+  },
+];
+
+/** `read` below, for one of `WAYS`. */
+function readerFor(ask: (note: string, corrections: readonly TextCorrectionEntry[]) => Promise<ProposalRead>) {
+  return async (note: string, corrections: readonly TextCorrectionEntry[] = []) => {
+    const answer = await ask(note, corrections);
+    if (!('proposal' in answer)) throw new Error(`nothing usable came back: ${answer.discarded}`);
+    return answer.proposal;
+  };
+}
 
 /**
  * Words that exist in one of the two languages and not the other, so a text can
@@ -120,347 +170,351 @@ describe('Capture', () => {
     expect(key, 'set ANTHROPIC_API_KEY, or put it in apps/api/.dev.vars').not.toBe('');
   });
 
-  /**
-   * The rule the prompt was rewritten for. An instruction not to translate was
-   * measured turning roughly one English note in three into Dutch, because the
-   * prompt's own examples are in both languages and the model matched them
-   * rather than the note; naming the language as the first field is the fix,
-   * and this is what says the fix still holds.
-   */
-  describe('a note is read back in the language it was written in', () => {
-    it.each([
-      {
-        situation: 'an English note',
-        note: 'cal invite for the CAPA review, need the deviation nr first',
-        expected: 'English' as const,
-        onlyIts: true,
-      },
-      {
-        situation: 'a Dutch note',
-        note: 'factuur leverancier nakijken, btw-nummer klopt volgens mij niet',
-        expected: 'Dutch' as const,
-        onlyIts: true,
-      },
-      {
-        situation: 'a note that genuinely mixes the two',
-        note: 'even nakijken of de backup gelukt is before the release tonight',
-        expected: 'Dutch' as const,
-        // A note that mixes them may keep a phrase of the other, which is right
-        // rather than a translation - so this case asks only that it stayed in
-        // its own language, not that the other is absent.
-        onlyIts: false,
-      },
-    ])('answers $situation in its own language', async ({ note, expected, onlyIts }) => {
-      const proposal = await read(note);
+  describe.each(WAYS)('when a note is $situation', ({ ask }) => {
+    const read = readerFor(ask);
 
-      expect(proposal.language).toContain(expected);
-      // The named language is the model's own claim, so the texts are checked
-      // as well: the failure being guarded against wrote fluent Dutch under the
-      // heading "English".
-      expect(proposal.message).toMatch(MARKERS[expected]);
-      if (onlyIts) {
-        const other = expected === 'English' ? 'Dutch' : 'English';
-        expect(proposal.message).not.toMatch(MARKERS[other]);
-        expect(proposal.title).not.toMatch(MARKERS[other]);
-      }
-    });
-  });
+    /**
+     * The rule the prompt was rewritten for. An instruction not to translate was
+     * measured turning roughly one English note in three into Dutch, because the
+     * prompt's own examples are in both languages and the model matched them
+     * rather than the note; naming the language as the first field is the fix,
+     * and this is what says the fix still holds.
+     */
+    describe('a note is read back in the language it was written in', () => {
+      it.each([
+        {
+          situation: 'an English note',
+          note: 'cal invite for the CAPA review, need the deviation nr first',
+          expected: 'English' as const,
+          onlyIts: true,
+        },
+        {
+          situation: 'a Dutch note',
+          note: 'factuur leverancier nakijken, btw-nummer klopt volgens mij niet',
+          expected: 'Dutch' as const,
+          onlyIts: true,
+        },
+        {
+          situation: 'a note that genuinely mixes the two',
+          note: 'even nakijken of de backup gelukt is before the release tonight',
+          expected: 'Dutch' as const,
+          // A note that mixes them may keep a phrase of the other, which is right
+          // rather than a translation - so this case asks only that it stayed in
+          // its own language, not that the other is absent.
+          onlyIts: false,
+        },
+      ])('answers $situation in its own language', async ({ note, expected, onlyIts }) => {
+        const proposal = await read(note);
 
-  /**
-   * The length rule ("Propose a title that names the work, not the note",
-   * issue 391). `v5` gave the model one number, the 200-character storage cap,
-   * and got titles written towards it; the wanted titles run 17-55 characters
-   * from notes averaging 92 (docs/text-learning.md, "What is wrong today").
-   *
-   * **`TITLE_TARGET` is asserted as a ceiling because that is how the prompt
-   * states it.** "About 50" is not a testable instruction, so the prompt asks
-   * for 50 or fewer and this holds it to exactly that - the two move together
-   * or neither means anything.
-   */
-  describe('a title names the work in as few words as it takes', () => {
-    it('shortens a note of about ninety characters to a title at or under the target', async () => {
-      const note =
-        "cleaning validation sign-off still open, need to know if last month's change control covers it";
-      // Under the storage cap, so handing it back whole would validate - which
-      // is what makes this failure invisible to every tier below.
-      expect(note.length).toBeLessThan(TITLE_LENGTH);
-
-      const proposal = await read(note);
-
-      expect(proposal.title.length).toBeLessThanOrEqual(TITLE_TARGET);
-      expect(proposal.title).not.toBe(note);
-      // This note carries more work than fits in a title, so the two texts are
-      // not the same words twice. Asserted here and not as a general rule:
-      // "Call Jan" is a correct answer to "call jan" under both fields.
-      expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
-      // The cases in this file are only evidence about the version they ran
-      // against, so the version is said out loud once.
-      expect(buildCleanUpANote([], [], [], [], NO_STOOD).version).toBe('v9');
-    });
-
-    it('does not pad a note that is already shorter than the target', async () => {
-      // Nothing here needs expanding - no abbreviation, no clipped sentence -
-      // so a title longer than the note itself has had words put into it,
-      // which the prompt forbids for a reason of its own.
-      const note = 'factuur 2231 nog goedkeuren';
-      expect(note.length).toBeLessThan(TITLE_TARGET);
-
-      const proposal = await read(note);
-
-      expect(proposal.title.length).toBeLessThanOrEqual(note.length);
+        expect(proposal.language).toContain(expected);
+        // The named language is the model's own claim, so the texts are checked
+        // as well: the failure being guarded against wrote fluent Dutch under the
+        // heading "English".
+        expect(proposal.message).toMatch(MARKERS[expected]);
+        if (onlyIts) {
+          const other = expected === 'English' ? 'Dutch' : 'English';
+          expect(proposal.message).not.toMatch(MARKERS[other]);
+          expect(proposal.title).not.toMatch(MARKERS[other]);
+        }
+      });
     });
 
     /**
-     * **The cap is asserted by `read` throwing, not by a line below it.**
-     * `readProposal` refuses a title over `TITLE_LENGTH` or carrying a line
-     * break, so a model that blows the cap on a note this long reaches this
-     * case as a discarded proposal and a thrown error - and asserting the cap
-     * again underneath that would be a line that cannot fail. What is left to
-     * assert is the target, which a long note is where a model is likeliest
-     * to miss.
+     * The length rule ("Propose a title that names the work, not the note",
+     * issue 391). `v5` gave the model one number, the 200-character storage cap,
+     * and got titles written towards it; the wanted titles run 17-55 characters
+     * from notes averaging 92 (docs/text-learning.md, "What is wrong today").
+     *
+     * **`TITLE_TARGET` is asserted as a ceiling because that is how the prompt
+     * states it.** "About 50" is not a testable instruction, so the prompt asks
+     * for 50 or fewer and this holds it to exactly that - the two move together
+     * or neither means anything.
      */
-    it('answers a note far longer than the cap with one usable line', async () => {
-      const note =
-        'klant belde over de levering van vorige week, die is maar half aangekomen en de rest zou nog ' +
-        'volgen, wil weten wanneer precies en of de factuur daarop aangepast wordt of dat we een ' +
-        'creditnota sturen voor het ontbrekende deel';
-      expect(note.length).toBeGreaterThan(TITLE_LENGTH);
+    describe('a title names the work in as few words as it takes', () => {
+      it('shortens a note of about ninety characters to a title at or under the target', async () => {
+        const note =
+          "cleaning validation sign-off still open, need to know if last month's change control covers it";
+        // Under the storage cap, so handing it back whole would validate - which
+        // is what makes this failure invisible to every tier below.
+        expect(note.length).toBeLessThan(TITLE_LENGTH);
 
-      const proposal = await read(note);
+        const proposal = await read(note);
 
-      expect(proposal.title.length).toBeLessThanOrEqual(TITLE_TARGET);
-    });
-  });
+        expect(proposal.title.length).toBeLessThanOrEqual(TITLE_TARGET);
+        expect(proposal.title).not.toBe(note);
+        // This note carries more work than fits in a title, so the two texts are
+        // not the same words twice. Asserted here and not as a general rule:
+        // "Call Jan" is a correct answer to "call jan" under both fields.
+        expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
+        // The cases in this file are only evidence about the version they ran
+        // against, so the version is said out loud once.
+        expect(buildCleanUpANote(null, [], NO_STOOD).version).toBe('v9');
+      });
 
-  /**
-   * The register rule ("Propose a title that names the work, not the note",
-   * issue 391). `v5` asked for "the note written out as prose", and got prose
-   * about the note; what was wanted is an instruction to do the thing.
-   *
-   * Each case asserts the failure it invites rather than the words a right
-   * answer uses, for the reason a sibling case in this file was already found
-   * to need: a title and a message are free-form prose in two languages, and
-   * pinning an assertion to one phrasing fails correct answers.
-   */
-  describe('a description says what to do about the note, not what the note said', () => {
-    it('turns a question into an instruction to go and answer it', async () => {
-      const proposal = await read(
-        'do we still need the separate onboarding checklist or can it fold into the handbook',
-      );
+      it('does not pad a note that is already shorter than the target', async () => {
+        // Nothing here needs expanding - no abbreviation, no clipped sentence -
+        // so a title longer than the note itself has had words put into it,
+        // which the prompt forbids for a reason of its own.
+        const note = 'factuur 2231 nog goedkeuren';
+        expect(note.length).toBeLessThan(TITLE_TARGET);
 
-      // The one case where the right answer's verb is genuinely constrained:
-      // an open question becomes work to settle it, whatever the wording.
-      // Asserted on the title and not on the two joined, because the title is
-      // where the register was measured wrong - a noun phrase naming the note
-      // rather than an imperative naming the work - and a message carrying the
-      // verb would otherwise cover for a title that does not.
-      expect(proposal.title).toMatch(
-        /\b(check|verify|confirm|decide|determine|establish|review|assess|clarify|settle|find out|work out|figure out|look into|investigate)\b/i,
-      );
-      const written = `${proposal.title} ${proposal.message}`;
-      for (const frame of TALKS_ABOUT_THE_NOTE) expect(written).not.toMatch(frame);
-    });
+        const proposal = await read(note);
 
-    it('turns an opinion into an instruction to record it, not a report that it was held', async () => {
-      const proposal = await read(
-        'the release checklist has too many manual steps, we keep skipping half of them',
-      );
+        expect(proposal.title.length).toBeLessThanOrEqual(note.length);
+      });
 
-      // An opinion is work to hold on to, not work to act on: "cut the manual
-      // steps" would be a next step the note never asked for, which the rule
-      // below this describe forbids outright.
-      //
-      // **No word of this list may appear in the note.** `keep` was in it and
-      // the note says "we keep skipping half of them" - so a pure v5-style
-      // restatement, echoing the note back, matched it and the case went green
-      // on exactly the register it exists to reject.
-      expect(`${proposal.title} ${proposal.message}`).toMatch(
-        /\b(record|log|capture|note down|write down|flag|raise)\b/i,
-      );
-      expect(proposal.message).not.toMatch(REPORTS_RATHER_THAN_INSTRUCTS);
-      // The other half of the same failure: a report attributes the opinion to
-      // somebody instead of writing it down as the thing to hold on to.
-      expect(proposal.message).not.toMatch(/\b(the author|the writer|somebody|someone)\b/i);
-      const written = `${proposal.title} ${proposal.message}`;
-      for (const frame of TALKS_ABOUT_THE_NOTE) expect(written).not.toMatch(frame);
+      /**
+       * **The cap is asserted by `read` throwing, not by a line below it.**
+       * `readProposal` refuses a title over `TITLE_LENGTH` or carrying a line
+       * break, so a model that blows the cap on a note this long reaches this
+       * case as a discarded proposal and a thrown error - and asserting the cap
+       * again underneath that would be a line that cannot fail. What is left to
+       * assert is the target, which a long note is where a model is likeliest
+       * to miss.
+       */
+      it('answers a note far longer than the cap with one usable line', async () => {
+        const note =
+          'klant belde over de levering van vorige week, die is maar half aangekomen en de rest zou nog ' +
+          'volgen, wil weten wanneer precies en of de factuur daarop aangepast wordt of dat we een ' +
+          'creditnota sturen voor het ontbrekende deel';
+        expect(note.length).toBeGreaterThan(TITLE_LENGTH);
+
+        const proposal = await read(note);
+
+        expect(proposal.title.length).toBeLessThanOrEqual(TITLE_TARGET);
+      });
     });
 
-    it('carries a note that is already an instruction through as one', async () => {
-      const note = 'stuur de notulen van dinsdag door naar het hele team';
+    /**
+     * The register rule ("Propose a title that names the work, not the note",
+     * issue 391). `v5` asked for "the note written out as prose", and got prose
+     * about the note; what was wanted is an instruction to do the thing.
+     *
+     * Each case asserts the failure it invites rather than the words a right
+     * answer uses, for the reason a sibling case in this file was already found
+     * to need: a title and a message are free-form prose in two languages, and
+     * pinning an assertion to one phrasing fails correct answers.
+     */
+    describe('a description says what to do about the note, not what the note said', () => {
+      it('turns a question into an instruction to go and answer it', async () => {
+        const proposal = await read(
+          'do we still need the separate onboarding checklist or can it fold into the handbook',
+        );
 
-      const proposal = await read(note);
+        // The one case where the right answer's verb is genuinely constrained:
+        // an open question becomes work to settle it, whatever the wording.
+        // Asserted on the title and not on the two joined, because the title is
+        // where the register was measured wrong - a noun phrase naming the note
+        // rather than an imperative naming the work - and a message carrying the
+        // verb would otherwise cover for a title that does not.
+        expect(proposal.title).toMatch(
+          /\b(check|verify|confirm|decide|determine|establish|review|assess|clarify|settle|find out|work out|figure out|look into|investigate)\b/i,
+        );
+        const written = `${proposal.title} ${proposal.message}`;
+        for (const frame of TALKS_ABOUT_THE_NOTE) expect(written).not.toMatch(frame);
+      });
 
-      // Still the same work, rather than a sentence about a note that asked
-      // for it - the verb the note came with survives, in the title as well as
-      // in the message, which is the register half of this rule.
-      expect(proposal.title).toMatch(/\b(stuur|sturen|doorsturen|versturen)\b/i);
-      expect(proposal.message).toMatch(/\b(stuur|sturen|doorsturen|versturen)\b/i);
-      expect(proposal.message).not.toMatch(REPORTS_RATHER_THAN_INSTRUCTS);
-      const written = `${proposal.title} ${proposal.message}`;
-      for (const frame of TALKS_ABOUT_THE_NOTE) expect(written).not.toMatch(frame);
+      it('turns an opinion into an instruction to record it, not a report that it was held', async () => {
+        const proposal = await read(
+          'the release checklist has too many manual steps, we keep skipping half of them',
+        );
+
+        // An opinion is work to hold on to, not work to act on: "cut the manual
+        // steps" would be a next step the note never asked for, which the rule
+        // below this describe forbids outright.
+        //
+        // **No word of this list may appear in the note.** `keep` was in it and
+        // the note says "we keep skipping half of them" - so a pure v5-style
+        // restatement, echoing the note back, matched it and the case went green
+        // on exactly the register it exists to reject.
+        expect(`${proposal.title} ${proposal.message}`).toMatch(
+          /\b(record|log|capture|note down|write down|flag|raise)\b/i,
+        );
+        expect(proposal.message).not.toMatch(REPORTS_RATHER_THAN_INSTRUCTS);
+        // The other half of the same failure: a report attributes the opinion to
+        // somebody instead of writing it down as the thing to hold on to.
+        expect(proposal.message).not.toMatch(/\b(the author|the writer|somebody|someone)\b/i);
+        const written = `${proposal.title} ${proposal.message}`;
+        for (const frame of TALKS_ABOUT_THE_NOTE) expect(written).not.toMatch(frame);
+      });
+
+      it('carries a note that is already an instruction through as one', async () => {
+        const note = 'stuur de notulen van dinsdag door naar het hele team';
+
+        const proposal = await read(note);
+
+        // Still the same work, rather than a sentence about a note that asked
+        // for it - the verb the note came with survives, in the title as well as
+        // in the message, which is the register half of this rule.
+        expect(proposal.title).toMatch(/\b(stuur|sturen|doorsturen|versturen)\b/i);
+        expect(proposal.message).toMatch(/\b(stuur|sturen|doorsturen|versturen)\b/i);
+        expect(proposal.message).not.toMatch(REPORTS_RATHER_THAN_INSTRUCTS);
+        const written = `${proposal.title} ${proposal.message}`;
+        for (const frame of TALKS_ABOUT_THE_NOTE) expect(written).not.toMatch(frame);
+      });
     });
-  });
 
-  /**
-   * The instruction that is gone ("Propose a title that names the work, not
-   * the note", issue 391). `v5` told the model to say that the note does not
-   * say which document, person or date it meant; across 29 notes with the
-   * texts their author would have written, not one does that.
-   *
-   * Each note below refers to something it never fixes, which is exactly what
-   * `v5` would have hedged about - and what the case under this one says must
-   * not be filled in instead.
-   */
-  describe('neither text points out what the note does not say', () => {
-    it.each([
-      { situation: 'a document it never identifies', note: 'document moet nog naar de klant voor vrijdag' },
-      { situation: 'a deadline it never fixes', note: 'dit moet af voor de audit' },
-      { situation: 'no actor at all', note: 'sign-off needed on the cleaning validation' },
-    ])('says nothing about the absence, for a note with $situation', async ({ note }) => {
-      const proposal = await read(note);
-      const written = `${proposal.title} ${proposal.message}`;
+    /**
+     * The instruction that is gone ("Propose a title that names the work, not
+     * the note", issue 391). `v5` told the model to say that the note does not
+     * say which document, person or date it meant; across 29 notes with the
+     * texts their author would have written, not one does that.
+     *
+     * Each note below refers to something it never fixes, which is exactly what
+     * `v5` would have hedged about - and what the case under this one says must
+     * not be filled in instead.
+     */
+    describe('neither text points out what the note does not say', () => {
+      it.each([
+        { situation: 'a document it never identifies', note: 'document moet nog naar de klant voor vrijdag' },
+        { situation: 'a deadline it never fixes', note: 'dit moet af voor de audit' },
+        { situation: 'no actor at all', note: 'sign-off needed on the cleaning validation' },
+      ])('says nothing about the absence, for a note with $situation', async ({ note }) => {
+        const proposal = await read(note);
+        const written = `${proposal.title} ${proposal.message}`;
 
-      for (const hedge of TALKS_ABOUT_THE_NOTE) expect(written).not.toMatch(hedge);
+        for (const hedge of TALKS_ABOUT_THE_NOTE) expect(written).not.toMatch(hedge);
+      });
     });
-  });
 
-  /**
-   * The rule that outranks the rest, and the guard on the one above it: a
-   * model told to stop announcing what a note leaves out is a model invited to
-   * fill it in instead. A note is a record of what somebody actually said, so
-   * a message that quietly supplies the missing name, day or number is worse
-   * than the clipped line it replaced.
-   *
-   * Checked as "nothing that was not there" rather than as "the right words",
-   * because the second is a judgement and the first is not: every number in the
-   * answer has to be one the note carried, and each note names the invention it
-   * most invites.
-   *
-   * The first note is the one the describe above already read, deliberately:
-   * not hedging and not inventing are the two halves of one risk, and only the
-   * same note read for both says they hold together.
-   */
-  describe('nothing is added to a note that the note did not contain', () => {
-    it.each([
-      {
-        situation: 'a note referring to a document it never names',
-        note: 'document moet nog naar de klant voor vrijdag',
-        absent: [/\b(offerte|contract|rapport|factuur|handleiding|bestek)\b/i, /€|\$|EUR/],
-      },
-      {
-        situation: 'a note too terse to carry a reason or a date',
-        note: 'terugbellen over de klacht',
-        absent: [
-          /\b(januari|februari|maart|april|juni|juli)\b/i,
-          /\b(maandag|dinsdag|woensdag|donderdag|vrijdag)\b/i,
-          /\b(omdat|zodat|because|so that)\b/i,
-          /€|\$|EUR/,
-        ],
-      },
-      {
-        // `v5` read this note under this same rule, and it is the note the
-        // hedge above most invites filling in: told not to say who is missing,
-        // a model can name one instead.
-        situation: 'a note that never says who or when',
-        note: 'sign-off needed on the cleaning validation',
-        absent: [/monday|tuesday|wednesday|thursday|friday/i, /\bQA\b/, /manager/i],
-      },
-    ])('invents no name, date, reason or number for $situation', async ({ note, absent }) => {
-      const proposal = await read(note);
-      const written = `${proposal.title} ${proposal.message}`;
+    /**
+     * The rule that outranks the rest, and the guard on the one above it: a
+     * model told to stop announcing what a note leaves out is a model invited to
+     * fill it in instead. A note is a record of what somebody actually said, so
+     * a message that quietly supplies the missing name, day or number is worse
+     * than the clipped line it replaced.
+     *
+     * Checked as "nothing that was not there" rather than as "the right words",
+     * because the second is a judgement and the first is not: every number in the
+     * answer has to be one the note carried, and each note names the invention it
+     * most invites.
+     *
+     * The first note is the one the describe above already read, deliberately:
+     * not hedging and not inventing are the two halves of one risk, and only the
+     * same note read for both says they hold together.
+     */
+    describe('nothing is added to a note that the note did not contain', () => {
+      it.each([
+        {
+          situation: 'a note referring to a document it never names',
+          note: 'document moet nog naar de klant voor vrijdag',
+          absent: [/\b(offerte|contract|rapport|factuur|handleiding|bestek)\b/i, /€|\$|EUR/],
+        },
+        {
+          situation: 'a note too terse to carry a reason or a date',
+          note: 'terugbellen over de klacht',
+          absent: [
+            /\b(januari|februari|maart|april|juni|juli)\b/i,
+            /\b(maandag|dinsdag|woensdag|donderdag|vrijdag)\b/i,
+            /\b(omdat|zodat|because|so that)\b/i,
+            /€|\$|EUR/,
+          ],
+        },
+        {
+          // `v5` read this note under this same rule, and it is the note the
+          // hedge above most invites filling in: told not to say who is missing,
+          // a model can name one instead.
+          situation: 'a note that never says who or when',
+          note: 'sign-off needed on the cleaning validation',
+          absent: [/monday|tuesday|wednesday|thursday|friday/i, /\bQA\b/, /manager/i],
+        },
+      ])('invents no name, date, reason or number for $situation', async ({ note, absent }) => {
+        const proposal = await read(note);
+        const written = `${proposal.title} ${proposal.message}`;
 
-      for (const invention of absent) expect(written).not.toMatch(invention);
+        for (const invention of absent) expect(written).not.toMatch(invention);
 
-      // And every number in the answer is one the note had: numbers are the
-      // one class of invention that can be checked exhaustively rather than
-      // guessed at.
-      for (const number of written.match(/\d+/g) ?? []) {
-        expect(note).toContain(number);
-      }
+        // And every number in the answer is one the note had: numbers are the
+        // one class of invention that can be checked exhaustively rather than
+        // guessed at.
+        for (const number of written.match(/\d+/g) ?? []) {
+          expect(note).toContain(number);
+        }
+      });
     });
-  });
 
-  /**
-   * The floor under a shorter, sharper title: a note with almost nothing in it
-   * must not be answered by inventing something to name. Either branch is a
-   * pass, because `readProposal` discarding an unusable answer is the designed
-   * behaviour and the Item keeps the mechanical title capture wrote.
-   *
-   * `read` is deliberately not used - it throws on a discard, which is the
-   * outcome this case is here to allow.
-   *
-   * **The assertion is on what a proposal may contain, not that there is
-   * one.** Non-empty, inside the cap and single-line are all `answerSchema`'s
-   * doing, so asserting them here would be three lines that cannot fail; what
-   * can fail is the model answering an empty note with something it made up.
-   */
-  describe('a note carrying almost nothing produces something usable or nothing at all', () => {
-    it('answers a note of punctuation and emoji without inventing one, or with nothing', async () => {
-      const answer = await reading.cleanUpNote('...!! 🙂', [], [], [], [], NO_STOOD);
+    /**
+     * The floor under a shorter, sharper title: a note with almost nothing in it
+     * must not be answered by inventing something to name. Either branch is a
+     * pass, because `readProposal` discarding an unusable answer is the designed
+     * behaviour and the Item keeps the mechanical title capture wrote.
+     *
+     * `read` is deliberately not used - it throws on a discard, which is the
+     * outcome this case is here to allow.
+     *
+     * **The assertion is on what a proposal may contain, not that there is
+     * one.** Non-empty, inside the cap and single-line are all `answerSchema`'s
+     * doing, so asserting them here would be three lines that cannot fail; what
+     * can fail is the model answering an empty note with something it made up.
+     */
+    describe('a note carrying almost nothing produces something usable or nothing at all', () => {
+      it('answers a note of punctuation and emoji without inventing one, or with nothing', async () => {
+        const answer = await ask('...!! 🙂', []);
 
-      // A discard is a pass and there is nothing further to check on it: every
-      // producer of that arm writes a non-empty reason, so asserting one here
-      // would be the line this case's own comment argues against.
-      if (!('proposal' in answer)) return;
-      const written = `${answer.proposal.title} ${answer.proposal.message}`;
-      // This note carries no digit, no weekday and no subject, so every one of
-      // them in an answer is invented - the one class of invention a note this
-      // empty lets a test check exhaustively.
-      expect(written).not.toMatch(/\d/);
-      expect(written).not.toMatch(
-        /\b(monday|tuesday|wednesday|thursday|friday|maandag|dinsdag|woensdag|donderdag|vrijdag)\b/i,
-      );
+        // A discard is a pass and there is nothing further to check on it: every
+        // producer of that arm writes a non-empty reason, so asserting one here
+        // would be the line this case's own comment argues against.
+        if (!('proposal' in answer)) return;
+        const written = `${answer.proposal.title} ${answer.proposal.message}`;
+        // This note carries no digit, no weekday and no subject, so every one of
+        // them in an answer is invented - the one class of invention a note this
+        // empty lets a test check exhaustively.
+        expect(written).not.toMatch(/\d/);
+        expect(written).not.toMatch(
+          /\b(monday|tuesday|wednesday|thursday|friday|maandag|dinsdag|woensdag|donderdag|vrijdag)\b/i,
+        );
+      });
     });
-  });
 
-  /**
-   * Ambiguity is meant to be rare ("Offer the other readings when a captured
-   * note says two things", issue 297): a schema field that merely exists
-   * invites filling it in, which is the same failure the language fix above
-   * was written against - the model matching the shape of the prompt rather
-   * than the note in front of it. This is what says the instruction not to
-   * still holds.
-   */
-  describe('a note that is merely terse is not read as ambiguous', () => {
-    it.each([
-      { situation: 'a note with one clear subject', note: 'cal invite for the CAPA review, need the deviation nr first' },
-      { situation: 'a note naming a thing it never identifies', note: 'terugbellen over de klacht, hij was er niet blij mee' },
-      { situation: 'a note that is only short', note: 'sign-off needed on the cleaning validation, who owns it' },
-    ])('offers no other reading for $situation', async ({ note }) => {
-      const proposal = await read(note);
-      expect(proposal.readings).toEqual([]);
+    /**
+     * Ambiguity is meant to be rare ("Offer the other readings when a captured
+     * note says two things", issue 297): a schema field that merely exists
+     * invites filling it in, which is the same failure the language fix above
+     * was written against - the model matching the shape of the prompt rather
+     * than the note in front of it. This is what says the instruction not to
+     * still holds.
+     */
+    describe('a note that is merely terse is not read as ambiguous', () => {
+      it.each([
+        { situation: 'a note with one clear subject', note: 'cal invite for the CAPA review, need the deviation nr first' },
+        { situation: 'a note naming a thing it never identifies', note: 'terugbellen over de klacht, hij was er niet blij mee' },
+        { situation: 'a note that is only short', note: 'sign-off needed on the cleaning validation, who owns it' },
+      ])('offers no other reading for $situation', async ({ note }) => {
+        const proposal = await read(note);
+        expect(proposal.readings).toEqual([]);
+      });
     });
-  });
 
-  /**
-   * The proof this feature rode in on, with the exact name the issue proved
-   * it on (`jan`) deliberately not reused: `bel jan` names that pair verbatim
-   * in this prompt's own instructions, and `call jan` is its fully worked-out
-   * final example - a note built from either would pass by recall of text
-   * already in the system prompt, not by the model reasoning about the note
-   * in front of it (the same rule the notes above obey, stated in this file's
-   * own class comment). `april` is the same shape of pun - a name that is
-   * also, in full, a month, in both languages - and appears nowhere in the
-   * prompt.
-   *
-   * Asked as "are these readings genuinely different" rather than "does one
-   * say person and the other month", because the exact wording a correct
-   * answer takes is not fixed: a title and a message are free-form prose, and
-   * pinning the assertion to one phrasing a correct Dutch answer would not use
-   * is the failure a sibling case in this file was found to have.
-   */
-  describe('a note that genuinely reads two ways offers more than the one', () => {
-    it.each([
-      { situation: 'an English note', note: 'call april' },
-      { situation: 'a Dutch note', note: 'bel april' },
-    ])('offers readings that are genuinely different from each other, for $situation', async ({ note }) => {
-      const proposal = await read(note);
+    /**
+     * The proof this feature rode in on, with the exact name the issue proved
+     * it on (`jan`) deliberately not reused: `bel jan` names that pair verbatim
+     * in this prompt's own instructions, and `call jan` is its fully worked-out
+     * final example - a note built from either would pass by recall of text
+     * already in the system prompt, not by the model reasoning about the note
+     * in front of it (the same rule the notes above obey, stated in this file's
+     * own class comment). `april` is the same shape of pun - a name that is
+     * also, in full, a month, in both languages - and appears nowhere in the
+     * prompt.
+     *
+     * Asked as "are these readings genuinely different" rather than "does one
+     * say person and the other month", because the exact wording a correct
+     * answer takes is not fixed: a title and a message are free-form prose, and
+     * pinning the assertion to one phrasing a correct Dutch answer would not use
+     * is the failure a sibling case in this file was found to have.
+     */
+    describe('a note that genuinely reads two ways offers more than the one', () => {
+      it.each([
+        { situation: 'an English note', note: 'call april' },
+        { situation: 'a Dutch note', note: 'bel april' },
+      ])('offers readings that are genuinely different from each other, for $situation', async ({ note }) => {
+        const proposal = await read(note);
 
-      // The main answer is one of the two readings, so the note supports at
-      // least two total between the title and what `readings` adds.
-      expect(proposal.readings.length).toBeGreaterThanOrEqual(1);
-      const titles = [proposal.title, ...proposal.readings.map((r) => r.title)];
-      expect(new Set(titles.map((title) => title.toLowerCase())).size).toBe(titles.length);
+        // The main answer is one of the two readings, so the note supports at
+        // least two total between the title and what `readings` adds.
+        expect(proposal.readings.length).toBeGreaterThanOrEqual(1);
+        const titles = [proposal.title, ...proposal.readings.map((r) => r.title)];
+        expect(new Set(titles.map((title) => title.toLowerCase())).size).toBe(titles.length);
+      });
     });
   });
 
@@ -558,87 +612,88 @@ describe('Capture', () => {
     });
   });
 
-  /**
-   * The property this whole file's newest describe exists for ("Learn how you
-   * write from the titles you correct", issue 394): a correction shows the
-   * model this person's own vocabulary, not a rule stated in words - the same
-   * shape "a proposal follows a correction recorded in the decision history"
-   * above already proves for which Panel a note belongs on.
-   *
-   * `NOVY_SHAPED_NOTE` deliberately reuses the note's own subject (a person
-   * named Novy) rather than a fresh one, so a title that comes back with this
-   * account's own past spelling of that name is unambiguous evidence the
-   * correction was read, not a coincidence of the model's own judgement -
-   * nothing in the general prompt could otherwise motivate this exact
-   * spelling.
-   */
-  describe('a proposal uses the vocabulary this account has corrected into its titles before', () => {
-    it('spells a name the way this account has always corrected it to, not the way the note spells it', async () => {
-      const NOVY_SHAPED_NOTE = 'novi bellen over levering volgende week';
-      const corrections: TextCorrectionEntry[] = [
-        {
-          itemId: 'item-1',
-          capturedMessage: 'novi bellen over de afspraak maandag',
-          proposedTitle: 'Novi bellen over de afspraak maandag',
-          proposedDescription: null,
-          settledTitle: 'Novy bellen over de afspraak maandag',
-          settledDescription: null,
-          recordedAt: '2026-08-01T09:00:00.000Z',
-        },
-        {
-          itemId: 'item-2',
-          capturedMessage: 'novi mailen ivm factuur',
-          proposedTitle: 'Novi mailen in verband met de factuur',
-          proposedDescription: null,
-          settledTitle: 'Novy mailen in verband met de factuur',
-          settledDescription: null,
-          recordedAt: '2026-08-05T09:00:00.000Z',
-        },
-      ];
+  describe.each(WAYS)('when a note is $situation', ({ ask }) => {
+    const read = readerFor(ask);
 
-      const proposal = await read(NOVY_SHAPED_NOTE, [], [], [], corrections);
+    /**
+     * The property this whole file's newest describe exists for ("Learn how you
+     * write from the titles you correct", issue 394): a correction shows the
+     * model this person's own vocabulary, not a rule stated in words - the same
+     * shape "a proposal follows a correction recorded in the decision history"
+     * above already proves for which Panel a note belongs on.
+     *
+     * `NOVY_SHAPED_NOTE` deliberately reuses the note's own subject (a person
+     * named Novy) rather than a fresh one, so a title that comes back with this
+     * account's own past spelling of that name is unambiguous evidence the
+     * correction was read, not a coincidence of the model's own judgement -
+     * nothing in the general prompt could otherwise motivate this exact
+     * spelling.
+     */
+    describe('a proposal uses the vocabulary this account has corrected into its titles before', () => {
+      it('spells a name the way this account has always corrected it to, not the way the note spells it', async () => {
+        const NOVY_SHAPED_NOTE = 'novi bellen over levering volgende week';
+        const corrections: TextCorrectionEntry[] = [
+          {
+            itemId: 'item-1',
+            capturedMessage: 'novi bellen over de afspraak maandag',
+            proposedTitle: 'Novi bellen over de afspraak maandag',
+            proposedDescription: null,
+            settledTitle: 'Novy bellen over de afspraak maandag',
+            settledDescription: null,
+            recordedAt: '2026-08-01T09:00:00.000Z',
+          },
+          {
+            itemId: 'item-2',
+            capturedMessage: 'novi mailen ivm factuur',
+            proposedTitle: 'Novi mailen in verband met de factuur',
+            proposedDescription: null,
+            settledTitle: 'Novy mailen in verband met de factuur',
+            settledDescription: null,
+            recordedAt: '2026-08-05T09:00:00.000Z',
+          },
+        ];
 
-      expect(proposal.title).toMatch(/\bNovy\b/);
-      expect(proposal.title).not.toMatch(/\bNovi\b/i);
+        const proposal = await read(NOVY_SHAPED_NOTE, corrections);
+
+        expect(proposal.title).toMatch(/\bNovy\b/);
+        expect(proposal.title).not.toMatch(/\bNovi\b/i);
+      });
     });
-  });
 
-  /**
-   * The corrections section outranks the general guidance "on vocabulary and
-   * length", stated in exactly those words for the reason this case exists:
-   * an earlier version said corrections outrank the guidance with no scope
-   * limit, which read as licensing the language rule and the no-invention
-   * rule to bend too - the same failure `v5`'s translation regression
-   * measured at roughly one English note in three (this file's first
-   * describe block). Dutch-worded corrections are the sharpest test of
-   * exactly that: nothing about them should read as permission to answer an
-   * English note in Dutch.
-   */
-  describe('a correction never licenses breaking the language rule or inventing detail', () => {
-    it('answers an English note in English, even with Dutch-worded corrections on record', async () => {
-      const corrections: TextCorrectionEntry[] = [
-        {
-          itemId: 'item-1',
-          capturedMessage: 'bel novy over de afspraak',
-          proposedTitle: 'Call Novy about the appointment',
-          proposedDescription: null,
-          settledTitle: 'Novy bellen over de afspraak',
-          settledDescription: null,
-          recordedAt: '2026-08-01T09:00:00.000Z',
-        },
-      ];
+    /**
+     * The corrections section outranks the general guidance "on vocabulary and
+     * length", stated in exactly those words for the reason this case exists:
+     * an earlier version said corrections outrank the guidance with no scope
+     * limit, which read as licensing the language rule and the no-invention
+     * rule to bend too - the same failure `v5`'s translation regression
+     * measured at roughly one English note in three (this file's first
+     * describe block). Dutch-worded corrections are the sharpest test of
+     * exactly that: nothing about them should read as permission to answer an
+     * English note in Dutch.
+     */
+    describe('a correction never licenses breaking the language rule or inventing detail', () => {
+      it('answers an English note in English, even with Dutch-worded corrections on record', async () => {
+        const corrections: TextCorrectionEntry[] = [
+          {
+            itemId: 'item-1',
+            capturedMessage: 'bel novy over de afspraak',
+            proposedTitle: 'Call Novy about the appointment',
+            proposedDescription: null,
+            settledTitle: 'Novy bellen over de afspraak',
+            settledDescription: null,
+            recordedAt: '2026-08-01T09:00:00.000Z',
+          },
+        ];
 
-      const proposal = await read(
-        'cal invite for the CAPA review, need the deviation nr first',
-        [],
-        [],
-        [],
-        corrections,
-      );
+        const proposal = await read(
+          'cal invite for the CAPA review, need the deviation nr first',
+          corrections,
+        );
 
-      expect(proposal.language).toContain('English');
-      expect(proposal.title).not.toMatch(MARKERS.Dutch);
-      expect(proposal.message).not.toMatch(MARKERS.Dutch);
+        expect(proposal.language).toContain('English');
+        expect(proposal.title).not.toMatch(MARKERS.Dutch);
+        expect(proposal.message).not.toMatch(MARKERS.Dutch);
+      });
     });
   });
 
@@ -649,17 +704,29 @@ describe('Capture', () => {
    * one that gets it kept answer identically, so the usage the API reports is
    * the only evidence the second happened. The two notes differ, as a real
    * account's back-to-back captures do; their account, and so their panels,
-   * does not.
+   * does not. Both ways of asking are held to it, since each sends a fixed half
+   * of its own.
    */
   describe('notes read back to back for one account pay the full rate for the fixed instructions only once', () => {
-    it('reads the fixed instructions back at the lower rate on the second of two notes', async () => {
-      const first = await reading.cleanUpNoteWithUsage('offerte leverancier nog aftekenen', [], [], [], [], NO_STOOD);
-      expect('proposal' in first.read).toBe(true);
+    it.each([
+      {
+        situation: 'on capture',
+        ask: (service: ClaudeAiService, note: string) => service.cleanUpNote(note, [], [], [], [], NO_STOOD),
+      },
+      {
+        situation: 'when only the texts are re-read',
+        ask: (service: ClaudeAiService, note: string) => service.rewriteTexts(note, [], NO_STOOD),
+      },
+    ])('reads the fixed instructions back at the lower rate on the second of two notes, $situation', async ({ ask }) => {
+      const usages: Anthropic.Usage[] = [];
+      const service = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined, (_model, usage) => {
+        usages.push(usage);
+      });
 
-      const second = await reading.cleanUpNoteWithUsage('book the room for the CAPA review', [], [], [], [], NO_STOOD);
+      expect('proposal' in (await ask(service, 'offerte leverancier nog aftekenen'))).toBe(true);
+      expect('proposal' in (await ask(service, 'book the room for the CAPA review'))).toBe(true);
 
-      expect('proposal' in second.read).toBe(true);
-      expect(second.usage.cache_read_input_tokens ?? 0).toBeGreaterThan(0);
+      expect(usages[1]!.cache_read_input_tokens ?? 0).toBeGreaterThan(0);
     });
   });
 

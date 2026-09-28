@@ -7,7 +7,7 @@ import {
   NotFoundInAccountError,
 } from '../accounts/index.js';
 import { aiFor } from '../ai/index.js';
-import type { RoutingCandidate } from '../ai/index.js';
+import type { PanelRead, RoutingCandidate } from '../ai/index.js';
 import {
   asFarAsItReads,
   canReadMeaning,
@@ -16,6 +16,7 @@ import {
 } from '../embeddings/index.js';
 import { couldStillBeActedOn, whatAnItemSays } from '../domain/duplicates.js';
 import type { QueuedRewriteAttempt } from '../domain/rewrite-history.js';
+import { debounceSecondsFor, isSuperseded, type RefreshAsk } from './debounce.js';
 
 /**
  * Three jobs on the account's own classification: reading a captured note and
@@ -98,6 +99,13 @@ export interface ReproposePanelsJob {
   kind: 're-propose-panels';
   accountName: string;
   workspaceId: string;
+  /**
+   * The ask this message was queued for, which it runs only while no later
+   * one has been recorded (`isSuperseded`, `debounce.ts`). Optional for one
+   * release, for the reason `CleanUpJob.attemptId` gives: a message from
+   * before the debounce carries none, and simply runs.
+   */
+  ask?: RefreshAsk | undefined;
 }
 
 /**
@@ -146,7 +154,11 @@ export interface ReadWhatItMeansJob {
 export interface ReproposeTextsJob {
   kind: 're-propose-texts';
   accountName: string;
+  /** The ask this message was queued for - `ReproposePanelsJob.ask`, per account rather than per Workspace. */
+  ask?: RefreshAsk | undefined;
 }
+
+const refreshAskSchema = z.object({ at: z.number().int().nonnegative(), id: z.uuid() });
 
 export const enrichmentJobSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -167,10 +179,12 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     // client that created it generated (`commandEnvelopeSchema.workspaceId`,
     // packages/shared), and this is carried straight from there.
     workspaceId: z.string().min(1),
+    ask: refreshAskSchema.optional(),
   }),
   z.object({
     kind: z.literal('re-propose-texts'),
     accountName: z.string().min(1),
+    ask: refreshAskSchema.optional(),
   }),
 ]);
 
@@ -591,16 +605,26 @@ async function panelsOrEmpty(
  * Shared by `cleanUpACapturedNote` (moment 2) and `reproposePanels` below
  * (the settle-triggered refresh), because the write and its one race are the
  * same regardless of which call proposed the Panel.
+ *
+ * **A write the store discarded answers so**, rather than `routed`: the Item
+ * was filed, or the Panel went, since the read - and a rewrite-history row
+ * must not claim a proposal nobody will see.
  */
 async function applyProposedPanelIfAny(
   account: Account,
   item: { id: string; workspaceId: string },
   panel: RoutingCandidate | null,
   currentProposedPanelId: string | null,
-): Promise<'routed' | 'withdrawn' | 'no panel fit' | 'the item went while it was being read'> {
+): Promise<
+  | 'routed'
+  | 'withdrawn'
+  | 'no panel fit'
+  | 'the item went while it was being read'
+  | 'the item was filed or the panel went while it was being read'
+> {
   if (!panel && currentProposedPanelId === null) return 'no panel fit';
   try {
-    await account.applyChange('propose_item_panel', {
+    const written = await account.applyChange('propose_item_panel', {
       commandId: crypto.randomUUID(),
       issuedAt: new Date().toISOString(),
       workspaceId: item.workspaceId,
@@ -608,6 +632,7 @@ async function applyProposedPanelIfAny(
       panelId: panel?.panelId ?? null,
       reason: panel?.reason ?? '',
     });
+    if (!written.applied) return 'the item was filed or the panel went while it was being read';
     return panel ? 'routed' : 'withdrawn';
   } catch (error) {
     if (error instanceof NotFoundInAccountError) return 'the item went while it was being read';
@@ -623,21 +648,79 @@ async function applyProposedPanelIfAny(
  * queues nothing its consumer would only discard.
  */
 export async function enqueueRepropose(env: Env, accountName: string, workspaceId: string): Promise<void> {
+  await askForRefresh(
+    env,
+    accountName,
+    panelsRefresh(workspaceId),
+    (ask) => ({ kind: 're-propose-panels', accountName, workspaceId, ask }),
+    `the refresh of workspace ${workspaceId}'s Inbox, asked for by a settled filing,`,
+  );
+}
+
+/** Which refresh a Workspace's panel re-proposal is, to the record of asks: one per Workspace. */
+function panelsRefresh(workspaceId: string): string {
+  return `re-propose-panels:${workspaceId}`;
+}
+
+/** Which refresh the account's text re-read is, to the record of asks: one per account. */
+const TEXTS_REFRESH = 're-propose-texts';
+
+/**
+ * Queues one refresh, delayed by the debounce window, and then records it as
+ * the latest ask for that refresh ("Debounce the settle-triggered repropose
+ * fan-out across a real time window", issue 582) - sent first and recorded
+ * second, for the reason `isSuperseded` gives. Neither failing fails whatever
+ * asked: the filing or the correction has already happened, and a refresh
+ * lost or run twice is the whole cost.
+ */
+async function askForRefresh(
+  env: Env,
+  accountName: string,
+  refresh: string,
+  jobFor: (ask: RefreshAsk) => EnrichmentJob,
+  whatWasAsked: string,
+): Promise<void> {
   if (!env.ANTHROPIC_API_KEY) return;
 
-  const job: EnrichmentJob = { kind: 're-propose-panels', accountName, workspaceId };
+  const ask: RefreshAsk = { at: Date.now(), id: crypto.randomUUID() };
   try {
-    await env.ENRICHMENT.send(job);
+    await env.ENRICHMENT.send(jobFor(ask), {
+      delaySeconds: debounceSecondsFor(env.REPROPOSE_DEBOUNCE_SECONDS),
+    });
   } catch (error) {
     console.error(
       JSON.stringify({
         level: 'error',
-        message: `a filing settled but the rest of workspace ${workspaceId} was not queued for a refresh: ${
+        message: `${whatWasAsked} was not queued: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      }),
+    );
+    return;
+  }
+  try {
+    const account = await openAccount(env, accountName);
+    await account.recordRefreshAsk(refresh, ask);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `${whatWasAsked} was queued and not recorded as the latest ask, so an earlier one may run as well: ${
           error instanceof Error ? error.message : String(error)
         }`,
       }),
     );
   }
+}
+
+/**
+ * Whether a later ask has taken this refresh's place - checked once the
+ * account is open and before anything is read, so a refresh that runs reads
+ * the backlog as it stands then.
+ */
+async function aLaterAskTookItsPlace(account: Account, refresh: string, ask: RefreshAsk | undefined): Promise<boolean> {
+  if (ask === undefined) return false;
+  return isSuperseded(await account.latestRefreshAsk(refresh), ask);
 }
 
 /**
@@ -648,10 +731,11 @@ export async function enqueueRepropose(env: Env, accountName: string, workspaceI
  * still is (`docs/routing-learning.md`, "The decision moments").
  *
  * **Only the destination is re-read.** The two texts were settled on the way
- * in and nothing here calls `propose_item_texts` - the model's own answer
- * still names them, `cleanUpNote` asking for nothing narrower, but only its
- * `panel` is ever written; a second opinion on wording nobody asked for
- * would be the app editing notes at random.
+ * in and nothing here calls `propose_item_texts` - `choosePanel` asks for a
+ * Panel and nothing else, on a cheaper model than the one that writes texts
+ * ("Use a cheaper model for panel-only re-proposal", issue 583); a second
+ * opinion on wording nobody asked for would be the app editing notes at
+ * random.
  *
  * **One Item's failure does not cost the rest.** A refresh that fails costs
  * nothing - the Item keeps the proposal it had - so a rate limit or a
@@ -685,52 +769,86 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
     throw error;
   }
 
+  if (await aLaterAskTookItsPlace(account, panelsRefresh(job.workspaceId), job.ask)) {
+    return sayForWorkspace(job.workspaceId, 'nothing was refreshed yet: a later filing queued the refresh that will');
+  }
+
   const candidates = await account.unfiledItemsInWorkspace(job.workspaceId);
   if (candidates.length === 0) return sayForWorkspace(job.workspaceId, 'nothing was waiting to be refreshed');
 
-  // Read once for the whole refresh, not per candidate: per account rather
-  // than per Workspace, so it does not vary across the candidates below the
-  // way `panels`, `history` and `recentlyCaptured` each do ("Learn how you
-  // write from the titles you correct", issue 394; `docs/text-learning.md`,
-  // "Scope: per account").
-  const { promptCorrections, promptStood } = await account.textLearningContext();
-
   for (const candidate of candidates) {
+    // Queued before the model is asked, for the same reason and with the same
+    // fresh id `reproposeTexts` below gives: every call this refresh pays for
+    // is a row in the history ("Give reproposePanels the same rewrite-history
+    // logging reproposeTexts already has", issue 581).
+    const attemptId = crypto.randomUUID();
     try {
+      await recordHistory(() =>
+        account.queueRewriteAttempt({
+          id: attemptId,
+          tenantId: job.accountName,
+          workspaceId: candidate.workspaceId,
+          itemId: candidate.id,
+          titleBefore: candidate.title,
+          descriptionBefore: candidate.description,
+          attemptedAt: new Date().toISOString(),
+        }),
+      );
+
       // Panels, history and recent captures are each read fresh, and against
       // the candidate's own Workspace rather than the one this refresh was
       // triggered from - an Item still undecided between Workspaces is read
       // exactly as `cleanUpACapturedNote` reads it, not as if it already
       // belonged where the settle that triggered this happened to be.
       const panels = await panelsOrEmpty(account, candidate.workspaceId);
-      const { history, recentlyCaptured } = await account.routingContext(
-        candidate.workspaceId,
-        candidate.id,
-      );
-      const read = await ai.cleanUpNote(
-        candidate.capturedMessage,
-        panels,
-        history,
-        recentlyCaptured,
-        promptCorrections,
-        promptStood,
-      );
-      if (!('proposal' in read)) {
+      // With no Panel to offer, "none fits" is the only possible answer, so it
+      // is given without asking - still withdrawing any proposal left standing.
+      let read: PanelRead = { panel: null };
+      if (panels.length > 0) {
+        const { history, recentlyCaptured } = await account.routingContext(candidate.workspaceId, candidate.id);
+        read = await ai.choosePanel(candidate, panels, history, recentlyCaptured);
+      }
+      if (!('panel' in read)) {
+        await recordHistory(() =>
+          account.recordRewriteOutcome(attemptId, {
+            status: 'left-as-is',
+            message: `nothing was refreshed: ${read.discarded}`,
+          }),
+        );
         say(candidate.id, `nothing was refreshed: ${read.discarded}`);
         continue;
       }
-      const routed = await applyProposedPanelIfAny(
-        account,
-        candidate,
-        read.proposal.panel,
-        candidate.proposedPanelId,
+      const panel = read.panel;
+      const routed = await applyProposedPanelIfAny(account, candidate, panel, candidate.proposedPanelId);
+      const changed = routed === 'routed' || routed === 'withdrawn';
+      // The texts are never written here, so `titleAfter` and
+      // `descriptionAfter` stay empty: a withdrawal is a change too, recorded
+      // as one with no Panel named.
+      await recordHistory(() =>
+        account.recordRewriteOutcome(attemptId, {
+          status: changed ? 'rewritten' : 'left-as-is',
+          proposedPanelId: routed === 'routed' ? (panel?.panelId ?? null) : null,
+          proposedPanelReason: routed === 'routed' ? (panel?.reason ?? null) : null,
+          message:
+            routed === 'routed'
+              ? 'proposed a panel'
+              : routed === 'withdrawn'
+                ? 'withdrew the panel proposed before: nothing fits any more'
+                : `nothing was refreshed: ${routed}`,
+        }),
       );
-      say(candidate.id, routed === 'routed' || routed === 'withdrawn' ? routed : `nothing was refreshed: ${routed}`);
+      say(candidate.id, changed ? routed : `nothing was refreshed: ${routed}`);
     } catch (error) {
       // Worth trying again another time, but not worth losing the rest of
       // this refresh over: the queue's own retry is for the whole job, and a
       // model that was rate-limited on Item 3 will be rate-limited on Items
       // 4 through N too, redelivered or not.
+      await recordHistory(() =>
+        account.recordRewriteOutcome(attemptId, {
+          status: 'failed',
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
       console.error(
         JSON.stringify({
           level: 'error',
@@ -751,21 +869,13 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
  * no key queues nothing its consumer would only discard.
  */
 export async function enqueueReproposeTexts(env: Env, accountName: string): Promise<void> {
-  if (!env.ANTHROPIC_API_KEY) return;
-
-  const job: EnrichmentJob = { kind: 're-propose-texts', accountName };
-  try {
-    await env.ENRICHMENT.send(job);
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        level: 'error',
-        message: `a correction was recorded but account ${accountName} was not queued for a re-read: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      }),
-    );
-  }
+  await askForRefresh(
+    env,
+    accountName,
+    TEXTS_REFRESH,
+    (ask) => ({ kind: 're-propose-texts', accountName, ask }),
+    `the re-read of account ${accountName}'s Inbox, asked for by a correction,`,
+  );
 }
 
 /**
@@ -775,9 +885,9 @@ export async function enqueueReproposeTexts(env: Env, accountName: string): Prom
  * worth firing on every correction rather than only when the Inbox is
  * opened.
  *
- * **Only the two texts are written.** The model's own answer still names a
- * Panel, `cleanUpNote` asking for nothing narrower, but only `title` and
- * `description` are ever sent on here - a second opinion on routing nobody
+ * **Only the two texts are asked for and written.** `rewriteTexts` is
+ * `cleanUpNote` with the Panels left out ("Use a cheaper model for
+ * panel-only re-proposal", issue 583) - a second opinion on routing nobody
  * asked for would be `reproposePanels`'s own job, fired from a settled filing
  * rather than from a correction.
  *
@@ -806,11 +916,15 @@ export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<
     throw error;
   }
 
+  if (await aLaterAskTookItsPlace(account, TEXTS_REFRESH, job.ask)) {
+    return sayForAccount(job.accountName, 'nothing was re-read yet: a later correction queued the re-read that will');
+  }
+
   const candidates = await account.itemsWithUnsettledTexts();
   if (candidates.length === 0) return sayForAccount(job.accountName, 'nothing was waiting to be re-read');
 
-  // Read once for the whole re-read, the same as `reproposePanels`: per
-  // account rather than per candidate, since it does not vary across them.
+  // Read once for the whole re-read: per account rather than per candidate,
+  // since it does not vary across them.
   const { promptCorrections, promptStood } = await account.textLearningContext();
 
   for (const candidate of candidates) {
@@ -834,19 +948,7 @@ export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<
         }),
       );
 
-      const panels = await panelsOrEmpty(account, candidate.workspaceId);
-      const { history, recentlyCaptured } = await account.routingContext(
-        candidate.workspaceId,
-        candidate.id,
-      );
-      const read = await ai.cleanUpNote(
-        candidate.capturedMessage,
-        panels,
-        history,
-        recentlyCaptured,
-        promptCorrections,
-        promptStood,
-      );
+      const read = await ai.rewriteTexts(candidate.capturedMessage, promptCorrections, promptStood);
       if (!('proposal' in read)) {
         await recordHistory(() =>
           account.recordRewriteOutcome(attemptId, {
@@ -893,8 +995,9 @@ export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<
           status: written.applied ? 'rewritten' : 'left-as-is',
           titleAfter: written.applied ? read.proposal.title : null,
           descriptionAfter: written.applied ? read.proposal.message : null,
-          proposedPanelId: written.applied ? (read.proposal.panel?.panelId ?? null) : null,
-          proposedPanelReason: written.applied ? (read.proposal.panel?.reason ?? null) : null,
+          // Nothing was asked about a Panel, so nothing was proposed.
+          proposedPanelId: null,
+          proposedPanelReason: null,
           message: written.applied
             ? `re-proposed in ${read.proposal.language}`
             : 'nothing was written: the texts are already edited',

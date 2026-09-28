@@ -335,6 +335,25 @@
       ]
     },
     {
+      "key": "Agents",
+      "label": "Agents",
+      "browserWalks": 1,
+      "parent": "Workspaces",
+      "sourcePatterns": [
+        "packages/shared/src/domain/agent.ts",
+        "packages/shared/src/commands.ts",
+        "apps/api/src/accounts/command-service.ts",
+        "apps/api/src/accounts/repo.ts",
+        "apps/api/src/accounts/schema.ts",
+        "apps/api/src/accounts/changes.ts",
+        "apps/api/src/accounts/store.ts",
+        "apps/web/src/components/AgentDock.tsx",
+        "apps/web/src/components/AgentForm.tsx",
+        "apps/web/src/agentDockHidden.ts",
+        "apps/web/src/pages/Layout.tsx"
+      ]
+    },
+    {
       "key": "Across the app",
       "label": "Across the app",
       "sourcePatterns": []

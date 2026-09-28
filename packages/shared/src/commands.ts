@@ -14,6 +14,12 @@ import {
   prioritySchema,
   workspaceNameSchema,
 } from './domain/item.js';
+import {
+  agentColorSchema,
+  agentMessageSchema,
+  agentNameSchema,
+  agentEngineSchema,
+} from './domain/agent.js';
 import { itemFormPresentationSchema } from './domain/item-form-presentation.js';
 import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
 import {
@@ -387,6 +393,68 @@ export const reorderItemTypesSchema = commandEnvelopeSchema
   });
 export type ReorderItemTypesCommand = z.infer<typeof reorderItemTypesSchema>;
 
+/** create_agent — made from the dock's own "+ New agent" ("Keep your agents in a dock, and choose which each dashboard shows", issue 570). */
+export const createAgentSchema = commandEnvelopeSchema.extend({
+  agentId: z.uuid(),
+  name: agentNameSchema,
+  color: agentColorSchema,
+  engine: agentEngineSchema,
+  message: agentMessageSchema,
+  asksForPrompt: z.boolean(),
+  startsInProgress: z.boolean(),
+});
+export type CreateAgentCommand = z.infer<typeof createAgentSchema>;
+
+/**
+ * update_agent — every field the dock's own form edits, sent together: unlike
+ * a Type's name and colour, which are two separate concerns with their own
+ * collision rule, an Agent's fields are all on one form with one Save.
+ */
+export const updateAgentSchema = commandEnvelopeSchema.extend({
+  agentId: z.string().min(1),
+  name: agentNameSchema,
+  color: agentColorSchema,
+  message: agentMessageSchema,
+  asksForPrompt: z.boolean(),
+  startsInProgress: z.boolean(),
+});
+export type UpdateAgentCommand = z.infer<typeof updateAgentSchema>;
+
+/** delete_agent — gone from the dock and every dashboard's hidden list with it. */
+export const deleteAgentSchema = commandEnvelopeSchema.extend({
+  agentId: z.string().min(1),
+});
+export type DeleteAgentCommand = z.infer<typeof deleteAgentSchema>;
+
+/**
+ * hide_agent_on_dashboard — this Dashboard only ("Hiding and showing are per
+ * dashboard", issue 570). The envelope's `workspaceId` is this Dashboard's
+ * own Workspace, the same way a Panel or a Layout command's is.
+ */
+export const hideAgentOnDashboardSchema = commandEnvelopeSchema.extend({
+  agentId: z.string().min(1),
+  dashboardId: z.string().min(1),
+});
+export type HideAgentOnDashboardCommand = z.infer<typeof hideAgentOnDashboardSchema>;
+
+/** show_agent_on_dashboard — undoes one hide_agent_on_dashboard. */
+export const showAgentOnDashboardSchema = commandEnvelopeSchema.extend({
+  agentId: z.string().min(1),
+  dashboardId: z.string().min(1),
+});
+export type ShowAgentOnDashboardCommand = z.infer<typeof showAgentOnDashboardSchema>;
+
+/**
+ * set_ask_claude_enabled — the account-wide switch in the dock's own "…"
+ * ("Ask Claude... can be turned off everywhere and on again from the dock's
+ * '…'", issue 570). Whether it is actually drawn on one Dashboard also needs
+ * that Workspace's own Claude Code connection; this is the other half.
+ */
+export const setAskClaudeEnabledSchema = commandEnvelopeSchema.extend({
+  enabled: z.boolean(),
+});
+export type SetAskClaudeEnabledCommand = z.infer<typeof setAskClaudeEnabledSchema>;
+
 /**
  * An order names each Item once. Shared by the two commands below that carry
  * one, because it is the same rule (architecture.md §4.4, "a whole order").
@@ -692,6 +760,12 @@ export const commandSchemas = {
   set_item_type_color: setItemTypeColorSchema,
   delete_item_type: deleteItemTypeSchema,
   reorder_item_types: reorderItemTypesSchema,
+  create_agent: createAgentSchema,
+  update_agent: updateAgentSchema,
+  delete_agent: deleteAgentSchema,
+  hide_agent_on_dashboard: hideAgentOnDashboardSchema,
+  show_agent_on_dashboard: showAgentOnDashboardSchema,
+  set_ask_claude_enabled: setAskClaudeEnabledSchema,
   move_item_to_panel: moveItemToPanelSchema,
   add_item_to_panel: addItemToPanelSchema,
   remove_item_from_panel: removeItemFromPanelSchema,

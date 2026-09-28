@@ -235,6 +235,24 @@ const CHANGES_THE_TYPES = new Set<ClientCommandName>([
 ]);
 
 /**
+ * The changes after which the dock is not what it was, account-wide: making,
+ * editing or deleting an Agent, and the Ask Claude switch. Every one of them
+ * carries `ACCOUNT_WIDE` as its envelope's `workspaceId` - an id no snapshot
+ * is ever cached under - so, like `CHANGES_THE_TYPES` above, these re-read
+ * every workspace's own snapshot rather than one that id would never match.
+ *
+ * Hiding or showing an Agent on one Dashboard is not here: its envelope names
+ * that Dashboard's real Workspace, so the generic per-workspace re-read below
+ * already reaches it.
+ */
+const CHANGES_ALL_AGENTS = new Set<ClientCommandName>([
+  'create_agent',
+  'update_agent',
+  'delete_agent',
+  'set_ask_claude_enabled',
+]);
+
+/**
  * The changes that are not finished until the workspace has been read again,
  * because **what happens next is built on what this one left behind**.
  *
@@ -397,6 +415,10 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
       // account and are drawn on every row of every list.
       queryClient.invalidateQueries({ queryKey: ['snapshot'] }),
     ]);
+  }
+
+  if (CHANGES_ALL_AGENTS.has(args.name)) {
+    return queryClient.invalidateQueries({ queryKey: ['snapshot'] });
   }
 
   if (args.name === 'set_item_form_presentation') {

@@ -16,8 +16,12 @@ import type { TextCorrectionEntry, WhatStood } from '../../../../src/domain/text
 const A_STOOD_SAMPLE: WhatStood = { proposedTotal: 10, correctedTotal: 2, sample: ['A title that stood'] };
 
 function systemFor(corrections: readonly TextCorrectionEntry[], stood: WhatStood | null): string {
-  const { system } = buildCleanUpANote([], [], [], corrections, stood);
-  return `${system.instructions}\n\n${system.context}`;
+  return whole(buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, corrections, stood));
+}
+
+/** The system prompt as the model reads it, both halves in order. */
+function whole(prompt: ReturnType<typeof buildCleanUpANote>): string {
+  return `${prompt.system.instructions}\n\n${prompt.system.context}`;
 }
 
 const A_CORRECTION: TextCorrectionEntry = {
@@ -52,12 +56,10 @@ describe('Capture', () => {
   describe('what a proposal is told reads the same for every account, until its own record begins', () => {
     const built = [
       // An account with nothing yet.
-      buildCleanUpANote([], [], [], [], null),
+      buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], null),
       // An account with something in every input.
       buildCleanUpANote(
-        [{ id: 'panel-2', name: 'Legal questions' }],
-        [A_DECISION],
-        ['still waiting to be filed'],
+        { panels: [{ id: 'panel-2', name: 'Legal questions' }], history: [A_DECISION], recentlyCaptured: ['still waiting to be filed'] },
         [A_CORRECTION],
         A_STOOD_SAMPLE,
       ),
@@ -67,6 +69,16 @@ describe('Capture', () => {
       expect(built[1]!.system.instructions).toBe(built[0]!.system.instructions);
       expect(built[0]!.system.instructions).toContain('Examples.');
       expect(built[0]!.system.instructions).toContain('Note: call jan');
+    });
+
+    it('opens a re-read of the texts with the same rules and examples too, whatever the account has', () => {
+      const bare = buildCleanUpANote(null, [], null).system;
+      const withEvidence = buildCleanUpANote(null, [A_CORRECTION], A_STOOD_SAMPLE).system;
+
+      expect(withEvidence.instructions).toBe(bare.instructions);
+      expect(withEvidence.context).toContain('Novy bellen');
+      // Nothing of the account's own to say, so nothing at all after the rules.
+      expect(bare.context).toBe('');
     });
 
     it("carries each of the account's own panels, history, captures and corrections after the rules", () => {
@@ -141,6 +153,48 @@ describe('Capture', () => {
 
       expect(system).toContain('2 of 10 proposed texts were corrected');
       expect(system).toContain('A title that stood');
+    });
+  });
+
+  /**
+   * A correction's re-read writes only the two texts ("Use a cheaper model for
+   * panel-only re-proposal", issue 583), so it neither sends nor asks for
+   * anything a Panel would need - while every rule about the texts stays.
+   */
+  describe('re-reading the texts asks nothing about where a note belongs', () => {
+    const ROUTING = {
+      panels: [{ id: 'panel-1', name: 'Compliance questions' }],
+      history: [],
+      recentlyCaptured: ['another note waiting'],
+    };
+
+    it.each([
+      { situation: 'the Panels on offer', text: 'Compliance questions' },
+      { situation: 'the decision history', text: 'Decision history' },
+      { situation: 'what else was captured lately', text: 'another note waiting' },
+      { situation: 'a panel line in any example', text: 'panel:' },
+    ])('leaves out $situation', ({ text }) => {
+      expect(whole(buildCleanUpANote(ROUTING, [], null))).toContain(text);
+      expect(whole(buildCleanUpANote(null, [], null))).not.toContain(text);
+    });
+
+    it('asks for no panel in the answer', () => {
+      const { schema } = buildCleanUpANote(null, [], null);
+
+      expect(schema.properties).not.toHaveProperty('panel');
+      expect(schema.required).toEqual(['language', 'title', 'message', 'readings']);
+    });
+
+    it('keeps every rule about the two texts, and every example of them', () => {
+      const withPanels = whole(buildCleanUpANote(ROUTING, [], null));
+      const withoutPanels = whole(buildCleanUpANote(null, [], null));
+      // Everything before the Panels paragraph is the texts' own guidance.
+      const textsGuidance = withPanels.slice(0, withPanels.indexOf('Further down, after the examples'));
+
+      expect(withoutPanels.startsWith(textsGuidance)).toBe(true);
+      for (const example of ['title: Novy bellen over de afspraak van volgende week', "meaning: \"'jan' is short for the month January\""]) {
+        expect(withoutPanels).toContain(example);
+      }
     });
   });
 });

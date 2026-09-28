@@ -1445,6 +1445,26 @@ const routes = app
   .openapi(commandRoute('reorder_item_types'), async (c) =>
     c.json(await change(c, 'reorder_item_types', c.req.valid('json')), 200),
   )
+  .openapi(
+    commandRoute('create_agent', { conflict: 'An agent already has that name' }),
+    async (c) => c.json(await change(c, 'create_agent', c.req.valid('json')), 200),
+  )
+  .openapi(
+    commandRoute('update_agent', { conflict: 'An agent already has that name' }),
+    async (c) => c.json(await change(c, 'update_agent', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('delete_agent'), async (c) =>
+    c.json(await change(c, 'delete_agent', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('hide_agent_on_dashboard'), async (c) =>
+    c.json(await change(c, 'hide_agent_on_dashboard', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('show_agent_on_dashboard'), async (c) =>
+    c.json(await change(c, 'show_agent_on_dashboard', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('set_ask_claude_enabled'), async (c) =>
+    c.json(await change(c, 'set_ask_claude_enabled', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('set_done'), async (c) => c.json(await change(c, 'set_done', c.req.valid('json')), 200))
   .openapi(commandRoute('set_started'), async (c) => c.json(await change(c, 'set_started', c.req.valid('json')), 200))
   .openapi(commandRoute('set_dismissed'), async (c) => c.json(await change(c, 'set_dismissed', c.req.valid('json')), 200))

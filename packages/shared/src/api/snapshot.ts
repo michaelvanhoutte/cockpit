@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { agentSchema, hiddenAgentSchema } from '../domain/agent.js';
 import { attachmentSchema } from '../domain/attachment.js';
 import { possibleDuplicateSchema } from '../domain/duplicate.js';
 import {
@@ -71,6 +72,14 @@ export const workspaceSnapshotSchema = z.object({
    * before this field existed is an app with nothing flagged, not a broken one.
    */
   duplicates: z.array(possibleDuplicateSchema).default([]),
+  /** Every live Agent of the account, in dock order ("Keep your agents in a dock, and choose which each dashboard shows", issue 570). Account-wide like `itemTypes` above. */
+  agents: z.array(agentSchema).default([]),
+  /** Which Agents are hidden on which of this Workspace's Dashboards (issue 570). */
+  hiddenAgents: z.array(hiddenAgentSchema).default([]),
+  /** Whether this Workspace has a live Claude Code connection - the other half of whether Ask Claude is drawn here (issue 570). */
+  hasClaudeCodeConnection: z.boolean().default(false),
+  /** The account-wide switch for Ask Claude, off the dock's own "…" (issue 570). */
+  askClaudeEnabled: z.boolean().default(true),
   generatedAt: z.iso.datetime(),
   /**
    * POC (own-event refetch): the newest change this snapshot is built on, as
