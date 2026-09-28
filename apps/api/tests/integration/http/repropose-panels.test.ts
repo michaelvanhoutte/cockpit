@@ -698,10 +698,10 @@ describe('Rewrite history', () => {
       const rowFor = (itemId: string) => rows.find((row) => row.item_id === itemId);
 
       const expected = [
-        { situation: 'a panel fits', itemId: ids.fits, status: 'rewritten', panel: compliance, reason: 'a compliance question', message: /routed/ },
+        { situation: 'a panel fits', itemId: ids.fits, status: 'rewritten', panel: compliance, reason: 'a compliance question', message: /proposed a panel/ },
         { situation: 'the model makes nothing of it', itemId: ids.madeNothingOf, status: 'left-as-is', panel: null, reason: null, message: /not a proposal/ },
         { situation: 'nothing fits, and nothing did before', itemId: ids.nothingFits, status: 'left-as-is', panel: null, reason: null, message: /no panel fit/ },
-        { situation: 'nothing fits any more', itemId: ids.noLongerFits, status: 'rewritten', panel: null, reason: null, message: /withdrawn/ },
+        { situation: 'nothing fits any more', itemId: ids.noLongerFits, status: 'rewritten', panel: null, reason: null, message: /withdrew the panel proposed before/ },
         { situation: 'the panel goes while it is read', itemId: ids.panelGoes, status: 'left-as-is', panel: null, reason: null, message: /panel went/ },
         { situation: 'the model cannot be reached', itemId: ids.fails, status: 'failed', panel: null, reason: null, message: /./ },
       ];

@@ -768,7 +768,12 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
           status: changed ? 'rewritten' : 'left-as-is',
           proposedPanelId: routed === 'routed' ? (read.proposal.panel?.panelId ?? null) : null,
           proposedPanelReason: routed === 'routed' ? (read.proposal.panel?.reason ?? null) : null,
-          message: changed ? `panel ${routed}` : `nothing was refreshed: ${routed}`,
+          message:
+            routed === 'routed'
+              ? 'proposed a panel'
+              : routed === 'withdrawn'
+                ? 'withdrew the panel proposed before: nothing fits any more'
+                : `nothing was refreshed: ${routed}`,
         }),
       );
       say(candidate.id, changed ? routed : `nothing was refreshed: ${routed}`);
