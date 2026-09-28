@@ -75,6 +75,8 @@ describe('Triage', () => {
       { situation: 'nothing configured', configured: undefined, seconds: DEFAULT_DEBOUNCE_SECONDS },
       { situation: 'no wait at all', configured: '0', seconds: 0 },
       { situation: 'a whole number of seconds', configured: '45', seconds: 45 },
+      { situation: 'the longest wait a queue accepts', configured: '43200', seconds: 43_200 },
+      { situation: 'longer than a queue accepts', configured: '43201', seconds: DEFAULT_DEBOUNCE_SECONDS },
       { situation: 'a fraction of a second', configured: '1.5', seconds: DEFAULT_DEBOUNCE_SECONDS },
       { situation: 'a negative number', configured: '-5', seconds: DEFAULT_DEBOUNCE_SECONDS },
       { situation: 'not a number', configured: 'soon', seconds: DEFAULT_DEBOUNCE_SECONDS },

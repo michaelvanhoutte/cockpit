@@ -642,7 +642,7 @@ export async function enqueueRepropose(env: Env, accountName: string, workspaceI
     accountName,
     panelsRefresh(workspaceId),
     (ask) => ({ kind: 're-propose-panels', accountName, workspaceId, ask }),
-    `a filing settled but the rest of workspace ${workspaceId}`,
+    `the refresh of workspace ${workspaceId}'s Inbox, asked for by a settled filing,`,
   );
 }
 
@@ -680,7 +680,7 @@ async function askForRefresh(
     console.error(
       JSON.stringify({
         level: 'error',
-        message: `${whatWasAsked} was not queued for a refresh: ${
+        message: `${whatWasAsked} was not queued: ${
           error instanceof Error ? error.message : String(error)
         }`,
       }),
@@ -694,7 +694,7 @@ async function askForRefresh(
     console.error(
       JSON.stringify({
         level: 'error',
-        message: `${whatWasAsked} was queued for a refresh, but not recorded as the latest ask, so an earlier refresh may run as well: ${
+        message: `${whatWasAsked} was queued and not recorded as the latest ask, so an earlier one may run as well: ${
           error instanceof Error ? error.message : String(error)
         }`,
       }),
@@ -832,7 +832,7 @@ export async function enqueueReproposeTexts(env: Env, accountName: string): Prom
     accountName,
     TEXTS_REFRESH,
     (ask) => ({ kind: 're-propose-texts', accountName, ask }),
-    `a correction was recorded but account ${accountName}`,
+    `the re-read of account ${accountName}'s Inbox, asked for by a correction,`,
   );
 }
 

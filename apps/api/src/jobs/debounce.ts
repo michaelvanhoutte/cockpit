@@ -24,15 +24,20 @@ export interface RefreshAsk {
 /** How long a refresh waits for a later ask to take its place, where the environment names nothing. */
 export const DEFAULT_DEBOUNCE_SECONDS = 30;
 
+/** The longest delay a queue will take on a message; a send asking for more is refused outright. */
+const LONGEST_QUEUE_DELAY_SECONDS = 43_200;
+
 /**
  * The window, from `REPROPOSE_DEBOUNCE_SECONDS` where it holds a whole number
- * of seconds and `DEFAULT_DEBOUNCE_SECONDS` otherwise. Set by the backend
- * suite alone, to `0`, so the cases that go through the real queue do not
- * each wait out a window nobody is asserting on.
+ * of seconds a queue will accept, and `DEFAULT_DEBOUNCE_SECONDS` otherwise -
+ * a window the queue refuses would lose every refresh rather than delay it.
+ * Set by the backend suite alone, to `0`, so the cases that go through the
+ * real queue do not each wait out a window nobody is asserting on.
  */
 export function debounceSecondsFor(configured: string | undefined): number {
   if (configured === undefined || !/^\d+$/.test(configured)) return DEFAULT_DEBOUNCE_SECONDS;
-  return Number(configured);
+  const seconds = Number(configured);
+  return seconds <= LONGEST_QUEUE_DELAY_SECONDS ? seconds : DEFAULT_DEBOUNCE_SECONDS;
 }
 
 /**
