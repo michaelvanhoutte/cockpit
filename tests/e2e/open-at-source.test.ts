@@ -96,7 +96,10 @@ test.describe('Capture', () => {
       await switchTo(page, workspace, isMobile);
 
       await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
-      await press(page.getByRole('dialog').getByRole('button', { name: 'Connect' }), isMobile);
+      await press(
+        page.getByRole('dialog').getByRole('button', { name: 'Connect Microsoft Teams' }),
+        isMobile,
+      );
       await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
       await expect(page.getByRole('dialog').getByText('michael@example.com')).toBeVisible();
       await press(page.getByRole('button', { name: 'Done' }), isMobile);
