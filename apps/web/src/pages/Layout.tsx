@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
@@ -7,7 +7,10 @@ import { ADMIN, DEFAULT_WORKSPACE_THEME, isPaletteTheme, themeOf, uuidv7 } from 
 import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, refusalFrom, snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
-import { AgentDock } from '../components/AgentDock';
+// Out of the initial bundle - the same boundary `ManageConnections` draws
+// around itself in WorkspaceTabs.tsx - since the dock is not what the shell
+// has to paint first.
+const AgentDock = lazy(() => import('../components/AgentDock'));
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { CaptureWindow } from '../components/CaptureWindow';
@@ -1075,14 +1078,19 @@ function TheShell() {
           where there is no drag, the same room `roomForTheInbox` answers for
           the Inbox column - a desk-sized screen either way. */}
       {params.workspaceId && params.dashboardId && roomForTheInbox && !agentDockHidden && (
-        <AgentDock
-          workspaceId={params.workspaceId}
-          dashboardId={params.dashboardId}
-          agents={workspace.data?.agents ?? []}
-          hiddenAgents={workspace.data?.hiddenAgents ?? []}
-          hasClaudeCodeConnection={workspace.data?.hasClaudeCodeConnection ?? false}
-          askClaudeEnabled={workspace.data?.askClaudeEnabled ?? true}
-        />
+        // No fallback: a beat of nothing where the dock will be costs less
+        // than a placeholder shaped like it, the same call `ManageConnections`
+        // makes for its own chunk.
+        <Suspense fallback={null}>
+          <AgentDock
+            workspaceId={params.workspaceId}
+            dashboardId={params.dashboardId}
+            agents={workspace.data?.agents ?? []}
+            hiddenAgents={workspace.data?.hiddenAgents ?? []}
+            hasClaudeCodeConnection={workspace.data?.hasClaudeCodeConnection ?? false}
+            askClaudeEnabled={workspace.data?.askClaudeEnabled ?? true}
+          />
+        </Suspense>
       )}
 
       {/* The account's list of types, over the workspace rather than instead

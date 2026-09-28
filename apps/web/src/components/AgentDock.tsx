@@ -317,6 +317,11 @@ export function AgentDock({
   );
 }
 
+// Also the default export, for the lazy `import()` Layout.tsx loads this
+// behind - kept out of the initial bundle the same way `ManageConnections`
+// is, since neither has to be there the moment the app first paints.
+export default AgentDock;
+
 /** One made Agent's tile: a colour dot, its name, and its own menu. */
 function AgentTile({
   agent,
