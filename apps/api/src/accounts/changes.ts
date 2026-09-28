@@ -116,6 +116,8 @@ export function accountChanges(accountId: string): readonly Change[] {
     AGENTS,
     HIDDEN_DASHBOARD_AGENTS,
     ACCOUNT_AGENT_SETTINGS,
+    AGENT_RUNS,
+    CONNECTION_FAILURES,
   ];
 }
 
@@ -342,6 +344,97 @@ const HIDDEN_DASHBOARD_AGENTS: Change = {
     },
     {
       sql: 'CREATE INDEX IF NOT EXISTS `hidden_dashboard_agents_tenant_dashboard` ON `hidden_dashboard_agents` (`tenant_id`,`dashboard_id`)',
+    },
+  ],
+};
+
+/**
+ * Every run an Agent has had on an Item ("Drop an agent on an item to start a
+ * Claude Code session on it", issue 571) - see `schema.ts` for what each
+ * column carries and why `agent_id` has no foreign key.
+ *
+ * The status list is written out rather than built from `AGENT_RUN_STATUSES`,
+ * for the reason `0044-agents` gives for its own colour list.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): `CREATE` statements only, and none that writes to a row.
+ * - **If it stops halfway:** it cannot leave a half-built table behind, for
+ *   the reason `0044-agents` gives.
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** there can be none - the table
+ *   is new and starts empty.
+ * - **Rolled back after it has run:** an older release never names the
+ *   table, so a run started under the new release is simply unread - its
+ *   Claude Code session goes on at claude.ai, and the row shows no chip -
+ *   until the release goes forward again.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const AGENT_RUNS: Change = {
+  name: '0047-agent-runs',
+  statements: [
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`agent_runs\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`workspace_id\` text NOT NULL,
+	\`item_id\` text NOT NULL,
+	\`agent_id\` text NOT NULL,
+	\`status\` text NOT NULL,
+	\`session_url\` text,
+	\`reason\` text,
+	\`started_at\` text NOT NULL,
+	\`settled_at\` text,
+	\`ended_at\` text,
+	FOREIGN KEY (\`workspace_id\`) REFERENCES \`workspaces\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "agent_runs_status_is_known" CHECK(status IN ('starting', 'working', 'link_lost', 'unknown', 'failed')),
+	CONSTRAINT "agent_runs_started_at_is_timestamp" CHECK(started_at IS NULL OR (datetime(started_at) IS NOT NULL AND substr(started_at, 11, 1) = 'T' AND substr(started_at, -1) = 'Z' AND length(started_at) >= 20 AND date(started_at) = substr(started_at, 1, 10))),
+	CONSTRAINT "agent_runs_settled_at_is_timestamp" CHECK(settled_at IS NULL OR (datetime(settled_at) IS NOT NULL AND substr(settled_at, 11, 1) = 'T' AND substr(settled_at, -1) = 'Z' AND length(settled_at) >= 20 AND date(settled_at) = substr(settled_at, 1, 10))),
+	CONSTRAINT "agent_runs_ended_at_is_timestamp" CHECK(ended_at IS NULL OR (datetime(ended_at) IS NOT NULL AND substr(ended_at, 11, 1) = 'T' AND substr(ended_at, -1) = 'Z' AND length(ended_at) >= 20 AND date(ended_at) = substr(ended_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE UNIQUE INDEX IF NOT EXISTS `agent_runs_one_open_per_item` ON `agent_runs` (`item_id`) WHERE `ended_at` IS NULL',
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `agent_runs_tenant_workspace_open` ON `agent_runs` (`tenant_id`,`workspace_id`,`ended_at`)',
+    },
+  ],
+};
+
+/**
+ * Why Claude last refused a Claude Code connection (issue 571) - see
+ * `schema.ts` for why it is a table of its own with no foreign key.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `CREATE TABLE`,
+ *   and no statement that writes to a row.
+ * - **If it stops halfway:** it cannot. One statement, committed with the
+ *   record that it ran.
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** there can be none - the table
+ *   is new and starts empty.
+ * - **Rolled back after it has run:** an older release never names the
+ *   table, so every connection reads as not failing until the release goes
+ *   forward again.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const CONNECTION_FAILURES: Change = {
+  name: '0048-connection-failures',
+  statements: [
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`connection_failures\` (
+	\`source_account_id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`reason\` text NOT NULL,
+	\`failed_at\` text NOT NULL,
+	CONSTRAINT "connection_failures_failed_at_is_timestamp" CHECK(failed_at IS NULL OR (datetime(failed_at) IS NOT NULL AND substr(failed_at, 11, 1) = 'T' AND substr(failed_at, -1) = 'Z' AND length(failed_at) >= 20 AND date(failed_at) = substr(failed_at, 1, 10)))
+) STRICT`,
     },
   ],
 };

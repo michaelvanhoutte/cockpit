@@ -3,7 +3,8 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 import { AGENT_COLORS } from '@cockpit/shared';
-import type { Agent } from '@cockpit/shared';
+import type { Agent, AgentRun } from '@cockpit/shared';
+import { AGENT_BEING_DRAGGED, agentInTheAir } from '../../../src/agentInTheAir';
 import { AgentDock } from '../../../src/components/AgentDock';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand, useSendCommand, type CommandArgs } from '../../../src/api/queries';
@@ -264,6 +265,67 @@ describe('Agents', () => {
 
       expect(await screen.findByRole('alert')).toHaveTextContent('an agent called Ship it already exists');
       expect(screen.getByRole('textbox', { name: 'Name of the agent' })).toHaveValue('Ship it');
+    });
+  });
+});
+
+/** F1: what the dock draws of the runs and the connection, and what a picked-up tile carries (issue 571). */
+describe('Agents', () => {
+  const aRun = (id: string, agentId: string): AgentRun => ({
+    id,
+    itemId: `item-${id}`,
+    agentId,
+    agentName: 'Scope it',
+    status: 'working',
+    sessionUrl: 'https://claude.ai/code/session_01',
+    reason: null,
+    startedAt: '2026-09-28T10:00:00.000Z',
+  });
+
+  describe('each tile counts its agent’s open runs', () => {
+    it.each([
+      { situation: 'two runs', runs: [aRun('1', SCOPE_IT.id), aRun('2', SCOPE_IT.id)], count: '2' },
+      { situation: 'none', runs: [aRun('3', SHIP_IT.id)], count: null },
+    ])('an agent with $situation', ({ runs, count }) => {
+      renderDock({ agentRuns: runs });
+
+      const tile = screen.getByRole('button', { name: /^Scope it/ });
+      expect(tile.textContent).toBe(`Scope it${count ?? ''}`);
+    });
+  });
+
+  describe('the dock says what stands between its tiles and Claude', () => {
+    it.each([
+      { situation: 'no connection', connected: false, failing: null, says: 'Connect Claude Code to this workspace to start an agent.' },
+      { situation: 'a connection Claude refused', connected: true, failing: 'The token is wrong or was revoked.', says: 'Claude Code is failing: The token is wrong or was revoked.' },
+      { situation: 'a connection that works', connected: true, failing: null, says: null },
+    ])('$situation', ({ connected, failing, says }) => {
+      renderDock({ hasClaudeCodeConnection: connected, claudeCodeFailing: failing });
+
+      const toolbar = screen.getByRole('toolbar', { name: 'Agents' });
+      for (const line of ['Connect Claude Code', 'Claude Code is failing']) {
+        const shown = within(toolbar).queryByText(new RegExp(`^${line}`));
+        expect(shown?.textContent ?? null).toBe(says?.startsWith(line) ? says : null);
+      }
+    });
+  });
+
+  describe('a tile picked up carries its agent to the rows', () => {
+    it('lifts the agent, and lands it when the drag ends', () => {
+      renderDock();
+      const carried: Record<string, string> = {};
+      const dataTransfer = {
+        setData: (type: string, value: string) => (carried[type] = value),
+        effectAllowed: 'none',
+      };
+
+      fireEvent.dragStart(screen.getByRole('button', { name: 'Scope it' }), { dataTransfer });
+      expect({ carried: carried[AGENT_BEING_DRAGGED], inTheAir: agentInTheAir() }).toEqual({
+        carried: SCOPE_IT.id,
+        inTheAir: SCOPE_IT.id,
+      });
+      fireEvent.dragEnd(screen.getByRole('button', { name: 'Scope it' }));
+      expect(agentInTheAir()).toBeNull();
     });
   });
 });

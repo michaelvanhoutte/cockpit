@@ -2,12 +2,15 @@ import { alias } from 'drizzle-orm/sqlite-core';
 import { and, asc, desc, eq, exists, gt, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
 import type { Column } from 'drizzle-orm';
 import {
+  ASK_CLAUDE_ID,
+  ASK_CLAUDE_NAME,
   CLAUDE_CODE,
   DEFAULT_ITEM_FORM_PRESENTATION,
   REWRITE_HISTORY_LIMIT,
   panelFilterFrom,
   panelSortFrom,
   type Agent,
+  type AgentRun,
   type Association,
   type Attachment,
   type Dashboard,
@@ -36,10 +39,12 @@ import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } fro
 import {
   accountAgentSettings,
   accountItemFormPresentation,
+  agentRuns,
   agents,
   associations,
   attachments,
   commands,
+  connectionFailures,
   connectorAccounts,
   dashboards,
   decisionHistory,
@@ -1689,6 +1694,124 @@ export function hasClaudeCodeConnection(db: AccountDb, tenantId: string, workspa
   );
 }
 
+/**
+ * One Workspace's Claude Code connection, and why Claude last refused it
+ * where it did ("Drop an agent on an item to start a Claude Code session on
+ * it", issue 571) - or undefined where the Workspace holds none.
+ */
+export function claudeCodeConnectionOf(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): { id: string; failingBecause: string | null } | undefined {
+  return db
+    .select({ id: connectorAccounts.id, failingBecause: connectionFailures.reason })
+    .from(connectorAccounts)
+    .leftJoin(connectionFailures, eq(connectionFailures.sourceAccountId, connectorAccounts.id))
+    .where(
+      and(
+        eq(connectorAccounts.tenantId, tenantId),
+        eq(connectorAccounts.workspaceId, workspaceId),
+        eq(connectorAccounts.connectorId, CLAUDE_CODE),
+      ),
+    )
+    .limit(1)
+    .get();
+}
+
+const runColumns = {
+  id: agentRuns.id,
+  itemId: agentRuns.itemId,
+  agentId: agentRuns.agentId,
+  agentName: agents.name,
+  agentDeletedAt: agents.deletedAt,
+  status: agentRuns.status,
+  sessionUrl: agentRuns.sessionUrl,
+  reason: agentRuns.reason,
+  startedAt: agentRuns.startedAt,
+};
+
+/**
+ * A run as the row draws it: the Agent named as it is now, Ask Claude by its
+ * fixed name, and one deleted since by nobody's name (issue 571, "the chip
+ * names a deleted agent").
+ */
+function runFrom(row: {
+  id: string;
+  itemId: string;
+  agentId: string;
+  agentName: string | null;
+  agentDeletedAt: string | null;
+  status: AgentRun['status'];
+  sessionUrl: string | null;
+  reason: string | null;
+  startedAt: string;
+}): AgentRun {
+  const { agentDeletedAt, agentName, ...run } = row;
+  return {
+    ...run,
+    agentName: row.agentId === ASK_CLAUDE_ID ? ASK_CLAUDE_NAME : agentDeletedAt ? null : agentName,
+  };
+}
+
+/**
+ * Every open run on one Workspace's open Items, oldest first (issue 571).
+ *
+ * **Joined against Items still to be done.** An Item marked done or dismissed
+ * from its own menu, rather than by saying the agent finished, leaves every
+ * list - so a run on it has no row left to be ended from, and would count on
+ * the dock for good. It is left open rather than ended, so undoing the Done
+ * brings the row back with its run.
+ */
+export function listOpenAgentRuns(db: AccountDb, tenantId: string, workspaceId: string): AgentRun[] {
+  return db
+    .select(runColumns)
+    .from(agentRuns)
+    .innerJoin(
+      items,
+      and(eq(items.id, agentRuns.itemId), isNull(items.completedAt), isNull(items.deletedAt)),
+    )
+    .leftJoin(agents, eq(agents.id, agentRuns.agentId))
+    .where(
+      and(
+        eq(agentRuns.tenantId, tenantId),
+        eq(agentRuns.workspaceId, workspaceId),
+        isNull(agentRuns.endedAt),
+      ),
+    )
+    .orderBy(asc(agentRuns.startedAt), asc(agentRuns.id))
+    .all()
+    .map(runFrom);
+}
+
+/** One Item's open run, or undefined - what a second start on it is checked against. */
+export function openAgentRunOn(db: AccountDb, tenantId: string, itemId: string): AgentRun | undefined {
+  const row = db
+    .select(runColumns)
+    .from(agentRuns)
+    .leftJoin(agents, eq(agents.id, agentRuns.agentId))
+    .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.itemId, itemId), isNull(agentRuns.endedAt)))
+    .get();
+  return row ? runFrom(row) : undefined;
+}
+
+/** One run, open or ended, with the Workspace it belongs to - or undefined. */
+export function getAgentRun(
+  db: AccountDb,
+  tenantId: string,
+  runId: string,
+): (AgentRun & { workspaceId: string; endedAt: string | null }) | undefined {
+  const row = db
+    .select({ ...runColumns, workspaceId: agentRuns.workspaceId, endedAt: agentRuns.endedAt })
+    .from(agentRuns)
+    .leftJoin(agents, eq(agents.id, agentRuns.agentId))
+    .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.id, runId)))
+    .get();
+  if (!row) return undefined;
+  const { workspaceId, endedAt, ...rest } = row;
+  return { ...runFrom(rest), workspaceId, endedAt };
+}
+
 /** The account-wide Ask Claude switch - enabled where nobody has ever thrown it, the direction `accountAgentSettings` carries no row for. */
 export function getAskClaudeEnabled(db: AccountDb, tenantId: string): boolean {
   const row = db
@@ -2077,8 +2200,10 @@ export function sourceAccountsIn(
       displayName: connectorAccounts.displayName,
       connectedAt: connectorAccounts.connectedAt,
       lastTestedAt: connectorAccounts.lastTestedAt,
+      failingBecause: connectionFailures.reason,
     })
     .from(connectorAccounts)
+    .leftJoin(connectionFailures, eq(connectionFailures.sourceAccountId, connectorAccounts.id))
     .where(
       and(
         eq(connectorAccounts.tenantId, tenantId),

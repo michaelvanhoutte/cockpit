@@ -12,6 +12,7 @@ import { sql } from 'drizzle-orm';
 import {
   AGENT_COLORS,
   AGENT_ENGINES,
+  AGENT_RUN_STATUSES,
   associationKindSchema,
   GRID_COLUMNS,
   ITEM_FORM_PRESENTATIONS,
@@ -27,6 +28,7 @@ import {
 } from '@cockpit/shared';
 import type {
   AgentEngine,
+  AgentRunStatus,
   AssociationKind,
   ItemFormPresentation,
   ItemReading,
@@ -1735,6 +1737,73 @@ export const connectorAccounts = sqliteTable(
     ),
     check('connector_accounts_connected_at_is_timestamp', isTimestamp('connected_at')),
     check('connector_accounts_updated_at_is_timestamp', isTimestamp('updated_at')),
+  ],
+);
+
+/**
+ * Why Claude last refused a Claude Code connection, until a start through it
+ * works again ("Drop an agent on an item to start a Claude Code session on
+ * it", issue 571) - one row per failing connection, removed by the next start
+ * or Test again that Claude accepts, and by reconnecting.
+ *
+ * **A table of its own rather than a column on `connectorAccounts`**, so
+ * nothing already stored is rewritten (issue 571, "What is in each
+ * environment"). **No foreign key**: a disconnect deletes its connection for
+ * real, and a row here naming one that has gone is simply never read, since
+ * every read joins to the live connection.
+ */
+export const connectionFailures = sqliteTable(
+  'connection_failures',
+  {
+    sourceAccountId: text('source_account_id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    reason: text('reason').notNull(),
+    failedAt: text('failed_at').notNull(),
+  },
+  (t) => [check('connection_failures_failed_at_is_timestamp', isTimestamp('failed_at'))],
+);
+
+/**
+ * A run: one Agent started on one Item through its Workspace's Claude Code
+ * connection (issue 571). What its statuses mean is `AGENT_RUN_STATUSES`
+ * (`@cockpit/shared`).
+ *
+ * **At most one open run per Item, held by the index as well as by the
+ * command** - two tabs dropping at once are two requests the object runs one
+ * after the other, so the command's own check already decides between them,
+ * and the index is what makes a write that skipped it fail rather than land.
+ *
+ * **`agent_id` has no foreign key**: Ask Claude has no row to point at, and a
+ * made Agent is tombstoned rather than erased, so the name a run shows is
+ * read from `agents` where it is still live and is "a deleted agent" where it
+ * is not.
+ */
+export const agentRuns = sqliteTable(
+  'agent_runs',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    agentId: text('agent_id').notNull(),
+    status: text('status').notNull().$type<AgentRunStatus>(),
+    sessionUrl: text('session_url'),
+    reason: text('reason'),
+    startedAt: text('started_at').notNull(),
+    settledAt: text('settled_at'),
+    endedAt: text('ended_at'),
+  },
+  (t) => [
+    uniqueIndex('agent_runs_one_open_per_item').on(t.itemId).where(sql`${t.endedAt} IS NULL`),
+    index('agent_runs_tenant_workspace_open').on(t.tenantId, t.workspaceId, t.endedAt),
+    check('agent_runs_status_is_known', oneOf('status', AGENT_RUN_STATUSES)),
+    check('agent_runs_started_at_is_timestamp', isTimestamp('started_at')),
+    check('agent_runs_settled_at_is_timestamp', isTimestamp('settled_at')),
+    check('agent_runs_ended_at_is_timestamp', isTimestamp('ended_at')),
   ],
 );
 

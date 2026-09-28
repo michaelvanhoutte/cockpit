@@ -114,6 +114,8 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         hiddenAgents: [],
         hasClaudeCodeConnection: false,
         askClaudeEnabled: true,
+        agentRuns: [],
+        claudeCodeFailing: null,
         generatedAt: '2026-09-01T09:00:00.000Z',
       } as WorkspaceSnapshot),
   }),

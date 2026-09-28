@@ -3,6 +3,7 @@ import type { AppType } from '@cockpit/api';
 import {
   accountHoldingsSchema,
   claudeCodeOutcomeSchema,
+  startAgentOutcomeSchema,
   itemTypeListSchema,
   registeredUserListSchema,
   rewriteHistoryResponseSchema,
@@ -10,6 +11,8 @@ import {
   type AccountHoldings,
   type ClaudeCodeOutcome,
   type ConnectClaudeCode,
+  type StartAgent,
+  type StartAgentOutcome,
   signedInSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
@@ -297,6 +300,28 @@ export async function testClaudeCodeConnection(
   return claudeCodeOutcomeSchema.parse(await res.json());
 }
 
+/**
+ * Starts an Agent on an Item ("Drop an agent on an item to start a Claude
+ * Code session on it", issue 571) - the drop and the row's own menu alike.
+ * Its own function rather than a `commandSenders` entry: the route calls
+ * Claude, and a refusal comes back as a `CommandRefused` carrying the words
+ * the row shows.
+ */
+export async function startAgent(
+  workspaceId: string,
+  itemId: string,
+  body: StartAgent,
+): Promise<StartAgentOutcome> {
+  const res = await api.v1.workspaces[':workspaceId'].items[':itemId']['agent-runs'].$post({
+    param: { workspaceId, itemId },
+    json: body,
+  });
+  if (!res.ok) {
+    throw new CommandRefused(res.status, (await refusalFrom(res)) ?? `starting the agent failed: ${res.status}`);
+  }
+  return startAgentOutcomeSchema.parse(await res.json());
+}
+
 /** One sender per command; adding a command extends this map and nothing else. */
 const commandSenders = {
   create_workspace: (p: CommandPayload<'create_workspace'>) =>
@@ -376,6 +401,8 @@ const commandSenders = {
     api.v1.commands.set_ask_claude_enabled.$post({ json: p }),
   set_done: (p: CommandPayload<'set_done'>) => api.v1.commands.set_done.$post({ json: p }),
   set_started: (p: CommandPayload<'set_started'>) => api.v1.commands.set_started.$post({ json: p }),
+  finish_agent_run: (p: CommandPayload<'finish_agent_run'>) =>
+    api.v1.commands.finish_agent_run.$post({ json: p }),
   set_dismissed: (p: CommandPayload<'set_dismissed'>) => api.v1.commands.set_dismissed.$post({ json: p }),
   associate: (p: CommandPayload<'associate'>) => api.v1.commands.associate.$post({ json: p }),
   set_next_action: (p: CommandPayload<'set_next_action'>) =>

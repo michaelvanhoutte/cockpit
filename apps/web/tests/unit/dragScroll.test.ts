@@ -6,7 +6,10 @@ import {
   boxToScroll,
   scrollSpeed,
   scrollStep,
+  scrollsForADragOf,
 } from '../../src/dragScroll';
+import { AGENT_BEING_DRAGGED } from '../../src/agentInTheAir';
+import { ITEM_BEING_DRAGGED } from '../../src/dropAt';
 import type { ScrollBox } from '../../src/dragScroll';
 
 /**
@@ -194,6 +197,19 @@ describe('Panels', () => {
       expect(boxToScroll({ x: 500, y: 875 }, [dashboard, list()], null, 'panel')?.id).toBe(
         'dashboard-0',
       );
+    });
+  });
+});
+
+describe('Agents', () => {
+  describe('an agent dragged near an edge scrolls the dashboard as an item does', () => {
+    it.each([
+      { situation: 'an item', types: [ITEM_BEING_DRAGGED, 'text/plain'], scrolls: true },
+      { situation: 'an agent off the dock', types: [AGENT_BEING_DRAGGED, 'text/plain'], scrolls: true },
+      { situation: 'a file from the desktop', types: ['Files'], scrolls: false },
+      { situation: 'text from another page', types: ['text/plain'], scrolls: false },
+    ])('a drag of $situation', ({ types, scrolls }) => {
+      expect(scrollsForADragOf(types)).toBe(scrolls);
     });
   });
 });

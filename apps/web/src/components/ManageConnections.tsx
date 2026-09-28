@@ -217,6 +217,12 @@ export default function ManageConnections({
                       ? `${connectorNamed(account.connectorId)} · last worked ${new Date(account.lastTestedAt).toLocaleString()}`
                       : connectorNamed(account.connectorId)}
                   </p>
+                  {/* Why Claude last refused to start a session through it,
+                      until one starts again ("Drop an agent on an item to
+                      start a Claude Code session on it", issue 571). */}
+                  {account.failingBecause && (
+                    <p className="text-sm text-over-deep">Failing: {account.failingBecause}</p>
+                  )}
                 </div>
                 <RowMenu
                   label={`Actions for ${account.displayName}`}

@@ -29,6 +29,8 @@ const held = vi.hoisted(() => ({ items: [] as Item[], filings: [] as Filing[] })
 vi.mock('../../../src/api/queries', () => ({
   useCommand: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
   useSendCommand: () => vi.fn(() => Promise.resolve()),
+  // An Inbox row takes no agent, so nothing here starts one.
+  useStartAgent: () => ({ mutateAsync: () => Promise.resolve() }),
   // Read by the picker inside the list, for the Inboxes it offers an item
   // that belongs to no workspace. Nothing here opens it, so it is empty.
   workspacesQuery: {
@@ -57,6 +59,8 @@ vi.mock('../../../src/api/queries', () => ({
         hiddenAgents: [],
         hasClaudeCodeConnection: false,
         askClaudeEnabled: true,
+        agentRuns: [],
+        claudeCodeFailing: null,
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),
   }),

@@ -105,8 +105,17 @@ describe('Triage', () => {
       show([{ label: 'Dismiss', what: 'x', undo: () => Promise.resolve() }]);
       await press('Dismiss');
 
-      expect(bar()).toHaveClass('pointer-events-auto');
+      expect(bar()!.firstElementChild).toHaveClass('pointer-events-auto');
       expect(screen.getByRole('button', { name: 'Undo' })).toHaveClass('pointer-events-auto');
+    });
+
+    // The strip the bar is centred in spans the bottom of the window, over the
+    // agents' dock, so it lets presses through to whatever is under it.
+    it('takes no press meant for what is under the strip it sits in', async () => {
+      show([{ label: 'Dismiss', what: 'x', undo: () => Promise.resolve() }]);
+      await press('Dismiss');
+
+      expect(bar()).toHaveClass('pointer-events-none');
     });
 
     it.each([

@@ -190,3 +190,6 @@ export function RewriteHistoryWindow({
     </Dialog.Root>
   );
 }
+
+// Also the default export, for the lazy `import()` ItemRow.tsx and InboxPanel.tsx load this behind.
+export default RewriteHistoryWindow;

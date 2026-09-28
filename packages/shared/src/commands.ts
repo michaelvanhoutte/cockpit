@@ -520,6 +520,52 @@ export const setStartedSchema = commandEnvelopeSchema.extend({
 });
 export type SetStartedCommand = z.infer<typeof setStartedSchema>;
 
+/**
+ * begin_agent_run — a run recorded as starting, before Claude is called
+ * ("Drop an agent on an item to start a Claude Code session on it", issue
+ * 571). Sent by the start route alone, never posted as JSON: the call to
+ * Claude that follows it is what the route exists for (see
+ * `startAgentSchema`).
+ */
+export const beginAgentRunSchema = commandEnvelopeSchema.extend({
+  runId: z.uuid(),
+  itemId: z.uuid(),
+  agentId: z.string().min(1),
+  dashboardId: z.string().min(1),
+});
+export type BeginAgentRunCommand = z.infer<typeof beginAgentRunSchema>;
+
+/**
+ * settle_agent_run — how Claude answered a run's start (issue 571). Sent by
+ * the start route once Claude has answered or failed to, never by a client.
+ *
+ * `connectionFailing` is the refusal's reason where Claude refused the
+ * connection itself, which the dock and the connection's own row then say
+ * until a start works; a refusal that says nothing about the connection - a
+ * fault at Claude's end - leaves it untouched.
+ */
+export const settleAgentRunSchema = commandEnvelopeSchema.extend({
+  runId: z.uuid(),
+  itemId: z.uuid(),
+  status: z.enum(['working', 'link_lost', 'unknown', 'failed']),
+  sessionUrl: z.url({ protocol: /^https?$/ }).max(2048).optional(),
+  reason: z.string().max(500).optional(),
+  connectionFailing: z.boolean().optional(),
+});
+export type SettleAgentRunCommand = z.infer<typeof settleAgentRunSchema>;
+
+/**
+ * finish_agent_run — "Agent finished: Done" or "Agent finished: Still to do"
+ * (issue 571). Ends the run, and settles the Item the way marking it done or
+ * putting it back to To do would.
+ */
+export const finishAgentRunSchema = commandEnvelopeSchema.extend({
+  runId: z.uuid(),
+  itemId: z.uuid(),
+  outcome: z.enum(['done', 'still_to_do']),
+});
+export type FinishAgentRunCommand = z.infer<typeof finishAgentRunSchema>;
+
 export const associateSchema = commandEnvelopeSchema.extend({
   associationId: z.uuid(),
   itemId: z.uuid(),
@@ -771,6 +817,9 @@ export const commandSchemas = {
   remove_item_from_panel: removeItemFromPanelSchema,
   set_done: setDoneSchema,
   set_started: setStartedSchema,
+  begin_agent_run: beginAgentRunSchema,
+  settle_agent_run: settleAgentRunSchema,
+  finish_agent_run: finishAgentRunSchema,
   set_dismissed: setDismissedSchema,
   associate: associateSchema,
   set_next_action: setNextActionSchema,
@@ -808,7 +857,11 @@ export type SelfSentCommandName =
   // Sent by the Claude Code connect/test routes once Claude has actually
   // answered, never posted as JSON directly (see `markSourceAccountTestedSchema`
   // above).
-  | 'mark_source_account_tested';
+  | 'mark_source_account_tested'
+  // Sent by the route that starts an agent, around its one call to Claude
+  // (see `beginAgentRunSchema` above).
+  | 'begin_agent_run'
+  | 'settle_agent_run';
 
 /**
  * The commands a client sends, which is every command with a generic JSON

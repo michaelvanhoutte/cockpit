@@ -5,6 +5,7 @@ import type {
   ClientCommandName,
   CommandPayload,
   CommandResult,
+  StartAgent,
   WorkspaceSnapshot,
 } from '@cockpit/shared';
 import {
@@ -23,6 +24,7 @@ import {
   fetchWorkspaces,
   sendCommand,
   setAccess,
+  startAgent,
   testClaudeCodeConnection,
 } from './client';
 
@@ -491,6 +493,26 @@ export function useConnectClaudeCode(workspaceId: string) {
         return queryClient.invalidateQueries({ queryKey: ['sourceAccounts', workspaceId] });
       }
     },
+  });
+}
+
+/**
+ * Starting an Agent on an Item ("Drop an agent on an item to start a Claude
+ * Code session on it", issue 571). Re-reads the Workspace whatever the answer,
+ * refusal included: the run's chip and the dock's counts are drawn from it,
+ * and a refusal can have been another tab's run landing first. The
+ * connection's own row is re-read too, since a refused start marks it failing.
+ */
+export function useStartAgent(workspaceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, start }: { itemId: string; start: StartAgent }) =>
+      startAgent(workspaceId, itemId, start),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['snapshot', workspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['sourceAccounts', workspaceId] }),
+      ]),
   });
 }
 

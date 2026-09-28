@@ -232,6 +232,11 @@ const api = start(
     'MS_BOT_APP_ID:cockpit-e2e-bot',
     '--var',
     `BOT_FRAMEWORK_METADATA_URL:${issuer.origin}/botframework/.well-known/openidconfiguration`,
+    // Starting an agent fires the issuer's stand-in routine, never
+    // Anthropic's (scripts/lib/stub-issuer.mjs): no walk may start a real
+    // session.
+    '--var',
+    `CLAUDE_CODE_ROUTINES_ORIGIN:${issuer.origin}`,
     // Set, because a walk about continuing as a guest needs the environment to
     // offer it. That it is *absent* somewhere - which is what refuses the route
     // on staging - is held one tier down, where taking a variable away is a

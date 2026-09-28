@@ -10,9 +10,9 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import { CLAUDE_CODE, panelTakesItems } from '@cockpit/shared';
+import { ASK_CLAUDE_AGENT, ASK_CLAUDE_ID, CLAUDE_CODE, itemLabel, panelTakesItems } from '@cockpit/shared';
 import type { Env } from '../env.js';
-import type { AccountSnapshot, Answer } from './answer.js';
+import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { AccountStoreRpc, RestoreReport } from './rpc.js';
@@ -42,6 +42,8 @@ import { collectInvalidations, watermark } from './events.js';
 import {
   AgentNameTakenError,
   AgentNotFoundError,
+  AgentRunNotFoundError,
+  AgentRunRefusedError,
   AttachmentIdTakenError,
   DashboardNameTakenError,
   DashboardNotFoundError,
@@ -72,7 +74,11 @@ import {
   decisionHistoryForWorkspace,
   everyMeaning,
   forgetMeaning,
+  claudeCodeConnectionOf,
+  getAgent,
+  getAgentRun,
   getAskClaudeEnabled,
+  listOpenAgentRuns,
   getAttachment,
   getAttachmentForDownload,
   getItem,
@@ -202,6 +208,8 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         hiddenAgents: listHiddenAgents(db, accountName, workspaceId),
         hasClaudeCodeConnection: hasClaudeCodeConnection(db, accountName, workspaceId),
         askClaudeEnabled: getAskClaudeEnabled(db, accountName),
+        agentRuns: listOpenAgentRuns(db, accountName, workspaceId),
+        claudeCodeFailing: claudeCodeConnectionOf(db, accountName, workspaceId)?.failingBecause ?? null,
       };
     });
   }
@@ -610,6 +618,35 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   }
 
   /**
+   * What a run just recorded as starting is fired with ("Drop an agent on an
+   * item to start a Claude Code session on it", issue 571): the Workspace's
+   * sealed Claude Code credential, the Agent's template, and the Item's own
+   * words to fill it with. Read in one call, straight after `begin_agent_run`
+   * decided the start may go ahead, so an Agent edited in between is sent as
+   * it is now.
+   */
+  agentRunToFire(accountName: string, workspaceId: string, runId: string): Answer<AgentRunToFire> {
+    return this.#answer(accountName, (db) => {
+      const run = getAgentRun(db, accountName, runId);
+      if (!run || run.workspaceId !== workspaceId) throw new AgentRunNotFoundError(runId);
+      const connection = claudeCodeConnectionOf(db, accountName, workspaceId);
+      const item = getItem(db, accountName, run.itemId);
+      if (!connection || !item) throw new AgentRunNotFoundError(runId);
+      const agent = run.agentId === ASK_CLAUDE_ID ? ASK_CLAUDE_AGENT : getAgent(db, accountName, run.agentId);
+      return {
+        sourceAccountId: connection.id,
+        // The row `claudeCodeConnectionOf` just found is the row this reads.
+        ...sealedCredentialOf(db, accountName, connection.id)!,
+        // An Agent deleted between the start being recorded and this read
+        // sends nothing of its own - Claude is still called, once, since the
+        // run already says it is starting.
+        message: agent?.message ?? '',
+        item: { title: itemLabel(item), description: item.description, sourceLink: item.sourceLink },
+      };
+    });
+  }
+
+  /**
    * The sealed credential of one Claude Code connection this Workspace holds,
    * for the test route about to fire it ("Connect a workspace to Claude
    * Code", issue 569).
@@ -964,6 +1001,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof ItemNotFoundError ||
         error instanceof ItemTypeNotFoundError ||
         error instanceof AgentNotFoundError ||
+        error instanceof AgentRunNotFoundError ||
         error instanceof WorkspaceNotFoundError ||
         error instanceof DashboardNotFoundError ||
         error instanceof PanelNotFoundError ||
@@ -981,6 +1019,8 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof ScreenSizeNameTakenError ||
         error instanceof AttachmentIdTakenError ||
         error instanceof AgentNameTakenError ||
+        // Said to the person who dropped the agent, in the words it carries.
+        error instanceof AgentRunRefusedError ||
         // A refusal to say out loud rather than a shape problem: the request is
         // well formed and names a dashboard that exists, and the answer is that
         // this one may not go.

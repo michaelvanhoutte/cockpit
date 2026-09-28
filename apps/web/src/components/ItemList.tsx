@@ -1,11 +1,20 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { itemLabel, uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
+import {
+  agentsShownOnDashboard,
+  itemLabel,
+  startableAgents,
+  uuidv7,
+  workspaceIsDecided,
+  type Item,
+  type StartableAgent,
+} from '@cockpit/shared';
 import {
   snapshotQuery,
   useCommand,
   useLatestSnapshot,
   useSendCommand,
+  useStartAgent,
   workspacesQuery,
 } from '../api/queries';
 import { CommandRefused } from '../api/client';
@@ -149,6 +158,32 @@ export function ItemList({
       panelAndFilterIdsByItem(data?.items ?? [], data?.filings ?? [], data?.panels ?? [], types, today),
     [data?.items, data?.filings, data?.panels, types, today],
   );
+  /**
+   * The Agents a row here can be started with ("Drop an agent on an item to
+   * start a Claude Code session on it", issue 571): the ones the open
+   * Dashboard shows, and none without a Claude Code connection to start them
+   * through. Null in the Inbox, whose rows take no Agent at all.
+   */
+  const offeredAgents = useMemo(() => {
+    if (panelId === null || openDashboardId === null) return null;
+    if (!data?.hasClaudeCodeConnection) return [];
+    return startableAgents(
+      agentsShownOnDashboard({
+        agents: data.agents,
+        hiddenAgentIds: data.hiddenAgents
+          .filter((hidden) => hidden.dashboardId === openDashboardId)
+          .map((hidden) => hidden.agentId),
+        askClaudeEnabled: data.askClaudeEnabled,
+        hasClaudeCodeConnection: true,
+      }),
+    );
+  }, [panelId, openDashboardId, data?.hasClaudeCodeConnection, data?.agents, data?.hiddenAgents, data?.askClaudeEnabled]);
+  /** Each Item's open run, looked up once for the list rather than searched per row. */
+  const runsByItem = useMemo(
+    () => new Map((data?.agentRuns ?? []).map((run) => [run.itemId, run])),
+    [data?.agentRuns],
+  );
+  const startAgent = useStartAgent(workspaceId);
   const command = useCommand();
   const send = useSendCommand();
   const latestSnapshot = useLatestSnapshot();
@@ -1001,6 +1036,28 @@ export function ItemList({
                         // Item ceasing to match, or leaving the panel it
                         // really is filed on.
                         ...(gathered ? {} : { onRemoveFromHere: () => removeFromHere(item, panelId) }),
+                        ...(offeredAgents && openDashboardId
+                          ? {
+                              agentsHere: {
+                                offered: offeredAgents,
+                                run: runsByItem.get(item.id),
+                                start: (agent: StartableAgent, prompt?: string) =>
+                                  startAgent
+                                    .mutateAsync({
+                                      itemId: item.id,
+                                      start: {
+                                        commandId: uuidv7(),
+                                        issuedAt: new Date().toISOString(),
+                                        runId: uuidv7(),
+                                        agentId: agent.id,
+                                        dashboardId: openDashboardId,
+                                        ...(prompt ? { prompt } : {}),
+                                      },
+                                    })
+                                    .then(() => undefined),
+                              },
+                            }
+                          : {}),
                       }
                     : {
                         // A proposal is only ever drawn in the Inbox: it is what a

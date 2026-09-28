@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { Item, ItemType } from '@cockpit/shared';
+import { STARTING_GIVES_UP_AFTER_MS, type AgentRun, type Item, type ItemType, type StartableAgent } from '@cockpit/shared';
+import { CommandRefused } from '../../../src/api/client';
+import { AGENT_BEING_DRAGGED, landAgent, liftAgent } from '../../../src/agentInTheAir';
 import { ItemRow } from '../../../src/components/ItemRow';
 import { HOLD_DRIFT_PX, HOLD_MS } from '../../../src/hold';
 import { SWIPE_THRESHOLD_PX } from '../../../src/swipe';
@@ -80,6 +82,7 @@ function aRow({
   onSettleNotADuplicate,
   alsoIn,
   dock,
+  agentsHere,
 }: {
   settles?: boolean;
   onMoveTo?: (from: HTMLElement | null) => void;
@@ -98,6 +101,7 @@ function aRow({
   onSettleNotADuplicate?: () => void;
   alsoIn?: readonly string[];
   dock?: DockedItem;
+  agentsHere?: React.ComponentProps<typeof ItemRow>['agentsHere'];
 } = {}) {
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (settles) options?.onSuccess?.();
@@ -119,6 +123,7 @@ function aRow({
         {...(mayBeADuplicate === undefined ? {} : { mayBeADuplicate })}
         {...(onSettleNotADuplicate ? { onSettleNotADuplicate } : {})}
         {...(alsoIn ? { alsoIn } : {})}
+        {...(agentsHere ? { agentsHere } : {})}
       />
     </UndoWhatJustHappened>
   );
@@ -1830,6 +1835,197 @@ describe('Selection', () => {
       expect(onAcceptRouting).toHaveBeenCalledOnce();
       expect(onOpen).not.toHaveBeenCalled();
       expect(onPick).not.toHaveBeenCalled();
+    });
+  });
+});
+
+/**
+ * F1: what the row draws of a run and what its own controls ask for ("Drop an
+ * agent on an item to start a Claude Code session on it", issue 571). Whether
+ * a start is then refused or recorded is the server's, proved against a real
+ * store in apps/api/tests/integration/http/agent-runs.test.ts; the words for
+ * each run are `agentRunChip.test.ts`'s. What is asked here is the wiring.
+ */
+describe('Agents', () => {
+  const SCOPE_IT: StartableAgent = {
+    id: 'agent-scope',
+    name: 'Scope it',
+    color: '#6f62b5',
+    message: '{title}',
+    asksForPrompt: false,
+    startsInProgress: true,
+  };
+  const ASKING: StartableAgent = { ...SCOPE_IT, id: 'agent-ask', name: 'Ask about it', asksForPrompt: true };
+  const aRun = (overrides: Partial<AgentRun> = {}): AgentRun => ({
+    id: '018f0000-0000-7000-8000-000000000071',
+    itemId: 'item-1',
+    agentId: SCOPE_IT.id,
+    agentName: SCOPE_IT.name,
+    status: 'working',
+    sessionUrl: 'https://claude.ai/code/session_01',
+    reason: null,
+    startedAt: new Date().toISOString(),
+    ...overrides,
+  });
+
+  /** An agent carried over the row and let go on it, the way the dock's own drag does. */
+  function dropOnTheRow(agentId: string) {
+    const row = screen.getByText('Make appointment with Novy').closest('li')!;
+    const dataTransfer = {
+      types: [AGENT_BEING_DRAGGED],
+      getData: (type: string) => (type === AGENT_BEING_DRAGGED ? agentId : ''),
+      dropEffect: 'none',
+    };
+    act(() => liftAgent(agentId));
+    const over = fireEvent.dragOver(row, { dataTransfer });
+    fireEvent.drop(row, { dataTransfer });
+    return { acceptedOver: !over };
+  }
+
+  afterEach(() => landAgent());
+
+  describe('the row shows the run on its item', () => {
+    it.each([
+      { situation: 'starting', run: aRun({ status: 'starting', sessionUrl: null }), says: 'Scope it · Starting Claude…', link: null },
+      { situation: 'working', run: aRun(), says: 'Scope it · Claude is working ↗', link: 'https://claude.ai/code/session_01' },
+      {
+        situation: 'refused',
+        run: aRun({ status: 'failed', sessionUrl: null, reason: 'The token is wrong or was revoked.' }),
+        says: "Scope it · Claude didn't start",
+        link: null,
+      },
+      { situation: 'started by a deleted agent', run: aRun({ agentName: null }), says: 'a deleted agent · Claude is working ↗', link: 'https://claude.ai/code/session_01' },
+    ])('$situation', ({ run, says, link }) => {
+      aRow({ agentsHere: { offered: [SCOPE_IT], run, start: vi.fn() } });
+
+      const chip = screen.getByText(says);
+      expect(chip.getAttribute('href')).toBe(link);
+      if (run.reason) expect(chip).toHaveAttribute('title', run.reason);
+    });
+
+    it('stops saying it is starting once it has taken too long, with nothing else redrawing the row', () => {
+      vi.useFakeTimers();
+      try {
+        aRow({ agentsHere: { offered: [SCOPE_IT], run: aRun({ status: 'starting', sessionUrl: null, startedAt: new Date().toISOString() }), start: vi.fn() } });
+        expect(screen.getByText('Scope it · Starting Claude…')).toBeInTheDocument();
+
+        act(() => vi.advanceTimersByTime(STARTING_GIVES_UP_AFTER_MS + 10));
+
+        expect(screen.getByText('Scope it · Unknown - check Claude')).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('the row’s menu offers the agents its dashboard shows, and ends a run', () => {
+    it('lists every agent offered where nothing is running on it, and starts the one chosen', async () => {
+      const user = userEvent.setup();
+      const start = vi.fn(() => Promise.resolve());
+      aRow({ agentsHere: { offered: [SCOPE_IT, ASKING], run: undefined, start } });
+
+      await user.click(screen.getByLabelText('Item actions'));
+      expect(screen.getByRole('menuitem', { name: 'Start Ask about it…' })).toBeVisible();
+      await user.click(screen.getByRole('menuitem', { name: 'Start Scope it' }));
+
+      expect(start).toHaveBeenCalledWith(SCOPE_IT, undefined);
+    });
+
+    it.each([
+      { situation: 'an Inbox row', agentsHere: undefined },
+      { situation: 'a row Claude is already on', agentsHere: { offered: [SCOPE_IT], run: aRun(), start: vi.fn() } },
+    ])('offers no agent on $situation', async ({ agentsHere }) => {
+      const user = userEvent.setup();
+      aRow(agentsHere ? { agentsHere } : {});
+
+      await user.click(screen.getByLabelText('Item actions'));
+
+      expect(screen.queryByRole('menuitem', { name: /^Start / })).toBeNull();
+    });
+
+    it.each([
+      { situation: 'Done', entry: 'Agent finished: Done', outcome: 'done', offersUndo: true },
+      { situation: 'Still to do', entry: 'Agent finished: Still to do', outcome: 'still_to_do', offersUndo: false },
+    ])('ends the run for Agent finished: $situation', async ({ entry, outcome, offersUndo }) => {
+      const user = userEvent.setup();
+      const { mutate } = aRow({ settles: true, agentsHere: { offered: [SCOPE_IT], run: aRun(), start: vi.fn() } });
+
+      await user.click(screen.getByLabelText('Item actions'));
+      expect(screen.getByRole('menuitem', { name: 'Open the Claude session ↗' })).toHaveAttribute(
+        'href',
+        'https://claude.ai/code/session_01',
+      );
+      await user.click(screen.getByRole('menuitem', { name: entry }));
+
+      expect(mutate.mock.calls[0]![0]).toMatchObject({
+        name: 'finish_agent_run',
+        payload: { itemId: 'item-1', runId: aRun().id, outcome },
+      });
+      expect(screen.queryByRole('button', { name: 'Undo' }) !== null).toBe(offersUndo);
+    });
+  });
+
+  describe('an agent dropped on a row starts on it', () => {
+    it('takes an agent its dashboard offers, outlined while it is in the air', () => {
+      const start = vi.fn(() => Promise.resolve());
+      aRow({ agentsHere: { offered: [SCOPE_IT], run: undefined, start } });
+      act(() => liftAgent(SCOPE_IT.id));
+      expect(document.querySelector('[data-takes-agent]')).not.toBeNull();
+
+      const { acceptedOver } = dropOnTheRow(SCOPE_IT.id);
+
+      expect(acceptedOver).toBe(true);
+      expect(start).toHaveBeenCalledWith(SCOPE_IT, undefined);
+    });
+
+    it.each([
+      { situation: 'an Inbox row', agentsHere: undefined },
+      { situation: 'a row Claude is already on', agentsHere: { offered: [SCOPE_IT], run: aRun(), start: vi.fn() } },
+      { situation: 'an agent this dashboard hides', agentsHere: { offered: [ASKING], run: undefined, start: vi.fn() } },
+    ])('refuses it on $situation, outlining nothing', ({ agentsHere }) => {
+      aRow(agentsHere ? { agentsHere } : {});
+      act(() => liftAgent(SCOPE_IT.id));
+
+      expect(document.querySelector('[data-takes-agent]')).toBeNull();
+      const { acceptedOver } = dropOnTheRow(SCOPE_IT.id);
+      expect(acceptedOver).toBe(false);
+      if (agentsHere) expect(agentsHere.start).not.toHaveBeenCalled();
+    });
+
+    it('asks first for an agent that wants a prompt, and starts only on Send', async () => {
+      const user = userEvent.setup();
+      const start = vi.fn(() => Promise.resolve());
+      aRow({ agentsHere: { offered: [ASKING], run: undefined, start } });
+
+      dropOnTheRow(ASKING.id);
+      expect(await screen.findByRole('dialog', { name: 'About “Make appointment with Novy”' })).toBeVisible();
+      expect(start).not.toHaveBeenCalled();
+      await user.type(screen.getByLabelText('What to ask Claude'), 'Which day suits?');
+      await user.click(screen.getByRole('button', { name: 'Send to Claude' }));
+
+      expect(start).toHaveBeenCalledWith(ASKING, 'Which day suits?');
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    });
+
+    it('starts nothing when the prompt box is cancelled', async () => {
+      const user = userEvent.setup();
+      const start = vi.fn(() => Promise.resolve());
+      aRow({ agentsHere: { offered: [ASKING], run: undefined, start } });
+
+      dropOnTheRow(ASKING.id);
+      await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+      expect(start).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('says why a start was refused, on the row', async () => {
+      const start = vi.fn(() => Promise.reject(new CommandRefused(409, 'Claude is already on this item.')));
+      aRow({ agentsHere: { offered: [SCOPE_IT], run: undefined, start } });
+
+      dropOnTheRow(SCOPE_IT.id);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Claude is already on this item.');
     });
   });
 });

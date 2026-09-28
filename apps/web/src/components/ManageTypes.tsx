@@ -540,3 +540,6 @@ function deleteQuestion(
     use.workspaces === 1 ? '' : ` across ${use.workspaces} workspaces`;
   return `Delete ${name}? ${items}${where} will stop having a type.`;
 }
+
+// Also the default export, for the lazy `import()` Layout.tsx loads this behind.
+export default ManageTypes;

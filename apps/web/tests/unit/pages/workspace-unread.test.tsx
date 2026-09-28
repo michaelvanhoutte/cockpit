@@ -113,6 +113,7 @@ vi.mock('../../../src/api/queries', () => ({
   // not happen (api/queries.ts).
   refusalFrom: () => null,
   useSendCommand: () => () => Promise.resolve(),
+  useStartAgent: () => ({ mutateAsync: () => Promise.resolve() }),
   // Only read while a run of filings is in flight, which nothing here starts.
   useLatestSnapshot: () => () => Promise.resolve({ filings: [] }),
   // Read by the Inbox heading's own "Rewrite history…" entry, closed here so nothing opens it.

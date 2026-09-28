@@ -1,14 +1,23 @@
-import { and, eq, exists, notExists, sql } from 'drizzle-orm';
-import { CLAUDE_CODE } from '@cockpit/shared';
+import { and, eq, exists, inArray, notExists, sql } from 'drizzle-orm';
+import {
+  ASK_CLAUDE_AGENT,
+  ASK_CLAUDE_ID,
+  CLAUDE_CODE,
+  agentsShownOnDashboard,
+  runBlocksAStart,
+  startableAgents,
+} from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import {
   accountAgentSettings,
   accountItemFormPresentation,
+  agentRuns,
   agents,
   associations,
   attachments,
   commands,
+  connectionFailures,
   connectorAccounts,
   dashboards,
   DEAD_STATUS_VALUE,
@@ -26,8 +35,11 @@ import {
   workspaces,
 } from './schema.js';
 import {
+  claudeCodeConnectionOf,
   commandAlreadyApplied,
   getAgent,
+  getAgentRun,
+  getAskClaudeEnabled,
   getAttachment,
   getDashboard,
   getItem,
@@ -43,6 +55,8 @@ import {
   lastWorkspacePosition,
   listAgents,
   listDashboards,
+  listHiddenAgents,
+  openAgentRunOn,
   lastItemTypePosition,
   listFilingsOnPanel,
   listItemTypes,
@@ -167,6 +181,26 @@ export class AgentNameTakenError extends Error {
   constructor(name: string) {
     super(`an agent called ${name} already exists`);
     this.name = 'AgentNameTakenError';
+  }
+}
+
+/**
+ * A start Claude may not be asked for, in words the row can show as they are
+ * ("Drop an agent on an item to start a Claude Code session on it", issue
+ * 571): an Inbox row, an Agent the Dashboard does not show, a Workspace with no
+ * Claude Code connection, an Item already carrying a run or finished with.
+ */
+export class AgentRunRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AgentRunRefusedError';
+  }
+}
+
+export class AgentRunNotFoundError extends Error {
+  constructor(runId: string) {
+    super(`agent run ${runId} not found`);
+    this.name = 'AgentRunNotFoundError';
   }
 }
 
@@ -2240,6 +2274,28 @@ export function runCommand<N extends CommandName>(
             },
           })
           .run();
+        // Reconnecting is proof it works again, so whatever said it was
+        // failing ends ("Drop an agent on an item to start a Claude Code
+        // session on it", issue 571). Named by the key rather than by
+        // `sourceAccountId`, which a reconnect's upsert leaves unused.
+        tx.delete(connectionFailures)
+          .where(
+            inArray(
+              connectionFailures.sourceAccountId,
+              tx
+                .select({ id: connectorAccounts.id })
+                .from(connectorAccounts)
+                .where(
+                  and(
+                    eq(connectorAccounts.tenantId, tenantId),
+                    eq(connectorAccounts.workspaceId, cmd.workspaceId),
+                    eq(connectorAccounts.connectorId, cmd.connectorId),
+                    eq(connectorAccounts.externalAccountKey, cmd.externalAccountKey),
+                  ),
+                ),
+            ),
+          )
+          .run();
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -2269,6 +2325,7 @@ export function runCommand<N extends CommandName>(
             ),
           )
           .run();
+        tx.delete(connectionFailures).where(eq(connectionFailures.sourceAccountId, cmd.sourceAccountId)).run();
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -2400,6 +2457,173 @@ export function runCommand<N extends CommandName>(
           tx.insert(commands).values(commandRow).run();
         });
       }
+      break;
+    }
+    case 'begin_agent_run': {
+      const cmd = payload as CommandPayload<'begin_agent_run'>;
+      // Every refusal is decided here, inside the one call the object runs at
+      // a time, rather than by the drag that offered it: two tabs dropping on
+      // the same Item are two of these run one after the other, so the
+      // second meets the first's run below ("Drop an agent on an item to
+      // start a Claude Code session on it", issue 571, rule 7).
+      const item = getItem(db, tenantId, cmd.itemId);
+      if (!item || item.workspaceId !== cmd.workspaceId || !item.workspaceDecided) {
+        throw new ItemNotFoundError(cmd.itemId);
+      }
+      if (!couldStillBeActedOn(item) || item.completedAt !== null) {
+        throw new AgentRunRefusedError('Claude only starts on an item still to be done.');
+      }
+      if (!getDashboard(db, tenantId, cmd.workspaceId, cmd.dashboardId)) {
+        throw new DashboardNotFoundError(cmd.dashboardId);
+      }
+      if (!claudeCodeConnectionOf(db, tenantId, cmd.workspaceId)) {
+        throw new AgentRunRefusedError('This workspace has no Claude Code connection.');
+      }
+      if (!isItemFiled(db, tenantId, cmd.itemId)) {
+        throw new AgentRunRefusedError('An agent starts on an item on a dashboard, not in the Inbox.');
+      }
+      const offered = startableAgents(
+        agentsShownOnDashboard({
+          agents: listAgents(db, tenantId),
+          hiddenAgentIds: listHiddenAgents(db, tenantId, cmd.workspaceId)
+            .filter((hidden) => hidden.dashboardId === cmd.dashboardId)
+            .map((hidden) => hidden.agentId),
+          askClaudeEnabled: getAskClaudeEnabled(db, tenantId),
+          hasClaudeCodeConnection: true,
+        }),
+      );
+      if (!offered.some((agent) => agent.id === cmd.agentId)) {
+        throw new AgentRunRefusedError('That agent is not on this dashboard.');
+      }
+      const open = openAgentRunOn(db, tenantId, cmd.itemId);
+      if (runBlocksAStart(open)) {
+        throw new AgentRunRefusedError('Claude is already on this item.');
+      }
+      db.transaction((tx) => {
+        // A run Claude refused started nothing, so it is ended by the start
+        // that replaces it rather than standing in its way.
+        if (open) {
+          tx.update(agentRuns)
+            .set({ endedAt: cmd.issuedAt })
+            .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.id, open.id)))
+            .run();
+        }
+        tx.insert(agentRuns)
+          .values({
+            id: cmd.runId,
+            tenantId,
+            workspaceId: cmd.workspaceId,
+            itemId: cmd.itemId,
+            agentId: cmd.agentId,
+            status: 'starting',
+            startedAt: cmd.issuedAt,
+          })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'settle_agent_run': {
+      const cmd = payload as CommandPayload<'settle_agent_run'>;
+      const run = getAgentRun(db, tenantId, cmd.runId);
+      if (!run || run.workspaceId !== cmd.workspaceId || run.itemId !== cmd.itemId) {
+        throw new AgentRunNotFoundError(cmd.runId);
+      }
+      // Settled once: Claude answers a start once, so a second answer for the
+      // same run is a replay of the first rather than news.
+      if (run.status !== 'starting' || run.endedAt !== null) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+        break;
+      }
+      const accepted = cmd.status === 'working' || cmd.status === 'link_lost';
+      const connection = claudeCodeConnectionOf(db, tenantId, cmd.workspaceId);
+      const agent = run.agentId === ASK_CLAUDE_ID ? ASK_CLAUDE_AGENT : getAgent(db, tenantId, run.agentId);
+      const item = getItem(db, tenantId, cmd.itemId);
+      // Started when it was dropped, where the agent says starting it starts
+      // the Item and Claude has actually taken it on (issue 571, rule 3) -
+      // and left alone where the Item has since been finished with or
+      // dismissed.
+      //
+      // **Stamped with the start's own time, not this settle's.** This
+      // command's `issuedAt` is the server's clock, and every other change to
+      // an Item carries the browser's: an Item stamped ahead of the browser
+      // that then says "Agent finished" would take that as older than the
+      // start, and last-write-wins would drop it.
+      const started =
+        accepted && agent?.startsInProgress && item && couldStillBeActedOn(item) && item.completedAt === null
+          ? applySetStarted(item, { ...cmd, issuedAt: run.startedAt, started: true })
+          : null;
+      db.transaction((tx) => {
+        tx.update(agentRuns)
+          .set({
+            status: cmd.status,
+            sessionUrl: cmd.sessionUrl ?? null,
+            reason: cmd.reason ?? null,
+            settledAt: cmd.issuedAt,
+          })
+          .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.id, cmd.runId)))
+          .run();
+        if (connection && accepted) {
+          // A start Claude took is as good a proof the connection works as
+          // Test again is, and ends whatever said it was failing.
+          tx.update(connectorAccounts)
+            .set({ lastTestedAt: cmd.issuedAt })
+            .where(and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.id, connection.id)))
+            .run();
+          tx.delete(connectionFailures).where(eq(connectionFailures.sourceAccountId, connection.id)).run();
+        }
+        if (connection && cmd.status === 'failed' && cmd.connectionFailing && cmd.reason) {
+          tx.insert(connectionFailures)
+            .values({ sourceAccountId: connection.id, tenantId, reason: cmd.reason, failedAt: cmd.issuedAt })
+            .onConflictDoUpdate({
+              target: connectionFailures.sourceAccountId,
+              set: { reason: cmd.reason, failedAt: cmd.issuedAt },
+            })
+            .run();
+        }
+        if (started) {
+          tx.update(items)
+            .set(asStored(started))
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'finish_agent_run': {
+      const cmd = payload as CommandPayload<'finish_agent_run'>;
+      const run = getAgentRun(db, tenantId, cmd.runId);
+      if (!run || run.workspaceId !== cmd.workspaceId || run.itemId !== cmd.itemId || run.endedAt !== null) {
+        throw new AgentRunNotFoundError(cmd.runId);
+      }
+      const item = getItem(db, tenantId, cmd.itemId);
+      if (!item) throw new ItemNotFoundError(cmd.itemId);
+      // Done is marking it done; Still to do is back to To do, from In
+      // progress or from Done alike - the two things "Agent finished" can say
+      // about the Item (issue 571, rule 4). Stale by last-write-wins leaves the
+      // Item as a newer change put it, and still ends the run.
+      const settled =
+        cmd.outcome === 'done'
+          ? applySetDone(item, { ...cmd, done: true })
+          : (() => {
+              const toDo = applySetStarted(item, { ...cmd, started: false });
+              return toDo && { ...toDo, completedAt: null };
+            })();
+      db.transaction((tx) => {
+        tx.update(agentRuns)
+          .set({ endedAt: cmd.issuedAt })
+          .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.id, cmd.runId)))
+          .run();
+        if (settled) {
+          tx.update(items)
+            .set(asStored(settled))
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
       break;
     }
     default: {

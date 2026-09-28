@@ -1,17 +1,24 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   itemHasOpenReadings,
   itemLabel,
   itemStatus,
+  runBlocksAStart,
+  STARTING_GIVES_UP_AFTER_MS,
   uuidv7,
   workspaceIsDecided,
+  type AgentRun,
   type Item,
   type ItemType,
   type Priority,
+  type StartableAgent,
 } from '@cockpit/shared';
+import { CommandRefused } from '../api/client';
 import { useCommand, useSendCommand } from '../api/queries';
+import { AGENT_BEING_DRAGGED, landAgent, useAgentInTheAir } from '../agentInTheAir';
+import { runChipFor } from '../agentRunChip';
 import { isCutOff } from '../cutOff';
 import { deadlineOf, dueDateLabel, type DeadlineLevel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
@@ -29,7 +36,11 @@ import {
   destructiveItemClass,
   menuItemClass,
 } from './Menu';
-import { RewriteHistoryWindow } from './RewriteHistoryWindow';
+
+// Out of the initial bundle, the same boundary AgentDock and ManageConnections
+// draw around themselves: two windows a row mounts only once asked for.
+const AgentPromptBox = lazy(() => import('./AgentPromptBox'));
+const RewriteHistoryWindow = lazy(() => import('./RewriteHistoryWindow'));
 
 /**
  * The flag's label at each level ("Show and edit an item's priority", issue
@@ -77,6 +88,7 @@ export function ItemRow({
   onSettleNotADuplicate,
   selecting,
   alsoIn = EMPTY_ALSO_IN,
+  agentsHere,
 }: {
   item: Item;
   /**
@@ -191,6 +203,20 @@ export function ItemRow({
    * snapshot the row is not given wholesale.
    */
   alsoIn?: readonly string[];
+  /**
+   * The Agents this row can be started with, its open run, and the start
+   * itself ("Drop an agent on an item to start a Claude Code session on it",
+   * issue 571). Absent in the Inbox, where no Agent starts: an Inbox row is
+   * neither outlined nor offered one.
+   *
+   * `start` throws what the start was refused with, which the row shows -
+   * in the prompt box where one is open, beside the row otherwise.
+   */
+  agentsHere?: {
+    offered: readonly StartableAgent[];
+    run: AgentRun | undefined;
+    start: (agent: StartableAgent, prompt?: string) => Promise<void>;
+  };
 }) {
   const command = useCommand();
   const send = useSendCommand();
@@ -246,6 +272,71 @@ export function ItemRow({
     command.mutate({ name: 'set_started', payload: { ...envelope(), started } });
   };
 
+  /** The Agent whose prompt box is open over this row, if any. */
+  const [asking, setAsking] = useState<StartableAgent | null>(null);
+  /** That a start is on its way to Claude, so it cannot be sent twice. */
+  const [sending, setSending] = useState(false);
+  /** Why the last start from this row was refused, shown beside it until the next one. */
+  const [startRefusal, setStartRefusal] = useState<string | null>(null);
+  const run = agentsHere?.run;
+  /**
+   * Redrawn once a run still starting reaches the moment the row stops
+   * believing it, rather than whenever something else happens to redraw the
+   * row - a quiet dashboard would otherwise say "Starting Claude…" for good.
+   */
+  const [, redrawAtGiveUp] = useState(0);
+  useEffect(() => {
+    if (run?.status !== 'starting') return;
+    const left = Date.parse(run.startedAt) + STARTING_GIVES_UP_AFTER_MS - Date.now();
+    if (left < 0) return;
+    const timer = setTimeout(() => redrawAtGiveUp((n) => n + 1), left + 1);
+    return () => clearTimeout(timer);
+  }, [run?.status, run?.startedAt]);
+  const chip = run ? runChipFor(run, Date.now()) : null;
+  /** Whether this row takes an Agent right now: on a dashboard, with nothing already running on it. */
+  const takesAnAgent = agentsHere !== undefined && !runBlocksAStart(run);
+  const lifted = useAgentInTheAir();
+  const outlined = takesAnAgent && lifted !== null && agentsHere.offered.some((agent) => agent.id === lifted);
+
+  const sendToClaude = async (agent: StartableAgent, prompt?: string) => {
+    if (!agentsHere || sending) return;
+    setSending(true);
+    setStartRefusal(null);
+    try {
+      await agentsHere.start(agent, prompt);
+      setAsking(null);
+    } catch (failure) {
+      setStartRefusal(
+        failure instanceof CommandRefused ? failure.message : 'That did not reach the server. Try again.',
+      );
+    } finally {
+      setSending(false);
+    }
+  };
+  /** An Agent that asks for a prompt opens the box first; any other starts at once. */
+  const startWith = (agent: StartableAgent) => {
+    setStartRefusal(null);
+    if (agent.asksForPrompt) setAsking(agent);
+    else void sendToClaude(agent);
+  };
+
+  /**
+   * "Agent finished" - the run ended, and the Item settled the way it says
+   * (issue 571, rule 4). Done is offered back for as long as the bar lasts,
+   * exactly as marking it done is, by being the same way back.
+   */
+  const finishRun = (outcome: 'done' | 'still_to_do') => {
+    if (!run) return;
+    command.mutate(
+      { name: 'finish_agent_run', payload: { ...envelope(), runId: run.id, outcome } },
+      {
+        onSuccess: () => {
+          if (outcome === 'done') offerDoneBack();
+        },
+      },
+    );
+  };
+
   /**
    * Finishing with it, and the way back offered for as long as the bar lasts
    * ("Undo what just happened", issue 144).
@@ -257,25 +348,27 @@ export function ItemRow({
   const markDone = () => {
     command.mutate(
       { name: 'set_done', payload: { ...envelope(), done: true } },
-      {
-        onSuccess: () =>
-          offerToUndo({
-            what: `“${itemLabel(item)}” marked done`,
-            undo: () =>
-              send({
-                name: 'set_done',
-                payload: {
-                  commandId: uuidv7(),
-                  issuedAt: new Date().toISOString(),
-                  workspaceId,
-                  itemId: item.id,
-                  done: false,
-                },
-              }),
-          }),
-      },
+      { onSuccess: offerDoneBack },
     );
   };
+
+  /** The way back from Done, the same for marking it done and for "Agent finished: Done". */
+  function offerDoneBack() {
+    offerToUndo({
+      what: `“${itemLabel(item)}” marked done`,
+      undo: () =>
+        send({
+          name: 'set_done',
+          payload: {
+            commandId: uuidv7(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            itemId: item.id,
+            done: false,
+          },
+        }),
+    });
+  }
 
   /**
    * Dismissing, with the way back offered for as long as the bar lasts ("Undo
@@ -601,6 +694,45 @@ export function ItemRow({
             Not a duplicate
           </M.Item>
         )}
+        {/* The run's own ways on, while it is open ("Drop an agent on an item
+            to start a Claude Code session on it", issue 571): the session
+            itself, a real link in a new tab as "Open in …" above is, and
+            saying the agent finished, which ends it. */}
+        {chip?.href && (
+          <M.Item asChild className={menuItemClass}>
+            <a href={chip.href} target="_blank" rel="noopener noreferrer">
+              Open the Claude session ↗
+            </a>
+          </M.Item>
+        )}
+        {run && (
+          <>
+            <M.Item className={menuItemClass} onSelect={() => finishRun('done')}>
+              Agent finished: Done
+            </M.Item>
+            <M.Item className={menuItemClass} onSelect={() => finishRun('still_to_do')}>
+              Agent finished: Still to do
+            </M.Item>
+          </>
+        )}
+        {/* Every Agent this dashboard shows, where nothing is already running
+            on the row - the way a keyboard starts one, since it has no drag.
+            The ellipsis says a box opens first. */}
+        {takesAnAgent &&
+          agentsHere.offered.map((agent) => (
+            <M.Item
+              key={agent.id}
+              className={menuItemClass}
+              onSelect={() => {
+                // The prompt box takes the focus itself, like the pickers.
+                if (agent.asksForPrompt) opening.current = true;
+                startWith(agent);
+              }}
+            >
+              Start {agent.name}
+              {agent.asksForPrompt ? '…' : ''}
+            </M.Item>
+          ))}
         {status === 'in_progress' ? (
           <M.Item className={menuItemClass} onSelect={() => setStarted(false)}>
             Back to To do
@@ -763,6 +895,27 @@ export function ItemRow({
         liftItem(item.id);
       }}
       onDragEnd={landItem}
+      // An Agent dropped here starts on this Item ("Drop an agent on an item
+      // to start a Claude Code session on it", issue 571). Said yes to only
+      // where the row takes the Agent in the air - the one the outline below
+      // promises - and kept from the list under it, which files Items and
+      // has nothing to do with an Agent.
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes(AGENT_BEING_DRAGGED)) return;
+        if (!outlined) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = 'copy';
+      }}
+      onDrop={(event) => {
+        if (!event.dataTransfer.types.includes(AGENT_BEING_DRAGGED)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const agentId = event.dataTransfer.getData(AGENT_BEING_DRAGGED);
+        landAgent();
+        const agent = takesAnAgent ? agentsHere.offered.find((offered) => offered.id === agentId) : undefined;
+        if (agent) startWith(agent);
+      }}
       // `touch-action: pan-y` leaves vertical scrolling to the browser and
       // gives this the horizontal component. `select-none` stops a long press
       // turning the row into selected text mid-swipe, and is
@@ -783,7 +936,12 @@ export function ItemRow({
       aria-current={dock.openId === item.id ? 'true' : undefined}
       className={`group relative touch-pan-y border-b border-black/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
         dock.openId === item.id ? 'ring-2 ring-inset ring-accent ' : ''
-      }${selecting?.picked ? 'bg-accent-tint' : ''}`}
+      }${selecting?.picked ? 'bg-accent-tint ' : ''}${
+        // Every row that will take the Agent in the air, the moment it is
+        // lifted - not only the one under the pointer (issue 571).
+        outlined ? 'outline-2 -outline-offset-2 outline-dashed outline-accent' : ''
+      }`}
+      data-takes-agent={outlined ? '' : undefined}
     >
       <WhatLettingGoWouldDo across={gone} />
       {/* The row itself, which is what moves: the band above has to stay where
@@ -941,6 +1099,32 @@ export function ItemRow({
                 In progress
               </span>
             )}
+            {/* The run on this Item, and who started it ("Drop an agent on an
+                item to start a Claude Code session on it", issue 571) - a
+                link to the session where there is one, a control of the row's
+                own that its handlers step aside for, as "Open ↗" below is. */}
+            {chip &&
+              (chip.href ? (
+                <a
+                  href={chip.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onContextMenu={(event) => event.stopPropagation()}
+                  title={chip.hint ?? undefined}
+                  className="shrink-0 rounded-full bg-accent-tint px-1.5 text-accent-deep underline"
+                >
+                  {chip.agent} · {chip.text}
+                </a>
+              ) : (
+                <span
+                  title={chip.hint ?? undefined}
+                  className={`shrink-0 rounded-full px-1.5 ${
+                    chip.trouble ? 'bg-over/15 text-over-deep' : 'bg-accent-tint text-accent-deep'
+                  }`}
+                >
+                  {chip.agent} · {chip.text}
+                </span>
+              ))}
             <span className="truncate">
               {itemType ? '· ' : ''}
               {item.source === 'internal' ? 'Own' : item.source}
@@ -1000,6 +1184,14 @@ export function ItemRow({
               </button>
             )}
           </span>
+          {/* A start refused from a drop or the menu, in the words it was
+              refused with - kept to this row, and gone with the next start.
+              One refused from the prompt box is said there instead. */}
+          {startRefusal && !asking && (
+            <span role="alert" className="block text-xs text-over-deep">
+              {startRefusal}
+            </span>
+          )}
         </span>
 
         {/* How long it has waited. Tabular figures so the column does not shuffle
@@ -1039,7 +1231,24 @@ export function ItemRow({
           item in the list, and a `useQuery` on every one of them (even
           disabled) is a query registered per row for a feature few rows
           will ever open. */}
+      {asking && (
+        <Suspense fallback={null}>
+        <AgentPromptBox
+          agentName={asking.name}
+          about={label}
+          sending={sending}
+          refusal={startRefusal}
+          returnFocusTo={trigger.current}
+          onCancel={() => {
+            setAsking(null);
+            setStartRefusal(null);
+          }}
+          onSend={(prompt) => void sendToClaude(asking, prompt)}
+        />
+        </Suspense>
+      )}
       {historyOpen && (
+        <Suspense fallback={null}>
         <RewriteHistoryWindow
           open={historyOpen}
           onClose={() => setHistoryOpen(false)}
@@ -1047,6 +1256,7 @@ export function ItemRow({
           workspaceId={workspaceId}
           itemId={item.id}
         />
+        </Suspense>
       )}
       <ContextMenuContent label="Item menu" onCloseAutoFocus={keepFocusIfSomethingOpened}>
         {menuEntries(ContextMenu)}
