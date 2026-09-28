@@ -6,12 +6,13 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
  * The control that opens a menu, wherever a menu is opened ("Open every menu
  * from the same control", issue 115).
  *
- * **Three dots always mean a menu opens here.** Before this, the header's was a
- * bordered pill, an item row's was faint and unbordered, and the one at the
- * right of the dashboard bar was not a menu at all - it was a link to a
- * settings page wearing a menu's clothes. Same glyph, three meanings,
- * and the next feature would have added a fourth: the functional definition's
- * "Dashboards and Panels" promises every Panel a menu of its own.
+ * **Three dots mean a menu opens here, with one deliberate exception below.**
+ * Before this, the header's was a bordered pill, an item row's was faint and
+ * unbordered, and the one at the right of the dashboard bar was not a menu at
+ * all - it was a link to a settings page wearing a menu's clothes. Same
+ * glyph, three meanings, and the next feature would have added a fourth: the
+ * functional definition's "Dashboards and Panels" promises every Panel a menu
+ * of its own.
  *
  * **Vertical, and drawn rather than typed.** `···` is a horizontal ellipsis -
  * punctuation, whose size and baseline are the font's to decide, and which
@@ -19,13 +20,12 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
  * what a browser and a phone use for this, and as an icon it is the size this
  * file says it is.
  *
- * **One deliberate exception.** The account's own gear (`pages/Layout.tsx`)
- * sits beside the workspace's own dots, both on the chrome, and two identical
- * triplets side by side told nobody which was which (found on staging: they
- * read as one undifferentiated pair rather than two controls). `children`
- * lets a call site swap the glyph without losing the look or the behaviour -
- * the accessible name still carries what the walks and the tests reach for,
- * and a gear still opens a menu the same three ways everything else does.
+ * **The exception: the account's own gear** (`pages/Layout.tsx`), beside the
+ * workspace's own dots on the same chrome, where two identical triplets read
+ * as one undifferentiated pair rather than two controls. `children` lets a
+ * call site swap the glyph alone, without losing the look, the accessible
+ * name or the open/close behaviour every other trigger shares - a gear still
+ * opens a menu the same three ways everything else does.
  *
  * One component rather than one class string, so a call site cannot take the
  * look without the behaviour: the trigger carries its own accessible name,
