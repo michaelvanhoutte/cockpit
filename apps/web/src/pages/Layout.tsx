@@ -618,8 +618,15 @@ function TheShell() {
 
             `items-end` rather than `items-center`, because the tabs are not
             pills floating on the bar any more - they stand on its bottom edge
-            so the selected one can run into the strip underneath. */}
-        <div className="flex w-full items-end gap-4 px-3 pt-2">
+            so the selected one can run into the strip underneath.
+
+            **The gap itself gives way below `sm`, same as the wordmark.**
+            Crowded with enough workspaces, a phone had nothing to spare once
+            the header's own menu split in two - the strip's own trailing
+            button already gives way at this width for the same reason (found
+            in review, `workspace-management.test.ts`, "the tab strip stays
+            inside the screen however many workspaces there are"). */}
+        <div className="flex w-full items-end gap-2 px-3 pt-2 sm:gap-4">
           {/* **Gone on a phone**, where it is the only thing in the bar that
               does nothing. The header holds four things now - the name, the
               workspaces, Capture… and the menu ("Capture something before you
@@ -690,7 +697,7 @@ function TheShell() {
                   event.preventDefault();
                   setCapturing(true);
                 }}
-                className={`${stripTabClass(onCapture)} self-end px-4`}
+                className={`${stripTabClass(onCapture)} self-end px-3 sm:px-4`}
                 style={
                   onCapture
                     ? ({
@@ -704,7 +711,7 @@ function TheShell() {
               </Link>
               <span
                 aria-hidden="true"
-                className="mx-2 mb-2 h-5 w-px shrink-0 self-end bg-white/15"
+                className="mx-1 mb-2 h-5 w-px shrink-0 self-end bg-white/15 sm:mx-2"
               />
             </>
           )}
@@ -731,90 +738,98 @@ function TheShell() {
             <AddWorkspace />
           </WorkspaceTabs>
 
-          {/* The account's own settings - just the types, today. Split from
-              who-you-are below ("Give the open workspace and dashboard their
-              own "…", and split the header's menu into settings and you",
-              issue 567): the one menu here used to hold both, which is where
-              people looked for the workspace's own actions (now above) and
-              did not find them - a single "…" was carrying three unrelated
-              jobs. */}
-          <DropdownMenu.Root>
-            <MenuTrigger label="Account settings" onChrome ref={settingsMenu} />
-            <MenuContent
-              onCloseAutoFocus={(event) => {
-                const claimed = opening.current;
-                opening.current = false;
-                if (claimed) event.preventDefault();
-              }}
-            >
-              {/* An entry rather than a link: it opens a window over the
-                  workspace instead of replacing it, so managing the types is a
-                  detour and not a journey - and there is no address to come
-                  back from.
-
-                  **The workspaces are not here.** They were, beside this, and
-                  the list they opened is gone: a workspace is changed on its
-                  own tab, which is a press away rather than two
-                  (components/WorkspaceTabs.tsx). The types keep a window
-                  because they have no tab - they belong to the account and are
-                  chosen while capturing, not switched between ("Manage the
-                  types, and put them in the order you want", issue 156). */}
-              <DropdownMenu.Item
-                className={menuItemClass}
-                onSelect={() => {
-                  opening.current = true;
-                  setManaging('types');
+          {/* The gear and the profile share the tighter of the header's two
+              gaps, the way the strip and its own button do above: both are
+              "the account" to somebody scanning the header, and the wide
+              `gap-4` between the header's own sections left too little of a
+              480px phone for the strip once a second button joined the
+              first. */}
+          <div className="flex shrink-0 items-end gap-1">
+            {/* The account's own settings - just the types, today. Split
+                from who-you-are beside it ("Give the open workspace and
+                dashboard their own "…", and split the header's menu into
+                settings and you", issue 567): the one menu here used to hold
+                both, which is where people looked for the workspace's own
+                actions (now above) and did not find them - a single "…" was
+                carrying three unrelated jobs. */}
+            <DropdownMenu.Root>
+              <MenuTrigger label="Account settings" onChrome ref={settingsMenu} />
+              <MenuContent
+                onCloseAutoFocus={(event) => {
+                  const claimed = opening.current;
+                  opening.current = false;
+                  if (claimed) event.preventDefault();
                 }}
               >
-                Manage types
-              </DropdownMenu.Item>
-            </MenuContent>
-          </DropdownMenu.Root>
+                {/* An entry rather than a link: it opens a window over the
+                    workspace instead of replacing it, so managing the types is a
+                    detour and not a journey - and there is no address to come
+                    back from.
 
-          {/* Who you are, and the way out - a circle carrying your initial
-              rather than the three dots every other menu opens with, so the
-              two controls read as different jobs rather than as one menu cut
-              in half. */}
-          <DropdownMenu.Root>
-            {/* Not "Account": that reads as a substring of the gear's own
-                "Account settings" and a lookup for one would find both. */}
-            <DropdownMenu.Trigger
-              aria-label="Profile"
-              // A permanent circle of tint rather than the ghost icon every
-              // other trigger wears (`menuButtonClassName`, Menu.tsx): this is
-              // an avatar carrying who you are, not a hint that something is
-              // pressable, so it keeps a fill at rest. `/10` resting to `/20`
-              // pressed is the same doubling `AddPanel` (DashboardBar.tsx)
-              // already uses for a chrome control that stays tinted.
-              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-medium text-chrome-ink hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-chrome-ink-soft data-[state=open]:bg-white/20"
-            >
-              {initialOf(me?.user.name)}
-            </DropdownMenu.Trigger>
-            <MenuContent>
-              <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
-                {me ? `Signed in as ${me.user.name}` : 'Signed in'}
-              </DropdownMenu.Label>
-              {/* A link rather than an entry that opens a window, and the only
-                  one here: the admin pages are about the environment rather
-                  than this account, so there is no workspace to keep behind
-                  them and an address of their own is what a screen has ("See
-                  who can sign in, on a page only an admin can open", issue
-                  230).
-
-                  **Offered to an admin only, and that is a courtesy rather
-                  than the guard.** What refuses an ordinary user is the server
-                  (auth/admin.ts); hiding the entry just keeps a door in front
-                  of them that only ever says no. */}
-              {me?.user.role === ADMIN && (
-                <DropdownMenu.Item asChild className={menuItemClass}>
-                  <Link to="/admin">Admin</Link>
+                    **The workspaces are not here.** They were, beside this, and
+                    the list they opened is gone: a workspace is changed on its
+                    own tab, which is a press away rather than two
+                    (components/WorkspaceTabs.tsx). The types keep a window
+                    because they have no tab - they belong to the account and are
+                    chosen while capturing, not switched between ("Manage the
+                    types, and put them in the order you want", issue 156). */}
+                <DropdownMenu.Item
+                  className={menuItemClass}
+                  onSelect={() => {
+                    opening.current = true;
+                    setManaging('types');
+                  }}
+                >
+                  Manage types
                 </DropdownMenu.Item>
-              )}
-              <DropdownMenu.Item onSelect={() => leave.mutate()} className={menuItemClass}>
-                Sign out
-              </DropdownMenu.Item>
-            </MenuContent>
-          </DropdownMenu.Root>
+              </MenuContent>
+            </DropdownMenu.Root>
+
+            {/* Who you are, and the way out - a circle carrying your initial
+                rather than the three dots every other menu opens with, so the
+                two controls read as different jobs rather than as one menu cut
+                in half. */}
+            <DropdownMenu.Root>
+              {/* Not "Account": that reads as a substring of the gear's own
+                  "Account settings" and a lookup for one would find both. */}
+              <DropdownMenu.Trigger
+                aria-label="Profile"
+                // A permanent circle of tint rather than the ghost icon every
+                // other trigger wears (`menuButtonClassName`, Menu.tsx): this is
+                // an avatar carrying who you are, not a hint that something is
+                // pressable, so it keeps a fill at rest. `/10` resting to `/20`
+                // pressed is the same doubling `AddPanel` (DashboardBar.tsx)
+                // already uses for a chrome control that stays tinted.
+                className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-medium text-chrome-ink hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-chrome-ink-soft data-[state=open]:bg-white/20"
+              >
+                {initialOf(me?.user.name)}
+              </DropdownMenu.Trigger>
+              <MenuContent>
+                <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
+                  {me ? `Signed in as ${me.user.name}` : 'Signed in'}
+                </DropdownMenu.Label>
+                {/* A link rather than an entry that opens a window, and the only
+                    one here: the admin pages are about the environment rather
+                    than this account, so there is no workspace to keep behind
+                    them and an address of their own is what a screen has ("See
+                    who can sign in, on a page only an admin can open", issue
+                    230).
+
+                    **Offered to an admin only, and that is a courtesy rather
+                    than the guard.** What refuses an ordinary user is the server
+                    (auth/admin.ts); hiding the entry just keeps a door in front
+                    of them that only ever says no. */}
+                {me?.user.role === ADMIN && (
+                  <DropdownMenu.Item asChild className={menuItemClass}>
+                    <Link to="/admin">Admin</Link>
+                  </DropdownMenu.Item>
+                )}
+                <DropdownMenu.Item onSelect={() => leave.mutate()} className={menuItemClass}>
+                  Sign out
+                </DropdownMenu.Item>
+              </MenuContent>
+            </DropdownMenu.Root>
+          </div>
         </div>
       </header>
       {/* The band, under the workspace tabs and on the same color, so the tab
