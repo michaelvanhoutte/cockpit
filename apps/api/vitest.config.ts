@@ -122,6 +122,13 @@ export default defineConfig({
            * already said", issue 407).
            */
           EMBEDDINGS_STAND_IN: '',
+          /**
+           * No debounce window, so a refresh queued by a filing or a
+           * correction is delivered as soon as the real queue would deliver
+           * anything. The cases about the window hold their own messages
+           * rather than waiting one out (tests/integration/http/refresh-debounce.test.ts).
+           */
+          REPROPOSE_DEBOUNCE_SECONDS: '0',
           OIDC_ISSUER: 'https://issuer.test',
           /**
            * Set, as production sets it: an environment that offers guest

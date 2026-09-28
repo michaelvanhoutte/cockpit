@@ -16,6 +16,7 @@ import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
+import type { RefreshAsk } from '../jobs/debounce.js';
 
 /**
  * What one account's store answers to, as the Worker sees it across the
@@ -127,6 +128,15 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
       { id: string; workspaceId: string; title: string; description: string | null; capturedMessage: string }[]
     >
   >;
+  /**
+   * Records an ask for one refresh as the latest, unless a later one is
+   * already recorded ("Debounce the settle-triggered repropose fan-out across
+   * a real time window", issue 582). `refresh` names which refresh - a
+   * Workspace's panels, or the account's texts.
+   */
+  recordRefreshAsk(accountName: string, refresh: string, ask: RefreshAsk): Awaitable<Answer<null>>;
+  /** The latest ask recorded for one refresh, or null where none ever was. */
+  latestRefreshAsk(accountName: string, refresh: string): Awaitable<Answer<RefreshAsk | null>>;
   /**
    * Queues one rewrite attempt, "Pending" until `recordRewriteOutcome` below
    * settles it ("See the history of what Cockpit proposed for the Inbox's

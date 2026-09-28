@@ -111,7 +111,7 @@ Both of the above have shipped. What is left, named rather than numbered so that
 |---|---|---|
 | **The store** | The triple recorded at your first edit, the count and sample of what stood read from `items` beside it, prompt v8 reading both, each capped to the last 30 days ("Cap the text-learning prompt to the last 30 days, and drop rules and pinned examples as inputs", issue 451). Headless — it changes what titles say, and puts up no screen. | prompt v6 |
 | **The evidence** | What it got right and what you corrected, as two lists on a screen — the sample of what stood, and the pairs with Cockpit's version struck through. | the store |
-| **Re-read the Inbox** | Correcting a text re-proposes everything still unfiled, as "Re-propose the rest of the inbox the moment you file one" (issue 300) already does for Panels. | the store |
+| **Re-read the Inbox** | Correcting a text re-proposes everything still unfiled, as "Re-propose the rest of the inbox the moment you file one" (issue 300) already does for Panels, and debounced the same way ("Debounce the settle-triggered repropose fan-out across a real time window", issue 582). | the store |
 | **Try again** | A fresh suggestion now, the rejected one recorded — and what gets a tolerated-but-wrong title out of the sample that stood. | the store |
 | **Drop `workspace_routing_summary`** | Expand-then-contract, `pnpm backup:export` first, and only once the steps that stopped reading it are live rather than merged. | the nightly half removed |
 | **Cockpit's account of itself** | Generated when you open the screen it needs, stored nowhere. | a screen |

@@ -13,8 +13,6 @@ import {
   signInAs,
   startFromEmpty,
 } from '../seed.js';
-import { handleQueue } from '../../../src/jobs/index.js';
-import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 
 /**
  * Integration level: a real store, a real queue, and the settling filing
@@ -209,20 +207,6 @@ async function untilRouted(itemId: string, panelId: string): Promise<void> {
 /** A conservative stand-in for "nothing further happened": nothing left to wait for on purpose. */
 async function aWhileLongerThanAJobWouldTake(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 300));
-}
-
-function batchOf(...jobs: EnrichmentJob[]) {
-  const acked: string[] = [];
-  const messages = jobs.map((job, index) => ({
-    id: `message-${index + 1}`,
-    timestamp: new Date(),
-    body: job as unknown,
-    attempts: 1,
-    ack: () => acked.push(`message-${index + 1}`),
-    retry: () => {},
-  }));
-  const batch = { queue: 'cockpit-enrichment', messages, ackAll: () => {}, retryAll: () => {} };
-  return { batch: batch as unknown as Parameters<typeof handleQueue>[0], acked };
 }
 
 beforeEach(async () => {
@@ -428,49 +412,6 @@ describe('Triage', () => {
         async () => expect(asked.filter((note) => note === 'a note that fails').length).toBeGreaterThanOrEqual(2),
         { timeout: 15_000, interval: 50 },
       );
-    });
-
-    it('filing several items in quick succession fires one refresh for the workspace, not one per item', async () => {
-      const compliance = await aPanel('Compliance questions');
-      answerFor = (note) => (note === 'a note only this refresh ever asks about' ? { says: proposing(compliance, 'because') } : { says: PROPOSES_NOTHING });
-      // Written directly, with no `capture_item` behind it, so the only thing
-      // that ever asks the model about this note is the refresh under test -
-      // a capture's own moment-2 classification, fired on the real queue and
-      // not awaited by any helper here, would otherwise be a second, racy
-      // source of the same note text the assertions below count.
-      const waiting = nextId();
-      await inStoreAsItIs(ACCOUNT_NAME, (sql) =>
-        sql.exec(
-          `INSERT INTO items (id, tenant_id, workspace_id, source, captured_message, title, status, unseen, created_at, updated_at)
-           VALUES (?, ?, ?, 'internal', ?, 'Typed by hand', 'to_process', 0, ?, ?)`,
-          waiting,
-          ACCOUNT_NAME,
-          WORKSPACE_ID,
-          'a note only this refresh ever asks about',
-          nextIssuedAt(),
-          nextIssuedAt(),
-        ),
-      );
-
-      // Three duplicate settle-triggered jobs for the same account and
-      // workspace, as several near-simultaneous filings would each enqueue -
-      // sent as one batch, the way they would land in the real queue's own
-      // one-second window (wrangler.jsonc), and driven straight through
-      // `handleQueue` rather than waited out through that real timing.
-      const { batch, acked } = batchOf(
-        { kind: 're-propose-panels', accountName: ACCOUNT_NAME, workspaceId: WORKSPACE_ID },
-        { kind: 're-propose-panels', accountName: ACCOUNT_NAME, workspaceId: WORKSPACE_ID },
-        { kind: 're-propose-panels', accountName: ACCOUNT_NAME, workspaceId: WORKSPACE_ID },
-      );
-
-      await handleQueue(batch, env);
-
-      // All three are acknowledged - the two duplicates by the dedup step,
-      // the survivor by `workThrough` once it has actually run - but only
-      // the survivor ever reaches the model.
-      expect(acked.sort()).toEqual(['message-1', 'message-2', 'message-3']);
-      expect(asked.filter((note) => note === 'a note only this refresh ever asks about')).toHaveLength(1);
-      expect(await routingOf(waiting)).toBe(compliance);
     });
 
     it('leaves an item with no captured note out of a refresh', async () => {

@@ -487,25 +487,6 @@ describe('Triage', () => {
       ).toBeGreaterThan(askedSoFar);
     });
 
-    it('several corrections landing in the same batch fire one re-read, not one per correction', async () => {
-      const waiting = await captureANote('a note only this re-read ever asks about');
-      env.ANTHROPIC_API_KEY = A_KEY;
-      answerFor = (note) =>
-        note === 'a note only this re-read ever asks about' ? { says: proposing('Re-read once') } : { says: proposing('A title') };
-
-      const { batch, acked } = batchOf(
-        { kind: 're-propose-texts', accountName: ACCOUNT_NAME },
-        { kind: 're-propose-texts', accountName: ACCOUNT_NAME },
-        { kind: 're-propose-texts', accountName: ACCOUNT_NAME },
-      );
-
-      await handleQueue(batch, env);
-
-      expect(acked.sort()).toEqual(['message-1', 'message-2', 'message-3']);
-      expect(asked.filter((note) => note === 'a note only this re-read ever asks about')).toHaveLength(1);
-      expect(await titleOf(waiting)).toBe('Re-read once');
-    });
-
     it('a re-read with nothing left unsettled asks the model nothing, and fails on nothing', async () => {
       env.ANTHROPIC_API_KEY = A_KEY;
       const { batch, acked } = batchOf({ kind: 're-propose-texts', accountName: ACCOUNT_NAME });

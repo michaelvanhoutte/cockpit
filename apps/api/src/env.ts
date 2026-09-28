@@ -191,4 +191,11 @@ export interface Env {
    * workspace-scoped key, so the header is only sent when there is one.
    */
   ANTHROPIC_WORKSPACE_ID?: string;
+  /**
+   * How many seconds a settle- or correction-triggered refresh waits for a
+   * later one to take its place (`src/jobs/debounce.ts`). Unset everywhere
+   * but the backend suite, which sets `0` so a case going through the real
+   * queue does not wait out a window it is not asserting on.
+   */
+  REPROPOSE_DEBOUNCE_SECONDS?: string;
 }

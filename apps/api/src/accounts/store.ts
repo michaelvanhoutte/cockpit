@@ -18,6 +18,7 @@ import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { AccountStoreRpc, RestoreReport } from './rpc.js';
 import { accountChanges } from './changes.js';
 import { allowanceSpent } from './allowance.js';
+import { laterOf, type RefreshAsk } from '../jobs/debounce.js';
 import {
   CHANGE_LEDGER,
   accountTables,
@@ -476,6 +477,28 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     { id: string; workspaceId: string; title: string; description: string | null; capturedMessage: string }[]
   > {
     return this.#answer(accountName, (db) => itemsWithUnsettledTexts(db, accountName));
+  }
+
+  /**
+   * Records an ask for one refresh as the latest, unless a later one is
+   * already recorded ("Debounce the settle-triggered repropose fan-out across
+   * a real time window", issue 582).
+   *
+   * **In the object's key-value storage, not a table.** It is a scheduling
+   * hint rather than the account's data: nothing reads it but the refresh it
+   * gates, a backup skips it with the rest of `_cf_` (`backup.ts`), and
+   * losing it costs one refresh running twice. Synchronous, so the read and
+   * the write below cannot have another ask land between them.
+   */
+  recordRefreshAsk(accountName: string, refresh: string, ask: RefreshAsk): Answer<null> {
+    const key = refreshAskKey(accountName, refresh);
+    this.ctx.storage.kv.put(key, laterOf(this.ctx.storage.kv.get<RefreshAsk>(key) ?? null, ask));
+    return { status: 'ok', value: null };
+  }
+
+  /** The latest ask recorded for one refresh, or null where none ever was. */
+  latestRefreshAsk(accountName: string, refresh: string): Answer<RefreshAsk | null> {
+    return { status: 'ok', value: this.ctx.storage.kv.get<RefreshAsk>(refreshAskKey(accountName, refresh)) ?? null };
   }
 
   /**
@@ -1028,4 +1051,9 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       new Date().toISOString(),
     );
   }
+}
+
+/** Where one refresh's latest ask is kept - carrying the account's name for the reason every query filters on it (`rpc.ts`). */
+function refreshAskKey(accountName: string, refresh: string): string {
+  return `refresh-ask:${accountName}:${refresh}`;
 }
