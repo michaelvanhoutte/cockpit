@@ -6,18 +6,26 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
  * The control that opens a menu, wherever a menu is opened ("Open every menu
  * from the same control", issue 115).
  *
- * **Three dots always mean a menu opens here.** Before this, the header's was a
- * bordered pill, an item row's was faint and unbordered, and the one at the
- * right of the dashboard bar was not a menu at all - it was a link to a
- * settings page wearing a menu's clothes. Same glyph, three meanings,
- * and the next feature would have added a fourth: the functional definition's
- * "Dashboards and Panels" promises every Panel a menu of its own.
+ * **Three dots mean a menu opens here, with one deliberate exception below.**
+ * Before this, the header's was a bordered pill, an item row's was faint and
+ * unbordered, and the one at the right of the dashboard bar was not a menu at
+ * all - it was a link to a settings page wearing a menu's clothes. Same
+ * glyph, three meanings, and the next feature would have added a fourth: the
+ * functional definition's "Dashboards and Panels" promises every Panel a menu
+ * of its own.
  *
  * **Vertical, and drawn rather than typed.** `···` is a horizontal ellipsis -
  * punctuation, whose size and baseline are the font's to decide, and which
  * reads as an abbreviation rather than as a control. The vertical triplet is
  * what a browser and a phone use for this, and as an icon it is the size this
  * file says it is.
+ *
+ * **The exception: the account's own gear** (`pages/Layout.tsx`), beside the
+ * workspace's own dots on the same chrome, where two identical triplets read
+ * as one undifferentiated pair rather than two controls. `children` lets a
+ * call site swap the glyph alone, without losing the look, the accessible
+ * name or the open/close behaviour every other trigger shares - a gear still
+ * opens a menu the same three ways everything else does.
  *
  * One component rather than one class string, so a call site cannot take the
  * look without the behaviour: the trigger carries its own accessible name,
@@ -29,6 +37,7 @@ export function MenuTrigger({
   onChrome = false,
   disabled = false,
   ref,
+  children,
 }: {
   label: string;
   className?: string;
@@ -60,6 +69,8 @@ export function MenuTrigger({
   disabled?: boolean | undefined;
   /** Held where something has to put the focus back on this control afterwards. */
   ref?: React.Ref<HTMLButtonElement>;
+  /** The glyph, where the three dots would read as one of a pair of them. */
+  children?: React.ReactNode;
 }) {
   return (
     <DropdownMenu.Trigger
@@ -68,7 +79,7 @@ export function MenuTrigger({
       {...(disabled ? { 'aria-disabled': true } : {})}
       className={`${menuButtonClassName(onChrome, className)}${disabled ? ' opacity-40' : ''}`}
     >
-      <MenuDots />
+      {children ?? <MenuDots />}
     </DropdownMenu.Trigger>
   );
 }
@@ -124,6 +135,25 @@ function MenuDots() {
       <circle cx="8" cy="3.2" r="1.5" />
       <circle cx="8" cy="8" r="1.5" />
       <circle cx="8" cy="12.8" r="1.5" />
+    </svg>
+  );
+}
+
+const GEAR_TEETH = [0, 45, 90, 135, 180, 225, 270, 315];
+
+/**
+ * The account's own glyph, beside the workspace's dots in the header
+ * ("Give the open workspace and dashboard their own "…", and split the
+ * header's menu into settings and you", issue 567) - the word the issue
+ * itself uses for this control, and a shape nothing else in the header wears.
+ */
+export function GearIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="size-4" fill="currentColor" aria-hidden="true">
+      {GEAR_TEETH.map((angle) => (
+        <rect key={angle} x="7.3" y="3" width="1.4" height="1.8" rx="0.3" transform={`rotate(${angle} 8 8)`} />
+      ))}
+      <circle cx="8" cy="8" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
     </svg>
   );
 }
