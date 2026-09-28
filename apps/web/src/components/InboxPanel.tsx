@@ -1,14 +1,17 @@
-import { useRef, useState } from 'react';
+import { Suspense, lazy, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { snapshotQuery } from '../api/queries';
 import { filingsThatFile, itemsInTheInbox } from '../filing';
 import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
-import { RewriteHistoryWindow } from './RewriteHistoryWindow';
 import { HOW_TO_FILE_FROM_THE_INBOX } from '../whatThingsAre';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { INBOX_KEY } from '../inboxCollapsed';
 import { restedLongEnough } from '../switchWhileDragging';
+
+// Out of the initial bundle, and mounted only once asked for - the same way
+// a row mounts its own - since nothing on first paint needs it.
+const RewriteHistoryWindow = lazy(() => import('./RewriteHistoryWindow'));
 
 /** How many items the Inbox holds, or null until the snapshot has arrived. */
 function useInboxCount(workspaceId: string): number | null {
@@ -148,12 +151,16 @@ export function InboxHeading({
           />
         </div>
       </div>
-      <RewriteHistoryWindow
-        open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
-        returnFocusTo={opener.current}
-        workspaceId={workspaceId}
-      />
+      {historyOpen && (
+        <Suspense fallback={null}>
+          <RewriteHistoryWindow
+            open={historyOpen}
+            onClose={() => setHistoryOpen(false)}
+            returnFocusTo={opener.current}
+            workspaceId={workspaceId}
+          />
+        </Suspense>
+      )}
     </>
   );
 }

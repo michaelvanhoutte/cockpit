@@ -11,12 +11,16 @@ import { useServerEvents } from '../api/useServerEvents';
 // around itself in WorkspaceTabs.tsx - since the dock is not what the shell
 // has to paint first.
 const AgentDock = lazy(() => import('../components/AgentDock'));
+// Out of the initial bundle too: the window is drawn closed at first paint,
+// so its code can arrive a beat after it ("Drop an agent on an item to
+// start a Claude Code session on it", issue 571, which paid for the rows'
+// own agent controls with it).
+const ManageTypes = lazy(() => import('../components/ManageTypes'));
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { CaptureWindow } from '../components/CaptureWindow';
 import { ItemForm } from '../components/ItemForm';
 import { LoadFailure } from '../components/LoadFailure';
-import { ManageTypes } from '../components/ManageTypes';
 import { GearIcon, MenuContent, MenuTrigger, menuItemClass } from '../components/Menu';
 import { NameQuestion } from '../components/NameQuestion';
 import { WorkspaceTabs, stripTabClass } from '../components/WorkspaceTabs';
@@ -1100,11 +1104,13 @@ function TheShell() {
       {/* The account's list of types, over the workspace rather than instead
           of it. Here rather than in a page, because there is no page: the
           shell is the one thing that is always drawn inside a workspace. */}
-      <ManageTypes
-        open={managing === 'types'}
-        onClose={() => setManaging(null)}
-        returnFocusTo={settingsMenu.current}
-      />
+      <Suspense fallback={null}>
+        <ManageTypes
+          open={managing === 'types'}
+          onClose={() => setManaging(null)}
+          returnFocusTo={settingsMenu.current}
+        />
+      </Suspense>
 
       {/* Capture, over the workspace rather than instead of it, at a desk. */}
       <CaptureWindow

@@ -1998,7 +1998,7 @@ describe('Agents', () => {
       aRow({ agentsHere: { offered: [ASKING], run: undefined, start } });
 
       dropOnTheRow(ASKING.id);
-      expect(screen.getByRole('dialog', { name: 'About “Make appointment with Novy”' })).toBeVisible();
+      expect(await screen.findByRole('dialog', { name: 'About “Make appointment with Novy”' })).toBeVisible();
       expect(start).not.toHaveBeenCalled();
       await user.type(screen.getByLabelText('What to ask Claude'), 'Which day suits?');
       await user.click(screen.getByRole('button', { name: 'Send to Claude' }));
@@ -2013,7 +2013,7 @@ describe('Agents', () => {
       aRow({ agentsHere: { offered: [ASKING], run: undefined, start } });
 
       dropOnTheRow(ASKING.id);
-      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+      await user.click(await screen.findByRole('button', { name: 'Cancel' }));
 
       expect(start).not.toHaveBeenCalled();
       expect(screen.queryByRole('dialog')).toBeNull();

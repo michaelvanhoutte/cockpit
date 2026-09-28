@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
@@ -19,7 +19,6 @@ import { CommandRefused } from '../api/client';
 import { useCommand, useSendCommand } from '../api/queries';
 import { AGENT_BEING_DRAGGED, landAgent, useAgentInTheAir } from '../agentInTheAir';
 import { runChipFor } from '../agentRunChip';
-import { AgentPromptBox } from './AgentPromptBox';
 import { isCutOff } from '../cutOff';
 import { deadlineOf, dueDateLabel, type DeadlineLevel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
@@ -37,7 +36,11 @@ import {
   destructiveItemClass,
   menuItemClass,
 } from './Menu';
-import { RewriteHistoryWindow } from './RewriteHistoryWindow';
+
+// Out of the initial bundle, the same boundary AgentDock and ManageConnections
+// draw around themselves: two windows a row mounts only once asked for.
+const AgentPromptBox = lazy(() => import('./AgentPromptBox'));
+const RewriteHistoryWindow = lazy(() => import('./RewriteHistoryWindow'));
 
 /**
  * The flag's label at each level ("Show and edit an item's priority", issue
@@ -1229,6 +1232,7 @@ export function ItemRow({
           disabled) is a query registered per row for a feature few rows
           will ever open. */}
       {asking && (
+        <Suspense fallback={null}>
         <AgentPromptBox
           agentName={asking.name}
           about={label}
@@ -1241,8 +1245,10 @@ export function ItemRow({
           }}
           onSend={(prompt) => void sendToClaude(asking, prompt)}
         />
+        </Suspense>
       )}
       {historyOpen && (
+        <Suspense fallback={null}>
         <RewriteHistoryWindow
           open={historyOpen}
           onClose={() => setHistoryOpen(false)}
@@ -1250,6 +1256,7 @@ export function ItemRow({
           workspaceId={workspaceId}
           itemId={item.id}
         />
+        </Suspense>
       )}
       <ContextMenuContent label="Item menu" onCloseAutoFocus={keepFocusIfSomethingOpened}>
         {menuEntries(ContextMenu)}

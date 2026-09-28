@@ -97,3 +97,6 @@ export function AgentPromptBox({
     </Dialog.Root>
   );
 }
+
+// Also the default export, for the lazy `import()` ItemRow.tsx loads this behind.
+export default AgentPromptBox;
