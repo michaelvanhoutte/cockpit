@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
@@ -72,8 +72,27 @@ export function AgentDock({
   const [deleting, setDeleting] = useState<string | null>(null);
   const askedFrom = useRef<HTMLElement | null>(null);
   const newAgentButton = useRef<HTMLButtonElement>(null);
+  const bar = useRef<HTMLDivElement>(null);
   const command = useCommand();
   const send = useSendCommand();
+
+  /**
+   * How tall the dock actually is, so the bar that offers to undo the last
+   * change (`undo.tsx`) clears it rather than the two overlapping - which the
+   * dock's own tiles growing past `undo.tsx`'s fixed clearance once did
+   * ("Keep your agents in a dock, and choose which each dashboard shows",
+   * issue 570). Read once: the row never wraps (it scrolls sideways instead),
+   * so its height does not depend on what is in it.
+   */
+  useLayoutEffect(() => {
+    const el = bar.current;
+    if (!el) return;
+    const root = document.documentElement;
+    root.style.setProperty('--dock-h', `${el.offsetHeight}px`);
+    return () => {
+      root.style.removeProperty('--dock-h');
+    };
+  }, []);
 
   const hiddenIdsHere = hiddenAgents
     .filter((hidden) => hidden.dashboardId === dashboardId)
@@ -239,6 +258,7 @@ export function AgentDock({
         onToggleAskClaude={toggleAskClaude}
       >
         <div
+          ref={bar}
           role="toolbar"
           aria-label="Agents"
           className="flex shrink-0 items-center gap-3 py-2.5"
