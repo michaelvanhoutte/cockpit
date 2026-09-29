@@ -345,6 +345,20 @@ export function workspaceTab(page: Page, name: string): Locator {
   return page.locator('nav[aria-label="Workspaces"] a').filter({ hasText: name });
 }
 
+/**
+ * The open workspace's "…" at the right of the header, whose foot holds the
+ * account's own entries (Manage types, the agents' dock). Not there below
+ * `sm`, so a walk that needs it is the pointer's.
+ */
+export function workspaceMenuButton(page: Page): Locator {
+  // The row the strip sits in: the page's `header` also holds the dashboard
+  // bar and its panels, whose own buttons answer to the same name.
+  return page
+    .locator('nav[aria-label="Workspaces"]')
+    .locator('..')
+    .getByRole('button', { name: /^Actions for / });
+}
+
 export async function workspaceTabs(page: Page): Promise<string[]> {
   return page.locator('nav[aria-label="Workspaces"] a').allTextContents();
 }

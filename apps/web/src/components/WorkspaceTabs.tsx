@@ -54,9 +54,17 @@ export function WorkspaceTabs({
   bar,
   /** The tab you are on, brought into view by the shell that knows when to. */
   bringIntoView,
+  /**
+   * The account's own entries, which end the open workspace's "…" under a
+   * separator and are on no tab's menu ("Put the account's settings at the
+   * foot of the workspace's "…" menu, and drop the gear", issue 595). The shell
+   * holds what they open, so they are its to give.
+   */
+  accountEntries,
 }: {
   children: React.ReactNode;
   bar: string;
+  accountEntries: MenuEntry[];
   bringIntoView: (tab: HTMLAnchorElement) => void;
 }) {
   const { data } = useQuery(workspacesQuery);
@@ -440,9 +448,8 @@ export function WorkspaceTabs({
         {/* The open workspace's own actions, at the right of this row rather
             than inside the strip above: the strip scrolls within itself,
             which would carry a fixed button off screen along with the tabs.
-            The same entries the tab's own menu offers, from the same list, so
-            nothing is offered here that a right-click could not already
-            reach.
+            The same entries the tab's own menu offers, from the same list,
+            then the account's - which no tab's menu carries.
 
             **Gone below `sm`, the same width the wordmark already gives way
             at.** A touchscreen already has this menu a press away with no
@@ -460,6 +467,7 @@ export function WorkspaceTabs({
             <RowMenu
               label={`Actions for ${openWorkspace.name}`}
               entries={entriesFor(openWorkspace)}
+              footer={accountEntries}
               onChrome
             />
           </div>

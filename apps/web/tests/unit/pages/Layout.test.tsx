@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from '../../../src/pages/Layout';
@@ -128,6 +128,7 @@ describe('Workspace management', () => {
       //
       // The workspaces are no longer beside it: a workspace is changed on its
       // own tab, which tests/unit/components/WorkspaceTabs.test.tsx holds.
+      openWorkspaceId = 'ws-markup';
       const user = userEvent.setup();
       const { container } = render(
         <QueryClientProvider
@@ -137,7 +138,7 @@ describe('Workspace management', () => {
         </QueryClientProvider>,
       );
 
-      await user.click(await screen.findByRole('button', { name: 'Account settings' }));
+      await user.click(await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }));
       await user.click(await screen.findByRole('menuitem', { name: entry }));
 
       expect(await screen.findByRole('dialog', { name: entry })).toBeVisible();
@@ -152,39 +153,8 @@ describe('Workspace management', () => {
   });
 
   describe('the account is not offered a way to hand-write what Cockpit learns from', () => {
-    it.each([
-      { situation: 'inside no workspace', workspace: undefined },
-      { situation: 'inside a workspace', workspace: 'a-workspace' },
-    ])(
-      'has neither entry in the header’s menu, ',
-      async ({ workspace }) => {
-        openWorkspaceId = workspace;
-        const user = userEvent.setup();
-        render(
-          <QueryClientProvider
-            client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-          >
-            <Layout />
-          </QueryClientProvider>,
-        );
-
-        await user.click(await screen.findByRole('button', { name: 'Account settings' }));
-
-        expect(await screen.findByRole('menuitem', { name: 'Manage types' })).toBeVisible();
-        expect(screen.queryByRole('menuitem', { name: 'What Cockpit is told' })).toBeNull();
-        expect(screen.queryByRole('menuitem', { name: 'What Cockpit has learned' })).toBeNull();
-      },
-    );
-  });
-});
-
-describe('Across the app', () => {
-  describe('the header splits its menu into the account’s settings and who you are', () => {
-    // "Give the open workspace and dashboard their own ‘…’, and
-    // split the header's menu into settings and you", issue 567: the one menu
-    // used to carry the account's settings and the signed-in person together,
-    // which is not the same job twice.
-    it('holds the account’s own settings behind the gear, and nothing about who is signed in', async () => {
+    it('has neither entry in the workspace’s menu', async () => {
+      openWorkspaceId = 'ws-markup';
       const user = userEvent.setup();
       render(
         <QueryClientProvider
@@ -194,12 +164,107 @@ describe('Across the app', () => {
         </QueryClientProvider>,
       );
 
-      await user.click(await screen.findByRole('button', { name: 'Account settings' }));
+      await user.click(await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Manage types' })).toBeVisible();
+      expect(screen.queryByRole('menuitem', { name: 'What Cockpit is told' })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: 'What Cockpit has learned' })).toBeNull();
+    });
+  });
+});
+
+describe('Across the app', () => {
+  describe('the header splits its menu into the account’s settings and who you are', () => {
+    // "Give the open workspace and dashboard their own ‘…’, and
+    // split the header's menu into settings and you", issue 567: the one menu
+    // used to carry the account's settings and the signed-in person together,
+    // which is not the same job twice.
+    it('ends the open workspace’s menu with the account’s entries under a separator, and has no gear', async () => {
+      openWorkspaceId = 'ws-markup';
+      const user = userEvent.setup();
+      render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Layout />
+        </QueryClientProvider>,
+      );
+
+      expect(screen.queryByRole('button', { name: 'Account settings' })).toBeNull();
+      await user.click(await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }));
 
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
+        'Edit…',
+        'Manage connections…',
+        'Delete',
         'Manage types',
         'Hide the agents’ dock',
       ]);
+      expect(screen.getByRole('separator')).toBeInTheDocument();
+    });
+
+    it('offers the account’s entries on no tab’s own menu', async () => {
+      openWorkspaceId = 'ws-markup';
+      render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Layout />
+        </QueryClientProvider>,
+      );
+
+      fireEvent.contextMenu(await screen.findByText(A_NAME_THAT_LOOKS_LIKE_MARKUP));
+
+      expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toEqual([
+        'Edit…',
+        'Manage connections…',
+        'Delete',
+      ]);
+    });
+
+    it('gives the focus back to the “…” when the types window closes', async () => {
+      openWorkspaceId = 'ws-markup';
+      const user = userEvent.setup();
+      render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Layout />
+        </QueryClientProvider>,
+      );
+      const dots = () =>
+        screen.getByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` });
+
+      await user.click(await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Manage types' }));
+      await screen.findByRole('dialog', { name: 'Manage types' });
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => expect(dots()).toHaveFocus());
+    });
+
+    it('hides and shows the agents’ dock from the entry, keeping the focus on the “…”', async () => {
+      openWorkspaceId = 'ws-markup';
+      const user = userEvent.setup();
+      render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Layout />
+        </QueryClientProvider>,
+      );
+      const dots = () =>
+        screen.getByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` });
+
+      await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` });
+      await user.click(dots());
+      await user.click(await screen.findByRole('menuitem', { name: 'Hide the agents’ dock' }));
+      await waitFor(() => expect(dots()).toHaveFocus());
+
+      await user.click(dots());
+      await user.click(await screen.findByRole('menuitem', { name: 'Show the agents’ dock' }));
+      await user.click(dots());
+      expect(await screen.findByRole('menuitem', { name: 'Hide the agents’ dock' })).toBeVisible();
     });
 
     // Whether Admin joins these two is a question of role rather than of

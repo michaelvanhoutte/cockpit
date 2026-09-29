@@ -12,7 +12,7 @@ import type { KeyPress } from './inboxCollapsed.js';
 
 export type { KeyPress };
 
-/** The key that toggles the dock, named in the gear's own entry. */
+/** The key that toggles the dock, named in the dock's own menu entry. */
 export const AGENT_DOCK_KEY = 'a';
 
 const KEY = 'cockpit.agent-dock-hidden';

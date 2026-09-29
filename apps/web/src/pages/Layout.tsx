@@ -21,7 +21,7 @@ import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { CaptureWindow } from '../components/CaptureWindow';
 import { ItemForm } from '../components/ItemForm';
 import { LoadFailure } from '../components/LoadFailure';
-import { GearIcon, MenuContent, MenuTrigger, menuItemClass } from '../components/Menu';
+import { MenuContent, menuItemClass, type MenuEntry } from '../components/Menu';
 import { NameQuestion } from '../components/NameQuestion';
 import { WorkspaceTabs, stripTabClass } from '../components/WorkspaceTabs';
 import { WHAT_A_WORKSPACE_IS } from '../whatThingsAre';
@@ -459,7 +459,7 @@ function TheShell() {
 
   /**
    * Whether the account's list of types is open over the workspace, and the
-   * control it was opened from - the header's own menu, which has nothing to
+   * control it was opened from - the workspace's "…", which has nothing to
    * return the focus to by itself.
    *
    * Over the workspace rather than at an address of its own
@@ -468,13 +468,32 @@ function TheShell() {
    * header wearing none of the workspace's colour, control or selected tab.
    */
   const [managing, setManaging] = useState<'types' | null>(null);
-  const settingsMenu = useRef<HTMLButtonElement>(null);
+  const typesOpenedFrom = useRef<HTMLElement | null>(null);
   /**
-   * That the entry just chosen opens a window, so the menu closing must not
-   * pull the focus back onto its own control - it would take it straight off
-   * the window that has just opened.
+   * The account's own entries, at the foot of the open workspace's "…"
+   * (`WorkspaceTabs.tsx`).
+   *
+   * An entry rather than a link: the types open a window over the workspace
+   * instead of replacing it, so managing them is a detour and not a journey.
+   * **The workspaces are not here**: a workspace is changed on its own tab
+   * ("Manage the types, and put them in the order you want", issue 156). The
+   * dock's entry is its own visibility, not its content - the dock's own "…"
+   * is where an agent is hidden or Ask Claude is switched.
    */
-  const opening = useRef(false);
+  const accountEntries: MenuEntry[] = [
+    {
+      label: 'Manage types',
+      onSelect: (from) => {
+        typesOpenedFrom.current = from;
+        setManaging('types');
+      },
+    },
+    {
+      label: agentDockHidden ? 'Show the agents’ dock' : 'Hide the agents’ dock',
+      keepsFocus: true,
+      onSelect: () => hideAgentDock(!agentDockHidden),
+    },
+  ];
 
   /**
    * Who is signed in - and, when it comes back refused, that nobody is.
@@ -776,76 +795,21 @@ function TheShell() {
               own (components/WorkspaceTabs.tsx). The shell keeps what is about
               the shell: which workspace is open, what it is painted in, and
               the `+` that makes another. */}
-          <WorkspaceTabs bar={theme.bar} bringIntoView={bringIntoView}>
+          <WorkspaceTabs
+            bar={theme.bar}
+            bringIntoView={bringIntoView}
+            accountEntries={accountEntries}
+          >
             <AddWorkspace />
           </WorkspaceTabs>
 
-          {/* The gear and the profile share the tighter of the header's two
-              gaps, the way the strip and its own button do above: both are
-              "the account" to somebody scanning the header, and the wide
-              `gap-4` between the header's own sections left too little of a
-              480px phone for the strip once a second button joined the
-              first. */}
+          {/* The profile alone, at the header's right edge. */}
           <div className="flex shrink-0 items-end gap-1">
-            {/* The account's own settings - just the types, today. Split
-                from who-you-are beside it ("Give the open workspace and
-                dashboard their own "…", and split the header's menu into
-                settings and you", issue 567): the one menu here used to hold
-                both, which is where people looked for the workspace's own
-                actions (now above) and did not find them - a single "…" was
-                carrying three unrelated jobs. */}
-            <DropdownMenu.Root>
-              <MenuTrigger label="Account settings" onChrome ref={settingsMenu}>
-                <GearIcon />
-              </MenuTrigger>
-              <MenuContent
-                onCloseAutoFocus={(event) => {
-                  const claimed = opening.current;
-                  opening.current = false;
-                  if (claimed) event.preventDefault();
-                }}
-              >
-                {/* An entry rather than a link: it opens a window over the
-                    workspace instead of replacing it, so managing the types is a
-                    detour and not a journey - and there is no address to come
-                    back from.
-
-                    **The workspaces are not here.** They were, beside this, and
-                    the list they opened is gone: a workspace is changed on its
-                    own tab, which is a press away rather than two
-                    (components/WorkspaceTabs.tsx). The types keep a window
-                    because they have no tab - they belong to the account and are
-                    chosen while capturing, not switched between ("Manage the
-                    types, and put them in the order you want", issue 156). */}
-                <DropdownMenu.Item
-                  className={menuItemClass}
-                  onSelect={() => {
-                    opening.current = true;
-                    setManaging('types');
-                  }}
-                >
-                  Manage types
-                </DropdownMenu.Item>
-                {/* The dock's own visibility, not its content - the dock's
-                    own "…" is where an agent is hidden or Ask Claude is
-                    switched, the same split "Manage types" already draws
-                    against the types themselves. */}
-                <DropdownMenu.Item
-                  className={menuItemClass}
-                  onSelect={() => hideAgentDock(!agentDockHidden)}
-                >
-                  {agentDockHidden ? 'Show the agents’ dock' : 'Hide the agents’ dock'}
-                </DropdownMenu.Item>
-              </MenuContent>
-            </DropdownMenu.Root>
-
             {/* Who you are, and the way out - a circle carrying your initial
                 rather than the three dots every other menu opens with, so the
                 two controls read as different jobs rather than as one menu cut
                 in half. */}
             <DropdownMenu.Root>
-              {/* Not "Account": that reads as a substring of the gear's own
-                  "Account settings" and a lookup for one would find both. */}
               <DropdownMenu.Trigger
                 aria-label="Profile"
                 // A permanent circle of tint rather than the ghost icon every
@@ -1109,7 +1073,7 @@ function TheShell() {
         <ManageTypes
           open={managing === 'types'}
           onClose={() => setManaging(null)}
-          returnFocusTo={settingsMenu.current}
+          returnFocusTo={typesOpenedFrom.current}
         />
       </Suspense>
 
