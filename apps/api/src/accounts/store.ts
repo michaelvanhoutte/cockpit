@@ -84,6 +84,7 @@ import {
   recordHookArrival,
   getAttachment,
   getAttachmentForDownload,
+  listAttachmentsOfItem,
   getItem,
   getItemFormPresentation,
   getSourceAccount,
@@ -647,6 +648,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         // run already says it is starting.
         message: agent?.message ?? '',
         item: { title: itemLabel(item), description: item.description, sourceLink: item.sourceLink },
+        attachments: listAttachmentsOfItem(db, accountName, item.id),
       };
     });
   }

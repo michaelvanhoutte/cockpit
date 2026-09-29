@@ -2,6 +2,7 @@ import { hc } from 'hono/client';
 import type { AppType } from '@cockpit/api';
 import {
   accountHoldingsSchema,
+  attachmentAddress,
   claudeCodeOutcomeSchema,
   startAgentOutcomeSchema,
   itemTypeListSchema,
@@ -507,7 +508,7 @@ export async function uploadAttachment({
 
 /** An Item's attachment, opened or downloaded from a click on its chip (issue 441). */
 export function attachmentUrl(attachmentId: string): string {
-  return `/v1/attachments/${encodeURIComponent(attachmentId)}`;
+  return attachmentAddress(attachmentId);
 }
 
 /**

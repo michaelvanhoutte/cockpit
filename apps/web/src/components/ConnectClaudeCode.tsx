@@ -126,7 +126,19 @@ export function ConnectClaudeCode({
             <ol className="flex flex-col gap-3 text-sm">
               <li>1. Create a routine on this workspace's repository in Claude Code.</li>
               <li>
-                <p>2. Give it this prompt:</p>
+                {/* The links an agent's message carries point here, and so do
+                    the hooks of step 5, and a routine's environment reaches
+                    only the domains it allows ("Send an item's attachments
+                    along when an agent starts", issue 573). Said once, here,
+                    since it is needed before the first start. */}
+                2. Allow its environment to reach{' '}
+                <code className="rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
+                  {window.location.hostname}
+                </code>
+                , so the session can read an item's attachments and say when it is waiting on you.
+              </li>
+              <li>
+                <p>3. Give it this prompt:</p>
                 <div className="mt-1 flex items-center gap-2">
                   <code className="min-w-0 flex-1 truncate rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
                     {ROUTINE_PROMPT}
@@ -141,7 +153,7 @@ export function ConnectClaudeCode({
                 </div>
               </li>
               <li>
-                <p>3. Paste the routine's API trigger URL and token:</p>
+                <p>4. Paste the routine's API trigger URL and token:</p>
                 <div className="mt-1 flex flex-col gap-2">
                   <input
                     value={routineUrl}
@@ -209,11 +221,11 @@ async function fetchHooks(workspaceId: string, sourceAccountId: string): Promise
 }
 
 /**
- * Step 4, on a connection already held: the snippet for the repository's
- * `.claude/settings.json`, the domain the routine's network settings must
- * allow, and when a hook last reached Cockpit - which is how a repository
- * whose hooks never arrive is told from one that is simply quiet. Read afresh
- * every time the form opens, since that last time is the point.
+ * Step 5, on a connection already held: the snippet for the repository's
+ * `.claude/settings.json`, and when a hook last reached Cockpit - which is
+ * how a repository whose hooks never arrive is told from one that is simply
+ * quiet. Read afresh every time the form opens, since that last time is the
+ * point. The domain the hooks post to is step 2's, allowed before connecting.
  */
 function ReportingBack({
   open,
@@ -233,7 +245,7 @@ function ReportingBack({
 
   return (
     <li>
-      <p>4. So an item says when Claude is waiting on you, add these hooks to the repository's .claude/settings.json:</p>
+      <p>5. So an item says when Claude is waiting on you, add these hooks to the repository's .claude/settings.json:</p>
       {error && !data && <p className="pt-1 text-sm text-over">The hooks could not be read. Close this and try again.</p>}
       {data && (
         <div className="mt-1 flex flex-col gap-2">
@@ -245,13 +257,6 @@ function ReportingBack({
               {claudeCodeHooksSnippet(data)}
             </pre>
             <CopyButton text={claudeCodeHooksSnippet(data)} />
-          </div>
-          <div className="flex items-center gap-2">
-            <p className="min-w-0 flex-1">
-              and allow <code className="rounded bg-black/5 px-1 font-mono">{data.domain}</code> in the routine's
-              network settings.
-            </p>
-            <CopyButton text={data.domain} />
           </div>
           <p className="text-ink-faint">
             {data.lastArrivedAt

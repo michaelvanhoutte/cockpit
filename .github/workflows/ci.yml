@@ -257,7 +257,11 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
+      # A passing run takes about ten minutes. The cap turns a suite that has
+      # passed and then never exits into a failure in minutes rather than
+      # GitHub's six hours (apps/api/vitest.config.ts, `disableConsoleIntercept`).
       - run: node scripts/ci-test.mjs
+        timeout-minutes: 25
       # What this run selected and why (scripts/lib/test-record.mjs), on every run
       # and whatever the tests did. It can only add: the step is allowed to fail
       # without failing the job, and it runs after the tests have decided the

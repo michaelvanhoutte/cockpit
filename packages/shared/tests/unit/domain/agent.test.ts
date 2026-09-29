@@ -66,6 +66,99 @@ describe('Agents', () => {
     });
   });
 
+  describe('the message lists every attachment of the item, each a link the session can open', () => {
+    const IMAGE_ID = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
+    const image = (id: string, filename: string) => ({
+      id,
+      filename,
+      contentType: 'image/png',
+      link: `https://cockpit.test/v1/attachment-links/token-${filename}`,
+    });
+    const HEADER =
+      'Attachments - download each link and read the file. A link works for an hour, without signing in.';
+
+    it.each([
+      {
+        situation: 'two images and a PDF are three links, each named',
+        description: null,
+        attachments: [
+          image('a1', 'before.png'),
+          image('a2', 'after.png'),
+          {
+            id: 'a3',
+            filename: 'invoice.pdf',
+            contentType: 'application/pdf',
+            link: 'https://cockpit.test/v1/attachment-links/token-invoice.pdf',
+          },
+        ],
+        expected: [
+          'Chase the invoice',
+          '',
+          HEADER,
+          '- before.png: https://cockpit.test/v1/attachment-links/token-before.png',
+          '- after.png: https://cockpit.test/v1/attachment-links/token-after.png',
+          '- invoice.pdf: https://cockpit.test/v1/attachment-links/token-invoice.pdf',
+        ].join('\n'),
+      },
+      {
+        situation: 'an image inline in the description is its link in place of the signed-in address',
+        description: `Broken here:\n\n![shot.png](/v1/attachments/${IMAGE_ID})`,
+        attachments: [image(IMAGE_ID, 'shot.png')],
+        expected: [
+          'Chase the invoice',
+          '',
+          'Broken here:',
+          '',
+          '![shot.png](https://cockpit.test/v1/attachment-links/token-shot.png)',
+          '',
+          HEADER,
+          '- shot.png: https://cockpit.test/v1/attachment-links/token-shot.png',
+        ].join('\n'),
+      },
+      {
+        situation: 'an address inside another URL in the description is left as it is',
+        description: `See https://elsewhere.test/v1/attachments/${IMAGE_ID}`,
+        attachments: [image(IMAGE_ID, 'shot.png')],
+        expected: [
+          'Chase the invoice',
+          '',
+          `See https://elsewhere.test/v1/attachments/${IMAGE_ID}`,
+          '',
+          HEADER,
+          '- shot.png: https://cockpit.test/v1/attachment-links/token-shot.png',
+        ].join('\n'),
+      },
+      {
+        situation: 'a video clip is named, as not readable by Claude',
+        description: null,
+        attachments: [
+          {
+            id: 'a4',
+            filename: 'repro.mp4',
+            contentType: 'video/mp4',
+            link: 'https://cockpit.test/v1/attachment-links/token-repro.mp4',
+          },
+        ],
+        expected: ['Chase the invoice', '', HEADER, '- repro.mp4 - not readable by Claude'].join('\n'),
+      },
+      {
+        situation: 'an item with no attachments has no attachments section',
+        description: null,
+        attachments: [],
+        expected: 'Chase the invoice',
+      },
+    ])('$situation', ({ description, attachments, expected }) => {
+      expect(
+        agentMessageFor(agent({ message: '{title}\n\n{description}' }), {
+          title: 'Chase the invoice',
+          description,
+          link: 'https://cockpit.test/i/7',
+          attachments,
+        }),
+      ).toBe(expected);
+    });
+  });
+
   describe('a dashboard shows every agent except those hidden on it', () => {
     const scopeIt = agent({ id: 'agent-scope', name: 'Scope it' });
     const shipIt = agent({ id: 'agent-ship', name: 'Ship it' });

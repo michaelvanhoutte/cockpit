@@ -392,7 +392,8 @@ describe('Agents', () => {
         headers: { Authorization: 'Bearer the-connections-secret' },
       });
       expect(snippet.hooks.UserPromptSubmit[0].hooks[0]).toEqual(hook);
-      expect(screen.getByText('cockpit.example')).toBeInTheDocument();
+      // The domain to allow is the form's step 2, shown before any connection
+      // exists (ConnectClaudeCode.test.tsx), so it is not repeated here.
       expect(screen.getByText(says)).toBeInTheDocument();
       expect(held.hooksAskedFor).toEqual(['account-claude-code']);
     });

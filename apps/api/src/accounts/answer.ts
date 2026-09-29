@@ -25,6 +25,8 @@ export interface AgentRunToFire {
   credentialNonce: string;
   message: string;
   item: { title: string; description: string | null; sourceLink: string | null };
+  /** Every file on the Item, oldest first, for the message to link (issue 573). */
+  attachments: { id: string; filename: string; contentType: string }[];
 }
 
 /** The full read model for one workspace, as the store answers it. */

@@ -20,6 +20,23 @@ export const ATTACHMENT_CONTENT_TYPES = [
 export const attachmentContentTypeSchema = z.enum(ATTACHMENT_CONTENT_TYPES);
 export type AttachmentContentType = z.infer<typeof attachmentContentTypeSchema>;
 
+/**
+ * Whether a Claude Code session can read a file of this type - images, PDFs
+ * and text, and not a video, which it cannot watch ("Send an item's
+ * attachments along when an agent starts", issue 573).
+ */
+export function isReadableByClaude(contentType: string): boolean {
+  return !contentType.startsWith('video/');
+}
+
+/**
+ * Where the signed-in app reads an attachment, and so how a description
+ * written in the app points at one inline (`![photo.png](/v1/attachments/…)`).
+ */
+export function attachmentAddress(attachmentId: string): string {
+  return `/v1/attachments/${encodeURIComponent(attachmentId)}`;
+}
+
 /** 25MB (issue 441) - refused before the upload route reads a byte of the body. */
 export const MAX_ATTACHMENT_SIZE = 25 * 1024 * 1024;
 

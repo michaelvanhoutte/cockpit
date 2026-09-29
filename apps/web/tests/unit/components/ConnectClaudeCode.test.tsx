@@ -90,6 +90,14 @@ describe('Connector management', () => {
     });
   });
 
+  describe('the form names this Cockpit’s domain as one the routine must be allowed to reach', () => {
+    it('shows the domain the page is served from', () => {
+      showForm();
+
+      expect(screen.getByText(window.location.hostname, { selector: 'code' })).toBeInTheDocument();
+    });
+  });
+
   describe('the prompt is copied exactly, for pasting into the routine', () => {
     it('copies the one-line prompt shown', async () => {
       showForm();
