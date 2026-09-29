@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ASK_CLAUDE_ID,
+  hookNamesSession,
   runBlocksAStart,
   startableAgents,
   type Agent,
@@ -11,7 +12,8 @@ import {
  * L1: which run stands in the way of a start, and which Agents a Dashboard
  * offers to start - the one answer the row's menu, the drop and the server's
  * refusal all read ("Drop an agent on an item to start a Claude Code session
- * on it", issue 571). That the server actually refuses by them is
+ * on it", issue 571), and which run a hook is about ("See on the item when
+ * Claude is waiting on you", issue 572). That the server actually acts on them is
  * apps/api/tests/integration/http/agent-runs.test.ts's.
  */
 
@@ -53,6 +55,20 @@ describe('Agents', () => {
         { id: ASK_CLAUDE_ID, asks: true, starts: false },
         { id: 'scope', asks: false, starts: true },
       ]);
+    });
+  });
+
+  describe('a hook moves the run whose session it names, and no other', () => {
+    const SESSION = 'https://claude.ai/code/session_01HJKLMN';
+    it.each([
+      { situation: 'the routine’s own session id', sessionUrl: SESSION, ids: ['session_01HJKLMN'], names: true },
+      { situation: 'the id without its session_ prefix', sessionUrl: SESSION, ids: ['01HJKLMN'], names: true },
+      { situation: 'the id in its second place', sessionUrl: SESSION, ids: ['a-local-uuid', 'session_01HJKLMN'], names: true },
+      { situation: 'another session', sessionUrl: SESSION, ids: ['session_01OTHER'], names: false },
+      { situation: 'a run with no link', sessionUrl: null, ids: ['session_01HJKLMN'], names: false },
+      { situation: 'a blank id against a link ending in session_', sessionUrl: 'https://claude.ai/code/session_', ids: [''], names: false },
+    ])('$situation', ({ sessionUrl, ids, names }) => {
+      expect(hookNamesSession(sessionUrl, ids)).toBe(names);
     });
   });
 });

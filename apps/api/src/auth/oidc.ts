@@ -295,7 +295,7 @@ async function challengeFor(codeVerifier: string): Promise<string> {
   return base64url(new Uint8Array(digest));
 }
 
-function base64url(bytes: Uint8Array): string {
+export function base64url(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');

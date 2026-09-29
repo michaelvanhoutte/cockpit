@@ -30,6 +30,7 @@ import {
   type ForeignRow,
 } from './backup.js';
 import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
+import { admittedCalls } from '../connectors/claude-code-hooks.js';
 import {
   deleteAllRows,
   dropAccountTables,
@@ -78,7 +79,9 @@ import {
   getAgent,
   getAgentRun,
   getAskClaudeEnabled,
+  lastHookArrival,
   listOpenAgentRuns,
+  recordHookArrival,
   getAttachment,
   getAttachmentForDownload,
   getItem,
@@ -169,6 +172,8 @@ function spentAllowance(error: unknown): Answer<never> {
 export class AccountStore extends DurableObject<Env> implements AccountStoreRpc {
   #db: AccountDb | null = null;
   #upToDate = false;
+  /** The hook calls each Claude Code connection was admitted for, newest last - see `claudeCodeHookArrived`. */
+  #hookCalls = new Map<string, number[]>();
 
   /** All live types of the account, in the order they were put in. */
   itemTypes(accountName: string): Answer<ItemType[]> {
@@ -665,13 +670,47 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     sourceAccountId: string,
   ): Answer<{ sealedCredential: string; credentialNonce: string }> {
     return this.#answer(accountName, (db) => {
-      const held = getSourceAccount(db, accountName, sourceAccountId);
-      if (!held || held.workspaceId !== workspaceId || held.connectorId !== CLAUDE_CODE) {
-        throw new SourceAccountNotFoundError(sourceAccountId);
-      }
+      claudeCodeConnectionHeld(db, accountName, workspaceId, sourceAccountId);
       // The row this just confirmed exists is the row this reads - there is
       // nothing between the two calls that could make the second miss.
       return sealedCredentialOf(db, accountName, sourceAccountId)!;
+    });
+  }
+
+  /**
+   * A Claude Code hook reaching one of this Workspace's connections ("See on
+   * the item when Claude is waiting on you", issue 572): admitted and recorded
+   * as when a hook last arrived, or refused as one of too many.
+   *
+   * **Counted here, in memory**, because this object is the one place every
+   * call for one connection passes through one at a time. A count lost to the
+   * object being evicted starts a flood's window over, which is all it costs.
+   */
+  claudeCodeHookArrived(
+    accountName: string,
+    workspaceId: string,
+    sourceAccountId: string,
+    at: string,
+  ): Answer<'admitted' | 'too-many'> {
+    return this.#answer(accountName, (db) => {
+      claudeCodeConnectionHeld(db, accountName, workspaceId, sourceAccountId);
+      const calls = admittedCalls(this.#hookCalls.get(sourceAccountId) ?? [], Date.parse(at));
+      if (!calls) return 'too-many';
+      this.#hookCalls.set(sourceAccountId, calls);
+      recordHookArrival(db, accountName, sourceAccountId, at);
+      return 'admitted';
+    });
+  }
+
+  /** When a hook last reached one of this Workspace's Claude Code connections (issue 572), for its form. */
+  claudeCodeHookArrival(
+    accountName: string,
+    workspaceId: string,
+    sourceAccountId: string,
+  ): Answer<{ lastArrivedAt: string | null }> {
+    return this.#answer(accountName, (db) => {
+      claudeCodeConnectionHeld(db, accountName, workspaceId, sourceAccountId);
+      return { lastArrivedAt: lastHookArrival(db, accountName, sourceAccountId) };
     });
   }
 
@@ -1109,4 +1148,21 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
 /** Where one refresh's latest ask is kept - carrying the account's name for the reason every query filters on it (`rpc.ts`). */
 function refreshAskKey(accountName: string, refresh: string): string {
   return `refresh-ask:${accountName}:${refresh}`;
+}
+
+/**
+ * Refuses, as not found, a row that is not this Workspace's Claude Code
+ * connection - another Workspace's, or a Teams row - for every read that names
+ * a Workspace and a row id directly (see `claudeCodeCredential`).
+ */
+function claudeCodeConnectionHeld(
+  db: AccountDb,
+  accountName: string,
+  workspaceId: string,
+  sourceAccountId: string,
+): void {
+  const held = getSourceAccount(db, accountName, sourceAccountId);
+  if (!held || held.workspaceId !== workspaceId || held.connectorId !== CLAUDE_CODE) {
+    throw new SourceAccountNotFoundError(sourceAccountId);
+  }
 }

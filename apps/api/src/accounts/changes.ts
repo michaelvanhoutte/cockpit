@@ -118,6 +118,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ACCOUNT_AGENT_SETTINGS,
     AGENT_RUNS,
     CONNECTION_FAILURES,
+    CLAUDE_CODE_HOOKS,
   ];
 }
 
@@ -434,6 +435,52 @@ const CONNECTION_FAILURES: Change = {
 	\`reason\` text NOT NULL,
 	\`failed_at\` text NOT NULL,
 	CONSTRAINT "connection_failures_failed_at_is_timestamp" CHECK(failed_at IS NULL OR (datetime(failed_at) IS NOT NULL AND substr(failed_at, 11, 1) = 'T' AND substr(failed_at, -1) = 'Z' AND length(failed_at) >= 20 AND date(failed_at) = substr(failed_at, 1, 10)))
+) STRICT`,
+    },
+  ],
+};
+
+/**
+ * What Claude Code hooks have said ("See on the item when Claude is waiting on
+ * you", issue 572): whether each run's session is waiting on you, and when a
+ * hook last reached each connection - see `schema.ts` for why both are tables
+ * of their own with no foreign key.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): `CREATE TABLE` statements only, and none that writes to a
+ *   row.
+ * - **If it stops halfway:** it cannot leave a half-built table behind, for
+ *   the reason `0044-agents` gives.
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** there can be none - both tables
+ *   are new and start empty.
+ * - **Rolled back after it has run:** an older release never names either
+ *   table, so every run reads as working and hooks are refused as an unknown
+ *   address until the release goes forward again.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const CLAUDE_CODE_HOOKS: Change = {
+  name: '0049-claude-code-hooks',
+  statements: [
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`agent_run_activity\` (
+	\`run_id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`waiting\` integer NOT NULL,
+	\`reported_at\` text NOT NULL,
+	CONSTRAINT "agent_run_activity_waiting_is_flag" CHECK(waiting IN (0, 1)),
+	CONSTRAINT "agent_run_activity_reported_at_is_timestamp" CHECK(reported_at IS NULL OR (datetime(reported_at) IS NOT NULL AND substr(reported_at, 11, 1) = 'T' AND substr(reported_at, -1) = 'Z' AND length(reported_at) >= 20 AND date(reported_at) = substr(reported_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`claude_code_hook_arrivals\` (
+	\`source_account_id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`arrived_at\` text NOT NULL,
+	CONSTRAINT "claude_code_hook_arrivals_arrived_at_is_timestamp" CHECK(arrived_at IS NULL OR (datetime(arrived_at) IS NOT NULL AND substr(arrived_at, 11, 1) = 'T' AND substr(arrived_at, -1) = 'Z' AND length(arrived_at) >= 20 AND date(arrived_at) = substr(arrived_at, 1, 10)))
 ) STRICT`,
     },
   ],

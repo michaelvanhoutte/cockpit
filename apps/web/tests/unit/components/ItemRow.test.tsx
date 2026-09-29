@@ -1865,6 +1865,7 @@ describe('Agents', () => {
     sessionUrl: 'https://claude.ai/code/session_01',
     reason: null,
     startedAt: new Date().toISOString(),
+    waiting: false,
     ...overrides,
   });
 
@@ -1888,6 +1889,7 @@ describe('Agents', () => {
     it.each([
       { situation: 'starting', run: aRun({ status: 'starting', sessionUrl: null }), says: 'Scope it · Starting Claude…', link: null },
       { situation: 'working', run: aRun(), says: 'Scope it · Claude is working ↗', link: 'https://claude.ai/code/session_01' },
+      { situation: 'waiting on you', run: aRun({ waiting: true }), says: 'Scope it · Claude is waiting on you ↗', link: 'https://claude.ai/code/session_01' },
       {
         situation: 'refused',
         run: aRun({ status: 'failed', sessionUrl: null, reason: 'The token is wrong or was revoked.' }),
@@ -1901,6 +1903,8 @@ describe('Agents', () => {
       const chip = screen.getByText(says);
       expect(chip.getAttribute('href')).toBe(link);
       if (run.reason) expect(chip).toHaveAttribute('title', run.reason);
+      // Amber, the colour of something asking for you, only while it is (issue 572).
+      expect(chip.classList.contains('bg-due-soft')).toBe(run.waiting);
     });
 
     it('stops saying it is starting once it has taken too long, with nothing else redrawing the row', () => {

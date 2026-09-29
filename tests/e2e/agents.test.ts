@@ -245,6 +245,38 @@ test.describe('Agents', () => {
       const fired = (await (await fetch(`${issuer}/claude-code/fired`)).json()) as { text: string }[];
       expect(fired.some((sent) => sent.text.includes('Who do we chase first?') && sent.text.includes(asked))).toBe(true);
 
+      // The session's hooks say it is waiting on you, then working again
+      // ("See on the item when Claude is waiting on you", issue 572) - posted
+      // exactly as the connection's form tells the repository to post them.
+      await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
+      await chooseRowAction(page, 'Claude Code', 'Edit…', isMobile);
+      const snippet = page.getByLabel('Hooks for .claude/settings.json');
+      await expect(page.getByText('No hook has arrived yet.')).toBeVisible();
+      const hook = JSON.parse((await snippet.textContent())!).hooks.Stop[0].hooks[0] as {
+        url: string;
+        headers: { Authorization: string };
+      };
+      await press(page.getByRole('button', { name: 'Cancel' }), isMobile);
+      await press(page.getByRole('button', { name: 'Done' }), isMobile);
+      const session = (await itemRow(page, asked).getByRole('link', { name: /Claude is working/ }).getAttribute('href'))!
+        .split('/')
+        .at(-1)!;
+      const report = async (hook_event_name: string) => {
+        const res = await fetch(hook.url, {
+          method: 'POST',
+          headers: { authorization: hook.headers.Authorization, 'content-type': 'application/json' },
+          body: JSON.stringify({ session_id: session, hook_event_name }),
+        });
+        expect(res.status).toBe(204);
+      };
+      await report('Stop');
+      await expect(itemRow(page, asked).getByRole('link', { name: 'Ask Claude · Claude is waiting on you ↗' })).toBeVisible();
+      // The dock's total, not the tile's own count, which is read out the same way.
+      if (!isMobile) await expect(page.getByRole('toolbar', { name: 'Agents' }).getByRole('status')).toHaveText('1 waiting on you');
+      await report('UserPromptSubmit');
+      await expect(itemRow(page, asked).getByRole('link', { name: 'Ask Claude · Claude is working ↗' })).toBeVisible();
+      await expect(page.getByText(/waiting on you/)).toHaveCount(0);
+
       // Agent finished: Still to do - the chip goes, and the row stays.
       await press(itemRow(page, asked).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Agent finished: Still to do' }), isMobile);
@@ -259,6 +291,10 @@ test.describe('Agents', () => {
         await press(page.getByRole('button', { name: `Yes, delete ${agent}` }), isMobile);
       }
       await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
+      // The form says when the hooks above last arrived.
+      await chooseRowAction(page, 'Claude Code', 'Edit…', isMobile);
+      await expect(page.getByText(/^A hook last arrived /)).toBeVisible();
+      await press(page.getByRole('button', { name: 'Cancel' }), isMobile);
       await chooseRowAction(page, 'Claude Code', 'Disconnect', isMobile);
       await press(page.getByRole('button', { name: 'Yes, disconnect Claude Code' }), isMobile);
       await press(page.getByRole('button', { name: 'Done' }), isMobile);

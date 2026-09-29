@@ -17,7 +17,13 @@ import { useCommand, useConnectClaudeCode, useTestClaudeCodeConnection } from '.
  */
 
 /** What the list read answers with, per case. */
-const held = vi.hoisted(() => ({ sourceAccounts: [] as SourceAccount[] }));
+const held = vi.hoisted(() => ({
+  sourceAccounts: [] as SourceAccount[],
+  /** What the Claude Code connection's hooks read answers with (issue 572). */
+  hooks: { url: '', secret: '', domain: '', lastArrivedAt: null as string | null },
+  /** The connection each hooks read was for. */
+  hooksAskedFor: [] as string[],
+}));
 
 vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
@@ -38,6 +44,16 @@ vi.mock('../../../src/api/client', () => ({
           connections: {
             $get: () =>
               Promise.resolve(new Response(JSON.stringify({ sourceAccounts: held.sourceAccounts }))),
+            'claude-code': {
+              ':sourceAccountId': {
+                hooks: {
+                  $post: ({ param }: { param: { sourceAccountId: string } }) => {
+                    held.hooksAskedFor.push(param.sourceAccountId);
+                    return Promise.resolve(new Response(JSON.stringify(held.hooks)));
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -129,6 +145,7 @@ function showWindow(outcome?: 'connected' | 'refused', testOutcome: TestOutcome 
 
 beforeEach(() => {
   held.sourceAccounts = [];
+  held.hooksAskedFor = [];
   vi.restoreAllMocks();
 });
 
@@ -345,6 +362,39 @@ describe('Agents', () => {
 
       await screen.findByText(/last worked/);
       expect(screen.queryByText(/^Failing:/)?.textContent ?? null).toBe(says);
+    });
+  });
+});
+
+describe('Agents', () => {
+  describe('the connection’s form gives what the repository needs to say Claude is waiting', () => {
+    it.each([
+      { situation: 'a hook has arrived', lastArrivedAt: '2026-09-29T08:00:00.000Z', says: /^A hook last arrived / },
+      { situation: 'no hook has arrived', lastArrivedAt: null, says: /^No hook has arrived yet\.$/ },
+    ])('when $situation', async ({ lastArrivedAt, says }) => {
+      held.sourceAccounts = [CLAUDE];
+      held.hooks = {
+        url: 'https://cockpit.example/ingress/claude-code/hooks/account-claude-code',
+        secret: 'the-connections-secret',
+        domain: 'cockpit.example',
+        lastArrivedAt,
+      };
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Claude Code' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Edit…' }));
+
+      const snippet = JSON.parse((await screen.findByLabelText('Hooks for .claude/settings.json')).textContent!);
+      const hook = snippet.hooks.Stop[0].hooks[0];
+      expect(hook).toMatchObject({
+        type: 'http',
+        url: 'https://cockpit.example/ingress/claude-code/hooks/account-claude-code',
+        headers: { Authorization: 'Bearer the-connections-secret' },
+      });
+      expect(snippet.hooks.UserPromptSubmit[0].hooks[0]).toEqual(hook);
+      expect(screen.getByText('cockpit.example')).toBeInTheDocument();
+      expect(screen.getByText(says)).toBeInTheDocument();
+      expect(held.hooksAskedFor).toEqual(['account-claude-code']);
     });
   });
 });

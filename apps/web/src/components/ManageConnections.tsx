@@ -353,6 +353,7 @@ export default function ManageConnections({
       <ConnectClaudeCode
         open={claudeCodeForm}
         workspaceId={workspaceId}
+        connectionId={claudeCodeConnected?.id}
         returnFocusTo={claudeCodeOpenedFrom.current}
         onClose={() => setClaudeCodeForm(false)}
         onPendingChange={setClaudeCodeFormPending}

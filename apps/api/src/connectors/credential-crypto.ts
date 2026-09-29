@@ -46,6 +46,25 @@ export async function sealingKey(secret: string | undefined): Promise<CryptoKey 
   return crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 }
 
+/**
+ * An HMAC key derived from the same secret for one named purpose ("See on the
+ * item when Claude is waiting on you", issue 572), or `null` where
+ * `sealingKey` would be. **Derived rather than the secret itself**, so nothing
+ * signed with it can be mistaken for, or help open, a sealed credential.
+ */
+export async function signingKey(secret: string | undefined, purpose: string): Promise<CryptoKey | null> {
+  const bytes = secret ? bytesOf(secret) : null;
+  if (!bytes || bytes.length !== 32) return null;
+  const root = await crypto.subtle.importKey('raw', bytes, 'HKDF', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: new TextEncoder().encode(purpose) },
+    root,
+    { name: 'HMAC', hash: 'SHA-256', length: 256 },
+    false,
+    ['sign', 'verify'],
+  );
+}
+
 /** Seals a credential under a fresh nonce. */
 export async function seal(plaintext: string, key: CryptoKey): Promise<Sealed> {
   const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES));

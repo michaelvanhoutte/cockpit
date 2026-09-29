@@ -253,6 +253,19 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     workspaceId: string,
     runId: string,
   ): Awaitable<Answer<AgentRunToFire>>;
+  /** A Claude Code hook reaching one of this Workspace's connections (issue 572) - `missing` where it is not one. */
+  claudeCodeHookArrived(
+    accountName: string,
+    workspaceId: string,
+    sourceAccountId: string,
+    at: string,
+  ): Awaitable<Answer<'admitted' | 'too-many'>>;
+  /** When a hook last reached one of this Workspace's Claude Code connections (issue 572). */
+  claudeCodeHookArrival(
+    accountName: string,
+    workspaceId: string,
+    sourceAccountId: string,
+  ): Awaitable<Answer<{ lastArrivedAt: string | null }>>;
   changesSince(
     accountName: string,
     since: string,
