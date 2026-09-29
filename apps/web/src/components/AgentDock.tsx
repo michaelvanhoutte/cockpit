@@ -82,15 +82,23 @@ export function AgentDock({
    * change (`undo.tsx`) clears it rather than the two overlapping - which the
    * dock's own tiles growing past `undo.tsx`'s fixed clearance once did
    * ("Keep your agents in a dock, and choose which each dashboard shows",
-   * issue 570). Read once: the row never wraps (it scrolls sideways instead),
-   * so its height does not depend on what is in it.
+   * issue 570). A `ResizeObserver` rather than a one-time read: the row never
+   * wraps, but its height still moves - the agents' snapshot arriving after
+   * the first paint, a horizontal scrollbar appearing once the tiles
+   * overflow - the same reason `useMeasuredWidth` (`panels/useScreenWidth.ts`)
+   * watches rather than reads once, and the same guard for where nothing can
+   * be observed: a test runner with no layout engine.
    */
   useLayoutEffect(() => {
     const el = bar.current;
     if (!el) return;
     const root = document.documentElement;
-    root.style.setProperty('--dock-h', `${el.offsetHeight}px`);
+    const publish = () => root.style.setProperty('--dock-h', `${el.offsetHeight}px`);
+    publish();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(publish) : null;
+    observer?.observe(el);
     return () => {
+      observer?.disconnect();
       root.style.removeProperty('--dock-h');
     };
   }, []);
