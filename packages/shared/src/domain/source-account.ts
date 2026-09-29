@@ -104,9 +104,10 @@ export const claudeCodeHooksSchema = z.object({
 export type ClaudeCodeHooks = z.infer<typeof claudeCodeHooksSchema>;
 
 /**
- * The header a hook names the cloud session in, alongside the `session_id`
- * its body carries - filled from the session's environment where Claude Code
- * sets it, and empty where it does not.
+ * A second name for the session, beside the `session_id` a hook's body
+ * carries: the cloud session's id, from an environment variable Anthropic does
+ * not document - so it is empty wherever Claude Code does not set it, and the
+ * body's own id is always matched as well.
  */
 export const REMOTE_SESSION_HEADER = 'x-claude-code-remote-session';
 const REMOTE_SESSION_VARIABLE = 'CLAUDE_CODE_REMOTE_SESSION_ID';

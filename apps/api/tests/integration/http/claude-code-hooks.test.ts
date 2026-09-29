@@ -252,6 +252,15 @@ describe('Agents', () => {
       expect(answers[60]).toBe(429);
     });
 
+    it('gives a connection’s hooks only in the workspace that holds it', async () => {
+      const res = await asUser(
+        `http://cockpit.test/v1/workspaces/${ATLAS}/connections/claude-code/${connectionId}/hooks`,
+        { method: 'POST' },
+      );
+
+      expect(res.status).toBe(404);
+    });
+
     it('refuses a connection that has since been disconnected', async () => {
       await postChange('disconnect_source_account', { workspaceId: WORKSPACE_ID, sourceAccountId: connectionId });
 

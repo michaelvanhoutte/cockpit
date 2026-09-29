@@ -2276,8 +2276,8 @@ const routes = app
    * **Outside the sign-in gate, under the ingress prefix it waves through**,
    * so the checks here are the only door, in this order: the connection's
    * secret, which costs nothing to refuse, then the body's size - both before
-   * any account is opened - then
-   * the connection still being there, and how often it has been heard from.
+   * any account is opened - then the connection still being there, and how
+   * often it has been heard from.
    * Registered ahead of the generic ingress below, which would otherwise
    * take the address as a connector's.
    *

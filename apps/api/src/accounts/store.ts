@@ -698,7 +698,6 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       if (!calls) return 'too-many';
       this.#hookCalls.set(sourceAccountId, calls);
       recordHookArrival(db, accountName, sourceAccountId, at);
-
       return 'admitted';
     });
   }
@@ -1156,7 +1155,12 @@ function refreshAskKey(accountName: string, refresh: string): string {
  * connection - another Workspace's, or a Teams row - for every read that names
  * a Workspace and a row id directly (see `claudeCodeCredential`).
  */
-function claudeCodeConnectionHeld(db: AccountDb, accountName: string, workspaceId: string, sourceAccountId: string): void {
+function claudeCodeConnectionHeld(
+  db: AccountDb,
+  accountName: string,
+  workspaceId: string,
+  sourceAccountId: string,
+): void {
   const held = getSourceAccount(db, accountName, sourceAccountId);
   if (!held || held.workspaceId !== workspaceId || held.connectorId !== CLAUDE_CODE) {
     throw new SourceAccountNotFoundError(sourceAccountId);
