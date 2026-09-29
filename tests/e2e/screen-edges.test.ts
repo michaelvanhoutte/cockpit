@@ -1,4 +1,5 @@
 import { type Locator, type Page } from '@playwright/test';
+import { NEUTRAL_HEADER } from '@cockpit/shared';
 import {
   capture,
   chooseTabAction,
@@ -275,7 +276,7 @@ test.describe('Screen edges', () => {
     });
   });
 
-  test.describe("the workspace's colour still runs to the edge of the screen", () => {
+  test.describe('the top bar still runs to the edge of the screen', () => {
     test("paints the band the status bar sits over in the bar's own colour", async ({
       page,
       isMobile,
@@ -289,39 +290,34 @@ test.describe('Screen edges', () => {
       // be written against. Transparent boxes are looked through, the way the
       // screen does.
       //
-      // **Compared against the workspace's own stored colour, not against the
-      // header's.** Reading the expected value off `<header>` compares the top
-      // of the screen to whatever is at the top of the screen the moment the
-      // header is the thing there - true of any painting at all, including the
-      // wrong one. This asks the server what colour this workspace is.
-      const painted = await page.evaluate(async () => {
-        const colourAt = (x: number, y: number) => {
-          for (let el = document.elementFromPoint(x, y); el; el = el.parentElement) {
-            const painting = getComputedStyle(el).backgroundColor;
-            if (painting && painting !== 'rgba(0, 0, 0, 0)' && painting !== 'transparent') {
-              return painting;
+      // **Compared against the graphite's own top colour, not against the
+      // header's**: reading the expected value off `<header>` compares the top
+      // of the screen to whatever is at the top of the screen, true of any
+      // painting at all. The bar is the same in every workspace now, so the
+      // expected colour is the one the design names.
+      const painted = await page.evaluate(
+        (graphite) => {
+          const colourAt = (x: number, y: number) => {
+            for (let el = document.elementFromPoint(x, y); el; el = el.parentElement) {
+              const painting = getComputedStyle(el).backgroundColor;
+              if (painting && painting !== 'rgba(0, 0, 0, 0)' && painting !== 'transparent') {
+                return painting;
+              }
             }
-          }
-          return 'nothing at all';
-        };
-        const here = location.pathname.split('/')[2];
-        const { workspaces } = (await (await fetch('/v1/workspaces')).json()) as {
-          workspaces: { id: string; header: string }[];
-        };
-        const workspace = workspaces.find((candidate) => candidate.id === here);
-        // Through the browser, so the stored hex is compared as the `rgb()` a
-        // computed style is always reported in.
-        const swatch = document.createElement('div');
-        swatch.style.backgroundColor = workspace?.header ?? '';
-        document.body.append(swatch);
-        const itsColour = getComputedStyle(swatch).backgroundColor;
-        swatch.remove();
-        return { atTheTop: colourAt(Math.floor(window.innerWidth / 2), 4), itsColour };
-      });
-      expect(painted.itsColour, 'this walk is not in a workspace with a colour').not.toBe(
-        'rgba(0, 0, 0, 0)',
+            return 'nothing at all';
+          };
+          // Through the browser, so the hex is compared as the `rgb()` a
+          // computed style is always reported in.
+          const swatch = document.createElement('div');
+          swatch.style.backgroundColor = graphite;
+          document.body.append(swatch);
+          const itsColour = getComputedStyle(swatch).backgroundColor;
+          swatch.remove();
+          return { atTheTop: colourAt(Math.floor(window.innerWidth / 2), 4), itsColour };
+        },
+        NEUTRAL_HEADER,
       );
-      expect(painted.atTheTop, "the top of the screen is not the workspace's colour").toBe(
+      expect(painted.atTheTop, "the top of the screen is not the top bar's colour").toBe(
         painted.itsColour,
       );
     });

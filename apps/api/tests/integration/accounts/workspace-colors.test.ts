@@ -21,6 +21,24 @@ import { WORKSPACE_ID, inStoreAsItIs, startFromEmpty, storeNamed } from '../seed
 const AT = '2026-08-12T10:00:00.000Z';
 
 /**
+ * The bar the frozen change wrote for each tint, which is what it computes
+ * whatever the palette says today ("Wear a workspace's colour in the dashboard
+ * band, not across the page", issue 594, moved the palette on and left the
+ * stored change alone). The shell repaints a row holding these in its tint's
+ * current theme.
+ */
+const BAR_AS_WRITTEN: Record<string, string> = {
+  '#6f62b5': '#211d37',
+  '#3a72c8': '#1d2737',
+  '#c06a45': '#37251d',
+  '#3f8f78': '#1d372f',
+  '#a8548c': '#371d2e',
+  '#b58a2f': '#372f1d',
+  '#4f8fa8': '#1d3037',
+  '#7d8f3f': '#31371d',
+};
+
+/**
  * The changes before the one under test, so a fixture can be a store that
  * predates it.
  *
@@ -112,7 +130,7 @@ describe('Workspace management', () => {
 
       const bars = await barsIn(name);
       for (const theme of WORKSPACE_THEMES) {
-        expect(bars[`ws-${theme.name.toLowerCase()}`], theme.name).toBe(theme.bar);
+        expect(bars[`ws-${theme.name.toLowerCase()}`], theme.name).toBe(BAR_AS_WRITTEN[theme.tint]);
       }
     });
 
@@ -122,7 +140,7 @@ describe('Workspace management', () => {
 
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
 
-      expect((await barsIn(name))['ws-stranger']).toBe(WORKSPACE_THEMES[0]!.bar);
+      expect((await barsIn(name))['ws-stranger']).toBe(BAR_AS_WRITTEN[WORKSPACE_THEMES[0]!.tint]);
     });
 
     it('gives the workspace a brand new account starts with its own bar', async () => {
@@ -132,7 +150,7 @@ describe('Workspace management', () => {
 
       const bars = await barsIn(name);
       // The one an account starts with, wearing the palette's first theme.
-      expect(bars).toEqual({ [WORKSPACE_ID]: WORKSPACE_THEMES[0]!.bar });
+      expect(bars).toEqual({ [WORKSPACE_ID]: BAR_AS_WRITTEN[WORKSPACE_THEMES[0]!.tint] });
     });
   });
 });

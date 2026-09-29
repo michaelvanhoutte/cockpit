@@ -512,9 +512,13 @@ test.describe('Panels', () => {
       }
       expect(await seen(), 'the last panel never scrolled into view').toBe(true);
 
-      const at = await target.boundingBox();
-      if (!at) throw new Error('the panel below the fold is not on screen');
-      await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2, { steps: 8 });
+      // Into the panel's list at its left edge, on screen and clear of the
+      // "moved to" offer that the earlier filing leaves standing in the middle
+      // of the screen for a while: dropped on that, the item is dropped on
+      // nothing.
+      const at = await target.locator('.well').boundingBox();
+      if (!at) throw new Error('the list of the panel below the fold is not on screen');
+      await page.mouse.move(at.x + 40, at.y + 20, { steps: 8 });
       await page.mouse.up();
 
       const question = page.getByRole('alertdialog');

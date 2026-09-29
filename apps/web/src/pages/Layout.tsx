@@ -27,6 +27,7 @@ import { WorkspaceTabs, stripTabClass } from '../components/WorkspaceTabs';
 import { WHAT_A_WORKSPACE_IS } from '../whatThingsAre';
 import { OpensItemForms } from '../itemForm';
 import { litForChrome } from '../chrome';
+import { Logo } from '../components/Logo';
 import { opensCapture } from '../captureShortcut';
 import { captureStateFor } from './CapturePage';
 import { browserStore } from '../lastVisited';
@@ -49,6 +50,7 @@ const DEFAULT_WORKSPACE_THEME_COLORS = {
   bar: DEFAULT_WORKSPACE_THEME.bar,
   ground: DEFAULT_WORKSPACE_THEME.ground,
   header: DEFAULT_WORKSPACE_THEME.header,
+  deep: DEFAULT_WORKSPACE_THEME.deep,
 };
 
 /**
@@ -58,7 +60,7 @@ const DEFAULT_WORKSPACE_THEME_COLORS = {
  */
 const INBOX_HEADING = 'the-inbox';
 
-/** The four colors of a workspace, which is all the shell reads off one. */
+/** What the shell paints from: the four colors a workspace stores, and the deep accent its theme gives them. */
 type Painted = typeof DEFAULT_WORKSPACE_THEME_COLORS;
 
 /**
@@ -77,12 +79,14 @@ type Painted = typeof DEFAULT_WORKSPACE_THEME_COLORS;
  * The tint itself is never overridden. It is the one color a person already
  * recognises in the tabs, and it is what the fallback is looked up by.
  */
-function paint(workspace: Painted | undefined): Painted {
+function paint(
+  workspace: { color: string; bar: string; ground: string; header: string } | undefined,
+): Painted {
   if (!workspace) return DEFAULT_WORKSPACE_THEME_COLORS;
   const { color, bar, ground, header } = workspace;
-  if (isPaletteTheme({ tint: color, bar, ground, header })) return workspace;
   const theme = themeOf(color);
-  return { color, bar: theme.bar, ground: theme.ground, header: theme.header };
+  if (isPaletteTheme({ tint: color, bar, ground, header })) return { ...workspace, deep: theme.deep };
+  return { color, bar: theme.bar, ground: theme.ground, header: theme.header, deep: theme.deep };
 }
 
 /** What the profile control shows in place of a photograph nobody has set. */
@@ -600,19 +604,15 @@ function TheShell() {
 
   const active = data?.workspaces.find((w) => w.id === params.workspaceId);
   /**
-   * The workspace you are in, painted. Only the three surfaces move - the bar
-   * across the top, the strip the dashboard tabs sit on, and the ground behind
-   * the panels - plus the tint on the stripe, the dots and the selected tab.
-   * Cards, rows, controls and text keep the fixed neutral and accent palette,
-   * which is what makes a palette of designed sets enough to keep everything
-   * legible - nothing else can be affected by the choice.
+   * The workspace you are in, painted. The page and the top bar are the same
+   * neutrals in every workspace; what follows the workspace is the dashboard
+   * band (`bar`, a deep shade of its tint), the accent (headings, buttons,
+   * focus rings, type labels - set below as the custom properties the
+   * utilities read) and the logo's dot.
    *
-   * The three run deepest at the top to lightest at the bottom, and the two tab
-   * strips sit at the steps between them: a selected workspace tab is filled
-   * with `bar` and meets the strip below it, a selected dashboard tab is filled
-   * with `ground` and meets the page. That is what makes the container
-   * hierarchy legible as depth rather than as two rows of pills on one fill
-   * ("Modernise the app shell", issue 125).
+   * A selected workspace tab is filled with `bar` and runs down into the band
+   * under it; a selected dashboard tab is filled with `ground` and meets the
+   * page.
    *
    * The shell carries them rather than `:root`, unlike the prototype: this
    * element covers the viewport, so painting it is enough, and a page that
@@ -641,6 +641,15 @@ function TheShell() {
           paddingRight: 'var(--docked-form-w, 0px)',
           '--ground': theme.ground,
           '--tint': theme.color,
+          // The accent follows the workspace, for everything below - and a
+          // menu or window opened over the page is below it too, since none is
+          // portalled out. The deep shade is where the tint is text; the soft
+          // and the wash are mixed from the tint, so there is nothing more to
+          // design per theme.
+          '--color-accent': theme.color,
+          '--color-accent-deep': theme.deep,
+          '--color-accent-soft': `color-mix(in srgb, ${theme.color} 55%, white)`,
+          '--color-accent-tint': `color-mix(in srgb, ${theme.color} 14%, white)`,
         } as React.CSSProperties
       }
     >
@@ -665,7 +674,9 @@ function TheShell() {
           bar's own `px-3`: on a phone held sideways the notch eats one end of
           the strip, and the workspace tabs are what would go under it. */}
       <header
+        className="graphite"
         style={{
+          // Under the gradient, so the top bar is a colour to anything that reads one.
           backgroundColor: theme.header,
           borderTopColor: theme.color,
           borderTopWidth: 3,
@@ -695,7 +706,8 @@ function TheShell() {
               that left the strip showing one whole tab and a letter of the
               next. The workspaces are what the bar is for, so the wordmark is
               what gives way; the logon page still says whose app this is. */}
-          <span className="hidden shrink-0 pb-2 text-lg font-semibold tracking-tight text-chrome-ink sm:block">
+          <span className="hidden shrink-0 items-center gap-2 pb-2 text-lg font-semibold tracking-tight text-chrome-ink sm:flex">
+            <Logo tint={theme.color} />
             Cockpit
           </span>
 
@@ -894,7 +906,9 @@ function TheShell() {
           <>
             {roomForTheInbox && !inboxCollapsed && (
               <div
-                className={`ml-1 ${inboxColumnClassName} bg-[color-mix(in_srgb,var(--ground)_90%,var(--tint))] px-4 pt-2 pb-1.5`}
+                // A rounded tab with a strip of the band showing above it (`mt-1`, which the
+                // collapsed chip has too, so the band is one height either way).
+                className={`ml-1 mt-1 rounded-t-md ${inboxColumnClassName} bg-[var(--ground)] px-4 pt-2 pb-1.5`}
                 style={inboxColumnStyle}
               >
                 <InboxHeading
@@ -913,7 +927,7 @@ function TheShell() {
               <InboxChip
                 workspaceId={params.workspaceId}
                 onOpen={() => collapseInbox(false)}
-                className="ml-1 shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-2 pb-1.5 text-sm text-accent-deep hover:bg-white/8"
+                className="ml-1 mt-1 shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-2 pb-1.5 text-sm text-chrome-ink hover:bg-white/8"
               />
             )}
             <DashboardBar
@@ -1052,7 +1066,6 @@ function TheShell() {
         // makes for its own chunk.
         <Suspense fallback={null}>
           <AgentDock
-            background={theme.header}
             workspaceId={params.workspaceId}
             dashboardId={params.dashboardId}
             agents={workspace.data?.agents ?? []}

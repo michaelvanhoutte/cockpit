@@ -1,11 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_WORKSPACE_THEME, WORKSPACE_THEMES, isPaletteTheme, themeOf } from '../../../src/domain/workspace-themes.js';
 
-/** How light a colour is, as the sum of its channels: 0 is black, 765 is white. */
-const lightness = (hex: string) =>
-  Number.parseInt(hex.slice(1, 3), 16) +
-  Number.parseInt(hex.slice(3, 5), 16) +
-  Number.parseInt(hex.slice(5, 7), 16);
+/** WCAG relative luminance of a `#rrggbb`. */
+const luminance = (hex: string) => {
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const channel = Number.parseInt(hex.slice(i, i + 2), 16) / 255;
+    return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  }) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+/** WCAG contrast ratio between two `#rrggbb` colours. */
+const contrast = (a: string, b: string) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+  return (hi + 0.05) / (lo + 0.05);
+};
+
+/** A colour mixed towards white by the given share of white, as `#rrggbb`. */
+const towardsWhite = (hex: string, white: number) =>
+  '#' +
+  [1, 3, 5]
+    .map((i) => Math.round(Number.parseInt(hex.slice(i, i + 2), 16) * (1 - white) + 255 * white))
+    .map((v) => v.toString(16).padStart(2, '0'))
+    .join('');
+
+/** What text drawn on the band is: styles.css's `--color-chrome-ink`. */
+const NEAR_WHITE = '#f2f1f8';
 
 describe('Workspace management', () => {
   describe('a workspace wears a whole theme, and one whose color is not from the palette wears the default', () => {
@@ -27,35 +47,29 @@ describe('Workspace management', () => {
       expect(themeOf(color)).toEqual(expected);
     });
 
-    // The bar is the surface the workspace tabs sit on, between the header
-    // above it and the ground below. It is stored like the other three rather
-    // than mixed at render time, so an entry can be tuned by hand.
-    it('gives every theme a bar between its header and its ground', () => {
-      for (const theme of WORKSPACE_THEMES) {
-        expect(lightness(theme.header), theme.name).toBeLessThan(lightness(theme.bar));
-        expect(lightness(theme.bar), theme.name).toBeLessThan(lightness(theme.ground));
-      }
+    // L1: contrast is arithmetic on the palette, so every place a theme's colour
+    // is drawn is held to it rather than trusted; nothing else fails when one
+    // entry is tuned by eye and lands unreadable.
+    describe.each(WORKSPACE_THEMES.map((theme) => [theme.name, theme] as const))('%s stays readable', (_name, theme) => {
+      it('under near-white text on its band', () => {
+        expect(contrast(NEAR_WHITE, theme.bar)).toBeGreaterThanOrEqual(4.5);
+      });
+      it('as deep-accent text on the neutral page', () => {
+        expect(contrast(theme.deep, theme.ground)).toBeGreaterThanOrEqual(4.5);
+      });
+      it('as deep-accent text on a list’s well', () => {
+        // The well is the page lifted 60% towards white (styles.css, `well`).
+        expect(contrast(theme.deep, towardsWhite(theme.ground, 0.6))).toBeGreaterThanOrEqual(4.5);
+      });
+      it('as the logo’s dot on the top bar', () => {
+        // Lifted 30% towards white, as every tint drawn on the chrome is (chrome.ts).
+        expect(contrast(towardsWhite(theme.tint, 0.3), theme.header)).toBeGreaterThanOrEqual(3);
+      });
     });
 
-    /*
-     * The step between the chrome and the sheet is the whole design rather than
-     * a shade: the header and the bar are near-black and the sheet is
-     * near-white, which is what lets everything drawn on the chrome be one
-     * fixed light set and everything on the sheet be the app's ink.
-     *
-     * A hand-tuned entry that landed mid-grey would break that silently -
-     * nothing would fail, and one workspace would have unreadable tabs - so the
-     * palette is held to it rather than trusted. The thresholds are a third and
-     * two thirds of full lightness, which is far enough from every value here
-     * to be about the rule rather than about the exact hexes.
-     */
-    it('paints every theme’s chrome near-black and its sheet near-white', () => {
-      const full = 255 * 3;
-      for (const theme of WORKSPACE_THEMES) {
-        expect(lightness(theme.header), theme.name).toBeLessThan(full / 3);
-        expect(lightness(theme.bar), theme.name).toBeLessThan(full / 3);
-        expect(lightness(theme.ground), theme.name).toBeGreaterThan((full * 2) / 3);
-      }
+    it('wears the same page and top bar in every theme', () => {
+      expect(new Set(WORKSPACE_THEMES.map((theme) => theme.ground)).size).toBe(1);
+      expect(new Set(WORKSPACE_THEMES.map((theme) => theme.header)).size).toBe(1);
     });
   });
 
@@ -72,13 +86,10 @@ describe('Workspace management', () => {
         recognised: true,
       },
       {
-        situation: 'colors taken from different themes',
-        colors: {
-          tint: WORKSPACE_THEMES[1]!.tint,
-          bar: WORKSPACE_THEMES[1]!.bar,
-          ground: WORKSPACE_THEMES[2]!.ground,
-          header: WORKSPACE_THEMES[3]!.header,
-        },
+        // What every workspace stored before the page went neutral: right tint,
+        // and surfaces from the palette it replaced.
+        situation: 'a set from before the page went neutral',
+        colors: { tint: '#6f62b5', bar: '#211d37', ground: '#edebf7', header: '#18152b' },
         recognised: false,
       },
       {

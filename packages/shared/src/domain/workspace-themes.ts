@@ -11,14 +11,24 @@ import { z } from 'zod';
 /** `#rrggbb`, the one form every color here is written and stored in. */
 export const hexColorSchema = z.string().regex(/^#[0-9a-f]{6}$/, 'a color is #rrggbb, lower case');
 
+/** The neutral page every workspace shares: its lists' wells are mixed from it, so no hollow carries a hue. */
+export const NEUTRAL_GROUND = '#f3f3f1';
+
+/** The top of the soft graphite gradient the top bar and the agents' dock wear in every workspace. */
+export const NEUTRAL_HEADER = '#2d2e35';
+
 /**
- * One workspace theme: four colors designed together, a stepped set rather
- * than four independent choices (architecture.md §4.4).
+ * One workspace theme: what a workspace wears, designed together
+ * (architecture.md §4.4).
  *
- * - `tint` is the saturated one, for the tab dot and the selected tab.
- * - `header` is the bar across the top, the deepest of the three surfaces.
- * - `bar` is the strip the dashboard tabs sit on, one step lighter than `header`.
- * - `ground` is the sheet behind the panels, the lightest.
+ * - `tint` is the saturated one: the accent, the tab dot, the logo's dot.
+ * - `bar` is the dashboard band, a deep shade of the tint that near-white text
+ *   reads on, chosen per theme rather than mixed.
+ * - `ground` and `header` are the same two neutrals in every theme - the page,
+ *   and the top of the graphite chrome. They stay in the stored colors so a
+ *   later step can drop the columns without this changing.
+ * - `deep` is the tint where it is text: dark enough to read on the page and on
+ *   a list's well. Not stored; found by tint like the rest.
  */
 export const workspaceThemeSchema = z.object({
   name: z.string(),
@@ -26,8 +36,12 @@ export const workspaceThemeSchema = z.object({
   bar: hexColorSchema,
   ground: hexColorSchema,
   header: hexColorSchema,
+  deep: hexColorSchema,
 });
 export type WorkspaceTheme = z.infer<typeof workspaceThemeSchema>;
+
+const GROUND = NEUTRAL_GROUND;
+const HEADER = NEUTRAL_HEADER;
 
 /**
  * The palette: designed sets rather than a free color wheel, so the
@@ -36,14 +50,14 @@ export type WorkspaceTheme = z.infer<typeof workspaceThemeSchema>;
  * workspaces.
  */
 export const WORKSPACE_THEMES = [
-  { name: 'Violet', tint: '#6f62b5', bar: '#211d37', ground: '#edebf7', header: '#18152b' },
-  { name: 'Blue', tint: '#3a72c8', bar: '#1d2737', ground: '#ebf0f7', header: '#151e2b' },
-  { name: 'Terracotta', tint: '#c06a45', bar: '#37251d', ground: '#f7efeb', header: '#2b1c15' },
-  { name: 'Teal', tint: '#3f8f78', bar: '#1d372f', ground: '#ebf7f3', header: '#152b24' },
-  { name: 'Magenta', tint: '#a8548c', bar: '#371d2e', ground: '#f7ebf3', header: '#2b1523' },
-  { name: 'Amber', tint: '#b58a2f', bar: '#372f1d', ground: '#f7f3eb', header: '#2b2415' },
-  { name: 'Cyan', tint: '#4f8fa8', bar: '#1d3037', ground: '#ebf4f7', header: '#15252b' },
-  { name: 'Olive', tint: '#7d8f3f', bar: '#31371d', ground: '#f4f7eb', header: '#262b15' },
+  { name: 'Violet', tint: '#6f62b5', bar: '#594e91', ground: GROUND, header: HEADER, deep: '#6e61b3' },
+  { name: 'Blue', tint: '#3a72c8', bar: '#2e5ba0', ground: GROUND, header: HEADER, deep: '#376cbe' },
+  { name: 'Terracotta', tint: '#c06a45', bar: '#9a5537', ground: GROUND, header: HEADER, deep: '#a1593a' },
+  { name: 'Teal', tint: '#3f8f78', bar: '#327260', ground: GROUND, header: HEADER, deep: '#357865' },
+  { name: 'Magenta', tint: '#a8548c', bar: '#864370', ground: GROUND, header: HEADER, deep: '#a15186' },
+  { name: 'Amber', tint: '#b58a2f', bar: '#866623', ground: GROUND, header: HEADER, deep: '#886823' },
+  { name: 'Cyan', tint: '#4f8fa8', bar: '#3f7286', ground: GROUND, header: HEADER, deep: '#3f7286' },
+  { name: 'Olive', tint: '#7d8f3f', bar: '#637132', ground: GROUND, header: HEADER, deep: '#647232' },
 ] as const satisfies readonly WorkspaceTheme[];
 
 /**

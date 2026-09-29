@@ -1,6 +1,5 @@
 import { beforeAll, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations, SELF } from 'cloudflare:test';
-import { themeOf } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
   WORKSPACE_ID,
@@ -70,20 +69,21 @@ describe('Workspace management', () => {
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({
         workspaces: [
-          // The colours are read off the palette rather than written out: the
-          // three surfaces are repainted by an account's own changes when the
-          // palette moves (`accounts/changes.ts`, `0010-workspace-ink`), and a
-          // copy of them here would say only that somebody remembered to edit
-          // this file.
-          { id: WORKSPACE_ID, tenantId: ACCOUNT_NAME, name: 'Workspace 1', ...wearing('#6f62b5') },
+          // The set the frozen changes write, which is not the palette's any more
+          // ("Wear a workspace's colour in the dashboard band", issue 594): the
+          // shell repaints a row holding it in its tint's current theme, and
+          // nothing is rewritten in the store.
+          { id: WORKSPACE_ID, tenantId: ACCOUNT_NAME, name: 'Workspace 1', ...FIRST_WORKSPACE_COLOURS },
         ],
       });
     });
   });
 });
 
-/** A workspace's four colours, in the shape the wire carries them. */
-function wearing(tint: string) {
-  const theme = themeOf(tint);
-  return { color: theme.tint, bar: theme.bar, ground: theme.ground, header: theme.header };
-}
+/** The four colours the first workspace of a new account is stored with, in the shape the wire carries them. */
+const FIRST_WORKSPACE_COLOURS = {
+  color: '#6f62b5',
+  bar: '#211d37',
+  ground: '#edebf7',
+  header: '#18152b',
+};
