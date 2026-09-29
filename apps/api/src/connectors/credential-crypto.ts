@@ -46,6 +46,24 @@ export async function sealingKey(secret: string | undefined): Promise<CryptoKey 
   return crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 }
 
+/**
+ * An AES-GCM key for one other purpose, derived from the same secret with
+ * HKDF, so a new use needs no secret of its own and never shares a key with
+ * a stored credential. `null` where `sealingKey` would be.
+ */
+export async function derivedKey(secret: string | undefined, purpose: string): Promise<CryptoKey | null> {
+  const bytes = secret ? bytesOf(secret) : null;
+  if (!bytes || bytes.length !== 32) return null;
+  const root = await crypto.subtle.importKey('raw', bytes, 'HKDF', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: new TextEncoder().encode(purpose) },
+    root,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+}
+
 /** Seals a credential under a fresh nonce. */
 export async function seal(plaintext: string, key: CryptoKey): Promise<Sealed> {
   const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES));

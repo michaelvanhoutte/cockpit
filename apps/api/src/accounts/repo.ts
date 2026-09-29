@@ -798,6 +798,23 @@ export function getAttachmentForDownload(
 }
 
 /**
+ * Every file on one Item, oldest first - what an agent's message links
+ * ("Send an item's attachments along when an agent starts", issue 573).
+ */
+export function listAttachmentsOfItem(
+  db: AccountDb,
+  tenantId: string,
+  itemId: string,
+): { id: string; filename: string; contentType: string }[] {
+  return db
+    .select({ id: attachments.id, filename: attachments.filename, contentType: attachments.contentType })
+    .from(attachments)
+    .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, itemId)))
+    .orderBy(asc(attachments.createdAt), asc(attachments.id))
+    .all();
+}
+
+/**
  * One attachment by its id, whole - what `add_attachment` reads to tell a
  * genuine retry (the same file, replayed) from a different upload that
  * happens to reuse the id ("Attach a file to an item", issue 441).

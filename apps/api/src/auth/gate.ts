@@ -1,6 +1,7 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Env } from '../env.js';
+import { ATTACHMENT_LINK_PREFIX } from './attachment-link.js';
 import type { Attempt } from './oidc.js';
 import { MOVED_OPERATOR_PREFIXES, isOperatorPath } from './operator.js';
 import { extendSession, sessionHeld, type Visitor } from './register.js';
@@ -143,8 +144,10 @@ export const PATHS_OUTSIDE_THE_GATE: readonly string[] = [
  *
  * It has to be a prefix because the path carries the connector's id and
  * whatever the source appends after it. **Every prefix here is one somebody
- * argued for by name**, and there are three: this, the operator's own, and the
- * addresses the operator's routes have moved off. The gate stands in front of
+ * argued for by name**, and there are four: this, the operator's own, the
+ * addresses the operator's routes have moved off, and an agent's attachment
+ * links (`auth/attachment-link.ts`), which a Claude Code session downloads
+ * without a sign-in and which the sealed token in the path authenticates. The gate stands in front of
  * everything it has not been told about, so a route added later is refused
  * until somebody decides otherwise rather than open until somebody notices.
  */
@@ -173,6 +176,7 @@ export function isOutsideTheGate(path: string): boolean {
   return (
     PATHS_OUTSIDE_THE_GATE.includes(path) ||
     path.startsWith(INGRESS_PREFIX) ||
+    path.startsWith(ATTACHMENT_LINK_PREFIX) ||
     isOperatorPath(path) ||
     MOVED_OPERATOR_PREFIXES.some((prefix) => path.startsWith(prefix))
   );

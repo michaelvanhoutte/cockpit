@@ -17,6 +17,7 @@ import {
   commandSchemas,
   connectClaudeCodeSchema,
   connectorNamed,
+  isReadableByClaude,
   MAX_ATTACHMENT_SIZE,
   itemTypeListSchema,
   registeredUserListSchema,
@@ -64,7 +65,13 @@ import {
 } from '../accounts/index.js';
 import { checkHealth } from '../accounts/probe.js';
 import { ALLOWANCE_SPENT_MESSAGE, allowanceSpent } from '../accounts/allowance.js';
-import { attachmentR2Key } from '../domain/attachments.js';
+import { attachmentR2Key, type AttachmentForDownload } from '../domain/attachments.js';
+import {
+  ATTACHMENT_LINK_PREFIX,
+  attachmentLinkKey,
+  openAttachmentLink,
+  sealAttachmentLink,
+} from '../auth/attachment-link.js';
 import {
   CannotReadMeaningError,
   enqueueCleanUp,
@@ -803,6 +810,29 @@ const sourceAccountsRoute = createRoute({
   },
 });
 
+/**
+ * An attachment's bytes as a response, or null where R2 no longer holds them
+ * - what the signed-in download and an agent's link both answer with.
+ */
+async function serveAttachment(env: Env, attachment: AttachmentForDownload): Promise<Response | null> {
+  const object = await env.ATTACHMENTS.get(attachment.r2Key);
+  if (!object) return null;
+  // The same DOM-lib-vs-workers-types conflict the upload route's own
+  // comment explains - `unknown` bridges this one cleanly, unlike the
+  // upload route's `.put()` call, whose own parameter type needed `any`
+  // instead: the two sides of that conflict don't fail identically.
+  return new Response(object.body as unknown as ReadableStream, {
+    status: 200,
+    headers: {
+      // The stored, allowlisted type - never a passthrough of whatever the
+      // upload claimed (issue 441's own download test case), even though
+      // `add_attachment`'s own write already made the two agree.
+      'Content-Type': attachment.contentType,
+      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(attachment.filename)}`,
+    },
+  });
+}
+
 /** What every Claude Code route answers where this deployment has no `CONNECTOR_CREDENTIAL_KEY` to seal or open a credential with at all. */
 const NO_SEALING_KEY_MESSAGE = 'This environment cannot connect a source account.';
 
@@ -1407,9 +1437,30 @@ const routes = app
       return c.json({ alreadyStarted: false, status: 'failed' }, 200);
     }
     const { routineUrl, token } = JSON.parse(opened) as { routineUrl: string; token: string };
+    // A link for each file Claude can read, since the session cannot sign in
+    // to open the address the app uses (issue 573).
+    const linkKey = await attachmentLinkKey(c.env.CONNECTOR_CREDENTIAL_KEY);
+    const now = new Date();
+    const attachments = await Promise.all(
+      toFire.attachments.map(async (attachment) => ({
+        ...attachment,
+        link:
+          linkKey && isReadableByClaude(attachment.contentType)
+            ? new URL(
+                `${ATTACHMENT_LINK_PREFIX}${await sealAttachmentLink(
+                  linkKey,
+                  { accountName: c.get('visitor').accountName, attachmentId: attachment.id },
+                  now,
+                )}`,
+                c.env.APP_ORIGIN,
+              ).toString()
+            : undefined,
+      })),
+    );
     const text = agentMessageFor(
       { message: toFire.message },
       {
+        attachments,
         title: toFire.item.title,
         description: toFire.item.description,
         // Where the Item came from, where it came from anywhere; otherwise
@@ -1763,25 +1814,32 @@ const routes = app
     // database entirely, so there is no id this request could name that
     // reaches somebody else's attachment.
     const attachment = await account.attachmentForDownload(attachmentId);
-    if (!attachment) return c.json({ error: `attachment ${attachmentId} not found` }, 404);
-
-    const object = await c.env.ATTACHMENTS.get(attachment.r2Key);
-    if (!object) return c.json({ error: `attachment ${attachmentId} not found` }, 404);
-
-    // The same DOM-lib-vs-workers-types conflict the upload route's own
-    // comment explains - `unknown` bridges this one cleanly, unlike the
-    // upload route's `.put()` call, whose own parameter type needed `any`
-    // instead: the two sides of that conflict don't fail identically.
-    return new Response(object.body as unknown as ReadableStream, {
-      status: 200,
-      headers: {
-        // The stored, allowlisted type - never a passthrough of whatever the
-        // upload claimed (issue 441's own download test case), even though
-        // `add_attachment`'s own write already made the two agree.
-        'Content-Type': attachment.contentType,
-        'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(attachment.filename)}`,
-      },
-    });
+    const served = attachment && (await serveAttachment(c.env, attachment));
+    return served || c.json({ error: `attachment ${attachmentId} not found` }, 404);
+  })
+  /**
+   * One attachment, for an agent's session that cannot sign in ("Send an
+   * item's attachments along when an agent starts", issue 573). **Outside
+   * the sign-in gate**: the sealed token is the whole authentication, naming
+   * the account and the attachment and when it stops working
+   * (`auth/attachment-link.ts`). Every refusal is the same 404, so a link
+   * says nothing about why it no longer opens.
+   */
+  .get(`${ATTACHMENT_LINK_PREFIX}:token`, async (c) => {
+    const refused = () => c.json({ error: 'this link does not open anything' }, 404);
+    const key = await attachmentLinkKey(c.env.CONNECTOR_CREDENTIAL_KEY);
+    const named = key ? await openAttachmentLink(key, c.req.param('token'), new Date()) : null;
+    if (!named) return refused();
+    let attachment: AttachmentForDownload | null;
+    try {
+      attachment = await (await openAccount(c.env, named.accountName)).attachmentForDownload(named.attachmentId);
+    } catch (error) {
+      // An account removed since the link was made.
+      if (error instanceof AccountNotInRegisterError) return refused();
+      throw error;
+    }
+    const served = attachment && (await serveAttachment(c.env, attachment));
+    return served || refused();
   })
   // --- connecting a source account: two navigations, like signing in ---------
   /**

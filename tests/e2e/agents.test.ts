@@ -23,6 +23,12 @@ const root = resolve(__dirname, '..', '..');
 /** The stub the stack runs, which stands in for Claude Code's routines as well as for sign-in. */
 const issuer = `http://127.0.0.1:${portsFor(root, { linked: isLinkedWorktree(root), env: process.env }).e2eIssuer}`;
 
+/** A minimal, valid 1x1 PNG, for the file an agent is sent a link to. */
+const A_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+);
+
 /**
  * F3, because none of this exists below a real browser: the dock is drawn at
  * the bottom of the shell, a tile's own menu opens by right-click, and A and
@@ -130,7 +136,10 @@ test.describe('Agents', () => {
    *
    * **Claude is the stub's stand-in routine** (scripts/lib/stub-issuer.mjs),
    * which the stack fires in place of Anthropic's - so no walk starts a real
-   * session, and what it was sent can be read back.
+   * session, and what it was sent can be read back - including the link to
+   * the Item's file, opened here signed out, which is the only proof the
+   * link's address reaches the Worker through the app's own origin ("Send an
+   * item's attachments along when an agent starts", issue 573).
    *
    * A phone has no dock and no drag, so it starts Ask Claude from the row's
    * own menu, the way a keyboard does. It makes its own workspace, and puts it
@@ -158,6 +167,19 @@ test.describe('Agents', () => {
       // A phone's Inbox is a screen of its own, reached from this workspace.
       if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
       await capture(page, asked, isMobile);
+      // A file on it, which the session gets a link to (issue 573).
+      await press(itemRow(page, asked).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
+      const uploaded = page.waitForResponse(
+        (response) => response.request().method() === 'POST' && /\/v1\/items\/[^/]+\/attachments$/.test(response.url()),
+      );
+      await page.getByRole('dialog').getByLabel('Files to attach').setInputFiles({
+        name: 'invoice.png',
+        mimeType: 'image/png',
+        buffer: A_PNG,
+      });
+      expect((await uploaded).status()).toBe(201);
+      await press(page.getByRole('dialog').getByRole('button', { name: 'Cancel' }), isMobile);
       await fileOnto(page, asked, 'Panel 1', isMobile);
       const onTheDashboard = () => page.locator('[data-drag-scroll="dashboard"]');
       const agent = uniqueTitle('Scope it');
@@ -243,7 +265,14 @@ test.describe('Agents', () => {
         itemRow(page, asked).getByRole('link', { name: 'Ask Claude · Claude is working ↗' }),
       ).toBeVisible();
       const fired = (await (await fetch(`${issuer}/claude-code/fired`)).json()) as { text: string }[];
-      expect(fired.some((sent) => sent.text.includes('Who do we chase first?') && sent.text.includes(asked))).toBe(true);
+      const sent = fired.find((one) => one.text.includes('Who do we chase first?') && one.text.includes(asked));
+      expect(sent).toBeDefined();
+      // Its file's link opens without the browser's sign-in: this is Node's own fetch.
+      const link = sent!.text.match(/- invoice\.png: (\S+)/)?.[1];
+      expect(link, 'the message links the item’s file').toBeDefined();
+      const opened = await fetch(link!);
+      expect(opened.status).toBe(200);
+      expect(Buffer.from(await opened.arrayBuffer()).equals(A_PNG)).toBe(true);
 
       // Agent finished: Still to do - the chip goes, and the row stays.
       await press(itemRow(page, asked).getByRole('button', { name: 'Item actions' }), isMobile);

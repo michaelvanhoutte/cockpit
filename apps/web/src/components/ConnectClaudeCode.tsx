@@ -120,7 +120,18 @@ export function ConnectClaudeCode({
             <ol className="flex flex-col gap-3 text-sm">
               <li>1. Create a routine on this workspace's repository in Claude Code.</li>
               <li>
-                <p>2. Give it this prompt:</p>
+                {/* The links an agent's message carries point here, and a
+                    routine's environment reaches only the domains it allows
+                    ("Send an item's attachments along when an agent starts",
+                    issue 573). */}
+                2. Allow its environment to reach{' '}
+                <code className="rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
+                  {window.location.hostname}
+                </code>
+                , so the session can read an item's attachments.
+              </li>
+              <li>
+                <p>3. Give it this prompt:</p>
                 <div className="mt-1 flex items-center gap-2">
                   <code className="min-w-0 flex-1 truncate rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
                     {ROUTINE_PROMPT}
@@ -135,7 +146,7 @@ export function ConnectClaudeCode({
                 </div>
               </li>
               <li>
-                <p>3. Paste the routine's API trigger URL and token:</p>
+                <p>4. Paste the routine's API trigger URL and token:</p>
                 <div className="mt-1 flex flex-col gap-2">
                   <input
                     value={routineUrl}

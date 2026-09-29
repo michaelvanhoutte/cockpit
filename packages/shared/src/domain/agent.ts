@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { attachmentAddress, isReadableByClaude } from './attachment.js';
 import { workspaceNameSchema } from './item.js';
 import { hexColorSchema, WORKSPACE_THEMES } from './workspace-themes.js';
 
@@ -135,18 +136,50 @@ export function agentsShownOnDashboard(params: {
  */
 const PLACEHOLDER = /\{title\}|\{description\}|\{link\}|\{prompt\}/g;
 
+/**
+ * One of the Item's attachments as the message names it: `link` is where the
+ * session downloads it without signing in, and is only used for a file Claude
+ * can read (`isReadableByClaude`).
+ */
+export interface AttachmentForAgent {
+  id: string;
+  filename: string;
+  contentType: string;
+  link?: string | undefined;
+}
+
+/**
+ * **Every attachment is listed after the template, whatever it says**, since
+ * a template written before an Item had files cannot have asked for them
+ * ("Send an item's attachments along when an agent starts", issue 573). One
+ * shown inline in the description has its signed-in address swapped for its
+ * link, which is the only one the session can open.
+ */
 export function agentMessageFor(
   agent: Pick<Agent, 'message'>,
-  item: { title: string; description: string | null; link: string },
+  item: {
+    title: string;
+    description: string | null;
+    link: string;
+    attachments?: readonly AttachmentForAgent[];
+  },
   prompt?: string,
 ): string {
-  return agent.message
+  const readable = (item.attachments ?? []).filter(
+    (attachment): attachment is AttachmentForAgent & { link: string } =>
+      attachment.link !== undefined && isReadableByClaude(attachment.contentType),
+  );
+  const description = readable.reduce(
+    (text, attachment) => text.split(attachmentAddress(attachment.id)).join(attachment.link),
+    item.description ?? '',
+  );
+  const body = agent.message
     .replace(PLACEHOLDER, (placeholder) => {
       switch (placeholder) {
         case '{title}':
           return item.title;
         case '{description}':
-          return item.description ?? '';
+          return description;
         case '{link}':
           return item.link;
         default:
@@ -154,4 +187,20 @@ export function agentMessageFor(
       }
     })
     .trim();
+  return [body, attachmentsSection(item.attachments ?? [], readable)].filter(Boolean).join('\n\n');
+}
+
+function attachmentsSection(
+  attachments: readonly AttachmentForAgent[],
+  readable: readonly (AttachmentForAgent & { link: string })[],
+): string {
+  if (attachments.length === 0) return '';
+  const lines = attachments.map((attachment) => {
+    const link = readable.find((one) => one.id === attachment.id)?.link;
+    return link ? `- ${attachment.filename}: ${link}` : `- ${attachment.filename} - not readable by Claude`;
+  });
+  return [
+    'Attachments - download each link and read the file. A link works for an hour, without signing in.',
+    ...lines,
+  ].join('\n');
 }

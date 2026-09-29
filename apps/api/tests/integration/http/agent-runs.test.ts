@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
-import { applyD1Migrations, env } from 'cloudflare:test';
+import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import { ACCOUNT_WIDE, AGENT_COLORS, ASK_CLAUDE_ID } from '@cockpit/shared';
 import type {
   AgentRun,
@@ -240,6 +240,33 @@ describe('Agents', () => {
       expect(fired!.text).toBe(
         `/scoping Chase the invoice - ${env.APP_ORIGIN}/w/${WORKSPACE_ID}/d/${DASHBOARD_ID}`,
       );
+    });
+
+    it('sends a link to each of the item’s files that opens it without signing in', async () => {
+      const agentId = await anAgent({ message: '{title}' });
+      const itemId = await anItem('Fix the layout', panelId);
+      const bytes = new Uint8Array([137, 80, 78, 71, 9]);
+      const uploaded = await asUser(`http://cockpit.test/v1/items/${itemId}/attachments`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'image/png',
+          'x-attachment-id': nextId(),
+          'x-command-id': nextId(),
+          'x-issued-at': AT,
+          'x-workspace-id': WORKSPACE_ID,
+          'x-filename': 'layout.png',
+        },
+        body: bytes,
+      });
+      expect(uploaded.status).toBe(201);
+
+      await start(itemId, agentId);
+
+      const link = claude.fired[0]!.text.match(/- layout\.png: (\S+)/)?.[1];
+      expect(link?.startsWith(`${env.APP_ORIGIN}/v1/attachment-links/`)).toBe(true);
+      const opened = await SELF.fetch(link!);
+      expect(opened.status).toBe(200);
+      expect(new Uint8Array(await opened.arrayBuffer())).toEqual(bytes);
     });
 
     it('moves the connection’s last worked, and ends its failing, once a start works', async () => {
