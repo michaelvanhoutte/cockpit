@@ -271,7 +271,7 @@ describe('Agents', () => {
 
 /** F1: what the dock draws of the runs and the connection, and what a picked-up tile carries (issue 571). */
 describe('Agents', () => {
-  const aRun = (id: string, agentId: string): AgentRun => ({
+  const aRun = (id: string, agentId: string, waiting = false): AgentRun => ({
     id,
     itemId: `item-${id}`,
     agentId,
@@ -280,6 +280,7 @@ describe('Agents', () => {
     sessionUrl: 'https://claude.ai/code/session_01',
     reason: null,
     startedAt: '2026-09-28T10:00:00.000Z',
+    waiting,
   });
 
   describe('each tile counts its agent’s open runs', () => {
@@ -294,6 +295,29 @@ describe('Agents', () => {
     });
   });
 
+  describe('the dock counts what is waiting on you, on each tile and in all', () => {
+    it.each([
+      {
+        situation: 'one of two runs waiting',
+        runs: [aRun('1', SCOPE_IT.id, true), aRun('2', SCOPE_IT.id)],
+        tile: 'Scope it21',
+        total: '1 waiting on you',
+      },
+      {
+        situation: 'runs of two agents waiting',
+        runs: [aRun('1', SCOPE_IT.id, true), aRun('2', SHIP_IT.id, true)],
+        tile: 'Scope it11',
+        total: '2 waiting on you',
+      },
+      { situation: 'every run working again', runs: [aRun('1', SCOPE_IT.id), aRun('2', SCOPE_IT.id)], tile: 'Scope it2', total: null },
+    ])('with $situation', ({ runs, tile, total }) => {
+      renderDock({ agentRuns: runs });
+
+      expect(screen.getByRole('button', { name: /^Scope it/ }).textContent).toBe(tile);
+      if (total) expect(screen.getByText(total)).toBeInTheDocument();
+      else expect(screen.queryByText(/waiting on you/)).not.toBeInTheDocument();
+    });
+  });
   describe('the dock says what stands between its tiles and Claude', () => {
     it.each([
       { situation: 'no connection', connected: false, failing: null, says: 'Connect Claude Code to this workspace to start an agent.' },

@@ -566,6 +566,19 @@ export const finishAgentRunSchema = commandEnvelopeSchema.extend({
 });
 export type FinishAgentRunCommand = z.infer<typeof finishAgentRunSchema>;
 
+/**
+ * report_agent_run_activity — a Claude Code hook saying its session stopped
+ * for you (`waiting`) or took a prompt again ("See on the item when Claude is
+ * waiting on you", issue 572). Sent by the hook route alone, once the call's
+ * secret has been checked; moves the Workspace's open run whose session one
+ * of `sessionIds` names, and nothing where none does.
+ */
+export const reportAgentRunActivitySchema = commandEnvelopeSchema.extend({
+  sessionIds: z.array(z.string().min(1).max(200)).min(1).max(2),
+  waiting: z.boolean(),
+});
+export type ReportAgentRunActivityCommand = z.infer<typeof reportAgentRunActivitySchema>;
+
 export const associateSchema = commandEnvelopeSchema.extend({
   associationId: z.uuid(),
   itemId: z.uuid(),
@@ -820,6 +833,7 @@ export const commandSchemas = {
   begin_agent_run: beginAgentRunSchema,
   settle_agent_run: settleAgentRunSchema,
   finish_agent_run: finishAgentRunSchema,
+  report_agent_run_activity: reportAgentRunActivitySchema,
   set_dismissed: setDismissedSchema,
   associate: associateSchema,
   set_next_action: setNextActionSchema,
@@ -861,7 +875,10 @@ export type SelfSentCommandName =
   // Sent by the route that starts an agent, around its one call to Claude
   // (see `beginAgentRunSchema` above).
   | 'begin_agent_run'
-  | 'settle_agent_run';
+  | 'settle_agent_run'
+  // Sent by the Claude Code hook route once the call's secret is checked (see
+  // `reportAgentRunActivitySchema` above).
+  | 'report_agent_run_activity';
 
 /**
  * The commands a client sends, which is every command with a generic JSON

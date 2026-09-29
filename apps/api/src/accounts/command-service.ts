@@ -4,6 +4,7 @@ import {
   ASK_CLAUDE_ID,
   CLAUDE_CODE,
   agentsShownOnDashboard,
+  hookNamesSession,
   runBlocksAStart,
   startableAgents,
 } from '@cockpit/shared';
@@ -12,6 +13,7 @@ import type { AccountDb } from './client.js';
 import {
   accountAgentSettings,
   accountItemFormPresentation,
+  agentRunActivity,
   agentRuns,
   agents,
   associations,
@@ -57,6 +59,7 @@ import {
   listDashboards,
   listHiddenAgents,
   openAgentRunOn,
+  openRunsWithSessions,
   lastItemTypePosition,
   listFilingsOnPanel,
   listItemTypes,
@@ -2622,6 +2625,34 @@ export function runCommand<N extends CommandName>(
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
         }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'report_agent_run_activity': {
+      const cmd = payload as CommandPayload<'report_agent_run_activity'>;
+      // The open run whose session the hook names ("See on the item when
+      // Claude is waiting on you", issue 572). None is the ordinary case of
+      // another Claude session working in the same repository, or a run
+      // somebody already said finished: nothing moves, and **nothing is
+      // logged**, so a busy repository's hooks never make every tab re-read
+      // a Workspace that did not change. A report of what the run already
+      // says is the same.
+      const run = openRunsWithSessions(db, tenantId, cmd.workspaceId).find((open) =>
+        hookNamesSession(open.sessionUrl, cmd.sessionIds),
+      );
+      if (!run || run.waiting === cmd.waiting) {
+        applied = false;
+        break;
+      }
+      db.transaction((tx) => {
+        tx.insert(agentRunActivity)
+          .values({ runId: run.id, tenantId, waiting: cmd.waiting, reportedAt: cmd.issuedAt })
+          .onConflictDoUpdate({
+            target: agentRunActivity.runId,
+            set: { waiting: cmd.waiting, reportedAt: cmd.issuedAt },
+          })
+          .run();
         tx.insert(commands).values(commandRow).run();
       });
       break;

@@ -1111,7 +1111,9 @@ export function ItemRow({
                   rel="noopener noreferrer"
                   onContextMenu={(event) => event.stopPropagation()}
                   title={chip.hint ?? undefined}
-                  className="shrink-0 rounded-full bg-accent-tint px-1.5 text-accent-deep underline"
+                  className={`shrink-0 rounded-full px-1.5 underline ${
+                    chip.waiting ? 'bg-due-soft text-due-ink' : 'bg-accent-tint text-accent-deep'
+                  }`}
                 >
                   {chip.agent} · {chip.text}
                 </a>
