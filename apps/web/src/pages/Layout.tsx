@@ -803,8 +803,7 @@ function TheShell() {
             <AddWorkspace />
           </WorkspaceTabs>
 
-          {/* The profile alone, at the header's right edge. */}
-          <div className="flex shrink-0 items-end gap-1">
+          <div className="flex shrink-0 items-end">
             {/* Who you are, and the way out - a circle carrying your initial
                 rather than the three dots every other menu opens with, so the
                 two controls read as different jobs rather than as one menu cut

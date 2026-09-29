@@ -6,7 +6,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
  * The control that opens a menu, wherever a menu is opened ("Open every menu
  * from the same control", issue 115).
  *
- * **Three dots mean a menu opens here, with one deliberate exception below.**
+ * **Three dots mean a menu opens here, with one deliberate exception.**
  * Before this, the header's was a bordered pill, an item row's was faint and
  * unbordered, and the one at the right of the dashboard bar was not a menu at
  * all - it was a link to a settings page wearing a menu's clothes. Same
@@ -20,11 +20,10 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
  * what a browser and a phone use for this, and as an icon it is the size this
  * file says it is.
  *
- * **The exception: the profile** (`pages/Layout.tsx`), beside the workspace's
- * own dots on the same chrome, where two identical triplets read as one
- * undifferentiated pair rather than two controls. `children` lets a call site
- * swap the glyph alone, without losing the look, the accessible name or the
- * open/close behaviour every other trigger shares.
+ * **The exception: the profile** (`pages/Layout.tsx`), a circle carrying your
+ * initial, since two identical triplets side by side on the chrome read as one
+ * undifferentiated pair rather than two controls. It is its own
+ * `DropdownMenu.Trigger` and does not come through here.
  *
  * One component rather than one class string, so a call site cannot take the
  * look without the behaviour: the trigger carries its own accessible name,
@@ -36,7 +35,6 @@ export function MenuTrigger({
   onChrome = false,
   disabled = false,
   ref,
-  children,
 }: {
   label: string;
   className?: string;
@@ -68,8 +66,6 @@ export function MenuTrigger({
   disabled?: boolean | undefined;
   /** Held where something has to put the focus back on this control afterwards. */
   ref?: React.Ref<HTMLButtonElement>;
-  /** The glyph, where the three dots would read as one of a pair of them. */
-  children?: React.ReactNode;
 }) {
   return (
     <DropdownMenu.Trigger
@@ -78,7 +74,7 @@ export function MenuTrigger({
       {...(disabled ? { 'aria-disabled': true } : {})}
       className={`${menuButtonClassName(onChrome, className)}${disabled ? ' opacity-40' : ''}`}
     >
-      {children ?? <MenuDots />}
+      <MenuDots />
     </DropdownMenu.Trigger>
   );
 }
