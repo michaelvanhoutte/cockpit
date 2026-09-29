@@ -1089,6 +1089,7 @@ function TheShell() {
         // makes for its own chunk.
         <Suspense fallback={null}>
           <AgentDock
+            background={theme.header}
             workspaceId={params.workspaceId}
             dashboardId={params.dashboardId}
             agents={workspace.data?.agents ?? []}

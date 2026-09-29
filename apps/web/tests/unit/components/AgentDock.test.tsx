@@ -69,6 +69,7 @@ function renderDock(
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <AgentDock
+        background="#221c3d"
         workspaceId="ws-work"
         dashboardId="dash-1"
         agents={[SCOPE_IT, SHIP_IT]}
@@ -194,10 +195,12 @@ describe('Agents', () => {
       const user = userEvent.setup();
       const { mutate } = renderDock({ hiddenAgents: [{ dashboardId: 'dash-1', agentId: 'agent-ship' }] });
 
-      await user.click(screen.getByRole('button', { name: 'What is hidden here, and the Ask Claude switch' }));
+      expect(screen.getByText('1 hidden here')).toBeInTheDocument();
 
-      expect(await screen.findByText('1 hidden here')).toBeInTheDocument();
-      await user.click(screen.getByRole('menuitem', { name: 'Show Ship it' }));
+      await user.click(screen.getByRole('button', { name: 'What is hidden here, and the Ask Claude switch' }));
+      const menu = await screen.findByRole('menu');
+      expect(within(menu).getByText('1 hidden here')).toBeInTheDocument();
+      await user.click(within(menu).getByRole('menuitem', { name: 'Show Ship it' }));
 
       expect(mutate).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -245,6 +248,16 @@ describe('Agents', () => {
       await screen.findByRole('menuitem', { name: 'Edit…' });
 
       expect(screen.queryByText('Nothing hidden here')).toBeNull();
+    });
+  });
+
+  describe('a right-click anywhere else on the bar opens the dock’s own menu', () => {
+    it('opens it from the "…" trigger’s own corner, not only the scrolling tile strip', async () => {
+      renderDock();
+
+      fireEvent.contextMenu(screen.getByRole('toolbar', { name: 'Agents' }));
+
+      expect(await screen.findByText('Nothing hidden here')).toBeInTheDocument();
     });
   });
 
