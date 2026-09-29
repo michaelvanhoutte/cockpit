@@ -49,6 +49,18 @@ export default defineConfig({
      * A case that genuinely hangs still fails, twenty seconds later.
      */
     testTimeout: 20_000,
+    /**
+     * **Logs go straight to workerd's output, never through Vitest**, or a
+     * run can pass and then never end. Captured, every `console.*` is an RPC
+     * back to the main process, and a file waits for all of its RPCs before it
+     * finishes. A log from work outside the test's own request - a queue batch
+     * the real consumer runs, a job's retry - that lands after the file's last
+     * message is never answered, so the file, and CI's Test job, waits forever
+     * with every test passed (cloudflare/workers-sdk issue 15920, "Closing rpc
+     * while resolve was pending"). The cost is that a log is not grouped under
+     * the case that wrote it.
+     */
+    disableConsoleIntercept: true,
     // Only collected when run with `--coverage` (tools/test-explorer's
     // "branches nothing takes" column, docs/test-explorer-spec.md §6.3) —
     // `pnpm test` stays fast, coverage is opt-in.
