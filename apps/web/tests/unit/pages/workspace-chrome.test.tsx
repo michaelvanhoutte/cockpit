@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { NEUTRAL_GROUND, WORKSPACE_THEMES } from '@cockpit/shared';
+import { NEUTRAL_GROUND, NEUTRAL_HEADER, WORKSPACE_THEMES } from '@cockpit/shared';
 import { Layout } from '../../../src/pages/Layout';
 import { litForChrome } from '../../../src/chrome';
 import { WHAT_A_WORKSPACE_IS } from '../../../src/whatThingsAre';
@@ -259,7 +259,7 @@ describe('Workspace management', () => {
       for (const shell of [violet, blue]) {
         expect(shell.page).toBe(rgb(NEUTRAL_GROUND));
         expect(shell.topBarIsGraphite).toBe(true);
-        expect(shell.topBarFill).toBe('');
+        expect(shell.topBarFill).toBe(rgb(NEUTRAL_HEADER));
       }
     });
 
