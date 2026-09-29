@@ -271,7 +271,8 @@ test.describe('Agents', () => {
       };
       await report('Stop');
       await expect(itemRow(page, asked).getByRole('link', { name: 'Ask Claude · Claude is waiting on you ↗' })).toBeVisible();
-      if (!isMobile) await expect(page.getByRole('toolbar', { name: 'Agents' }).getByText('1 waiting on you')).toBeVisible();
+      // The dock's total, not the tile's own count, which is read out the same way.
+      if (!isMobile) await expect(page.getByRole('toolbar', { name: 'Agents' }).getByRole('status')).toHaveText('1 waiting on you');
       await report('UserPromptSubmit');
       await expect(itemRow(page, asked).getByRole('link', { name: 'Ask Claude · Claude is working ↗' })).toBeVisible();
       await expect(page.getByText(/waiting on you/)).toHaveCount(0);
