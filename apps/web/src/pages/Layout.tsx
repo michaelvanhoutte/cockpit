@@ -657,6 +657,8 @@ function TheShell() {
       <header
         className="graphite"
         style={{
+          // Under the gradient, so the top bar is a colour to anything that reads one.
+          backgroundColor: theme.header,
           borderTopColor: theme.color,
           borderTopWidth: 3,
           borderTopStyle: 'solid',

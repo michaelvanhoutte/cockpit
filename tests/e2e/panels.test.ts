@@ -892,12 +892,15 @@ test.describe('Panels', () => {
       rowBox = (await row.boundingBox())!;
       const grownBusyWellBox = (await busyWell.boundingBox())!;
       const grownBareWellBox = (await bareWell.boundingBox())!;
+      // Each panel's frame is a 1px line and its list is inset 4px inside it, so
+      // a well that fills the row ends that far short of the row's own bottom.
+      const INSET = 5;
       expect(
-        Math.abs(grownBusyWellBox.y + grownBusyWellBox.height - (rowBox.y + rowBox.height)),
+        Math.abs(rowBox.y + rowBox.height - (grownBusyWellBox.y + grownBusyWellBox.height) - INSET),
         'the busy well should fill the taller row',
       ).toBeLessThanOrEqual(2);
       expect(
-        Math.abs(grownBareWellBox.y + grownBareWellBox.height - (rowBox.y + rowBox.height)),
+        Math.abs(rowBox.y + rowBox.height - (grownBareWellBox.y + grownBareWellBox.height) - INSET),
         'the bare well should fill the taller row',
       ).toBeLessThanOrEqual(2);
       expect(await busyWell.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
