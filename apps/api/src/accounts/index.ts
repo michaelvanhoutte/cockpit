@@ -275,6 +275,10 @@ export interface Account {
   ): Promise<{ sealedCredential: string; credentialNonce: string }>;
   /** What a run just recorded as starting is fired with (issue 571). */
   agentRunToFire(workspaceId: string, runId: string): Promise<AgentRunToFire>;
+  /** A Claude Code hook reaching one of this Workspace's connections (issue 572). */
+  claudeCodeHookArrived(workspaceId: string, sourceAccountId: string, at: string): Promise<'admitted' | 'too-many'>;
+  /** When a hook last reached one of this Workspace's Claude Code connections (issue 572). */
+  claudeCodeHookArrival(workspaceId: string, sourceAccountId: string): Promise<{ lastArrivedAt: string | null }>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
   applyChange<N extends CommandName>(
     name: N,
@@ -347,6 +351,10 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.claudeCodeCredential(accountName, workspaceId, sourceAccountId)),
     agentRunToFire: async (workspaceId, runId) =>
       unwrap(await store.agentRunToFire(accountName, workspaceId, runId)),
+    claudeCodeHookArrived: async (workspaceId, sourceAccountId, at) =>
+      unwrap(await store.claudeCodeHookArrived(accountName, workspaceId, sourceAccountId, at)),
+    claudeCodeHookArrival: async (workspaceId, sourceAccountId) =>
+      unwrap(await store.claudeCodeHookArrival(accountName, workspaceId, sourceAccountId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
   };

@@ -4,7 +4,8 @@ import { runChipFor } from '../../src/agentRunChip';
 
 /**
  * F1: what a row's chip says about each run, with the clock handed in ("Drop
- * an agent on an item to start a Claude Code session on it", issue 571). That
+ * an agent on an item to start a Claude Code session on it", issue 571; "See
+ * on the item when Claude is waiting on you", issue 572). That
  * the row draws it is ItemRow.test.tsx's.
  */
 
@@ -19,6 +20,7 @@ const aRun = (overrides: Partial<AgentRun> = {}): AgentRun => ({
   sessionUrl: 'https://claude.ai/code/session_01',
   reason: null,
   startedAt: new Date(NOW - 1000).toISOString(),
+  waiting: false,
   ...overrides,
 });
 
@@ -27,6 +29,7 @@ describe('Agents', () => {
     it.each([
       { situation: 'starting', run: aRun({ status: 'starting', sessionUrl: null }), text: 'Starting Claude…', link: false, trouble: false },
       { situation: 'working', run: aRun(), text: 'Claude is working ↗', link: true, trouble: false },
+      { situation: 'waiting on you', run: aRun({ waiting: true }), text: 'Claude is waiting on you ↗', link: true, trouble: false },
       { situation: 'started, with its link lost', run: aRun({ status: 'link_lost', sessionUrl: null }), text: 'Claude started - its link was lost', link: false, trouble: true },
       { situation: 'never answered', run: aRun({ status: 'unknown', sessionUrl: null }), text: 'Unknown - check Claude', link: false, trouble: true },
       { situation: 'refused', run: aRun({ status: 'failed', sessionUrl: null, reason: 'That routine no longer exists.' }), text: "Claude didn't start", link: false, trouble: true },

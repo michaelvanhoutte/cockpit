@@ -34,8 +34,40 @@ export const agentRunSchema = z.object({
   /** Why Claude refused, in words, where it did. */
   reason: z.string().nullable(),
   startedAt: z.iso.datetime(),
+  /**
+   * Whether the session last said it stopped for you rather than that it was
+   * working ("See on the item when Claude is waiting on you", issue 572) -
+   * told by the hooks in the Workspace's repository, and false wherever none
+   * has said anything. Defaulted so an answer from before this field reads as
+   * working.
+   */
+  waiting: z.boolean().default(false),
 });
 export type AgentRun = z.infer<typeof agentRunSchema>;
+
+/**
+ * Whether a hook naming these sessions is about the run whose session this
+ * link opens (issue 572). A routine's session is `…/session_01…`, and a hook
+ * may name it with or without that `session_` - so both sides are compared
+ * without it. Never true for a run with no link, which no hook can name.
+ */
+export function hookNamesSession(sessionUrl: string | null, sessionIds: readonly string[]): boolean {
+  if (!sessionUrl) return false;
+  let last: string;
+  try {
+    last = decodeURIComponent(new URL(sessionUrl).pathname.split('/').filter(Boolean).at(-1) ?? '');
+  } catch {
+    return false;
+  }
+  const bare = (id: string) => id.trim().replace(/^session_/, '');
+  const session = bare(last);
+  return session !== '' && sessionIds.some((id) => bare(id) === session);
+}
+
+/** How many of these runs are waiting on you - the dock's total, and a tile's where handed one Agent's runs (issue 572). */
+export function waitingOnYou(runs: readonly Pick<AgentRun, 'waiting'>[]): number {
+  return runs.filter((run) => run.waiting).length;
+}
 
 /**
  * Whether an Item's open run stands in the way of starting another one on it

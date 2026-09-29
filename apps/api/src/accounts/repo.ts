@@ -39,10 +39,12 @@ import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } fro
 import {
   accountAgentSettings,
   accountItemFormPresentation,
+  agentRunActivity,
   agentRuns,
   agents,
   associations,
   attachments,
+  claudeCodeHookArrivals,
   commands,
   connectionFailures,
   connectorAccounts,
@@ -1729,6 +1731,7 @@ const runColumns = {
   sessionUrl: agentRuns.sessionUrl,
   reason: agentRuns.reason,
   startedAt: agentRuns.startedAt,
+  waiting: agentRunActivity.waiting,
 };
 
 /**
@@ -1746,10 +1749,12 @@ function runFrom(row: {
   sessionUrl: string | null;
   reason: string | null;
   startedAt: string;
+  waiting: boolean | null;
 }): AgentRun {
   const { agentDeletedAt, agentName, ...run } = row;
   return {
     ...run,
+    waiting: row.waiting ?? false,
     agentName: row.agentId === ASK_CLAUDE_ID ? ASK_CLAUDE_NAME : agentDeletedAt ? null : agentName,
   };
 }
@@ -1772,6 +1777,7 @@ export function listOpenAgentRuns(db: AccountDb, tenantId: string, workspaceId: 
       and(eq(items.id, agentRuns.itemId), isNull(items.completedAt), isNull(items.deletedAt)),
     )
     .leftJoin(agents, eq(agents.id, agentRuns.agentId))
+    .leftJoin(agentRunActivity, eq(agentRunActivity.runId, agentRuns.id))
     .where(
       and(
         eq(agentRuns.tenantId, tenantId),
@@ -1784,12 +1790,67 @@ export function listOpenAgentRuns(db: AccountDb, tenantId: string, workspaceId: 
     .map(runFrom);
 }
 
+/**
+ * Every open run in one Workspace that has a session link, whatever its Item
+ * - what a Claude Code hook is matched against ("See on the item when Claude
+ * is waiting on you", issue 572). Few by construction: at most one per Item,
+ * and only until somebody says the agent finished.
+ */
+export function openRunsWithSessions(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+): { id: string; sessionUrl: string; waiting: boolean }[] {
+  return db
+    .select({ id: agentRuns.id, sessionUrl: agentRuns.sessionUrl, waiting: agentRunActivity.waiting })
+    .from(agentRuns)
+    .leftJoin(agentRunActivity, eq(agentRunActivity.runId, agentRuns.id))
+    .where(
+      and(
+        eq(agentRuns.tenantId, tenantId),
+        eq(agentRuns.workspaceId, workspaceId),
+        isNull(agentRuns.endedAt),
+        isNotNull(agentRuns.sessionUrl),
+      ),
+    )
+    // Oldest first, so which of two runs naming one session a hook finds is
+    // decided here rather than by whichever index the query is answered from.
+    .orderBy(asc(agentRuns.startedAt), asc(agentRuns.id))
+    .all()
+    .map((row) => ({ id: row.id, sessionUrl: row.sessionUrl!, waiting: row.waiting ?? false }));
+}
+
+/** When a hook last reached one Claude Code connection, or null where none ever has (issue 572). */
+export function lastHookArrival(db: AccountDb, tenantId: string, sourceAccountId: string): string | null {
+  return (
+    db
+      .select({ arrivedAt: claudeCodeHookArrivals.arrivedAt })
+      .from(claudeCodeHookArrivals)
+      .where(
+        and(
+          eq(claudeCodeHookArrivals.tenantId, tenantId),
+          eq(claudeCodeHookArrivals.sourceAccountId, sourceAccountId),
+        ),
+      )
+      .get()?.arrivedAt ?? null
+  );
+}
+
+/** Records that a hook reached one Claude Code connection just now (issue 572). */
+export function recordHookArrival(db: AccountDb, tenantId: string, sourceAccountId: string, at: string): void {
+  db.insert(claudeCodeHookArrivals)
+    .values({ sourceAccountId, tenantId, arrivedAt: at })
+    .onConflictDoUpdate({ target: claudeCodeHookArrivals.sourceAccountId, set: { arrivedAt: at } })
+    .run();
+}
+
 /** One Item's open run, or undefined - what a second start on it is checked against. */
 export function openAgentRunOn(db: AccountDb, tenantId: string, itemId: string): AgentRun | undefined {
   const row = db
     .select(runColumns)
     .from(agentRuns)
     .leftJoin(agents, eq(agents.id, agentRuns.agentId))
+    .leftJoin(agentRunActivity, eq(agentRunActivity.runId, agentRuns.id))
     .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.itemId, itemId), isNull(agentRuns.endedAt)))
     .get();
   return row ? runFrom(row) : undefined;
@@ -1805,6 +1866,7 @@ export function getAgentRun(
     .select({ ...runColumns, workspaceId: agentRuns.workspaceId, endedAt: agentRuns.endedAt })
     .from(agentRuns)
     .leftJoin(agents, eq(agents.id, agentRuns.agentId))
+    .leftJoin(agentRunActivity, eq(agentRunActivity.runId, agentRuns.id))
     .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.id, runId)))
     .get();
   if (!row) return undefined;
