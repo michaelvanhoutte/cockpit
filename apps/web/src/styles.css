@@ -22,7 +22,7 @@
   --color-ink-soft: #595d6c;
   --color-ink-faint: #75798c;
   --color-surface: #f4f5fb;
-  --color-ground: #edebf7;
+  --color-ground: #f3f3f1;
 
   /*
    * What is drawn *on* the chrome, which is near-black in every theme now
@@ -207,15 +207,24 @@ body {
 }
 
 /*
- * The Inbox's own well, which is the same hollow in the workspace's accent
- * rather than in neutral ink. It is the one column that is the same on every
- * screen of a workspace, and this is what says so without a second border
- * treatment: a fraction more colour than the panels beside it.
+ * The Inbox's own well: the same hollow lifted a little further towards white,
+ * and a shade deeper along its edge. It is the one column that is the same on
+ * every screen of a workspace, and this is what says so without a second
+ * border treatment. Neutral like the panels', since no hollow carries a hue.
  */
 @utility well-inbox {
   background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 62%, white);
   box-shadow:
-    inset 0 1px 3px rgb(93 82 148 / 0.16),
-    inset 0 0 0 1px rgb(93 82 148 / 0.1);
+    inset 0 1px 3px rgb(41 43 49 / 0.16),
+    inset 0 0 0 1px rgb(41 43 49 / 0.09);
 }
 
+
+/*
+ * The top bar and the agents' dock: the same soft graphite gradient in every
+ * workspace, top `#2d2e35` to bottom `#17181c`. `NEUTRAL_HEADER` (shared) is its
+ * top, which is what the strip under a phone's status bar is painted with.
+ */
+@utility graphite {
+  background-image: linear-gradient(#2d2e35, #17181c);
+}

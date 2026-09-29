@@ -43,7 +43,6 @@ const BLANK_MESSAGE = '{title}\n\n{description}';
  * hidden here and carries the Ask Claude switch.
  */
 export function AgentDock({
-  background,
   workspaceId,
   dashboardId,
   agents,
@@ -54,7 +53,6 @@ export function AgentDock({
   claudeCodeFailing = null,
 }: {
   /** The chrome it sits in - a Workspace's own header colour, the same paint `<header>` wears (`pages/Layout.tsx`), so the dock reads as part of the shell rather than a plain panel dropped onto the page. */
-  background: string;
   /** This Dashboard's own Workspace - what a hide or show is scoped to. */
   workspaceId: string;
   dashboardId: string;
@@ -273,13 +271,12 @@ export function AgentDock({
           ref={bar}
           role="toolbar"
           aria-label="Agents"
-          className="flex shrink-0 items-center gap-3 py-2.5"
+          className="graphite flex shrink-0 items-center gap-3 py-2.5"
           style={{
-            backgroundColor: background,
             paddingInline: 'calc(0.75rem + var(--edge-left)) calc(0.5rem + var(--edge-right))',
           }}
         >
-          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1">
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto rounded-xl bg-black/25 px-2 py-1.5 shadow-[inset_0_1px_3px_rgb(0_0_0/0.45)]">
             <span className="shrink-0 text-xs font-semibold uppercase tracking-[0.11em] text-chrome-ink-faint">
               Agents
             </span>
@@ -448,16 +445,13 @@ function RunCount({ count }: { count: number }) {
   );
 }
 
-/** The coloured mark every tile wears, a gradient disc rather than a flat dot - Ask Claude gets one too, from its own fixed colour. */
+/** The coloured dot every tile wears - Ask Claude gets one too, from its own fixed colour. */
 function AgentMark({ color }: { color: string }) {
   return (
     <span
       aria-hidden="true"
-      className="size-9 shrink-0 rounded-lg"
-      style={{
-        background: `linear-gradient(135deg, ${color}, color-mix(in srgb, ${color} 60%, black))`,
-        boxShadow: `0 2px 8px -2px ${color}`,
-      }}
+      className="size-2.5 shrink-0 rounded-full"
+      style={{ backgroundColor: color }}
     />
   );
 }
@@ -469,7 +463,7 @@ function AgentMark({ color }: { color: string }) {
  * the fill), sized for a name and a mark rather than an icon.
  */
 const TILE_CLASS =
-  'flex shrink-0 cursor-grab items-center gap-2.5 rounded-xl border border-white/10 bg-white/6 py-1.5 pr-4 pl-1.5 hover:bg-white/10 data-[state=open]:bg-white/10';
+  'flex shrink-0 cursor-grab items-center gap-2.5 rounded-xl border border-white/10 bg-white/6 py-2 pr-4 pl-3 hover:bg-white/10 data-[state=open]:bg-white/10';
 
 /** How many of this Agent's runs are waiting on you, where any are (issue 572). */
 function WaitingCount({ count }: { count: number }) {

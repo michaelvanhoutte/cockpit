@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { WORKSPACE_THEMES } from '@cockpit/shared';
+import { NEUTRAL_GROUND, WORKSPACE_THEMES } from '@cockpit/shared';
 import { Layout } from '../../../src/pages/Layout';
+import { litForChrome } from '../../../src/chrome';
 import { WHAT_A_WORKSPACE_IS } from '../../../src/whatThingsAre';
 
 /**
@@ -23,12 +24,12 @@ const VIOLET = WORKSPACE_THEMES[0]!;
 const BLUE = WORKSPACE_THEMES[1]!;
 
 /**
- * The surfaces the Violet workspace was wearing before the palette changed - a
- * pale header over a pale ground, which is what a browser holding a stored copy
- * of a workspace from an older release still has.
+ * The surfaces the Violet workspace was wearing before the page went neutral -
+ * what a browser holding a stored copy of a workspace from an older release
+ * still has.
  */
 type Surfaces = { bar: string; ground: string; header: string };
-const AN_OLDER_PALETTE: Surfaces = { bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' };
+const AN_OLDER_PALETTE: Surfaces = { bar: '#211d37', ground: '#edebf7', header: '#18152b' };
 
 const params: { workspaceId?: string } = {};
 /** What the two workspaces are wearing, so a case can hand them older colours. */
@@ -221,54 +222,92 @@ describe('Workspace management', () => {
       expect(strip.dataset.ground).toBe(BLUE.ground);
     });
 
-    it('repaints every surface when the workspace changes, not just the dot', async () => {
-      /** The three surfaces of a shell, as they are actually painted. */
-      const surfaces = async (workspaceId: string, name: string) => {
-        params.workspaceId = workspaceId;
-        const { container, unmount, tab } = await theShell();
-        const painted = {
-          ground: filledWith(container.firstElementChild),
-          header: filledWith(container.querySelector('header')),
-          tab: filledWith(tab(name)),
-        };
-        unmount();
-        return painted;
+    /** What the shell wears, as it is actually painted: the page, the band, the tab and the accent. */
+    const worn = async (workspaceId: string, name: string) => {
+      params.workspaceId = workspaceId;
+      const { container, unmount, tab } = await theShell();
+      const shell = container.firstElementChild as HTMLElement;
+      const worn = {
+        page: filledWith(shell),
+        band: filledWith(within(container).getByTestId('dashboard-strip').parentElement),
+        tab: filledWith(tab(name)),
+        accent: shell.style.getPropertyValue('--color-accent'),
+        deepAccent: shell.style.getPropertyValue('--color-accent-deep'),
+        topBarIsGraphite: container.querySelector('header')!.classList.contains('graphite'),
+        topBarFill: filledWith(container.querySelector('header')),
       };
+      unmount();
+      return worn;
+    };
 
-      expect(await surfaces('ws-violet', 'Violet workspace')).toEqual({
-        ground: rgb(VIOLET.ground),
-        header: rgb(VIOLET.header),
+    it('repaints the band and the accent when the workspace changes, and leaves the page and top bar alone', async () => {
+      const violet = await worn('ws-violet', 'Violet workspace');
+      const blue = await worn('ws-blue', 'Blue workspace');
+
+      expect(violet).toMatchObject({
+        band: rgb(VIOLET.bar),
         tab: rgb(VIOLET.bar),
+        accent: VIOLET.tint,
+        deepAccent: VIOLET.deep,
       });
-      expect(await surfaces('ws-blue', 'Blue workspace')).toEqual({
-        ground: rgb(BLUE.ground),
-        header: rgb(BLUE.header),
+      expect(blue).toMatchObject({
+        band: rgb(BLUE.bar),
         tab: rgb(BLUE.bar),
+        accent: BLUE.tint,
+        deepAccent: BLUE.deep,
       });
+      for (const shell of [violet, blue]) {
+        expect(shell.page).toBe(rgb(NEUTRAL_GROUND));
+        expect(shell.topBarIsGraphite).toBe(true);
+        expect(shell.topBarFill).toBe('');
+      }
     });
 
     it('paints a workspace wearing colours the palette no longer has in the theme its tint belongs to', async () => {
-      // A browser opening on a stored copy from before the palette changed, or
-      // a workspace whose tint was never in the palette at all. The chrome's
-      // text is a fixed light set now, so those older pale surfaces are not the
-      // wrong shade - they are a bar its own text cannot be read on.
+      // A browser opening on a stored copy from before the page went neutral, or
+      // a workspace whose tint was never in the palette at all.
       wearing.violet = AN_OLDER_PALETTE;
-      params.workspaceId = 'ws-violet';
 
-      const { container, tab } = await theShell();
+      const shell = await worn('ws-violet', 'Violet workspace');
 
-      expect(filledWith(container.querySelector('header'))).toBe(rgb(VIOLET.header));
-      expect(filledWith(container.firstElementChild)).toBe(rgb(VIOLET.ground));
-      expect(filledWith(tab('Violet workspace'))).toBe(rgb(VIOLET.bar));
+      expect(shell).toMatchObject({
+        page: rgb(NEUTRAL_GROUND),
+        band: rgb(VIOLET.bar),
+        tab: rgb(VIOLET.bar),
+        accent: VIOLET.tint,
+      });
     });
 
     it('paints in the default theme where there is no workspace to be in, rather than in nothing', async () => {
       // Capture is the screen under the shell that is in no workspace.
       const { container } = await theShell();
+      const shell = container.firstElementChild as HTMLElement;
 
-      expect(filledWith(container.querySelector('header'))).toBe(rgb(VIOLET.header));
-      expect(filledWith(container.firstElementChild)).toBe(rgb(VIOLET.ground));
+      expect(filledWith(shell)).toBe(rgb(NEUTRAL_GROUND));
+      expect(shell.style.getPropertyValue('--color-accent')).toBe(VIOLET.tint);
+      expect(shell.style.getPropertyValue('--color-accent-deep')).toBe(VIOLET.deep);
       expect(within(container).queryByTestId('dashboard-strip')).not.toBeInTheDocument();
+    });
+
+    it('wears the new workspace’s accent on what is opened after switching, not the last one’s', async () => {
+      // Menus and windows are drawn inside the shell, so the accent they read
+      // is the shell's own at the time they open.
+      const first = await worn('ws-violet', 'Violet workspace');
+      const second = await worn('ws-blue', 'Blue workspace');
+
+      expect(first.accent).toBe(VIOLET.tint);
+      expect(second.accent).toBe(BLUE.tint);
+    });
+
+    it('puts the workspace’s tint in the logo’s dot, and the default tint outside any workspace', async () => {
+      params.workspaceId = 'ws-blue';
+      const inBlue = await theShell();
+      expect(inBlue.container.querySelector('[data-logo-dot]')).toHaveAttribute('fill', litForChrome(BLUE.tint));
+      inBlue.unmount();
+
+      delete params.workspaceId;
+      const outside = await theShell();
+      expect(outside.container.querySelector('[data-logo-dot]')).toHaveAttribute('fill', litForChrome(VIOLET.tint));
     });
   });
 

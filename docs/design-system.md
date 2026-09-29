@@ -8,37 +8,46 @@ How Cockpit looks, as against what it does (`docs/product/`). Everything here is
 
 ## The fixed palette
 
-Panels, rows and controls keep one neutral/accent palette wherever they are drawn; only the chrome recolors per Workspace (below). This is what lets a Workspace's colour be chosen freely without touching legibility anywhere else.
+The page, the top bar, the agents' dock and every list's well are the same in every Workspace. Only the dashboard band, the accent and the logo's dot follow one (below), which is what lets a Workspace's colour be chosen freely without touching legibility anywhere else.
 
 - **Ink** — `ink`, `ink-soft`, `ink-faint`: body text, on the neutral surfaces.
-- **Neutral surfaces** — `surface`, `ground`.
-- **Accent** — `accent`, `accent-deep`, `accent-soft`, `accent-tint`: the one hue used for selection and emphasis outside a Workspace's own tint.
+- **Neutral surfaces** — `surface`, and `ground`, the page: warm grey `#f3f3f1`.
+- **Accent** — `accent`, `accent-deep`, `accent-soft`, `accent-tint`: headings, buttons, focus rings and type labels. The shell sets them from the Workspace, so menus and windows opened over the page follow it too; outside a Workspace they are the default theme's.
 - **Due / overdue** — `due`, `due-soft`, `due-ink`, `due-deep`, `over`, `over-deep`: the amber and red of a deadline pill, never of a whole row. The pill steps up as the date closes — an outline in `due` with `due-ink` text, a `due-soft` fill, solid `due` with `due-deep` text, then `over-deep` with white text once passed — each at least 4.5:1 on what it is written on. `over-deep` exists because the swipe reveal also fills a band with `over` and writes a word inside it, and white on `over` itself falls short of readable at that size.
 - **Status** — one colour per Item status (`to-process`, `task`, `waiting`, `delegated`, `snoozed`, `reference`), always paired with the word beside it: colour alone cannot separate six statuses, and cannot be read by a screen reader at all.
 
 ## Workspace themes
 
-A Workspace theme is four colours designed together, not four independent choices: **tint** (the saturated one, for the tab dot and the selected tab), **header** (the bar across the top, the deepest surface), **bar** (the strip the Dashboard tabs sit on, one step lighter than `header`), and **ground** (the sheet behind the panels, the lightest). The two chrome surfaces (`header`, `bar`) are near-black in the theme's own hue; `ground` is near-white in it. Text drawn on the chrome is one fixed light set in every theme, never themed itself, so a Workspace's colour never has to be checked against a second text palette.
+A Workspace theme is designed as a set: **tint** (the saturated colour: the accent, the tab dot, the logo's dot), **bar** (the dashboard band, a deep shade of the tint), **deep** (the tint where it is text) and the two neutrals **ground** and **header**, which are the same in all eight. Near-white text (`chrome-ink`) is what is drawn on the band, never themed.
 
-The palette is eight designed sets, handed out to new Workspaces in this order:
+**Every band and deep shade is designed per theme, not mixed**, and held by a test to: near-white text on the band at least 4.5:1, `deep` as text on the page and on a well at least 4.5:1, and the tint lifted 30% towards white at least 3:1 as the logo's dot on the top bar. A band is the tint darkened 20% where that already reads, and further where it does not (Amber, Olive, Cyan).
 
-| Theme | Tint | Bar | Ground | Header |
-|---|---|---|---|---|
-| Violet | `#6f62b5` | `#211d37` | `#edebf7` | `#18152b` |
-| Blue | `#3a72c8` | `#1d2737` | `#ebf0f7` | `#151e2b` |
-| Terracotta | `#c06a45` | `#37251d` | `#f7efeb` | `#2b1c15` |
-| Teal | `#3f8f78` | `#1d372f` | `#ebf7f3` | `#152b24` |
-| Magenta | `#a8548c` | `#371d2e` | `#f7ebf3` | `#2b1523` |
-| Amber | `#b58a2f` | `#372f1d` | `#f7f3eb` | `#2b2415` |
-| Cyan | `#4f8fa8` | `#1d3037` | `#ebf4f7` | `#15252b` |
-| Olive | `#7d8f3f` | `#31371d` | `#f4f7eb` | `#262b15` |
+The palette is eight designed sets, handed out to new Workspaces in this order. `header` and `ground` are `#2d2e35` and `#f3f3f1` in every row:
 
-A Workspace is never assigned colours outside this table: a stored theme not in it is drawn in the default (Violet) rather than in what it stores.
+| Theme | Tint | Bar | Deep |
+|---|---|---|---|
+| Violet | `#6f62b5` | `#594e91` | `#6e61b3` |
+| Blue | `#3a72c8` | `#2e5ba0` | `#376cbe` |
+| Terracotta | `#c06a45` | `#9a5537` | `#a1593a` |
+| Teal | `#3f8f78` | `#327260` | `#357865` |
+| Magenta | `#a8548c` | `#864370` | `#a15186` |
+| Amber | `#b58a2f` | `#866623` | `#886823` |
+| Cyan | `#4f8fa8` | `#3f7286` | `#3f7286` |
+| Olive | `#7d8f3f` | `#637132` | `#647232` |
+
+A Workspace is never assigned colours outside this table: a stored set that is not exactly a row of it, including every set stored before the page went neutral, is drawn in the theme its tint belongs to, or the default (Violet) where the tint is not in the table. Nothing stored is rewritten.
+
+## Chrome
+
+- **Top bar and agents' dock** — one soft graphite gradient, `#2d2e35` at the top to `#17181c`, in every Workspace. The agents sit in a recessed tray in the dock, each tile with a 10px round dot in its colour.
+- **Dashboard band** — the Workspace's `bar`. The selected Workspace tab is filled with it and runs down into it; unselected dashboard tabs are near-white; the selected one is filled with the page. The Inbox's heading is a rounded tab in the page's colour with a strip of band above it.
+- **Logo** — a bold "C" with a dot in the Workspace's tint (`components/Logo.tsx`), beside the name and gone with it below `sm`. The favicon and installed-app icon are the same mark on a graphite tile with the default violet dot.
+- **Panel frame** — each panel wears a faint 1px dotted frame around its heading and list, the list inset 4px.
 
 ## Surfaces
 
-- **Well** — a list sunk into the sheet: no radius, no border, a shallow inner shadow along the top edge, mixed from the Workspace's own `ground` lifted towards white. The sheet stays one surface and the list is a hollow in it rather than a card on it; a header above it sits up on the sheet, and only the list goes down.
-- **Well (Inbox)** — the same hollow, mixed from the Workspace's `ground` towards its accent rather than towards neutral ink: a fraction more colour than the panels beside it, marking the one column that is the same on every screen of a Workspace.
+- **Well** — a list sunk into the sheet: no radius, no border, a shallow inner shadow along the top edge, mixed from the page's `ground` lifted towards white. The sheet stays one surface and the list is a hollow in it rather than a card on it; a header above it sits up on the sheet, and only the list goes down.
+- **Well (Inbox)** — the same hollow lifted a little further towards white, marking the one column that is the same on every screen of a Workspace. Neutral like the rest: no hollow carries a hue.
 - **Milled** — a control that reads as a surface rather than a filled rectangle: a faint vertical gradient over whatever background colour it already has, and a one-pixel highlight along its top edge. Additive: it paints over a control's own Tailwind background colour rather than replacing it, meant to be felt rather than seen.
 - **Elevation** — a two-step shadow scale (`panel`, `raised`) for what genuinely floats: a dialog, a menu, the row lifted under a drag. A Panel itself is not elevated — its list is sunk (`well`, above) rather than raised, so nothing on a Dashboard advances towards you.
 

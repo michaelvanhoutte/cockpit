@@ -69,7 +69,6 @@ function renderDock(
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <AgentDock
-        background="#221c3d"
         workspaceId="ws-work"
         dashboardId="dash-1"
         agents={[SCOPE_IT, SHIP_IT]}
