@@ -190,7 +190,12 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
           // every one on the agents' dock under it for as long as an offer
           // lasted ("Drop an agent on an item to start a Claude Code session
           // on it", issue 571).
-          className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right)_+_var(--docked-form-w,0px))] pb-[calc(1rem_+_var(--edge-bottom))] pl-[calc(1rem_+_var(--edge-left))]"
+          //
+          // **Clears the agents' dock**, `--dock-h` (`AgentDock.tsx`), the
+          // same way it clears a docked form's own width - the two sit at the
+          // same edge, and the bar covering a dock tile is not only a swallowed
+          // press but the tile going invisible under it.
+          className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right)_+_var(--docked-form-w,0px))] pb-[calc(1rem_+_var(--edge-bottom)_+_var(--dock-h,0px))] pl-[calc(1rem_+_var(--edge-left))]"
         >
           <div className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
             <span className="min-w-0 flex-1 truncate">{failure ?? held.what}</span>

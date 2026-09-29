@@ -94,12 +94,18 @@ test.describe('Agents', () => {
       await press(page.getByRole('menuitem', { name: 'Hide on this dashboard' }), isMobile);
       await expect(dock.getByRole('button', { name: renamed })).toHaveCount(0);
 
+      // "1 hidden here" is on the bar itself too, from here on - its own
+      // assertion is below, once the menu that would make the two ambiguous
+      // is closed again.
+      await expect(page.getByText('1 hidden here')).toBeVisible();
+
       const dockMenu = dock.getByRole('button', {
         name: 'What is hidden here, and the Ask Claude switch',
       });
       await press(dockMenu, isMobile);
-      await expect(page.getByText('1 hidden here')).toBeVisible();
-      await press(page.getByRole('menuitem', { name: `Show ${renamed}` }), isMobile);
+      const menu = page.getByRole('menu');
+      await expect(menu.getByText('1 hidden here')).toBeVisible();
+      await press(menu.getByRole('menuitem', { name: `Show ${renamed}` }), isMobile);
       await expect(dock.getByRole('button', { name: renamed })).toBeVisible();
 
       // The dock hides and shows with A and from the gear.

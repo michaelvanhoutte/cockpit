@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
@@ -43,6 +43,7 @@ const BLANK_MESSAGE = '{title}\n\n{description}';
  * hidden here and carries the Ask Claude switch.
  */
 export function AgentDock({
+  background,
   workspaceId,
   dashboardId,
   agents,
@@ -52,6 +53,8 @@ export function AgentDock({
   agentRuns = [],
   claudeCodeFailing = null,
 }: {
+  /** The chrome it sits in - a Workspace's own header colour, the same paint `<header>` wears (`pages/Layout.tsx`), so the dock reads as part of the shell rather than a plain panel dropped onto the page. */
+  background: string;
   /** This Dashboard's own Workspace - what a hide or show is scoped to. */
   workspaceId: string;
   dashboardId: string;
@@ -70,8 +73,35 @@ export function AgentDock({
   const [deleting, setDeleting] = useState<string | null>(null);
   const askedFrom = useRef<HTMLElement | null>(null);
   const newAgentButton = useRef<HTMLButtonElement>(null);
+  const bar = useRef<HTMLDivElement>(null);
   const command = useCommand();
   const send = useSendCommand();
+
+  /**
+   * How tall the dock actually is, so the bar that offers to undo the last
+   * change (`undo.tsx`) clears it rather than the two overlapping - which the
+   * dock's own tiles growing past `undo.tsx`'s fixed clearance once did
+   * ("Keep your agents in a dock, and choose which each dashboard shows",
+   * issue 570). A `ResizeObserver` rather than a one-time read: the row never
+   * wraps, but its height still moves - the agents' snapshot arriving after
+   * the first paint, a horizontal scrollbar appearing once the tiles
+   * overflow - the same reason `useMeasuredWidth` (`panels/useScreenWidth.ts`)
+   * watches rather than reads once, and the same guard for where nothing can
+   * be observed: a test runner with no layout engine.
+   */
+  useLayoutEffect(() => {
+    const el = bar.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const publish = () => root.style.setProperty('--dock-h', `${el.offsetHeight}px`);
+    publish();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(publish) : null;
+    observer?.observe(el);
+    return () => {
+      observer?.disconnect();
+      root.style.removeProperty('--dock-h');
+    };
+  }, []);
 
   const hiddenIdsHere = hiddenAgents
     .filter((hidden) => hidden.dashboardId === dashboardId)
@@ -228,78 +258,103 @@ export function AgentDock({
         : null;
 
   return (
-    <div
-      role="toolbar"
-      aria-label="Agents"
-      className="flex shrink-0 items-center gap-2 border-t border-black/10 bg-surface px-3 py-2"
-    >
+    <>
+      {/* One right-click target for the whole bar, the badge and the "…"
+          included, per its own hidden-count tooltip ("Right-click the
+          dock..."): `DockEmptyAreaMenu` wraps the bar whole rather than only
+          the scrolling tile strip inside it. */}
       <DockEmptyAreaMenu
         hiddenHere={hiddenHere}
         askClaudeEnabled={askClaudeEnabled}
         onShow={show}
         onToggleAskClaude={toggleAskClaude}
       >
-        <div className="flex flex-1 items-center gap-2 overflow-x-auto">
-          <button
-            ref={newAgentButton}
-            type="button"
-            onClick={() => startCreating(newAgentButton.current)}
-            className="shrink-0 rounded-md border border-dashed border-black/20 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:text-accent-deep"
-          >
-            + New agent
-          </button>
+        <div
+          ref={bar}
+          role="toolbar"
+          aria-label="Agents"
+          className="flex shrink-0 items-center gap-3 py-2.5"
+          style={{
+            backgroundColor: background,
+            paddingInline: 'calc(0.75rem + var(--edge-left)) calc(0.5rem + var(--edge-right))',
+          }}
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1">
+            <span className="shrink-0 text-xs font-semibold uppercase tracking-[0.11em] text-chrome-ink-faint">
+              Agents
+            </span>
+            <button
+              ref={newAgentButton}
+              type="button"
+              onClick={() => startCreating(newAgentButton.current)}
+              className="shrink-0 rounded-xl border border-dashed border-white/15 px-3 py-2.5 text-sm text-chrome-ink-faint hover:border-white/30 hover:bg-white/6 hover:text-chrome-ink"
+            >
+              + New agent
+            </button>
 
-          {tiles.map((tile) =>
-            tile.kind === 'ask-claude' ? (
-              <div
-                key={ASK_CLAUDE_ID}
-                {...pickedUpAs(ASK_CLAUDE_ID, ASK_CLAUDE_NAME)}
-                className="flex shrink-0 cursor-grab items-center gap-1.5 rounded-md border border-black/10 px-3 py-1.5 text-sm"
-              >
-                <span
-                  aria-hidden="true"
-                  className="inline-block size-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: ASK_CLAUDE_COLOR }}
+            {tiles.map((tile) =>
+              tile.kind === 'ask-claude' ? (
+                <div
+                  key={ASK_CLAUDE_ID}
+                  {...pickedUpAs(ASK_CLAUDE_ID, ASK_CLAUDE_NAME)}
+                  className={TILE_CLASS}
+                >
+                  <AgentMark color={ASK_CLAUDE_COLOR} />
+                  <span className="text-sm font-medium text-chrome-ink">{ASK_CLAUDE_NAME}</span>
+                  <RunCount count={runningFor(ASK_CLAUDE_ID)} />
+                  <WaitingCount count={waitingFor(ASK_CLAUDE_ID)} />
+                </div>
+              ) : (
+                <AgentTile
+                  key={tile.agent.id}
+                  agent={tile.agent}
+                  running={runningFor(tile.agent.id)}
+                  waiting={waitingFor(tile.agent.id)}
+                  onEdit={startEditing}
+                  onHide={hide}
+                  onDelete={startDeleting}
                 />
-                {ASK_CLAUDE_NAME}
-                <RunCount count={runningFor(ASK_CLAUDE_ID)} />
-                <WaitingCount count={waitingFor(ASK_CLAUDE_ID)} />
-              </div>
-            ) : (
-              <AgentTile
-                key={tile.agent.id}
-                agent={tile.agent}
-                running={runningFor(tile.agent.id)}
-                waiting={waitingFor(tile.agent.id)}
-                onEdit={startEditing}
-                onHide={hide}
-                onDelete={startDeleting}
-              />
-            ),
-          )}
+              ),
+            )}
 
-          {/* What stands between these tiles and Claude, where something does
-              ("Drop an agent on an item to start a Claude Code session on
-              it", issue 571): no connection to start through, or one Claude
-              last refused - said until a start through it works. */}
-          {waitingInAll > 0 && (
-            <span role="status" className="shrink-0 rounded-full bg-due-soft px-2 text-xs text-due-ink">
-              {waitingInAll} waiting on you
-            </span>
-          )}
-          {!hasClaudeCodeConnection && agents.length > 0 && (
-            <span className="shrink-0 text-xs text-ink-faint">
-              Connect Claude Code to this workspace to start an agent.
-            </span>
-          )}
-          {hasClaudeCodeConnection && claudeCodeFailing && (
-            <span role="status" className="shrink-0 text-xs text-over-deep">
-              Claude Code is failing: {claudeCodeFailing}
-            </span>
-          )}
+            {/* What stands between these tiles and Claude, where something
+                does ("Drop an agent on an item to start a Claude Code
+                session on it", issue 571): no connection to start through,
+                or one Claude last refused - said until a start through it
+                works. */}
+            {waitingInAll > 0 && (
+              <span
+                role="status"
+                className="shrink-0 rounded-full bg-due-soft px-2 text-xs text-due-ink"
+              >
+                {waitingInAll} waiting on you
+              </span>
+            )}
+            {!hasClaudeCodeConnection && agents.length > 0 && (
+              <span className="shrink-0 text-xs text-chrome-ink-faint">
+                Connect Claude Code to this workspace to start an agent.
+              </span>
+            )}
+            {hasClaudeCodeConnection && claudeCodeFailing && (
+              <span
+                role="status"
+                className="shrink-0 rounded-full bg-over-deep px-2.5 py-1 text-xs font-medium text-white"
+              >
+                Claude Code is failing: {claudeCodeFailing}
+              </span>
+            )}
+          </div>
 
+          {hiddenHere.length > 0 && (
+            <span
+              className="shrink-0 text-xs text-chrome-ink-faint"
+              title='Right-click the dock, or open its "…", to show them again'
+            >
+              {hiddenHere.length} hidden here
+            </span>
+          )}
           <DropdownMenu.Root>
-            <MenuTrigger label="What is hidden here, and the Ask Claude switch" className="ml-auto" />
+            <MenuTrigger label="What is hidden here, and the Ask Claude switch" onChrome />
             <MenuContent>
               <DockMenuEntries
                 hiddenHere={hiddenHere}
@@ -350,7 +405,7 @@ export function AgentDock({
           onConfirm={() => confirmDelete(beingDeleted.id)}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -385,13 +440,36 @@ function RunCount({ count }: { count: number }) {
   if (count === 0) return null;
   return (
     <span
-      className="rounded-full bg-accent-tint px-1.5 text-xs tabular-nums text-accent-deep"
+      className="rounded-full bg-white/20 px-1.5 text-xs tabular-nums text-chrome-ink"
       title={`${count} open ${count === 1 ? 'run' : 'runs'} in this workspace`}
     >
       {count}
     </span>
   );
 }
+
+/** The coloured mark every tile wears, a gradient disc rather than a flat dot - Ask Claude gets one too, from its own fixed colour. */
+function AgentMark({ color }: { color: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="size-9 shrink-0 rounded-lg"
+      style={{
+        background: `linear-gradient(135deg, ${color}, color-mix(in srgb, ${color} 60%, black))`,
+        boxShadow: `0 2px 8px -2px ${color}`,
+      }}
+    />
+  );
+}
+
+/**
+ * The chip every tile wears, Ask Claude included - the same "control on
+ * chrome" surface `Menu.tsx`'s `menuButtonClassName` already draws (one
+ * `hover`/`data-[state=open]` value, not a border that steps separately from
+ * the fill), sized for a name and a mark rather than an icon.
+ */
+const TILE_CLASS =
+  'flex shrink-0 cursor-grab items-center gap-2.5 rounded-xl border border-white/10 bg-white/6 py-1.5 pr-4 pl-1.5 hover:bg-white/10 data-[state=open]:bg-white/10';
 
 /** How many of this Agent's runs are waiting on you, where any are (issue 572). */
 function WaitingCount({ count }: { count: number }) {
@@ -409,7 +487,7 @@ function WaitingCount({ count }: { count: number }) {
   );
 }
 
-/** One made Agent's tile: a colour dot, its name, its open runs, how many wait on you, and its own menu. */
+/** One made Agent's tile: its colour mark, its name, its open runs, how many wait on you, and its own menu. */
 function AgentTile({
   agent,
   running,
@@ -436,14 +514,10 @@ function AgentTile({
           type="button"
           onClick={() => onEdit(agent, tile.current)}
           {...pickedUpAs(agent.id, agent.name)}
-          className="flex shrink-0 cursor-grab items-center gap-1.5 rounded-md border border-black/10 px-3 py-1.5 text-sm hover:border-accent"
+          className={TILE_CLASS}
         >
-          <span
-            aria-hidden="true"
-            className="inline-block size-2.5 shrink-0 rounded-full"
-            style={{ backgroundColor: agent.color }}
-          />
-          {agent.name}
+          <AgentMark color={agent.color} />
+          <span className="text-sm font-medium text-chrome-ink">{agent.name}</span>
           <RunCount count={running} />
           <WaitingCount count={waiting} />
         </button>
