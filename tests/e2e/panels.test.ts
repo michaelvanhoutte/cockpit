@@ -870,6 +870,13 @@ test.describe('Panels', () => {
       await expect.poll(async () => (await row.boundingBox())!.height).toBeGreaterThan(atFit);
       expect(await busyWell.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
 
+      // The bar from filing the eight items above is still up, and ten
+      // seconds after a batch move lands closer to where this line now sits
+      // than it did before this row held anything - clear of it before
+      // taking hold of the line, or the drag closes over the Undo button
+      // instead of the row.
+      await expect(page.getByRole('button', { name: 'Undo' })).toHaveCount(0, { timeout: 11_000 });
+
       // Dragged taller than either panel needs, which still works the way it
       // always has: both wells fill the row exactly, with nothing left over.
       const fitHeight = (await row.boundingBox())!.height;
