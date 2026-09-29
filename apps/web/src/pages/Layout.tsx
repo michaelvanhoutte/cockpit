@@ -941,8 +941,8 @@ function TheShell() {
           <>
             {roomForTheInbox && !inboxCollapsed && (
               <div
-                // A rounded tab with a strip of the band showing above it (`mt-1`), the shape a
-                // selected dashboard tab beside it has.
+                // A rounded tab with a strip of the band showing above it (`mt-1`, which the
+                // collapsed chip has too, so the band is one height either way).
                 className={`ml-1 mt-1 rounded-t-md ${inboxColumnClassName} bg-[var(--ground)] px-4 pt-2 pb-1.5`}
                 style={inboxColumnStyle}
               >
@@ -962,7 +962,7 @@ function TheShell() {
               <InboxChip
                 workspaceId={params.workspaceId}
                 onOpen={() => collapseInbox(false)}
-                className="ml-1 shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-2 pb-1.5 text-sm text-chrome-ink hover:bg-white/8"
+                className="ml-1 mt-1 shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-2 pb-1.5 text-sm text-chrome-ink hover:bg-white/8"
               />
             )}
             <DashboardBar

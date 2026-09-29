@@ -194,8 +194,8 @@ export function PanelCard({
       // old height regardless - nothing to shrink into, and nothing to scroll
       // ("A Panel doesn't shrink or scroll to fit a shorter dashboard row",
       // issue 432).
-      className={`@container flex min-h-0 min-w-0 flex-col rounded-sm border border-dotted border-black/15 ${
-        lifted ? 'rounded-lg opacity-40 outline-2 outline-dashed outline-accent' : ''
+      className={`@container flex min-h-0 min-w-0 flex-col border border-dotted border-black/15 ${
+        lifted ? 'rounded-lg opacity-40 outline-2 outline-dashed outline-accent' : 'rounded-sm'
       }`}
     >
       <SurfaceMenu

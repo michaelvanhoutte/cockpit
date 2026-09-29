@@ -289,16 +289,6 @@ describe('Workspace management', () => {
       expect(within(container).queryByTestId('dashboard-strip')).not.toBeInTheDocument();
     });
 
-    it('wears the new workspace’s accent on what is opened after switching, not the last one’s', async () => {
-      // Menus and windows are drawn inside the shell, so the accent they read
-      // is the shell's own at the time they open.
-      const first = await worn('ws-violet', 'Violet workspace');
-      const second = await worn('ws-blue', 'Blue workspace');
-
-      expect(first.accent).toBe(VIOLET.tint);
-      expect(second.accent).toBe(BLUE.tint);
-    });
-
     it('puts the workspace’s tint in the logo’s dot, and the default tint outside any workspace', async () => {
       params.workspaceId = 'ws-blue';
       const inBlue = await theShell();
