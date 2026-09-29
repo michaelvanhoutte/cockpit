@@ -105,7 +105,7 @@ export function ConnectClaudeCode({
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
+          className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] max-h-[calc(100dvh-2rem_-_var(--edge-top))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 overflow-y-auto rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
           <Dialog.Title className="text-base font-semibold">Connect Claude Code</Dialog.Title>
           <Dialog.Description className="pt-2 text-sm text-ink-soft">
@@ -240,7 +240,7 @@ function ReportingBack({
           <div className="flex items-start gap-2">
             <pre
               aria-label="Hooks for .claude/settings.json"
-              className="max-h-40 min-w-0 flex-1 overflow-auto rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs text-ink-soft"
+              className="max-h-32 min-w-0 flex-1 overflow-auto rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs text-ink-soft"
             >
               {claudeCodeHooksSnippet(data)}
             </pre>
