@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { useQuery } from '@tanstack/react-query';
+import { claudeCodeHooksSchema, claudeCodeHooksSnippet, type ClaudeCodeHooks } from '@cockpit/shared';
+import { api, refusal } from '../api/client';
 import { useConnectClaudeCode } from '../api/queries';
 
 /**
@@ -39,9 +42,12 @@ export function ConnectClaudeCode({
   onClose,
   onPendingChange,
   returnFocusTo,
+  connectionId,
 }: {
   open: boolean;
   workspaceId: string;
+  /** The connection this edits, where one is held - what the hooks in step 4 are issued for (issue 572). */
+  connectionId?: string | undefined;
   onClose: () => void;
   /**
    * Told every time this form's own submit goes from idle to in flight or
@@ -99,7 +105,7 @@ export function ConnectClaudeCode({
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
+          className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] max-h-[calc(100dvh-2rem_-_var(--edge-top))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 overflow-y-auto rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
           <Dialog.Title className="text-base font-semibold">Connect Claude Code</Dialog.Title>
           <Dialog.Description className="pt-2 text-sm text-ink-soft">
@@ -120,15 +126,16 @@ export function ConnectClaudeCode({
             <ol className="flex flex-col gap-3 text-sm">
               <li>1. Create a routine on this workspace's repository in Claude Code.</li>
               <li>
-                {/* The links an agent's message carries point here, and a
-                    routine's environment reaches only the domains it allows
-                    ("Send an item's attachments along when an agent starts",
-                    issue 573). */}
+                {/* The links an agent's message carries point here, and so do
+                    the hooks of step 5, and a routine's environment reaches
+                    only the domains it allows ("Send an item's attachments
+                    along when an agent starts", issue 573). Said once, here,
+                    since it is needed before the first start. */}
                 2. Allow its environment to reach{' '}
                 <code className="rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
                   {window.location.hostname}
                 </code>
-                , so the session can read an item's attachments.
+                , so the session can read an item's attachments and say when it is waiting on you.
               </li>
               <li>
                 <p>3. Give it this prompt:</p>
@@ -168,6 +175,7 @@ export function ConnectClaudeCode({
                   />
                 </div>
               </li>
+              {connectionId && <ReportingBack open={open} workspaceId={workspaceId} connectionId={connectionId} />}
             </ol>
 
             {refusal && (
@@ -195,5 +203,80 @@ export function ConnectClaudeCode({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+/**
+ * The hooks a connection's repository needs for an item to say when Claude
+ * is waiting on you ("See on the item when Claude is waiting on you", issue
+ * 572). Fetched here rather than in `api/client.ts`, for the reason
+ * `ManageConnections` gives for its own list: only this window asks.
+ */
+async function fetchHooks(workspaceId: string, sourceAccountId: string): Promise<ClaudeCodeHooks> {
+  const res = await api.v1.workspaces[':workspaceId'].connections['claude-code'][':sourceAccountId'].hooks.$post({
+    param: { workspaceId, sourceAccountId },
+  });
+  if (!res.ok) throw refusal('Claude Code hooks', res.status);
+  return claudeCodeHooksSchema.parse(await res.json());
+}
+
+/**
+ * Step 5, on a connection already held: the snippet for the repository's
+ * `.claude/settings.json`, and when a hook last reached Cockpit - which is
+ * how a repository whose hooks never arrive is told from one that is simply
+ * quiet. Read afresh every time the form opens, since that last time is the
+ * point. The domain the hooks post to is step 2's, allowed before connecting.
+ */
+function ReportingBack({
+  open,
+  workspaceId,
+  connectionId,
+}: {
+  open: boolean;
+  workspaceId: string;
+  connectionId: string;
+}) {
+  const { data, error } = useQuery({
+    queryKey: ['claudeCodeHooks', workspaceId, connectionId],
+    queryFn: () => fetchHooks(workspaceId, connectionId),
+    staleTime: 0,
+    enabled: open,
+  });
+
+  return (
+    <li>
+      <p>5. So an item says when Claude is waiting on you, add these hooks to the repository's .claude/settings.json:</p>
+      {error && !data && <p className="pt-1 text-sm text-over">The hooks could not be read. Close this and try again.</p>}
+      {data && (
+        <div className="mt-1 flex flex-col gap-2">
+          <div className="flex items-start gap-2">
+            <pre
+              aria-label="Hooks for .claude/settings.json"
+              className="max-h-32 min-w-0 flex-1 overflow-auto rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs text-ink-soft"
+            >
+              {claudeCodeHooksSnippet(data)}
+            </pre>
+            <CopyButton text={claudeCodeHooksSnippet(data)} />
+          </div>
+          <p className="text-ink-faint">
+            {data.lastArrivedAt
+              ? `A hook last arrived ${new Date(data.lastArrivedAt).toLocaleString()}.`
+              : 'No hook has arrived yet.'}
+          </p>
+        </div>
+      )}
+    </li>
+  );
+}
+
+function CopyButton({ text }: { text: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => void navigator.clipboard.writeText(text).catch(() => {})}
+      className="shrink-0 rounded-md border border-black/10 px-2 py-1 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
+    >
+      Copy
+    </button>
   );
 }

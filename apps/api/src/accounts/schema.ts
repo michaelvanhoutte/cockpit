@@ -1808,6 +1808,47 @@ export const agentRuns = sqliteTable(
 );
 
 /**
+ * Whether a run's session last said it is waiting on you ("See on the item
+ * when Claude is waiting on you", issue 572) - one row per run a hook has
+ * ever moved, rewritten by each hook that moves it.
+ *
+ * **A table of its own rather than a status on `agentRuns`**, whose status
+ * list is a CHECK that SQLite cannot widen without rebuilding a table holding
+ * real rows. **No foreign key**, for the reason `connectionFailures` gives: a
+ * row is only ever read joined to its run.
+ */
+export const agentRunActivity = sqliteTable(
+  'agent_run_activity',
+  {
+    runId: text('run_id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    waiting: integer('waiting', { mode: 'boolean' }).notNull(),
+    reportedAt: text('reported_at').notNull(),
+  },
+  (t) => [
+    check('agent_run_activity_waiting_is_flag', sql.raw('waiting IN (0, 1)')),
+    check('agent_run_activity_reported_at_is_timestamp', isTimestamp('reported_at')),
+  ],
+);
+
+/**
+ * When a hook last reached Cockpit for a Claude Code connection (issue 572),
+ * whatever it said and whether it moved a run - what the connection's form
+ * shows, so a repository whose hooks arrive but name no run can be told from
+ * one whose hooks never arrive. No foreign key, for the reason
+ * `connectionFailures` gives.
+ */
+export const claudeCodeHookArrivals = sqliteTable(
+  'claude_code_hook_arrivals',
+  {
+    sourceAccountId: text('source_account_id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    arrivedAt: text('arrived_at').notNull(),
+  },
+  (t) => [check('claude_code_hook_arrivals_arrived_at_is_timestamp', isTimestamp('arrived_at'))],
+);
+
+/**
  * The command log (architecture, "Mutations are commands, not object PUTs"):
  * idempotency check for retries and the audit trail. command_id is the
  * client-generated ID; a replayed command is a no-op.

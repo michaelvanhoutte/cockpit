@@ -20,6 +20,8 @@ export interface RunChip {
   hint: string | null;
   /** Whether this chip reads as a problem. */
   trouble: boolean;
+  /** Whether Claude has stopped and is waiting on you (issue 572) - amber, never a problem. */
+  waiting: boolean;
 }
 
 export function runChipFor(run: AgentRun, now: number): RunChip {
@@ -30,9 +32,13 @@ export function runChipFor(run: AgentRun, now: number): RunChip {
       : run.status;
   switch (status) {
     case 'starting':
-      return { agent, text: 'Starting Claude…', href: null, hint: null, trouble: false };
+      return { agent, text: 'Starting Claude…', href: null, hint: null, trouble: false, waiting: false };
     case 'working':
-      return { agent, text: 'Claude is working ↗', href: run.sessionUrl, hint: 'Open the Claude session', trouble: false };
+      // What the session's hooks last said, where the repository has them
+      // ("See on the item when Claude is waiting on you", issue 572).
+      return run.waiting
+        ? { agent, text: 'Claude is waiting on you ↗', href: run.sessionUrl, hint: 'Open the Claude session to answer', trouble: false, waiting: true }
+        : { agent, text: 'Claude is working ↗', href: run.sessionUrl, hint: 'Open the Claude session', trouble: false, waiting: false };
     case 'link_lost':
       return {
         agent,
@@ -40,6 +46,7 @@ export function runChipFor(run: AgentRun, now: number): RunChip {
         href: null,
         hint: 'The session is in your Claude Code sessions list',
         trouble: true,
+        waiting: false,
       };
     case 'unknown':
       return {
@@ -48,8 +55,9 @@ export function runChipFor(run: AgentRun, now: number): RunChip {
         href: null,
         hint: "Claude's answer never arrived, so a session may have started",
         trouble: true,
+        waiting: false,
       };
     case 'failed':
-      return { agent, text: "Claude didn't start", href: null, hint: run.reason, trouble: true };
+      return { agent, text: "Claude didn't start", href: null, hint: run.reason, trouble: true, waiting: false };
   }
 }

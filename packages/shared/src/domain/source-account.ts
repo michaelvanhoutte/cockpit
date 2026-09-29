@@ -87,3 +87,50 @@ export const claudeCodeOutcomeSchema = z.discriminatedUnion('accepted', [
   z.object({ accepted: z.literal(false), message: z.string() }),
 ]);
 export type ClaudeCodeOutcome = z.infer<typeof claudeCodeOutcomeSchema>;
+
+/**
+ * What the repository needs for its Claude Code sessions to say when they are
+ * waiting on you ("See on the item when Claude is waiting on you", issue
+ * 572): where the hooks post, the connection's secret they post with, the
+ * domain the routine's network settings must allow, and when a hook last
+ * reached Cockpit - null where none ever has.
+ */
+export const claudeCodeHooksSchema = z.object({
+  url: z.url(),
+  secret: z.string(),
+  domain: z.string(),
+  lastArrivedAt: z.iso.datetime().nullable(),
+});
+export type ClaudeCodeHooks = z.infer<typeof claudeCodeHooksSchema>;
+
+/**
+ * A second name for the session, beside the `session_id` a hook's body
+ * carries: the cloud session's id, from an environment variable Anthropic does
+ * not document - so it is empty wherever Claude Code does not set it, and the
+ * body's own id is always matched as well.
+ */
+export const REMOTE_SESSION_HEADER = 'x-claude-code-remote-session';
+const REMOTE_SESSION_VARIABLE = 'CLAUDE_CODE_REMOTE_SESSION_ID';
+
+/**
+ * The `.claude/settings.json` fragment that reports a session's state: `Stop`
+ * says it is waiting on you, `UserPromptSubmit` that it is working again.
+ * Pure, so the form draws exactly what a test reads.
+ */
+export function claudeCodeHooksSnippet(hooks: Pick<ClaudeCodeHooks, 'url' | 'secret'>): string {
+  const hook = {
+    type: 'http',
+    url: hooks.url,
+    headers: {
+      Authorization: `Bearer ${hooks.secret}`,
+      [REMOTE_SESSION_HEADER]: `$${REMOTE_SESSION_VARIABLE}`,
+    },
+    allowedEnvVars: [REMOTE_SESSION_VARIABLE],
+    timeout: 10,
+  };
+  return JSON.stringify(
+    { hooks: { Stop: [{ hooks: [hook] }], UserPromptSubmit: [{ hooks: [hook] }] } },
+    null,
+    2,
+  );
+}

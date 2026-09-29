@@ -5,6 +5,7 @@ import {
   ACCOUNT_WIDE,
   ASK_CLAUDE_COLOR,
   ASK_CLAUDE_ID,
+  waitingOnYou,
   ASK_CLAUDE_NAME,
   agentsShownOnDashboard,
   colorNoAgentIsUsing,
@@ -84,6 +85,9 @@ export function AgentDock({
   const hiddenHere = agents.filter((agent) => hiddenIdsHere.includes(agent.id));
   /** How many open runs each Agent has in this Workspace - a tile's count, live with the snapshot it is read off (issue 571). */
   const runningFor = (agentId: string) => agentRuns.filter((run) => run.agentId === agentId).length;
+  /** How many of them are waiting on you ("See on the item when Claude is waiting on you", issue 572). */
+  const waitingFor = (agentId: string) => waitingOnYou(agentRuns.filter((run) => run.agentId === agentId));
+  const waitingInAll = waitingOnYou(agentRuns);
 
   const accountEnvelope = () => ({
     commandId: uuidv7(),
@@ -259,12 +263,14 @@ export function AgentDock({
                 />
                 {ASK_CLAUDE_NAME}
                 <RunCount count={runningFor(ASK_CLAUDE_ID)} />
+                <WaitingCount count={waitingFor(ASK_CLAUDE_ID)} />
               </div>
             ) : (
               <AgentTile
                 key={tile.agent.id}
                 agent={tile.agent}
                 running={runningFor(tile.agent.id)}
+                waiting={waitingFor(tile.agent.id)}
                 onEdit={startEditing}
                 onHide={hide}
                 onDelete={startDeleting}
@@ -276,6 +282,11 @@ export function AgentDock({
               ("Drop an agent on an item to start a Claude Code session on
               it", issue 571): no connection to start through, or one Claude
               last refused - said until a start through it works. */}
+          {waitingInAll > 0 && (
+            <span role="status" className="shrink-0 rounded-full bg-due-soft px-2 text-xs text-due-ink">
+              {waitingInAll} waiting on you
+            </span>
+          )}
           {!hasClaudeCodeConnection && agents.length > 0 && (
             <span className="shrink-0 text-xs text-ink-faint">
               Connect Claude Code to this workspace to start an agent.
@@ -382,16 +393,34 @@ function RunCount({ count }: { count: number }) {
   );
 }
 
-/** One made Agent's tile: a colour dot, its name, its open runs, and its own menu. */
+/** How many of this Agent's runs are waiting on you, where any are (issue 572). */
+function WaitingCount({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <span
+      className="rounded-full bg-due-soft px-1.5 text-xs tabular-nums text-due-ink"
+      title={`${count} waiting on you`}
+    >
+      {count}
+      {/* Said, not only hovered: the title is not read out, and a tile's
+          name would otherwise run its two counts together. */}
+      <span className="sr-only"> waiting on you</span>
+    </span>
+  );
+}
+
+/** One made Agent's tile: a colour dot, its name, its open runs, how many wait on you, and its own menu. */
 function AgentTile({
   agent,
   running,
+  waiting,
   onEdit,
   onHide,
   onDelete,
 }: {
   agent: Agent;
   running: number;
+  waiting: number;
   onEdit: (agent: Agent, openedFrom: HTMLElement | null) => void;
   onHide: (agentId: string) => void;
   onDelete: (agent: Agent, openedFrom: HTMLElement | null) => void;
@@ -416,6 +445,7 @@ function AgentTile({
           />
           {agent.name}
           <RunCount count={running} />
+          <WaitingCount count={waiting} />
         </button>
       </ContextMenu.Trigger>
       <ContextMenuContent

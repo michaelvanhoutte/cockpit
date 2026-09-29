@@ -9,7 +9,9 @@ import {
   changeUserSchema,
   userDeletedSchema,
   agentMessageFor,
+  claudeCodeHooksSchema,
   claudeCodeOutcomeSchema,
+  REMOTE_SESSION_HEADER,
   startAgentOutcomeSchema,
   startAgentSchema,
   CLAUDE_CODE,
@@ -113,7 +115,14 @@ import {
 } from '../auth/register.js';
 import { getConnector } from '../connectors/registry.js';
 import { pushHostFor } from '../connectors/push-host.js';
-import { rememberConnection } from '../connectors/directory.js';
+import { connectionsFor, forgetConnection, rememberConnection } from '../connectors/directory.js';
+import {
+  HOOK_BODY_LIMIT_BYTES,
+  HOOK_PATH_PREFIX,
+  hookSecretFor,
+  isHookSecret,
+  waitingFrom,
+} from '../connectors/claude-code-hooks.js';
 import type { Env } from '../env.js';
 
 type AppEnv = GatedEnv;
@@ -896,6 +905,72 @@ const claudeCodeTestRoute = createRoute({
 });
 
 /**
+ * What the repository needs for its sessions to say when Claude is waiting
+ * on you ("See on the item when Claude is waiting on you", issue 572): the
+ * address its hooks post to, the connection's secret, the domain to allow,
+ * and when a hook last arrived.
+ *
+ * **A POST, though it reads**: it also records where the connection lives in
+ * the register's directory, which is how a hook - arriving with no sign-in -
+ * finds the account to open. Asking again rewrites the same row.
+ */
+const claudeCodeHooksRoute = createRoute({
+  method: 'post',
+  path: '/v1/workspaces/{workspaceId}/connections/claude-code/{sourceAccountId}/hooks',
+  request: {
+    params: z.object({ workspaceId: z.string(), sourceAccountId: z.string() }),
+  },
+  responses: {
+    200: {
+      description: 'The hooks to add to the repository',
+      content: { 'application/json': { schema: claudeCodeHooksSchema } },
+    },
+    404: {
+      description: 'Unknown workspace or connection',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    503: {
+      description: 'This environment holds no key to issue a secret with',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/** Where a Claude Code connection's hooks are looked up in the register's directory, apart from any real source's own keys (issue 572). */
+const HOOKS_DIRECTORY = 'claude-code-hooks';
+
+/**
+ * A request body as text, or null where it runs past `limit` bytes - read a
+ * chunk at a time, so a body that says nothing of its length is still cut off
+ * rather than read whole first.
+ */
+async function bodyWithin(request: Request, limit: number): Promise<string | null> {
+  const declared = Number(request.headers.get('content-length') ?? '0');
+  if (declared > limit) return null;
+  if (!request.body) return '';
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const whole = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    whole.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return new TextDecoder().decode(whole);
+}
+
+/**
  * Starting an Agent on an Item: a run recorded as starting, one call to
  * Claude, and the answer written back to the run ("Drop an agent on an item
  * to start a Claude Code session on it", issue 571). The drop and the row's
@@ -1369,6 +1444,34 @@ const routes = app
       sourceAccountId,
     });
     return c.json({ accepted: true }, 200);
+  })
+  // --- what a repository's hooks need to report back -------------------------
+  .openapi(claudeCodeHooksRoute, async (c) => {
+    const { workspaceId, sourceAccountId } = c.req.valid('param');
+    const accountName = c.get('visitor').accountName;
+    const account = await openAccount(c.env, accountName);
+    // Throws where the row is not this Workspace's Claude Code connection,
+    // which `onError` answers with the 404 the test route gives.
+    const { lastArrivedAt } = await account.claudeCodeHookArrival(workspaceId, sourceAccountId);
+    const secret = await hookSecretFor(c.env.CONNECTOR_CREDENTIAL_KEY, sourceAccountId);
+    if (!secret) return c.json({ error: NO_SEALING_KEY_MESSAGE }, 503);
+    await rememberConnection(
+      c.env,
+      { accountName, workspaceId },
+      HOOKS_DIRECTORY,
+      sourceAccountId,
+      new Date().toISOString(),
+    );
+    const origin = new URL(c.env.APP_ORIGIN);
+    return c.json(
+      {
+        url: `${origin.origin}${HOOK_PATH_PREFIX}${encodeURIComponent(sourceAccountId)}`,
+        secret,
+        domain: origin.hostname,
+        lastArrivedAt,
+      },
+      200,
+    );
   })
   // --- starting an agent on an item: recorded, then Claude called once -------
   .openapi(startAgentRoute, async (c) => {
@@ -2227,6 +2330,70 @@ const routes = app
       },
     ),
   )
+  // --- Claude Code hooks: a session saying it is waiting on you ---------------
+  /**
+   * Where a repository's `Stop` and `UserPromptSubmit` hooks post ("See on
+   * the item when Claude is waiting on you", issue 572).
+   *
+   * **Outside the sign-in gate, under the ingress prefix it waves through**,
+   * so the checks here are the only door, in this order: the connection's
+   * secret, which costs nothing to refuse, then the body's size - both before
+   * any account is opened - then the connection still being there, and how
+   * often it has been heard from.
+   * Registered ahead of the generic ingress below, which would otherwise
+   * take the address as a connector's.
+   *
+   * **204 for everything it accepts**, whether or not a run moved: a hook
+   * from another Claude session in the same repository is ordinary, and
+   * nothing a hook is answered changes what Claude does next.
+   */
+  .post(`${HOOK_PATH_PREFIX}:sourceAccountId`, async (c) => {
+    const sourceAccountId = c.req.param('sourceAccountId');
+    const presented = /^Bearer\s+(\S+)$/i.exec(c.req.header('authorization') ?? '')?.[1] ?? '';
+    if (!(await isHookSecret(c.env.CONNECTOR_CREDENTIAL_KEY, sourceAccountId, presented))) {
+      return c.json({ error: 'unauthorized' }, 401);
+    }
+    const text = await bodyWithin(c.req.raw, HOOK_BODY_LIMIT_BYTES);
+    if (text === null) return c.json({ error: 'too large' }, 413);
+
+    let hook: { session_id?: unknown; hook_event_name?: unknown };
+    try {
+      hook = JSON.parse(text) as typeof hook;
+    } catch {
+      return c.json({ error: 'not JSON' }, 400);
+    }
+    const waiting = waitingFrom(hook?.hook_event_name);
+    const sessionIds = [hook?.session_id, c.req.header(REMOTE_SESSION_HEADER)]
+      .filter((id): id is string => typeof id === 'string' && id.trim() !== '' && id.length <= 200)
+      .map((id) => id.trim());
+
+    for (const pointer of await connectionsFor(c.env, HOOKS_DIRECTORY, sourceAccountId)) {
+      let account: Awaited<ReturnType<typeof openAccount>>;
+      let arrival: 'admitted' | 'too-many';
+      try {
+        account = await openAccount(c.env, pointer.accountName);
+        arrival = await account.claudeCodeHookArrived(pointer.workspaceId, sourceAccountId, new Date().toISOString());
+      } catch (error) {
+        // The row and the store disagree: disconnected, or the account gone.
+        // Swept, as a push's own lookup sweeps (connectors/push-host.ts).
+        if (!(error instanceof NotFoundInAccountError || error instanceof AccountNotInRegisterError)) throw error;
+        await forgetConnection(c.env, pointer, HOOKS_DIRECTORY, sourceAccountId);
+        continue;
+      }
+      if (arrival === 'too-many') return c.json({ error: 'too many' }, 429);
+      if (waiting !== null && sessionIds.length > 0) {
+        await account.applyChange('report_agent_run_activity', {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: pointer.workspaceId,
+          sessionIds,
+          waiting,
+        });
+      }
+      return c.body(null, 204);
+    }
+    return c.json({ error: 'no such connection' }, 404);
+  })
   // --- generic webhook ingress: no source-specific routes here ---------------
   /**
    * Where a source pushes ("Save a Teams message to Cockpit", issue 486).
