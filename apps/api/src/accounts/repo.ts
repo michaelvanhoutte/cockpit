@@ -1813,6 +1813,9 @@ export function openRunsWithSessions(
         isNotNull(agentRuns.sessionUrl),
       ),
     )
+    // Oldest first, so which of two runs naming one session a hook finds is
+    // decided here rather than by whichever index the query is answered from.
+    .orderBy(asc(agentRuns.startedAt), asc(agentRuns.id))
     .all()
     .map((row) => ({ id: row.id, sessionUrl: row.sessionUrl!, waiting: row.waiting ?? false }));
 }

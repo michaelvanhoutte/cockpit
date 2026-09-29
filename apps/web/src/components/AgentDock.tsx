@@ -402,6 +402,9 @@ function WaitingCount({ count }: { count: number }) {
       title={`${count} waiting on you`}
     >
       {count}
+      {/* Said, not only hovered: the title is not read out, and a tile's
+          name would otherwise run its two counts together. */}
+      <span className="sr-only"> waiting on you</span>
     </span>
   );
 }

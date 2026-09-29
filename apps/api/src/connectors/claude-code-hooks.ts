@@ -1,3 +1,4 @@
+import { base64url } from '../auth/oidc.js';
 import { signingKey } from './credential-crypto.js';
 
 /**
@@ -69,12 +70,6 @@ export function waitingFrom(event: unknown): boolean | null {
   if (event === 'Stop') return true;
   if (event === 'UserPromptSubmit') return false;
   return null;
-}
-
-function base64url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function bytesOfBase64url(value: string): Uint8Array<ArrayBuffer> | null {

@@ -670,10 +670,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     sourceAccountId: string,
   ): Answer<{ sealedCredential: string; credentialNonce: string }> {
     return this.#answer(accountName, (db) => {
-      const held = getSourceAccount(db, accountName, sourceAccountId);
-      if (!held || held.workspaceId !== workspaceId || held.connectorId !== CLAUDE_CODE) {
-        throw new SourceAccountNotFoundError(sourceAccountId);
-      }
+      claudeCodeConnectionHeld(db, accountName, workspaceId, sourceAccountId);
       // The row this just confirmed exists is the row this reads - there is
       // nothing between the two calls that could make the second miss.
       return sealedCredentialOf(db, accountName, sourceAccountId)!;
@@ -696,10 +693,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     at: string,
   ): Answer<'admitted' | 'too-many'> {
     return this.#answer(accountName, (db) => {
-      const held = getSourceAccount(db, accountName, sourceAccountId);
-      if (!held || held.workspaceId !== workspaceId || held.connectorId !== CLAUDE_CODE) {
-        throw new SourceAccountNotFoundError(sourceAccountId);
-      }
+      claudeCodeConnectionHeld(db, accountName, workspaceId, sourceAccountId);
       const calls = admittedCalls(this.#hookCalls.get(sourceAccountId) ?? [], Date.parse(at));
       if (!calls) return 'too-many';
       this.#hookCalls.set(sourceAccountId, calls);
@@ -716,10 +710,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     sourceAccountId: string,
   ): Answer<{ lastArrivedAt: string | null }> {
     return this.#answer(accountName, (db) => {
-      const held = getSourceAccount(db, accountName, sourceAccountId);
-      if (!held || held.workspaceId !== workspaceId || held.connectorId !== CLAUDE_CODE) {
-        throw new SourceAccountNotFoundError(sourceAccountId);
-      }
+      claudeCodeConnectionHeld(db, accountName, workspaceId, sourceAccountId);
       return { lastArrivedAt: lastHookArrival(db, accountName, sourceAccountId) };
     });
   }
@@ -1158,4 +1149,16 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
 /** Where one refresh's latest ask is kept - carrying the account's name for the reason every query filters on it (`rpc.ts`). */
 function refreshAskKey(accountName: string, refresh: string): string {
   return `refresh-ask:${accountName}:${refresh}`;
+}
+
+/**
+ * Refuses, as not found, a row that is not this Workspace's Claude Code
+ * connection - another Workspace's, or a Teams row - for every read that names
+ * a Workspace and a row id directly (see `claudeCodeCredential`).
+ */
+function claudeCodeConnectionHeld(db: AccountDb, accountName: string, workspaceId: string, sourceAccountId: string): void {
+  const held = getSourceAccount(db, accountName, sourceAccountId);
+  if (!held || held.workspaceId !== workspaceId || held.connectorId !== CLAUDE_CODE) {
+    throw new SourceAccountNotFoundError(sourceAccountId);
+  }
 }

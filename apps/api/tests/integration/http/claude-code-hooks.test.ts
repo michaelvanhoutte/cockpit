@@ -82,7 +82,7 @@ async function hooksFor(workspaceId: string, sourceAccountId: string): Promise<C
 }
 
 /** A run working on an Item on the Dashboard, its session the one Claude answered with. */
-async function aWorkingRun(): Promise<{ itemId: string; runId: string }> {
+async function aWorkingRun(): Promise<{ itemId: string; runId: string; agentId: string }> {
   const agentId = nextId();
   await postChange('create_agent', {
     workspaceId: ACCOUNT_WIDE,
@@ -106,7 +106,7 @@ async function aWorkingRun(): Promise<{ itemId: string; runId: string }> {
     body: JSON.stringify({ commandId: nextId(), issuedAt: AT, runId, agentId, dashboardId: DASHBOARD_ID }),
   });
   expect(await res.json()).toEqual({ alreadyStarted: false, status: 'working' });
-  return { itemId, runId };
+  return { itemId, runId, agentId };
 }
 
 /** A hook as Claude Code posts it: no cookie, the secret in a header, the hook's input as the body. */
@@ -189,12 +189,22 @@ describe('Agents', () => {
       expect((await runOn(itemId))?.waiting).toBe(false);
     });
 
-    it('ignores a run somebody already said finished', async () => {
-      const { itemId, runId } = await aWorkingRun();
+    it('passes over a run somebody already said finished, to the one started after it', async () => {
+      // Claude answers every start here with the same session, so the run
+      // started after the finished one names it too - and only the open run
+      // may move.
+      const { itemId, runId, agentId } = await aWorkingRun();
       await postChange('finish_agent_run', { workspaceId: WORKSPACE_ID, runId, itemId, outcome: 'still_to_do' });
+      const again = nextId();
+      const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/items/${itemId}/agent-runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ commandId: nextId(), issuedAt: AT, runId: again, agentId, dashboardId: DASHBOARD_ID }),
+      });
+      expect(res.status).toBe(200);
 
       expect((await hook(hooks.url, hooks.secret, stop())).status).toBe(204);
-      expect((await snapshot()).agentRuns.some((run) => run.waiting)).toBe(false);
+      expect(await runOn(itemId)).toMatchObject({ id: again, waiting: true });
     });
 
     it.each([

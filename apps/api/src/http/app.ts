@@ -2274,8 +2274,9 @@ const routes = app
    * the item when Claude is waiting on you", issue 572).
    *
    * **Outside the sign-in gate, under the ingress prefix it waves through**,
-   * so the checks here are the only door, in this order: the body's size,
-   * then the connection's secret - both before any account is opened - then
+   * so the checks here are the only door, in this order: the connection's
+   * secret, which costs nothing to refuse, then the body's size - both before
+   * any account is opened - then
    * the connection still being there, and how often it has been heard from.
    * Registered ahead of the generic ingress below, which would otherwise
    * take the address as a connector's.
@@ -2286,12 +2287,12 @@ const routes = app
    */
   .post(`${HOOK_PATH_PREFIX}:sourceAccountId`, async (c) => {
     const sourceAccountId = c.req.param('sourceAccountId');
-    const text = await bodyWithin(c.req.raw, HOOK_BODY_LIMIT_BYTES);
-    if (text === null) return c.json({ error: 'too large' }, 413);
     const presented = /^Bearer\s+(\S+)$/i.exec(c.req.header('authorization') ?? '')?.[1] ?? '';
     if (!(await isHookSecret(c.env.CONNECTOR_CREDENTIAL_KEY, sourceAccountId, presented))) {
       return c.json({ error: 'unauthorized' }, 401);
     }
+    const text = await bodyWithin(c.req.raw, HOOK_BODY_LIMIT_BYTES);
+    if (text === null) return c.json({ error: 'too large' }, 413);
 
     let hook: { session_id?: unknown; hook_event_name?: unknown };
     try {

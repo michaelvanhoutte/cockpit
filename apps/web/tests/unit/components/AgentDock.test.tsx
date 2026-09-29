@@ -300,13 +300,13 @@ describe('Agents', () => {
       {
         situation: 'one of two runs waiting',
         runs: [aRun('1', SCOPE_IT.id, true), aRun('2', SCOPE_IT.id)],
-        tile: 'Scope it21',
+        tile: 'Scope it21 waiting on you',
         total: '1 waiting on you',
       },
       {
         situation: 'runs of two agents waiting',
         runs: [aRun('1', SCOPE_IT.id, true), aRun('2', SHIP_IT.id, true)],
-        tile: 'Scope it11',
+        tile: 'Scope it11 waiting on you',
         total: '2 waiting on you',
       },
       { situation: 'every run working again', runs: [aRun('1', SCOPE_IT.id), aRun('2', SCOPE_IT.id)], tile: 'Scope it2', total: null },
