@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { Fragment, useRef } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 
@@ -6,7 +6,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
  * The control that opens a menu, wherever a menu is opened ("Open every menu
  * from the same control", issue 115).
  *
- * **Three dots mean a menu opens here, with one deliberate exception below.**
+ * **Three dots mean a menu opens here, with one deliberate exception.**
  * Before this, the header's was a bordered pill, an item row's was faint and
  * unbordered, and the one at the right of the dashboard bar was not a menu at
  * all - it was a link to a settings page wearing a menu's clothes. Same
@@ -20,12 +20,10 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
  * what a browser and a phone use for this, and as an icon it is the size this
  * file says it is.
  *
- * **The exception: the account's own gear** (`pages/Layout.tsx`), beside the
- * workspace's own dots on the same chrome, where two identical triplets read
- * as one undifferentiated pair rather than two controls. `children` lets a
- * call site swap the glyph alone, without losing the look, the accessible
- * name or the open/close behaviour every other trigger shares - a gear still
- * opens a menu the same three ways everything else does.
+ * **The exception: the profile** (`pages/Layout.tsx`), a circle carrying your
+ * initial, since two identical triplets side by side on the chrome read as one
+ * undifferentiated pair rather than two controls. It is its own
+ * `DropdownMenu.Trigger` and does not come through here.
  *
  * One component rather than one class string, so a call site cannot take the
  * look without the behaviour: the trigger carries its own accessible name,
@@ -37,7 +35,6 @@ export function MenuTrigger({
   onChrome = false,
   disabled = false,
   ref,
-  children,
 }: {
   label: string;
   className?: string;
@@ -69,8 +66,6 @@ export function MenuTrigger({
   disabled?: boolean | undefined;
   /** Held where something has to put the focus back on this control afterwards. */
   ref?: React.Ref<HTMLButtonElement>;
-  /** The glyph, where the three dots would read as one of a pair of them. */
-  children?: React.ReactNode;
 }) {
   return (
     <DropdownMenu.Trigger
@@ -79,7 +74,7 @@ export function MenuTrigger({
       {...(disabled ? { 'aria-disabled': true } : {})}
       className={`${menuButtonClassName(onChrome, className)}${disabled ? ' opacity-40' : ''}`}
     >
-      {children ?? <MenuDots />}
+      <MenuDots />
     </DropdownMenu.Trigger>
   );
 }
@@ -135,25 +130,6 @@ function MenuDots() {
       <circle cx="8" cy="3.2" r="1.5" />
       <circle cx="8" cy="8" r="1.5" />
       <circle cx="8" cy="12.8" r="1.5" />
-    </svg>
-  );
-}
-
-const GEAR_TEETH = [0, 45, 90, 135, 180, 225, 270, 315];
-
-/**
- * The account's own glyph, beside the workspace's dots in the header
- * ("Give the open workspace and dashboard their own "…", and split the
- * header's menu into settings and you", issue 567) - the word the issue
- * itself uses for this control, and a shape nothing else in the header wears.
- */
-export function GearIcon() {
-  return (
-    <svg viewBox="0 0 16 16" className="size-4" fill="currentColor" aria-hidden="true">
-      {GEAR_TEETH.map((angle) => (
-        <rect key={angle} x="7.3" y="3" width="1.4" height="1.8" rx="0.3" transform={`rotate(${angle} 8 8)`} />
-      ))}
-      <circle cx="8" cy="8" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
     </svg>
   );
 }
@@ -325,10 +301,17 @@ export interface MenuEntry {
 export function RowMenu({
   label,
   entries,
+  footer = [],
   onChrome = false,
 }: {
   label: string;
   entries: MenuEntry[];
+  /**
+   * Entries that are not about the row, under a separator at the foot: the
+   * account's own, on the open workspace's "…" ("Put the account's settings at
+   * the foot of the workspace's "…" menu, and drop the gear", issue 595).
+   */
+  footer?: MenuEntry[];
   /** Whether this one sits on the chrome rather than on the sheet - see `MenuTrigger`. */
   onChrome?: boolean;
 }) {
@@ -353,45 +336,49 @@ export function RowMenu({
           event.preventDefault();
         }}
       >
-        {entries.map((entry) => (
-          <DropdownMenu.Item
-            key={entry.label}
-            // `aria-disabled` rather than `disabled`, which is not a smaller
-            // way of saying the same thing: Radix takes `disabled` out of the
-            // menu's roving focus, so arrow keys, Home/End and typeahead all
-            // skip it and a keyboard reader never reaches the entry at all -
-            // which is worse than the offered-then-refused it replaced, and
-            // only for the people who could not see it was there. It stays
-            // reachable, says why it cannot be chosen, and does nothing when
-            // it is; `preventDefault` on the choice also leaves the menu open,
-            // so choosing it does not read as having worked.
-            {...(entry.unavailable
-              ? { 'aria-disabled': true, 'aria-label': `${entry.label}: ${entry.unavailable}` }
-              : {})}
-            className={
-              entry.unavailable
-                ? unavailableItemClass
-                : entry.destructive
-                  ? destructiveItemClass
-                  : menuItemClass
-            }
-            onSelect={(event) => {
-              if (entry.unavailable) {
-                event.preventDefault();
-                return;
-              }
-              chose.current = !entry.keepsFocus;
-              entry.onSelect(trigger.current);
-            }}
-          >
-            {entry.label}
-            {entry.unavailable && (
-              // Inside the entry rather than beside it, so it is part of what
-              // the entry is called: an entry that cannot be chosen and gives
-              // no reason is indistinguishable from one that is broken.
-              <span className="block text-xs">{entry.unavailable}</span>
+        {[...entries, ...footer].map((entry, at) => (
+          <Fragment key={entry.label}>
+            {at === entries.length && at > 0 && (
+              <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
             )}
-          </DropdownMenu.Item>
+            <DropdownMenu.Item
+              // `aria-disabled` rather than `disabled`, which is not a smaller
+              // way of saying the same thing: Radix takes `disabled` out of the
+              // menu's roving focus, so arrow keys, Home/End and typeahead all
+              // skip it and a keyboard reader never reaches the entry at all -
+              // which is worse than the offered-then-refused it replaced, and
+              // only for the people who could not see it was there. It stays
+              // reachable, says why it cannot be chosen, and does nothing when
+              // it is; `preventDefault` on the choice also leaves the menu open,
+              // so choosing it does not read as having worked.
+              {...(entry.unavailable
+                ? { 'aria-disabled': true, 'aria-label': `${entry.label}: ${entry.unavailable}` }
+                : {})}
+              className={
+                entry.unavailable
+                  ? unavailableItemClass
+                  : entry.destructive
+                    ? destructiveItemClass
+                    : menuItemClass
+              }
+              onSelect={(event) => {
+                if (entry.unavailable) {
+                  event.preventDefault();
+                  return;
+                }
+                chose.current = !entry.keepsFocus;
+                entry.onSelect(trigger.current);
+              }}
+            >
+              {entry.label}
+              {entry.unavailable && (
+                // Inside the entry rather than beside it, so it is part of what
+                // the entry is called: an entry that cannot be chosen and gives
+                // no reason is indistinguishable from one that is broken.
+                <span className="block text-xs">{entry.unavailable}</span>
+              )}
+            </DropdownMenu.Item>
+          </Fragment>
         ))}
       </MenuContent>
     </DropdownMenu.Root>

@@ -8,6 +8,7 @@ import {
   deleteWorkspace,
   expect,
   expectNoSidewaysScroll,
+  workspaceMenuButton,
   fileOnto,
   itemRow,
   makeWorkspace,
@@ -108,10 +109,10 @@ test.describe('Agents', () => {
       await press(menu.getByRole('menuitem', { name: `Show ${renamed}` }), isMobile);
       await expect(dock.getByRole('button', { name: renamed })).toBeVisible();
 
-      // The dock hides and shows with A and from the gear.
+      // The dock hides and shows with A and from the workspace’s “…”.
       await page.keyboard.press('a');
       await expect(dock).toHaveCount(0);
-      await press(page.getByRole('button', { name: 'Account settings' }), isMobile);
+      await press(workspaceMenuButton(page), isMobile);
       await press(page.getByRole('menuitem', { name: 'Show the agents’ dock' }), isMobile);
       await expect(dock).toBeVisible();
 

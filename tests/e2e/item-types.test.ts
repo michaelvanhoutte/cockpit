@@ -5,6 +5,7 @@ import {
   chooseRowAction,
   expect,
   expectNoSidewaysScroll,
+  workspaceMenuButton,
   inbox,
   itemRow,
   openInbox,
@@ -35,9 +36,11 @@ test.describe('Capture', () => {
       page,
       isMobile,
     }) => {
+      // The entry is on the workspace's "…", which is not there below `sm`.
+      test.skip(isMobile, 'the account’s entries are the pointer’s; a phone has no “…” for them');
       await openInbox(page, isMobile);
 
-      await press(page.getByRole('button', { name: 'Account settings' }), isMobile);
+      await press(workspaceMenuButton(page), isMobile);
       await press(page.getByRole('menuitem', { name: 'Manage types' }), isMobile);
       // Over the workspace rather than instead of it, like the dashboards'
       // list and the workspaces'.
@@ -62,7 +65,7 @@ test.describe('Capture', () => {
       await closeCapture(page, isMobile);
       await expect(itemRow(page, thought).getByText(kind)).toBeVisible();
 
-      await press(page.getByRole('button', { name: 'Account settings' }), isMobile);
+      await press(workspaceMenuButton(page), isMobile);
       await press(page.getByRole('menuitem', { name: 'Manage types' }), isMobile);
       const renamed = uniqueTitle('Renamed');
       await chooseRowAction(page, kind, 'Edit…', isMobile);

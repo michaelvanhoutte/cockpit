@@ -132,7 +132,7 @@ function showTabs(
   mockUseSendCommand.mockImplementation(() => sent as never);
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <WorkspaceTabs bar={THEME.bar} bringIntoView={() => {}}>
+      <WorkspaceTabs bar={THEME.bar} bringIntoView={() => {}} accountEntries={[]}>
         <button type="button">Add a workspace</button>
       </WorkspaceTabs>
     </QueryClientProvider>,
