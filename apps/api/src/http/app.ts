@@ -17,7 +17,6 @@ import {
   commandSchemas,
   connectClaudeCodeSchema,
   connectorNamed,
-  isReadableByClaude,
   MAX_ATTACHMENT_SIZE,
   itemTypeListSchema,
   registeredUserListSchema,
@@ -1437,24 +1436,24 @@ const routes = app
       return c.json({ alreadyStarted: false, status: 'failed' }, 200);
     }
     const { routineUrl, token } = JSON.parse(opened) as { routineUrl: string; token: string };
-    // A link for each file Claude can read, since the session cannot sign in
-    // to open the address the app uses (issue 573).
+    // A link for each file, since the session cannot sign in to open the
+    // address the app uses (issue 573); which of them the message offers is
+    // `agentMessageFor`'s to decide.
     const linkKey = await attachmentLinkKey(c.env.CONNECTOR_CREDENTIAL_KEY);
     const now = new Date();
     const attachments = await Promise.all(
       toFire.attachments.map(async (attachment) => ({
         ...attachment,
-        link:
-          linkKey && isReadableByClaude(attachment.contentType)
-            ? new URL(
-                `${ATTACHMENT_LINK_PREFIX}${await sealAttachmentLink(
-                  linkKey,
-                  { accountName: c.get('visitor').accountName, attachmentId: attachment.id },
-                  now,
-                )}`,
-                c.env.APP_ORIGIN,
-              ).toString()
-            : undefined,
+        link: linkKey
+          ? new URL(
+              `${ATTACHMENT_LINK_PREFIX}${await sealAttachmentLink(
+                linkKey,
+                { accountName: c.get('visitor').accountName, attachmentId: attachment.id },
+                now,
+              )}`,
+              c.env.APP_ORIGIN,
+            ).toString()
+          : undefined,
       })),
     );
     const text = agentMessageFor(
@@ -1839,7 +1838,12 @@ const routes = app
       throw error;
     }
     const served = attachment && (await serveAttachment(c.env, attachment));
-    return served || refused();
+    if (!served) return refused();
+    // The address is the credential: kept out of any cache that would
+    // outlive its hour, and out of the Referer of anything the file links to.
+    served.headers.set('Cache-Control', 'no-store');
+    served.headers.set('Referrer-Policy', 'no-referrer');
+    return served;
   })
   // --- connecting a source account: two navigations, like signing in ---------
   /**

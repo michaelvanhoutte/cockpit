@@ -169,9 +169,12 @@ export function agentMessageFor(
     (attachment): attachment is AttachmentForAgent & { link: string } =>
       attachment.link !== undefined && isReadableByClaude(attachment.contentType),
   );
-  const description = readable.reduce(
-    (text, attachment) => text.split(attachmentAddress(attachment.id)).join(attachment.link),
-    item.description ?? '',
+  const links = new Map(readable.map((attachment) => [attachmentAddress(attachment.id), attachment.link]));
+  // Only the app's own relative address, where it starts a word or a link
+  // target - never the tail of some other absolute URL.
+  const description = (item.description ?? '').replace(
+    /(^|[\s(<[])(\/v1\/attachments\/[^\s)>\]]+)/g,
+    (whole, before: string, address: string) => (links.has(address) ? before + links.get(address) : whole),
   );
   const body = agent.message
     .replace(PLACEHOLDER, (placeholder) => {

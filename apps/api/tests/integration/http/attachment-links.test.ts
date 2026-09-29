@@ -136,6 +136,8 @@ describe('Agents', () => {
       if (opens) {
         expect(res.status).toBe(200);
         expect(res.headers.get('content-type')).toBe('image/png');
+        // The address is the credential, so nothing may keep a copy past its hour.
+        expect(res.headers.get('cache-control')).toBe('no-store');
         expect(new Uint8Array(await res.arrayBuffer())).toEqual(BYTES);
       } else {
         expect(res.status).toBe(404);

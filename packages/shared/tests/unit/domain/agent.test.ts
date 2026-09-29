@@ -116,6 +116,19 @@ describe('Agents', () => {
         ].join('\n'),
       },
       {
+        situation: 'an address inside another URL in the description is left as it is',
+        description: `See https://elsewhere.test/v1/attachments/${IMAGE_ID}`,
+        attachments: [image(IMAGE_ID, 'shot.png')],
+        expected: [
+          'Chase the invoice',
+          '',
+          `See https://elsewhere.test/v1/attachments/${IMAGE_ID}`,
+          '',
+          HEADER,
+          '- shot.png: https://cockpit.test/v1/attachment-links/token-shot.png',
+        ].join('\n'),
+      },
+      {
         situation: 'a video clip is named, as not readable by Claude',
         description: null,
         attachments: [
