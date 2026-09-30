@@ -1115,7 +1115,8 @@ export function ItemList({
           about no items has no answer: choosing a panel would send nothing and
           say nothing, leaving Cancel as the only way out. */}
       {filingSeveral && picked.length > 0 && (
-        <FetchedPicker onFailure={() => setFilingSeveral(false)}
+        <FetchedPicker
+          onFailure={() => setFilingSeveral(false)}
           moving={{ several: picked.length }}
           dashboards={data?.dashboards ?? []}
           panels={data?.panels ?? []}
@@ -1160,7 +1161,8 @@ export function ItemList({
       )}
 
       {adding && (
-        <FetchedPicker onFailure={() => setAdding(null)}
+        <FetchedPicker
+          onFailure={() => setAdding(null)}
           moving={{ title: itemLabel(adding) }}
           adding
           dashboards={data?.dashboards ?? []}
@@ -1184,7 +1186,8 @@ export function ItemList({
       )}
 
       {moving && (
-        <FetchedPicker onFailure={() => setMoving(null)}
+        <FetchedPicker
+          onFailure={() => setMoving(null)}
           moving={{ title: itemLabel(moving) }}
           dashboards={data?.dashboards ?? []}
           panels={data?.panels ?? []}
