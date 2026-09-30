@@ -95,6 +95,9 @@ describe('Capture', () => {
       // The one the column's own CHECK was not created with, which is the
       // whole reason there are two columns.
       { source: 'teams' as const, column: 'internal', connector: 'teams' },
+      // An app's capture is written the same way, so a release that has never
+      // heard of it reads an ordinary capture rather than an unknown source.
+      { source: 'mcp' as const, column: 'internal', connector: 'mcp' },
     ])('writes $source as $column, naming $connector beside it', ({ source, column, connector }) => {
       const stored = asStored(anItem({ source }));
 

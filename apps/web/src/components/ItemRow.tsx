@@ -25,7 +25,7 @@ import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { landItem, liftItem } from '../itemInTheAir';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
-import { openableAtSource } from '../itemSource';
+import { capturingApp, openableAtSource } from '../itemSource';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
@@ -1129,8 +1129,8 @@ export function ItemRow({
               ))}
             <span className="truncate">
               {itemType ? '· ' : ''}
-              {item.source === 'internal' ? 'Own' : item.source}
-              {item.sender ? ` · ${item.sender}` : ''}
+              {capturingApp(item) ?? (item.source === 'internal' ? 'Own' : item.source)}
+              {item.sender && !capturingApp(item) ? ` · ${item.sender}` : ''}
             </span>
             {/* The way back to the original, where the source gave one ("Open an
                 Item at its source", issue 487). A real link in a new tab, and

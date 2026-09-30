@@ -1471,6 +1471,13 @@ describe('Item editing', () => {
       expect(opener).toHaveAttribute('target', '_blank');
     });
 
+    it('names the app that captured it, and not the protocol it came through', async () => {
+      await theForm(anItem({ source: 'mcp', sender: 'Claude' }));
+
+      expect(screen.getByText(/^From Claude$/)).toBeInTheDocument();
+      expect(screen.queryByText(/mcp/)).toBeNull();
+    });
+
     it('says nothing for an item of your own', async () => {
       await theForm(anItem({ sender: 'Anna', sourceLink: link }));
 
