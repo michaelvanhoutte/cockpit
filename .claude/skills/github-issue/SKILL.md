@@ -49,9 +49,8 @@ Issue numbers this depends on, or "None."
 
 ## Model
 
-[Only where scoping's sizing step recommends overriding the default: `Recommended: opus` or
-`Recommended: haiku`, with the one-line reason. Omit the section entirely to build the unit
-on the session's own model.]
+[Always: `Recommended: opus`, `Recommended: sonnet` or `Recommended: haiku`, with scoping's
+one-line reason. A parent issue names each child's model beside it in its list of children.]
 
 ## Test cases
 

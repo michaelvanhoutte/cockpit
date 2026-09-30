@@ -1,6 +1,6 @@
 ---
 name: scoping
-description: Cockpit's process for deciding whether a piece of work has to be seen before it is scoped, sharpening fuzzy requirements, sizing it as a vertical slice with a recommended model per unit where the default is wrong for it, enumerating the failure modes of anything that changes state it cannot put back, and producing its statement list of test cases - before any code is written. Use whenever starting new feature work, a bug fix, or a larger request, whether or not it will become a GitHub issue. Triggers on the work starting, not on the decision to file an issue.
+description: Cockpit's process for deciding whether a piece of work has to be seen before it is scoped, sharpening fuzzy requirements, sizing it as a vertical slice naming the model that builds each unit, enumerating the failure modes of anything that changes state it cannot put back, and producing its statement list of test cases - before any code is written. Use whenever starting new feature work, a bug fix, or a larger request, whether or not it will become a GitHub issue. Triggers on the work starting, not on the decision to file an issue.
 ---
 
 # Scoping a piece of work
@@ -55,11 +55,11 @@ If the request doesn't fit, split it into units in dependency order, each declar
 
 **Exception:** a wide mechanical refactor (rename a shared symbol, retype a column) can't be sliced vertically. Sequence it as expand (add the new form beside the old) → migrate in batches, each its own unit blocked by the expand → contract (delete the old form), blocked by every batch.
 
-**State a recommended model beside each unit, only where the session default is wrong for it:**
+**Name the model that builds each unit, every unit, with a one-line reason** — never "default" and never nothing, since the session that builds it is rarely the one that scoped it:
 
 - `opus` — the unit trips step 5 below (it changes state it cannot put back, so a wrong call costs more than the stronger model does), or step 3 leaves genuine design judgment unresolved rather than a fuzzy term to look up. A migrate batch that itself trips step 5 — a data backfill, a row rewrite — stays `opus` however mechanical its pattern looks.
 - `haiku` — the unit is mechanical, fully specified, and touches nothing step 5 would flag: a shared-symbol rename swept across files, or a migrate batch that only touches code, never stored data.
-- Nothing, for everything else. Omitting the recommendation is what tells `/issue` to build the unit on the calling session's own model.
+- `sonnet` — everything else.
 
 **When the work grows mid-session, say what it now costs.** Each addition gets judged against the one before it rather than the original ask, so a run of reasonable expansions quadruples a change without anyone deciding to. Name the new total and what it drags behind it — its own tests, another documentation sweep, another review round — so continuing is chosen rather than defaulted into.
 
@@ -92,11 +92,11 @@ This tells the build agent which tests to implement, which is why it is drafted 
 Do not proceed — to code or to `gh issue create` — if any of these holds:
 
 - The work puts up a surface nobody has seen and step 2's question was never asked → step 2.
-- The slice is too big for one sitting → step 4.
+- The slice is too big for one sitting, or a unit names no model → step 4.
 - The work changes state it cannot put back and its failure modes are not written down → step 5. A review round is an expensive way to be told what a checklist asks.
 - Any real behaviour this work describes has no row in the statement list → step 6.
 - A question would produce a different diff depending on its answer → step 3, or step 2's POC where discussion can't settle it. It is unfinished scope, not an entry for **Out of scope / open questions**.
 
 ## Output
 
-A scoped unit of work (or several, in dependency order), its statement list, a recommended model where the default is wrong for it, and — where it changes state it cannot put back — the failure modes its implementation must satisfy. Either hand off to the `github-issue` skill, which covers only the body template and publishing, or build it directly with the statement list going straight into the test files.
+A scoped unit of work (or several, in dependency order), its statement list, the model that builds it, and — where it changes state it cannot put back — the failure modes its implementation must satisfy. Either hand off to the `github-issue` skill, which covers only the body template and publishing, or build it directly with the statement list going straight into the test files.
