@@ -12,6 +12,9 @@ import { panelTakesItems, type Dashboard, type Panel, type Workspace } from '@co
  */
 export type MoveTarget = { panel: string } | { inboxOf: string };
 
+/** The plain Inbox's label, which is also what searching for it matches. */
+const INBOX = 'Inbox';
+
 /**
  * Where an item should go: the Inbox, or any panel of this workspace ("Panels
  * hold the items filed into them, and the Inbox holds the rest", issue 36).
@@ -162,7 +165,7 @@ export function MoveToPicker({
       : [];
   const workspaceInboxes = !adding && inboxesOf ? inboxesOf.filter((w) => matches(w.name)) : [];
   const plainInbox =
-    !adding && !inboxesOf && matches('Inbox') && !(alreadyOn && alreadyOn.length === 0);
+    !adding && !inboxesOf && matches(INBOX) && !(alreadyOn && alreadyOn.length === 0);
   const nothing = !plainInbox && workspaceInboxes.length === 0 && groups.length === 0;
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -187,7 +190,7 @@ export function MoveToPicker({
         <Dialog.Overlay className="fixed inset-0 bg-black/30" />
         <Dialog.Content
           ref={contentRef}
-          style={openedHeight ? { height: openedHeight } : undefined}
+          style={openedHeight ? { minHeight: openedHeight } : undefined}
           aria-describedby={undefined}
           onCloseAutoFocus={(event) => {
             if (!returnFocusTo) return;
@@ -217,7 +220,7 @@ export function MoveToPicker({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 targets()[0]?.click();
               } else if (event.key === 'ArrowDown') {
@@ -269,7 +272,7 @@ export function MoveToPicker({
 
             {plainInbox && (
               <Target
-                label="Inbox"
+                label={INBOX}
                 hint="off every panel"
                 busy={busy}
                 onPick={() => onPick({ inboxOf: workspaceId })}
@@ -291,7 +294,7 @@ export function MoveToPicker({
             )}
 
             {groups.map(({ dashboard, panels: onIt }) => (
-              <Dashboard
+              <DashboardHeading
                 key={dashboard.id}
                 name={dashboard.name}
                 current={dashboard.id === openDashboardId}
@@ -309,7 +312,7 @@ export function MoveToPicker({
                     />
                   ))
                 )}
-              </Dashboard>
+              </DashboardHeading>
             ))}
           </div>
 
@@ -348,7 +351,7 @@ function nameOfDashboard(dashboards: readonly Dashboard[], dashboardId: string):
 }
 
 /** A dashboard's heading, pinned while its panels scroll past. */
-function Dashboard({
+function DashboardHeading({
   name,
   current,
   children,

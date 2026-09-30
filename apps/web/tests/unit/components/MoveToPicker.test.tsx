@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Dashboard, Panel } from '@cockpit/shared';
 import { MoveToPicker, type MoveTarget } from '../../../src/components/MoveToPicker';
@@ -239,6 +239,14 @@ describe('Panels', () => {
       await user.type(search(dialog), '{Enter}');
 
       expect(picked).toEqual([picks]);
+    });
+
+    it('does not pick while Enter is confirming an IME composition', () => {
+      const { picked, dialog } = show();
+
+      fireEvent.keyDown(search(dialog), { key: 'Enter', isComposing: true });
+
+      expect(picked).toEqual([]);
     });
 
     it('moves through the targets with ↓ and ↑, and back to the search from the first', async () => {
