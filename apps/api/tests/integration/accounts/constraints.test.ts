@@ -177,7 +177,7 @@ describe('Capture', () => {
                              'layout_rows', 'panel_placements', 'panel_items',
                              'items', 'item_types', 'screen_sizes',
                              'associations', 'commands', 'decision_history',
-                             'workspace_routing_summary', 'text_corrections',
+                             'text_corrections',
                              'duplicate_settlements')
               ORDER BY name`,
           )
@@ -199,7 +199,6 @@ describe('Capture', () => {
         'panels',
         'screen_sizes',
         'text_corrections',
-        'workspace_routing_summary',
         'workspaces',
       ]);
       expect(tables.filter((t) => t.strict !== 1)).toEqual([]);
@@ -225,7 +224,6 @@ describe('Capture', () => {
           'panel_placements',
           'panel_items',
           'decision_history',
-          'workspace_routing_summary',
           'text_corrections',
           'duplicate_settlements',
         ]) {

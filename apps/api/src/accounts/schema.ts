@@ -1395,69 +1395,6 @@ export const textCorrections = sqliteTable(
 );
 
 /**
- * One row per Workspace: the sentence a person writes about where its notes
- * belong ("Show what the system learned, in a sentence you can correct", issue
- * 301).
- *
- * **`summary`/`summary_generated_at` are dead columns, not a second half.** A
- * nightly job wrote them and nothing ever read them back, so that job is gone
- * and nothing writes them any more ("Drop the nightly filing summary, keep the
- * sentence you wrote", issue 392). They keep whatever they already hold -
- * expand-then-contract, and dropping them is its own step, "Drop the
- * workspace_routing_summary table" (issue 401). Nothing may start reading
- * them in the meantime.
- *
- * Nothing writes `correction`/`correction_set_at` any more either ("Remove
- * the two learning settings screens, and the commands that write to them",
- * issue 452); dropping the table is "Drop the workspace_routing_summary
- * table", issue 401.
- *
- * **`workspace_id` is the primary key, not a separate `id`.** There is
- * exactly one correction per Workspace, ever, so a row is addressed by the
- * Workspace it belongs to and there is nothing else it could be keyed on.
- *
- * **The row does not exist until something is written.** Nobody has written a
- * sentence for a freshly made Workspace, so there is no row to create in step
- * with it - unlike `workspaces` itself, which is a row from the moment it is
- * made. Reads treat a missing row exactly as they would an existing one with
- * every column null.
- *
- * **All four value columns are nullable.** `correction`/`correction_set_at`
- * are null until a person writes one, and go back to null when they clear it -
- * there is no third state between "never set" and "set to nothing" worth
- * telling apart, the same choice `set_description` already makes. The other
- * two are null on every Workspace never summarized before that job was
- * removed, and on every Workspace made since.
- */
-export const workspaceRoutingSummary = sqliteTable(
-  'workspace_routing_summary',
-  {
-    workspaceId: text('workspace_id')
-      .primaryKey()
-      .references(() => workspaces.id, { onDelete: 'restrict' }),
-    tenantId: text('tenant_id').notNull(),
-    summary: text('summary'),
-    summaryGeneratedAt: text('summary_generated_at'),
-    correction: text('correction'),
-    correctionSetAt: text('correction_set_at'),
-  },
-  (t) => [
-    // The one access pattern this table has: one workspace's own row, scoped
-    // to its tenant so a routing bug returns nothing rather than another
-    // account's summary (architecture, "`tenant_id` stays on every row").
-    index('workspace_routing_summary_tenant_workspace').on(t.tenantId, t.workspaceId),
-    check(
-      'workspace_routing_summary_generated_at_is_timestamp',
-      isTimestamp('summary_generated_at'),
-    ),
-    check(
-      'workspace_routing_summary_correction_set_at_is_timestamp',
-      isTimestamp('correction_set_at'),
-    ),
-  ],
-);
-
-/**
  * One row per account: the rules an account wrote for how Cockpit writes a
  * title and a message ("Show what Cockpit is told, and say how you want it
  * changed", issue 398). Nothing reads or writes it any more ("Remove the two
@@ -1466,18 +1403,12 @@ export const workspaceRoutingSummary = sqliteTable(
  *
  * **`tenant_id` is the primary key, not a separate `id`.** There is exactly
  * one rules box per account, ever, and inside one account's own store every
- * row's `tenant_id` already reads the same value - the same shape
- * `workspaceRoutingSummary` above takes for `workspace_id`, one level up the
- * scope it is keyed on.
+ * row's `tenant_id` already reads the same value.
  *
  * **The row does not exist until something is written.** Nobody has written
  * rules for a freshly made account, so there is no row to create it with -
  * reads treat a missing row exactly as they would an existing one with every
- * column null, the same convention `workspaceRoutingSummary` follows.
- *
- * **A different table from `workspace_routing_summary` above, not a
- * migration of it**: that one is about filing and scoped to a Workspace, this
- * one is about writing and scoped to the account.
+ * column null.
  */
 export const accountTextRules = sqliteTable(
   'account_text_rules',

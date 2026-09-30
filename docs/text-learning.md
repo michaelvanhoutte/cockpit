@@ -104,7 +104,7 @@ The cost is real and was accepted knowingly: a Personal note's full text is sent
 ## Build order
 
 1. ~~**Prompt v6** — task register, a title target near 50 characters against the 200-character cap that stays a storage limit, and the hedge instruction dropped.~~ **Shipped** ("Propose a title that names the work, not the note", issue 391); the target is asked for as a ceiling, since "about 50" is not something a test can hold a model to. Independent of everything below.
-2. ~~**Remove the nightly half of issue 301** — the fan-out, the summary prompt and its contract test, `write_routing_summary`, the read-only summary. The Cron Trigger itself stays; it also resets the guest account.~~ **Shipped** ("Drop the nightly filing summary, keep the sentence you wrote", issue 392); `summary`/`summary_generated_at` keep what they hold and are read by nothing, which the `workspace_routing_summary` drop below removes.
+2. ~~**Remove the nightly half of issue 301** — the fan-out, the summary prompt and its contract test, `write_routing_summary`, the read-only summary. The Cron Trigger itself stays; it also resets the guest account.~~ **Shipped** ("Drop the nightly filing summary, keep the sentence you wrote", issue 392), and the table it wrote is gone ("Drop the workspace_routing_summary table", issue 401).
 Both of the above have shipped. What is left, named rather than numbered so that citing one cannot rot into a wrong number:
 
 | Step | What it does | After |
@@ -113,7 +113,6 @@ Both of the above have shipped. What is left, named rather than numbered so that
 | **The evidence** | What it got right and what you corrected, as two lists on a screen — the sample of what stood, and the pairs with Cockpit's version struck through. | the store |
 | **Re-read the Inbox** | Correcting a text re-proposes everything still unfiled, as "Re-propose the rest of the inbox the moment you file one" (issue 300) already does for Panels, and debounced the same way ("Debounce the settle-triggered repropose fan-out across a real time window", issue 582). | the store |
 | **Try again** | A fresh suggestion now, the rejected one recorded — and what gets a tolerated-but-wrong title out of the sample that stood. | the store |
-| **Drop `workspace_routing_summary`** | Expand-then-contract, `pnpm backup:export` first, and only once the steps that stopped reading it are live rather than merged. | the nightly half removed |
 | **Cockpit's account of itself** | Generated when you open the screen it needs, stored nowhere. | a screen |
 
 ## Open decisions
