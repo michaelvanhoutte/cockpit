@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import type { ComponentProps } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   agentsShownOnDashboard,
@@ -44,8 +45,29 @@ import { useUndo } from '../undo';
 import { ItemRow } from './ItemRow';
 import { typeOf } from '../itemTypes';
 import { MoveOrAddQuestion } from './MoveOrAddQuestion';
-import { MoveToPicker } from './MoveToPicker';
+import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { SelectionBar } from './SelectionBar';
+
+/**
+ * The picker Move to… and Add to… open, fetched only once one is chosen and
+ * never on a cold open (the boundary `PanelBoard.tsx` draws around
+ * `FilterQuestion`), which keeps it out of the initial bundle's budget.
+ */
+const MoveToPicker = lazy(() => import('./MoveToPicker'));
+
+/** The picker with the boundary around it, so a chunk that does not arrive closes it rather than the list. */
+function FetchedPicker({
+  onFailure,
+  ...picker
+}: ComponentProps<typeof MoveToPicker> & { onFailure: () => void }) {
+  return (
+    <WhateverTheQuestionDoes onFailure={onFailure}>
+      <Suspense fallback={null}>
+        <MoveToPicker {...picker} />
+      </Suspense>
+    </WhateverTheQuestionDoes>
+  );
+}
 
 /**
  * A list of items, in the Inbox or on a panel, and the one way to move one out
@@ -1093,7 +1115,8 @@ export function ItemList({
           about no items has no answer: choosing a panel would send nothing and
           say nothing, leaving Cancel as the only way out. */}
       {filingSeveral && picked.length > 0 && (
-        <MoveToPicker
+        <FetchedPicker
+          onFailure={() => setFilingSeveral(false)}
           moving={{ several: picked.length }}
           dashboards={data?.dashboards ?? []}
           panels={data?.panels ?? []}
@@ -1138,7 +1161,8 @@ export function ItemList({
       )}
 
       {adding && (
-        <MoveToPicker
+        <FetchedPicker
+          onFailure={() => setAdding(null)}
           moving={{ title: itemLabel(adding) }}
           adding
           dashboards={data?.dashboards ?? []}
@@ -1157,11 +1181,13 @@ export function ItemList({
           refusal={refusal}
           busy={command.isPending}
           returnFocusTo={openedFrom.current}
+          alreadyOn={whereItIs(adding).map((at) => at.panelId)}
         />
       )}
 
       {moving && (
-        <MoveToPicker
+        <FetchedPicker
+          onFailure={() => setMoving(null)}
           moving={{ title: itemLabel(moving) }}
           dashboards={data?.dashboards ?? []}
           panels={data?.panels ?? []}
@@ -1178,6 +1204,12 @@ export function ItemList({
           {...(workspaceIsDecided(moving) || !allWorkspaces?.workspaces.length
             ? {}
             : { inboxesOf: allWorkspaces.workspaces })}
+          // Left out for an item that belongs to no workspace: it is on no
+          // panel, but this workspace's Inbox is still a place it can go, the
+          // one that decides which workspace it belongs to.
+          {...(workspaceIsDecided(moving)
+            ? { alreadyOn: whereItIs(moving).map((at) => at.panelId) }
+            : {})}
           openDashboardId={openDashboardId}
           recent={recentPanelsIn(browserStore(), workspaceId)}
           open

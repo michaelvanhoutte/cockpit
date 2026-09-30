@@ -15,7 +15,7 @@ Its name and the number in it head the column from the Dashboard bar, in the lef
 Processing an Item today means one of:
 
 - **Mark it done** — which takes it off every list, saying when.
-- **File it on a Panel** — which is what takes it out of the Inbox, and the one thing that does. Every Item's own menu carries **Move to…**, opening a picker of every Panel in the Workspace with the Dashboard you are on first, the three Panels most recently filed into above it, and the Inbox among the targets.
+- **File it on a Panel** — which is what takes it out of the Inbox, and the one thing that does. Every Item's own menu carries **Move to…**, opening a picker of the Panels in the Workspace, with the Dashboard you are on first, the five Panels most recently filed into above it, and the Inbox among the targets. A search box, focused on opening, narrows it by Panel or Dashboard name. Each Dashboard is a heading pinned while its Panels scroll past, and the picker keeps its height while you type. **Nothing pointless is offered**: **Add to…** leaves out every Panel the Item is on, and **Move to…** leaves out its only Panel (one of several stays, since moving there takes it off the rest) and, for an Item already in it, the Inbox.
 - **Delete/Dismiss** — which is reversible for as long as the bar offering it is on screen. A dismissed Item is kept rather than erased, and undismissing it brings it back, so putting it back is the same change made the other way.
 
 Reading, replying, flagging and associating an Item are designed, not built — reading and replying need something to read (no connector exists yet), and associating needs a view onto the Associations that already exist in the schema: see "Sources to connect" and "Associations" in `docs/ideas.md`.
