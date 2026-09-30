@@ -49,7 +49,7 @@ import {
   useReportDocked,
   useSettleQuietOpening,
 } from '../itemForm';
-import { openableAtSource } from '../itemSource';
+import { capturingApp, openableAtSource } from '../itemSource';
 import { useUndo } from '../undo';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
@@ -1387,8 +1387,8 @@ function TheForm({
                     tabs so it shows on both. */}
                 {item.source !== 'internal' && (
                   <p className="mt-2 shrink-0 text-xs text-ink-faint">
-                    From {connectorNamed(item.source)}
-                    {item.sender ? ` - ${item.sender}` : ''}
+                    From {capturingApp(item) ?? connectorNamed(item.source)}
+                    {item.sender && !capturingApp(item) ? ` - ${item.sender}` : ''}
                     {atSource && (
                       <>
                         {' · '}
@@ -1861,8 +1861,9 @@ function TheForm({
                           Source
                         </dt>
                         <dd className="mt-1 text-ink-soft">
-                          {item.source === 'internal' ? 'Cockpit' : connectorNamed(item.source)}
-                          {item.sender ? ` - ${item.sender}` : ''}
+                          {capturingApp(item) ??
+                            (item.source === 'internal' ? 'Cockpit' : connectorNamed(item.source))}
+                          {item.sender && !capturingApp(item) ? ` - ${item.sender}` : ''}
                         </dd>
                       </div>
                       <div>

@@ -523,6 +523,18 @@ describe('Triage', () => {
     });
 
     it.each([
+      { situation: 'an app captured', item: { source: 'mcp', sender: 'Claude' }, shows: 'Claude' },
+      { situation: 'was written here', item: { source: 'internal' }, shows: 'Own' },
+      { situation: 'came from Teams', item: { source: 'teams', sender: 'Ada' }, shows: 'teams · Ada' },
+    ] as const)('an item that $situation says $shows where the source goes', ({ item, shows }) => {
+      mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+      render(<ItemRow item={anItem({ ...item })} workspaceId="ws-work" />);
+
+      expect(screen.getByText(shows)).toBeInTheDocument();
+      expect(screen.queryByText(/mcp/)).toBeNull();
+    });
+
+    it.each([
       { situation: 'has been sitting for days', createdAt: '2026-08-12T10:00:00.000Z', shows: '14d' },
       { situation: 'was captured this morning', createdAt: '2026-08-26T08:00:00.000Z', shows: null },
     ])('an item that $situation', ({ createdAt, shows }) => {
