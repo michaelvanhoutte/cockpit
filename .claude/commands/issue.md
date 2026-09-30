@@ -22,6 +22,8 @@ CLAUDE.md is already loaded into this session and governs how this repository is
 
 Mark a chapter at each phase boundary, per **Working in parallel**.
 
+**Title the session `#<number> <issue title>` with `set_session_title` as soon as step 1 confirms the issue is live**, so the sidebar names the work without being asked. A parent's title is the parent's; each child retitles the session when step 9 re-confirms it. Without `set_session_title`, skip it.
+
 **Record each phase boundary on the pull request** with `node scripts/session-record.mjs mark <phase>`, which stamps the time from the clock itself. The phases:
 
 | Mark | When |
