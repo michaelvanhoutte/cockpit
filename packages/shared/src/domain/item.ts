@@ -9,7 +9,7 @@ import { z } from 'zod';
 /**
  * Where an Item came from. 'internal' means created inside Cockpit; 'mcp' means
  * an app connected to Cockpit captured it, the app's registered name being the
- * Item's sender. Like 'teams', it is not one of STORED_SOURCES.
+ * Item's `sender`. Like 'teams', it is not one of `STORED_SOURCES`.
  */
 export const sourceSchema = z.enum([
   'internal',
@@ -26,11 +26,11 @@ export type Source = z.infer<typeof sourceSchema>;
  * The five sources the store's own `source` column has ever held, and the only
  * five it may hold.
  *
- * **Teams and mcp are not among them**, the same shape `STORED_PANEL_KINDS` has and for
- * the same reason: widening the column's CHECK would mean rebuilding `items`,
+ * **Teams and `mcp` are not among them**, the same shape `STORED_PANEL_KINDS` has
+ * and for the same reason: widening the column's CHECK would mean rebuilding `items`,
  * which filings, associations, attachments and an Item's proposed Panel all
- * point at under RESTRICT. So an Item saved from Teams, or captured by an app, keeps `internal` in that
- * column, names its connector in `source_connector` beside it, and the read is
+ * point at under RESTRICT. So an Item saved from Teams, or captured by an app, keeps `internal` in
+ * that column, names its connector in `source_connector` beside it, and the read is
  * where the wire's source becomes `teams` (`0038-item-source-connector`,
  * apps/api/src/accounts/changes.ts).
  *
