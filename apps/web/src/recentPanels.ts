@@ -15,13 +15,13 @@
  */
 
 /**
- * Three, which is what the picker shows above the tree.
+ * Five, which is what the picker shows above the tree.
  *
  * Not a scrolling history: the point is that the panel you want is one of the
- * two or three you have been using, and a longer list is a second thing to read
- * rather than a shortcut past reading.
+ * few you have been using, and a longer list is a second thing to read rather
+ * than a shortcut past reading.
  */
-export const RECENT_PANELS_KEPT = 3;
+export const RECENT_PANELS_KEPT = 5;
 
 const KEY = 'cockpit.recent-panels.';
 

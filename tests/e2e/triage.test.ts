@@ -146,9 +146,11 @@ test.describe('Triage', () => {
       const picker = page.getByRole('dialog');
       await expect(picker).toBeVisible();
       await expect(picker).toContainText(thought);
-      // And it is the whole picker, not a stub of one: the Inbox and this
-      // workspace's dashboards, the same as from the menu.
-      await expect(picker.getByRole('button', { name: /^Inbox/ })).toBeVisible();
+      // And it is the whole picker, not a stub of one: the search and this
+      // workspace's dashboards, the same as from the menu. (Not the Inbox: the
+      // row is in it already.)
+      await expect(picker.getByRole('searchbox')).toBeVisible();
+      await expect(picker.getByRole('heading', { level: 3 }).first()).toBeVisible();
     });
 
     test('leaves the row alone when the swipe stops short', async ({ page, isMobile }) => {

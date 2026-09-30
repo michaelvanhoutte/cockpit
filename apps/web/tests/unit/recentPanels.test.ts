@@ -56,18 +56,24 @@ describe('Panels', () => {
         offered: ['b', 'a'],
       },
       {
-        situation: 'a fourth panel, which drops the oldest',
-        remembered: ['c', 'b', 'a'],
-        filed: 'd',
-        offered: ['d', 'c', 'b'],
+        situation: 'a sixth panel, which drops the oldest',
+        remembered: ['e', 'd', 'c', 'b', 'a'],
+        filed: 'f',
+        offered: ['f', 'e', 'd', 'c', 'b'],
+      },
+      {
+        situation: 'a panel already in the list, which moves to the top rather than in twice',
+        remembered: ['e', 'd', 'c', 'b', 'a'],
+        filed: 'c',
+        offered: ['c', 'e', 'd', 'b', 'a'],
       },
     ])('$situation', ({ remembered, filed, offered }) => {
       expect(withMostRecent(remembered, filed)).toEqual(offered);
     });
 
-    it('keeps no more than the three the picker shows', () => {
+    it('keeps no more than the five the picker shows', () => {
       let held: string[] = [];
-      for (const panelId of ['a', 'b', 'c', 'd', 'e']) held = withMostRecent(held, panelId);
+      for (const panelId of ['a', 'b', 'c', 'd', 'e', 'f', 'g']) held = withMostRecent(held, panelId);
 
       expect(held).toHaveLength(RECENT_PANELS_KEPT);
     });

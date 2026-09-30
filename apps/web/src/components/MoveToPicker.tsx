@@ -1,4 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { panelTakesItems, type Dashboard, type Panel, type Workspace } from '@cockpit/shared';
 
 /**
@@ -25,6 +26,16 @@ export type MoveTarget = { panel: string } | { inboxOf: string };
  * filing five things into the same panel in a row - and that panel is often on
  * a dashboard you are not on.
  *
+ * **Searchable, with the search focused on open**, because a workspace of
+ * several dashboards is otherwise a list to be read. A dashboard is a heading
+ * pinned while its panels scroll past, so a panel is never read without the
+ * dashboard it is on; a search matching a dashboard's name keeps all its panels.
+ *
+ * **Nothing is offered that would change nothing**: see `alreadyOn`.
+ *
+ * **The dialog keeps the height it opened at**, so narrowing the list with a
+ * search does not pull Cancel up from under the pointer.
+ *
  * **The Inbox is one of the targets**, so there is a way to say "put this back
  * for me to deal with later" rather than only the side effect of removing an
  * item from its last panel. It sits on its own at the top: it is not a panel,
@@ -50,7 +61,17 @@ export function MoveToPicker({
   refusal,
   busy = false,
   returnFocusTo,
+  alreadyOn,
 }: {
+  /**
+   * The panels the one item being moved is on now, left out where picking one
+   * would change nothing: every one of them when adding, and the only one when
+   * moving (moving to one of several still takes it off the rest, so those
+   * stay). The Inbox is left out for an item on no panel, which is in it.
+   *
+   * Absent for a selection of several, which can mix the two, so all is offered.
+   */
+  alreadyOn?: readonly string[];
   /**
    * What is being moved, so the question says what it is about: one row's
    * title, or how many were picked out of the list ("Select several items, and
@@ -102,6 +123,10 @@ export function MoveToPicker({
   busy?: boolean;
   returnFocusTo?: HTMLElement | null;
 }) {
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    if (open) setQuery('');
+  }, [open]);
   const what =
     'title' in moving
       ? `“${moving.title}”`
@@ -113,13 +138,42 @@ export function MoveToPicker({
   // come to disagree - and so the three call sites that hand this its panels
   // cannot each forget separately.
   const takesItems = panels.filter(panelTakesItems);
-  const groups = dashboardsInOrder(dashboards, openDashboardId).map((dashboard) => ({
-    dashboard,
-    panels: takesItems.filter((panel) => panel.dashboardId === dashboard.id),
-  }));
-  const recentPanels = recent
-    .map((panelId) => takesItems.find((panel) => panel.id === panelId))
-    .filter((panel): panel is Panel => panel !== undefined);
+  const pointless = new Set(alreadyOn && (adding || alreadyOn.length === 1) ? alreadyOn : []);
+  const offerable = takesItems.filter((panel) => !pointless.has(panel.id));
+  const needle = query.trim().toLowerCase();
+  const matches = (text: string) => needle === '' || text.toLowerCase().includes(needle);
+  const groups = dashboardsInOrder(dashboards, openDashboardId)
+    .map((dashboard) => ({
+      dashboard,
+      hasNone: !takesItems.some((panel) => panel.dashboardId === dashboard.id),
+      panels: offerable.filter(
+        (panel) =>
+          panel.dashboardId === dashboard.id && (matches(dashboard.name) || matches(panel.name)),
+      ),
+    }))
+    // A heading with nothing under it stays only to say the dashboard has no
+    // panels at all, not for one whose panels are all left out or unmatched.
+    .filter((group) => group.panels.length > 0 || (group.hasNone && matches(group.dashboard.name)));
+  const recentPanels =
+    needle === ''
+      ? recent
+          .map((panelId) => offerable.find((panel) => panel.id === panelId))
+          .filter((panel): panel is Panel => panel !== undefined)
+      : [];
+  const workspaceInboxes = !adding && inboxesOf ? inboxesOf.filter((w) => matches(w.name)) : [];
+  const plainInbox =
+    !adding && !inboxesOf && matches('Inbox') && !(alreadyOn && alreadyOn.length === 0);
+  const nothing = !plainInbox && workspaceInboxes.length === 0 && groups.length === 0;
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const targets = () => [
+    ...(listRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []),
+  ];
+  const [openedHeight, setOpenedHeight] = useState<number | null>(null);
+  const contentRef = useCallback((node: HTMLDivElement | null) => {
+    setOpenedHeight(node ? node.getBoundingClientRect().height : null);
+  }, []);
 
   return (
     // **Not closeable while a choice is in flight.** Cancelling resets the
@@ -132,6 +186,8 @@ export function MoveToPicker({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/30" />
         <Dialog.Content
+          ref={contentRef}
+          style={openedHeight ? { height: openedHeight } : undefined}
           aria-describedby={undefined}
           onCloseAutoFocus={(event) => {
             if (!returnFocusTo) return;
@@ -154,39 +210,79 @@ export function MoveToPicker({
             </p>
           )}
 
+          <input
+            ref={inputRef}
+            type="search"
+            autoFocus
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                targets()[0]?.click();
+              } else if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                targets()[0]?.focus();
+              }
+            }}
+            placeholder="Find a panel or dashboard…"
+            aria-label="Find a panel or dashboard"
+            className="mt-4 w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm placeholder:text-ink-faint focus:border-accent focus:outline-none"
+          />
+
           {/* Its own scroller rather than the dialog growing: a workspace with
               six dashboards of panels is a list longer than any screen, and a
               dialog taller than the window has a Cancel nobody can reach. */}
-          <div className="-mx-1 mt-4 min-h-0 flex-1 overflow-y-auto px-1">
-            {!adding &&
-              (inboxesOf ? (
-                <Group title="Workspaces">
-                  {inboxesOf.map((workspace) => (
-                    <Target
-                      key={workspace.id}
-                      label={workspace.name}
-                      hint={workspace.id === workspaceId ? 'the one you are in' : undefined}
-                      busy={busy}
-                      onPick={() => onPick({ inboxOf: workspace.id })}
-                    />
-                  ))}
-                </Group>
-              ) : (
-                <Target
-                  label="Inbox"
-                  hint="still to deal with"
-                  busy={busy}
-                  onPick={() => onPick({ inboxOf: workspaceId })}
-                />
-              ))}
+          <div
+            ref={listRef}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+              const all = targets();
+              const at = all.indexOf(document.activeElement as HTMLButtonElement);
+              if (at < 0) return;
+              event.preventDefault();
+              const next = all[at + (event.key === 'ArrowDown' ? 1 : -1)];
+              if (next) next.focus();
+              else if (event.key === 'ArrowUp') inputRef.current?.focus();
+            }}
+            className="-mx-1 mt-3 min-h-0 flex-1 overflow-y-auto px-1 pb-1 [scrollbar-width:thin]"
+          >
+            {nothing && (
+              <p className="px-2 py-3 text-sm text-ink-faint">
+                {needle === '' ? 'Nowhere else to put it.' : `Nothing called “${query.trim()}”.`}
+              </p>
+            )}
+
+            {workspaceInboxes.length > 0 && (
+              <Group title="Workspaces">
+                {workspaceInboxes.map((workspace) => (
+                  <Target
+                    key={workspace.id}
+                    label={workspace.name}
+                    hint={workspace.id === workspaceId ? 'the one you are in' : undefined}
+                    busy={busy}
+                    onPick={() => onPick({ inboxOf: workspace.id })}
+                  />
+                ))}
+              </Group>
+            )}
+
+            {plainInbox && (
+              <Target
+                label="Inbox"
+                hint="off every panel"
+                busy={busy}
+                onPick={() => onPick({ inboxOf: workspaceId })}
+              />
+            )}
 
             {recentPanels.length > 0 && (
-              <Group title="Recent">
+              <Group title="Recently used">
                 {recentPanels.map((panel) => (
                   <Target
                     key={panel.id}
                     label={panel.name}
-                    hint={nameOfDashboard(dashboards, panel.dashboardId)}
+                    hint={`on ${nameOfDashboard(dashboards, panel.dashboardId) ?? ''}`}
                     busy={busy}
                     onPick={() => onPick({ panel: panel.id })}
                   />
@@ -195,20 +291,25 @@ export function MoveToPicker({
             )}
 
             {groups.map(({ dashboard, panels: onIt }) => (
-              <Group key={dashboard.id} title={dashboard.name}>
+              <Dashboard
+                key={dashboard.id}
+                name={dashboard.name}
+                current={dashboard.id === openDashboardId}
+              >
                 {onIt.length === 0 ? (
-                  <p className="px-2 py-1.5 text-sm text-ink-faint">No panels yet.</p>
+                  <p className="py-1.5 pl-7 pr-2 text-sm text-ink-faint">No panels yet.</p>
                 ) : (
                   onIt.map((panel) => (
                     <Target
                       key={panel.id}
                       label={panel.name}
+                      indent
                       busy={busy}
                       onPick={() => onPick({ panel: panel.id })}
                     />
                   ))
                 )}
-              </Group>
+              </Dashboard>
             ))}
           </div>
 
@@ -246,6 +347,36 @@ function nameOfDashboard(dashboards: readonly Dashboard[], dashboardId: string):
   return dashboards.find((dashboard) => dashboard.id === dashboardId)?.name;
 }
 
+/** A dashboard's heading, pinned while its panels scroll past. */
+function Dashboard({
+  name,
+  current,
+  children,
+}: {
+  name: string;
+  current: boolean;
+  children: React.ReactNode;
+}) {
+  const square = (x: number, y: number) => (
+    <rect x={x} y={y} width="5.5" height="5.5" rx="1" fill="none" stroke="currentColor" strokeWidth="1.5" />
+  );
+  return (
+    <section className="mt-3 border-t border-black/10">
+      <h3 className="sticky top-0 z-10 flex items-center gap-2 bg-surface px-2 pb-1 pt-3 text-sm font-semibold text-ink">
+        <svg aria-hidden viewBox="0 0 16 16" className="size-3.5 shrink-0 text-ink-soft">
+          {square(1.5, 1.5)}
+          {square(9, 1.5)}
+          {square(1.5, 9)}
+          {square(9, 9)}
+        </svg>
+        <span className="min-w-0 flex-1 truncate">{name}</span>
+        {current && <span className="shrink-0 text-xs font-normal text-ink-faint">this dashboard</span>}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="pt-3">
@@ -267,10 +398,13 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
 function Target({
   label,
   hint,
+  indent = false,
   busy,
   onPick,
 }: {
   label: string;
+  /** Under a dashboard's heading rather than beside it. */
+  indent?: boolean;
   /** Which dashboard it is on, where the list does not already say. */
   hint?: string | undefined;
   busy: boolean;
@@ -281,7 +415,7 @@ function Target({
       type="button"
       disabled={busy}
       onClick={onPick}
-      className="flex w-full items-baseline gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent-tint hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
+      className={`flex w-full items-baseline gap-2 rounded py-1.5 pr-2 text-left text-sm text-ink hover:bg-accent-tint hover:text-accent-deep focus-visible:bg-accent-tint focus-visible:text-accent-deep focus-visible:outline-none disabled:opacity-50 ${indent ? 'pl-7' : 'pl-2'}`}
     >
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {hint && <span className="shrink-0 text-xs text-ink-faint">{hint}</span>}

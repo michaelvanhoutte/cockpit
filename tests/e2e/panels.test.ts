@@ -972,11 +972,12 @@ test.describe('Panels', () => {
       await expect.poll(() => itemsOn(page, work)).toEqual([chase]);
 
       // A Filter is never a place to file into, so it is not among the targets
-      // the filing above went through.
+      // the filing above went through. Nor is Work, which it is on already.
       await press(itemRow(page, chase).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Add to…' }), isMobile);
       const picker = page.getByRole('dialog');
-      await expect(picker.getByRole('button', { name: work, exact: true })).toBeVisible();
+      await expect(picker.getByRole('searchbox')).toBeVisible();
+      await expect(picker.getByRole('button', { name: work, exact: true })).toHaveCount(0);
       await expect(picker.getByRole('button', { name: gathering, exact: true })).toHaveCount(0);
       await press(picker.getByRole('button', { name: 'Cancel' }), isMobile);
       await expect(picker).toHaveCount(0);

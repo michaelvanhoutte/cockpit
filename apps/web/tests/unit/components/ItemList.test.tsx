@@ -354,10 +354,11 @@ describe('Panels', () => {
 
       const dialog = await openThePicker(user);
 
-      expect(offered(dialog)).toEqual(['Inboxstill to deal with', 'To read', 'Falcon', 'Anna']);
+      expect(offered(dialog)).toEqual(['To read', 'Falcon', 'Anna']);
     });
 
     it('offers the Inbox as somewhere to put it back', async () => {
+      held.filings = [{ panelId: 'p-anna', itemId: BART.id, position: 0 }];
       const user = await showList({ openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
@@ -373,11 +374,7 @@ describe('Panels', () => {
 
       // The recent two first, each saying which dashboard it is on, then every
       // dashboard in turn.
-      expect(offered(dialog).slice(0, 3)).toEqual([
-        'Inboxstill to deal with',
-        'To readResearch',
-        'AnnaToday',
-      ]);
+      expect(offered(dialog).slice(0, 2)).toEqual(['To readon Research', 'Annaon Today']);
     });
 
     /**
@@ -415,7 +412,6 @@ describe('Panels', () => {
       const dialog = await openThePicker(user);
 
       expect(within(dialog).getByText('No panels yet.')).toBeVisible();
-      expect(within(dialog).getByRole('button', { name: /^Inbox/ })).toBeVisible();
     });
   });
 
@@ -471,6 +467,7 @@ describe('Panels', () => {
     });
 
     it('sends no order when it is being put back in the Inbox, which has none', async () => {
+      held.filings = [{ panelId: 'p-anna', itemId: BART.id, position: 0 }];
       const user = await showList({ openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
@@ -750,6 +747,7 @@ describe('Panels', () => {
 
     it('says the Inbox by name when that is where it went', async () => {
       movesFor(BART.id);
+      held.filings = [{ panelId: 'p-anna', itemId: BART.id, position: 0 }];
       const user = await showList({ openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
@@ -1169,7 +1167,7 @@ describe('Panels', () => {
       );
     });
 
-    it('sends nothing when it is added to a panel it is already on', async () => {
+    it('does not offer a panel it is already on, since adding there would change nothing', async () => {
       // The add would change nothing, and its undo would take the item off a
       // panel it was legitimately on.
       const user = await aRowOnAPanel();
@@ -1177,10 +1175,9 @@ describe('Panels', () => {
       await user.click(screen.getByRole('button', { name: 'Item actions' }));
       await user.click(await screen.findByRole('menuitem', { name: 'Add to…' }));
       const picker = await screen.findByRole('dialog');
-      await user.click(within(picker).getByRole('button', { name: 'Falcon' }));
 
-      expect(held.mutate).not.toHaveBeenCalled();
-      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(within(picker).queryByRole('button', { name: 'Falcon' })).toBeNull();
+      expect(within(picker).getByRole('button', { name: 'Anna' })).toBeVisible();
     });
 
     it('takes it off this panel, naming this panel and no other', async () => {
@@ -1252,11 +1249,12 @@ describe('Capture', () => {
     });
 
     it('offers an item that belongs here the one Inbox, as it always did', async () => {
+      held.filings = [{ panelId: 'p-anna', itemId: BART.id, position: 0 }];
       const user = await showList();
 
       const dialog = await openThePicker(user);
 
-      expect(offered(dialog)[0]).toBe('Inboxstill to deal with');
+      expect(offered(dialog)[0]).toBe('Inboxoff every panel');
     });
 
     /**
@@ -1271,7 +1269,7 @@ describe('Capture', () => {
 
       const dialog = await openThePicker(user);
 
-      expect(offered(dialog)[0]).toBe('Inboxstill to deal with');
+      expect(offered(dialog)[0]).toBe('Inboxoff every panel');
     });
 
     it.each([

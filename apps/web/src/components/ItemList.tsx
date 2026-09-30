@@ -1157,6 +1157,7 @@ export function ItemList({
           refusal={refusal}
           busy={command.isPending}
           returnFocusTo={openedFrom.current}
+          alreadyOn={whereItIs(adding).map((at) => at.panelId)}
         />
       )}
 
@@ -1178,6 +1179,12 @@ export function ItemList({
           {...(workspaceIsDecided(moving) || !allWorkspaces?.workspaces.length
             ? {}
             : { inboxesOf: allWorkspaces.workspaces })}
+          // Left out for an item that belongs to no workspace: it is on no
+          // panel, but this workspace's Inbox is still a place it can go, the
+          // one that decides which workspace it belongs to.
+          {...(workspaceIsDecided(moving)
+            ? { alreadyOn: whereItIs(moving).map((at) => at.panelId) }
+            : {})}
           openDashboardId={openDashboardId}
           recent={recentPanelsIn(browserStore(), workspaceId)}
           open

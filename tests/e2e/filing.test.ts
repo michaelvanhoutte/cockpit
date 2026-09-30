@@ -82,14 +82,56 @@ test.describe('Panels', () => {
       page,
       isMobile,
     }) => {
-      const { dashboard, panel } = await ownDashboardWithAPanel(page, isMobile);
+      const { dashboard } = await ownDashboardWithAPanel(page, isMobile);
       const title = uniqueTitle('Reply to Bart');
+      // More panels than the dialog has room for, so the picker's list scrolls;
+      // the one filed onto is the last, found by searching for it.
+      const panel = uniqueTitle('Last');
+      for (const name of [...Array.from({ length: 13 }, (_, n) => uniqueTitle(`Panel ${n}`)), panel]) {
+        await press(page.getByRole('button', { name: '+ Panel' }), isMobile);
+        await page.getByLabel('Name of the new panel').fill(name);
+        await page.getByLabel('Name of the new panel').press('Enter');
+        await expect(page.getByRole('region', { name })).toBeVisible();
+      }
 
       await goToTheInbox(page, isMobile);
       await capture(page, title, isMobile);
       await expect(inbox(page).getByText(title)).toBeVisible();
 
-      await fileOnto(page, title, panel, isMobile);
+      await press(itemRow(page, title).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Move to…' }), isMobile);
+      const picker = page.getByRole('dialog');
+      const find = picker.getByRole('searchbox');
+      const cancel = picker.getByRole('button', { name: 'Cancel' });
+
+      // Opens at its top, with the search ready to type in.
+      await expect(find).toBeFocused();
+      await expect(find).toBeInViewport({ ratio: 1 });
+      const heading = picker.getByRole('heading', { name: dashboard, level: 3 });
+      await expect(heading).toBeVisible();
+
+      // Scrolled part-way through the dashboard's panels, its name is still at
+      // the top of the list. Other dashboards from the account may come first,
+      // so it is this one's section that is scrolled into.
+      await heading.evaluate((h) => {
+        const scroller = h.closest('div.overflow-y-auto')!;
+        const into = h.parentElement!.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+        scroller.scrollTop += into + 100;
+      });
+      const listTop = (await picker.locator('div.overflow-y-auto').boundingBox())!.y;
+      await expect
+        .poll(async () => Math.abs((await heading.boundingBox())!.y - listTop))
+        .toBeLessThan(2);
+
+      // A search that leaves one match moves neither the dialog nor Cancel.
+      const before = { picker: await picker.boundingBox(), cancel: await cancel.boundingBox() };
+      await find.fill(panel);
+      await expect(picker.getByRole('button', { name: panel, exact: true })).toBeVisible();
+      expect(await picker.boundingBox()).toEqual(before.picker);
+      expect(await cancel.boundingBox()).toEqual(before.cancel);
+
+      await find.press('Enter');
+      await expect(picker).toHaveCount(0);
 
       // Out of the Inbox, which is the whole of what filing it does to that
       // list: nothing about its status changed.
@@ -127,6 +169,7 @@ test.describe('Panels', () => {
       await goToTheInbox(page, isMobile);
       await expect(inbox(page).getByText(title)).toBeVisible();
     });
+
   });
 });
 
