@@ -291,6 +291,16 @@ const rowsFor: {
     params: (name) => [name, AT],
   },
   {
+    // The table `0025-workspace-routing-summary` creates, filled for the reason
+    // `decision_history` above is - and so that
+    // `0050-drop-workspace-routing-summary` meets a sentence somebody wrote
+    // rather than an empty table.
+    table: 'workspace_routing_summary',
+    sql: `INSERT INTO workspace_routing_summary (workspace_id, tenant_id, correction, correction_set_at)
+          VALUES ('ws-before', ?, 'Invoices go on Finance', ?)`,
+    params: (name) => [name, AT],
+  },
+  {
     // The two tables `0028-item-meanings` creates, filled for the reason
     // `decision_history` above is: whatever comes next has to meet a full one.
     // Two readings rather than one, because the pair below needs two items to
@@ -337,19 +347,25 @@ const rowsFor: {
 
 /**
  * The rows a change means to drop, named the way its own issue names them -
- * table and count. `0020-drop-layout-name-and-width` is the only one: a
- * Layout written before "Take the width and the name off a layout, now
- * that its size carries them" (issue 264) ever ran carries no
- * `screen_size_id`, and the new NOT NULL rule rejects it. `ly-before` and
- * `ly-twin`, from `rowsFor`, are exactly the two such Layouts this file
- * ever seeds, and everything they carry - a row and a placement each -
- * goes with them.
+ * table and count.
+ *
+ * - `0020-drop-layout-name-and-width`: a Layout written before "Take the
+ *   width and the name off a layout, now that its size carries them" (issue
+ *   264) ever ran carries no `screen_size_id`, and the new NOT NULL rule
+ *   rejects it. `ly-before` and `ly-twin`, from `rowsFor`, are exactly the two
+ *   such Layouts this file ever seeds, and everything they carry - a row and a
+ *   placement each - goes with them.
+ * - `0050-drop-workspace-routing-summary`: the whole table ("Drop the
+ *   workspace_routing_summary table", issue 401), which `rowsFor` gives one row.
  */
 const DECLARED_LOSSES: Record<string, Record<string, number>> = {
   '0020-drop-layout-name-and-width': {
     layouts: 2,
     panel_placements: 2,
     layout_rows: 2,
+  },
+  '0050-drop-workspace-routing-summary': {
+    workspace_routing_summary: 1,
   },
 };
 
@@ -619,6 +635,52 @@ describe('Accounts', () => {
           description: null,
         },
       ]);
+    });
+  });
+
+  describe('no account keeps a sentence about where a workspace’s notes belong, however far behind it was', () => {
+    /**
+     * "Drop the workspace_routing_summary table" (issue 401). Integration
+     * because whether a table exists is a fact about a real schema, against a
+     * store that still holds a row of it rather than a new one.
+     *
+     * The second situation is the one `IF EXISTS` is for: a store whose table
+     * is gone while the change is unrecorded would otherwise fail every
+     * request that opens the account.
+     */
+    const schemaOf = (sql: SqlStorage) =>
+      sql
+        .exec<{ type: string; name: string; tbl_name: string; sql: string | null }>(
+          `SELECT type, name, tbl_name, sql FROM sqlite_master
+            WHERE name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+              AND name NOT LIKE '\\_%' ESCAPE '\\'
+              AND tbl_name <> 'account_changes'
+            ORDER BY type, name`,
+        )
+        .toArray();
+
+    it.each([
+      { situation: 'an account that still held one', alreadyGone: false },
+      { situation: 'an account where it had already gone', alreadyGone: true },
+    ])('$situation opens, holds none, and is built exactly as a new account is', async ({ situation, alreadyGone }) => {
+      const name = `aged-store-routing-summary-${alreadyGone ? 'gone' : 'held'}`;
+      await agedTo(name, justBefore('0050-drop-workspace-routing-summary'));
+      await fillWithWhatIsAlreadyThere(name);
+      if (alreadyGone) {
+        await inStoreAsItIs(name, (sql) => sql.exec('DROP TABLE `workspace_routing_summary`'));
+      }
+
+      // Opening the store is what applies it, as the first request of the day
+      // does for a real account.
+      expect(await storeNamed(name).workspaces(name), situation).toMatchObject({ status: 'ok' });
+
+      const schema = await inStoreAsItIs(name, schemaOf);
+      // The table and its index both, by the table they belong to.
+      expect(schema.filter((entry) => entry.tbl_name === 'workspace_routing_summary')).toEqual([]);
+
+      const fresh = `${name}-new`;
+      expect(await storeNamed(fresh).workspaces(fresh)).toMatchObject({ status: 'ok' });
+      expect(schema).toEqual(await inStoreAsItIs(fresh, schemaOf));
     });
   });
 });

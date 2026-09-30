@@ -241,6 +241,105 @@ describe('Backup', () => {
     });
   });
 
+  /**
+   * The sentences somebody wrote about where a workspace's notes belong are
+   * dropped by "Drop the workspace_routing_summary table" (issue 401), after
+   * which a backup taken before it is the only place they exist. So an account
+   * is held at the point just before that change - which a backup never moves
+   * it past - and what it wrote is asked of the file.
+   */
+  describe('a backup taken before the sentences about where notes belong were dropped holds every one of them', () => {
+    const DROP = '0050-drop-workspace-routing-summary';
+
+    /** The account's store as it stood before the drop, and the ids of its workspaces. */
+    async function beforeTheDrop(extraWorkspaces: number): Promise<string[]> {
+      const changes = accountChanges(ACCOUNT_NAME);
+      const upTo = changes.findIndex((change) => change.name === DROP);
+      expect(upTo, `no change called ${DROP}`).toBeGreaterThan(-1);
+      return inStoreAsItIs(ACCOUNT_NAME, (sql) => {
+        sql.exec(
+          `CREATE TABLE IF NOT EXISTS account_changes (
+             name text PRIMARY KEY NOT NULL,
+             applied_at text NOT NULL
+           ) STRICT`,
+        );
+        for (const change of changes.slice(0, upTo)) {
+          for (const statement of change.statements) {
+            sql.exec(statement.sql, ...(statement.params ?? []));
+          }
+          sql.exec('INSERT INTO account_changes (name, applied_at) VALUES (?, ?)', change.name, AT);
+        }
+        for (let n = 0; n < extraWorkspaces; n += 1) {
+          sql.exec(
+            `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, ground, header, created_at)
+             VALUES (?, ?, ?, ?, '#6f62b5', '#e3e1f2', '#d2cdea', ?)`,
+            `ws-extra-${n}`,
+            ACCOUNT_NAME,
+            `Extra ${n}`,
+            `extra ${n}`,
+            AT,
+          );
+        }
+        return sql
+          .exec<{ id: string }>('SELECT id FROM workspaces ORDER BY id')
+          .toArray()
+          .map((row) => row.id);
+      });
+    }
+
+    function write(workspaceId: string, correction: string | null): Promise<unknown> {
+      return inStoreAsItIs(ACCOUNT_NAME, (sql) =>
+        sql.exec(
+          `INSERT INTO workspace_routing_summary
+             (workspace_id, tenant_id, summary, summary_generated_at, correction, correction_set_at)
+           VALUES (?, ?, 'Filed mostly by client', ?, ?, ?)`,
+          workspaceId,
+          ACCOUNT_NAME,
+          AT,
+          correction,
+          correction === null ? null : AT,
+        ),
+      );
+    }
+
+    it('holds every sentence somebody wrote, one per workspace', async () => {
+      const [first, second] = await beforeTheDrop(1);
+      await write(first!, 'Invoices go on Finance');
+      await write(second!, 'Anything from Novy is Projects');
+
+      const { tables, changesApplied } = await backUp(ACCOUNT_NAME);
+
+      expect(changesApplied).not.toContain(DROP);
+      expect(
+        tables.workspace_routing_summary!.map((row) => ({
+          workspace: row.workspace_id,
+          correction: row.correction,
+        })),
+      ).toEqual(
+        expect.arrayContaining([
+          { workspace: first, correction: 'Invoices go on Finance' },
+          { workspace: second, correction: 'Anything from Novy is Projects' },
+        ]),
+      );
+      expect(tables.workspace_routing_summary).toHaveLength(2);
+    });
+
+    it.each([
+      { situation: 'every sentence had been cleared', cleared: true },
+      { situation: 'nobody had ever written one', cleared: false },
+    ])('is a whole backup where $situation, not an empty one', async ({ cleared }) => {
+      const [first] = await beforeTheDrop(0);
+      if (cleared) await write(first!, null);
+
+      const { tables } = await backUp(ACCOUNT_NAME);
+
+      expect(tables.workspace_routing_summary).toEqual(
+        cleared ? [expect.objectContaining({ workspace_id: first, correction: null })] : [],
+      );
+      expect(tables.workspaces!.map((row) => row.id)).toContain(first);
+    });
+  });
+
   describe('a backup says whose every row is', () => {
     it('carries the account’s name on every row', async () => {
       await useAccount(USER_ID);

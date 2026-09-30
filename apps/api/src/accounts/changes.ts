@@ -119,8 +119,42 @@ export function accountChanges(accountId: string): readonly Change[] {
     AGENT_RUNS,
     CONNECTION_FAILURES,
     CLAUDE_CODE_HOOKS,
+    DROP_WORKSPACE_ROUTING_SUMMARY,
   ];
 }
+
+/**
+ * The contract half of `0025-workspace-routing-summary` ("Drop the
+ * workspace_routing_summary table", issue 401): nothing has read the table
+ * since "Cap the routing prompt to the last 50 decisions on panels that still
+ * exist, and drop the correction override" (issue 450), and nothing has written
+ * it since "Remove the two learning settings screens, and the commands that
+ * write to them" (issue 452).
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **It deletes real data, on purpose.** `correction` is a sentence somebody
+ *   wrote, and after this it exists only in a backup - so a production
+ *   `pnpm backup:export` is taken and its `workspace_routing_summary` rows are
+ *   read before this is promoted (deployment, "Migrations and rollback").
+ * - **If it stops halfway:** it cannot. One statement, and nothing rides
+ *   beside it; the table's index goes with the table.
+ * - **The second time it runs:** `IF EXISTS`, so a store whose table is
+ *   already gone records it and carries on rather than failing every request
+ *   that opens the account.
+ * - **Rows that already break the new rule:** every row goes, which is the
+ *   first line of this list.
+ * - **Rolled back after it has run:** no release since issue 450 names the
+ *   table, so promotion can go back that far and no further (deployment,
+ *   "Migrations and rollback").
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, putting the table and its rows back, then brings the account up
+ *   to date - which drops them again. The file keeps them.
+ */
+const DROP_WORKSPACE_ROUTING_SUMMARY: Change = {
+  name: '0050-drop-workspace-routing-summary',
+  statements: [{ sql: 'DROP TABLE IF EXISTS `workspace_routing_summary`' }],
+};
 
 /**
  * How a Panel of items is sorted ("Sort a panel of items by the fields you
@@ -740,10 +774,10 @@ const DECISION_HISTORY: Change = {
 };
 
 /**
- * One new, additive table (`schema.ts`'s own comment on `workspaceRoutingSummary`
- * carries the design; this is its failure-mode account, per the scoping skill,
- * for "Show what the system learned, in a sentence you can correct", issue
- * 301):
+ * One new, additive table, since dropped by `0050-drop-workspace-routing-summary`
+ * ("Drop the workspace_routing_summary table", issue 401); this is its
+ * failure-mode account, per the scoping skill, for "Show what the system
+ * learned, in a sentence you can correct", issue 301:
  *
  * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
  *   data is real"). It creates a table and writes to no row.
