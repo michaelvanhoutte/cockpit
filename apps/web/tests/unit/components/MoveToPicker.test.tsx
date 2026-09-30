@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Dashboard, Panel } from '@cockpit/shared';
-import { MoveToPicker, type MoveTarget } from '../../../src/components/MoveToPicker';
+import MoveToPicker, { type MoveTarget } from '../../../src/components/MoveToPicker';
 
 /**
  * F1: what the picker offers is decided from its props alone, so none of this

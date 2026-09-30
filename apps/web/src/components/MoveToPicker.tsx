@@ -49,7 +49,7 @@ const INBOX = 'Inbox';
  * return the focus to and would leave it at the top of the page - which, in a
  * list of rows, is losing your place.
  */
-export function MoveToPicker({
+function MoveToPicker({
   moving,
   adding = false,
   dashboards,
@@ -425,3 +425,5 @@ function Target({
     </button>
   );
 }
+
+export default MoveToPicker;

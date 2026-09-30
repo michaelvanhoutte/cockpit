@@ -1,5 +1,5 @@
-import { Component, Fragment, Suspense, lazy, useEffect, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   GRID_COLUMNS,
@@ -47,6 +47,7 @@ import { DeleteQuestion } from './DeleteQuestion';
 import { arrangedWith, placementFor } from '../panels/dragging';
 import type { DrawnRow } from '../panels/dragging';
 import { MovePanelToDashboardPicker } from './MovePanelToDashboardPicker';
+import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { PANEL_GAP, PanelCard } from './PanelCard';
 
 /**
@@ -59,34 +60,6 @@ const FilterQuestion = lazy(() => import('./FilterQuestion'));
 
 /** A Panel's Sort question, fetched only once *Sort…* is chosen, for the reason the Filter question is. */
 const SortQuestion = lazy(() => import('./SortQuestion'));
-
-/**
- * What happens when the Filter or Sort question's chunk does not arrive. The
- * same boundary `PanelText.tsx`'s `WhateverTheChunkDoes` and
- * `DescriptionBox.tsx`'s `WhateverTheEditorDoes` already draw, and for the same
- * reason: without it the whole board goes down with the one dialog that failed
- * to fetch.
- */
-class WhateverTheQuestionDoes extends Component<
-  { children: ReactNode; onFailure: () => void },
-  { broken: boolean }
-> {
-  state = { broken: false };
-
-  static getDerivedStateFromError() {
-    return { broken: true };
-  }
-
-  componentDidCatch() {
-    this.props.onFailure();
-  }
-
-  render() {
-    // Null for the render that catches; the failure is reported up, and the
-    // next render closes the dialog instead.
-    return this.state.broken ? null : this.props.children;
-  }
-}
 
 /**
  * A dashboard's panels, on the rows one of its layouts arranges them into
