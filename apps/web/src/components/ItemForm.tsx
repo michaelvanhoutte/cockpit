@@ -30,7 +30,7 @@ import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQ
 import { DescriptionBox } from './DescriptionBox';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
 import { possibleDuplicatesOf } from '../duplicates';
-import { dueComingFriday, dueSevenDaysOut, dueToday } from '../dueDateShortcuts';
+import { DUE_DATE_SHORTCUTS } from '../dueDateShortcuts';
 import { filingsThatFile } from '../filing';
 import { dayOf, shownOn } from '../filters';
 import { typeOf, typesOffered } from '../itemTypes';
@@ -73,13 +73,6 @@ const DESCRIPTION_LIMIT = 60_000;
 export const DUE_DATE_SETTLES_MS = 600;
 
 const CHANGED_ELSEWHERE = 'That item changed somewhere else. Copy what you want to keep and reopen it.';
-
-/** The due date field's one-click shortcuts, in the order they are offered (issue 480). */
-const DUE_DATE_SHORTCUTS: { label: string; dueDate: (now: Date) => string }[] = [
-  { label: 'Today', dueDate: dueToday },
-  { label: 'Fri', dueDate: dueComingFriday },
-  { label: '+7d', dueDate: dueSevenDaysOut },
-];
 
 /** Whether a paste landing here is a text box's to handle rather than the form's. */
 function isATextBox(target: EventTarget | null): boolean {

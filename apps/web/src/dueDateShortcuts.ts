@@ -29,3 +29,10 @@ export function dueComingFriday(now: Date): Day {
 export function dueSevenDaysOut(now: Date): Day {
   return daysAfter(dayOf(now), 7);
 }
+
+/** The shortcuts in the order they are offered, by the label on the button - one list for the item form and the Capture form's strip. */
+export const DUE_DATE_SHORTCUTS: { label: string; dueDate: (now: Date) => Day }[] = [
+  { label: 'Today', dueDate: dueToday },
+  { label: 'Fri', dueDate: dueComingFriday },
+  { label: '+7d', dueDate: dueSevenDaysOut },
+];

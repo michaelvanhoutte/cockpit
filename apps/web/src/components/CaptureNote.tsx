@@ -8,7 +8,7 @@ import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { howLongAgo, useCapture } from '../capture';
 import { NO_TYPES, typesOffered } from '../itemTypes';
 import { dueDateLabel } from '../dueDate';
-import { dueComingFriday, dueSevenDaysOut, dueToday } from '../dueDateShortcuts';
+import { DUE_DATE_SHORTCUTS } from '../dueDateShortcuts';
 import { PRIORITY_LABELS } from '../priority';
 
 /**
@@ -603,13 +603,6 @@ interface Due {
   via: string | null;
 }
 
-/** The due date's one-click shortcuts, in the order they are offered - the item form's own (issue 480). */
-const DUE_SHORTCUTS: { label: string; dueDate: (now: Date) => string }[] = [
-  { label: 'Today', dueDate: dueToday },
-  { label: 'Fri', dueDate: dueComingFriday },
-  { label: '+7d', dueDate: dueSevenDaysOut },
-];
-
 /** The flag's colour at each level, the same as an Inbox row's flag (`ItemRow.tsx`). */
 const FLAG_COLOURS: Record<Priority, { lit: string; unlit: string }> = {
   low: { lit: 'border-priority-low bg-priority-low text-white', unlit: 'text-priority-low' },
@@ -691,7 +684,7 @@ function PriorityAndDue({
         >
           Due
         </span>
-        {DUE_SHORTCUTS.map(({ label, dueDate }) => {
+        {DUE_DATE_SHORTCUTS.map(({ label, dueDate }) => {
           const lit = due?.via === label;
           return (
             <button
@@ -746,7 +739,7 @@ function PriorityAndDue({
               if (!picked) return onDue(null);
               // A day that is also a shortcut's lights that shortcut, so one
               // day has one answer however it was reached.
-              const via = DUE_SHORTCUTS.find((s) => s.dueDate(new Date()) === picked)?.label ?? null;
+              const via = DUE_DATE_SHORTCUTS.find((s) => s.dueDate(new Date()) === picked)?.label ?? null;
               onDue({ date: picked, via });
             }}
             className="pointer-events-none absolute inset-0 w-full opacity-0"
