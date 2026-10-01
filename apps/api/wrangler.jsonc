@@ -39,7 +39,7 @@
       "/mcp",
       "/mcp/*",
       "/oauth/*",
-      "/.well-known/*"
+      "/.well-known/oauth-*"
     ]
   },
 

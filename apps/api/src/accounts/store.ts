@@ -176,7 +176,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   #upToDate = false;
   /** The hook calls each Claude Code connection was admitted for, newest last - see `claudeCodeHookArrived`. */
   #hookCalls = new Map<string, number[]>();
-  /** The captures each app's grant was admitted for, newest last - see `appCaptureArrived`. */
+  /** The calls each app's grant was admitted for, newest last - see `appCaptureArrived`. */
   #appCaptures = new Map<string, number[]>();
 
   /** All live types of the account, in the order they were put in. */
@@ -708,12 +708,12 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   }
 
   /**
-   * An app connected to this account asking to capture ("Connect Claude to
-   * Cockpit, and capture an item from it", issue 599): admitted, or refused as
-   * one of too many from that one grant in a minute.
+   * An app connected to this account calling `create_item` ("Connect Claude
+   * to Cockpit, and capture an item from it", issue 599): admitted, or refused
+   * as one of too many calls from that one grant in a minute.
    *
    * **Counted here, in memory, for the reason `claudeCodeHookArrived` is**:
-   * every capture a grant makes passes through this one object one at a time,
+   * every call a grant makes passes through this one object one at a time,
    * since a grant acts for one person and so for one account. A count lost to
    * the object being evicted starts a flood's window over, which is all it
    * costs. Nothing is read or written, so it answers before the account is

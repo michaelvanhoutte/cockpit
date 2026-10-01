@@ -20,7 +20,13 @@ describe('Sign-in', () => {
       { situation: 'a backslash further along', asked: '/oauth\\..\\evil', back: null },
       { situation: 'a script', asked: 'javascript:alert(1)', back: null },
       { situation: 'a relative path', asked: 'oauth/authorize', back: null },
-      { situation: 'something too long to be a page here', asked: `/${'a'.repeat(2_000)}`, back: null },
+      { situation: 'another site, made by settling a dot', asked: '/.//evil.example', back: null },
+      { situation: 'another site, made by settling a double dot', asked: '/..//evil.example', back: null },
+      { situation: 'another site, made by settling a segment away', asked: '/a/..//evil.example', back: null },
+      { situation: 'another site, made by settling an encoded double dot', asked: '/%2e%2e//evil.example/x', back: null },
+      { situation: 'something too long to be a page here', asked: `/${'a'.repeat(1_000)}`, back: null },
+      { situation: 'something that grows too long once settled', asked: `/${'"'.repeat(400)}`, back: null },
+      { situation: 'the longest page kept', asked: `/${'a'.repeat(999)}`, back: `/${'a'.repeat(999)}` },
     ])('$situation', ({ asked, back }) => {
       expect(returnPathFrom(asked)).toBe(back);
     });

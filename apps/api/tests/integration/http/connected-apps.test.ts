@@ -80,24 +80,41 @@ function cookiesFrom(response: Response): string[] {
   return response.headers.getSetCookie().map((cookie) => cookie.split(';')[0]!).filter((c) => !c.endsWith('='));
 }
 
-/** Opens the consent page as whoever holds `cookie`, and presses one of its two buttons. */
-async function decide(path: string, cookie: string, decision: 'allow' | 'deny'): Promise<Response> {
+/**
+ * Opens the consent page as whoever holds `cookie`, and presses one of its two
+ * buttons - as whoever holds `pressedWith` by then, which is the same person
+ * unless a case says otherwise (`null` for nobody signed in at all).
+ */
+async function decide(
+  path: string,
+  cookie: string,
+  decision: 'allow' | 'deny',
+  pressedWith: string | null = cookie,
+): Promise<Response> {
   const shown = await SELF.fetch(`${ORIGIN}${path}`, { headers: { cookie }, redirect: 'manual' });
   expect(shown.status).toBe(200);
-  const handle = /name="handle" value="([^"]+)"/.exec(await shown.text())![1]!;
+  const form = new URLSearchParams(
+    [...(await shown.text()).matchAll(/<input type="hidden" name="([^"]+)" value="([^"]+)">/g)].map(
+      ([, name, value]) => [name!, value!],
+    ),
+  );
+  form.set('decision', decision);
   return SELF.fetch(`${ORIGIN}/oauth/authorize`, {
     method: 'POST',
     headers: {
-      cookie: [cookie, ...cookiesFrom(shown)].join('; '),
+      cookie: [...(pressedWith ? [pressedWith] : []), ...cookiesFrom(shown)].join('; '),
       'content-type': 'application/x-www-form-urlencoded',
     },
-    body: new URLSearchParams({ handle, decision }),
+    body: form,
     redirect: 'manual',
   });
 }
 
 /** An app connected by `userId`: registered, allowed, and its code traded for access. */
-async function connected(userId: string = USER_ID, name = 'Claude'): Promise<{ app: App; token: string }> {
+async function connected(
+  userId: string = USER_ID,
+  name = 'Claude',
+): Promise<{ app: App; token: string; refreshToken: string }> {
   const app = await registerApp(name);
   const asked = await attempt(app);
   const allowed = await decide(asked.path, await signInAs(userId), 'allow');
@@ -115,7 +132,17 @@ async function connected(userId: string = USER_ID, name = 'Claude'): Promise<{ a
     }),
   });
   expect(traded.status).toBe(200);
-  return { app, token: ((await traded.json()) as { access_token: string }).access_token };
+  const tokens = (await traded.json()) as { access_token: string; refresh_token: string };
+  return { app, token: tokens.access_token, refreshToken: tokens.refresh_token };
+}
+
+/** An app trading its refresh token for new access, as it does once the hour is up. */
+function refresh(app: App, refreshToken: string): Promise<Response> {
+  return SELF.fetch(`${ORIGIN}/oauth/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: app.clientId }),
+  });
 }
 
 /** One MCP request, as an app's Streamable HTTP client sends it. */
@@ -223,12 +250,44 @@ describe('Connected apps', () => {
     });
   });
 
+  describe('an app is never told what broke inside Cockpit, and the break is logged', () => {
+    it('answers listing and capturing with a plain apology when the account cannot be read', async () => {
+      const { token } = await connected();
+      const realStores = env.ACCOUNT;
+      const broken = async () => {
+        throw new Error('tenant-default could not be brought up to date: disk on fire');
+      };
+      env.ACCOUNT = {
+        idFromName: (name: string) => realStores.idFromName(name),
+        get: () => ({ workspaces: broken, itemTypes: broken, appCaptureArrived: broken }),
+      } as unknown as typeof env.ACCOUNT;
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const listed = await mcp(token, 'tools/list');
+        const listing = JSON.stringify(await listed.json());
+        const said = await createItem(token, { message: 'Anything' });
+
+        expect(listing).toContain('Something went wrong in Cockpit');
+        expect(said).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('Something went wrong in Cockpit') }] });
+        expect(`${listing} ${JSON.stringify(said)}`).not.toContain('disk on fire');
+        expect(logged.mock.calls.filter(([line]) => String(line).includes('disk on fire'))).toHaveLength(2);
+      } finally {
+        env.ACCOUNT = realStores;
+        logged.mockRestore();
+      }
+    });
+  });
+
   describe('access is given only on the consent page, by somebody signed in with Google', () => {
     it('sends the app back with a code when somebody signed in presses Allow, naming the app', async () => {
       const app = await registerApp('Claude');
       const { path } = await attempt(app);
       const shown = await SELF.fetch(`${ORIGIN}${path}`, { headers: { cookie: await signInAs(USER_ID) } });
-      expect(await shown.text()).toContain('Allow Claude to create items in your Cockpit?');
+      const page = await shown.text();
+      expect(page).toContain('Allow Claude to create items in your Cockpit?');
+      // What it will be able to see, said plainly: the names it is told.
+      expect(page).toContain('see the names of your workspaces and types');
+      expect(page).not.toContain('cannot read');
 
       const allowed = await decide(path, await signInAs(USER_ID), 'allow');
       const back = new URL(allowed.headers.get('location')!);
@@ -248,6 +307,25 @@ describe('Connected apps', () => {
       expect(back.searchParams.get('error')).toBe('access_denied');
       expect(back.searchParams.get('code')).toBeNull();
       expect(await grantsOf(USER_ID)).toEqual([]);
+    });
+
+    it('tells the app access was refused when Deny is pressed after the sign-in has ended', async () => {
+      const app = await registerApp();
+      const { path } = await attempt(app);
+      const denied = await decide(path, await signInAs(USER_ID), 'deny', null);
+      expect(denied.status).toBe(302);
+      const back = new URL(denied.headers.get('location')!);
+      expect(`${back.origin}${back.pathname}`).toBe(CALLBACK);
+      expect(back.searchParams.get('error')).toBe('access_denied');
+    });
+
+    it('grants nothing when somebody else has signed in on the browser by the time Allow is pressed', async () => {
+      const app = await registerApp();
+      const { path } = await attempt(app);
+      const allowed = await decide(path, await signInAs(USER_ID), 'allow', await signInAs(OTHER_USER_ID));
+      expect(allowed.status).toBe(409);
+      expect(allowed.headers.get('location')).toBeNull();
+      expect([...(await grantsOf(USER_ID)), ...(await grantsOf(OTHER_USER_ID))]).toEqual([]);
     });
 
     it('walks somebody not signed in through Google sign-in and back to the consent page', async () => {
@@ -298,7 +376,7 @@ describe('Connected apps', () => {
     });
 
     it('comes back from signing in only to a path on Cockpit itself', async () => {
-      const elsewhere = ['https://evil.example/', '//evil.example/', '/\\evil.example/'];
+      const elsewhere = ['https://evil.example/', '//evil.example/', '/\\evil.example/', '/.//evil.example/'];
       for (const target of elsewhere) {
         await issuerIsReachable();
         const started = await SELF.fetch(
@@ -336,6 +414,26 @@ describe('Connected apps', () => {
 
       const answer = await mcp(token, 'tools/call', { name: 'create_item', arguments: { message: 'Still here?' } });
       expect(answer.status).toBe(401);
+    });
+
+    it('cannot refresh its access once their access has been taken away, though it could before', async () => {
+      const { app, refreshToken } = await connected(OTHER_USER_ID);
+      const before = await refresh(app, refreshToken);
+      expect(before.status).toBe(200);
+      const { refresh_token: rotated } = (await before.json()) as { refresh_token: string };
+
+      const disabled = await asUser(`${ORIGIN}/v1/admin/users/${OTHER_USER_ID}/access`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ disabled: true }),
+      });
+      expect(disabled.status).toBe(200);
+
+      const after = await refresh(app, rotated);
+      expect(after.status).toBe(400);
+      expect(((await after.json()) as { error: string }).error).toBe('invalid_grant');
+      // Revoked with it, so giving the person access back does not revive it.
+      expect(await grantsOf(OTHER_USER_ID)).toEqual([]);
     });
 
     it('is turned away once they are deleted, and writes nothing for somebody new given their name', async () => {
@@ -479,7 +577,7 @@ describe('Capture', () => {
     });
   });
 
-  describe('an app captures at most 60 notes a minute', () => {
+  describe('an app is answered at most 60 times a minute', () => {
     it('refuses the 61st in a minute and writes nothing for it', async () => {
       const { token } = await connected();
       for (let n = 1; n <= 60; n += 1) {

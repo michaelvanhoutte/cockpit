@@ -27,10 +27,10 @@ export interface GrantProps {
   readonly clientName: string;
 }
 
-/** The person a call acts for, read from the register on the call itself. */
+/** The account a call acts in, read from the register on the call itself, and the app making it. */
 export interface GrantHolder {
-  readonly userId: string;
   readonly accountName: string;
+  readonly clientName: string;
 }
 
 /**
@@ -57,9 +57,9 @@ export async function whoCanConsent(env: Env, userId: string): Promise<{ subject
 /**
  * The person a grant acts for, as the register holds them now - or `null`
  * where they are gone, are somebody else under the same id, or have had their
- * access taken away since they consented. Asked on every call, which is what
- * makes deleting or disabling somebody cut an app off at once rather than when
- * its token runs out.
+ * access taken away since they consented. Asked on every call and on every
+ * refresh (`oauth.ts`), which is what makes deleting or disabling somebody cut
+ * an app off at once rather than when its token runs out.
  */
 export async function grantHolder(env: Env, props: unknown): Promise<GrantHolder | null> {
   if (!isGrantProps(props) || props.userId === GUEST_USER_ID) return null;
@@ -68,11 +68,11 @@ export async function grantHolder(env: Env, props: unknown): Promise<GrantHolder
     .from(users)
     .where(eq(users.id, props.userId));
   if (!row || row.subject !== props.subject || hasNoAccess(row.disabledAt)) return null;
-  return { userId: props.userId, accountName: row.accountName };
+  return { accountName: row.accountName, clientName: props.clientName };
 }
 
 /** Whether what came back is what this application stored - a grant from an older release need not be. */
-export function isGrantProps(props: unknown): props is GrantProps {
+function isGrantProps(props: unknown): props is GrantProps {
   if (!props || typeof props !== 'object') return false;
   const { userId, subject, clientName } = props as Record<string, unknown>;
   return (

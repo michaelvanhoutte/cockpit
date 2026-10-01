@@ -68,3 +68,18 @@ export function ordersTypesExactly(
   if (named.size !== live.length) return false;
   return live.every((type) => named.has(type.id));
 }
+
+/**
+ * The Type a capture takes when nobody chose one: the account's own Note where
+ * it still has one, and its first Type otherwise - or undefined for an account
+ * with no Types at all.
+ *
+ * Every capture names a Type, and the front doors nobody is at a keyboard for -
+ * a connector's push, an app's `create_item` - decide it here, in one place.
+ * Note rather than Task, because what arrives that way is something said or
+ * read rather than something somebody has said they will do, and the Inbox is
+ * where they decide which it is.
+ */
+export function typeToCaptureAs(types: readonly ItemType[], noteTypeId: string): ItemType | undefined {
+  return types.find((type) => type.id === noteTypeId) ?? types[0];
+}

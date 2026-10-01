@@ -1,4 +1,5 @@
 import { captureItemSchema, type ItemType, type Workspace } from '@cockpit/shared';
+import { typeToCaptureAs } from '../domain/item-types.js';
 import { namedTheSame } from '../domain/names.js';
 
 /**
@@ -22,7 +23,7 @@ export const SERVER_INSTRUCTIONS =
   'Use create_item when the user asks to capture, note or remember something in Cockpit.';
 
 /**
- * How many captures one grant is admitted for in a minute - the same number
+ * How many calls one grant is admitted for in a minute, refused ones included - the same number
  * the Claude Code hooks are held to (`HOOK_CALLS_PER_MINUTE`), for the same
  * reason: well above anything a person asking Claude does, and a ceiling on
  * what a runaway loop can write before somebody notices.
@@ -162,7 +163,7 @@ export function readCapture(
       };
     }
   }
-  type ??= types.find((one) => one.id === noteTypeId) ?? types[0];
+  type ??= typeToCaptureAs(types, noteTypeId);
   if (!type) return { ok: false, refusal: 'This Cockpit has no types to capture with yet.' };
 
   const into = workspace ?? workspaces[0];

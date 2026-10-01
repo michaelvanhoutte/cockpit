@@ -226,24 +226,44 @@ export function gate(): MiddlewareHandler<GatedEnv> {
     // how the next gate inherits the wrong one.
     if (isOutsideTheGate(c.req.path)) return next();
 
-    const sessionId = heldSessionId(c);
-    const held = sessionId ? await sessionHeld(c.env, sessionId) : null;
     const now = new Date();
-    const verdict = recogniseSession(held?.session, now);
+    const held = await visitorHeld(c, now);
 
-    if (!verdict.recognised) {
+    if (!held) {
       // The cookie names nothing worth keeping, so it goes rather than being
       // offered again on every later request.
-      if (sessionId) forgetSessionCookie(c);
+      if (heldSessionId(c)) forgetSessionCookie(c);
       return c.json({ error: 'sign in to continue' }, 401);
     }
 
-    await extendSession(c.env, sessionId!, verdict.expiresAt, now);
-    rememberSessionCookie(c, sessionId!);
-    c.set('sessionId', sessionId!);
-    c.set('visitor', held!.visitor);
+    await extendSession(c.env, held.sessionId, held.expiresAt, now);
+    rememberSessionCookie(c, held.sessionId);
+    c.set('sessionId', held.sessionId);
+    c.set('visitor', held.visitor);
     return next();
   };
+}
+
+/**
+ * Who this request's sign-in belongs to, where it is current - or `null` for
+ * no cookie, a cookie naming nothing, and a sign-in that has run out or whose
+ * person has lost access.
+ *
+ * **The one reading of a session**, for the gate and for the consent page
+ * that stands outside it (`mcp/consent.ts`), so the two cannot come to
+ * disagree about who is signed in. It neither extends the sign-in nor touches
+ * the cookie: those are the gate's, for requests it admits.
+ */
+export async function visitorHeld(
+  c: Context,
+  now: Date,
+): Promise<{ sessionId: string; visitor: Visitor; expiresAt: string } | null> {
+  const sessionId = heldSessionId(c);
+  if (!sessionId) return null;
+  const held = await sessionHeld(c.env as Env, sessionId);
+  const verdict = recogniseSession(held?.session, now);
+  if (!verdict.recognised) return null;
+  return { sessionId, visitor: held!.visitor, expiresAt: verdict.expiresAt };
 }
 
 /**

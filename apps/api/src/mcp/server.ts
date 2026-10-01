@@ -1,13 +1,18 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  CallToolRequestSchema,
+  ErrorCode,
+  ListToolsRequestSchema,
+  McpError,
+} from '@modelcontextprotocol/sdk/types.js';
 import { TITLE_LENGTH, uuidv7 } from '@cockpit/shared';
 import { NotFoundInAccountError, openAccount, type Account } from '../accounts/index.js';
 import { noteTypeId } from '../accounts/changes.js';
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture } from './create-item.js';
-import { grantHolder, isGrantProps } from './grant.js';
+import { grantHolder } from './grant.js';
 import { MCP_PATH } from './paths.js';
 
 /**
@@ -33,15 +38,16 @@ interface ProtectedContext {
 
 export async function answerMcp(request: Request, env: Env, ctx: ProtectedContext): Promise<Response> {
   // **Asked again on every call**, never trusted from the grant (`grant.ts`):
-  // somebody deleted or disabled since they consented is nobody now, and the
-  // app is told so the way the library tells it a token is no good, so it
-  // asks the person to connect again rather than retrying.
+  // somebody deleted or disabled since they consented is nobody now. The app
+  // is answered the way the library answers a token that is no good, and its
+  // next refresh is refused and the grant revoked (`oauth.ts`), so it cannot
+  // get access back without somebody consenting again.
   const holder = await grantHolder(env, ctx.props);
-  if (!holder || !isGrantProps(ctx.props)) return tokenRefused(env);
+  if (!holder) return tokenRefused(env);
   const account = await openAccount(env, holder.accountName);
   const app = {
     clientId: ctx.auth?.clientId ?? 'unknown',
-    clientName: ctx.props.clientName,
+    clientName: holder.clientName,
     grantId: grantIdOf(ctx.auth?.token),
   };
 
@@ -50,13 +56,23 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const [workspaces, types] = await Promise.all([account.workspaces(), account.itemTypes()]);
-    return { tools: [createItemTool(workspaces, types)] };
+    try {
+      const [workspaces, types] = await Promise.all([account.workspaces(), account.itemTypes()]);
+      return { tools: [createItemTool(workspaces, types)] };
+    } catch (error) {
+      logged(error);
+      throw new McpError(ErrorCode.InternalError, SOMETHING_BROKE);
+    }
   });
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
     if (params.name !== CREATE_ITEM) return toolError(`There is no tool called ${params.name}.`);
-    const said = await capture(env, ctx, account, holder.accountName, app, params.arguments);
-    return 'refusal' in said ? toolError(said.refusal) : { content: [{ type: 'text', text: said.reply }] };
+    try {
+      const said = await capture(env, ctx, account, holder.accountName, app, params.arguments);
+      return 'refusal' in said ? toolError(said.refusal) : { content: [{ type: 'text', text: said.reply }] };
+    } catch (error) {
+      logged(error);
+      return toolError(SOMETHING_BROKE);
+    }
   });
 
   // No `sessionIdGenerator`, which is what makes the transport stateless.
@@ -84,11 +100,18 @@ async function capture(
   app: { clientId: string; clientName: string; grantId: string },
   args: unknown,
 ): Promise<{ reply: string } | { refusal: string }> {
-  if ((await account.appCaptureArrived(app.grantId, new Date().toISOString())) === 'too-many') {
-    return { refusal: 'Too many captures in the last minute. Wait a minute and try again.' };
+  // Asked together: the count is the store's memory and the two reads are its
+  // tables, and a call refused for being one too many has simply read for
+  // nothing. Every call is counted, refused ones included.
+  const [admitted, workspaces, types] = await Promise.all([
+    account.appCaptureArrived(app.grantId, new Date().toISOString()),
+    account.workspaces(),
+    account.itemTypes(),
+  ]);
+  if (admitted === 'too-many') {
+    return { refusal: 'Too many calls in the last minute. Wait a minute and try again.' };
   }
 
-  const [workspaces, types] = await Promise.all([account.workspaces(), account.itemTypes()]);
   const read = readCapture(args, workspaces, types, noteTypeId(accountName));
   if (!read.ok) return { refusal: read.refusal };
 
@@ -130,6 +153,19 @@ async function capture(
   const link = new URL(`/w/${encodeURIComponent(read.workspaceId)}`, env.APP_ORIGIN);
   link.searchParams.set('item', itemId);
   return { reply: `Captured "${item?.title ?? read.message}" in ${where}. Open it: ${link.href}` };
+}
+
+/**
+ * What an app is told when something on Cockpit's side broke: never the
+ * error's own message, which can name an account, a table or a cause nobody
+ * outside should read - the same rule the application's `onError` keeps
+ * (`http/app.ts`). The detail goes to the log instead.
+ */
+const SOMETHING_BROKE = 'Something went wrong in Cockpit. Try again in a moment.';
+
+function logged(error: unknown): void {
+  const { message, stack } = error instanceof Error ? error : { message: String(error), stack: undefined };
+  console.error(JSON.stringify({ level: 'error', message, stack }));
 }
 
 function toolError(text: string) {

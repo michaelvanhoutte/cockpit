@@ -133,7 +133,7 @@ export interface Env {
   /**
    * Where this environment is reached by the people using it, which is where a
    * sign-in comes back to. Not this Worker's own address: in development the
-   * browser is on Vite and only `/v1` reaches here.
+   * browser is on Vite, which proxies only the Worker's own prefixes here.
    */
   APP_ORIGIN: string;
   /**

@@ -14,8 +14,14 @@
  * Pure, and proved at L1 (tests/unit/auth/return-path.test.ts).
  */
 
-/** Longer than any consent page's address, and short enough to sit in a cookie. */
-const RETURN_PATH_LIMIT = 2_000;
+/**
+ * The longest path kept, measured after it is settled. The cookie it rides in
+ * holds three 43-character secrets beside it, and Hono percent-encodes the
+ * whole value, which can triple a path's length: 1,000 keeps the cookie under
+ * 3.5KB, inside the 4KB a browser keeps, with a consent page's address needing
+ * a few hundred.
+ */
+const RETURN_PATH_LIMIT = 1_000;
 
 /** Any origin will do: the question is only whether the path stays on it. */
 const PROBE = 'https://cockpit.invalid';
@@ -29,13 +35,17 @@ const PROBE = 'https://cockpit.invalid';
  * - It must start with exactly one `/`: `//host` is an address on another
  *   origin, and so is `/\host`, which a browser reads the same way.
  * - No control characters, which a browser strips before resolving - turning
- *   `/\t/host` into `//host` after this has looked at it.
- * - And it must resolve back onto the origin it was resolved against, which is
- *   the rule the two above are the known spellings of.
+ *   `/\t/host` into `//host` after this has looked at it - and no backslash.
+ * - It must resolve back onto the origin it was resolved against.
+ * - **And the settled path is held to the first two rules again**, because
+ *   settling is what can make one: `/.//host` and `/..//host` are plain paths
+ *   on the way in and `//host` on the way out, which a browser then follows
+ *   off this origin. The limit is applied to the settled path too, since
+ *   settling can lengthen what it percent-encodes.
  */
 export function returnPathFrom(asked: string | undefined | null): string | null {
   if (!asked || asked.length > RETURN_PATH_LIMIT) return null;
-  if (!asked.startsWith('/') || asked.startsWith('//') || asked.startsWith('/\\')) return null;
+  if (!isOneSlashPath(asked)) return null;
   if (/[\u0000-\u001f\u007f\\]/.test(asked)) return null;
   let resolved: URL;
   try {
@@ -44,5 +54,12 @@ export function returnPathFrom(asked: string | undefined | null): string | null 
     return null;
   }
   if (resolved.origin !== PROBE) return null;
-  return `${resolved.pathname}${resolved.search}`;
+  const settled = `${resolved.pathname}${resolved.search}`;
+  if (!isOneSlashPath(settled) || settled.length > RETURN_PATH_LIMIT) return null;
+  return settled;
+}
+
+/** A path starting with exactly one slash, which is the only kind that stays on this origin. */
+function isOneSlashPath(path: string): boolean {
+  return path.startsWith('/') && !path.startsWith('//') && !path.startsWith('/\\');
 }

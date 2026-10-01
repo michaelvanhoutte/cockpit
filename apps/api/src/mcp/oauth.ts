@@ -1,6 +1,13 @@
-import { OAuthProvider, getOAuthApi, type OAuthHelpers, type OAuthProviderOptions } from '@cloudflare/workers-oauth-provider';
+import {
+  OAuthError,
+  OAuthProvider,
+  getOAuthApi,
+  type OAuthHelpers,
+  type OAuthProviderOptions,
+} from '@cloudflare/workers-oauth-provider';
 import { SIGN_IN_LIFETIME_MS } from '../auth/session.js';
 import type { Env } from '../env.js';
+import { grantHolder } from './grant.js';
 import { AUTHORIZE_PATH, MCP_PATH, REGISTER_PATH, TOKEN_PATH } from './paths.js';
 import { answerMcp } from './server.js';
 
@@ -60,6 +67,16 @@ function optionsFor(env: Env): OAuthProviderOptions<Env> {
     // cut short at once by deleting or disabling the person (`grant.ts`).
     refreshTokenTTL: GRANT_LIFETIME_S,
     refreshTokenIdleTTL: GRANT_LIFETIME_S,
+    // **The person is asked for again on every code exchange and refresh**, as
+    // `/mcp` asks on every call (`grant.ts`). Somebody deleted or disabled is
+    // refused with `invalid_grant`, which the library also takes as the grant
+    // being dead and revokes, so the app cannot refresh its way back in and has
+    // to ask for consent again, where nobody without access gets through.
+    tokenExchangeCallback: async ({ props, env: requestEnv }) => {
+      if (!(await grantHolder(requestEnv, props))) {
+        throw new OAuthError('invalid_grant', { description: 'This grant no longer acts for anybody' });
+      }
+    },
     resourceMetadata: {
       resource: `${origin}${MCP_PATH}`,
       authorization_servers: [origin],

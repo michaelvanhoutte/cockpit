@@ -79,7 +79,7 @@ export default defineConfig({
           /^\/ingress\//,
           /^\/mcp(\/|$)/,
           /^\/oauth\//,
-          /^\/\.well-known\//,
+          /^\/\.well-known\/oauth-/,
           /^\/cdn-cgi\//,
         ],
         runtimeCaching: [],
@@ -93,12 +93,11 @@ export default defineConfig({
       '/health': apiProxy,
       '/ingress': apiProxy,
       // What an MCP client reaches ("Connect Claude to Cockpit, and capture an
-      // item from it", issue 599). `/mcp` and `/oauth` are prefixes of their
-      // own; `/.well-known` is the Worker's alone too, since nothing else here
-      // serves one.
+      // item from it", issue 599): the endpoint, the consent page and token
+      // exchange, and the two discovery documents.
       '/mcp': apiProxy,
       '/oauth': apiProxy,
-      '/.well-known': apiProxy,
+      '/.well-known/oauth-': apiProxy,
     },
   },
 });

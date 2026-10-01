@@ -1,9 +1,8 @@
 import { Hono, type Context } from 'hono';
 import { AuthorizationError, CimdFetchError, type AuthRequest } from '@cloudflare/workers-oauth-provider';
 import type { Env } from '../env.js';
-import { heldSessionId } from '../auth/gate.js';
-import { sessionHeld, type Visitor } from '../auth/register.js';
-import { recogniseSession } from '../auth/session.js';
+import { visitorHeld } from '../auth/gate.js';
+import type { Visitor } from '../auth/register.js';
 import { whoCanConsent, type GrantProps } from './grant.js';
 import { asReachedAt, oauthHelpersFor } from './oauth.js';
 import { AUTHORIZE_PATH } from './paths.js';
@@ -62,7 +61,7 @@ consent.get(AUTHORIZE_PATH, async (c) => {
       title: `Allow ${details.clientName}?`,
       body: `
         <h1>Allow ${escape(details.clientName)} to create items in your Cockpit?</h1>
-        <p>${escape(details.clientName)} will be able to capture notes into the Inbox of <strong>${escape(visitor.name)}</strong>'s Cockpit. It cannot read, change or delete anything.</p>
+        <p>${escape(details.clientName)} will be able to capture notes into the Inbox of <strong>${escape(visitor.name)}</strong>'s Cockpit, and to see the names of your workspaces and types so it can say where each note goes. It cannot see your items, or change or delete anything.</p>
         <p class="faint">Access will be sent to <strong>${escape(details.redirectHost)}</strong>.${
           details.redirectIsLoopback
             ? ' That is an app on this computer: allow it only if you just started connecting it.'
@@ -70,6 +69,7 @@ consent.get(AUTHORIZE_PATH, async (c) => {
         } This app named itself; Cockpit has not checked the name.</p>
         <form method="post" action="${AUTHORIZE_PATH}">
           <input type="hidden" name="handle" value="${escape(transaction.handle)}">
+          <input type="hidden" name="for" value="${escape(visitor.userId)}">
           <div class="actions">
             <button type="submit" name="decision" value="deny" class="secondary">Deny</button>
             <button type="submit" name="decision" value="allow">Allow</button>
@@ -88,18 +88,27 @@ consent.post(AUTHORIZE_PATH, async (c) => {
   const asked = asReachedAt(new Request(c.req.url, { method: 'POST', headers: c.req.raw.headers }), c.env);
   const oauth = oauthHelpersFor(c.env);
 
-  // Asked again rather than trusted from the page: a sign-out, or a guest
-  // sign-in in another tab, between showing the form and pressing it.
-  const visitor = await signedIn(c);
-  if (!visitor) return cannotConnect(c);
-  const consenting = await whoCanConsent(c.env, visitor.userId);
-  if (!consenting) return guestRefused(c);
-
   try {
+    // **Deny first, and with no sign-in needed**: the handle and the cookie
+    // binding it to this browser are what make a press genuine, and refusing
+    // an app is never something to stop somebody doing. A sign-in that ran out
+    // while the page stood open still tells the app it was refused.
     if (form.decision !== 'allow') {
       const denied = await oauth.denyConsent(asked, handle);
       return new Response(null, { status: 302, headers: denied.headers });
     }
+
+    // Asked again rather than trusted from the page: a sign-out, or another
+    // sign-in in another tab, between showing the form and pressing Allow.
+    // **And it must be the person the page was shown to**, which the form
+    // carries: a different person signed in since would otherwise hand the app
+    // their own account from a page that named somebody else's.
+    const visitor = await signedIn(c);
+    if (!visitor) return cannotConnect(c);
+    if (form.for !== visitor.userId) return somebodyElse(c);
+    const consenting = await whoCanConsent(c.env, visitor.userId);
+    if (!consenting) return guestRefused(c);
+
     const approved = await oauth.approveConsent(asked, handle);
     const details = await oauth.describeConsent(approved.request);
     const props: GrantProps = {
@@ -123,10 +132,7 @@ consent.post(AUTHORIZE_PATH, async (c) => {
 
 /** Who is signed in on this browser, or `null` - read the way the gate reads it. */
 async function signedIn(c: Context<{ Bindings: Env }>): Promise<Visitor | null> {
-  const sessionId = heldSessionId(c);
-  if (!sessionId) return null;
-  const held = await sessionHeld(c.env, sessionId);
-  return recogniseSession(held?.session, new Date()).recognised ? held!.visitor : null;
+  return (await visitorHeld(c, new Date()))?.visitor ?? null;
 }
 
 /**
@@ -148,6 +154,19 @@ function refused(c: Context<{ Bindings: Env }>, error: unknown): Response {
     }),
   );
   return cannotConnect(c);
+}
+
+/** Somebody other than the person the page was shown to pressed Allow. */
+function somebodyElse(c: Context<{ Bindings: Env }>): Response {
+  return c.html(
+    page({
+      title: 'Signed in as somebody else',
+      body: `
+        <h1>Signed in as somebody else</h1>
+        <p>Somebody else signed in to Cockpit on this browser after this page was shown, so it has not connected the app. Start connecting again from the app.</p>`,
+    }),
+    409,
+  );
 }
 
 /** The one page a request that cannot go anywhere is shown. */
