@@ -343,6 +343,19 @@ const rowsFor: {
                   'Somebody at the source', 'c2VhbGVk', 'bm9uY2UtMTItYnl0', ?, ?)`,
     params: (name) => [name, AT, AT],
   },
+  {
+    // The table `0034-rewrite-history` creates, filled for the reason every
+    // table above is - and so that `0051-rewrite-history-looks-at` and
+    // `0052-rewrite-history-panel-before` meet a refinement recorded before
+    // either column existed.
+    table: 'rewrite_history',
+    sql: `INSERT INTO rewrite_history
+            (id, tenant_id, workspace_id, item_id, title_before, title_after, description_before,
+             description_after, proposed_panel_id, proposed_panel_reason, status, message, attempted_at)
+          VALUES ('rh-before', ?, 'ws-before', 'it-before', 'captured before', 'Captured before the update',
+                  NULL, 'What it said.', 'pn-before', 'because', 'rewritten', 'proposed in English', ?)`,
+    params: (name) => [name, AT],
+  },
 ];
 
 /**
@@ -1295,6 +1308,50 @@ describe('Panels', () => {
       const panels = snapshot.status === 'ok' ? snapshot.value.panels : [];
       expect(panels.length).toBeGreaterThan(0);
       expect(panels.map((panel) => panel.sort)).toEqual(panels.map(() => null));
+    });
+  });
+});
+
+describe('Smart refinements', () => {
+  describe('a refinement recorded before this shipped is still read back, saying what it lacks', () => {
+    /**
+     * `0051-rewrite-history-looks-at` and `0052-rewrite-history-panel-before`
+     * ("Rename Rewrite history to Smart refinements, and show each field's
+     * change", issue 614) meet a row neither column existed for: it comes back
+     * with both read as never recorded, and everything it did record intact.
+     */
+    it('returns it, with neither what it looked at nor the suggested panel it started from', async () => {
+      const name = 'aged-store-before-smart-refinements';
+      await agedTo(name, justBefore('0051-rewrite-history-looks-at'));
+      await fillWithWhatIsAlreadyThere(name);
+
+      const read = await storeNamed(name).rewriteHistoryForItem(name, 'it-before');
+
+      expect(read).toMatchObject({ status: 'ok' });
+      expect(read.status === 'ok' ? read.value : []).toEqual([
+        expect.objectContaining({
+          id: 'rh-before',
+          titleAfter: 'Captured before the update',
+          descriptionAfter: 'What it said.',
+          looksAt: null,
+          suggestedPanelBefore: null,
+          suggestedPanelAfter: { id: 'pn-before', name: 'Before' },
+        }),
+      ]);
+    });
+
+    it('reads a scope it does not know as never recorded', async () => {
+      const name = 'aged-store-unknown-scope';
+      await agedTo(name, justBefore('0051-rewrite-history-looks-at'));
+      await fillWithWhatIsAlreadyThere(name);
+      await storeNamed(name).rewriteHistoryForItem(name, 'it-before');
+      await inStoreAsItIs(name, (sql) => {
+        sql.exec("UPDATE rewrite_history SET looks_at = 'from-a-later-version'");
+      });
+
+      const read = await storeNamed(name).rewriteHistoryForItem(name, 'it-before');
+
+      expect(read.status === 'ok' ? read.value : []).toEqual([expect.objectContaining({ looksAt: null })]);
     });
   });
 });

@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
 import {
   STARTING_WORKSPACE,
@@ -31,7 +31,9 @@ const form = (page: Page) => page.getByRole('dialog');
  *  the word "description" and a page-wide lookup matches both. */
 const titleBox = (page: Page) => form(page).getByRole('textbox', { name: 'Title' });
 const descriptionBox = (page: Page) => form(page).getByRole('textbox', { name: 'Description' });
-const priorityBox = (page: Page) => form(page).getByLabel('Priority');
+const priorityGroup = (page: Page) => form(page).getByRole('group', { name: 'Priority' });
+const priorityFlag = (page: Page, level: string) =>
+  form(page).getByRole('button', { name: `${level} priority` });
 const dueDateBox = (page: Page) => form(page).getByLabel('Due date');
 
 /**
@@ -229,7 +231,7 @@ test.describe('Item editing', () => {
       await capture(page, marked, isMobile);
 
       await openItem(page, marked, isMobile);
-      await priorityBox(page).selectOption('high');
+      await priorityFlag(page, 'High').click();
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
 
       await expect(itemRow(page, marked).getByLabel('High priority')).toBeVisible();
@@ -245,7 +247,7 @@ test.describe('Item editing', () => {
       // The level is still there on the way back in, held rather than only
       // having been drawn once, and the date goes on the same item.
       await openItem(page, marked, isMobile);
-      await expect(priorityBox(page)).toHaveValue('high');
+      await expect(priorityFlag(page, 'High')).toHaveAttribute('aria-pressed', 'true');
       await dueDateBox(page).fill('2026-09-30');
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
 
@@ -253,7 +255,7 @@ test.describe('Item editing', () => {
 
       await openItem(page, marked, isMobile);
       await expect(dueDateBox(page)).toHaveValue('2026-09-30');
-      await priorityBox(page).selectOption('');
+      await priorityFlag(page, 'High').click();
       await dueDateBox(page).fill('');
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
 
@@ -261,7 +263,7 @@ test.describe('Item editing', () => {
       // otherwise the list sits behind Radix's aria-hidden while the dialog
       // is still up mid-save, and the row would read as unmarked from that
       // alone, whether or not the clear actually landed.
-      await expect(priorityBox(page)).toHaveCount(0);
+      await expect(priorityGroup(page)).toHaveCount(0);
       await expect(itemRow(page, marked).getByLabel('High priority')).toHaveCount(0);
       await expect(itemRow(page, marked).getByText('Due Sep 30, 2026')).toHaveCount(0);
 
@@ -274,7 +276,7 @@ test.describe('Item editing', () => {
       const other = await types.locator('option:not(:checked)').first().getAttribute('value');
       await types.selectOption(other!);
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
-      await expect(priorityBox(page)).toHaveCount(0);
+      await expect(priorityGroup(page)).toHaveCount(0);
 
       await openItem(page, marked, isMobile);
       await expect(form(page).getByLabel('Type')).toHaveValue(other!);
@@ -284,7 +286,7 @@ test.describe('Item editing', () => {
       await press(form(page).getByRole('tab', { name: 'Item' }), isMobile);
       await form(page).getByLabel('Status').selectOption('done');
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
-      await expect(priorityBox(page)).toHaveCount(0);
+      await expect(priorityGroup(page)).toHaveCount(0);
       await expect(itemRow(page, marked)).toHaveCount(0);
     });
   });
@@ -826,34 +828,17 @@ test.describe('Item editing', () => {
       // 56rem, on a window wide enough that nothing clamps it.
       expect(Math.round((await form(page).boundingBox())!.width)).toBe(896);
 
-      // The room a choice has is the box less its own padding, border and an
-      // allowance for the native arrow - measured against the widest label it
-      // has to hold, in the font the box is actually drawn in.
-      const { widest, room } = await priorityBox(page).evaluate((element) => {
-        const select = element as HTMLSelectElement;
-        const style = getComputedStyle(select);
-        const probe = document.createElement('span');
-        probe.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;font:${style.font}`;
-        document.body.appendChild(probe);
-        let widest = 0;
-        for (const option of Array.from(select.options)) {
-          probe.textContent = option.text;
-          widest = Math.max(widest, probe.getBoundingClientRect().width);
-        }
-        probe.remove();
-        const room =
-          select.getBoundingClientRect().width -
-          parseFloat(style.paddingLeft) -
-          parseFloat(style.paddingRight) -
-          parseFloat(style.borderLeftWidth) -
-          parseFloat(style.borderRightWidth);
-        return { widest, room };
-      });
-      const NATIVE_ARROW_ALLOWANCE = 24;
-      expect(
-        room - NATIVE_ARROW_ALLOWANCE,
-        'the widest priority fits, less an allowance for the native arrow',
-      ).toBeGreaterThanOrEqual(widest);
+      // Priority sits under Type and Due date under Status, in two equal
+      // columns, and the due date's shortcuts stay on one line under it.
+      const left = async (locator: Locator) => Math.round((await locator.boundingBox())!.x);
+      expect(await left(priorityGroup(page)), 'Priority under Type').toBe(await left(form(page).getByLabel('Type')));
+      expect(await left(dueDateBox(page)), 'Due date under Status').toBe(await left(form(page).getByLabel('Status')));
+      const shortcutTops = await Promise.all(
+        ['Today', 'Fri', '+7d'].map(async (name) =>
+          Math.round((await form(page).getByRole('button', { name, exact: true }).boundingBox())!.y),
+        ),
+      );
+      expect(new Set(shortcutTops).size, 'the due date shortcuts on one line').toBe(1);
 
       // Type, the first of the short fields, and the description's own toolbar
       // sit on the same row when there is room for two columns - both near the
@@ -909,7 +894,7 @@ test.describe('Item editing', () => {
        * needs).
        */
       const files = form(page).getByText('Attachments', { exact: true });
-      const priority = (await priorityBox(page).boundingBox())!;
+      const priority = (await priorityGroup(page).boundingBox())!;
       const description = (await toolbar.boundingBox())!;
       const attached = (await files.boundingBox())!;
       expect(description.y - priority.y, 'one column, the description below the fields').toBeGreaterThanOrEqual(40);
@@ -1202,7 +1187,7 @@ test.describe('Item editing', () => {
 
         // Each field as it is finished, on the item the dock has followed to.
         const prioritised = answeredTo('set_priority');
-        await priorityBox(page).selectOption('high');
+        await priorityFlag(page, 'High').click();
         await prioritised;
 
         const titled = answeredTo('set_title');
@@ -1242,7 +1227,7 @@ test.describe('Item editing', () => {
         await readBack;
         await expect(inbox(page)).toBeVisible();
         await openItem(page, captured, isMobile);
-        await expect(priorityBox(page)).toHaveValue('high');
+        await expect(priorityFlag(page, 'High')).toHaveAttribute('aria-pressed', 'true');
         await expect(titleBox(page)).toHaveValue(captured);
         await theEditorIsThere(page);
         await expect(descriptionBox(page)).toHaveText('Written, cursor still there');

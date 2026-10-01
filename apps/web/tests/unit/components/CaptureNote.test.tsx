@@ -1,20 +1,33 @@
+import 'fake-indexeddb/auto';
+import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MAX_ATTACHMENT_SIZE, type Item, type ItemType } from '@cockpit/shared';
-import { CommandRefused, uploadAttachment } from '../../../src/api/client';
+import { CommandRefused, sendCommand, uploadAttachment } from '../../../src/api/client';
 import {
   CaptureNote,
   NO_WORKSPACE,
+  STILL_LISTED,
   STILL_READING,
   pasteKeyFor,
 } from '../../../src/components/CaptureNote';
 import { dueDateLabel } from '../../../src/dueDate';
+import {
+  CaptureOutbox,
+  OutboxProvider,
+  browserOutboxStore,
+  inTabLock,
+  serverSender,
+  type OutboxStore,
+} from '../../../src/captureOutboxSender';
 import { NO_TYPES } from '../../../src/itemTypes';
+import { forgetEverything } from '../../../src/session/forget';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
+  sendCommand: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
   uploadAttachment: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
 }));
 
@@ -26,8 +39,13 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
  * apps/api/tests/integration/http/panel-items.test.ts, and the walk from the
  * header to the Inbox is tests/e2e/workspace-capture.test.ts.
  *
- * The API client is the only thing replaced, so what capturing does is the real
- * `useCapture`.
+ * The API client is what is replaced, and IndexedDB is a fake one, so what
+ * capturing does is the real outbox sending through the real sender
+ * (`captureOutboxSender.tsx`); "reloaded" is the form drawn again over the same
+ * stored outbox. When the outbox goes, and what it does with each answer, is
+ * tests/unit/captureOutboxSender.test.tsx. Where the outbox cannot be written,
+ * capture sends directly through `useCapture`, which is why `useCommand` is
+ * replaced as well.
  */
 const held = vi.hoisted(() => ({
   mutate: vi.fn(),
@@ -124,6 +142,7 @@ async function thePage({
   cameFrom = 'ws-home',
   startsIn = null,
   heldMutation = false,
+  store = browserOutboxStore(),
 }: {
   /**
    * Null for an account that has not answered what types it has, and
@@ -140,6 +159,8 @@ async function thePage({
    * answers with whatever `held.refuses` says at that moment.
    */
   heldMutation?: boolean;
+  /** Where the outbox is kept: the fake IndexedDB, unless a case says storage is unavailable. */
+  store?: OutboxStore;
 } = {}) {
   held.types = types;
   held.items = items;
@@ -168,9 +189,19 @@ async function thePage({
     },
   );
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  const outbox = new CaptureOutbox({
+    store,
+    sender: serverSender,
+    lock: inTabLock(),
+    online: () => true,
+    timeoutMs: 500,
+  });
+  outbox.signedInAs('user-michael');
+  const page = render(
     <QueryClientProvider client={client}>
-      <CaptureNote startsIn={startsIn} />
+      <OutboxProvider value={outbox}>
+        <CaptureNote startsIn={startsIn} />
+      </OutboxProvider>
     </QueryClientProvider>,
   );
   // Nothing to choose from until the account's types and workspaces arrive -
@@ -181,16 +212,54 @@ async function thePage({
     await screen.findByLabelText('What is on your mind?');
   } else if (types.length > 0) await screen.findByRole('button', { name: types[0]!.name });
   else await screen.findByText(NO_TYPES);
-  return Object.assign(userEvent.setup(), { client });
+  return Object.assign(userEvent.setup(), { client, outbox, unmount: page.unmount });
+}
+
+/** Storage that refuses everything: a private window, or a full disk. */
+const UNAVAILABLE: OutboxStore = {
+  all: () => Promise.reject(new Error('unavailable')),
+  put: () => Promise.reject(new Error('unavailable')),
+  remove: () => Promise.reject(new Error('unavailable')),
+};
+
+/** The page drawn again over what the last one kept: a reload. */
+async function reloaded(page: { unmount: () => void }, options: Parameters<typeof thePage>[0] = {}) {
+  page.unmount();
+  return thePage(options);
 }
 
 const box = () => screen.getByLabelText('What is on your mind?');
 const chip = (name: string) => screen.getByRole('button', { name });
-const capturedCalls = () =>
-  held.mutate.mock.calls.map(([args]) => args).filter((args) => args.name === 'capture_item');
-const captured = () => capturedCalls()[0];
-const everythingAsked = () => held.mutate.mock.calls.map(([args]) => args.name);
+/** Every capture sent, through the outbox or directly. */
+const capturedCalls = () => [
+  ...vi
+    .mocked(sendCommand)
+    .mock.calls.filter(([name]) => name === 'capture_item')
+    .map(([name, payload]) => ({ name, payload: payload as Record<string, unknown> })),
+  ...held.mutate.mock.calls.map(([args]) => args).filter((args) => args.name === 'capture_item'),
+];
+/** The first capture sent, once it has been. */
+const captured = async () => {
+  await waitFor(() => expect(capturedCalls().length).toBeGreaterThan(0));
+  return capturedCalls()[0]!;
+};
+/** Lets the outbox finish whatever it started, so "nothing was sent" is an answer. */
+const settled = async () => {
+  await act(async () => {
+    for (let i = 0; i < 100; i++) await new Promise((resolve) => setImmediate(resolve));
+  });
+};
+const everythingAsked = () => [
+  ...vi.mocked(sendCommand).mock.calls.map(([name]) => name),
+  ...held.mutate.mock.calls.map(([args]) => args.name),
+];
 const justCaptured = () => screen.queryAllByRole('listitem');
+/** The row of Just captured holding this note. */
+const rowOf = (note: string) => {
+  const row = justCaptured().find((one) => within(one).queryByText(note));
+  if (!row) throw new Error(`no row for "${note}"`);
+  return within(row);
+};
 
 const aPhoto = () => new File(['bytes'], 'photo.png', { type: 'image/png' });
 /** Matches that file by name, since two `File`s compare equal whatever they hold. */
@@ -204,9 +273,13 @@ const carrying = (...files: File[]) => ({ dataTransfer: { types: ['Files'], file
 
 describe('Capture', () => {
   beforeEach(() => {
+    // A browser of its own for every case: nothing kept by the last one.
+    globalThis.indexedDB = new IDBFactory();
     held.mutate.mockClear();
     held.asksForTypesOnTheirOwn.mockClear();
-    vi.mocked(uploadAttachment).mockClear();
+    vi.mocked(sendCommand).mockReset();
+    vi.mocked(sendCommand).mockResolvedValue({ ok: true as const, applied: true });
+    vi.mocked(uploadAttachment).mockReset();
     vi.mocked(uploadAttachment).mockResolvedValue({ ok: true as const, applied: true });
   });
 
@@ -217,11 +290,11 @@ describe('Capture', () => {
       await user.type(box(), 'Ask Ada about the backup window');
       await user.click(chip('Capture'));
 
-      expect(captured().payload.message).toBe('Ask Ada about the backup window');
+      expect((await captured()).payload.message).toBe('Ask Ada about the backup window');
       // The workspace it was captured from is still recorded: it is an honest
       // fact, and it is what the foreign key needs.
-      expect(captured().payload.workspaceId).toBe('ws-home');
-      expect(captured().payload.workspaceDecided).toBe(false);
+      expect((await captured()).payload.workspaceId).toBe('ws-home');
+      expect((await captured()).payload.workspaceDecided).toBe(false);
     });
 
     it('opens on the type used last, and captures whichever chip is lit', async () => {
@@ -234,7 +307,7 @@ describe('Capture', () => {
       await user.type(box(), 'Maybe the onboarding is two screens');
       await user.click(chip('Capture'));
 
-      expect(captured().payload.typeId).toBe(THOUGHT.id);
+      expect((await captured()).payload.typeId).toBe(THOUGHT.id);
     });
 
     it('captures into a workspace once one is chosen, and says that is where it belongs', async () => {
@@ -244,8 +317,8 @@ describe('Capture', () => {
       await user.type(box(), 'Book the venue deposit');
       await user.click(chip('Capture'));
 
-      expect(captured().payload.workspaceId).toBe('ws-work');
-      expect(captured().payload.workspaceDecided).toBeUndefined();
+      expect((await captured()).payload.workspaceId).toBe('ws-work');
+      expect((await captured()).payload.workspaceDecided).toBeUndefined();
     });
 
     it('starts Where on the workspace it was opened in, and captures into it as decided', async () => {
@@ -256,8 +329,8 @@ describe('Capture', () => {
       await user.type(box(), 'Book the venue deposit');
       await user.click(chip('Capture'));
 
-      expect(captured().payload.workspaceId).toBe('ws-work');
-      expect(captured().payload.workspaceDecided).toBeUndefined();
+      expect((await captured()).payload.workspaceId).toBe('ws-work');
+      expect((await captured()).payload.workspaceDecided).toBeUndefined();
     });
 
     it('holds a different workspace, once chosen, for every note captured after it', async () => {
@@ -269,8 +342,8 @@ describe('Capture', () => {
       await user.type(box(), 'Second for the customer');
       await user.click(chip('Capture'));
 
-      const asked = held.mutate.mock.calls.map(([args]) => args.payload.workspaceId);
-      expect(asked).toEqual(['ws-home', 'ws-home']);
+      await waitFor(() => expect(capturedCalls()).toHaveLength(2));
+      expect(capturedCalls().map(({ payload }) => payload.workspaceId)).toEqual(['ws-home', 'ws-home']);
     });
 
     it('falls back to the type used last when the one chosen is deleted in another tab', async () => {
@@ -291,7 +364,7 @@ describe('Capture', () => {
       await user.type(box(), 'Where does this go');
       await user.click(chip('Capture'));
 
-      expect(captured().payload.typeId).toBe(ACTION.id);
+      expect((await captured()).payload.typeId).toBe(ACTION.id);
     });
 
     it('falls back to Any workspace when the one chosen is deleted in another tab', async () => {
@@ -309,8 +382,8 @@ describe('Capture', () => {
       await user.type(box(), 'Where does this go');
       await user.click(chip('Capture'));
 
-      expect(captured().payload.workspaceId).toBe('ws-home');
-      expect(captured().payload.workspaceDecided).toBe(false);
+      expect((await captured()).payload.workspaceId).toBe('ws-home');
+      expect((await captured()).payload.workspaceDecided).toBe(false);
     });
 
     /**
@@ -335,8 +408,8 @@ describe('Capture', () => {
       await user.type(box(), 'Where does this go');
       await user.keyboard('{Control>}{Enter}{/Control}');
 
-      expect(captured().payload.workspaceId).toBe('ws-work');
-      expect(captured().payload.workspaceDecided).toBe(false);
+      expect((await captured()).payload.workspaceId).toBe('ws-work');
+      expect((await captured()).payload.workspaceDecided).toBe(false);
     });
 
     it('captures nothing at all for an empty note', async () => {
@@ -344,7 +417,8 @@ describe('Capture', () => {
 
       await user.click(chip('Capture'));
 
-      expect(captured()).toBeUndefined();
+      await settled();
+      expect(capturedCalls()).toEqual([]);
     });
 
     it('captures on the key under the hand, without reaching for the button', async () => {
@@ -353,7 +427,7 @@ describe('Capture', () => {
       await user.type(box(), 'Two lines{Shift>}{Enter}{/Shift}and a second');
       await user.keyboard('{Control>}{Enter}{/Control}');
 
-      expect(captured().payload.message).toBe('Two lines\nand a second');
+      expect((await captured()).payload.message).toBe('Two lines\nand a second');
     });
   });
 
@@ -379,8 +453,8 @@ describe('Capture', () => {
       await user.type(box(), 'Book the venue deposit');
       await user.keyboard('{Control>}{Enter}{/Control}');
 
-      expect(captured().payload.message).toBe('Book the venue deposit');
-      expect(captured().payload.typeId).toBe(ACTION.id);
+      expect((await captured()).payload.message).toBe('Book the venue deposit');
+      expect((await captured()).payload.typeId).toBe(ACTION.id);
     });
 
     /**
@@ -399,28 +473,166 @@ describe('Capture', () => {
     });
   });
 
-  describe('the box empties for the next note, and a note that could not be captured comes back', () => {
-    it('empties once the capture has been asked for', async () => {
+  /**
+   * "Keep a capture made offline, and send it once a connection gets
+   * through" (issue 610). Capture never waits on the network: the box empties
+   * once the note is kept on this device, and nothing the server or the
+   * connection does afterwards puts it in danger.
+   */
+  describe('a capture is kept from the moment Capture is pressed until it lands, or until you confirm signing out', () => {
+    it('empties the box once the note is kept', async () => {
       const user = await thePage();
 
       await user.type(box(), 'Ask Ada about the backup window');
       await user.click(chip('Capture'));
 
-      expect(box()).toHaveValue('');
+      await waitFor(() => expect(box()).toHaveValue(''));
     });
 
-    it('puts the note back and says why when the capture is refused', async () => {
+    it.each([
+      { situation: 'captured with no connection', answer: () => Promise.reject(new TypeError('Failed to fetch')) },
+      { situation: 'the send times out', answer: () => new Promise<never>(() => {}) },
+      {
+        situation: 'a server error',
+        answer: () => Promise.reject(new CommandRefused(503, 'capture_item failed: 503')),
+      },
+    ])('empties the box and reads Waiting to send when $situation', async ({ answer }) => {
+      vi.mocked(sendCommand).mockImplementation(answer);
       const user = await thePage();
-      held.refuses = new CommandRefused(404, 'workspace ws-home not found');
 
       await user.type(box(), 'Ask Ada about the backup window');
       await user.click(chip('Capture'));
 
-      expect(screen.getByRole('alert')).toHaveTextContent('workspace ws-home not found');
+      await waitFor(() => expect(box()).toHaveValue(''));
+      await waitFor(() =>
+        expect(rowOf('Ask Ada about the backup window').getByText('Waiting to send')).toBeVisible(),
+      );
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('is still waiting after the page is reloaded before it sends', async () => {
+      vi.mocked(sendCommand).mockRejectedValue(new TypeError('Failed to fetch'));
+      const user = await thePage();
+      await user.type(box(), 'Ask Ada about the backup window');
+      await user.click(chip('Capture'));
+      await screen.findByText('Waiting to send');
+
+      await reloaded(user);
+
+      expect(
+        await screen.findByText('Ask Ada about the backup window', {}, { timeout: 2_000 }),
+      ).toBeVisible();
+      expect(rowOf('Ask Ada about the backup window').getByText('Waiting to send')).toBeVisible();
+    });
+
+    /**
+     * An expired sign-in sends you to the logon page, which empties the
+     * browser of everything the last visit held (`session/forget.ts`) - and a
+     * waiting capture is not the visit's, it is the person's.
+     */
+    it('is still waiting after the sign-in expired and the logon page emptied the browser', async () => {
+      vi.mocked(sendCommand).mockRejectedValue(new CommandRefused(401, 'not signed in'));
+      const user = await thePage();
+      await user.type(box(), 'Ask Ada about the backup window');
+      await user.click(chip('Capture'));
+      await screen.findByText('Waiting to send');
+
+      await forgetEverything(user.client);
+      await reloaded(user);
+
+      expect(await screen.findByText('Waiting to send', {}, { timeout: 2_000 })).toBeVisible();
+      expect(rowOf('Ask Ada about the backup window').getByText('Waiting to send')).toBeVisible();
+    });
+
+    it('takes a second capture at once while the first is still sending, and both wait', async () => {
+      vi.mocked(sendCommand).mockImplementation(() => new Promise(() => {}));
+      const user = await thePage();
+
+      await user.type(box(), 'The first one');
+      await user.click(chip('Capture'));
+      await waitFor(() => expect(box()).toHaveValue(''));
+      await user.type(box(), 'The second one');
+      await user.click(chip('Capture'));
+
+      await waitFor(() => expect(box()).toHaveValue(''));
+      await waitFor(() => expect(screen.getAllByText('Waiting to send')).toHaveLength(2));
+    });
+
+    /** Inferred: a private window, or storage refused, still captures - the old way. */
+    it.each([
+      { situation: 'the server takes it', refuses: null, box: '', alert: null },
+      {
+        situation: 'there is no connection',
+        refuses: new TypeError('Failed to fetch'),
+        box: 'Ask Ada about the backup window',
+        alert: 'That did not reach the server. Try again.',
+      },
+    ])('sends directly where nothing can be kept on this device, and $situation', async ({ refuses, box: left, alert }) => {
+      const user = await thePage({ store: UNAVAILABLE });
+      held.refuses = refuses;
+
+      await user.type(box(), 'Ask Ada about the backup window');
+      await user.click(chip('Capture'));
+
+      expect((await captured()).payload.message).toBe('Ask Ada about the backup window');
+      await waitFor(() => expect(box()).toHaveValue(left));
+      if (alert) expect(screen.getByRole('alert')).toHaveTextContent(alert);
+      else expect(await screen.findByText('now')).toBeVisible();
+    });
+  });
+
+  /**
+   * The server refusing a capture is the one thing that stops it, and the
+   * row says why rather than the note going quietly: its workspace or its type
+   * deleted elsewhere while it waited.
+   */
+  describe('a waiting capture the server refuses says why and can be put back', () => {
+    it.each([
+      { situation: 'its workspace was deleted meanwhile', because: 'workspace ws-work not found' },
+      { situation: 'its type was deleted meanwhile', because: `item type ${THOUGHT.id} not found` },
+    ])('reads Not sent with the reason when $situation, and Put back returns the note and its file', async ({ because }) => {
+      vi.mocked(sendCommand).mockRejectedValue(new CommandRefused(404, because));
+      const user = await thePage();
+      await user.click(chip('Thought'));
+      await user.click(chip('Work'));
+      fireEvent.drop(box(), carrying(aPhoto()));
+      await screen.findByText('photo.png');
+      await user.type(box(), 'Ask Ada about the backup window');
+      await user.click(chip('Capture'));
+
+      expect(await screen.findByText(`Not sent: ${because}`)).toBeVisible();
+      expect(uploadAttachment).not.toHaveBeenCalled();
+      // Chosen afresh before putting it back, so what comes back is visibly the capture's.
+      await user.click(chip('Action'));
+      await user.click(chip('Any workspace'));
+      await user.click(rowOf('Ask Ada about the backup window').getByRole('button', { name: 'Put back' }));
+
       expect(box()).toHaveValue('Ask Ada about the backup window');
-      expect(justCaptured()).toHaveLength(0);
+      expect(screen.getByText('photo.png')).toBeVisible();
+      expect(chip('Thought')).toHaveAttribute('aria-pressed', 'true');
+      expect(chip('Work')).toHaveAttribute('aria-pressed', 'true');
+      await waitFor(() => expect(screen.queryByText('Just captured')).toBeNull());
+      expect(user.outbox.getShown()).toEqual([]);
     });
 
+    it('puts a note back once only, even where it cannot then be taken off the list', async () => {
+      vi.mocked(sendCommand).mockRejectedValue(new CommandRefused(404, 'workspace ws-home not found'));
+      const kept = browserOutboxStore();
+      const user = await thePage({
+        store: { ...kept, remove: () => Promise.reject(new Error('storage refused')) },
+      });
+      await user.type(box(), 'Ask Ada about the backup window');
+      await user.click(chip('Capture'));
+      const putBack = await screen.findByRole('button', { name: 'Put back' });
+
+      await user.click(putBack);
+
+      expect(box()).toHaveValue('Ask Ada about the backup window');
+      expect(await screen.findByRole('alert')).toHaveTextContent(STILL_LISTED);
+      // Still listed, and with nothing left to press that would put it back twice.
+      expect(rowOf('Ask Ada about the backup window').getByText(/^Not sent:/)).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Put back' })).toBeNull();
+    });
   });
 
   /**
@@ -452,6 +664,8 @@ describe('Capture', () => {
       await user.type(box(), 'Maybe the onboarding is two screens');
       await user.click(chip('Capture'));
 
+      await captured();
+      await settled();
       expect(everythingAsked()).toEqual(['capture_item']);
     });
   });
@@ -474,7 +688,8 @@ describe('Capture', () => {
       expect(row.queryAllByRole('button')).toEqual([]);
       expect(screen.getByText(NO_TYPES)).toBeVisible();
       expect(chip('Capture')).toBeDisabled();
-      expect(captured()).toBeUndefined();
+      await settled();
+      expect(capturedCalls()).toEqual([]);
     });
 
     /**
@@ -507,7 +722,8 @@ describe('Capture', () => {
       await user.type(box(), 'Book the venue deposit');
       await user.keyboard('{Control>}{Enter}{/Control}');
 
-      expect(captured()).toBeUndefined();
+      await settled();
+      expect(capturedCalls()).toEqual([]);
       expect(screen.getByRole('alert')).toHaveTextContent(says);
       // Still there to try again with, which is what the words promise.
       expect(box()).toHaveValue('Book the venue deposit');
@@ -530,7 +746,8 @@ describe('Capture', () => {
       await user.type(box(), 'Book the venue deposit');
       await user.keyboard('{Control>}{Enter}{/Control}');
 
-      expect(captured()).toBeUndefined();
+      await settled();
+      expect(capturedCalls()).toEqual([]);
       expect(screen.getByRole('alert')).toHaveTextContent(NO_WORKSPACE);
       expect(box()).toHaveValue('Book the venue deposit');
     });
@@ -550,11 +767,10 @@ describe('Capture', () => {
       await user.type(box(), 'Book the venue deposit');
       await user.click(chip('Capture'));
 
-      const row = within(justCaptured()[0]!);
-      expect(row.getByText('Book the venue deposit')).toBeInTheDocument();
+      const row = await waitFor(() => rowOf('Book the venue deposit'));
       expect(row.getByText('Action')).toBeInTheDocument();
       expect(row.getByText('Work')).toBeInTheDocument();
-      expect(row.getByText('now')).toBeInTheDocument();
+      expect(await row.findByText('now')).toBeInTheDocument();
     });
 
     it('says a note left for later belongs to no workspace yet', async () => {
@@ -563,7 +779,7 @@ describe('Capture', () => {
       await user.type(box(), 'Where does this go');
       await user.click(chip('Capture'));
 
-      expect(within(justCaptured()[0]!).getByText('Any workspace')).toBeInTheDocument();
+      expect(await waitFor(() => rowOf('Where does this go').getByText('Any workspace'))).toBeInTheDocument();
     });
 
     it('puts the note just captured above the one before it', async () => {
@@ -571,23 +787,51 @@ describe('Capture', () => {
 
       await user.type(box(), 'The first one');
       await user.click(chip('Capture'));
+      await waitFor(() => expect(box()).toHaveValue(''));
       await user.type(box(), 'The second one');
       await user.click(chip('Capture'));
 
+      await waitFor(() => expect(justCaptured()).toHaveLength(2));
       const rows = justCaptured();
-      expect(rows).toHaveLength(2);
       expect(within(rows[0]!).getByText('The second one')).toBeInTheDocument();
       expect(within(rows[1]!).getByText('The first one')).toBeInTheDocument();
     });
 
-    it('lists nothing for a capture that was refused', async () => {
+    it.each([
+      { situation: 'landed', answer: () => Promise.resolve({ ok: true as const, applied: true }), reads: 'now' },
+      { situation: 'waiting', answer: () => Promise.reject(new TypeError('Failed to fetch')), reads: 'Waiting to send' },
+    ])('says how a capture stands once it is $situation', async ({ answer, reads }) => {
+      vi.mocked(sendCommand).mockImplementation(answer);
       const user = await thePage();
-      held.refuses = new CommandRefused(404, 'workspace ws-home not found');
 
-      await user.type(box(), 'Where does this go');
+      await user.type(box(), 'Book the venue deposit');
       await user.click(chip('Capture'));
 
-      expect(screen.queryByText('Just captured')).toBeNull();
+      expect(await waitFor(() => rowOf('Book the venue deposit').getByText(reads))).toBeVisible();
+    });
+
+    it('lists only what is waiting or refused after a reload, the landed ones dropping off', async () => {
+      vi.mocked(sendCommand).mockImplementation((_name, payload) =>
+        (payload as { message: string }).message === 'Landed'
+          ? Promise.resolve({ ok: true as const, applied: true })
+          : (payload as { message: string }).message === 'Refused'
+            ? Promise.reject(new CommandRefused(404, 'workspace ws-home not found'))
+            : Promise.reject(new TypeError('Failed to fetch')),
+      );
+      const user = await thePage();
+      for (const note of ['Landed', 'Refused', 'Waiting']) {
+        await user.type(box(), note);
+        await user.click(chip('Capture'));
+        await waitFor(() => expect(box()).toHaveValue(''));
+      }
+      await waitFor(() => expect(justCaptured()).toHaveLength(3));
+
+      await reloaded(user);
+
+      await waitFor(() => expect(justCaptured()).toHaveLength(2));
+      expect(rowOf('Waiting').getByText('Waiting to send')).toBeVisible();
+      expect(rowOf('Refused').getByText('Not sent: workspace ws-home not found')).toBeVisible();
+      expect(screen.queryByText('Landed')).toBeNull();
     });
   });
 
@@ -737,11 +981,8 @@ describe('Capture', () => {
   });
 
   describe('queued files upload to the item only once Capture has made it', () => {
-    it('clears the chip queue the moment Capture is pressed, before any upload resolves', async () => {
-      let resolveUpload: (value: { ok: true; applied: true }) => void = () => {};
-      vi.mocked(uploadAttachment).mockImplementationOnce(
-        () => new Promise((resolve) => (resolveUpload = resolve)),
-      );
+    it('clears the chip queue once Capture is pressed, before any upload resolves', async () => {
+      vi.mocked(uploadAttachment).mockImplementation(() => new Promise(() => {}));
       const user = await thePage();
       fireEvent.drop(box(), carrying(aPhoto()));
       await screen.findByText('photo.png');
@@ -749,8 +990,7 @@ describe('Capture', () => {
 
       await user.click(chip('Capture'));
 
-      expect(screen.queryByText('photo.png')).toBeNull();
-      await act(async () => resolveUpload({ ok: true, applied: true }));
+      await waitFor(() => expect(screen.queryByText('photo.png')).toBeNull());
     });
 
     it('sends each queued file as an attachment against the item Capture just made', async () => {
@@ -761,18 +1001,15 @@ describe('Capture', () => {
 
       await user.click(chip('Capture'));
 
+      const { payload } = await captured();
       await waitFor(() =>
         expect(uploadAttachment).toHaveBeenCalledWith(
-          expect.objectContaining({
-            itemId: captured().payload.itemId,
-            workspaceId: 'ws-home',
-            file: aPhotoFile,
-          }),
+          expect.objectContaining({ itemId: payload.itemId, workspaceId: 'ws-home', file: aPhotoFile }),
         ),
       );
     });
 
-    it('does not block or cross-attach when a second note is captured while the first note’s file is still uploading', async () => {
+    it('attaches each note’s files to its own item when a second is captured while the first is still uploading', async () => {
       let resolveFirst: (value: { ok: true; applied: true }) => void = () => {};
       vi.mocked(uploadAttachment).mockImplementationOnce(
         () => new Promise((resolve) => (resolveFirst = resolve)),
@@ -783,12 +1020,16 @@ describe('Capture', () => {
       await screen.findByText('photo.png');
       await user.type(box(), 'First note');
       await user.click(chip('Capture'));
+      await waitFor(() => expect(uploadAttachment).toHaveBeenCalledTimes(1));
 
       fireEvent.drop(box(), carrying(aFile('second.pdf', 'application/pdf')));
       await screen.findByText('second.pdf');
       await user.type(box(), 'Second note');
       await user.click(chip('Capture'));
+      // Made at once, though the first is still out.
+      await waitFor(() => expect(box()).toHaveValue(''));
 
+      await act(async () => resolveFirst({ ok: true, applied: true }));
       await waitFor(() =>
         expect(uploadAttachment).toHaveBeenNthCalledWith(
           2,
@@ -798,91 +1039,46 @@ describe('Capture', () => {
           }),
         ),
       );
-      await act(async () => resolveFirst({ ok: true, applied: true }));
     });
   });
 
-  describe('a refused capture puts the queued files back, not just the message', () => {
-    it('puts the note text and the queued files back in the box', async () => {
-      const user = await thePage();
-      held.refuses = new CommandRefused(404, 'workspace ws-home not found');
-      fireEvent.drop(box(), carrying(aPhoto()));
-      await screen.findByText('photo.png');
-      await user.type(box(), 'Ask Ada about the backup window');
-
-      await user.click(chip('Capture'));
-
-      expect(screen.getByRole('alert')).toHaveTextContent('workspace ws-home not found');
-      expect(box()).toHaveValue('Ask Ada about the backup window');
-      expect(screen.getByText('photo.png')).toBeVisible();
-      expect(uploadAttachment).not.toHaveBeenCalled();
-    });
-
-    /**
-     * Found in review: a file dropped while the previous capture is still
-     * waiting on an answer used to queue anyway, and a refusal then replaced
-     * it with the older snapshot - losing it with no error and no way to
-     * revoke its object URL. Refused so it stays in hand for the next try,
-     * instead of being taken and then quietly dropped.
-     */
-    it('refuses a file dropped while a capture is still in flight, rather than losing it to a later refusal', async () => {
-      const user = await thePage({ heldMutation: true });
-      fireEvent.drop(box(), carrying(aPhoto()));
-      await screen.findByText('photo.png');
-      await user.type(box(), 'Ask Ada about the backup window');
-      await user.click(chip('Capture'));
-      expect(screen.queryByText('photo.png')).toBeNull();
-
-      fireEvent.drop(box(), carrying(aFile('backup.pdf', 'application/pdf')));
-
-      expect(screen.queryByText('backup.pdf')).toBeNull();
-      held.refuses = new CommandRefused(404, 'workspace ws-home not found');
-      await act(async () => held.settle());
-      expect(screen.getByText('photo.png')).toBeVisible();
-      expect(screen.queryByText('backup.pdf')).toBeNull();
-    });
-  });
-
-  describe('a file that fails to upload after a successful capture says so, without undoing the capture', () => {
-    it('names the failed file, still attaches the others, and leaves the item captured', async () => {
+  describe('a refused file is named as not sent, without undoing the capture', () => {
+    it('names every refused file, still attaches the others, and leaves the item captured', async () => {
       vi.mocked(uploadAttachment).mockImplementation((args) =>
-        args.file.name === 'bad.pdf'
-          ? Promise.reject(new CommandRefused(413, '"bad.pdf" could not be attached.'))
-          : Promise.resolve({ ok: true as const, applied: true }),
+        args.file.name === 'photo.png'
+          ? Promise.resolve({ ok: true as const, applied: true })
+          : Promise.reject(new CommandRefused(415, `"${args.file.name}" could not be attached.`)),
       );
       const user = await thePage();
-      fireEvent.drop(box(), carrying(aPhoto(), aFile('bad.pdf', 'application/pdf')));
-      await screen.findByText('photo.png');
-      await user.type(box(), 'Ask Ada about the backup window');
-
-      await user.click(chip('Capture'));
-
-      expect(captured()).toBeDefined();
-      expect(justCaptured()).toHaveLength(1);
-      await waitFor(() => expect(uploadAttachment).toHaveBeenCalledTimes(2));
-      expect(await screen.findByRole('alert')).toHaveTextContent('"bad.pdf" could not be attached.');
-    });
-
-    /**
-     * Found in review: each failure inside the upload loop replaced
-     * `queueError` instead of joining it, so only the last of several
-     * failures was ever shown.
-     */
-    it('names every file that fails, not just the last one', async () => {
-      vi.mocked(uploadAttachment).mockImplementation((args) =>
-        Promise.reject(new CommandRefused(413, `"${args.file.name}" could not be attached.`)),
+      fireEvent.drop(
+        box(),
+        carrying(aPhoto(), aFile('one.pdf', 'application/pdf'), aFile('two.pdf', 'application/pdf')),
       );
-      const user = await thePage();
-      fireEvent.drop(box(), carrying(aFile('one.pdf', 'application/pdf'), aFile('two.pdf', 'application/pdf')));
       await screen.findByText('one.pdf');
       await user.type(box(), 'Ask Ada about the backup window');
 
       await user.click(chip('Capture'));
 
-      await waitFor(() => expect(uploadAttachment).toHaveBeenCalledTimes(2));
-      const alert = await screen.findByRole('alert');
-      expect(alert).toHaveTextContent('"one.pdf" could not be attached.');
-      expect(alert).toHaveTextContent('"two.pdf" could not be attached.');
+      await captured();
+      const notSent = await screen.findByText(/^Not sent:/);
+      expect(notSent).toHaveTextContent('"one.pdf" could not be attached.');
+      expect(notSent).toHaveTextContent('"two.pdf" could not be attached.');
+      expect(uploadAttachment).toHaveBeenCalledTimes(3);
+      expect(capturedCalls()).toHaveLength(1);
+    });
+
+    it('puts back only the refused file, the note having landed', async () => {
+      vi.mocked(uploadAttachment).mockRejectedValue(new CommandRefused(415, '"doc.pdf" could not be attached.'));
+      const user = await thePage();
+      fireEvent.drop(box(), carrying(aFile('doc.pdf', 'application/pdf')));
+      await screen.findByText('doc.pdf');
+      await user.type(box(), 'Ask Ada about the backup window');
+      await user.click(chip('Capture'));
+
+      await user.click(await screen.findByRole('button', { name: 'Put back' }));
+
+      expect(box()).toHaveValue('');
+      expect(await screen.findByText('doc.pdf')).toBeVisible();
     });
   });
 
@@ -919,7 +1115,7 @@ describe('Capture', () => {
       expect([pressed('Low priority'), pressed('High priority')]).toEqual([true, false]);
       await captureANote(user);
 
-      expect(captured().payload.priority).toBe('low');
+      expect((await captured()).payload.priority).toBe('low');
     });
 
     it('clears a priority pressed while lit, and captures none', async () => {
@@ -930,7 +1126,7 @@ describe('Capture', () => {
 
       expect(pressed('High priority')).toBe(false);
       await captureANote(user);
-      expect(captured().payload).not.toHaveProperty('priority');
+      expect((await captured()).payload).not.toHaveProperty('priority');
     });
 
     it('lights one due shortcut at a time, sending the day it names', async () => {
@@ -943,7 +1139,7 @@ describe('Capture', () => {
       await user.click(chip('Fri'));
       await captureANote(user);
 
-      expect(captured().payload.dueDate).toBe('2026-10-02');
+      expect((await captured()).payload.dueDate).toBe('2026-10-02');
     });
 
     it('clears a due shortcut pressed while lit, and captures no due date', async () => {
@@ -954,7 +1150,7 @@ describe('Capture', () => {
 
       expect(pressed('Fri')).toBe(false);
       await captureANote(user);
-      expect(captured().payload).not.toHaveProperty('dueDate');
+      expect((await captured()).payload).not.toHaveProperty('dueDate');
     });
 
     it('shows a picked day that is no shortcut on the date button with a ✕, and the ✕ clears it', async () => {
@@ -967,7 +1163,7 @@ describe('Capture', () => {
       await user.click(chip('Clear the due date'));
       expect(chip('Pick a due date')).toBeVisible();
       await captureANote(user);
-      expect(captured().payload).not.toHaveProperty('dueDate');
+      expect((await captured()).payload).not.toHaveProperty('dueDate');
     });
 
     it('lights the shortcut a picked day happens to be', async () => {
@@ -997,15 +1193,15 @@ describe('Capture', () => {
       await user.type(box(), 'Send the invoice');
       await user.click(chip('Capture'));
 
-      expect(captured().payload).toMatchObject({ priority: 'high', dueDate: '2026-09-30' });
-      expect(chip('High priority')).toHaveAttribute('aria-pressed', 'false');
+      expect((await captured()).payload).toMatchObject({ priority: 'high', dueDate: '2026-09-30' });
+      await waitFor(() => expect(chip('High priority')).toHaveAttribute('aria-pressed', 'false'));
       expect(chip('Today')).toHaveAttribute('aria-pressed', 'false');
       expect(chip('Thought')).toHaveAttribute('aria-pressed', 'true');
       expect(chip('Work')).toHaveAttribute('aria-pressed', 'true');
     });
 
-    it('keeps the note, the priority and the due date when the capture is refused', async () => {
-      const user = await thePage();
+    it('keeps the note, the priority and the due date when a direct capture is refused', async () => {
+      const user = await thePage({ store: UNAVAILABLE });
       held.refuses = new CommandRefused(404, 'That workspace is gone.');
       await user.click(chip('Normal priority'));
       await user.click(chip('+7d'));
@@ -1017,6 +1213,24 @@ describe('Capture', () => {
       expect(box()).toHaveValue('Send the invoice');
       expect(chip('Normal priority')).toHaveAttribute('aria-pressed', 'true');
       expect(chip('+7d')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('sends them with a capture the outbox kept, and Put back returns them with the note', async () => {
+      vi.mocked(sendCommand).mockRejectedValue(new CommandRefused(404, 'workspace ws-home not found'));
+      const user = await thePage();
+      await user.click(chip('Low priority'));
+      await user.click(chip('Fri'));
+      await user.type(box(), 'Send the invoice');
+      await user.click(chip('Capture'));
+
+      expect((await captured()).payload).toMatchObject({ priority: 'low', dueDate: '2026-10-02' });
+      await screen.findByText(/^Not sent:/);
+      expect(chip('Low priority')).toHaveAttribute('aria-pressed', 'false');
+      await user.click(rowOf('Send the invoice').getByRole('button', { name: 'Put back' }));
+
+      expect(box()).toHaveValue('Send the invoice');
+      expect(chip('Low priority')).toHaveAttribute('aria-pressed', 'true');
+      expect(chip('Fri')).toHaveAttribute('aria-pressed', 'true');
     });
   });
 

@@ -1582,6 +1582,22 @@ export const rewriteHistory = sqliteTable(
     status: text('status').notNull(),
     message: text('message'),
     attemptedAt: text('attempted_at').notNull(),
+    /**
+     * Which fields the attempt looks at - 'texts-and-panel' | 'texts' |
+     * 'panel' (RefinementScope, packages/shared) - frozen when it is queued
+     * ("Rename Rewrite history to Smart refinements, and show each field's
+     * change", issue 614). No CHECK, for the reason `status` has none: a set
+     * the product may extend. NULL on every row from before that issue,
+     * which is how a row says it never recorded this.
+     */
+    looksAt: text('looks_at'),
+    /**
+     * The item's suggested Panel when the attempt was queued, frozen like
+     * `title_before`; `proposed_panel_id` is then the one it carried once the
+     * attempt settled. NULL where it had none, and on every row from before
+     * issue 614 - told apart by `looks_at`.
+     */
+    panelBeforeId: text('panel_before_id').references(() => panels.id, { onDelete: 'restrict' }),
   },
   (t) => [
     // Read per workspace, most recent first - the account-wide table opened

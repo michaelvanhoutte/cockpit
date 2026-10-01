@@ -29,6 +29,7 @@ import { capturingApp, openableAtSource } from '../itemSource';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
+import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
 import {
   ContextMenuContent,
   MenuContent,
@@ -40,7 +41,7 @@ import {
 // Out of the initial bundle, the same boundary AgentDock and ManageConnections
 // draw around themselves: two windows a row mounts only once asked for.
 const AgentPromptBox = lazy(() => import('./AgentPromptBox'));
-const RewriteHistoryWindow = lazy(() => import('./RewriteHistoryWindow'));
+const SmartRefinementsWindow = lazy(() => import('./SmartRefinementsWindow'));
 
 /**
  * The flag's label at each level ("Show and edit an item's priority", issue
@@ -48,9 +49,9 @@ const RewriteHistoryWindow = lazy(() => import('./RewriteHistoryWindow'));
  * choice of it.
  */
 const PRIORITY_MARKS: Record<Priority, { label: string; className: string }> = {
-  low: { label: 'Low priority', className: 'bg-priority-low' },
-  normal: { label: 'Normal priority', className: 'bg-priority-normal' },
-  high: { label: 'High priority', className: 'bg-priority-high' },
+  low: { label: `${PRIORITY_LABELS.low} priority`, className: PRIORITY_FLAG_COLOURS.low },
+  normal: { label: `${PRIORITY_LABELS.normal} priority`, className: PRIORITY_FLAG_COLOURS.normal },
+  high: { label: `${PRIORITY_LABELS.high} priority`, className: PRIORITY_FLAG_COLOURS.high },
 };
 
 /**
@@ -229,7 +230,7 @@ export function ItemRow({
   const [contextOpen, setContextOpen] = useState(false);
   /** True while the entry just chosen is opening something that wants the focus. */
   const opening = useRef(false);
-  /** This item's own rewrite history, opened from its own menu ("See the history of what Cockpit proposed for the Inbox's items", issue 444). */
+  /** This item's own smart refinements, opened from its own menu ("Rename Rewrite history to Smart refinements, and show each field's change", issue 614). */
   const [historyOpen, setHistoryOpen] = useState(false);
   /**
    * Whether this row's own menu is open, controlled rather than left to Radix
@@ -752,7 +753,7 @@ export function ItemRow({
             setHistoryOpen(true);
           }}
         >
-          Rewrite history…
+          Smart refinements…
         </M.Item>
         <M.Separator className="my-1 h-px bg-black/10" />
         <M.Item
@@ -1251,7 +1252,7 @@ export function ItemRow({
       )}
       {historyOpen && (
         <Suspense fallback={null}>
-        <RewriteHistoryWindow
+        <SmartRefinementsWindow
           open={historyOpen}
           onClose={() => setHistoryOpen(false)}
           returnFocusTo={trigger.current}

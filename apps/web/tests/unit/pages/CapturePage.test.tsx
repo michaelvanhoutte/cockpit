@@ -23,18 +23,20 @@ vi.mock('../../../src/components/CaptureNote', () => ({
 }));
 
 describe('Capture', () => {
-  it('starts on the workspace the tab was pressed in', () => {
+  it('starts on the workspace the tab was pressed in', async () => {
     at.state = { captureFrom: 'ws-work' };
     render(<CapturePage />);
 
-    expect(screen.getByTestId('the-form')).toBeVisible();
+    // The form is fetched behind the shell (`captureForm.ts`).
+    expect(await screen.findByTestId('the-form')).toBeVisible();
     expect(drawn.startsIn).toBe('ws-work');
   });
 
-  it('starts on Any workspace when it was reached from outside one', () => {
+  it('starts on Any workspace when it was reached from outside one', async () => {
     at.state = {};
     render(<CapturePage />);
 
+    await screen.findByTestId('the-form');
     expect(drawn.startsIn).toBeNull();
   });
 });

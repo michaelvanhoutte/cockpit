@@ -11,7 +11,7 @@ import { restedLongEnough } from '../switchWhileDragging';
 
 // Out of the initial bundle, and mounted only once asked for - the same way
 // a row mounts its own - since nothing on first paint needs it.
-const RewriteHistoryWindow = lazy(() => import('./RewriteHistoryWindow'));
+const SmartRefinementsWindow = lazy(() => import('./SmartRefinementsWindow'));
 
 /** How many items the Inbox holds, or null until the snapshot has arrived. */
 function useInboxCount(workspaceId: string): number | null {
@@ -107,7 +107,7 @@ export function InboxHeading({
 }) {
   const count = useInboxCount(workspaceId);
 
-  /** The account-wide rewrite history, opened from this heading's own menu ("See the history of what Cockpit proposed for the Inbox's items", issue 444). */
+  /** The Inbox's smart refinements, opened from this heading's own menu ("Rename Rewrite history to Smart refinements, and show each field's change", issue 614). */
   const [historyOpen, setHistoryOpen] = useState(false);
   const opener = useRef<HTMLElement | null>(null);
 
@@ -141,7 +141,7 @@ export function InboxHeading({
             label="Actions for the Inbox"
             entries={[
               {
-                label: 'Rewrite history…',
+                label: 'Smart refinements…',
                 onSelect: (openedFrom) => {
                   opener.current = openedFrom;
                   setHistoryOpen(true);
@@ -153,7 +153,7 @@ export function InboxHeading({
       </div>
       {historyOpen && (
         <Suspense fallback={null}>
-          <RewriteHistoryWindow
+          <SmartRefinementsWindow
             open={historyOpen}
             onClose={() => setHistoryOpen(false)}
             returnFocusTo={opener.current}

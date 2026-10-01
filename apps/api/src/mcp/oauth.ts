@@ -5,8 +5,8 @@ import {
   type OAuthHelpers,
   type OAuthProviderOptions,
 } from '@cloudflare/workers-oauth-provider';
-import { SIGN_IN_LIFETIME_MS } from '../auth/session.js';
 import type { Env } from '../env.js';
+import { GRANT_LIFETIME_S } from './connected-apps.js';
 import { grantHolder } from './grant.js';
 import { AUTHORIZE_PATH, MCP_PATH, REGISTER_PATH, TOKEN_PATH } from './paths.js';
 import { answerMcp } from './server.js';
@@ -43,9 +43,6 @@ export function asReachedAt(request: Request, env: Env): Request {
   const { pathname, search } = new URL(request.url);
   return new Request(new URL(`${pathname}${search}`, env.APP_ORIGIN), request);
 }
-
-/** How long a grant lasts without being used again: as long as a sign-in does. */
-const GRANT_LIFETIME_S = Math.floor(SIGN_IN_LIFETIME_MS / 1000);
 
 function optionsFor(env: Env): OAuthProviderOptions<Env> {
   const origin = new URL(env.APP_ORIGIN).origin;

@@ -138,7 +138,7 @@ async function anItemWithNoAttemptYet(): Promise<string> {
   return itemId;
 }
 
-async function aPanel(workspaceId: string, dashboardId: string): Promise<string> {
+async function aPanel(workspaceId: string, dashboardId: string, name = 'Somewhere'): Promise<string> {
   const panelId = nextId();
   const response = await postChange('add_panel', {
     commandId: nextId(),
@@ -146,7 +146,7 @@ async function aPanel(workspaceId: string, dashboardId: string): Promise<string>
     workspaceId,
     dashboardId,
     panelId,
-    name: 'Somewhere',
+    name,
     kind: 'items',
   });
   expect(response.status).toBe(200);
@@ -173,6 +173,9 @@ type RewriteRow = {
   description_after: string | null;
   status: string;
   message: string | null;
+  looks_at: string | null;
+  panel_before_id: string | null;
+  proposed_panel_id: string | null;
 };
 
 /** Every rewrite-history row for one item, most recent first - read straight out of the store. */
@@ -180,7 +183,8 @@ async function rowsFor(itemId: string): Promise<RewriteRow[]> {
   return inStoreAsItIs(ACCOUNT_NAME, (sql) =>
     sql
       .exec<RewriteRow>(
-        `SELECT id, item_id, workspace_id, title_before, title_after, description_after, status, message
+        `SELECT id, item_id, workspace_id, title_before, title_after, description_after, status, message,
+                looks_at, panel_before_id, proposed_panel_id
          FROM rewrite_history WHERE item_id = ? AND tenant_id = ? ORDER BY attempted_at DESC`,
         itemId,
         ACCOUNT_NAME,
@@ -240,7 +244,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('Rewrite history', () => {
+describe('Smart refinements', () => {
   describe('an attempt is recorded from the moment it is queued through to its outcome', () => {
     it('is Pending the moment it is queued, before the job has run', async () => {
       env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
@@ -391,6 +395,11 @@ describe('Rewrite history', () => {
       expect(rows).toHaveLength(1);
       expect(rows[0]!.status).toBe('rewritten');
       expect(rows[0]!.title_after).toBe(A_READING.title);
+      // What it looked at and started from are the queueing's, through both deliveries.
+      expect({ looksAt: rows[0]!.looks_at, panelBefore: rows[0]!.panel_before_id }).toEqual({
+        looksAt: 'texts-and-panel',
+        panelBefore: null,
+      });
     });
 
     /**
@@ -425,6 +434,137 @@ describe('Rewrite history', () => {
       // outcome write no-ops, exactly as it already does for the "account
       // left the register" rarity.
       expect(await rowsFor(itemId)).toHaveLength(1);
+    });
+  });
+
+  /**
+   * "Rename Rewrite history to Smart refinements, and show each field's
+   * change" (issue 614). The refresh after a filing is
+   * repropose-panels.test.ts's own, beside the rest of that refresh.
+   */
+  describe('each refinement records, from the moment it is queued, which fields it looks at and the suggested panel the item had', () => {
+    it('a capture looks at the title, the description and the suggested panel', async () => {
+      env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
+      holdTheModel();
+      const itemId = await captureANote();
+
+      await vi.waitFor(async () => expect(await statusOf(itemId)).toBe('pending'), {
+        timeout: 15_000,
+        interval: 20,
+      });
+      const [row] = await rowsFor(itemId);
+      expect({ looksAt: row!.looks_at, panelBefore: row!.panel_before_id }).toEqual({
+        looksAt: 'texts-and-panel',
+        panelBefore: null,
+      });
+
+      // Let the job finish here, rather than run on into the next case's store.
+      releaseTheModel();
+      await vi.waitFor(async () => expect(await statusOf(itemId)).toBe('rewritten'), {
+        timeout: 15_000,
+        interval: 50,
+      });
+    });
+
+    it('a re-read after you edit another item looks at the title and description, from the panel the item had', async () => {
+      env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
+      const panelId = await aPanel(WORKSPACE_ID, `${WORKSPACE_ID}-dashboard-1`);
+      theModelIs({ says: { ...A_READING, panel: { panelId, reason: 'it fits' } } });
+      const itemId = await captureANote();
+      await vi.waitFor(async () => expect(await statusOf(itemId)).toBe('rewritten'), {
+        timeout: 15_000,
+        interval: 50,
+      });
+
+      const other = await captureANote({ itemId: nextId() });
+      await vi.waitFor(async () => expect(await statusOf(other)).toBe('rewritten'), {
+        timeout: 15_000,
+        interval: 50,
+      });
+      await correctTitle(other, 'My own title for this one');
+
+      await vi.waitFor(async () => expect(await rowsFor(itemId)).toHaveLength(2), {
+        timeout: 15_000,
+        interval: 50,
+      });
+      const [reread] = await rowsFor(itemId);
+      expect({ looksAt: reread!.looks_at, panelBefore: reread!.panel_before_id }).toEqual({
+        looksAt: 'texts',
+        panelBefore: panelId,
+      });
+    });
+
+    it('one left as it is keeps what it was queued with', async () => {
+      env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
+      theModelIs('declines');
+      const itemId = await captureANote();
+
+      await vi.waitFor(async () => expect(await statusOf(itemId)).toBe('left-as-is'), {
+        timeout: 15_000,
+        interval: 50,
+      });
+      const [row] = await rowsFor(itemId);
+      expect({ looksAt: row!.looks_at, panelBefore: row!.panel_before_id }).toEqual({
+        looksAt: 'texts-and-panel',
+        panelBefore: null,
+      });
+    });
+  });
+
+  describe('the suggested panel a refinement settles on is the one the item carries, never one it was refused', () => {
+    it('goes from none to the panel proposed', async () => {
+      env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
+      const panelId = await aPanel(WORKSPACE_ID, `${WORKSPACE_ID}-dashboard-1`);
+      theModelIs({ says: { ...A_READING, panel: { panelId, reason: 'it fits' } } });
+      const itemId = await captureANote();
+
+      await vi.waitFor(async () => expect(await statusOf(itemId)).toBe('rewritten'), {
+        timeout: 15_000,
+        interval: 50,
+      });
+      const [row] = await rowsFor(itemId);
+      expect({ before: row!.panel_before_id, after: row!.proposed_panel_id }).toEqual({
+        before: null,
+        after: panelId,
+      });
+    });
+
+    /**
+     * Filed while the note was being read: the store refuses the proposal,
+     * since a filed item carries none, so the row must not claim one.
+     */
+    it('stays as it was for a captured item filed before the first pass ran', async () => {
+      env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
+      const proposed = await aPanel(WORKSPACE_ID, `${WORKSPACE_ID}-dashboard-1`);
+      const filedOn = await aPanel(WORKSPACE_ID, `${WORKSPACE_ID}-dashboard-1`, 'Somewhere else');
+      theModelIs({ says: { ...A_READING, panel: { panelId: proposed, reason: 'it fits' } } });
+      holdTheModel();
+      const itemId = await captureANote();
+      await vi.waitFor(async () => expect(await statusOf(itemId)).toBe('pending'), {
+        timeout: 15_000,
+        interval: 20,
+      });
+
+      const filed = await postChange('move_item_to_panel', {
+        commandId: nextId(),
+        issuedAt: '2026-09-16T10:00:02.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        panelId: filedOn,
+        order: [itemId],
+      });
+      expect(filed.status).toBe(200);
+      releaseTheModel();
+
+      await vi.waitFor(async () => expect(await statusOf(itemId)).not.toBe('pending'), {
+        timeout: 15_000,
+        interval: 50,
+      });
+      const [row] = await rowsFor(itemId);
+      expect({ before: row!.panel_before_id, after: row!.proposed_panel_id }).toEqual({
+        before: null,
+        after: null,
+      });
     });
   });
 
