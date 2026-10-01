@@ -399,13 +399,13 @@ Budgets are gates, not aspirations; exceeding one makes restoring it priority wo
 | Cold open → glanceable dashboard (installed PWA, warm cache) | **< 1s** |
 | Capture: entry point → note persisted (excluding typing) | **< 2s** |
 | Panel interactions (filter, drag, reorder, switch dashboard) | **< 100ms** |
-| Initial JS bundle (compressed) | **< 201KB**, hard CI gate |
-| Any one file fetched separately (compressed) | **< 201KB**, same gate, charged on its own |
+| Initial JS bundle (compressed) | **< 202KB**, hard CI gate |
+| Any one file fetched separately (compressed) | **< 202KB**, same gate, charged on its own |
 | Snapshot revalidation after cold open | background, never blocking paint |
 
 **A lazy chunk gets its own line because charging it to the entry would defeat the point of splitting it.** Today the entry is 200KB and the editor's chunk is 115KB, so a single combined budget would be failing already. The gate (`scripts/bundle-budget.mjs`) reads every JavaScript file under `apps/web/dist` after a build and splits them by what `index.html` names: what it names is the initial bundle, and everything else is charged on its own. **Every file lands on one line or the other**, which is what keeps the service worker and its registration script from being missed — the PWA plugin writes those beside `assets/` rather than inside it, and the document references one of them.
 
-**Moved from 200KB to 201KB for the Manage Connections window's own menu entry, route and command wiring** ("Connect a Microsoft Teams source account", issue 485) - the entry had essentially no headroom left before it, so a second small feature will likely ask for the same again.
+**Moved from 200KB to 202KB, 1KB each for the Manage Connections window's own menu entry, route and command wiring** ("Connect a Microsoft Teams source account", issue 485) **and for the capture outbox with Capture's priority and due date** ("Set a priority and a due date while capturing", issue 611) - the entry has essentially no headroom left, so a next small feature will likely ask for the same again.
 
 Two standing rules follow: **never block paint on auth** (paint the cached snapshot, verify the session in the background; long-lived sessions with silent refresh, no OAuth redirect on the hot path), and **heavy dependencies are lazy-loaded or rejected**, which the bundle gate makes mechanical.
 
