@@ -2,6 +2,7 @@ import type {
   Ai,
   D1Database,
   DurableObjectNamespace,
+  KVNamespace,
   Queue,
   R2Bucket,
 } from '@cloudflare/workers-types';
@@ -41,6 +42,33 @@ export interface Env {
    * nothing to stand in for it.
    */
   ATTACHMENTS: R2Bucket;
+  /**
+   * Where the OAuth library keeps what it has handed apps connected to this
+   * Cockpit ("Connect Claude to Cockpit, and capture an item from it", issue
+   * 599): registered clients, grants, and tokens, the tokens only as hashes.
+   * The name is the library's own and cannot be chosen.
+   *
+   * Like `ATTACHMENTS`, one namespace for every account, bound for real on
+   * every stack - KV has a local simulator - and created per environment
+   * before the first deploy that names it (docs/deployment.md, "Bootstrap
+   * runbook"). Nothing in it is an account's work: losing it disconnects
+   * every app, and each is connected again by adding it again.
+   */
+  OAUTH_KV: KVNamespace;
+  /**
+   * The OAuth library's helpers, put here by `worker.ts` before the
+   * application runs - the library's own convention for code it does not
+   * route. Typed as the two calls the application makes rather than as the
+   * library's type, so `apps/web`, which compiles this file, never reaches the
+   * library (`mcp/revoke.ts`).
+   */
+  OAUTH_PROVIDER?: {
+    listUserGrants(
+      userId: string,
+      options?: { cursor?: string },
+    ): Promise<{ items: { id: string }[]; cursor?: string }>;
+    revokeGrant(grantId: string, userId: string): Promise<void>;
+  };
   /**
    * Workers AI, which reads what a note means so that one saying what another
    * one already said can be flagged ("Flag a captured note that says what
@@ -119,7 +147,7 @@ export interface Env {
   /**
    * Where this environment is reached by the people using it, which is where a
    * sign-in comes back to. Not this Worker's own address: in development the
-   * browser is on Vite and only `/v1` reaches here.
+   * browser is on Vite, which proxies only the Worker's own prefixes here.
    */
   APP_ORIGIN: string;
   /**

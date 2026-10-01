@@ -152,7 +152,14 @@ export default defineConfig({
           GUEST_SIGN_IN: 'true',
           GOOGLE_CLIENT_ID: 'cockpit-test',
           GOOGLE_CLIENT_SECRET: 'a-secret-that-proves-nothing-here',
-          APP_ORIGIN: 'http://cockpit.test',
+          /**
+           * `https`, as a deployment's is: the OAuth library refuses to name
+           * a plain-`http` address as what a token is for, except on a
+           * loopback host ("Connect Claude to Cockpit, and capture an item
+           * from it", issue 599). Cases reach the Worker at either scheme;
+           * this is only where a sign-in or an app is sent back to.
+           */
+          APP_ORIGIN: 'https://cockpit.test',
           /**
            * What a deployment holds for connecting a source account
            * ("Connect a Microsoft Teams source account", issue 485), set here

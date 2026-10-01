@@ -134,6 +134,14 @@ rediscovered: **a database crossing 500 MB** (or 5 GB across both), and **needin
 queue retention beyond 24 hours**. Cloudflare Queues moved onto the free plan in
 February 2026, so it is no longer a reason to upgrade on its own.
 
+**Connected apps spend the free plan's daily KV write allowance**, which is not a
+third threshold so much as a ceiling to know about: registering an app, showing
+the consent page, trading a code and every refresh each write to `OAUTH_KV`. Once
+the day's writes are spent, connecting an app and refreshing its access fail
+until the allowance resets. An app whose access is still current keeps
+capturing until that access runs out, within the hour, since checking it only
+reads KV; the rest of Cockpit does not use KV and is unaffected.
+
 ## 3. One Worker serves the whole application
 
 Not Pages plus a separate API Worker. One Worker per environment serves the Hono
@@ -145,16 +153,17 @@ absorbed into Workers.
 
 The routing rule lives in `apps/api/wrangler.jsonc`:
 
-- `run_worker_first: ["/v1/*", "/health", "/ingress/*"]` sends exactly those three prefixes to the Worker.
+- `run_worker_first` sends the application's own prefixes to the Worker: `/v1/*`, `/health` and `/ingress/*`, plus what an MCP client reaches — `/mcp`, `/mcp/*`, `/oauth/*` and `/.well-known/oauth-*` ("Connect Claude to Cockpit, and capture an item from it", issue 599).
 - Everything else is served from `apps/web/dist` **before the Worker runs**, so a cold page load bills no Worker invocation.
 - `not_found_handling: "single-page-application"` returns `index.html` for unmatched paths, so client-side routes deep-link.
 
-Those three prefixes are also the first three the service worker refuses to
-intercept (`navigateFallbackDenylist` in `apps/web/vite.config.ts`), and **for
-this application's own prefixes the two lists must be kept in sync.**
+The service worker refuses to intercept the same prefixes
+(`navigateFallbackDenylist` in `apps/web/vite.config.ts`), and Vite's dev proxy
+forwards them (`server.proxy` there): **for this application's own prefixes the
+three lists must be kept in sync.**
 
 **They are not the same list, and the difference is load-bearing.** The denylist
-carries a fourth, `/cdn-cgi/`, which must never appear here: it is Cloudflare's,
+also carries `/cdn-cgi/`, which must never appear in `run_worker_first`: it is Cloudflare's,
 answered at the edge before assets or the Worker see it. Leaving it out of the
 denylist once stopped a sign-in finishing at all — the cached shell answered a
 navigation to a URL that was never ours to serve, so the request never left the
@@ -760,6 +769,20 @@ carries this change:
 wrangler r2 bucket create cockpit-attachments
 wrangler r2 bucket create cockpit-attachments-staging
 ```
+
+**Two KV namespaces, for "Connect Claude to Cockpit, and capture an item from
+it" (issue 599).** They hold what the OAuth library keeps for connected apps
+(`OAUTH_KV`), and `apps/api/wrangler.jsonc` names each by the id it printed.
+Already run against the real account; repeat only for a new account, writing the
+printed ids there:
+
+```bash
+wrangler kv namespace create cockpit-oauth
+wrangler kv namespace create cockpit-oauth-staging
+```
+
+Nothing in either is an account's work: losing one disconnects every app, and
+each is connected again from the app. So neither is in `pnpm backup:export`.
 
 Production is seeded here as a **one-time bootstrap**, not as part of the deploy
 workflow: `seed.sql` puts the accounts *and the people who own them* in the

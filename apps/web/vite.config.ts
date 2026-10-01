@@ -51,9 +51,9 @@ export default defineConfig({
       // calls are never intercepted — the persisted snapshot lives in IndexedDB.
       workbox: {
         navigateFallback: '/index.html',
-        // Four prefixes the shell must never answer for. The first three are
-        // this service's own: they are requests for data, and a cached page is
-        // not an answer to one.
+        // Prefixes the shell must never answer for. All but the last are this
+        // service's own: they are requests for data, or the consent page an
+        // app opens, and a cached page is not an answer to either.
         //
         // `/cdn-cgi/` is **Cloudflare's, not ours**: the edge answers it before
         // assets or the Worker see it, so a cached page is never the right
@@ -68,12 +68,21 @@ export default defineConfig({
         // a real browser holding a real service worker against a deployment.
         //
         // Note this list is **not** the same as `run_worker_first` in
-        // apps/api/wrangler.jsonc, though the first three entries match it.
+        // apps/api/wrangler.jsonc, though every entry but the last matches it.
         // `/cdn-cgi/` must bypass the service worker and must *not* reach the
         // Worker: it belongs to Cloudflare's edge, which handles it before
         // either. The two lists agree about this application's own prefixes
         // and about nothing else.
-        navigateFallbackDenylist: [/^\/v1\//, /^\/health/, /^\/ingress\//, /^\/cdn-cgi\//],
+        navigateFallbackDenylist: [
+          /^\/v1\//,
+          /^\/health/,
+          /^\/ingress\//,
+          // Workbox tests the path with its query, so `/mcp?x` has to match too.
+          /^\/mcp([/?]|$)/,
+          /^\/oauth\//,
+          /^\/\.well-known\/oauth-/,
+          /^\/cdn-cgi\//,
+        ],
         runtimeCaching: [],
       },
       manifest,
@@ -84,6 +93,12 @@ export default defineConfig({
       '/v1': apiProxy,
       '/health': apiProxy,
       '/ingress': apiProxy,
+      // What an MCP client reaches ("Connect Claude to Cockpit, and capture an
+      // item from it", issue 599): the endpoint, the consent page and token
+      // exchange, and the two discovery documents.
+      '/mcp': apiProxy,
+      '/oauth': apiProxy,
+      '/.well-known/oauth-': apiProxy,
     },
   },
 });

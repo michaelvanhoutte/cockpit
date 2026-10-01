@@ -193,7 +193,7 @@ export function textsFromCapture(message: string): { title: string; description:
  * the limit can land between the two and leave a lone surrogate - half an emoji
  * that renders as a replacement box.
  */
-function cutTo(text: string, limit: number): string {
+export function cutTo(text: string, limit: number): string {
   if (text.length <= limit) return text;
   const lead = text.charCodeAt(limit - 1);
   return text.slice(0, lead >= 0xd800 && lead <= 0xdbff ? limit - 1 : limit);

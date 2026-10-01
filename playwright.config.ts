@@ -20,8 +20,9 @@ import { isLinkedWorktree, portsFor } from './scripts/lib/ports.mjs';
  *    rebuilt before every run (scripts/e2e-stack.mjs) — never the one
  *    `pnpm dev` uses. So a run starts from the same place every time and
  *    cannot disturb, or be disturbed by, the app you are clicking through.
- *    Same one-origin shape as production either way: Vite proxies /v1, /health
- *    and /ingress to the Worker, so the browser sees a single origin.
+ *    Same one-origin shape as production either way: Vite proxies the
+ *    Worker's own prefixes to it (`server.proxy` in apps/web/vite.config.ts),
+ *    so the browser sees a single origin.
  *
  *    Not identical to production: no service worker (vite-plugin-pwa stays off
  *    in dev), unbundled modules, and Vite's own SPA fallback rather than the

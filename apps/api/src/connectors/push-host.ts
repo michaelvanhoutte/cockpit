@@ -7,6 +7,7 @@ import type {
 import type { Env } from '../env.js';
 import { AccountNotInRegisterError, openAccount, type Account } from '../accounts/index.js';
 import { noteTypeId } from '../accounts/changes.js';
+import { typeToCaptureAs } from '../domain/item-types.js';
 import { enqueueCleanUp, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { open, sealingKey } from './credential-crypto.js';
 import { connectionsFor, forgetConnection, type ConnectionPointer } from './directory.js';
@@ -131,7 +132,7 @@ function connectedHost(
         workspaceId: pointer.workspaceId,
         itemId,
         message: item.capturedMessage ?? item.title,
-        typeId: await typeToCaptureAs(pointer.accountName, account),
+        typeId: await noteTypeOf(pointer.accountName, account),
         capturedFrom: {
           source: item.source,
           sourceId,
@@ -162,19 +163,9 @@ function logged(
   else console.log(line);
 }
 
-/**
- * Which Type a saved message is captured as: the account's own Note type where
- * it still has one, and its first Type otherwise.
- *
- * Every capture names a Type and nobody is at a keyboard to pick one, so this
- * is the one decision the host makes on a connector's behalf. Note rather than
- * Task, because what somebody saved is something they read rather than
- * something they have said they will do - and the Inbox is where they decide
- * which it is.
- */
-async function typeToCaptureAs(accountName: string, account: Account): Promise<string> {
-  const types = await account.itemTypes();
-  const note = types.find((type) => type.id === noteTypeId(accountName)) ?? types[0];
+/** Which Type a saved message is captured as - the Note, as for any capture nobody typed (`domain/item-types.ts`). */
+async function noteTypeOf(accountName: string, account: Account): Promise<string> {
+  const note = typeToCaptureAs(await account.itemTypes(), noteTypeId(accountName));
   if (!note) throw new Error(`account ${accountName} has no type to capture a saved message as`);
   return note.id;
 }

@@ -37,6 +37,22 @@
       ]
     },
     {
+      "key": "Connected apps",
+      "label": "Connected apps",
+      "browserWalks": 1,
+      "parent": "Accounts",
+      "sourcePatterns": [
+        "apps/api/src/worker.ts",
+        "apps/api/src/auth/return-path.ts",
+        "apps/api/src/mcp/paths.ts",
+        "apps/api/src/mcp/oauth.ts",
+        "apps/api/src/mcp/consent.ts",
+        "apps/api/src/mcp/grant.ts",
+        "apps/api/src/mcp/server.ts",
+        "apps/api/src/mcp/create-item.ts"
+      ]
+    },
+    {
       "key": "User management",
       "label": "User management",
       "browserWalks": 6,
