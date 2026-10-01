@@ -334,7 +334,7 @@ test.describe('Panels', () => {
       // dashboard has to follow it.
       const firstScreen = page.viewportSize()!.width;
       const firstLayout = (await layoutControl(page).textContent())!.trim();
-      await page.setViewportSize({ width: firstScreen > 700 ? 420 : 1100, height: 800 });
+      await page.setViewportSize({ width: firstScreen > 700 ? 520 : 1100, height: 800 });
       await expect.poll(() => panelsOnScreen(page)).toEqual(arranged);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
@@ -485,7 +485,7 @@ test.describe('Panels', () => {
       await page.getByLabel('Name of the new screen size').press('Enter');
       await expectLayouts(page, 1, isMobile);
 
-      await page.setViewportSize({ width: 420, height: 800 });
+      await page.setViewportSize({ width: 500, height: 800 });
       await expect.poll(async () => (await panel.boundingBox())!.width).toBeLessThan(200);
 
       // The count goes, because the list underneath already shows what is on

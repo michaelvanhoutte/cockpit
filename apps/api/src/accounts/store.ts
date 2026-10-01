@@ -63,6 +63,7 @@ import {
   PanelOrderStaleError,
   ScreenSizeNameTakenError,
   ScreenSizeNotFoundError,
+  ScreenWidthTooNarrowError,
   SourceAccountNotFoundError,
   UnknownThemeError,
   WorkspaceNameTakenError,
@@ -1088,7 +1089,10 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof PanelHoldsSomethingElseError ||
         // Same reason: the panel and the dashboard are both exactly what the
         // request says, and what is wrong is that moving there is not a move.
-        error instanceof PanelAlreadyOnDashboardError
+        error instanceof PanelAlreadyOnDashboardError ||
+        // Well formed, and the account may have no size to match: the floor
+        // (`MIN_SCREEN_WIDTH`) stops only the save that would have to make one.
+        error instanceof ScreenWidthTooNarrowError
       ) {
         return { status: 'refused', what: error.message };
       }

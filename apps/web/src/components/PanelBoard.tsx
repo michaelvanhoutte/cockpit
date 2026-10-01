@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   GRID_COLUMNS,
+  isPhoneWidth,
   MIN_ROW_HEIGHT,
   NO_CONDITIONS,
   panelGathers,
@@ -148,6 +149,12 @@ export function PanelBoard({
    */
   const [measure, measured] = useMeasuredWidth();
   const acrossWidth = measured ?? screenWidth;
+  /**
+   * Whether anything on this board can be rearranged. Not on a phone, which is
+   * drawn one panel across whatever Layouts exist and has no surface to change
+   * one through: no drag, no row line, no divider (`isPhoneWidth`).
+   */
+  const arrangeable = !isPhoneWidth(screenWidth);
   const command = useCommand();
   const queryClient = useQueryClient();
 
@@ -974,7 +981,7 @@ export function PanelBoard({
                   // A seam sets the height of the row *above* it, so every row
                   // has exactly one line under it to pull and the seam over the
                   // first row has none to set.
-                  sizes={rowIndex === 0 ? null : rowIndex - 1}
+                  sizes={!arrangeable || rowIndex === 0 ? null : rowIndex - 1}
                   onTake={takeLine}
                   onMove={lineTo}
                   onLetGo={letGoOfLine}
@@ -1023,7 +1030,7 @@ export function PanelBoard({
                     if (!panel) return null;
                     return (
                       <Fragment key={panel.id}>
-                        {at > 0 && (
+                        {at > 0 && arrangeable && (
                           <ColumnLine
                             dragging={dragging !== null}
                             onTake={(event) => takeLine(event, rowIndex, at - 1)}
@@ -1113,7 +1120,7 @@ export function PanelBoard({
                             setSorting(panel.id);
                           }}
                           lifted={dragging?.id === panel.id}
-                          onPickUp={(pointerId) => pickUp(panel.id, pointerId)}
+                          onPickUp={arrangeable ? (pointerId) => pickUp(panel.id, pointerId) : null}
                           refusal={
                             refusalFor('rename_panel', panel.id) ??
                             refusalFor('delete_panel', panel.id) ??
@@ -1142,7 +1149,7 @@ export function PanelBoard({
               a row, the line that sets that row's height. */}
           <RowSeam
             dragging={dragging !== null}
-            sizes={shown.length ? shown.length - 1 : null}
+            sizes={arrangeable && shown.length ? shown.length - 1 : null}
             onTake={takeLine}
             onMove={lineTo}
             onLetGo={letGoOfLine}

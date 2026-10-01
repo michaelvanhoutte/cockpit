@@ -20,7 +20,6 @@ import {
   MAX_ROW_HEIGHT,
   MAX_SCREEN_WIDTH,
   MIN_ROW_HEIGHT,
-  MIN_SCREEN_WIDTH,
   PANEL_FORMATS,
   STORED_PANEL_KINDS,
   prioritySchema,
@@ -540,9 +539,14 @@ export const screenSizes = sqliteTable(
     // absurd width would win that comparison everywhere or never. True by
     // definition rather than a number the product tunes, so the database holds
     // it (architecture, "The database is the second lock").
+    //
+    // **Starts at 1, not at `MIN_SCREEN_WIDTH`**: sizes made below that floor
+    // before it rose are real rows and stay, and tightening this would mean
+    // rebuilding the table over them. The floor is held by the commands that
+    // make a size (`create_screen_size`, `save_layout`).
     check(
       'screen_sizes_width_is_a_width',
-      sql.raw(`width BETWEEN ${MIN_SCREEN_WIDTH} AND ${MAX_SCREEN_WIDTH}`),
+      sql.raw(`width BETWEEN 1 AND ${MAX_SCREEN_WIDTH}`),
     ),
     check('screen_sizes_created_at_is_timestamp', isTimestamp('created_at')),
   ],

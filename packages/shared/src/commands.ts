@@ -301,7 +301,13 @@ export type DeleteLayoutCommand = z.infer<typeof deleteLayoutSchema>;
 export const createScreenSizeSchema = commandEnvelopeSchema.extend({
   screenSizeId: z.uuid(),
   name: screenSizeNameSchema,
-  width: z.number().int().min(MIN_SCREEN_WIDTH).max(MAX_SCREEN_WIDTH),
+  width: z
+    .number()
+    .int()
+    .min(MIN_SCREEN_WIDTH, {
+      error: `a screen size is at least ${MIN_SCREEN_WIDTH} px wide: anything narrower is a phone, which is never arranged`,
+    })
+    .max(MAX_SCREEN_WIDTH),
 });
 export type CreateScreenSizeCommand = z.infer<typeof createScreenSizeSchema>;
 

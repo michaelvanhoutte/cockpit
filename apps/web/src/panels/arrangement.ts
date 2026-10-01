@@ -1,6 +1,7 @@
 import {
   DEFAULT_CELL_SPAN,
   GRID_COLUMNS,
+  isPhoneWidth,
   MAX_ROW_HEIGHT,
   MIN_ROW_HEIGHT,
   MOST_ACROSS,
@@ -191,6 +192,12 @@ export function nearestLayout(
  * following the screen, and the pick survives to be honoured on a Dashboard
  * that has defined it. A picked Layout that has been deleted falls through the
  * same way - nothing has to notice either case and clear the pick.
+ *
+ * **None at all on a phone** (`isPhoneWidth`): a Layout is an arrangement made
+ * for a wider screen, and handing one to a phone is what drew panels too narrow
+ * to read. The answer is the same null a Dashboard nobody has arranged gets, so
+ * it is drawn fitted to the screen, one panel across. The Layouts are left
+ * alone and are read again the moment the window is wide enough.
  */
 export function layoutToDraw(
   layouts: readonly Layout[],
@@ -199,6 +206,7 @@ export function layoutToDraw(
   screenWidth: number,
   pick: ScreenSizePick | null,
 ): Layout | null {
+  if (isPhoneWidth(screenWidth)) return null;
   const nearest = nearestLayout(layouts, screenSizes, dashboardId, screenWidth);
   if (!pick) return nearest;
   const accountNearest = nearestScreenSize(screenSizes, screenWidth);

@@ -79,6 +79,8 @@ import {
   ACCOUNT_WIDE,
   DEFAULT_SCREEN_SIZE_NAME,
   isPaletteTheme,
+  isPhoneWidth,
+  MIN_SCREEN_WIDTH,
   nearestScreenSize,
   panelFilterAsStored,
   panelSortAsStored,
@@ -418,6 +420,21 @@ export class ScreenSizeNotFoundError extends Error {
   constructor(screenSizeId: string) {
     super(`screen size ${screenSizeId} not found`);
     this.name = 'ScreenSizeNotFoundError';
+  }
+}
+
+/**
+ * A save that would have to make the account's first screen size at a phone's
+ * width. A refusal rather than a shape problem, because `screenWidth` is
+ * legitimately any width when a size already exists to be matched; it is only
+ * making one that the floor stops (`MIN_SCREEN_WIDTH`).
+ */
+export class ScreenWidthTooNarrowError extends Error {
+  constructor(width: number) {
+    super(
+      `a layout cannot be made at ${width} px: a screen under ${MIN_SCREEN_WIDTH} px is a phone, which is never arranged`,
+    );
+    this.name = 'ScreenWidthTooNarrowError';
   }
 }
 
@@ -1274,6 +1291,7 @@ export function runCommand<N extends CommandName>(
             screenSizeId = nearest.id;
             screenSizeName = nearest.name;
           } else {
+            if (isPhoneWidth(cmd.screenWidth)) throw new ScreenWidthTooNarrowError(cmd.screenWidth);
             makingSize = {
               id: defaultScreenSizeId(tenantId),
               name: DEFAULT_SCREEN_SIZE_NAME,

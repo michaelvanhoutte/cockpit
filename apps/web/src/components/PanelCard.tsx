@@ -105,8 +105,11 @@ export interface PanelCardProps {
    * it was taken on. The drag would then answer the first move and die. The
    * board's own element outlives every rearrangement, which is why it is the
    * one that holds the pointer.
+   *
+   * Null where the board offers no rearranging (a phone): the header is then
+   * no handle, with no grab and no cursor saying there is one.
    */
-  onPickUp: (pointerId: number) => void;
+  onPickUp: ((pointerId: number) => void) | null;
   /**
    * That nothing has been filed anywhere in this workspace, which is what makes
    * an empty panel worth explaining rather than merely reporting: until the
@@ -277,7 +280,7 @@ export function PanelCard({
             // ahead of Radix's, in the one child-before-slot order `asChild`
             // composes them in, and its `preventDefault` would reach Radix's
             // long-press timer already told the gesture was spoken for.
-            if (event.button !== 0 || event.pointerType !== 'mouse') return;
+            if (!onPickUp || event.button !== 0 || event.pointerType !== 'mouse') return;
             // Not while it is being renamed, and not on the rename form's own
             // controls: an emptied rename box is still an open one, and
             // selecting what you typed, or pressing Save or Cancel, must not
@@ -370,7 +373,7 @@ export function PanelCard({
           // (found bisecting a real CI-only regression - see the button's
           // own comment).
           className={`group relative flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
-            isRenaming ? '' : 'cursor-grab active:cursor-grabbing'
+            isRenaming || !onPickUp ? '' : 'cursor-grab active:cursor-grabbing'
           }`}
         >
           {isRenaming ? (
