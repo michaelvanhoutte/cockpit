@@ -1813,9 +1813,6 @@ const routes = app
   .openapi(commandRoute('show_agent_on_dashboard'), async (c) =>
     c.json(await change(c, 'show_agent_on_dashboard', c.req.valid('json')), 200),
   )
-  .openapi(commandRoute('set_ask_claude_enabled'), async (c) =>
-    c.json(await change(c, 'set_ask_claude_enabled', c.req.valid('json')), 200),
-  )
   .openapi(commandRoute('set_done'), async (c) => c.json(await change(c, 'set_done', c.req.valid('json')), 200))
   .openapi(commandRoute('set_started'), async (c) => c.json(await change(c, 'set_started', c.req.valid('json')), 200))
   .openapi(commandRoute('finish_agent_run'), async (c) =>

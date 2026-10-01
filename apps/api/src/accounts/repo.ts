@@ -2,8 +2,6 @@ import { alias } from 'drizzle-orm/sqlite-core';
 import { and, asc, desc, eq, exists, gt, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
 import type { Column } from 'drizzle-orm';
 import {
-  ASK_CLAUDE_ID,
-  ASK_CLAUDE_NAME,
   CLAUDE_CODE,
   DEFAULT_ITEM_FORM_PRESENTATION,
   REWRITE_HISTORY_LIMIT,
@@ -39,7 +37,6 @@ import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import {
-  accountAgentSettings,
   accountItemFormPresentation,
   agentRunActivity,
   agentRuns,
@@ -1747,7 +1744,7 @@ export function listHiddenAgents(db: AccountDb, tenantId: string, workspaceId: s
     .all();
 }
 
-/** Whether one Workspace holds a live Claude Code connection - the other half of whether Ask Claude is drawn there. */
+/** Whether one Workspace holds a live Claude Code connection. */
 export function hasClaudeCodeConnection(db: AccountDb, tenantId: string, workspaceId: string): boolean {
   return (
     db
@@ -1804,9 +1801,8 @@ const runColumns = {
 };
 
 /**
- * A run as the row draws it: the Agent named as it is now, Ask Claude by its
- * fixed name, and one deleted since by nobody's name (issue 571, "the chip
- * names a deleted agent").
+ * A run as the row draws it: the Agent named as it is now, and one deleted
+ * since by nobody's name (issue 571, "the chip names a deleted agent").
  */
 function runFrom(row: {
   id: string;
@@ -1824,7 +1820,7 @@ function runFrom(row: {
   return {
     ...run,
     waiting: row.waiting ?? false,
-    agentName: row.agentId === ASK_CLAUDE_ID ? ASK_CLAUDE_NAME : agentDeletedAt ? null : agentName,
+    agentName: agentDeletedAt ? null : agentName,
   };
 }
 
@@ -1941,16 +1937,6 @@ export function getAgentRun(
   if (!row) return undefined;
   const { workspaceId, endedAt, ...rest } = row;
   return { ...runFrom(rest), workspaceId, endedAt };
-}
-
-/** The account-wide Ask Claude switch - enabled where nobody has ever thrown it, the direction `accountAgentSettings` carries no row for. */
-export function getAskClaudeEnabled(db: AccountDb, tenantId: string): boolean {
-  const row = db
-    .select({ askClaudeEnabled: accountAgentSettings.askClaudeEnabled })
-    .from(accountAgentSettings)
-    .where(eq(accountAgentSettings.tenantId, tenantId))
-    .get();
-  return row?.askClaudeEnabled ?? true;
 }
 
 // --- what Items mean, and which of them say the same thing (issue 407) -------

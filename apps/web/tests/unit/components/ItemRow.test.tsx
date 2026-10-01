@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { STARTING_GIVES_UP_AFTER_MS, type AgentRun, type Item, type ItemType, type StartableAgent } from '@cockpit/shared';
+import { STARTING_GIVES_UP_AFTER_MS, type Agent, type AgentRun, type Item, type ItemType } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { AGENT_BEING_DRAGGED, landAgent, liftAgent } from '../../../src/agentInTheAir';
 import { ItemRow } from '../../../src/components/ItemRow';
@@ -1884,15 +1884,19 @@ describe('Selection', () => {
  * each run are `agentRunChip.test.ts`'s. What is asked here is the wiring.
  */
 describe('Agents', () => {
-  const SCOPE_IT: StartableAgent = {
+  const SCOPE_IT: Agent = {
     id: 'agent-scope',
+    tenantId: 'tenant',
     name: 'Scope it',
     color: '#6f62b5',
+    engine: 'claude-code',
     message: '{title}',
     asksForPrompt: false,
     startsInProgress: true,
+    position: 0,
+    createdAt: '2026-09-28T10:00:00.000Z',
   };
-  const ASKING: StartableAgent = { ...SCOPE_IT, id: 'agent-ask', name: 'Ask about it', asksForPrompt: true };
+  const ASKING: Agent = { ...SCOPE_IT, id: 'agent-ask', name: 'Ask about it', asksForPrompt: true };
   const aRun = (overrides: Partial<AgentRun> = {}): AgentRun => ({
     id: '018f0000-0000-7000-8000-000000000071',
     itemId: 'item-1',

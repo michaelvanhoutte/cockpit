@@ -459,17 +459,6 @@ export const showAgentOnDashboardSchema = commandEnvelopeSchema.extend({
 export type ShowAgentOnDashboardCommand = z.infer<typeof showAgentOnDashboardSchema>;
 
 /**
- * set_ask_claude_enabled — the account-wide switch in the dock's own "…"
- * ("Ask Claude... can be turned off everywhere and on again from the dock's
- * '…'", issue 570). Whether it is actually drawn on one Dashboard also needs
- * that Workspace's own Claude Code connection; this is the other half.
- */
-export const setAskClaudeEnabledSchema = commandEnvelopeSchema.extend({
-  enabled: z.boolean(),
-});
-export type SetAskClaudeEnabledCommand = z.infer<typeof setAskClaudeEnabledSchema>;
-
-/**
  * An order names each Item once. Shared by the two commands below that carry
  * one, because it is the same rule (architecture.md §4.4, "a whole order").
  */
@@ -838,7 +827,6 @@ export const commandSchemas = {
   delete_agent: deleteAgentSchema,
   hide_agent_on_dashboard: hideAgentOnDashboardSchema,
   show_agent_on_dashboard: showAgentOnDashboardSchema,
-  set_ask_claude_enabled: setAskClaudeEnabledSchema,
   move_item_to_panel: moveItemToPanelSchema,
   add_item_to_panel: addItemToPanelSchema,
   remove_item_from_panel: removeItemFromPanelSchema,

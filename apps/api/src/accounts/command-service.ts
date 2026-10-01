@@ -1,17 +1,13 @@
 import { and, eq, exists, inArray, notExists, sql } from 'drizzle-orm';
 import {
-  ASK_CLAUDE_AGENT,
-  ASK_CLAUDE_ID,
   CLAUDE_CODE,
   agentsShownOnDashboard,
   hookNamesSession,
   runBlocksAStart,
-  startableAgents,
 } from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import {
-  accountAgentSettings,
   accountItemFormPresentation,
   agentRunActivity,
   agentRuns,
@@ -41,7 +37,6 @@ import {
   commandAlreadyApplied,
   getAgent,
   getAgentRun,
-  getAskClaudeEnabled,
   getAttachment,
   getDashboard,
   getItem,
@@ -2075,20 +2070,6 @@ export function runCommand<N extends CommandName>(
       });
       break;
     }
-    case 'set_ask_claude_enabled': {
-      const cmd = payload as CommandPayload<'set_ask_claude_enabled'>;
-      db.transaction((tx) => {
-        tx.insert(accountAgentSettings)
-          .values({ tenantId, askClaudeEnabled: cmd.enabled })
-          .onConflictDoUpdate({
-            target: accountAgentSettings.tenantId,
-            set: { askClaudeEnabled: cmd.enabled },
-          })
-          .run();
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
     case 'associate': {
       const cmd = payload as CommandPayload<'associate'>;
       const existing = getItem(db, tenantId, cmd.itemId);
@@ -2503,16 +2484,12 @@ export function runCommand<N extends CommandName>(
       if (!isItemFiled(db, tenantId, cmd.itemId)) {
         throw new AgentRunRefusedError('An agent starts on an item on a dashboard, not in the Inbox.');
       }
-      const offered = startableAgents(
-        agentsShownOnDashboard({
-          agents: listAgents(db, tenantId),
-          hiddenAgentIds: listHiddenAgents(db, tenantId, cmd.workspaceId)
-            .filter((hidden) => hidden.dashboardId === cmd.dashboardId)
-            .map((hidden) => hidden.agentId),
-          askClaudeEnabled: getAskClaudeEnabled(db, tenantId),
-          hasClaudeCodeConnection: true,
-        }),
-      );
+      const offered = agentsShownOnDashboard({
+        agents: listAgents(db, tenantId),
+        hiddenAgentIds: listHiddenAgents(db, tenantId, cmd.workspaceId)
+          .filter((hidden) => hidden.dashboardId === cmd.dashboardId)
+          .map((hidden) => hidden.agentId),
+      });
       if (!offered.some((agent) => agent.id === cmd.agentId)) {
         throw new AgentRunRefusedError('That agent is not on this dashboard.');
       }
@@ -2559,7 +2536,7 @@ export function runCommand<N extends CommandName>(
       }
       const accepted = cmd.status === 'working' || cmd.status === 'link_lost';
       const connection = claudeCodeConnectionOf(db, tenantId, cmd.workspaceId);
-      const agent = run.agentId === ASK_CLAUDE_ID ? ASK_CLAUDE_AGENT : getAgent(db, tenantId, run.agentId);
+      const agent = getAgent(db, tenantId, run.agentId);
       const item = getItem(db, tenantId, cmd.itemId);
       // Started when it was dropped, where the agent says starting it starts
       // the Item and Claude has actually taken it on (issue 571, rule 3) -

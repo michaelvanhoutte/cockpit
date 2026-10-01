@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { ACCOUNT_WIDE, AGENT_COLORS } from '@cockpit/shared';
 import { isLinkedWorktree, portsFor } from '../../scripts/lib/ports.mjs';
 import {
   capture,
@@ -36,7 +38,7 @@ const A_PNG = Buffer.from(
  * the gear toggle the dock itself - none of which a component test can drive
  * with a real keyboard event over the real page.
  *
- * It is not re-proving the naming, hiding or Ask Claude rules, which
+ * It is not re-proving the naming or hiding rules, which
  * apps/api/tests/integration/http/agents.test.ts owns against a real store,
  * nor which tiles a given state draws, which
  * packages/shared/tests/unit/domain/agent.test.ts owns, nor the dock's own
@@ -100,9 +102,7 @@ test.describe('Agents', () => {
       // is closed again.
       await expect(page.getByText('1 hidden here')).toBeVisible();
 
-      const dockMenu = dock.getByRole('button', {
-        name: 'What is hidden here, and the Ask Claude switch',
-      });
+      const dockMenu = dock.getByRole('button', { name: 'What is hidden here' });
       await press(dockMenu, isMobile);
       const menu = page.getByRole('menu');
       await expect(menu.getByText('1 hidden here')).toBeVisible();
@@ -148,9 +148,11 @@ test.describe('Agents', () => {
    * link's address reaches the Worker through the app's own origin ("Send an
    * item's attachments along when an agent starts", issue 573).
    *
-   * A phone has no dock and no drag, so it starts Ask Claude from the row's
-   * own menu, the way a keyboard does. It makes its own workspace, and puts it
-   * and its connection back, for the reason connections.test.ts records.
+   * A phone has no dock and no drag, so it starts an agent from the row's own
+   * menu, the way a keyboard does - and has no dock to make one in, so the
+   * agent that asks what to ask is made through the API, on both. It makes its
+   * own workspace, and puts it and its connection back, for the reason
+   * connections.test.ts records.
    */
   test.describe('an agent dropped on a dashboard row starts Claude on it', () => {
     test('outlines the rows that take it, starts it where it is dropped, and ends when the agent finishes', async ({
@@ -158,6 +160,23 @@ test.describe('Agents', () => {
       isMobile,
     }) => {
       await openFirstWorkspace(page, isMobile);
+      const asking = uniqueTitle('Ask about it');
+      const askingId = randomUUID();
+      const made = await page.request.post('/v1/commands/create_agent', {
+        data: {
+          commandId: randomUUID(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: ACCOUNT_WIDE,
+          agentId: askingId,
+          name: asking,
+          color: AGENT_COLORS[0],
+          engine: 'claude-code',
+          message: '{prompt}\n\nAbout: {title}\n\n{description}\n\n{link}',
+          asksForPrompt: true,
+          startsInProgress: false,
+        },
+      });
+      expect(made.status()).toBe(200);
       const workspace = uniqueTitle('With Claude');
       await makeWorkspace(page, workspace, isMobile);
       await switchTo(page, workspace, isMobile);
@@ -194,7 +213,7 @@ test.describe('Agents', () => {
       if (isMobile) {
         await press(dashboardBar(page).getByRole('link', { name: 'Dashboard 1' }), isMobile);
         await press(itemRow(page, asked).getByRole('button', { name: 'Item actions' }), isMobile);
-        await press(page.getByRole('menuitem', { name: 'Start Ask Claude…' }), isMobile);
+        await press(page.getByRole('menuitem', { name: `Start ${asking}…` }), isMobile);
       } else {
         const dock = page.getByRole('toolbar', { name: 'Agents' });
         await press(dock.getByRole('button', { name: '+ New agent' }), isMobile);
@@ -260,8 +279,8 @@ test.describe('Agents', () => {
 
         // Back to a window the connections list fits in, for putting things back.
         await page.setViewportSize({ width: 1280, height: 720 });
-        // Ask Claude, which asks what to ask before it starts.
-        await dock.getByText('Ask Claude', { exact: true }).dragTo(itemRow(page, asked));
+        // The agent that asks what to ask before it starts.
+        await dock.getByText(asking, { exact: true }).dragTo(itemRow(page, asked));
       }
 
       const box = page.getByRole('dialog', { name: `About “${asked}”` });
@@ -269,7 +288,7 @@ test.describe('Agents', () => {
       await box.getByLabel('What to ask Claude').fill('Who do we chase first?');
       await press(box.getByRole('button', { name: 'Send to Claude' }), isMobile);
       await expect(
-        itemRow(page, asked).getByRole('link', { name: 'Ask Claude · Claude is working ↗' }),
+        itemRow(page, asked).getByRole('link', { name: `${asking} · Claude is working ↗` }),
       ).toBeVisible();
       const fired = (await (await fetch(`${issuer}/claude-code/fired`)).json()) as { text: string }[];
       const sent = fired.find((one) => one.text.includes('Who do we chase first?') && one.text.includes(asked));
@@ -306,11 +325,11 @@ test.describe('Agents', () => {
         expect(res.status).toBe(204);
       };
       await report('Stop');
-      await expect(itemRow(page, asked).getByRole('link', { name: 'Ask Claude · Claude is waiting on you ↗' })).toBeVisible();
+      await expect(itemRow(page, asked).getByRole('link', { name: `${asking} · Claude is waiting on you ↗` })).toBeVisible();
       // The dock's total, not the tile's own count, which is read out the same way.
       if (!isMobile) await expect(page.getByRole('toolbar', { name: 'Agents' }).getByRole('status')).toHaveText('1 waiting on you');
       await report('UserPromptSubmit');
-      await expect(itemRow(page, asked).getByRole('link', { name: 'Ask Claude · Claude is working ↗' })).toBeVisible();
+      await expect(itemRow(page, asked).getByRole('link', { name: `${asking} · Claude is working ↗` })).toBeVisible();
       await expect(page.getByText(/waiting on you/)).toHaveCount(0);
 
       // Agent finished: Still to do - the chip goes, and the row stays.
@@ -326,6 +345,15 @@ test.describe('Agents', () => {
         await press(page.getByRole('menuitem', { name: 'Delete…' }), isMobile);
         await press(page.getByRole('button', { name: `Yes, delete ${agent}` }), isMobile);
       }
+      const unmade = await page.request.post('/v1/commands/delete_agent', {
+        data: {
+          commandId: randomUUID(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: ACCOUNT_WIDE,
+          agentId: askingId,
+        },
+      });
+      expect(unmade.status()).toBe(200);
       await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
       // The form says when the hooks above last arrived.
       await chooseRowAction(page, 'Claude Code', 'Edit…', isMobile);

@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { ASK_CLAUDE_COLOR, ASK_CLAUDE_ID, ASK_CLAUDE_NAME, type Agent, type DockTile } from './agent.js';
 
 /**
  * A run: one Agent started on one Item through its Workspace's Claude Code
@@ -76,39 +75,6 @@ export function waitingOnYou(runs: readonly Pick<AgentRun, 'waiting'>[]): number
  */
 export function runBlocksAStart(run: Pick<AgentRun, 'status'> | undefined): boolean {
   return run !== undefined && run.status !== 'failed';
-}
-
-/**
- * The message Ask Claude sends: the question asked, then the Item it is
- * about. Ask Claude has no row of its own to hold a template in (see
- * `ASK_CLAUDE_ID`), so its message is fixed here.
- */
-export const ASK_CLAUDE_MESSAGE = '{prompt}\n\nAbout: {title}\n\n{description}\n\n{link}';
-
-/**
- * What starting an Agent needs to know about it, for a made Agent and for Ask
- * Claude alike - the one built in always asks what to ask, and never marks the
- * Item In progress, since asking about something is not starting on it.
- */
-export type StartableAgent = Pick<Agent, 'id' | 'name' | 'color' | 'message' | 'asksForPrompt' | 'startsInProgress'>;
-
-export const ASK_CLAUDE_AGENT: StartableAgent = {
-  id: ASK_CLAUDE_ID,
-  name: ASK_CLAUDE_NAME,
-  color: ASK_CLAUDE_COLOR,
-  message: ASK_CLAUDE_MESSAGE,
-  asksForPrompt: true,
-  startsInProgress: false,
-};
-
-/**
- * The Agents a Dashboard offers to start, in the dock's order - the tiles it
- * draws, with Ask Claude standing in as the Agent it behaves as. The one
- * answer the row's menu, the drop and the server's own refusal all read, so
- * the three cannot come to disagree about what is offered where.
- */
-export function startableAgents(tiles: readonly DockTile[]): StartableAgent[] {
-  return tiles.map((tile) => (tile.kind === 'ask-claude' ? ASK_CLAUDE_AGENT : tile.agent));
 }
 
 /** How long a question typed into the prompt box may be - well inside the 65,536 characters Claude takes. */

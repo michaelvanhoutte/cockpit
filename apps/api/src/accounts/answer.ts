@@ -69,8 +69,6 @@ export interface AccountSnapshot {
   hiddenAgents: HiddenAgent[];
   /** Whether this Workspace holds a live Claude Code connection (issue 570). */
   hasClaudeCodeConnection: boolean;
-  /** The account-wide Ask Claude switch (issue 570). */
-  askClaudeEnabled: boolean;
   /** Every open run on this Workspace's Items (issue 571). */
   agentRuns: AgentRun[];
   /** Why Claude last refused this Workspace's Claude Code connection, or null (issue 571). */

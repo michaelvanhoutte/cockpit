@@ -238,7 +238,7 @@ const CHANGES_THE_TYPES = new Set<ClientCommandName>([
 
 /**
  * The changes after which the dock is not what it was, account-wide: making,
- * editing or deleting an Agent, and the Ask Claude switch. Every one of them
+ * editing or deleting an Agent. Every one of them
  * carries `ACCOUNT_WIDE` as its envelope's `workspaceId` - an id no snapshot
  * is ever cached under - so, like `CHANGES_THE_TYPES` above, these re-read
  * every workspace's own snapshot rather than one that id would never match.
@@ -251,7 +251,6 @@ const CHANGES_ALL_AGENTS = new Set<ClientCommandName>([
   'create_agent',
   'update_agent',
   'delete_agent',
-  'set_ask_claude_enabled',
 ]);
 
 /**

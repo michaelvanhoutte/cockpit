@@ -74,7 +74,6 @@ function renderDock(
         agents={[SCOPE_IT, SHIP_IT]}
         hiddenAgents={[]}
         hasClaudeCodeConnection={false}
-        askClaudeEnabled={true}
         {...overrides}
       />
     </QueryClientProvider>,
@@ -97,15 +96,10 @@ describe('Agents', () => {
       expect(screen.queryByRole('button', { name: 'Ship it' })).toBeNull();
     });
 
-    it('draws Ask Claude only where the workspace is connected and it is enabled', () => {
-      renderDock({ hasClaudeCodeConnection: true, askClaudeEnabled: true });
+    it('draws nothing but + New agent where none has been made, connected or not', () => {
+      renderDock({ agents: [], hasClaudeCodeConnection: true });
 
-      expect(screen.getByText('Ask Claude')).toBeInTheDocument();
-    });
-
-    it('leaves out Ask Claude where the workspace holds no connection', () => {
-      renderDock({ hasClaudeCodeConnection: false, askClaudeEnabled: true });
-
+      expect(screen.getAllByRole('button').filter((button) => button.textContent === '+ New agent')).toHaveLength(1);
       expect(screen.queryByText('Ask Claude')).toBeNull();
     });
   });
@@ -163,15 +157,6 @@ describe('Agents', () => {
         expect.anything(),
       );
     });
-
-    it('does not offer Edit… or Delete… on Ask Claude', () => {
-      renderDock({ hasClaudeCodeConnection: true, askClaudeEnabled: true });
-
-      const tile = screen.getByText('Ask Claude').closest('div')!;
-      fireEvent.contextMenu(tile);
-
-      expect(screen.queryByRole('menuitem', { name: 'Edit…' })).toBeNull();
-    });
   });
 
   describe('hiding and showing are per dashboard', () => {
@@ -196,7 +181,7 @@ describe('Agents', () => {
 
       expect(screen.getByText('1 hidden here')).toBeInTheDocument();
 
-      await user.click(screen.getByRole('button', { name: 'What is hidden here, and the Ask Claude switch' }));
+      await user.click(screen.getByRole('button', { name: 'What is hidden here' }));
       const menu = await screen.findByRole('menu');
       expect(within(menu).getByText('1 hidden here')).toBeInTheDocument();
       await user.click(within(menu).getByRole('menuitem', { name: 'Show Ship it' }));
@@ -213,29 +198,10 @@ describe('Agents', () => {
       const user = userEvent.setup();
       renderDock();
 
-      await user.click(screen.getByRole('button', { name: 'What is hidden here, and the Ask Claude switch' }));
+      await user.click(screen.getByRole('button', { name: 'What is hidden here' }));
 
       expect(await screen.findByText('Nothing hidden here')).toBeInTheDocument();
-    });
-  });
-
-  describe('Ask Claude can be turned off everywhere, and on again, from the dock’s own "…"', () => {
-    it.each([
-      { situation: 'enabled, offers to turn it off', askClaudeEnabled: true, offers: 'Turn off Ask Claude everywhere' },
-      { situation: 'disabled, offers to turn it on', askClaudeEnabled: false, offers: 'Turn on Ask Claude everywhere' },
-    ])('$situation', async ({ askClaudeEnabled, offers }) => {
-      const user = userEvent.setup();
-      const { mutate } = renderDock({ askClaudeEnabled });
-
-      await user.click(screen.getByRole('button', { name: 'What is hidden here, and the Ask Claude switch' }));
-      await user.click(await screen.findByRole('menuitem', { name: offers }));
-
-      expect(mutate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          name: 'set_ask_claude_enabled',
-          payload: expect.objectContaining({ enabled: !askClaudeEnabled }),
-        }),
-      );
+      expect(screen.queryAllByRole('menuitem')).toHaveLength(0);
     });
   });
 

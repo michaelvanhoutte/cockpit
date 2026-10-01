@@ -77,10 +77,8 @@ export const workspaceSnapshotSchema = z.object({
   agents: z.array(agentSchema).default([]),
   /** Which Agents are hidden on which of this Workspace's Dashboards (issue 570). */
   hiddenAgents: z.array(hiddenAgentSchema).default([]),
-  /** Whether this Workspace has a live Claude Code connection - the other half of whether Ask Claude is drawn here (issue 570). */
+  /** Whether this Workspace has a live Claude Code connection (issue 570). */
   hasClaudeCodeConnection: z.boolean().default(false),
-  /** The account-wide switch for Ask Claude, off the dock's own "…" (issue 570). */
-  askClaudeEnabled: z.boolean().default(true),
   /** Every open run on this Workspace's Items ("Drop an agent on an item to start a Claude Code session on it", issue 571) - at most one per Item. */
   agentRuns: z.array(agentRunSchema).default([]),
   /** Why Claude last refused this Workspace's Claude Code connection, until a start works again (issue 571); null while it is not failing. */

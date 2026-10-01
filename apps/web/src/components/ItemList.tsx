@@ -4,11 +4,10 @@ import { useQuery } from '@tanstack/react-query';
 import {
   agentsShownOnDashboard,
   itemLabel,
-  startableAgents,
   uuidv7,
   workspaceIsDecided,
+  type Agent,
   type Item,
-  type StartableAgent,
 } from '@cockpit/shared';
 import {
   snapshotQuery,
@@ -189,17 +188,13 @@ export function ItemList({
   const offeredAgents = useMemo(() => {
     if (panelId === null || openDashboardId === null) return null;
     if (!data?.hasClaudeCodeConnection) return [];
-    return startableAgents(
-      agentsShownOnDashboard({
-        agents: data.agents,
-        hiddenAgentIds: data.hiddenAgents
-          .filter((hidden) => hidden.dashboardId === openDashboardId)
-          .map((hidden) => hidden.agentId),
-        askClaudeEnabled: data.askClaudeEnabled,
-        hasClaudeCodeConnection: true,
-      }),
-    );
-  }, [panelId, openDashboardId, data?.hasClaudeCodeConnection, data?.agents, data?.hiddenAgents, data?.askClaudeEnabled]);
+    return agentsShownOnDashboard({
+      agents: data.agents,
+      hiddenAgentIds: data.hiddenAgents
+        .filter((hidden) => hidden.dashboardId === openDashboardId)
+        .map((hidden) => hidden.agentId),
+    });
+  }, [panelId, openDashboardId, data?.hasClaudeCodeConnection, data?.agents, data?.hiddenAgents]);
   /** Each Item's open run, looked up once for the list rather than searched per row. */
   const runsByItem = useMemo(
     () => new Map((data?.agentRuns ?? []).map((run) => [run.itemId, run])),
@@ -1063,7 +1058,7 @@ export function ItemList({
                               agentsHere: {
                                 offered: offeredAgents,
                                 run: runsByItem.get(item.id),
-                                start: (agent: StartableAgent, prompt?: string) =>
+                                start: (agent: Agent,prompt?: string) =>
                                   startAgent
                                     .mutateAsync({
                                       itemId: item.id,

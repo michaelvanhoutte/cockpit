@@ -398,8 +398,6 @@ const commandSenders = {
     api.v1.commands.hide_agent_on_dashboard.$post({ json: p }, o),
   show_agent_on_dashboard: (p: CommandPayload<'show_agent_on_dashboard'>, o?: ClientRequestOptions) =>
     api.v1.commands.show_agent_on_dashboard.$post({ json: p }, o),
-  set_ask_claude_enabled: (p: CommandPayload<'set_ask_claude_enabled'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_ask_claude_enabled.$post({ json: p }, o),
   set_done: (p: CommandPayload<'set_done'>, o?: ClientRequestOptions) => api.v1.commands.set_done.$post({ json: p }, o),
   set_started: (p: CommandPayload<'set_started'>, o?: ClientRequestOptions) => api.v1.commands.set_started.$post({ json: p }, o),
   finish_agent_run: (p: CommandPayload<'finish_agent_run'>, o?: ClientRequestOptions) =>

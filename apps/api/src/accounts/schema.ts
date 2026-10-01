@@ -837,10 +837,9 @@ export const hiddenDashboardAgents = sqliteTable(
 );
 
 /**
- * The account-wide switch for Ask Claude ("Ask Claude... can be turned off
- * everywhere and on again from the dock's '…'", issue 570) - one row per
- * account, the same shape `accountItemFormPresentation` below is and for the
- * same reason: one fact about the account, not a list of them.
+ * **Created and never read.** The account-wide switch of an Agent that was
+ * built in rather than made, which no longer exists; dropping the table is its
+ * own, contract, change.
  */
 export const accountAgentSettings = sqliteTable('account_agent_settings', {
   tenantId: text('tenant_id').primaryKey(),
@@ -1724,8 +1723,7 @@ export const connectionFailures = sqliteTable(
  * after the other, so the command's own check already decides between them,
  * and the index is what makes a write that skipped it fail rather than land.
  *
- * **`agent_id` has no foreign key**: Ask Claude has no row to point at, and a
- * made Agent is tombstoned rather than erased, so the name a run shows is
+ * **`agent_id` has no foreign key**: an Agent is tombstoned rather than erased, so the name a run shows is
  * read from `agents` where it is still live and is "a deleted agent" where it
  * is not.
  */
