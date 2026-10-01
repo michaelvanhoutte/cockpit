@@ -23,5 +23,5 @@ try {
     }
   }
 } catch {
-  // A failing hook must never block the prompt; step 1 of /issue is the fallback.
+  // A failing hook must never block the prompt; the session just keeps its default title.
 }
