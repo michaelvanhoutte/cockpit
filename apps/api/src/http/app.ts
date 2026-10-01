@@ -3,6 +3,8 @@ import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import {
   accountHoldingsSchema,
+  appDisconnectedSchema,
+  connectedAppListSchema,
   addAttachmentSchema,
   addUserSchema,
   attachmentContentTypeSchema,
@@ -105,6 +107,7 @@ import {
 import { endpointsFor, exchangeCode, issuerFor, keysOf, teamsIssuerFor } from '../auth/issuer.js';
 import { authorizationUrl, identityFrom, newAttempt, replyBelongsTo } from '../auth/oidc.js';
 import { returnPathFrom } from '../auth/return-path.js';
+import { connectedAppsOf, disconnectApp } from '../mcp/connected-apps.js';
 import { revokeAppsOf } from '../mcp/revoke.js';
 import { open, seal, sealingKey } from '../connectors/credential-crypto.js';
 import { teamsAccountFrom } from '../connectors/teams.js';
@@ -821,6 +824,39 @@ const sourceAccountsRoute = createRoute({
 });
 
 /**
+ * The apps the signed-in person has allowed into their Cockpit ("See the apps
+ * connected to your Cockpit, and disconnect one", issue 600). Only their own:
+ * what somebody else allowed, into the same account or not, is theirs to see.
+ */
+const connectedAppsRoute = createRoute({
+  method: 'get',
+  path: '/v1/connected-apps',
+  responses: {
+    200: {
+      description: 'The apps this person allowed, oldest first',
+      content: { 'application/json': { schema: connectedAppListSchema } },
+    },
+  },
+});
+
+/** Ends one app's access at once; what it captured stays. */
+const disconnectAppRoute = createRoute({
+  method: 'delete',
+  path: '/v1/connected-apps/{appId}',
+  request: { params: z.object({ appId: z.string() }) },
+  responses: {
+    200: {
+      description: 'The app can no longer reach Cockpit',
+      content: { 'application/json': { schema: appDisconnectedSchema } },
+    },
+    404: {
+      description: 'Not an app this person allowed',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
  * An attachment's bytes as a response, or null where R2 no longer holds them
  * - what the signed-in download and an agent's link both answer with.
  */
@@ -1364,6 +1400,16 @@ const routes = app
     // workspace id this request could name that reaches somebody else's
     // connections, the same reasoning the attachment download route records.
     return c.json({ sourceAccounts: await account.sourceAccounts(workspaceId) }, 200);
+  })
+  .openapi(connectedAppsRoute, async (c) => {
+    return c.json({ apps: await connectedAppsOf(c.env, c.get('visitor').userId) }, 200);
+  })
+  .openapi(disconnectAppRoute, async (c) => {
+    const { appId } = c.req.valid('param');
+    if (!(await disconnectApp(c.env, c.get('visitor').userId, appId))) {
+      return c.json({ error: 'no such app' }, 404);
+    }
+    return c.json({ disconnected: true as const }, 200);
   })
   // --- connecting a Claude Code routine: one request, tested before stored ---
   //

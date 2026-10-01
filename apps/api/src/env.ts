@@ -66,7 +66,7 @@ export interface Env {
     listUserGrants(
       userId: string,
       options?: { cursor?: string },
-    ): Promise<{ items: { id: string }[]; cursor?: string }>;
+    ): Promise<{ items: { id: string; createdAt: number; metadata?: unknown }[]; cursor?: string }>;
     revokeGrant(grantId: string, userId: string): Promise<void>;
   };
   /**

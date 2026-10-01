@@ -710,3 +710,70 @@ describe('Capture', () => {
     });
   });
 });
+
+/** The apps `userId` sees listed, as the settings window reads them. */
+async function listedFor(userId: string = USER_ID): Promise<
+  { id: string; name: string; connectedAt: string; lastCapturedAt: string | null }[]
+> {
+  const answer = await asUser(`${ORIGIN}/v1/connected-apps`, {}, userId);
+  expect(answer.status).toBe(200);
+  return ((await answer.json()) as { apps: never[] }).apps;
+}
+
+describe('Connected apps', () => {
+  describe('the list shows exactly the apps you allowed', () => {
+    it('says nothing is connected where nothing is', async () => {
+      expect(await listedFor()).toEqual([]);
+    });
+
+    it('lists your own app with when it was connected and, once it has, when it last captured', async () => {
+      const { token } = await connected(USER_ID, 'Claude');
+      const [before] = await listedFor();
+      expect([before?.name, before?.lastCapturedAt]).toEqual(['Claude', null]);
+      expect(Date.now() - Date.parse(before!.connectedAt)).toBeLessThan(60_000);
+
+      expect((await createItem(token, { message: 'Water the plants' })).isError).toBeFalsy();
+      // Noted after the answer is sent, so it can be a moment behind it.
+      await vi.waitFor(async () => {
+        const [after] = await listedFor();
+        expect(after?.lastCapturedAt).not.toBeNull();
+      });
+    });
+
+    it('does not list an app another person allowed', async () => {
+      await connected(OTHER_USER_ID, 'Ada’s Claude');
+      expect(await listedFor()).toEqual([]);
+      expect((await listedFor(OTHER_USER_ID)).map((app) => app.name)).toEqual(['Ada’s Claude']);
+    });
+  });
+
+  describe('disconnecting an app ends its access at once and keeps what it captured', () => {
+    it('refuses its access and refresh tokens and leaves its Items', async () => {
+      const { app, token, refreshToken } = await connected();
+      expect((await createItem(token, { message: 'Kept after disconnecting' })).isError).toBeFalsy();
+      const [listed] = await listedFor();
+
+      const gone = await asUser(`${ORIGIN}/v1/connected-apps/${listed!.id}`, { method: 'DELETE' });
+      expect(gone.status).toBe(200);
+
+      expect((await mcp(token, 'tools/list')).status).toBe(401);
+      expect((await refresh(app, refreshToken)).status).toBe(400);
+      expect(await listedFor()).toEqual([]);
+      expect((await inboxOf(WORKSPACE_ID)).map((item) => item.capturedMessage)).toContain('Kept after disconnecting');
+    });
+
+    it('leaves another person’s app alone, and says there is no such app of yours', async () => {
+      const { token } = await connected(OTHER_USER_ID);
+      const [theirs] = await listedFor(OTHER_USER_ID);
+
+      const refused = await asUser(`${ORIGIN}/v1/connected-apps/${theirs!.id}`, { method: 'DELETE' });
+      expect(refused.status).toBe(404);
+      expect((await mcp(token, 'tools/list')).status).toBe(200);
+    });
+
+    it('is for somebody signed in', async () => {
+      const answer = await SELF.fetch(`${ORIGIN}/v1/connected-apps`);
+      expect(answer.status).toBe(401);
+    });
+  });
+});

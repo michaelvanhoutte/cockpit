@@ -1,4 +1,15 @@
-import { addressOf, expect, inbox, MICHAEL, openInbox, press, STARTING_WORKSPACE, test, uniqueTitle } from './support/app';
+import {
+  addressOf,
+  expect,
+  inbox,
+  MICHAEL,
+  openInbox,
+  press,
+  STARTING_WORKSPACE,
+  test,
+  uniqueTitle,
+  workspaceMenuButton,
+} from './support/app';
 
 /**
  * F3, and the one walk this capability gets: an app connecting to Cockpit and
@@ -8,7 +19,10 @@ import { addressOf, expect, inbox, MICHAEL, openInbox, press, STARTING_WORKSPACE
  * issue 599). Who may consent, as whom an app acts and what a capture writes
  * are proved below this, in apps/api/tests/integration/http/connected-apps.test.ts;
  * what this alone can show is that a browser gets through the pages between
- * them, signing in on the way, and that the row then says which app it was.
+ * them, signing in on the way, and that the row then says which app it was -
+ * and, from the settings window ("See the apps connected to your Cockpit, and
+ * disconnect one", issue 600), that the app is listed there, and that
+ * disconnecting it cuts it off while its Item stays.
  *
  * **The app is played by the walk itself**, registering and trading its code
  * over HTTP the way Claude Code does, because there is no Claude to drive. Its
@@ -92,6 +106,29 @@ test.describe('Connected apps', () => {
       const row = inbox(page).getByRole('listitem').filter({ hasText: said });
       await expect(row).toBeVisible();
       await expect(row.getByText(/Claude/)).toBeVisible();
+
+      // The window is on the workspace's "…", which is not there below `sm`.
+      if (isMobile) return;
+      await press(workspaceMenuButton(page), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Connected apps' }), isMobile);
+      const window = page.getByRole('dialog', { name: 'Connected apps' });
+      await expect(window.getByText(new URL(page.url()).origin + '/mcp')).toBeVisible();
+      const listed = window.getByRole('listitem').filter({ hasText: 'Claude' });
+      await expect(listed).toContainText(/last captured/);
+
+      await press(listed.getByRole('button', { name: 'Actions for Claude' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Disconnect' }), isMobile);
+      await press(page.getByRole('button', { name: 'Yes, disconnect Claude' }), isMobile);
+      await expect(window.getByText('No apps connected')).toBeVisible();
+
+      // Cut off at once, and what it captured is still there.
+      const refused = await page.request.post('/mcp', {
+        headers: { authorization: `Bearer ${token}`, accept: 'application/json, text/event-stream' },
+        data: { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+      });
+      expect(refused.status()).toBe(401);
+      await press(window.getByRole('button', { name: 'Done' }), isMobile);
+      await expect(row).toBeVisible();
     });
   });
 });
