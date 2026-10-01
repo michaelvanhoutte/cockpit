@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { uuidv7, type ItemType, type Workspace } from '@cockpit/shared';
+import { prioritySchema, uuidv7, type ItemType, type Priority, type Workspace } from '@cockpit/shared';
 import { CommandRefused, uploadAttachment } from '../api/client';
 import { snapshotQuery, workspacesQuery } from '../api/queries';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { howLongAgo, useCapture } from '../capture';
 import { NO_TYPES, typesOffered } from '../itemTypes';
+import { dueDateLabel } from '../dueDate';
+import { dueComingFriday, dueSevenDaysOut, dueToday } from '../dueDateShortcuts';
+import { PRIORITY_LABELS } from '../priority';
 
 /**
  * The Capture form itself: the note, the types as chips, where it goes as one
@@ -84,6 +87,19 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
   /** Which workspace it belongs to, or null for *Any workspace*. */
   const [where, setWhere] = useState<string | null>(startsIn);
   const [refused, setRefused] = useState<string | null>(null);
+  /**
+   * What the strip inside the box has chosen ("Set a priority and a due date
+   * while capturing", issue 611): neither until pressed, and neither again once
+   * a capture has been asked for - unlike Type and Where, which carry over,
+   * because a deadline belongs to the one note it was set for. A refused
+   * capture puts both back with the note.
+   *
+   * The due date remembers which shortcut chose it (`via`) as well as the day,
+   * because on a Friday *Today* and *Fri* are the same day and the lit one has
+   * to be the one pressed.
+   */
+  const [priority, setPriority] = useState<Priority | null>(null);
+  const [due, setDue] = useState<Due | null>(null);
   const [justCaptured, setJustCaptured] = useState<Captured[]>([]);
   const form = useRef<HTMLFormElement>(null);
   const { ask, busy } = useCapture();
@@ -234,6 +250,8 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
     // by the time an answer comes back - a second capture may have already
     // queued files of its own by then.
     const queuedAtSubmit = queued;
+    const priorityAtSubmit = priority;
+    const dueAtSubmit = due;
 
     ask(
       {
@@ -243,10 +261,14 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
         // difference between the two is the whole of `decided`.
         workspaceId: targetWorkspace,
         decided: belongsTo !== null,
+        ...(priorityAtSubmit ? { priority: priorityAtSubmit } : {}),
+        ...(dueAtSubmit ? { dueDate: dueAtSubmit.date } : {}),
       },
       {
         asking: () => {
           setMessage('');
+          setPriority(null);
+          setDue(null);
           setRefused(null);
           // The chip queue empties with the box, the same "never waits on
           // it" principle already stated for note-reading - a capture the
@@ -263,6 +285,8 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
         },
         refused: (why) => {
           setMessage(trimmed);
+          setPriority(priorityAtSubmit);
+          setDue(dueAtSubmit);
           setQueued(queuedAtSubmit);
           setRefused(why);
         },
@@ -339,15 +363,28 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
 
           Resizable at a desk and not on a phone, where there is no room to
           grow into and the handle is one more thing under a thumb. */}
-      <textarea
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        placeholder="What is on your mind?"
-        aria-label="What is on your mind?"
-        autoFocus
-        rows={4}
-        className="order-1 mt-2.5 w-full sm:order-none resize-none rounded-md border border-black/10 bg-white p-3 text-base leading-[1.5] text-ink shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 sm:mt-4 sm:min-h-56 sm:resize-y sm:px-5 sm:py-[18px]"
-      />
+      {/* The note and, along its bottom edge, the strip that sets a priority
+          and a due date: one box rather than a row of its own, which took too
+          much room. The border and the focus ring belong to the box, so the
+          strip reads as inside the note rather than under it. */}
+      <div className="order-1 mt-2.5 flex w-full flex-col rounded-md border border-black/10 bg-white shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40 sm:order-none sm:mt-4 sm:min-h-56">
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="What is on your mind?"
+          aria-label="What is on your mind?"
+          autoFocus
+          rows={4}
+          className="w-full flex-1 resize-none rounded-md bg-transparent p-3 text-base leading-[1.5] text-ink outline-none sm:resize-y sm:px-5 sm:py-[18px]"
+        />
+        <PriorityAndDue
+          priority={priority}
+          onPriority={setPriority}
+          due={due}
+          onDue={setDue}
+          disabled={busy}
+        />
+      </div>
 
       {/* Files queued to attach once Capture is pressed - shown whether or
           not anything is queued yet, the same "Drag a file here, or" plus
@@ -391,7 +428,12 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
             </button>
           </div>
         ))}
-        {queued.length === 0 && <p className="text-sm text-ink-faint">Drag a file here, or</p>}
+        {queued.length === 0 && (
+          <p className="text-sm text-ink-faint">
+            Drag a file here, <span className="hidden sm:inline">paste an image with {PASTE_KEY}, </span>
+            or
+          </p>
+        )}
         <button
           type="button"
           disabled={busy}
@@ -547,6 +589,173 @@ const SHORTCUT =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent)
     ? '⌘↵'
     : 'Ctrl ↵';
+
+/** The key that pastes, said the way `SHORTCUT` says its own. */
+export function pasteKeyFor(userAgent: string): string {
+  return /Mac|iPhone|iPad/.test(userAgent) ? '⌘V' : 'Ctrl V';
+}
+
+const PASTE_KEY = pasteKeyFor(typeof navigator !== 'undefined' ? navigator.userAgent : '');
+
+/** A due date as chosen: the day, and the shortcut that chose it where one did. */
+interface Due {
+  date: string;
+  via: string | null;
+}
+
+/** The due date's one-click shortcuts, in the order they are offered - the item form's own (issue 480). */
+const DUE_SHORTCUTS: { label: string; dueDate: (now: Date) => string }[] = [
+  { label: 'Today', dueDate: dueToday },
+  { label: 'Fri', dueDate: dueComingFriday },
+  { label: '+7d', dueDate: dueSevenDaysOut },
+];
+
+/** The flag's colour at each level, the same as an Inbox row's flag (`ItemRow.tsx`). */
+const FLAG_COLOURS: Record<Priority, { lit: string; unlit: string }> = {
+  low: { lit: 'border-priority-low bg-priority-low text-white', unlit: 'text-priority-low' },
+  normal: { lit: 'border-priority-normal bg-priority-normal text-white', unlit: 'text-priority-normal' },
+  high: { lit: 'border-priority-high bg-priority-high text-white', unlit: 'text-priority-high' },
+};
+
+const STRIP_BUTTON =
+  'inline-flex min-h-9 shrink-0 items-center justify-center rounded-md border px-2 text-sm disabled:opacity-50 sm:min-h-0 sm:py-0.5 sm:text-xs';
+const QUIET_BUTTON =
+  'border-black/10 bg-white text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink';
+const LIT_BUTTON = 'border-accent bg-accent-tint font-medium text-accent-deep';
+
+/**
+ * The strip along the bottom of the note: three priority flags, then **Due**
+ * with its shortcuts and a date picker. Every choice is one click and pressing
+ * the lit one again clears it, so there is no *None* to offer.
+ *
+ * The level's name is the flag's hover title rather than a word beside it. A
+ * day that is none of the shortcuts shows on the picker's own button, with a ✕
+ * beside it.
+ */
+function PriorityAndDue({
+  priority,
+  onPriority,
+  due,
+  onDue,
+  disabled,
+}: {
+  priority: Priority | null;
+  onPriority: (priority: Priority | null) => void;
+  due: Due | null;
+  onDue: (due: Due | null) => void;
+  disabled: boolean;
+}) {
+  const picker = useRef<HTMLInputElement>(null);
+  const custom = due !== null && due.via === null ? due : null;
+
+  const openPicker = () => {
+    const input = picker.current;
+    if (!input) return;
+    try {
+      input.showPicker();
+    } catch {
+      // No picker to show: the input itself is the way in.
+      input.focus();
+      input.click();
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 pb-2 sm:px-4">
+      <div role="group" aria-label="Priority" className="flex items-center gap-1.5">
+        {prioritySchema.options.map((level) => {
+          const lit = priority === level;
+          return (
+            <button
+              key={level}
+              type="button"
+              disabled={disabled}
+              aria-pressed={lit}
+              aria-label={`${PRIORITY_LABELS[level]} priority`}
+              title={`${PRIORITY_LABELS[level]} priority`}
+              onClick={() => onPriority(lit ? null : level)}
+              className={`${STRIP_BUTTON} w-9 sm:w-7 ${
+                lit ? FLAG_COLOURS[level].lit : `border-black/10 bg-white ${FLAG_COLOURS[level].unlit}`
+              }`}
+            >
+              <span aria-hidden="true">⚑</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div role="group" aria-label="Due" className="flex flex-wrap items-center gap-1.5">
+        <span
+          aria-hidden="true"
+          className="text-[11px] font-semibold tracking-[0.11em] text-ink-faint uppercase sm:text-xs"
+        >
+          Due
+        </span>
+        {DUE_SHORTCUTS.map(({ label, dueDate }) => {
+          const lit = due?.via === label;
+          return (
+            <button
+              key={label}
+              type="button"
+              disabled={disabled}
+              aria-pressed={lit}
+              onClick={() => onDue(lit ? null : { date: dueDate(new Date()), via: label })}
+              className={`${STRIP_BUTTON} ${lit ? LIT_BUTTON : QUIET_BUTTON}`}
+            >
+              {label}
+            </button>
+          );
+        })}
+        <span className="relative inline-flex items-center gap-1">
+          <button
+            type="button"
+            disabled={disabled}
+            title="Pick a date"
+            aria-label={custom ? `Due ${dueDateLabel(custom.date)}` : 'Pick a due date'}
+            onClick={openPicker}
+            className={`${STRIP_BUTTON} gap-1 ${custom ? LIT_BUTTON : QUIET_BUTTON}`}
+          >
+            <span aria-hidden="true">📅</span>
+            {custom && <span>{dueDateLabel(custom.date)}</span>}
+          </button>
+          {custom && (
+            <button
+              type="button"
+              disabled={disabled}
+              title="Clear the due date"
+              aria-label="Clear the due date"
+              onClick={() => onDue(null)}
+              className={`${STRIP_BUTTON} ${QUIET_BUTTON}`}
+            >
+              ✕
+            </button>
+          )}
+          {/* Where the native picker is drawn from, which is why it sits over
+              the button rather than nowhere: the popup opens beside the input
+              it belongs to. Out of the tab order and the accessibility tree -
+              the button is how it is reached. */}
+          <input
+            ref={picker}
+            type="date"
+            tabIndex={-1}
+            aria-hidden="true"
+            aria-label="Due date"
+            value={due?.date ?? ''}
+            onChange={(e) => {
+              const picked = e.target.value;
+              if (!picked) return onDue(null);
+              // A day that is also a shortcut's lights that shortcut, so one
+              // day has one answer however it was reached.
+              const via = DUE_SHORTCUTS.find((s) => s.dueDate(new Date()) === picked)?.label ?? null;
+              onDue({ date: picked, via });
+            }}
+            className="pointer-events-none absolute inset-0 w-full opacity-0"
+          />
+        </span>
+      </div>
+    </div>
+  );
+}
 
 /** A file dropped or pasted before there is an Item to attach it to, waiting as a chip until Capture makes one. */
 interface QueuedFile {

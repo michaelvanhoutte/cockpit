@@ -112,9 +112,11 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     nextAction: cmd.nextAction ?? null,
     completedAt: null,
     startedAt: null,
-    priority: null,
-    dueDate: null,
-    dueDateSetAt: null,
+    priority: cmd.priority ?? null,
+    dueDate: cmd.dueDate ?? null,
+    // The ramp a due date colours along starts when it is given, which for a
+    // capture is the capture itself - the same rule `applySetDueDate` follows.
+    dueDateSetAt: cmd.dueDate === undefined ? null : cmd.issuedAt,
     unseen: false,
     deletedAt: null,
     createdAt: cmd.issuedAt,
