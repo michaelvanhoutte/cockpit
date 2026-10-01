@@ -17,3 +17,4 @@ export * from './commands.js';
 export * from './api/snapshot.js';
 export * from './api/events.js';
 export * from './api/users.js';
+export * from './api/connected-apps.js';

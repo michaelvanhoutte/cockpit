@@ -16,6 +16,7 @@ const AgentDock = lazy(() => import('../components/AgentDock'));
 // start a Claude Code session on it", issue 571, which paid for the rows'
 // own agent controls with it).
 const ManageTypes = lazy(() => import('../components/ManageTypes'));
+const ManageConnectedApps = lazy(() => import('../components/ManageConnectedApps'));
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { CaptureWindow } from '../components/CaptureWindow';
@@ -471,7 +472,7 @@ function TheShell() {
    * inside a workspace, and a page reached without one made it degrade into a
    * header wearing none of the workspace's colour, control or selected tab.
    */
-  const [managing, setManaging] = useState<'types' | null>(null);
+  const [managing, setManaging] = useState<'types' | 'apps' | null>(null);
   const typesOpenedFrom = useRef<HTMLElement | null>(null);
   /**
    * The account's own entries, at the foot of the open workspace's "…"
@@ -490,6 +491,13 @@ function TheShell() {
       onSelect: (from) => {
         typesOpenedFrom.current = from;
         setManaging('types');
+      },
+    },
+    {
+      label: 'Connected apps',
+      onSelect: (from) => {
+        typesOpenedFrom.current = from;
+        setManaging('apps');
       },
     },
     {
@@ -1084,6 +1092,15 @@ function TheShell() {
       <Suspense fallback={null}>
         <ManageTypes
           open={managing === 'types'}
+          onClose={() => setManaging(null)}
+          returnFocusTo={typesOpenedFrom.current}
+        />
+      </Suspense>
+
+      {/* The apps allowed into this Cockpit, over the workspace as the types are. */}
+      <Suspense fallback={null}>
+        <ManageConnectedApps
+          open={managing === 'apps'}
           onClose={() => setManaging(null)}
           returnFocusTo={typesOpenedFrom.current}
         />

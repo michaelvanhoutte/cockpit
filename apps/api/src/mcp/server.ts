@@ -12,6 +12,7 @@ import { noteTypeId } from '../accounts/changes.js';
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
+import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
 import { MCP_PATH } from './paths.js';
 
@@ -165,6 +166,8 @@ async function capture(
   }
   ctx.waitUntil(enqueueCleanUp(env, accountName, itemId));
   ctx.waitUntil(enqueueReadingItsMeaning(env, accountName, itemId));
+  // What the Connected apps list says this app last did (issue 600).
+  ctx.waitUntil(noteCapture(env, app.grantId, new Date().toISOString()));
 
   // **The Item is written by now**, so nothing after this may answer as if it
   // were not: a failure would have the app try again and capture it twice.

@@ -52,7 +52,9 @@ export interface Env {
    * every stack - KV has a local simulator - and created per environment
    * before the first deploy that names it (docs/deployment.md, "Bootstrap
    * runbook"). Nothing in it is an account's work: losing it disconnects
-   * every app, and each is connected again by adding it again.
+   * every app, and each is connected again by adding it again. That includes
+   * the one key Cockpit adds of its own, when each grant last captured
+   * (`mcp/connected-apps.ts`).
    */
   OAUTH_KV: KVNamespace;
   /**
@@ -66,7 +68,7 @@ export interface Env {
     listUserGrants(
       userId: string,
       options?: { cursor?: string },
-    ): Promise<{ items: { id: string }[]; cursor?: string }>;
+    ): Promise<{ items: { id: string; createdAt: number; metadata?: unknown }[]; cursor?: string }>;
     revokeGrant(grantId: string, userId: string): Promise<void>;
   };
   /**
