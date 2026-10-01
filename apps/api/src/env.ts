@@ -2,6 +2,7 @@ import type {
   Ai,
   D1Database,
   DurableObjectNamespace,
+  KVNamespace,
   Queue,
   R2Bucket,
 } from '@cloudflare/workers-types';
@@ -41,6 +42,19 @@ export interface Env {
    * nothing to stand in for it.
    */
   ATTACHMENTS: R2Bucket;
+  /**
+   * Where the OAuth library keeps what it has handed apps connected to this
+   * Cockpit ("Connect Claude to Cockpit, and capture an item from it", issue
+   * 599): registered clients, grants, and tokens, the tokens only as hashes.
+   * The name is the library's own and cannot be chosen.
+   *
+   * Like `ATTACHMENTS`, one namespace for every account, bound for real on
+   * every stack - KV has a local simulator - and created per environment
+   * before the first deploy that names it (docs/deployment.md, "Bootstrap
+   * runbook"). Nothing in it is an account's work: losing it disconnects
+   * every app, and each is connected again by adding it again.
+   */
+  OAUTH_KV: KVNamespace;
   /**
    * Workers AI, which reads what a note means so that one saying what another
    * one already said can be flagged ("Flag a captured note that says what

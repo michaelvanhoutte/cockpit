@@ -160,6 +160,12 @@ export async function startFromEmpty(): Promise<void> {
   await env.DB.prepare('DELETE FROM users').run();
   await env.DB.prepare('DELETE FROM connector_directory').run();
   await env.DB.prepare('DELETE FROM tenants').run();
+  // What the OAuth library keeps for connected apps, which lives as long as
+  // the run otherwise and would carry one case's grants into the next.
+  for (let page = await env.OAUTH_KV.list(); ; page = await env.OAUTH_KV.list({ cursor: page.cursor })) {
+    await Promise.all(page.keys.map((key) => env.OAUTH_KV.delete(key.name)));
+    if (page.list_complete) break;
+  }
   signedIn.clear();
 }
 

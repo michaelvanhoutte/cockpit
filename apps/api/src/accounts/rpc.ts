@@ -260,6 +260,8 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     sourceAccountId: string,
     at: string,
   ): Awaitable<Answer<'admitted' | 'too-many'>>;
+  /** An app connected to this account asking to capture (issue 599) - admitted, or one of too many from that grant. */
+  appCaptureArrived(grantId: string, at: string): Awaitable<'admitted' | 'too-many'>;
   /** When a hook last reached one of this Workspace's Claude Code connections (issue 572). */
   claudeCodeHookArrival(
     accountName: string,

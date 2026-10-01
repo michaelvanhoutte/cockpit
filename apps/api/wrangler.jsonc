@@ -9,13 +9,16 @@
   "compatibility_date": "2026-08-01",
 
   // Static assets (apps/web/dist) are served *before* the Worker runs, so a
-  // cold page load bills no Worker invocation. Only the three API prefixes
-  // reach the Worker; everything else falls back to index.html for the SPA
-  // router.
+  // cold page load bills no Worker invocation. Only the API prefixes reach the
+  // Worker; everything else falls back to index.html for the SPA router. The
+  // last four are what an MCP client reaches ("Connect Claude to Cockpit, and
+  // capture an item from it", issue 599): the endpoint, the consent page and
+  // token exchange under `/oauth/`, and the discovery documents, which would
+  // otherwise be answered with the app's own page and a 200.
   //
-  // The service worker refuses to intercept these same three
+  // The service worker refuses to intercept these same prefixes
   // (navigateFallbackDenylist in apps/web/vite.config.ts) — add a prefix to one
-  // list and it belongs in the other. That list carries a fourth, `/cdn-cgi/`,
+  // list and it belongs in the other. That list carries one more, `/cdn-cgi/`,
   // which deliberately does **not** belong here: it is Cloudflare's own, and
   // the edge answers it before assets or this Worker see it. So the two lists
   // agree about this application's prefixes and about nothing else.
@@ -29,7 +32,15 @@
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/v1/*", "/health", "/ingress/*"]
+    "run_worker_first": [
+      "/v1/*",
+      "/health",
+      "/ingress/*",
+      "/mcp",
+      "/mcp/*",
+      "/oauth/*",
+      "/.well-known/*"
+    ]
   },
 
   "observability": {
@@ -130,6 +141,22 @@
     {
       "binding": "ATTACHMENTS",
       "bucket_name": "cockpit-attachments"
+    }
+  ],
+
+  // What the OAuth library keeps for the apps connected to this Cockpit
+  // ("Connect Claude to Cockpit, and capture an item from it", issue 599):
+  // clients, grants and hashed tokens. `OAUTH_KV` is the library's own name.
+  //
+  // **`kv_namespaces` is NOT inheritable**, so staging and `env.local` each
+  // repeat it below, staging with a namespace of its own so a grant made there
+  // can never act on production. **The ids are not yet filled in**: the two
+  // namespaces are created by hand before the first deploy that carries this,
+  // and their ids written here (docs/deployment.md, "Bootstrap runbook").
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "REPLACE-WITH-wrangler-kv-namespace-create-cockpit-oauth"
     }
   ],
 
@@ -260,6 +287,15 @@
           "bucket_name": "cockpit-attachments-staging"
         }
       ],
+      // Its own, for the reason it has its own database: `kv_namespaces` is
+      // not inheritable, and a shared one would let a grant made on staging
+      // reach production. Not yet created - see the top level's own comment.
+      "kv_namespaces": [
+        {
+          "binding": "OAUTH_KV",
+          "id": "REPLACE-WITH-wrangler-kv-namespace-create-cockpit-oauth-staging"
+        }
+      ],
       // Its own Google client rather than production's, so a secret that leaks
       // from one environment cannot sign anybody in to the other.
       "vars": {
@@ -329,6 +365,15 @@
         {
           "binding": "ATTACHMENTS",
           "bucket_name": "cockpit-attachments"
+        }
+      ],
+      // KV has a full local simulator, like R2 above, so the id is any
+      // string at all: it names a local store and never resolves against the
+      // real account.
+      "kv_namespaces": [
+        {
+          "binding": "OAUTH_KV",
+          "id": "cockpit-oauth-local"
         }
       ],
       "queues": {

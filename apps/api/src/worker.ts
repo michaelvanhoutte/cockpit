@@ -8,7 +8,41 @@
  * exists only in the Workers runtime's own type definitions. `apps/web` compiles
  * this package's source to infer the API contract and cannot resolve it, so
  * exporting the class from `index.ts` breaks the web app's typecheck - loudly,
- * and nowhere near the change that caused it.
+ * and nowhere near the change that caused it. The OAuth library behind `/mcp`
+ * names the same module in its types, which is why it is wired here too.
  */
-export { default, type AppType } from './index.js';
+import type { ExecutionContext } from '@cloudflare/workers-types';
+import application from './index.js';
+import type { Env } from './env.js';
+import { consent } from './mcp/consent.js';
+import { asReachedAt, providerFor } from './mcp/oauth.js';
+import { AUTHORIZE_PATH, isAnsweredByTheAuthorizationServer } from './mcp/paths.js';
+
+export type { AppType } from './index.js';
 export { AccountStore } from './accounts/store.js';
+
+/**
+ * Three doors, decided by path before anything else runs ("Connect Claude to
+ * Cockpit, and capture an item from it", issue 599):
+ *
+ * | Path | Answered by | Admitted by |
+ * |---|---|---|
+ * | `/mcp`, `/oauth/token`, `/oauth/register`, `/.well-known/oauth-*` | the OAuth library | an access token it issued, or the protocol's own checks |
+ * | `/oauth/authorize` | the consent page (`mcp/consent.ts`) | a Google sign-in, read by the page |
+ * | everything else | the application (`http/app.ts`) | the sign-in gate (`auth/gate.ts`) |
+ *
+ * **In front of the gate rather than behind it**, so a session cookie never
+ * reaches `/mcp` at all: the gate's own argument for that is in `auth/gate.ts`.
+ */
+export default {
+  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> | Response {
+    const { pathname } = new URL(request.url);
+    if (isAnsweredByTheAuthorizationServer(pathname)) {
+      return providerFor(env).fetch(asReachedAt(request, env), env, ctx as never);
+    }
+    if (pathname === AUTHORIZE_PATH) return consent.fetch(request, env, ctx);
+    return application.fetch(request, env, ctx);
+  },
+  scheduled: application.scheduled,
+  queue: application.queue,
+};

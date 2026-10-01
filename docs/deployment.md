@@ -761,6 +761,21 @@ wrangler r2 bucket create cockpit-attachments
 wrangler r2 bucket create cockpit-attachments-staging
 ```
 
+**Not yet executed: two KV namespaces, for "Connect Claude to Cockpit, and
+capture an item from it" (issue 599).** They hold what the OAuth library keeps
+for connected apps (`OAUTH_KV`). `apps/api/wrangler.jsonc` carries placeholder
+ids for both until this runs, so a deploy fails rather than reaching a namespace
+nobody created. Run before the first deploy that carries the change - staging
+deploys on merge - and replace each placeholder with the id printed:
+
+```bash
+wrangler kv namespace create cockpit-oauth
+wrangler kv namespace create cockpit-oauth-staging
+```
+
+Nothing in either is an account's work: losing one disconnects every app, and
+each is connected again from the app. So neither is in `pnpm backup:export`.
+
 Production is seeded here as a **one-time bootstrap**, not as part of the deploy
 workflow: `seed.sql` puts the accounts *and the people who own them* in the
 register — two accounts and the two people who own them, one an admin and one

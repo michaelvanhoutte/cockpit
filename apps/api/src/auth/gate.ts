@@ -5,6 +5,7 @@ import { ATTACHMENT_LINK_PREFIX } from './attachment-link.js';
 import type { Attempt } from './oidc.js';
 import { MOVED_OPERATOR_PREFIXES, isOperatorPath } from './operator.js';
 import { extendSession, sessionHeld, type Visitor } from './register.js';
+import { returnPathFrom } from './return-path.js';
 import { recogniseSession, SIGN_IN_LIFETIME_MS } from './session.js';
 
 /**
@@ -171,6 +172,20 @@ const INGRESS_PREFIX = '/ingress/';
  * Both imported rather than written again here: two copies of a prefix is a
  * hole that can outlive the gate it was cut for, and one of the two edits is
  * the easy one to forget.
+ *
+ * **`/mcp` is not in this list, and never reaches this gate at all** ("Connect
+ * Claude to Cockpit, and capture an item from it", issue 599). It is answered
+ * in front of the application (`worker.ts`), together with the OAuth
+ * library's token, registration and discovery addresses and Cockpit's own
+ * consent page (`mcp/paths.ts`). What admits a call to `/mcp` is an access
+ * token this Cockpit issued, checked by the library, and nothing else - so a
+ * session cookie must never be enough, which is why it is routed before this
+ * gate rather than waved through it: a browser sends its cookie to every
+ * request a page can make it send, and a capture any website could trigger is
+ * the thing this keeps impossible. The token, code exchange and registration
+ * addresses are the library's own door. The consent page reads the sign-in
+ * itself (`mcp/consent.ts`), because what it does with somebody who has none
+ * is send them through Google and back, where this gate would answer `401`.
  */
 export function isOutsideTheGate(path: string): boolean {
   return (
@@ -345,7 +360,17 @@ function attemptCookieOptions(url: string) {
   } as const;
 }
 
-export function rememberAttempt(c: Context, attempt: Attempt): void {
+/**
+ * A sign-in's attempt, and where to go once it is finished where that is not
+ * `/` - the consent page an app opened (`auth/return-path.ts`). Carried here
+ * rather than through Google, for the reason the Workspace rides in the connect
+ * cookie: nothing the issuer sends back can choose it.
+ */
+export interface SignInAttempt extends Attempt {
+  readonly returnTo?: string;
+}
+
+export function rememberAttempt(c: Context, attempt: SignInAttempt): void {
   setCookie(c, attemptCookieName(c.req.url), JSON.stringify(attempt), {
     ...attemptCookieOptions(c.req.url),
     maxAge: ATTEMPT_LIFETIME_S,
@@ -364,9 +389,20 @@ export function rememberConnectAttempt(c: Context, attempt: ConnectAttempt): voi
  * sign-in that was never started here, one whose ten minutes ran out, and one
  * whose cookie has been tampered with.
  */
-export function attemptHeld(c: Context): Attempt | null {
+export function attemptHeld(c: Context): SignInAttempt | null {
   const held = readAttempt(getCookie(c, attemptCookieName(c.req.url)));
-  return held && { state: held.state, nonce: held.nonce, codeVerifier: held.codeVerifier };
+  if (!held) return null;
+  // Read through the same rule it was written under, so a cookie edited by
+  // hand cannot name another origin either.
+  const returnTo = returnPathFrom(
+    typeof held.also.returnTo === 'string' ? held.also.returnTo : undefined,
+  );
+  return {
+    state: held.state,
+    nonce: held.nonce,
+    codeVerifier: held.codeVerifier,
+    ...(returnTo ? { returnTo } : {}),
+  };
 }
 
 /**
