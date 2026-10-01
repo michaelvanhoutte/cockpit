@@ -6,7 +6,7 @@ import { isAnsweredByTheAuthorizationServer } from '../../../src/mcp/paths.js';
  * That a signed-in browser still cannot capture through them is
  * tests/integration/http/connected-apps.test.ts's.
  */
-describe('Connected apps', () => {
+describe('MCP connections', () => {
   describe('only the addresses an app uses are answered in front of the sign-in gate', () => {
     it.each([
       { path: '/mcp', answered: true },

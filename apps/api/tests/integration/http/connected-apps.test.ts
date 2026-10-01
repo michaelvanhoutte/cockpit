@@ -208,7 +208,7 @@ async function grantsOf(userId: string): Promise<{ clientId: string }[]> {
   return Promise.all(keys.map(async (key) => (await env.OAUTH_KV.get(key.name, 'json')) as { clientId: string }));
 }
 
-describe('Connected apps', () => {
+describe('MCP connections', () => {
   describe('only an app somebody allowed reaches Cockpit, and a signed-in browser is not enough', () => {
     const situations = [
       { situation: 'an app showing nothing', send: async () => mcp(null, 'tools/list'), answered: false },
@@ -720,7 +720,7 @@ async function listedFor(userId: string = USER_ID): Promise<
   return ((await answer.json()) as { apps: never[] }).apps;
 }
 
-describe('Connected apps', () => {
+describe('MCP connections', () => {
   describe('the list shows exactly the apps you allowed', () => {
     it('says nothing is connected where nothing is', async () => {
       expect(await listedFor()).toEqual([]);

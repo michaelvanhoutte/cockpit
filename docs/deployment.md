@@ -134,7 +134,7 @@ rediscovered: **a database crossing 500 MB** (or 5 GB across both), and **needin
 queue retention beyond 24 hours**. Cloudflare Queues moved onto the free plan in
 February 2026, so it is no longer a reason to upgrade on its own.
 
-**Connected apps spend the free plan's daily KV write allowance**, which is not a
+**MCP connections spend the free plan's daily KV write allowance**, which is not a
 third threshold so much as a ceiling to know about: registering an app, showing
 the consent page, trading a code and every refresh each write to `OAUTH_KV`. Once
 the day's writes are spent, connecting an app and refreshing its access fail

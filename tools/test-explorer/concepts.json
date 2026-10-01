@@ -37,8 +37,8 @@
       ]
     },
     {
-      "key": "Connected apps",
-      "label": "Connected apps",
+      "key": "MCP connections",
+      "label": "MCP connections",
       "browserWalks": 1,
       "parent": "Accounts",
       "sourcePatterns": [

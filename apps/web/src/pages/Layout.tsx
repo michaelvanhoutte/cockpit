@@ -497,7 +497,7 @@ function TheShell() {
       },
     },
     {
-      label: 'Connected apps',
+      label: 'MCP connections',
       onSelect: (from) => {
         typesOpenedFrom.current = from;
         setManaging('apps');
