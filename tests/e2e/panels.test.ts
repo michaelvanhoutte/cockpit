@@ -370,6 +370,18 @@ test.describe('Panels', () => {
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
 
+      // A phone is never arranged: under 480px both layouts are left unread
+      // and the dashboard is one panel to a line with nothing to rearrange
+      // it by. Nothing is deleted - the layouts are drawn again below.
+      await page.setViewportSize({ width: 420, height: 800 });
+      await expect(layoutControl(page)).toHaveCount(0);
+      await expect
+        .poll(async () => (await rowsOnScreen(page)).map((row) => row.length))
+        .toEqual([1, 1, 1]);
+      await expect(page.getByTestId('row-line')).toHaveCount(0);
+      await expect(page.getByTestId('column-line')).toHaveCount(0);
+      await expectNoSidewaysScroll(page);
+
       // Back to the screen the first layout was made for, and the dashboard
       // goes back with it ("Layouts follow the screen you are on"). This is the
       // whole feature and it is only true in a browser: the width has to

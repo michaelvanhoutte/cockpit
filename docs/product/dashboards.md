@@ -46,7 +46,9 @@ The sort is **kept on the Panel**, the same on every device, and **Manual is hav
 
 ## Layouts: the arrangement that follows your screen
 
-A 4K screen fits more Panels side by side than a laptop, so a Dashboard can hold **several Layouts**. **Below 480 px, a phone, none is read and none can be made**: the Dashboard is drawn one Panel across, and the Layout control and every gesture that rearranges (drag, row and divider sizing) are absent; the Layouts themselves are kept for a wider screen. Each one **has a name** and **records the screen width it was made at**. That width is whatever the screen happened to be, not one of a fixed set of breakpoints, so there is nothing to belong to and nothing to configure; it is read only when a screen is matched to a Layout.
+A 4K screen fits more Panels side by side than a laptop, so a Dashboard can hold **several Layouts**. Each one **has a name** and **records the screen width it was made at**. That width is whatever the screen happened to be, not one of a fixed set of breakpoints, so there is nothing to belong to and nothing to configure; it is read only when a screen is matched to a Layout.
+
+**Below 480 px, a phone, no Layout is read and none can be made**: the Dashboard is drawn one Panel across, and the Layout control and every gesture that rearranges (drag, row and divider sizing) are absent. The Layouts themselves are kept for a wider screen.
 
 **A Layout is named, and the name is what you pick it by.** Required, stored trimmed, one line of at most 60 characters, and unique among its Dashboard's Layouts whatever the capitalization — the rules a Panel's title obeys, in the same scope, so two Dashboards of one Workspace may each have a *Wide*.
 

@@ -1512,6 +1512,20 @@ describe('Panels', () => {
       expect(screen.queryAllByTestId('row-seam')[0]).not.toHaveStyle({ height: '22px' });
     });
 
+    it('keeps nothing of a drag the window was shrunk to a phone in the middle of', () => {
+      const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      const point = slotBefore('falcon');
+      dragTo('To read', point, false);
+
+      act(() => {
+        screenIs(375);
+        window.dispatchEvent(new Event('resize'));
+      });
+      fireEvent.pointerUp(handleOf('To read'), { pointerId: 1, clientX: point.x, clientY: point.y });
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
     it('switches between the layout and one panel across as the window crosses the line, without a reload', () => {
       screenIs(1280);
       showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });

@@ -27,8 +27,8 @@ import type { Layout, LayoutCell, LayoutRow, Panel, ScreenSize } from '@cockpit/
  * answer rather than falling into a bucket.
  *
  * 420px is about the width of a phone laid out at its comfortable size, and it
- * is what makes a 480px phone one panel across, a 1280px laptop three, and
- * anything wider four.
+ * is what makes a phone one panel across (anything under 480px, `isPhoneWidth`,
+ * and 480px itself), a 1280px laptop three, and anything wider four.
  *
  * What it is divided into is the width the *panels* have, not the window's:
  * where the Inbox sits beside them it takes about a fifth of the screen

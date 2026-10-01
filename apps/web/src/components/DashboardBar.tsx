@@ -522,17 +522,17 @@ export function DashboardBar({
         <div className="ml-auto flex shrink-0 items-end gap-1 pl-2">
           {!onAPhone && (
             <LayoutPicker
-            // Keyed by the dashboard, for the reason the board is keyed by it
-            // (DashboardPage): the half-typed layout name and the open
-            // question belong to the dashboard being left. This bar is the
-            // shell's and stays mounted across a switch, so nothing else drops
-            // them.
-            key={openDashboardId}
-            workspaceId={workspaceId}
-            dashboardId={openDashboardId}
-            layouts={layoutsOf(data?.layouts ?? [], openDashboardId)}
-            screenSizes={data?.screenSizes ?? []}
-            panels={(data?.panels ?? []).filter((p) => p.dashboardId === openDashboardId)}
+              // Keyed by the dashboard, for the reason the board is keyed by it
+              // (DashboardPage): the half-typed layout name and the open
+              // question belong to the dashboard being left. This bar is the
+              // shell's and stays mounted across a switch, so nothing else drops
+              // them.
+              key={openDashboardId}
+              workspaceId={workspaceId}
+              dashboardId={openDashboardId}
+              layouts={layoutsOf(data?.layouts ?? [], openDashboardId)}
+              screenSizes={data?.screenSizes ?? []}
+              panels={(data?.panels ?? []).filter((p) => p.dashboardId === openDashboardId)}
             />
           )}
           <AddPanel workspaceId={workspaceId} dashboardId={openDashboardId} />

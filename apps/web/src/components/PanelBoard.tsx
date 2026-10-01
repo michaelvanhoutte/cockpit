@@ -442,6 +442,10 @@ export function PanelBoard({
    * is nothing to change and nothing worth interrupting a drag to ask.
    */
   const propose = (next: LayoutRow[]) => {
+    // A gesture already in the air when the window shrank past the phone line
+    // has nothing to keep: a phone is never arranged, and sending it would
+    // make a layout at a screen that has none to make.
+    if (!arrangeable) return;
     // Against what has been *sent* - or the store, where nothing has - rather
     // than against what is drawn: a gesture that puts a panel back where the
     // snapshot has it still has to be sent when an earlier one moved
