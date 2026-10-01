@@ -30,7 +30,7 @@ import {
  */
 const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
 
-test.describe('Connected apps', () => {
+test.describe('MCP connections', () => {
   test.describe('an app somebody allows captures into their Inbox, and the item says which app it was', () => {
     test('connects Claude through sign-in and the consent page, and its capture shows in the Inbox as from Claude', async ({
       page,
@@ -110,8 +110,8 @@ test.describe('Connected apps', () => {
       // The window is on the workspace's "…", which is not there below `sm`.
       if (isMobile) return;
       await press(workspaceMenuButton(page), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Connected apps' }), isMobile);
-      const window = page.getByRole('dialog', { name: 'Connected apps' });
+      await press(page.getByRole('menuitem', { name: 'MCP connections' }), isMobile);
+      const window = page.getByRole('dialog', { name: 'MCP connections' });
       await expect(window.getByText(new URL(page.url()).origin + '/mcp')).toBeVisible();
       const listed = window.getByRole('listitem').filter({ hasText: 'Claude' });
       await expect(listed).toContainText(/last captured/);
@@ -119,7 +119,7 @@ test.describe('Connected apps', () => {
       await press(listed.getByRole('button', { name: 'Actions for Claude' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Disconnect' }), isMobile);
       await press(page.getByRole('button', { name: 'Yes, disconnect Claude' }), isMobile);
-      await expect(window.getByText('No apps connected')).toBeVisible();
+      await expect(window.getByText('No MCP connections')).toBeVisible();
 
       // Cut off at once, and what it captured is still there.
       const refused = await page.request.post('/mcp', {

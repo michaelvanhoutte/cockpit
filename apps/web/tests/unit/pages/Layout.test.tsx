@@ -120,7 +120,7 @@ describe('Workspace management', () => {
   });
 
   describe('the account\u2019s list of types opens over the workspace rather than replacing it', () => {
-    it.each(['Manage types', 'Connected apps'])('opens %s from the header\u2019s menu', async (entry) => {
+    it.each(['Manage types', 'MCP connections'])('opens %s from the header\u2019s menu', async (entry) => {
       // It was a page, and reaching one took the shell somewhere it has no
       // state for: no workspace to colour the header, fill a tab or offer
       // Capture\u2026 So the header stays exactly as it is and the list is drawn
@@ -198,7 +198,7 @@ describe('Across the app', () => {
         'Manage connections…',
         'Delete',
         'Manage types',
-        'Connected apps',
+        'MCP connections',
         'Hide the agents’ dock',
       ]);
       expect(screen.getByRole('separator')).toBeInTheDocument();

@@ -102,7 +102,7 @@ export default function ManageConnectedApps({
 
   return (
     <ManageWindow
-      title="Connected apps"
+      title="MCP connections"
       open={open}
       onClose={close}
       canClose={!ending.isPending}
@@ -170,7 +170,7 @@ export default function ManageConnectedApps({
           </div>
         )}
         {answered && apps.length === 0 && !isFetching && (
-          <p className="px-4 py-4 text-sm text-ink-faint">No apps connected</p>
+          <p className="px-4 py-4 text-sm text-ink-faint">No MCP connections</p>
         )}
       </section>
 

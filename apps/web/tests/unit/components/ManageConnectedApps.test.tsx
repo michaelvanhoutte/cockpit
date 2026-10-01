@@ -62,7 +62,7 @@ beforeEach(() => {
   held.deleted = [];
 });
 
-describe('Connected apps', () => {
+describe('MCP connections', () => {
   describe('the window lists the apps you allowed, and says so where there are none', () => {
     it('shows each app by its registered name, when it was connected and when it last captured', async () => {
       held.apps = [CLAUDE, QUIET];
@@ -78,8 +78,8 @@ describe('Connected apps', () => {
     it('says no app is connected only once the answer has come back, and still shows the address', async () => {
       showWindow();
 
-      expect(screen.queryByText('No apps connected')).toBeNull();
-      expect(await screen.findByText('No apps connected')).toBeInTheDocument();
+      expect(screen.queryByText('No MCP connections')).toBeNull();
+      expect(await screen.findByText('No MCP connections')).toBeInTheDocument();
       expect(screen.getByText(`${window.location.origin}/mcp`)).toBeInTheDocument();
     });
   });
