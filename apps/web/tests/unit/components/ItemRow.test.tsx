@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { STARTING_GIVES_UP_AFTER_MS, type AgentRun, type Item, type ItemType, type StartableAgent } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { AGENT_BEING_DRAGGED, landAgent, liftAgent } from '../../../src/agentInTheAir';
@@ -14,14 +15,34 @@ import { useCommand, useSendCommand } from '../../../src/api/queries';
 vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
   useSendCommand: vi.fn(),
-  // Read by the row's own "Rewrite history…" entry, closed here so nothing opens it.
+  // Read by the row's own "Smart refinements…" entry: one refinement, saying
+  // which query it came from.
   rewriteHistoryForWorkspaceQuery: (workspaceId: string) => ({
     queryKey: ['rewriteHistory', 'workspace', workspaceId],
     queryFn: () => Promise.resolve({ entries: [] }),
   }),
   rewriteHistoryForItemQuery: (itemId: string) => ({
     queryKey: ['rewriteHistory', 'item', itemId],
-    queryFn: () => Promise.resolve({ entries: [] }),
+    queryFn: () =>
+      Promise.resolve({
+        entries: [
+          {
+            id: 'refinement-1',
+            itemId,
+            titleBefore: 'call ann',
+            titleAfter: null,
+            descriptionBefore: null,
+            descriptionAfter: null,
+            proposedPanelName: null,
+            status: 'left-as-is',
+            message: `read ${itemId} alone`,
+            attemptedAt: '2026-10-01T09:00:00.000Z',
+            looksAt: 'texts-and-panel',
+            suggestedPanelBefore: null,
+            suggestedPanelAfter: null,
+          },
+        ],
+      }),
   }),
 }));
 
@@ -127,10 +148,14 @@ function aRow({
       />
     </UndoWhatJustHappened>
   );
+  // The query client is what the row's own Smart refinements window reads through.
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const withDock = (node: React.ReactNode) => (
-    <DockedItemContext.Provider value={dock ?? { openId: null, show: () => {} }}>
-      {node}
-    </DockedItemContext.Provider>
+    <QueryClientProvider client={queries}>
+      <DockedItemContext.Provider value={dock ?? { openId: null, show: () => {} }}>
+        {node}
+      </DockedItemContext.Provider>
+    </QueryClientProvider>
   );
   const { rerender } = render(withDock(rendered(selecting)));
   return {
@@ -2042,6 +2067,22 @@ describe('Agents', () => {
       dropOnTheRow(SCOPE_IT.id);
 
       expect(await screen.findByRole('alert')).toHaveTextContent('Claude is already on this item.');
+    });
+  });
+});
+
+describe('Smart refinements', () => {
+  describe('the window is reached as "Smart refinements…" from the Inbox menu and from an item menu, and is titled Smart refinements', () => {
+    it("opens that item's own refinements from its menu", async () => {
+      const user = userEvent.setup();
+      aRow();
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Smart refinements…' }));
+
+      const dialog = await screen.findByRole('dialog', { name: 'Smart refinements' });
+      expect(await within(dialog).findByText('Read item-1 alone')).toBeVisible();
+      expect(within(dialog).queryByRole('columnheader', { name: 'Item' })).toBeNull();
     });
   });
 });

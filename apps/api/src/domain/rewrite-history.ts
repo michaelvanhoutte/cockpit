@@ -1,4 +1,4 @@
-import type { RewriteAttemptStatus } from '@cockpit/shared';
+import type { RefinementScope, RewriteAttemptStatus, SuggestedPanel } from '@cockpit/shared';
 
 /**
  * Pure shapes for the rewrite-history table ("See the history of what
@@ -19,6 +19,10 @@ export interface QueuedRewriteAttempt {
   itemId: string;
   titleBefore: string;
   descriptionBefore: string | null;
+  /** Which fields this attempt looks at, fixed by what set it off. */
+  looksAt: RefinementScope;
+  /** The item's suggested Panel at the moment this was queued. */
+  panelBeforeId: string | null;
   attemptedAt: string;
 }
 
@@ -28,11 +32,12 @@ export interface RewriteOutcome {
   message: string | null;
   titleAfter?: string | null;
   descriptionAfter?: string | null;
+  /** The suggested Panel the item carries once this settled - never one the store refused. */
   proposedPanelId?: string | null;
   proposedPanelReason?: string | null;
 }
 
-/** One row as a rewrite-history table reads it back, joined to the Panel it proposed, if any. */
+/** One row as a rewrite-history table reads it back, joined to the Panels it names, if any. */
 export interface RewriteHistoryEntryRow {
   id: string;
   itemId: string;
@@ -44,4 +49,7 @@ export interface RewriteHistoryEntryRow {
   status: RewriteAttemptStatus;
   message: string | null;
   attemptedAt: string;
+  looksAt: RefinementScope | null;
+  suggestedPanelBefore: SuggestedPanel | null;
+  suggestedPanelAfter: SuggestedPanel | null;
 }

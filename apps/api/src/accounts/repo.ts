@@ -23,7 +23,9 @@ import {
   type LayoutRow,
   type Panel,
   type PossibleDuplicate,
+  type RefinementScope,
   type RewriteAttemptStatus,
+  type SuggestedPanel,
   type ScreenSize,
   type Source,
   type SourceAccount,
@@ -1057,6 +1059,8 @@ export function queueRewriteAttempt(db: AccountDb, attempt: QueuedRewriteAttempt
       itemId: attempt.itemId,
       titleBefore: attempt.titleBefore,
       descriptionBefore: attempt.descriptionBefore,
+      looksAt: attempt.looksAt,
+      panelBeforeId: attempt.panelBeforeId,
       status: 'pending',
       attemptedAt: attempt.attemptedAt,
     })
@@ -1098,7 +1102,16 @@ export function recordRewriteOutcome(
     .run();
 }
 
-/** The columns a rewrite-history row is read by, joined to the Panel it proposed, if any and if it still exists. */
+/**
+ * The suggested Panel a row started from and the one it settled on, each
+ * joined whether or not it has since been deleted - a deleted one is named as
+ * such rather than read as none ("Rename Rewrite history to Smart
+ * refinements, and show each field's change", issue 614).
+ */
+const panelBefore = alias(panels, 'panel_before');
+const panelAfter = alias(panels, 'panel_after');
+
+/** The columns a rewrite-history row is read by. */
 const rewriteHistoryColumns = {
   id: rewriteHistory.id,
   itemId: rewriteHistory.itemId,
@@ -1106,11 +1119,22 @@ const rewriteHistoryColumns = {
   titleAfter: rewriteHistory.titleAfter,
   descriptionBefore: rewriteHistory.descriptionBefore,
   descriptionAfter: rewriteHistory.descriptionAfter,
-  proposedPanelName: panels.name,
   status: rewriteHistory.status,
   message: rewriteHistory.message,
   attemptedAt: rewriteHistory.attemptedAt,
+  looksAt: rewriteHistory.looksAt,
+  beforeId: panelBefore.id,
+  beforeName: panelBefore.name,
+  beforeDeletedAt: panelBefore.deletedAt,
+  afterId: panelAfter.id,
+  afterName: panelAfter.name,
+  afterDeletedAt: panelAfter.deletedAt,
 };
+
+function suggestedPanel(id: string | null, name: string | null, deletedAt: string | null): SuggestedPanel | null {
+  if (id === null) return null;
+  return { id, name: deletedAt === null ? name : null };
+}
 
 function asRewriteHistoryEntry(row: {
   id: string;
@@ -1119,12 +1143,33 @@ function asRewriteHistoryEntry(row: {
   titleAfter: string | null;
   descriptionBefore: string | null;
   descriptionAfter: string | null;
-  proposedPanelName: string | null;
   status: string;
   message: string | null;
   attemptedAt: string;
+  looksAt: string | null;
+  beforeId: string | null;
+  beforeName: string | null;
+  beforeDeletedAt: string | null;
+  afterId: string | null;
+  afterName: string | null;
+  afterDeletedAt: string | null;
 }): RewriteHistoryEntryRow {
-  return { ...row, status: row.status as RewriteAttemptStatus };
+  const after = suggestedPanel(row.afterId, row.afterName, row.afterDeletedAt);
+  return {
+    id: row.id,
+    itemId: row.itemId,
+    titleBefore: row.titleBefore,
+    titleAfter: row.titleAfter,
+    descriptionBefore: row.descriptionBefore,
+    descriptionAfter: row.descriptionAfter,
+    proposedPanelName: after?.name ?? null,
+    status: row.status as RewriteAttemptStatus,
+    message: row.message,
+    attemptedAt: row.attemptedAt,
+    looksAt: row.looksAt as RefinementScope | null,
+    suggestedPanelBefore: suggestedPanel(row.beforeId, row.beforeName, row.beforeDeletedAt),
+    suggestedPanelAfter: after,
+  };
 }
 
 /**
@@ -1155,7 +1200,8 @@ export function rewriteHistoryForWorkspace(
     .select(rewriteHistoryColumns)
     .from(rewriteHistory)
     .innerJoin(items, eq(rewriteHistory.itemId, items.id))
-    .leftJoin(panels, and(eq(rewriteHistory.proposedPanelId, panels.id), isNull(panels.deletedAt)))
+    .leftJoin(panelBefore, eq(rewriteHistory.panelBeforeId, panelBefore.id))
+    .leftJoin(panelAfter, eq(rewriteHistory.proposedPanelId, panelAfter.id))
     .where(
       and(
         eq(rewriteHistory.tenantId, tenantId),
@@ -1179,7 +1225,8 @@ export function rewriteHistoryForItem(db: AccountDb, tenantId: string, itemId: s
   return db
     .select(rewriteHistoryColumns)
     .from(rewriteHistory)
-    .leftJoin(panels, and(eq(rewriteHistory.proposedPanelId, panels.id), isNull(panels.deletedAt)))
+    .leftJoin(panelBefore, eq(rewriteHistory.panelBeforeId, panelBefore.id))
+    .leftJoin(panelAfter, eq(rewriteHistory.proposedPanelId, panelAfter.id))
     .where(and(eq(rewriteHistory.tenantId, tenantId), eq(rewriteHistory.itemId, itemId)))
     .orderBy(desc(rewriteHistory.attemptedAt))
     .limit(REWRITE_HISTORY_LIMIT)
@@ -1403,6 +1450,8 @@ export function unfiledItemsInWorkspace(
 /**
  * One Item a settled filing's refresh reads again: the note and the two texts
  * it carries now are what the panel choice is read from (`choose-a-panel.v1`).
+ * Also what a correction's re-read reads, whose history row records the
+ * suggested Panel it started from (issue 614).
  */
 export interface UnfiledCandidate {
   id: string;
@@ -1442,7 +1491,7 @@ export interface UnfiledCandidate {
 export function itemsWithUnsettledTexts(
   db: AccountDb,
   tenantId: string,
-): { id: string; workspaceId: string; title: string; description: string | null; capturedMessage: string }[] {
+): UnfiledCandidate[] {
   return db
     .select({
       id: items.id,
@@ -1450,6 +1499,7 @@ export function itemsWithUnsettledTexts(
       title: items.title,
       description: items.description,
       capturedMessage: items.capturedMessage,
+      proposedPanelId: items.proposedPanelId,
     })
     .from(items)
     .where(
@@ -1471,6 +1521,7 @@ export function itemsWithUnsettledTexts(
       title: row.title,
       description: row.description,
       capturedMessage: row.capturedMessage!,
+      proposedPanelId: row.proposedPanelId,
     }));
 }
 

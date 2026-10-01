@@ -498,9 +498,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
    */
   itemsWithUnsettledTexts(
     accountName: string,
-  ): Answer<
-    { id: string; workspaceId: string; title: string; description: string | null; capturedMessage: string }[]
-  > {
+  ): Answer<UnfiledCandidate[]> {
     return this.#answer(accountName, (db) => itemsWithUnsettledTexts(db, accountName));
   }
 

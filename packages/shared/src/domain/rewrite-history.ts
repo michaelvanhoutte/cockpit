@@ -1,16 +1,34 @@
 import { z } from 'zod';
 
 /**
- * One attempt Cockpit made to rewrite a captured item's title and description,
- * from the moment it was queued through to its outcome ("See the history of
- * what Cockpit proposed for the Inbox's items", issue 444).
+ * One smart refinement: an attempt Cockpit made to refine a captured item's
+ * title, description and suggested Panel, from the moment it was queued
+ * through to its outcome ("See the history of what Cockpit proposed for the
+ * Inbox's items", issue 444; "Rename Rewrite history to Smart refinements,
+ * and show each field's change", issue 614).
  *
  * The wire shape both the account-wide table (opened from the Inbox's own
  * menu) and an item's own table (opened from its row menu) read - the same
- * query either way, only the item filter differs.
+ * query either way, only the item filter differs. The table, route and type
+ * names keep "rewrite history": renaming them buys the person nothing.
  */
 export const rewriteAttemptStatusSchema = z.enum(['pending', 'rewritten', 'left-as-is', 'failed']);
 export type RewriteAttemptStatus = z.infer<typeof rewriteAttemptStatusSchema>;
+
+/**
+ * Which fields a refinement looks at, fixed by what set it off: a capture
+ * looks at all three, a re-read after you edit another item at the two
+ * texts, a refresh after you file another item at the suggested Panel alone.
+ */
+export const refinementScopeSchema = z.enum(['texts-and-panel', 'texts', 'panel']);
+export type RefinementScope = z.infer<typeof refinementScopeSchema>;
+
+/** A suggested Panel as a refinement saw it. `name` is null where that Panel has since been deleted. */
+export const suggestedPanelSchema = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+});
+export type SuggestedPanel = z.infer<typeof suggestedPanelSchema>;
 
 export const rewriteHistoryEntrySchema = z.object({
   id: z.string(),
@@ -26,6 +44,12 @@ export const rewriteHistoryEntrySchema = z.object({
   /** Why, in words meant to be read - the reason a left-as-is or a failed attempt names, or what a rewritten one answered in. */
   message: z.string().nullable(),
   attemptedAt: z.iso.datetime(),
+  /** Null on a row recorded before this was (issue 614), which records neither this nor `suggestedPanelBefore`. */
+  looksAt: refinementScopeSchema.nullable(),
+  /** The item's suggested Panel when the refinement was queued; null where it had none, or where `looksAt` is null. */
+  suggestedPanelBefore: suggestedPanelSchema.nullable(),
+  /** The suggested Panel the item carried once the refinement settled; null where it carried none. */
+  suggestedPanelAfter: suggestedPanelSchema.nullable(),
 });
 export type RewriteHistoryEntry = z.infer<typeof rewriteHistoryEntrySchema>;
 

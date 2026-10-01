@@ -166,9 +166,7 @@ export interface Account {
    * enrichment job and by nothing else, the same as `unfiledItemsInWorkspace`
    * above.
    */
-  itemsWithUnsettledTexts(): Promise<
-    { id: string; workspaceId: string; title: string; description: string | null; capturedMessage: string }[]
-  >;
+  itemsWithUnsettledTexts(): Promise<UnfiledCandidate[]>;
   /**
    * Records an ask for one refresh as the latest, and reads back the latest -
    * what debounces the settle-triggered refreshes ("Debounce the

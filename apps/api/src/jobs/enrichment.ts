@@ -293,6 +293,9 @@ export async function enqueueCleanUp(env: Env, accountName: string, itemId: stri
     itemId,
     titleBefore: item.title,
     descriptionBefore: item.description,
+    // A capture's first pass proposes both texts and a Panel.
+    looksAt: 'texts-and-panel',
+    panelBeforeId: item.proposedPanelId,
     attemptedAt: new Date().toISOString(),
   };
   await recordHistory(() => account.queueRewriteAttempt(attempt));
@@ -476,8 +479,9 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     return say(job.itemId, `nothing was proposed: ${read.discarded}`);
   }
 
+  let written;
   try {
-    const written = await account.applyChange('propose_item_texts', {
+    written = await account.applyChange('propose_item_texts', {
       commandId: crypto.randomUUID(),
       issuedAt: new Date().toISOString(),
       // The Workspace the Item is in, which is the envelope's and not a
@@ -496,30 +500,6 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
         meaning: candidate.meaning,
       })),
     });
-    await recordHistory(() =>
-      account.recordRewriteOutcome(attemptId, {
-        status: written.applied ? 'rewritten' : 'left-as-is',
-        titleAfter: written.applied ? read.proposal.title : null,
-        descriptionAfter: written.applied ? read.proposal.message : null,
-        proposedPanelId: written.applied ? (read.proposal.panel?.panelId ?? null) : null,
-        proposedPanelReason: written.applied ? (read.proposal.panel?.reason ?? null) : null,
-        message: written.applied
-          ? `proposed in ${read.proposal.language}`
-          : 'nothing was written: the texts are already edited',
-      }),
-    );
-    // Which language it answered in, said out loud, because that is the rule
-    // this prompt is most likely to break quietly and the only place a
-    // deployment can be watched for it (issue 296, "The language rule needs a
-    // structural answer").
-    say(job.itemId, `proposed in ${read.proposal.language}`);
-    // The two texts have just been replaced, so whatever was worked out about
-    // what this Item means is about words nobody can see any more ("Flag a
-    // captured note that says what another one already said", issue 407). The
-    // same re-read an edit fires, from the other of the two things that rewrite
-    // an Item's texts - and only where the write actually landed, so a
-    // redelivered job whose proposal the store refused costs no second reading.
-    if (written.applied) await enqueueReadingItsMeaning(env, job.accountName, job.itemId);
   } catch (error) {
     // The item went between the read above and this write. The same
     // not-worth-retrying case as above, arriving by the other door.
@@ -540,15 +520,72 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     );
     throw error;
   }
+  // Which language it answered in, said out loud, because that is the rule
+  // this prompt is most likely to break quietly and the only place a
+  // deployment can be watched for it (issue 296, "The language rule needs a
+  // structural answer").
+  say(job.itemId, `proposed in ${read.proposal.language}`);
+  // The two texts have just been replaced, so whatever was worked out about
+  // what this Item means is about words nobody can see any more ("Flag a
+  // captured note that says what another one already said", issue 407). The
+  // same re-read an edit fires, from the other of the two things that rewrite
+  // an Item's texts - and only where the write actually landed, so a
+  // redelivered job whose proposal the store refused costs no second reading.
+  if (written.applied) await enqueueReadingItsMeaning(env, job.accountName, job.itemId);
 
   // A second, independent write, factored out because a settled filing's own
   // re-proposal ("Re-propose the rest of the inbox the moment you file one",
   // issue 300) writes the same thing from a call of its own that never
   // touches the two texts above.
-  const routed = await applyProposedPanelIfAny(account, item, read.proposal.panel, item.proposedPanelId);
+  //
+  // **Settled before the outcome is recorded**, so the row names the Panel
+  // the item actually carries rather than one the store refused because the
+  // item was filed in the meantime ("Rename Rewrite history to Smart
+  // refinements, and show each field's change", issue 614).
+  let routed;
+  try {
+    routed = await applyProposedPanelIfAny(account, item, read.proposal.panel, item.proposedPanelId);
+  } catch (error) {
+    await recordHistory(() =>
+      account.recordRewriteOutcome(attemptId, {
+        status: 'failed',
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    throw error;
+  }
   if (routed === 'the item went while it was being read') {
     say(job.itemId, `nothing was routed: ${routed}`);
   }
+  const panelChanged = routed === 'routed' || routed === 'withdrawn';
+  await recordHistory(() =>
+    account.recordRewriteOutcome(attemptId, {
+      status: written.applied || panelChanged ? 'rewritten' : 'left-as-is',
+      titleAfter: written.applied ? read.proposal.title : null,
+      descriptionAfter: written.applied ? read.proposal.message : null,
+      proposedPanelId: panelItCarries(routed, read.proposal.panel, item.proposedPanelId),
+      proposedPanelReason: routed === 'routed' ? (read.proposal.panel?.reason ?? null) : null,
+      message: written.applied
+        ? `proposed in ${read.proposal.language}`
+        : 'nothing was written: the texts are already edited',
+    }),
+  );
+}
+
+/**
+ * The suggested Panel an item carries once `applyProposedPanelIfAny` has
+ * answered: the one proposed where it landed, none where it was withdrawn,
+ * and otherwise the one it already had - a proposal the store refused
+ * changed nothing.
+ */
+function panelItCarries(
+  routed: Awaited<ReturnType<typeof applyProposedPanelIfAny>>,
+  panel: RoutingCandidate | null,
+  current: string | null,
+): string | null {
+  if (routed === 'routed') return panel?.panelId ?? null;
+  if (routed === 'withdrawn') return null;
+  return current;
 }
 
 /**
@@ -791,6 +828,8 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
           itemId: candidate.id,
           titleBefore: candidate.title,
           descriptionBefore: candidate.description,
+          looksAt: 'panel',
+          panelBeforeId: candidate.proposedPanelId,
           attemptedAt: new Date().toISOString(),
         }),
       );
@@ -827,7 +866,7 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
       await recordHistory(() =>
         account.recordRewriteOutcome(attemptId, {
           status: changed ? 'rewritten' : 'left-as-is',
-          proposedPanelId: routed === 'routed' ? (panel?.panelId ?? null) : null,
+          proposedPanelId: panelItCarries(routed, panel, candidate.proposedPanelId),
           proposedPanelReason: routed === 'routed' ? (panel?.reason ?? null) : null,
           message:
             routed === 'routed'
@@ -944,6 +983,8 @@ export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<
           itemId: candidate.id,
           titleBefore: candidate.title,
           descriptionBefore: candidate.description,
+          looksAt: 'texts',
+          panelBeforeId: candidate.proposedPanelId,
           attemptedAt: new Date().toISOString(),
         }),
       );

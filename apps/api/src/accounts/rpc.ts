@@ -124,11 +124,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    */
   itemsWithUnsettledTexts(
     accountName: string,
-  ): Awaitable<
-    Answer<
-      { id: string; workspaceId: string; title: string; description: string | null; capturedMessage: string }[]
-    >
-  >;
+  ): Awaitable<Answer<UnfiledCandidate[]>>;
   /**
    * Records an ask for one refresh as the latest, unless a later one is
    * already recorded ("Debounce the settle-triggered repropose fan-out across
