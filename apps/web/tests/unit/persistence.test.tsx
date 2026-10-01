@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 import { QueryClient, useQuery } from '@tanstack/react-query';
@@ -105,6 +106,36 @@ describe('Offline', () => {
       await act(async () => answer());
 
       expect(await screen.findByText('four panels')).toBeInTheDocument();
+    });
+
+    it('has the copy in the cache before anything beneath it reads it', async () => {
+      // What the router does on mount: take what the cache holds, and go to the
+      // server only for what it does not. Mounted ahead of the restore, this
+      // finds nothing and asks a server that cannot answer.
+      await aStoredCopySaying('three panels');
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const server = vi.fn(() => Promise.reject(new Error('offline')));
+      let found: unknown;
+      function ReadsOnMount() {
+        useEffect(() => {
+          void client
+            .ensureQueryData({ queryKey: WHAT_THE_WORKSPACE_HOLDS, queryFn: server })
+            .then((data) => {
+              found = data;
+            })
+            .catch(() => {});
+        }, []);
+        return null;
+      }
+
+      render(
+        <PaintedFromTheStoredCopy client={client}>
+          <ReadsOnMount />
+        </PaintedFromTheStoredCopy>,
+      );
+
+      await vi.waitFor(() => expect(found).toBe('three panels'));
+      expect(server).not.toHaveBeenCalled();
     });
 
     it('leaves the copy on screen when the server cannot be reached', async () => {
