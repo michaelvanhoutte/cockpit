@@ -11,8 +11,19 @@ import {
   signInWith,
   somebodyNew,
   test,
+  workspaceMenuButton,
   workspaceTab,
 } from './support/app';
+
+/** The window the users are managed in, over the workspace. */
+const usersWindow = (page: Page) => page.getByRole('dialog', { name: 'Manage users' });
+
+/** Opens it from the open workspace's "…" - an admin is the only one offered the entry. */
+async function openManageUsers(page: Page, isMobile: boolean) {
+  await press(workspaceMenuButton(page), isMobile);
+  await press(page.getByRole('menuitem', { name: 'Manage users' }), isMobile);
+  await expect(usersWindow(page)).toBeVisible();
+}
 
 /** Opens somebody's row, sets the role, and waits for the list to say so. */
 async function makeThem(page: Page, who: string, role: 'Admin' | 'User', isMobile: boolean) {
@@ -21,8 +32,8 @@ async function makeThem(page: Page, who: string, role: 'Admin' | 'User', isMobil
   await press(page.getByRole('radio', { name: new RegExp(`^${role}`) }), isMobile);
   await press(page.getByRole('button', { name: 'Save' }), isMobile);
 
-  const row = page.getByRole('row').filter({ hasText: who });
-  await expect(row.getByRole('cell', { name: role, exact: true })).toBeVisible();
+  const row = usersWindow(page).getByRole('listitem').filter({ hasText: who });
+  await expect(row).toContainText(` ·`);
 }
 
 /**
@@ -42,7 +53,7 @@ async function addSomebody(
   await page.getByLabel('Signs in with').fill(who.address);
   await press(page.getByRole('button', { name: 'Add', exact: true }), isMobile);
 
-  const row = page.getByRole('row').filter({ hasText: who.address });
+  const row = usersWindow(page).getByRole('listitem').filter({ hasText: who.address });
   await expect(row).toHaveCount(1);
   return row;
 }
@@ -56,13 +67,17 @@ async function setAccess(page: Page, who: string, entry: 'Disable' | 'Enable', i
   // finds no mark either, so "no longer marked" would pass against a person who
   // had dropped out of the list altogether - which is the one thing this is
   // meant to prove does not happen.
-  const row = page.getByRole('row').filter({ hasText: who });
+  const row = usersWindow(page).getByRole('listitem').filter({ hasText: who });
   await expect(row).toHaveCount(1);
   await expect(row.getByText('No access')).toHaveCount(entry === 'Disable' ? 1 : 0);
 }
 
 /** Leaves as whoever is signed in. */
 async function signOut(page: Page, isMobile: boolean) {
+  // The users window is a modal, so it has to be put away before the menu behind
+  // it can be reached.
+  const done = usersWindow(page).getByRole('button', { name: 'Done' });
+  if (await done.isVisible()) await press(done, isMobile);
   await press(page.getByRole('button', { name: 'Profile' }), isMobile);
   await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
 }
@@ -97,15 +112,13 @@ async function signOutAndIn(page: Page, address: string, isMobile: boolean) {
 }
 
 /**
- * F3, because the claim is about a whole browser reaching a page: that an admin
- * is offered a way in and lands on the list, and that an ordinary user typing
- * the address is refused by the server rather than merely un-offered the entry.
- * The second is the half nothing below this tier can make - the API suite
- * proves the refusal and the component suite proves the drawing, and neither
- * can say that a person who types `/admin` meets the one and sees the other.
+ * F3, because the claim is about a whole browser: that an admin is offered a way
+ * in from the workspace's menu and lands on the list, and that a role taken away
+ * takes the entry with it on the next sign-in. The refusal of an ordinary user is
+ * the server's and is proved against a real register at the API suite; the
+ * component suite proves the drawing.
  *
- * Michael is the seeded admin and Ada is not (`apps/api/seed.sql`), which is
- * why the seed has two people holding different roles.
+ * Michael is the seeded admin and Ada is not (`apps/api/seed.sql`).
  *
  * Every way the role can be read wrong is settled at
  * apps/api/tests/unit/auth/admin.test.ts, and what the list holds at
@@ -113,18 +126,17 @@ async function signOutAndIn(page: Page, address: string, isMobile: boolean) {
  * re-proved here.
  */
 test.describe('User management', () => {
-  test.describe('the admin page is reachable by an admin and refused to everyone else', () => {
+  test.describe('the users window is offered to an admin and to nobody else', () => {
+    // It is on the workspace's "…", which is not there below `sm` (connected-apps).
+    test.skip(({ isMobile }) => isMobile, 'The workspace menu is not drawn on a phone');
+
     test('takes an admin from the menu to the list of everyone who can sign in', async ({
       page,
       isMobile,
     }) => {
       await signIn(page, MICHAEL, isMobile);
 
-      await press(page.getByRole('button', { name: 'Profile' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Admin' }), isMobile);
-
-      await expect(page).toHaveURL(/\/admin$/);
-      await expect(page.getByRole('heading', { name: 'Who can sign in' })).toBeVisible();
+      await openManageUsers(page, isMobile);
 
       // Both seeded people, which is also the account boundary being crossed on
       // purpose: Ada's row is here while none of her work ever is.
@@ -136,7 +148,7 @@ test.describe('User management', () => {
         { who: MICHAEL, address: 'michael@example.com' },
         { who: ADA, address: 'ada@example.com' },
       ]) {
-        const row = page.getByRole('row').filter({ hasText: address });
+        const row = usersWindow(page).getByRole('listitem').filter({ hasText: address });
         await expect(row).toHaveCount(1);
         await expect(row).toContainText(who);
       }
@@ -154,7 +166,7 @@ test.describe('User management', () => {
       isMobile,
     }) => {
       await signIn(page, MICHAEL, isMobile);
-      await page.goto('/admin');
+      await openManageUsers(page, isMobile);
 
       // Somebody this run has not added before: the stack rebuilds its storage
       // once and serves both projects from it, so a fixed address would meet
@@ -165,8 +177,7 @@ test.describe('User management', () => {
 
       // Now hers: a person the register did not hold a minute ago signs in and
       // arrives in an account of her own.
-      await press(page.getByRole('button', { name: 'Profile' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
+      await signOut(page, isMobile);
       await signInWith(page, anna.address, isMobile);
 
       // Asserted here rather than inside the helper: that somebody added a
@@ -194,7 +205,7 @@ test.describe('User management', () => {
        * timestamp it is given, neither can say the one causes the other.
        */
       await signOutAndIn(page, addressOf(MICHAEL), isMobile);
-      await page.goto('/admin');
+      await openManageUsers(page, isMobile);
       // The row first, then the text: a locator scoped to a row that has not
       // drawn yet finds no text either, so "not yet" not being there would
       // pass against a page still loading - which is the one thing this is
@@ -218,7 +229,7 @@ test.describe('User management', () => {
     test('makes somebody an admin, and takes it back', async ({ page, isMobile }) => {
       const anna = somebodyNew('Anna');
       await signIn(page, MICHAEL, isMobile);
-      await page.goto('/admin');
+      await openManageUsers(page, isMobile);
       await addSomebody(page, anna, isMobile);
 
       await makeThem(page, anna.name, 'Admin', isMobile);
@@ -226,19 +237,18 @@ test.describe('User management', () => {
       // Hers now: she is offered the way in rather than having to know the
       // address, and the page answers her.
       await signOutAndIn(page, anna.address, isMobile);
-      await press(page.getByRole('button', { name: 'Profile' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Admin' }), isMobile);
-      await expect(page.getByRole('heading', { name: 'Who can sign in' })).toBeVisible();
+      await openManageUsers(page, isMobile);
 
       // And taken back by the admin who gave it, which is the half that cannot
       // be shown without two people: she cannot take it back herself.
       await signOutAndIn(page, addressOf(MICHAEL), isMobile);
-      await page.goto('/admin');
+      await openManageUsers(page, isMobile);
       await makeThem(page, anna.name, 'User', isMobile);
 
       await signOutAndIn(page, anna.address, isMobile);
-      await page.goto('/admin');
-      await expect(page.getByText(/for admins/i)).toBeVisible();
+      await press(workspaceMenuButton(page), isMobile);
+      await expect(page.getByRole('menuitem', { name: 'Manage types' })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Manage users' })).toHaveCount(0);
     });
 
     /**
@@ -255,7 +265,7 @@ test.describe('User management', () => {
       /** What she calls her workspace, so what survives is something she chose. */
       const HERS = `${anna.name}’s work`;
       await signIn(page, MICHAEL, isMobile);
-      await page.goto('/admin');
+      await openManageUsers(page, isMobile);
       await addSomebody(page, anna, isMobile);
 
       /**
@@ -271,7 +281,7 @@ test.describe('User management', () => {
       await expect(workspaceTab(page, HERS)).toBeVisible();
 
       await signOutAndIn(page, addressOf(MICHAEL), isMobile);
-      await page.goto('/admin');
+      await openManageUsers(page, isMobile);
       await setAccess(page, anna.name, 'Disable', isMobile);
 
       // Turned away, and told which of the two refusals this is: her work is
@@ -284,7 +294,7 @@ test.describe('User management', () => {
       // is nothing to sign out of - this is the logon page answering somebody
       // else.
       await signInPastTheQuestion(page, addressOf(MICHAEL), isMobile);
-      await page.goto('/admin');
+      await openManageUsers(page, isMobile);
       await setAccess(page, anna.name, 'Enable', isMobile);
 
       // And she is back in the account she already had, which is the whole
@@ -304,7 +314,7 @@ test.describe('User management', () => {
      * Google account may - makes them somebody new, with nothing of theirs. What
      * deleting destroys, and that a name given back carries nothing, are settled
      * at apps/api/tests/integration/http/user-management.test.ts and the
-     * question's wording at apps/web/tests/unit/pages/AdminPage.test.tsx.
+     * question's wording at apps/web/tests/unit/components/ManageUsers.test.tsx.
      *
      * Somebody added by this walk rather than Ada, for the reason the walks
      * above add one: deleting a seeded person would take her from every other
@@ -318,7 +328,7 @@ test.describe('User management', () => {
       /** What she calls her workspace, so what would survive is something she chose. */
       const HERS = `${anna.name}’s work`;
       await signIn(page, MICHAEL, isMobile);
-      await page.goto('/admin');
+      await openManageUsers(page, isMobile);
       await addSomebody(page, anna, isMobile);
 
       await signOut(page, isMobile);
@@ -328,7 +338,7 @@ test.describe('User management', () => {
       await expect(workspaceTab(page, HERS)).toBeVisible();
 
       await signOutAndIn(page, addressOf(MICHAEL), isMobile);
-      await page.goto('/admin');
+      await openManageUsers(page, isMobile);
       await press(page.getByRole('button', { name: `Actions for ${anna.name}` }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Delete' }), isMobile);
       // The one workspace she named - and the question says so.
@@ -337,7 +347,7 @@ test.describe('User management', () => {
       await press(question.getByRole('button', { name: `Yes, delete ${anna.name}` }), isMobile);
 
       await expect(question).toHaveCount(0);
-      await expect(page.getByRole('row').filter({ hasText: anna.address })).toHaveCount(0);
+      await expect(usersWindow(page).getByRole('listitem').filter({ hasText: anna.address })).toHaveCount(0);
 
       // Back as somebody new, under the name Google gives her - the one she was
       // added by, which derives the same account as before: the question a new
@@ -356,22 +366,5 @@ test.describe('User management', () => {
       await expect(workspaceTab(page, HERS)).toHaveCount(0);
     });
 
-    test('refuses an ordinary user who types the address, and offers them no way in', async ({
-      page,
-      isMobile,
-    }) => {
-      await signIn(page, ADA, isMobile);
-
-      // Straight to the address. That the entry is not offered to her is
-      // apps/web/tests/unit/pages/Layout.test.tsx's, and re-proving it here
-      // would be the upward duplication the testing strategy rejects; what
-      // only a browser can show is somebody typing the address anyway.
-      await page.goto('/admin');
-
-      // Not sent to the logon page: she is signed in, and signing in again is
-      // the one thing that cannot help her.
-      await expect(page.getByText(/for admins/i)).toBeVisible();
-      await expect(page.getByRole('cell', { name: MICHAEL, exact: true })).toHaveCount(0);
-    });
   });
 });

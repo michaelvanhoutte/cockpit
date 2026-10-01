@@ -64,7 +64,7 @@
         "apps/api/src/accounts/register.ts",
         "apps/api/src/accounts/new-user.ts",
         "packages/shared/src/api/users.ts",
-        "apps/web/src/pages/AdminPage.tsx",
+        "apps/web/src/components/ManageUsers.tsx",
         "apps/web/src/pages/Layout.tsx"
       ]
     },

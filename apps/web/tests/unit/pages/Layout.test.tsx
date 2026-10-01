@@ -63,6 +63,13 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
 
 vi.mock('../../../src/api/queries', () => ({
+  // The users window is drawn for an admin and is shut here, but it is mounted.
+  registeredUsersQuery: { queryKey: ['registeredUsers'], queryFn: () => Promise.resolve({ users: [] }) },
+  accountHoldingsQuery: (userId: string) => ({ queryKey: ['accountHoldings', userId], queryFn: () => Promise.resolve({ workspaces: 0, empty: true }) }),
+  useAddUser: () => ({ mutate: () => undefined, isPending: false, error: null, data: undefined }),
+  useChangeUser: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
+  useSetAccess: () => ({ mutate: () => undefined, isPending: false, error: null }),
+  useDeleteUser: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
   // The types window the shell now draws over the workspace reads them
   // (pages/Layout.tsx). It is shut in these cases, but it is mounted.
   itemTypesQuery: { queryKey: ['itemTypes'], queryFn: () => Promise.resolve({ itemTypes: [] }) },
@@ -304,17 +311,83 @@ describe('Across the app', () => {
 });
 
 describe('User management', () => {
-  describe('the way into the admin pages is offered to an admin and to nobody else', () => {
+  describe('the way into it is offered to an admin and to nobody else', () => {
     /**
      * Hiding it is a courtesy rather than the guard - the server refuses an
-     * ordinary user who types the address (`auth/admin.ts`) - but a door that
-     * only ever says no is worse than no door, which is what this holds.
+     * ordinary user who reaches it (`auth/admin.ts`) - but a door that only
+     * ever says no is worse than no door, which is what this holds. It sits
+     * with the account's other settings, not under the person's own menu.
      */
     it.each([
       { situation: 'an admin', role: 'admin', offered: true },
       { situation: 'an ordinary user', role: 'user', offered: false },
     ])('offers it to $situation: $offered', async ({ role, offered }) => {
       signedInRole = role;
+      openWorkspaceId = 'ws-markup';
+      const user = userEvent.setup();
+      render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Layout />
+        </QueryClientProvider>,
+      );
+
+      await user.click(
+        await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }),
+      );
+      // Awaited on something that is always there, so the absent case is a
+      // menu that has finished opening rather than one that has not started.
+      expect(await screen.findByRole('menuitem', { name: 'Manage types' })).toBeVisible();
+
+      expect(screen.queryByRole('menuitem', { name: 'Manage users' }) !== null).toBe(offered);
+    });
+
+    it('puts it last, under a separator of its own', async () => {
+      signedInRole = 'admin';
+      openWorkspaceId = 'ws-markup';
+      const user = userEvent.setup();
+      render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Layout />
+        </QueryClientProvider>,
+      );
+
+      await user.click(
+        await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }),
+      );
+      await screen.findByRole('menuitem', { name: 'Manage users' });
+
+      const entries = screen.getAllByRole('menuitem');
+      const separators = screen.getAllByRole('separator');
+      expect(entries.at(-1)).toHaveTextContent('Manage users');
+      expect(separators.at(-1)!.nextElementSibling).toBe(entries.at(-1));
+    });
+
+    it('opens it as a window over the workspace', async () => {
+      signedInRole = 'admin';
+      openWorkspaceId = 'ws-markup';
+      const user = userEvent.setup();
+      render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Layout />
+        </QueryClientProvider>,
+      );
+
+      await user.click(
+        await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }),
+      );
+      await user.click(await screen.findByRole('menuitem', { name: 'Manage users' }));
+
+      expect(await screen.findByRole('dialog', { name: 'Manage users' })).toBeVisible();
+    });
+
+    it('does not put it under the profile menu', async () => {
+      signedInRole = 'admin';
       const user = userEvent.setup();
       render(
         <QueryClientProvider
@@ -325,11 +398,9 @@ describe('User management', () => {
       );
 
       await user.click(await screen.findByRole('button', { name: 'Profile' }));
-      // Awaited on something that is always there, so the absent case is a
-      // menu that has finished opening rather than one that has not started.
       expect(await screen.findByRole('menuitem', { name: 'Sign out' })).toBeVisible();
 
-      expect(screen.queryByRole('menuitem', { name: 'Admin' }) !== null).toBe(offered);
+      expect(screen.queryByRole('menuitem', { name: 'Admin' })).toBeNull();
     });
   });
 });

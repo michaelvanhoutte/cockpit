@@ -276,6 +276,12 @@ export interface MenuEntry {
   /** Why this cannot be chosen. Present means unavailable; it is said, not hidden. */
   unavailable?: string | undefined;
   destructive?: boolean | undefined;
+  /**
+   * A separator above it, for an entry that is a different kind from the ones
+   * before it - the account's entries change what this session shows, and one
+   * that changes something for everybody stands apart from them.
+   */
+  separatorBefore?: boolean | undefined;
 }
 
 /**
@@ -338,7 +344,7 @@ export function RowMenu({
       >
         {[...entries, ...footer].map((entry, at) => (
           <Fragment key={entry.label}>
-            {at === entries.length && at > 0 && (
+            {((at === entries.length && at > 0) || (entry.separatorBefore && at > 0)) && (
               <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
             )}
             <DropdownMenu.Item

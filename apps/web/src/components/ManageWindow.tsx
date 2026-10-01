@@ -29,6 +29,7 @@ export function ManageWindow({
   onEscapeKeyDown,
   returnFocusTo,
   ref,
+  wide = false,
   children,
 }: {
   /** What is being managed, which is the whole of what this window is. */
@@ -56,6 +57,8 @@ export function ManageWindow({
    * focus would otherwise fall to the page behind.
    */
   ref?: React.Ref<HTMLDivElement>;
+  /** Room for a list whose rows carry several facts - the users, with an address and a role each. */
+  wide?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -93,7 +96,7 @@ export function ManageWindow({
           // reach both ends of the screen, so both the 16px it starts at and
           // the height it may grow to are measured inside the screen's own
           // edges (styles.css, `--edge-top`).
-          className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] flex max-h-[calc(100dvh_-_2rem_-_var(--edge-top)_-_var(--edge-bottom))] w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:max-h-[min(40rem,calc(100dvh-8rem))] md:-translate-y-1/2"
+          className={`fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] flex max-h-[calc(100dvh_-_2rem_-_var(--edge-top)_-_var(--edge-bottom))] -translate-x-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2 ${wide ? 'w-[min(48rem,calc(100vw-2rem))] md:max-h-[min(52rem,calc(100dvh-4rem))]' : 'w-[min(32rem,calc(100vw-2rem))] md:max-h-[min(40rem,calc(100dvh-8rem))]'}`}
         >
           <Dialog.Title className="text-base font-semibold">{title}</Dialog.Title>
           {children}

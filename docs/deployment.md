@@ -788,7 +788,7 @@ Production is seeded here as a **one-time bootstrap**, not as part of the deploy
 workflow: `seed.sql` puts the accounts *and the people who own them* in the
 register — two accounts and the two people who own them, one an admin and one
 not, which is what lets a fresh environment prove both answers. **Only the admin
-row is load-bearing now.** Everybody after them is added on the admin page ("Add
+row is load-bearing now.** Everybody after them is added in Manage users ("Add
 a user on the admin page, so a second person no longer needs SQL", issue 231)
 and made an admin there too ("Rename a user, and make somebody an admin", issue
 232), and this step stays exactly as long as the chicken and egg does: nobody
