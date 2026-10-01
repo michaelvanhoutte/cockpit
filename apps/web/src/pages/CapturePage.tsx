@@ -1,5 +1,6 @@
+import { Suspense } from 'react';
 import { useRouterState } from '@tanstack/react-router';
-import { CaptureNote } from '../components/CaptureNote';
+import { CaptureNote } from '../captureForm';
 
 /**
  * What the header's tab and `C` put in the navigation's state to say which
@@ -52,7 +53,9 @@ export function CapturePage() {
           Write it down now, decide where it belongs later.
         </span>
       </div>
-      <CaptureNote startsIn={startsIn} />
+      <Suspense fallback={null}>
+        <CaptureNote startsIn={startsIn} />
+      </Suspense>
     </section>
   );
 }

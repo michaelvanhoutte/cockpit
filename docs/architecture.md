@@ -277,6 +277,7 @@ The general principle worth publishing: **the requirement was never "local-first
 Fast capture is the moment "I must jot this down before it evaporates", usually on a phone on a bad connection, and a note that fails to save is exactly the trust-destroyer the product exists to eliminate. So:
 
 - **A create-only outbox.** New internal items are written to local storage first, rendered immediately, and flushed to `capture_item` commands when connectivity allows. Creates cannot conflict and client IDs make retries idempotent, so the whole mechanism is about a hundred lines. It must not grow into a general offline queue: a second command type wanting in reopens the §5.3 decision rather than sneaking past it.
+- **An entry is its capturer's, not the visit's.** It lives in its own IndexedDB database, which the logon page's wipe of the stored copy never touches; it is sent and shown only while the User who made it is signed in, and only their confirmed Sign out deletes it (`apps/web/src/captureOutboxSender.tsx`).
 - **Capture is a first-class entry point** — home-screen shortcut and PWA share-target land directly in a new-item view, inside the §7 capture budget.
 
 ### 5.5 How the client talks to the backend

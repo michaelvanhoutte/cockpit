@@ -250,9 +250,25 @@ describe('Panels', () => {
     });
   });
 
-  describe('a thought the account refuses to capture stays in the box, and says why', () => {
-    it('restores the message and shows the refusal', async () => {
-      const refusesCapture = new CommandRefused(404, 'that workspace is not there any more');
+  /**
+   * Only the Capture form waits for a connection ("Keep a capture made
+   * offline, and send it once a connection gets through", issue 610): this row
+   * files what it makes, which needs the server, so offline it refuses as it
+   * always has.
+   */
+  describe('a thought the account refuses to capture, or that never reaches it, stays in the box, and says why', () => {
+    it.each([
+      {
+        situation: 'the account refuses it',
+        refusesCapture: new CommandRefused(404, 'that workspace is not there any more'),
+        says: 'that workspace is not there any more',
+      },
+      {
+        situation: 'there is no connection',
+        refusesCapture: new TypeError('Failed to fetch'),
+        says: 'That did not reach the server. Try again.',
+      },
+    ])('restores the message and says why when $situation', async ({ refusesCapture, says }) => {
       const { user } = aRow({ refusesCapture });
 
       await openTheRow(user);
@@ -260,7 +276,7 @@ describe('Panels', () => {
       await user.type(box, 'Why is this slow?');
       await user.click(screen.getByRole('button', { name: 'Add' }));
 
-      expect(await screen.findByText('that workspace is not there any more')).toBeVisible();
+      expect(await screen.findByText(says)).toBeVisible();
       expect(box).toHaveValue('Why is this slow?');
     });
   });

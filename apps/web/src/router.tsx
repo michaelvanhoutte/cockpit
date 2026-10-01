@@ -8,6 +8,7 @@ import {
 import { NotSignedIn } from './api/client';
 import { snapshotQuery, workspacesQuery } from './api/queries';
 import { connectionsSearch } from './connections';
+import { loadCaptureNote } from './captureForm';
 import { itemFormSearch } from './itemForm';
 import {
   INBOX,
@@ -341,7 +342,8 @@ const captureRoute = createRoute({
     // No workspace to capture from is an account with none, since every other
     // answer falls back to the first one there is (`lastVisited.ts`).
     if (!from) throw redirect({ to: '/start' });
-    await snapshotOf(context.queryClient, from);
+    // The form too, which is fetched behind the shell (`captureForm.ts`).
+    await Promise.all([snapshotOf(context.queryClient, from), loadCaptureNote()]);
   },
   component: CapturePage,
 });

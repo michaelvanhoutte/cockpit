@@ -1,7 +1,18 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import 'fake-indexeddb/auto';
+import { IDBFactory } from 'fake-indexeddb';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { signOut } from '../../../src/api/client';
+import type { OutboxEntry } from '../../../src/captureOutbox';
+import {
+  CaptureOutbox,
+  OutboxProvider,
+  browserOutboxStore,
+  inTabLock,
+  type Sender,
+} from '../../../src/captureOutboxSender';
 import { Layout } from '../../../src/pages/Layout';
 
 /**
@@ -57,6 +68,10 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
+vi.mock('../../../src/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/api/client')>()),
+  signOut: vi.fn(() => Promise.resolve()),
+}));
 vi.mock('../../../src/components/DashboardBar', () => ({ DashboardBar: () => null }));
 vi.mock('../../../src/components/InboxPanel', () => ({
   InboxPanel: () => null,
@@ -96,22 +111,59 @@ async function theShell({
   // the router could not produce - capture carries no workspace, and a
   // workspace address is never capture. Named only where a case is about it.
   address = inside ? `/w/${inside}` : '/capture',
-}: { workspaces?: unknown[]; inside?: string | null; address?: string } = {}) {
+  waiting = [] as OutboxEntry[],
+}: {
+  workspaces?: unknown[];
+  inside?: string | null;
+  address?: string;
+  /** Captures kept on this browser and not landed, by whoever captured them. */
+  waiting?: OutboxEntry[];
+} = {}) {
   held.workspaces = workspaces;
   at.pathname = address;
   if (inside) params.workspaceId = inside;
   else delete params.workspaceId;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const store = browserOutboxStore();
+  for (const entry of waiting) await store.put(entry);
+  // Offline, so what is waiting stays waiting while a case looks at it.
+  const outbox = new CaptureOutbox({ store, sender: NEVER_SENT, lock: inTabLock(), online: () => false });
   const { container } = render(
     <QueryClientProvider client={client}>
-      <Layout />
+      <OutboxProvider value={outbox}>
+        <Layout />
+      </OutboxProvider>
     </QueryClientProvider>,
   );
   // Waited for on the list itself rather than on something drawn from it: one
   // case is about the header holding *nothing*, and a list that has not
   // arrived yet looks exactly like that.
   await waitFor(() => expect(client.getQueryData(['workspaces'])).toBeDefined());
-  return { header: within(container.querySelector('header')!), container };
+  return { header: within(container.querySelector('header')!), container, outbox, store };
+}
+
+const NEVER_SENT: Sender = {
+  capture: () => Promise.reject(new TypeError('Failed to fetch')),
+  upload: () => Promise.reject(new TypeError('Failed to fetch')),
+};
+
+/** A capture kept on this browser - Michael's, unless a case says whose. */
+function aWaitingCapture(message: string, over: Partial<OutboxEntry> = {}): OutboxEntry {
+  return {
+    v: 1,
+    id: `item-${message}`,
+    owner: 'user-michael',
+    commandId: `command-${message}`,
+    capturedAt: '2026-10-01T08:00:00.000Z',
+    workspaceId: 'ws-work',
+    decided: true,
+    message,
+    typeId: 'type-task',
+    files: [],
+    landed: false,
+    refused: null,
+    ...over,
+  };
 }
 
 /** A screen wide enough for a window over it (`roomForTheInbox.ts`), or a phone. */
@@ -123,9 +175,15 @@ function onA(screen: 'desk' | 'phone') {
   }));
 }
 
+beforeEach(() => {
+  // A browser of its own for every case: nothing kept by the last one.
+  globalThis.indexedDB = new IDBFactory();
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
   navigated.mockClear();
+  vi.mocked(signOut).mockClear();
 });
 
 /** The color an element is filled with, as the browser reports it back. */
@@ -329,6 +387,96 @@ describe('Capture', () => {
       fireEvent.keyDown(document.body, { key: 'c', ...modifier });
 
       expect(screen.queryByRole('dialog', { name: 'Capture' })).toBeNull();
+    });
+  });
+
+  /** "Keep a capture made offline, and send it once a connection gets through" (issue 610). */
+  describe('the Capture tab counts what has not landed, only while there is any', () => {
+    const tab = (header: ReturnType<typeof within>) => header.getByRole('link', { name: /^Capture/ });
+
+    it.each([
+      { situation: 'nothing waiting', waiting: [], reads: 'Capture' },
+      {
+        situation: 'two waiting',
+        waiting: [aWaitingCapture('one'), aWaitingCapture('two')],
+        reads: 'Capture2',
+      },
+      {
+        situation: 'one the server refused, which needs you',
+        waiting: [aWaitingCapture('refused', { refused: 'workspace ws-work not found' })],
+        reads: 'Capture1',
+      },
+      {
+        situation: 'only somebody else’s waiting',
+        waiting: [aWaitingCapture('theirs', { owner: 'user-bob' })],
+        reads: 'Capture',
+      },
+    ])('reads $reads with $situation', async ({ waiting, reads }) => {
+      const { header } = await theShell({ waiting });
+
+      await waitFor(() => expect(tab(header)).toHaveTextContent(new RegExp(`^${reads}$`)));
+    });
+
+    it('drops the count once the last one lands', async () => {
+      const { header, outbox } = await theShell({ waiting: [aWaitingCapture('one')] });
+      await waitFor(() => expect(tab(header)).toHaveTextContent(/^Capture1$/));
+
+      await outbox.remove('item-one');
+
+      await waitFor(() => expect(tab(header)).toHaveTextContent(/^Capture$/));
+    });
+  });
+});
+
+describe('Offline', () => {
+  /**
+   * The logon page's own wipe leaves waiting captures alone
+   * (tests/unit/components/CaptureNote.test.tsx), so signing out is the one
+   * way they go - and never without being asked.
+   */
+  describe('signing out never loses a capture without asking', () => {
+    const signOutFromTheMenu = async () => {
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole('button', { name: 'Profile' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Sign out' }));
+      return user;
+    };
+
+    it('signs out as it always has with nothing waiting, asking nothing', async () => {
+      await theShell();
+
+      await signOutFromTheMenu();
+
+      await waitFor(() => expect(signOut).toHaveBeenCalled());
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+    });
+
+    it('asks first with two waiting, and Cancel keeps both and stays signed in', async () => {
+      const { store } = await theShell({ waiting: [aWaitingCapture('one'), aWaitingCapture('two')] });
+      await waitFor(() => expect(screen.getByRole('link', { name: /^Capture/ })).toHaveTextContent('2'));
+
+      const user = await signOutFromTheMenu();
+      const question = await screen.findByRole('alertdialog');
+      expect(question).toHaveTextContent("2 captures haven't been sent and will be lost");
+
+      await user.click(within(question).getByRole('button', { name: 'Cancel' }));
+
+      expect(signOut).not.toHaveBeenCalled();
+      expect(navigated).not.toHaveBeenCalledWith({ to: '/signin' });
+      expect(await store.all()).toHaveLength(2);
+    });
+
+    it('signs out and loses both once confirmed', async () => {
+      const { store } = await theShell({ waiting: [aWaitingCapture('one'), aWaitingCapture('two')] });
+      await waitFor(() => expect(screen.getByRole('link', { name: /^Capture/ })).toHaveTextContent('2'));
+
+      const user = await signOutFromTheMenu();
+      await user.click(
+        await screen.findByRole('button', { name: 'Sign out, losing what has not been sent' }),
+      );
+
+      await waitFor(() => expect(signOut).toHaveBeenCalled());
+      expect(await store.all()).toEqual([]);
     });
   });
 });
