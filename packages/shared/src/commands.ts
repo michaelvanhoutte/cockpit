@@ -354,6 +354,14 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
    * writing somebody else's name and link onto an Item of its own.
    */
   capturedFrom: capturedFromSchema.optional(),
+  /**
+   * What the Capture form's strip chose ("Set a priority and a due date while
+   * capturing", issue 611): the same two values `set_priority` and
+   * `set_due_date` change later. Left out by every other front door, which then
+   * capture with neither, exactly as before.
+   */
+  priority: prioritySchema.optional(),
+  dueDate: z.iso.date().optional(),
 });
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
 

@@ -176,6 +176,15 @@ describe('Offline', () => {
       });
       expect(capturePayload(entry)).toEqual(capturePayload(entry));
     });
+
+    it('carries the priority and due date the form had, and leaves them out of an entry without', () => {
+      expect(capturePayload(anEntry({ priority: 'high', dueDate: '2026-10-09' }))).toMatchObject({
+        priority: 'high',
+        dueDate: '2026-10-09',
+      });
+      expect(capturePayload(anEntry())).not.toHaveProperty('priority');
+      expect(capturePayload(anEntry())).not.toHaveProperty('dueDate');
+    });
   });
 
   describe('a waiting capture says where it stands, and what putting it back returns', () => {

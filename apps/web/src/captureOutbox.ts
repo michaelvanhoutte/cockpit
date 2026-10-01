@@ -1,4 +1,4 @@
-import type { CommandPayload } from '@cockpit/shared';
+import type { CommandPayload, Priority } from '@cockpit/shared';
 import { CommandRefused } from './api/client';
 
 /**
@@ -52,6 +52,9 @@ export interface OutboxEntry {
   decided: boolean;
   message: string;
   typeId: string;
+  /** What the Capture form's strip chose ("Set a priority and a due date while capturing", issue 611); absent on an entry written without one, which is every entry from before it. */
+  priority?: Priority;
+  dueDate?: string;
   files: WaitingFile[];
   /** The note is on the server, though a file may still be to go. */
   landed: boolean;
@@ -182,5 +185,7 @@ export function capturePayload(entry: OutboxEntry): CommandPayload<'capture_item
     typeId: entry.typeId,
     // Sent only when false, as an online capture always has (`capture.ts`).
     ...(entry.decided ? {} : { workspaceDecided: false }),
+    ...(entry.priority ? { priority: entry.priority } : {}),
+    ...(entry.dueDate ? { dueDate: entry.dueDate } : {}),
   };
 }

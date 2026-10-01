@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { createStore, del, set, values, type UseStore } from 'idb-keyval';
-import { uuidv7 } from '@cockpit/shared';
+import { uuidv7, type Priority } from '@cockpit/shared';
 import { sendCommand, uploadAttachment } from './api/client';
 import {
   ENTRY_VERSION,
@@ -96,6 +96,8 @@ export interface NewCapture {
   typeId: string;
   workspaceId: string;
   decided: boolean;
+  priority?: Priority;
+  dueDate?: string;
   files: { id: string; file: File }[];
 }
 
@@ -258,6 +260,8 @@ export class CaptureOutbox {
       decided: capture.decided,
       message: capture.message,
       typeId: capture.typeId,
+      ...(capture.priority ? { priority: capture.priority } : {}),
+      ...(capture.dueDate ? { dueDate: capture.dueDate } : {}),
       files,
       landed: false,
       refused: null,

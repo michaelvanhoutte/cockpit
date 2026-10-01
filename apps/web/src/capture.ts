@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { uuidv7 } from '@cockpit/shared';
+import { uuidv7, type Priority } from '@cockpit/shared';
 import { CommandRefused } from './api/client';
 import { useDockedItem } from './itemForm';
 import { useCommand } from './api/queries';
@@ -52,6 +52,10 @@ export interface WhatToCapture {
    * belongs to", issue 165).
    */
   decided: boolean;
+  /** Set by the Capture form's strip ("Set a priority and a due date while capturing", issue 611); left out by every other surface, which captures with neither. */
+  priority?: Priority;
+  /** A calendar day, `YYYY-MM-DD`, with the same provenance as `priority`. */
+  dueDate?: string;
 }
 
 /** What the surface is told, as the capture goes. */
@@ -123,6 +127,10 @@ export function useCapture(): {
           // into a named workspace reads exactly as it did before this
           // landed.
           ...(what.decided ? {} : { workspaceDecided: false }),
+          // Likewise only where one was chosen, so a capture that chose
+          // neither carries neither.
+          ...(what.priority ? { priority: what.priority } : {}),
+          ...(what.dueDate ? { dueDate: what.dueDate } : {}),
         },
       },
       {

@@ -1,12 +1,19 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MAX_ATTACHMENT_SIZE, type Item, type ItemType } from '@cockpit/shared';
 import { CommandRefused, sendCommand, uploadAttachment } from '../../../src/api/client';
-import { CaptureNote, NO_WORKSPACE, STILL_LISTED, STILL_READING } from '../../../src/components/CaptureNote';
+import {
+  CaptureNote,
+  NO_WORKSPACE,
+  STILL_LISTED,
+  STILL_READING,
+  pasteKeyFor,
+} from '../../../src/components/CaptureNote';
+import { dueDateLabel } from '../../../src/dueDate';
 import {
   CaptureOutbox,
   OutboxProvider,
@@ -1072,6 +1079,169 @@ describe('Capture', () => {
 
       expect(box()).toHaveValue('');
       expect(await screen.findByText('doc.pdf')).toBeVisible();
+    });
+  });
+
+  /**
+   * "Set a priority and a due date while capturing" (issue 611). The clock is
+   * a Wednesday so *Today*, *Fri* and *+7d* are three different days.
+   */
+  describe('one click sets a priority or a due date, and pressing the lit one again clears it', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 8, 30, 12) });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const pressed = (name: string) => chip(name).getAttribute('aria-pressed') === 'true';
+    const aDate = (day: string) =>
+      fireEvent.change(screen.getByLabelText('Due date'), { target: { value: day } });
+    const captureANote = async (user: Awaited<ReturnType<typeof thePage>>) => {
+      await user.type(box(), 'Send the invoice');
+      await user.click(chip('Capture'));
+    };
+
+    it('lights one priority at a time and captures it', async () => {
+      const user = await thePage();
+
+      await user.click(chip('High priority'));
+      expect([pressed('Low priority'), pressed('Normal priority'), pressed('High priority')]).toEqual([
+        false,
+        false,
+        true,
+      ]);
+      await user.click(chip('Low priority'));
+      expect([pressed('Low priority'), pressed('High priority')]).toEqual([true, false]);
+      await captureANote(user);
+
+      expect((await captured()).payload.priority).toBe('low');
+    });
+
+    it('clears a priority pressed while lit, and captures none', async () => {
+      const user = await thePage();
+
+      await user.click(chip('High priority'));
+      await user.click(chip('High priority'));
+
+      expect(pressed('High priority')).toBe(false);
+      await captureANote(user);
+      expect((await captured()).payload).not.toHaveProperty('priority');
+    });
+
+    it('lights one due shortcut at a time, sending the day it names', async () => {
+      const user = await thePage();
+
+      await user.click(chip('Fri'));
+      expect(pressed('Fri')).toBe(true);
+      await user.click(chip('Today'));
+      expect([pressed('Today'), pressed('Fri')]).toEqual([true, false]);
+      await user.click(chip('Fri'));
+      await captureANote(user);
+
+      expect((await captured()).payload.dueDate).toBe('2026-10-02');
+    });
+
+    it('clears a due shortcut pressed while lit, and captures no due date', async () => {
+      const user = await thePage();
+
+      await user.click(chip('Fri'));
+      await user.click(chip('Fri'));
+
+      expect(pressed('Fri')).toBe(false);
+      await captureANote(user);
+      expect((await captured()).payload).not.toHaveProperty('dueDate');
+    });
+
+    it('shows a picked day that is no shortcut on the date button with a ✕, and the ✕ clears it', async () => {
+      const user = await thePage();
+
+      aDate('2026-10-20');
+
+      expect(chip(`Due ${dueDateLabel('2026-10-20')}`)).toBeVisible();
+      expect([pressed('Today'), pressed('Fri'), pressed('+7d')]).toEqual([false, false, false]);
+      await user.click(chip('Clear the due date'));
+      expect(chip('Pick a due date')).toBeVisible();
+      await captureANote(user);
+      expect((await captured()).payload).not.toHaveProperty('dueDate');
+    });
+
+    it('lights the shortcut a picked day happens to be', async () => {
+      await thePage();
+
+      aDate('2026-10-07');
+
+      expect(pressed('+7d')).toBe(true);
+    });
+  });
+
+  describe('priority and due date start empty for each note, and a refused capture keeps them', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 8, 30, 12) });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('resets both once a capture lands, while Type and Where keep their choice', async () => {
+      const user = await thePage();
+      await user.click(chip('Thought'));
+      await user.click(chip('Work'));
+      await user.click(chip('High priority'));
+      await user.click(chip('Today'));
+
+      await user.type(box(), 'Send the invoice');
+      await user.click(chip('Capture'));
+
+      expect((await captured()).payload).toMatchObject({ priority: 'high', dueDate: '2026-09-30' });
+      await waitFor(() => expect(chip('High priority')).toHaveAttribute('aria-pressed', 'false'));
+      expect(chip('Today')).toHaveAttribute('aria-pressed', 'false');
+      expect(chip('Thought')).toHaveAttribute('aria-pressed', 'true');
+      expect(chip('Work')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('keeps the note, the priority and the due date when a direct capture is refused', async () => {
+      const user = await thePage({ store: UNAVAILABLE });
+      held.refuses = new CommandRefused(404, 'That workspace is gone.');
+      await user.click(chip('Normal priority'));
+      await user.click(chip('+7d'));
+
+      await user.type(box(), 'Send the invoice');
+      await user.click(chip('Capture'));
+
+      await screen.findByRole('alert');
+      expect(box()).toHaveValue('Send the invoice');
+      expect(chip('Normal priority')).toHaveAttribute('aria-pressed', 'true');
+      expect(chip('+7d')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('sends them with a capture the outbox kept, and Put back returns them with the note', async () => {
+      vi.mocked(sendCommand).mockRejectedValue(new CommandRefused(404, 'workspace ws-home not found'));
+      const user = await thePage();
+      await user.click(chip('Low priority'));
+      await user.click(chip('Fri'));
+      await user.type(box(), 'Send the invoice');
+      await user.click(chip('Capture'));
+
+      expect((await captured()).payload).toMatchObject({ priority: 'low', dueDate: '2026-10-02' });
+      await screen.findByText(/^Not sent:/);
+      expect(chip('Low priority')).toHaveAttribute('aria-pressed', 'false');
+      await user.click(rowOf('Send the invoice').getByRole('button', { name: 'Put back' }));
+
+      expect(box()).toHaveValue('Send the invoice');
+      expect(chip('Low priority')).toHaveAttribute('aria-pressed', 'true');
+      expect(chip('Fri')).toHaveAttribute('aria-pressed', 'true');
+    });
+  });
+
+  describe('the attachment line names paste with this keyboard\'s key', () => {
+    it.each([
+      ['a Mac', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15', '⌘V'],
+      ['an iPad', 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)', '⌘V'],
+      ['Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0', 'Ctrl V'],
+      ['Linux', 'Mozilla/5.0 (X11; Linux x86_64) Firefox/131.0', 'Ctrl V'],
+    ])('on %s it says %s', (_keyboard, userAgent, key) => {
+      expect(pasteKeyFor(userAgent)).toBe(key);
     });
   });
 });
