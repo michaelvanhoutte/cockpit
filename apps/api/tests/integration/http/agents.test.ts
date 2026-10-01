@@ -64,7 +64,6 @@ async function snapshotFor(workspaceId: string = WORKSPACE_ID, userId?: string) 
     agents: Agent[];
     hiddenAgents: HiddenAgent[];
     hasClaudeCodeConnection: boolean;
-    askClaudeEnabled: boolean;
   };
 }
 
@@ -253,7 +252,7 @@ describe('Agents', () => {
   });
 
   describe('a dashboard shows every agent except those hidden on it', () => {
-    it('shows Ask Claude only where the workspace has a live Claude Code connection', async () => {
+    it('reports a live Claude Code connection per workspace', async () => {
       expect((await snapshotFor(WORKSPACE_ID)).hasClaudeCodeConnection).toBe(false);
 
       await connectClaudeCodeTo(WORKSPACE_ID);
@@ -263,18 +262,15 @@ describe('Agents', () => {
       expect((await snapshotFor(OTHER_WORKSPACE_ID)).hasClaudeCodeConnection).toBe(false);
     });
 
-    it('turns Ask Claude off everywhere, and on again, from the account-wide switch', async () => {
-      expect((await snapshotFor(WORKSPACE_ID)).askClaudeEnabled).toBe(true);
+    it('has no account-wide switch to post, and none in the snapshot', async () => {
+      const posted = await asUser('http://cockpit.test/v1/commands/set_ask_claude_enabled', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...envelope(), enabled: false }),
+      });
 
-      expect(
-        (await postChange('set_ask_claude_enabled', { ...envelope(), enabled: false })).status,
-      ).toBe(200);
-      expect((await snapshotFor(WORKSPACE_ID)).askClaudeEnabled).toBe(false);
-      // Account-wide: the other workspace reads the same switch.
-      expect((await snapshotFor(OTHER_WORKSPACE_ID)).askClaudeEnabled).toBe(false);
-
-      await postChange('set_ask_claude_enabled', { ...envelope(), enabled: true });
-      expect((await snapshotFor(WORKSPACE_ID)).askClaudeEnabled).toBe(true);
+      expect(posted.status).toBe(404);
+      expect(await snapshotFor(WORKSPACE_ID)).not.toHaveProperty('askClaudeEnabled');
     });
   });
 });

@@ -486,7 +486,7 @@ function TheShell() {
    * **The workspaces are not here**: a workspace is changed on its own tab
    * ("Manage the types, and put them in the order you want", issue 156). The
    * dock's entry is its own visibility, not its content - the dock's own "…"
-   * is where an agent is hidden or Ask Claude is switched.
+   * is where an agent is hidden.
    */
   const accountEntries: MenuEntry[] = [
     {
@@ -1129,7 +1129,6 @@ function TheShell() {
             agents={workspace.data?.agents ?? []}
             hiddenAgents={workspace.data?.hiddenAgents ?? []}
             hasClaudeCodeConnection={workspace.data?.hasClaudeCodeConnection ?? false}
-            askClaudeEnabled={workspace.data?.askClaudeEnabled ?? true}
             agentRuns={workspace.data?.agentRuns ?? []}
             claudeCodeFailing={workspace.data?.claudeCodeFailing ?? null}
           />

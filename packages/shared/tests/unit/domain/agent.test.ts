@@ -167,49 +167,21 @@ describe('Agents', () => {
       {
         situation: 'nothing hidden',
         hiddenAgentIds: [],
-        askClaudeEnabled: false,
-        hasClaudeCodeConnection: false,
         expected: ['agent-scope', 'agent-ship'],
       },
       {
         situation: 'one hidden on this dashboard',
         hiddenAgentIds: ['agent-ship'],
-        askClaudeEnabled: false,
-        hasClaudeCodeConnection: false,
         expected: ['agent-scope'],
       },
       {
-        situation: 'Ask Claude drawn where the workspace is connected and enabled',
+        situation: 'no agent made',
+        agents: [],
         hiddenAgentIds: [],
-        askClaudeEnabled: true,
-        hasClaudeCodeConnection: true,
-        expected: ['ask-claude', 'agent-scope', 'agent-ship'],
+        expected: [],
       },
-      {
-        situation: 'Ask Claude absent where the workspace holds no connection',
-        hiddenAgentIds: [],
-        askClaudeEnabled: true,
-        hasClaudeCodeConnection: false,
-        expected: ['agent-scope', 'agent-ship'],
-      },
-      {
-        situation: 'Ask Claude absent where it was turned off everywhere, connection or not',
-        hiddenAgentIds: [],
-        askClaudeEnabled: false,
-        hasClaudeCodeConnection: true,
-        expected: ['agent-scope', 'agent-ship'],
-      },
-    ])('$situation', ({ hiddenAgentIds, askClaudeEnabled, hasClaudeCodeConnection, expected }) => {
-      const tiles = agentsShownOnDashboard({
-        agents: [scopeIt, shipIt],
-        hiddenAgentIds,
-        askClaudeEnabled,
-        hasClaudeCodeConnection,
-      });
-
-      expect(tiles.map((tile) => (tile.kind === 'ask-claude' ? 'ask-claude' : tile.agent.id))).toEqual(
-        expected,
-      );
+    ])('$situation', ({ agents = [scopeIt, shipIt], hiddenAgentIds, expected }) => {
+      expect(agentsShownOnDashboard({ agents, hiddenAgentIds }).map((shown) => shown.id)).toEqual(expected);
     });
   });
 });

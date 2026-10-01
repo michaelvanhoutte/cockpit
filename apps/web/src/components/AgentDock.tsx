@@ -3,10 +3,7 @@ import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   ACCOUNT_WIDE,
-  ASK_CLAUDE_COLOR,
-  ASK_CLAUDE_ID,
   waitingOnYou,
-  ASK_CLAUDE_NAME,
   agentsShownOnDashboard,
   colorNoAgentIsUsing,
   uuidv7,
@@ -34,13 +31,13 @@ const BLANK_MESSAGE = '{title}\n\n{description}';
 /**
  * The dock: every Agent, reachable from any Dashboard ("Keep your agents in a
  * dock, and choose which each dashboard shows", issue 570). A strip of tiles
- * at the bottom of the screen - `+ New agent`, then Ask Claude where it is
- * drawn at all, then every made Agent this Dashboard does not hide.
+ * at the bottom of the screen - `+ New agent`, then every Agent this Dashboard
+ * does not hide.
  *
  * **There is no other place Agents are managed.** A tile's own right-click
  * offers `Edit…`, `Hide on this dashboard` and `Delete…`; the dock's own
  * "…" - and a right-click on the dock's own empty part - lists what is
- * hidden here and carries the Ask Claude switch.
+ * hidden here.
  */
 export function AgentDock({
   workspaceId,
@@ -48,7 +45,6 @@ export function AgentDock({
   agents,
   hiddenAgents,
   hasClaudeCodeConnection,
-  askClaudeEnabled,
   agentRuns = [],
   claudeCodeFailing = null,
 }: {
@@ -59,7 +55,6 @@ export function AgentDock({
   agents: Agent[];
   hiddenAgents: HiddenAgent[];
   hasClaudeCodeConnection: boolean;
-  askClaudeEnabled: boolean;
   /** Every open run in this Workspace - what each tile's count is read off (issue 571). */
   agentRuns?: readonly AgentRun[];
   /** Why Claude last refused this Workspace's Claude Code connection, said on the dock until a start works (issue 571). */
@@ -107,8 +102,6 @@ export function AgentDock({
   const tiles = agentsShownOnDashboard({
     agents,
     hiddenAgentIds: hiddenIdsHere,
-    askClaudeEnabled,
-    hasClaudeCodeConnection,
   });
   const hiddenHere = agents.filter((agent) => hiddenIdsHere.includes(agent.id));
   /** How many open runs each Agent has in this Workspace - a tile's count, live with the snapshot it is read off (issue 571). */
@@ -241,12 +234,6 @@ export function AgentDock({
       payload: { ...dashboardEnvelope(), agentId, dashboardId },
     });
   };
-  const toggleAskClaude = () => {
-    command.mutate({
-      name: 'set_ask_claude_enabled',
-      payload: { ...accountEnvelope(), enabled: !askClaudeEnabled },
-    });
-  };
 
   const deleteRefusal =
     command.error instanceof CommandRefused && command.variables?.name === 'delete_agent'
@@ -261,12 +248,7 @@ export function AgentDock({
           included, per its own hidden-count tooltip ("Right-click the
           dock..."): `DockEmptyAreaMenu` wraps the bar whole rather than only
           the scrolling tile strip inside it. */}
-      <DockEmptyAreaMenu
-        hiddenHere={hiddenHere}
-        askClaudeEnabled={askClaudeEnabled}
-        onShow={show}
-        onToggleAskClaude={toggleAskClaude}
-      >
+      <DockEmptyAreaMenu hiddenHere={hiddenHere} onShow={show}>
         <div
           ref={bar}
           role="toolbar"
@@ -289,30 +271,17 @@ export function AgentDock({
               + New agent
             </button>
 
-            {tiles.map((tile) =>
-              tile.kind === 'ask-claude' ? (
-                <div
-                  key={ASK_CLAUDE_ID}
-                  {...pickedUpAs(ASK_CLAUDE_ID, ASK_CLAUDE_NAME)}
-                  className={TILE_CLASS}
-                >
-                  <AgentMark color={ASK_CLAUDE_COLOR} />
-                  <span className="text-sm font-medium text-chrome-ink">{ASK_CLAUDE_NAME}</span>
-                  <RunCount count={runningFor(ASK_CLAUDE_ID)} />
-                  <WaitingCount count={waitingFor(ASK_CLAUDE_ID)} />
-                </div>
-              ) : (
-                <AgentTile
-                  key={tile.agent.id}
-                  agent={tile.agent}
-                  running={runningFor(tile.agent.id)}
-                  waiting={waitingFor(tile.agent.id)}
-                  onEdit={startEditing}
-                  onHide={hide}
-                  onDelete={startDeleting}
-                />
-              ),
-            )}
+            {tiles.map((agent) => (
+              <AgentTile
+                key={agent.id}
+                agent={agent}
+                running={runningFor(agent.id)}
+                waiting={waitingFor(agent.id)}
+                onEdit={startEditing}
+                onHide={hide}
+                onDelete={startDeleting}
+              />
+            ))}
 
             {/* What stands between these tiles and Claude, where something
                 does ("Drop an agent on an item to start a Claude Code
@@ -351,15 +320,9 @@ export function AgentDock({
             </span>
           )}
           <DropdownMenu.Root>
-            <MenuTrigger label="What is hidden here, and the Ask Claude switch" onChrome />
+            <MenuTrigger label="What is hidden here" onChrome />
             <MenuContent>
-              <DockMenuEntries
-                hiddenHere={hiddenHere}
-                askClaudeEnabled={askClaudeEnabled}
-                onShow={show}
-                onToggleAskClaude={toggleAskClaude}
-                asDropdown
-              />
+              <DockMenuEntries hiddenHere={hiddenHere} onShow={show} asDropdown />
             </MenuContent>
           </DropdownMenu.Root>
         </div>
@@ -445,7 +408,7 @@ function RunCount({ count }: { count: number }) {
   );
 }
 
-/** The coloured dot every tile wears - Ask Claude gets one too, from its own fixed colour. */
+/** The coloured dot every tile wears. */
 function AgentMark({ color }: { color: string }) {
   return (
     <span
@@ -457,7 +420,7 @@ function AgentMark({ color }: { color: string }) {
 }
 
 /**
- * The chip every tile wears, Ask Claude included - the same "control on
+ * The chip every tile wears - the same "control on
  * chrome" surface `Menu.tsx`'s `menuButtonClassName` already draws (one
  * `hover`/`data-[state=open]` value, not a border that steps separately from
  * the fill), sized for a name and a mark rather than an icon.
@@ -560,15 +523,11 @@ function AgentTile({
 /** What the dock's own "…" and a right-click on its empty part both offer - one list, shared by both triggers. */
 function DockMenuEntries({
   hiddenHere,
-  askClaudeEnabled,
   onShow,
-  onToggleAskClaude,
   asDropdown,
 }: {
   hiddenHere: Agent[];
-  askClaudeEnabled: boolean;
   onShow: (agentId: string) => void;
-  onToggleAskClaude: () => void;
   /** Which Radix item primitive to draw with - `DropdownMenu.Item` or `ContextMenu.Item`. */
   asDropdown: boolean;
 }) {
@@ -585,9 +544,6 @@ function DockMenuEntries({
           Show {agent.name}
         </Item>
       ))}
-      <Item className={menuItemClass} onSelect={onToggleAskClaude}>
-        {askClaudeEnabled ? 'Turn off Ask Claude everywhere' : 'Turn on Ask Claude everywhere'}
-      </Item>
     </>
   );
 }
@@ -595,28 +551,18 @@ function DockMenuEntries({
 /** The dock's own empty part: a right-click there offers the same entries as its "…" ("The dock is where agents are, and only there", issue 570). */
 function DockEmptyAreaMenu({
   hiddenHere,
-  askClaudeEnabled,
   onShow,
-  onToggleAskClaude,
   children,
 }: {
   hiddenHere: Agent[];
-  askClaudeEnabled: boolean;
   onShow: (agentId: string) => void;
-  onToggleAskClaude: () => void;
   children: React.ReactNode;
 }) {
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
       <ContextMenuContent label="The agents' dock">
-        <DockMenuEntries
-          hiddenHere={hiddenHere}
-          askClaudeEnabled={askClaudeEnabled}
-          onShow={onShow}
-          onToggleAskClaude={onToggleAskClaude}
-          asDropdown={false}
-        />
+        <DockMenuEntries hiddenHere={hiddenHere} onShow={onShow} asDropdown={false} />
       </ContextMenuContent>
     </ContextMenu.Root>
   );

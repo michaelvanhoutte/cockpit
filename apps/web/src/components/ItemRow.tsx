@@ -13,7 +13,7 @@ import {
   type Item,
   type ItemType,
   type Priority,
-  type StartableAgent,
+  type Agent,
 } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand, useSendCommand } from '../api/queries';
@@ -214,9 +214,9 @@ export function ItemRow({
    * in the prompt box where one is open, beside the row otherwise.
    */
   agentsHere?: {
-    offered: readonly StartableAgent[];
+    offered: readonly Agent[];
     run: AgentRun | undefined;
-    start: (agent: StartableAgent, prompt?: string) => Promise<void>;
+    start: (agent: Agent, prompt?: string) => Promise<void>;
   };
 }) {
   const command = useCommand();
@@ -274,7 +274,7 @@ export function ItemRow({
   };
 
   /** The Agent whose prompt box is open over this row, if any. */
-  const [asking, setAsking] = useState<StartableAgent | null>(null);
+  const [asking, setAsking] = useState<Agent | null>(null);
   /** That a start is on its way to Claude, so it cannot be sent twice. */
   const [sending, setSending] = useState(false);
   /** Why the last start from this row was refused, shown beside it until the next one. */
@@ -299,7 +299,7 @@ export function ItemRow({
   const lifted = useAgentInTheAir();
   const outlined = takesAnAgent && lifted !== null && agentsHere.offered.some((agent) => agent.id === lifted);
 
-  const sendToClaude = async (agent: StartableAgent, prompt?: string) => {
+  const sendToClaude = async (agent: Agent, prompt?: string) => {
     if (!agentsHere || sending) return;
     setSending(true);
     setStartRefusal(null);
@@ -315,7 +315,7 @@ export function ItemRow({
     }
   };
   /** An Agent that asks for a prompt opens the box first; any other starts at once. */
-  const startWith = (agent: StartableAgent) => {
+  const startWith = (agent: Agent) => {
     setStartRefusal(null);
     if (agent.asksForPrompt) setAsking(agent);
     else void sendToClaude(agent);

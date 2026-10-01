@@ -100,7 +100,6 @@ const snapshot: WorkspaceSnapshot = {
   agents: [],
   hiddenAgents: [],
   hasClaudeCodeConnection: false,
-  askClaudeEnabled: true,
   agentRuns: [],
   claudeCodeFailing: null,
   generatedAt: '2026-08-31T10:00:00.000Z',

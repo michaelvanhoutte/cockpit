@@ -10,7 +10,7 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import { ASK_CLAUDE_AGENT, ASK_CLAUDE_ID, CLAUDE_CODE, itemLabel, panelTakesItems } from '@cockpit/shared';
+import { CLAUDE_CODE, itemLabel, panelTakesItems } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';
@@ -80,7 +80,6 @@ import {
   claudeCodeConnectionOf,
   getAgent,
   getAgentRun,
-  getAskClaudeEnabled,
   lastHookArrival,
   listOpenAgentRuns,
   recordHookArrival,
@@ -217,7 +216,6 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         agents: listAgents(db, accountName),
         hiddenAgents: listHiddenAgents(db, accountName, workspaceId),
         hasClaudeCodeConnection: hasClaudeCodeConnection(db, accountName, workspaceId),
-        askClaudeEnabled: getAskClaudeEnabled(db, accountName),
         agentRuns: listOpenAgentRuns(db, accountName, workspaceId),
         claudeCodeFailing: claudeCodeConnectionOf(db, accountName, workspaceId)?.failingBecause ?? null,
       };
@@ -640,7 +638,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       const connection = claudeCodeConnectionOf(db, accountName, workspaceId);
       const item = getItem(db, accountName, run.itemId);
       if (!connection || !item) throw new AgentRunNotFoundError(runId);
-      const agent = run.agentId === ASK_CLAUDE_ID ? ASK_CLAUDE_AGENT : getAgent(db, accountName, run.agentId);
+      const agent = getAgent(db, accountName, run.agentId);
       return {
         sourceAccountId: connection.id,
         // The row `claudeCodeConnectionOf` just found is the row this reads.

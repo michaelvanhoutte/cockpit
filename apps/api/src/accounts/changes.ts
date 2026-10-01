@@ -565,11 +565,9 @@ const CLAUDE_CODE_HOOKS: Change = {
 };
 
 /**
- * The account-wide switch for Ask Claude ("Ask Claude... can be turned off
- * everywhere and on again from the dock's '…'", issue 570) - one row per
- * account, written the first time anybody touches the switch and read as
- * enabled where it holds no row yet, which `getAskClaudeEnabled` (repo.ts)
- * is what makes true rather than a default this table carries.
+ * The account-wide switch for the Agent that was built in rather than made
+ * (issue 570) - one row per account. Nothing reads it any more; dropping the
+ * table is its own, contract, change.
  *
  * Its failure modes, per the `scoping` skill:
  *

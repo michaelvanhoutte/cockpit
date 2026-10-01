@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
-import { ACCOUNT_WIDE, AGENT_COLORS, ASK_CLAUDE_ID } from '@cockpit/shared';
+import { ACCOUNT_WIDE, AGENT_COLORS } from '@cockpit/shared';
 import type {
   AgentRun,
   CommandName,
@@ -304,6 +304,11 @@ describe('Agents', () => {
         refusal: 'That agent is not on this dashboard.',
       },
       {
+        situation: 'an id that names no agent that was made, such as the one once built in',
+        arrange: async () => ({ itemId: await anItem('Filed', panelId), agentId: 'ask-claude' }),
+        refusal: 'That agent is not on this dashboard.',
+      },
+      {
         situation: 'an item that already has an open run',
         arrange: async (agentId: string) => {
           const itemId = await anItem('Filed', panelId);
@@ -356,26 +361,6 @@ describe('Agents', () => {
       expect(claude.fired).toEqual([]);
     });
 
-    it('starts Ask Claude, the agent built in, with the question asked', async () => {
-      const itemId = await anItem('Chase the invoice', panelId);
-
-      const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/items/${itemId}/agent-runs`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          commandId: nextId(),
-          issuedAt: AT,
-          runId: nextId(),
-          agentId: ASK_CLAUDE_ID,
-          dashboardId: DASHBOARD_ID,
-          prompt: 'Who do we chase?',
-        }),
-      });
-
-      expect(res.status).toBe(200);
-      expect(await runOn(itemId)).toMatchObject({ agentName: 'Ask Claude', status: 'working' });
-      expect(claude.fired[0]!.text).toContain('Who do we chase?');
-    });
   });
 
   describe('starting sets the item In progress where the agent says so', () => {

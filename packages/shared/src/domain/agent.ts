@@ -71,45 +71,15 @@ export const hiddenAgentSchema = z.object({
 export type HiddenAgent = z.infer<typeof hiddenAgentSchema>;
 
 /**
- * Ask Claude: the one Agent built into the dock rather than made by anybody
- * ("Keep your agents in a dock, and choose which each dashboard shows", issue
- * 570). It has no row of its own - nothing here can be edited, deleted, or
- * hidden on one Dashboard - so its name, colour and engine are fixed here
- * rather than stored, and what decides whether it is drawn at all is
- * `agentsShownOnDashboard` below.
- */
-export const ASK_CLAUDE_ID = 'ask-claude';
-export const ASK_CLAUDE_NAME = 'Ask Claude';
-export const ASK_CLAUDE_COLOR: string = AGENT_COLORS[0]!;
-
-/** One tile the dock draws: a made Agent, or the built-in Ask Claude. */
-export type DockTile = { kind: 'agent'; agent: Agent } | { kind: 'ask-claude' };
-
-/**
  * Every Agent a Dashboard shows, in the dock's order ("A dashboard shows
  * every agent except those hidden on it", issue 570). Pure: what is hidden
- * where, and whether Ask Claude is reachable at all, both arrive as plain
- * values rather than being read here.
- *
- * Ask Claude is appended rather than filtered in with the rest: it carries no
- * row of its own to be hidden per dashboard, only the two account-wide gates
- * (`askClaudeEnabled`) and per-workspace (`hasClaudeCodeConnection`) that
- * decide whether it exists on this Dashboard at all.
+ * where arrives as a plain value rather than being read here.
  */
 export function agentsShownOnDashboard(params: {
   agents: readonly Agent[];
   hiddenAgentIds: readonly string[];
-  askClaudeEnabled: boolean;
-  hasClaudeCodeConnection: boolean;
-}): DockTile[] {
-  const tiles: DockTile[] = [];
-  if (params.askClaudeEnabled && params.hasClaudeCodeConnection) {
-    tiles.push({ kind: 'ask-claude' });
-  }
-  for (const agent of params.agents) {
-    if (!params.hiddenAgentIds.includes(agent.id)) tiles.push({ kind: 'agent', agent });
-  }
-  return tiles;
+}): Agent[] {
+  return params.agents.filter((agent) => !params.hiddenAgentIds.includes(agent.id));
 }
 
 /**
