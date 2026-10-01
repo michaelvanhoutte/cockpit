@@ -1339,6 +1339,20 @@ describe('Smart refinements', () => {
         }),
       ]);
     });
+
+    it('reads a scope it does not know as never recorded', async () => {
+      const name = 'aged-store-unknown-scope';
+      await agedTo(name, justBefore('0051-rewrite-history-looks-at'));
+      await fillWithWhatIsAlreadyThere(name);
+      await storeNamed(name).rewriteHistoryForItem(name, 'it-before');
+      await inStoreAsItIs(name, (sql) => {
+        sql.exec("UPDATE rewrite_history SET looks_at = 'from-a-later-version'");
+      });
+
+      const read = await storeNamed(name).rewriteHistoryForItem(name, 'it-before');
+
+      expect(read.status === 'ok' ? read.value : []).toEqual([expect.objectContaining({ looksAt: null })]);
+    });
   });
 });
 

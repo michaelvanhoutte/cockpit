@@ -23,7 +23,7 @@ import {
   type LayoutRow,
   type Panel,
   type PossibleDuplicate,
-  type RefinementScope,
+  refinementScopeSchema,
   type RewriteAttemptStatus,
   type SuggestedPanel,
   type ScreenSize,
@@ -1166,7 +1166,8 @@ function asRewriteHistoryEntry(row: {
     status: row.status as RewriteAttemptStatus,
     message: row.message,
     attemptedAt: row.attemptedAt,
-    looksAt: row.looksAt as RefinementScope | null,
+    // A value outside the set (no CHECK holds it to one) reads as never recorded.
+    looksAt: refinementScopeSchema.safeParse(row.looksAt).data ?? null,
     suggestedPanelBefore: suggestedPanel(row.beforeId, row.beforeName, row.beforeDeletedAt),
     suggestedPanelAfter: after,
   };

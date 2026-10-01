@@ -520,6 +520,23 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     );
     throw error;
   }
+  const textsOutcome = {
+    titleAfter: written.applied ? read.proposal.title : null,
+    descriptionAfter: written.applied ? read.proposal.message : null,
+    message: written.applied
+      ? `proposed in ${read.proposal.language}`
+      : 'nothing was written: the texts are already edited',
+  };
+  // Recorded the moment the texts settle, with the Panel as the item had it,
+  // so nothing after this - the Panel write below, the queue - can leave the
+  // row without what the texts did. The Panel step overwrites it whole.
+  await recordHistory(() =>
+    account.recordRewriteOutcome(attemptId, {
+      ...textsOutcome,
+      status: written.applied ? 'rewritten' : 'left-as-is',
+      proposedPanelId: item.proposedPanelId,
+    }),
+  );
   // Which language it answered in, said out loud, because that is the rule
   // this prompt is most likely to break quietly and the only place a
   // deployment can be watched for it (issue 296, "The language rule needs a
@@ -542,32 +559,17 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // the item actually carries rather than one the store refused because the
   // item was filed in the meantime ("Rename Rewrite history to Smart
   // refinements, and show each field's change", issue 614).
-  let routed;
-  try {
-    routed = await applyProposedPanelIfAny(account, item, read.proposal.panel, item.proposedPanelId);
-  } catch (error) {
-    await recordHistory(() =>
-      account.recordRewriteOutcome(attemptId, {
-        status: 'failed',
-        message: error instanceof Error ? error.message : String(error),
-      }),
-    );
-    throw error;
-  }
+  const routed = await applyProposedPanelIfAny(account, item, read.proposal.panel, item.proposedPanelId);
   if (routed === 'the item went while it was being read') {
     say(job.itemId, `nothing was routed: ${routed}`);
   }
   const panelChanged = routed === 'routed' || routed === 'withdrawn';
   await recordHistory(() =>
     account.recordRewriteOutcome(attemptId, {
+      ...textsOutcome,
       status: written.applied || panelChanged ? 'rewritten' : 'left-as-is',
-      titleAfter: written.applied ? read.proposal.title : null,
-      descriptionAfter: written.applied ? read.proposal.message : null,
       proposedPanelId: panelItCarries(routed, read.proposal.panel, item.proposedPanelId),
       proposedPanelReason: routed === 'routed' ? (read.proposal.panel?.reason ?? null) : null,
-      message: written.applied
-        ? `proposed in ${read.proposal.language}`
-        : 'nothing was written: the texts are already edited',
     }),
   );
 }
