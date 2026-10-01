@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
+import { useIsRestoring } from '@tanstack/react-query';
 import { PersistQueryClientProvider, type Persister } from '@tanstack/react-query-persist-client';
 import { del, get, set } from 'idb-keyval';
 
@@ -114,6 +115,21 @@ function worthStoring(query: { queryKey: readonly unknown[]; state: { status: st
 }
 
 /**
+ * Holds the app back for the one read of IndexedDB, which is local and takes
+ * milliseconds.
+ *
+ * **The router reads the cache the moment it mounts** (`beforeLoad` in
+ * `router.tsx`). Mounted ahead of the restore it finds an empty cache and goes
+ * to the network, and with no connection the whole screen is "Cockpit can't be
+ * reached" over a stored copy that arrives a moment later and is never looked
+ * at again. Behind the restore it takes the stored copy and the re-read below
+ * runs behind it.
+ */
+function OnceRestored({ children }: { children: ReactNode }) {
+  return useIsRestoring() ? null : <>{children}</>;
+}
+
+/**
  * The app, painted from the copy the last visit left behind and re-read behind
  * it - both halves of the promise in architecture, "The read model: persisted
  * snapshot, revalidate, push".
@@ -126,8 +142,9 @@ function worthStoring(query: { queryKey: readonly unknown[]; state: { status: st
  * size comes back the size it was. Invalidating on the way out of the restore
  * is what stops the copy being taken for an answer.
  *
- * Nothing waits on it: the children render from what was restored and the
- * re-read arrives behind them, so a cold open still makes no blocking request.
+ * Nothing waits on the network: the children render, once the restore has been
+ * read, from what it holds, and the re-read arrives behind them, so a cold open
+ * makes no blocking request.
  * Offline it fails and the copy stays on screen, which is what it is kept for.
  */
 export function PaintedFromTheStoredCopy({
@@ -148,7 +165,7 @@ export function PaintedFromTheStoredCopy({
       }}
       onSuccess={() => client.invalidateQueries()}
     >
-      {children}
+      <OnceRestored>{children}</OnceRestored>
     </PersistQueryClientProvider>
   );
 }
