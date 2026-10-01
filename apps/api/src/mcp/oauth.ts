@@ -105,7 +105,21 @@ export function providerFor(env: Env): OAuthProvider<Env> {
   return provider;
 }
 
-/** The helpers the consent page uses, against the same options the provider was made with. */
+/**
+ * The helpers the consent page uses, against the same options the provider
+ * was made with - made once per environment and address, as the provider is.
+ *
+ * Keyed by the `env` object as well as the address, because the helpers hold
+ * the bindings they were made with; a Worker isolate is handed the same `env`
+ * on every request, so in practice this is made once.
+ */
+const helpers = new WeakMap<Env, Map<string, OAuthHelpers>>();
+
 export function oauthHelpersFor(env: Env): OAuthHelpers {
-  return getOAuthApi<Env>(optionsFor(env), env);
+  const origin = new URL(env.APP_ORIGIN).origin;
+  let byOrigin = helpers.get(env);
+  if (!byOrigin) helpers.set(env, (byOrigin = new Map()));
+  let made = byOrigin.get(origin);
+  if (!made) byOrigin.set(origin, (made = getOAuthApi<Env>(optionsFor(env), env)));
+  return made;
 }

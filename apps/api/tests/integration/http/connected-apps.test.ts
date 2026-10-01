@@ -59,7 +59,7 @@ async function registerApp(name = 'Claude', redirect = CALLBACK): Promise<App> {
 }
 
 /** One authorization attempt: the address the app opens, and the secret it keeps back. */
-async function attempt(app: App, redirect = CALLBACK) {
+async function attempt(app: App, redirect = CALLBACK, state = 'the-apps-state') {
   const verifier = 'v'.repeat(43) + crypto.randomUUID().replaceAll('-', '');
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
   const challenge = btoa(String.fromCharCode(...digest)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -67,7 +67,7 @@ async function attempt(app: App, redirect = CALLBACK) {
     response_type: 'code',
     client_id: app.clientId,
     redirect_uri: redirect,
-    state: 'the-apps-state',
+    state,
     code_challenge: challenge,
     code_challenge_method: 'S256',
     resource: `${ORIGIN}/mcp`,
@@ -250,7 +250,40 @@ describe('Connected apps', () => {
     });
   });
 
+  describe('an app only ever sends a request and gets an answer', () => {
+    it.each(['GET', 'DELETE'])('refuses %s, rather than opening a stream that never ends', async (method) => {
+      const { token } = await connected();
+      const answer = await SELF.fetch(`${ORIGIN}/mcp`, {
+        method,
+        headers: { authorization: `Bearer ${token}`, accept: 'text/event-stream' },
+      });
+      expect([answer.status, answer.headers.get('allow')]).toEqual([405, 'POST']);
+    });
+  });
+
   describe('an app is never told what broke inside Cockpit, and the break is logged', () => {
+    it('answers with a plain apology when the register cannot be read', async () => {
+      const { token } = await connected();
+      const realRegister = env.DB;
+      env.DB = new Proxy({} as typeof env.DB, {
+        get: () => {
+          throw new Error('register unreachable: disk on fire');
+        },
+      });
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const answer = await mcp(token, 'tools/list');
+        const said = await answer.text();
+        expect(answer.status).toBe(500);
+        expect(said).toContain('Something went wrong in Cockpit');
+        expect(said).not.toContain('disk on fire');
+        expect(logged.mock.calls.some(([line]) => String(line).includes('disk on fire'))).toBe(true);
+      } finally {
+        env.DB = realRegister;
+        logged.mockRestore();
+      }
+    });
+
     it('answers listing and capturing with a plain apology when the account cannot be read', async () => {
       const { token } = await connected();
       const realStores = env.ACCOUNT;
@@ -328,8 +361,11 @@ describe('Connected apps', () => {
       expect([...(await grantsOf(USER_ID)), ...(await grantsOf(OTHER_USER_ID))]).toEqual([]);
     });
 
-    it('walks somebody not signed in through Google sign-in and back to the consent page', async () => {
-      const { path } = await attempt(await registerApp());
+    it.each([
+      { situation: 'an app asking plainly', state: 'the-apps-state' },
+      { situation: 'an app whose request carries a 1,500-character state', state: 's'.repeat(1_500) },
+    ])('walks somebody not signed in through Google sign-in and back to the consent page, for $situation', async ({ state }) => {
+      const { path } = await attempt(await registerApp(), CALLBACK, state);
       const unsigned = await SELF.fetch(`${ORIGIN}${path}`, { redirect: 'manual' });
       expect(unsigned.status).toBe(302);
       const toSignIn = new URL(unsigned.headers.get('location')!, ORIGIN);
@@ -337,6 +373,8 @@ describe('Connected apps', () => {
 
       await issuerIsReachable();
       const started = await SELF.fetch(toSignIn, { redirect: 'manual' });
+      // The cookie the address rides in, whole, inside what a browser keeps.
+      for (const cookie of started.headers.getSetCookie()) expect(cookie.split(';')[0]!.length).toBeLessThan(4_096);
       const asked = new URL(started.headers.get('location')!);
       issuerWillIdentify({ email: 'michael@example.com', nonce: asked.searchParams.get('nonce')! });
       const signedIn = await SELF.fetch(
@@ -349,6 +387,13 @@ describe('Connected apps', () => {
       const shown = await SELF.fetch(`${ORIGIN}${signedIn.headers.get('location')}`, { headers: { cookie: session } });
       expect(shown.status).toBe(200);
       expect(await shown.text()).toContain('Allow Claude to create items in your Cockpit?');
+    });
+
+    it('asks somebody not signed in to sign in first, where the request is too long to bring back', async () => {
+      const { path } = await attempt(await registerApp(), CALLBACK, 's'.repeat(3_500));
+      const unsigned = await SELF.fetch(`${ORIGIN}${path}`, { redirect: 'manual' });
+      expect(unsigned.status).toBe(200);
+      expect(await unsigned.text()).toContain('Sign in to Cockpit first');
     });
 
     it('refuses the guest, and says to sign in with Google', async () => {
@@ -375,8 +420,8 @@ describe('Connected apps', () => {
       expect(await shown.text()).not.toContain('name="handle"');
     });
 
-    it('comes back from signing in only to a path on Cockpit itself', async () => {
-      const elsewhere = ['https://evil.example/', '//evil.example/', '/\\evil.example/', '/.//evil.example/'];
+    it('comes back from signing in only to the consent page', async () => {
+      const elsewhere = ['https://evil.example/', '//evil.example/', '/\\evil.example/', '/.//evil.example/', `/w/${WORKSPACE_ID}`];
       for (const target of elsewhere) {
         await issuerIsReachable();
         const started = await SELF.fetch(
@@ -434,6 +479,46 @@ describe('Connected apps', () => {
       expect(((await after.json()) as { error: string }).error).toBe('invalid_grant');
       // Revoked with it, so giving the person access back does not revive it.
       expect(await grantsOf(OTHER_USER_ID)).toEqual([]);
+    });
+
+    it('stays cut off once their access is given back, though it never called while it was gone', async () => {
+      const { app, token, refreshToken } = await connected(OTHER_USER_ID);
+      for (const disabled of [true, false]) {
+        const changed = await asUser(`${ORIGIN}/v1/admin/users/${OTHER_USER_ID}/access`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ disabled }),
+        });
+        expect(changed.status).toBe(200);
+      }
+
+      expect((await mcp(token, 'tools/list')).status).toBe(401);
+      const refreshed = await refresh(app, refreshToken);
+      expect(refreshed.status).toBe(400);
+      expect(await grantsOf(OTHER_USER_ID)).toEqual([]);
+    });
+
+    it('takes their access away even where the apps they connected cannot be reached', async () => {
+      const { token } = await connected(OTHER_USER_ID);
+      const unreachable = async () => {
+        throw new Error('the grants could not be listed');
+      };
+      env.OAUTH_PROVIDER = { listUserGrants: unreachable, revokeGrant: unreachable };
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const disabled = await asUser(`${ORIGIN}/v1/admin/users/${OTHER_USER_ID}/access`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ disabled: true }),
+        });
+        expect(disabled.status).toBe(200);
+        expect(logged.mock.calls.some(([line]) => String(line).includes('were not revoked'))).toBe(true);
+        // And the register still turns the app away.
+        expect((await mcp(token, 'tools/list')).status).toBe(401);
+      } finally {
+        delete env.OAUTH_PROVIDER;
+        logged.mockRestore();
+      }
     });
 
     it('is turned away once they are deleted, and writes nothing for somebody new given their name', async () => {
@@ -517,6 +602,40 @@ describe('Capture', () => {
       expect(await inboxOf(WORKSPACE_ID)).toEqual([]);
     });
 
+    it('still answers that it captured, with the title and the link, when the Item cannot be read back', async () => {
+      const { token } = await connected();
+      const realStores = env.ACCOUNT;
+      env.ACCOUNT = {
+        idFromName: (name: string) => realStores.idFromName(name),
+        get: (id: ReturnType<typeof realStores.idFromName>) => {
+          const real = realStores.get(id) as unknown as Record<string, (...args: unknown[]) => unknown>;
+          return new Proxy(
+            {},
+            {
+              get: (_, method: string) =>
+                method === 'item'
+                  ? async () => {
+                      throw new Error('read back failed');
+                    }
+                  : (...args: unknown[]) => real[method]!(...args),
+            },
+          );
+        },
+      } as unknown as typeof env.ACCOUNT;
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+      let said: ToolAnswer;
+      try {
+        said = await createItem(token, { message: 'Water the plants', workspace: 'Workspace 1' });
+      } finally {
+        env.ACCOUNT = realStores;
+        logged.mockRestore();
+      }
+      const [item] = await inboxOf(WORKSPACE_ID);
+      expect(said.isError).toBeFalsy();
+      expect(said.content[0]!.text).toContain('"Water the plants"');
+      expect(said.content[0]!.text).toContain(`${ORIGIN}/w/${WORKSPACE_ID}?item=${item!.id}`);
+    });
+
     it('answers with the title and a link that opens the Item, and the Item says which app captured it', async () => {
       const { token } = await connected(USER_ID, 'Claude');
       const said = await createItem(token, { message: 'Water the plants', workspace: 'Workspace 1' });
@@ -577,7 +696,7 @@ describe('Capture', () => {
     });
   });
 
-  describe('an app is answered at most 60 times a minute', () => {
+  describe('an app may ask to capture at most 60 times a minute', () => {
     it('refuses the 61st in a minute and writes nothing for it', async () => {
       const { token } = await connected();
       for (let n = 1; n <= 60; n += 1) {

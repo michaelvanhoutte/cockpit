@@ -2,12 +2,11 @@
  * Where an MCP client reaches Cockpit ("Connect Claude to Cockpit, and capture
  * an item from it", issue 599), as plain strings and nothing else.
  *
- * **A module of its own, free of the OAuth library**, because two readers that
- * must not load that library need these: the sign-in gate, whose argument for
- * every address it does not stand in front of is made in `auth/gate.ts`, and
- * the web app's typecheck, which compiles everything `http/app.ts` imports and
- * cannot resolve the `cloudflare:workers` module the library's types name
- * (the same trap `worker.ts` records for the store's class).
+ * **A module of its own, free of the OAuth library**, because the sign-in's
+ * return path (`auth/return-path.ts`) is reached from `http/app.ts`, which the
+ * web app's typecheck compiles - and that typecheck cannot resolve the
+ * `cloudflare:workers` module the library's types name (the same trap
+ * `worker.ts` records for the store's class).
  */
 
 /** The MCP endpoint itself: one tool, behind an access token. */

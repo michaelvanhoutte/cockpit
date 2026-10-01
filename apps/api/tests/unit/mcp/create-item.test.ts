@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ItemType, Workspace } from '@cockpit/shared';
-import { createItemTool, readCapture } from '../../../src/mcp/create-item.js';
+import { createItemTool, readCapture, senderFrom } from '../../../src/mcp/create-item.js';
 
 /**
  * L1: how an app's capture is read against the account's own names, and what
@@ -107,6 +107,19 @@ describe('Capture', () => {
       const tool = createItemTool([], [NOTE]);
       expect(tool.inputSchema.properties.workspace).not.toHaveProperty('enum');
       expect(tool.description).toContain('Workspaces: none yet');
+    });
+  });
+});
+
+describe('Capture', () => {
+  describe("an app's captures are signed with the name it registered, never with half a character", () => {
+    it.each([
+      { situation: 'a plain name', name: '  Claude  ', sender: 'Claude' },
+      { situation: 'a name of nothing but spaces', name: '   ', sender: null },
+      { situation: 'a name too long, cut at the limit', name: 'a'.repeat(250), sender: 'a'.repeat(200) },
+      { situation: 'a name too long whose limit falls inside an emoji', name: `${'a'.repeat(199)}😀tail`, sender: 'a'.repeat(199) },
+    ])('$situation', ({ name, sender }) => {
+      expect(senderFrom(name)).toBe(sender);
     });
   });
 });

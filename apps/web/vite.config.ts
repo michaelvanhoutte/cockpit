@@ -77,7 +77,8 @@ export default defineConfig({
           /^\/v1\//,
           /^\/health/,
           /^\/ingress\//,
-          /^\/mcp(\/|$)/,
+          // Workbox tests the path with its query, so `/mcp?x` has to match too.
+          /^\/mcp([/?]|$)/,
           /^\/oauth\//,
           /^\/\.well-known\/oauth-/,
           /^\/cdn-cgi\//,

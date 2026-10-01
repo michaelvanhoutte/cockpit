@@ -15,7 +15,7 @@ import type { ExecutionContext } from '@cloudflare/workers-types';
 import application from './index.js';
 import type { Env } from './env.js';
 import { consent } from './mcp/consent.js';
-import { asReachedAt, providerFor } from './mcp/oauth.js';
+import { asReachedAt, oauthHelpersFor, providerFor } from './mcp/oauth.js';
 import { AUTHORIZE_PATH, isAnsweredByTheAuthorizationServer } from './mcp/paths.js';
 
 export type { AppType } from './index.js';
@@ -41,6 +41,9 @@ export default {
       return providerFor(env).fetch(asReachedAt(request, env), env, ctx as never);
     }
     if (pathname === AUTHORIZE_PATH) return consent.fetch(request, env, ctx);
+    // The library's helpers, for the admin routes that revoke somebody's
+    // apps when their access goes (`mcp/revoke.ts`).
+    env.OAUTH_PROVIDER ??= oauthHelpersFor(env);
     return application.fetch(request, env, ctx);
   },
   scheduled: application.scheduled,

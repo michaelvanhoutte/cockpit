@@ -105,6 +105,7 @@ import {
 import { endpointsFor, exchangeCode, issuerFor, keysOf, teamsIssuerFor } from '../auth/issuer.js';
 import { authorizationUrl, identityFrom, newAttempt, replyBelongsTo } from '../auth/oidc.js';
 import { returnPathFrom } from '../auth/return-path.js';
+import { revokeAppsOf } from '../mcp/revoke.js';
 import { open, seal, sealingKey } from '../connectors/credential-crypto.js';
 import { teamsAccountFrom } from '../connectors/teams.js';
 import { fireRoutine, testClaudeCodeConnection } from '../connectors/claude-code.js';
@@ -1303,6 +1304,10 @@ const routes = app
         ? c.json({ error: changed.refused }, 404)
         : c.json({ error: changed.refused }, 409);
     }
+    // Access taken away takes the apps they connected with it, for good
+    // ("Connect Claude to Cockpit, and capture an item from it", issue 599):
+    // after the change, and never in its way (`mcp/revoke.ts`).
+    if (disabled) await revokeAppsOf(c.env, userId);
     return c.json({ user: changed.user }, 200);
   })
   .openapi(deleteUserRoute, async (c) => {
@@ -1313,6 +1318,8 @@ const routes = app
         ? c.json({ error: deleted.refused }, 404)
         : c.json({ error: deleted.refused }, 409);
     }
+    // And so does being deleted, the same way.
+    await revokeAppsOf(c.env, userId);
     return c.json({ deleted: true as const }, 200);
   })
   .openapi(accountHoldingsRoute, async (c) => {

@@ -56,6 +56,20 @@ export interface Env {
    */
   OAUTH_KV: KVNamespace;
   /**
+   * The OAuth library's helpers, put here by `worker.ts` before the
+   * application runs - the library's own convention for code it does not
+   * route. Typed as the two calls the application makes rather than as the
+   * library's type, so `apps/web`, which compiles this file, never reaches the
+   * library (`mcp/revoke.ts`).
+   */
+  OAUTH_PROVIDER?: {
+    listUserGrants(
+      userId: string,
+      options?: { cursor?: string },
+    ): Promise<{ items: { id: string }[]; cursor?: string }>;
+    revokeGrant(grantId: string, userId: string): Promise<void>;
+  };
+  /**
    * Workers AI, which reads what a note means so that one saying what another
    * one already said can be flagged ("Flag a captured note that says what
    * another one already said", issue 407).

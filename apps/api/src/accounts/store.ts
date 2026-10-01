@@ -713,7 +713,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
    * as one of too many calls from that one grant in a minute.
    *
    * **Counted here, in memory, for the reason `claudeCodeHookArrived` is**:
-   * every call a grant makes passes through this one object one at a time,
+   * every `create_item` call a grant makes passes through this one object one at a time,
    * since a grant acts for one person and so for one account. A count lost to
    * the object being evicted starts a flood's window over, which is all it
    * costs. Nothing is read or written, so it answers before the account is

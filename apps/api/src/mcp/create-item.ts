@@ -1,4 +1,4 @@
-import { captureItemSchema, type ItemType, type Workspace } from '@cockpit/shared';
+import { TITLE_LENGTH, captureItemSchema, cutTo, type ItemType, type Workspace } from '@cockpit/shared';
 import { typeToCaptureAs } from '../domain/item-types.js';
 import { namedTheSame } from '../domain/names.js';
 
@@ -23,7 +23,7 @@ export const SERVER_INSTRUCTIONS =
   'Use create_item when the user asks to capture, note or remember something in Cockpit.';
 
 /**
- * How many calls one grant is admitted for in a minute, refused ones included - the same number
+ * How many `create_item` calls one grant is admitted for in a minute, refused ones included - the same number
  * the Claude Code hooks are held to (`HOOK_CALLS_PER_MINUTE`), for the same
  * reason: well above anything a person asking Claude does, and a ceiling on
  * what a runaway loop can write before somebody notices.
@@ -175,4 +175,15 @@ export function readCapture(
   }
 
   return { ok: true, message: message.data, workspaceId: into.id, decided: workspace !== undefined, typeId: type.id };
+}
+
+/**
+ * What a capture says it was sent by: the app's registered name, trimmed and
+ * cut to what a sender may be - without cutting a character in half, which a
+ * name of emoji at the limit would otherwise end in - or `null` for an app
+ * that registered no name worth showing.
+ */
+export function senderFrom(clientName: string): string | null {
+  const sender = cutTo(clientName.trim(), TITLE_LENGTH).trim();
+  return sender || null;
 }

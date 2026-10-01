@@ -277,7 +277,7 @@ export interface Account {
   agentRunToFire(workspaceId: string, runId: string): Promise<AgentRunToFire>;
   /** A Claude Code hook reaching one of this Workspace's connections (issue 572). */
   claudeCodeHookArrived(workspaceId: string, sourceAccountId: string, at: string): Promise<'admitted' | 'too-many'>;
-  /** An app connected to this account asking to capture, under one grant (issue 599). */
+  /** An app connected to this account calling `create_item`, under one grant ("Connect Claude to Cockpit, and capture an item from it", issue 599). */
   appCaptureArrived(grantId: string, at: string): Promise<'admitted' | 'too-many'>;
   /** When a hook last reached one of this Workspace's Claude Code connections (issue 572). */
   claudeCodeHookArrival(workspaceId: string, sourceAccountId: string): Promise<{ lastArrivedAt: string | null }>;

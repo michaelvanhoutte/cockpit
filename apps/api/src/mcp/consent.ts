@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono';
 import { AuthorizationError, CimdFetchError, type AuthRequest } from '@cloudflare/workers-oauth-provider';
 import type { Env } from '../env.js';
 import { visitorHeld } from '../auth/gate.js';
+import { returnPathFrom } from '../auth/return-path.js';
 import type { Visitor } from '../auth/register.js';
 import { whoCanConsent, type GrantProps } from './grant.js';
 import { asReachedAt, oauthHelpersFor } from './oauth.js';
@@ -47,8 +48,11 @@ consent.get(AUTHORIZE_PATH, async (c) => {
 
   const visitor = await signedIn(c);
   if (!visitor) {
-    const here = new URL(c.req.url);
-    const back = `${AUTHORIZE_PATH}${here.search}`;
+    const back = returnPathFrom(`${AUTHORIZE_PATH}${new URL(c.req.url).search}`);
+    // An address too long to carry through signing in would come back as
+    // `/`, leaving the app waiting on a page nobody returns to - so say so,
+    // and the second attempt, signed in already, needs no carrying.
+    if (!back) return signInFirst(c);
     return c.redirect(`/v1/sign-in/google?${new URLSearchParams({ return: back })}`, 302);
   }
   if (!(await whoCanConsent(c.env, visitor.userId))) return guestRefused(c);
@@ -169,6 +173,20 @@ function somebodyElse(c: Context<{ Bindings: Env }>): Response {
   );
 }
 
+/** Somebody not signed in, from an app whose address is too long to come back to after signing in. */
+function signInFirst(c: Context<{ Bindings: Env }>): Response {
+  return c.html(
+    page({
+      title: 'Sign in to Cockpit first',
+      body: `
+        <h1>Sign in to Cockpit first</h1>
+        <p>This app's request is too long to bring back here after signing in. Sign in to Cockpit in this browser, then start connecting again from the app.</p>
+        <div class="actions"><a class="button" href="/v1/sign-in/google">Sign in with Google</a></div>`,
+    }),
+    200,
+  );
+}
+
 /** The one page a request that cannot go anywhere is shown. */
 function cannotConnect(c: Context<{ Bindings: Env }>): Response {
   return c.html(
@@ -184,7 +202,8 @@ function cannotConnect(c: Context<{ Bindings: Env }>): Response {
 
 /** Somebody signed in as the guest, or without a Google identity this Cockpit can hold a grant for. */
 function guestRefused(c: Context<{ Bindings: Env }>): Response {
-  const back = `${AUTHORIZE_PATH}${new URL(c.req.url).search}`;
+  const back = returnPathFrom(`${AUTHORIZE_PATH}${new URL(c.req.url).search}`);
+  const signIn = back ? `/v1/sign-in/google?${new URLSearchParams({ return: back })}` : '/v1/sign-in/google';
   return c.html(
     page({
       title: 'Sign in with Google to connect an app',
@@ -193,7 +212,7 @@ function guestRefused(c: Context<{ Bindings: Env }>): Response {
         <p>The guest account is shared by everybody who uses it, so no app can be given access to it.</p>
         ${
           c.req.method === 'GET'
-            ? `<div class="actions"><a class="button" href="/v1/sign-in/google?${escape(new URLSearchParams({ return: back }).toString())}">Sign in with Google</a></div>`
+            ? `<div class="actions"><a class="button" href="${escape(signIn)}">Sign in with Google</a></div>`
             : ''
         }`,
     }),

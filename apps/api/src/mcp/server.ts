@@ -6,12 +6,12 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
-import { TITLE_LENGTH, uuidv7 } from '@cockpit/shared';
+import { textsFromCapture, uuidv7 } from '@cockpit/shared';
 import { NotFoundInAccountError, openAccount, type Account } from '../accounts/index.js';
 import { noteTypeId } from '../accounts/changes.js';
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
-import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture } from './create-item.js';
+import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
 import { grantHolder } from './grant.js';
 import { MCP_PATH } from './paths.js';
 
@@ -37,14 +37,34 @@ interface ProtectedContext {
 }
 
 export async function answerMcp(request: Request, env: Env, ctx: ProtectedContext): Promise<Response> {
+  // **POST only.** Stateless, there is no stream to hold open for a `GET` and
+  // no session for a `DELETE` to end, and the transport would otherwise answer
+  // a `GET` with a stream that never closes - so both are refused here, as the
+  // SDK's own stateless example refuses them.
+  if (request.method !== 'POST') {
+    return new Response(null, { status: 405, headers: { allow: 'POST' } });
+  }
+
   // **Asked again on every call**, never trusted from the grant (`grant.ts`):
   // somebody deleted or disabled since they consented is nobody now. The app
   // is answered the way the library answers a token that is no good, and its
   // next refresh is refused and the grant revoked (`oauth.ts`), so it cannot
   // get access back without somebody consenting again.
-  const holder = await grantHolder(env, ctx.props);
-  if (!holder) return tokenRefused(env);
-  const account = await openAccount(env, holder.accountName);
+  let holder: Awaited<ReturnType<typeof grantHolder>>;
+  let account: Account;
+  try {
+    holder = await grantHolder(env, ctx.props);
+    if (!holder) return tokenRefused(env);
+    account = await openAccount(env, holder.accountName);
+  } catch (error) {
+    // The register or the account could not be read: the same logged,
+    // plain answer a broken tool call gets, rather than the runtime's own.
+    logged(error);
+    return Response.json(
+      { jsonrpc: '2.0', error: { code: ErrorCode.InternalError, message: SOMETHING_BROKE }, id: null },
+      { status: 500 },
+    );
+  }
   const app = {
     clientId: ctx.auth?.clientId ?? 'unknown',
     clientName: holder.clientName,
@@ -116,7 +136,7 @@ async function capture(
   if (!read.ok) return { refusal: read.refusal };
 
   const itemId = uuidv7();
-  const sender = app.clientName.trim().slice(0, TITLE_LENGTH).trim();
+  const sender = senderFrom(app.clientName);
   try {
     await account.applyChange('capture_item', {
       commandId: uuidv7(),
@@ -146,13 +166,23 @@ async function capture(
   ctx.waitUntil(enqueueCleanUp(env, accountName, itemId));
   ctx.waitUntil(enqueueReadingItsMeaning(env, accountName, itemId));
 
-  const item = await account.item(itemId);
+  // **The Item is written by now**, so nothing after this may answer as if it
+  // were not: a failure would have the app try again and capture it twice.
+  // The title it was written with is the message's mechanical one
+  // (`textsFromCapture`), so that is the answer where the read back fails.
+  const title = await account.item(itemId).then(
+    (item) => item?.title ?? textsFromCapture(read.message).title,
+    (error: unknown) => {
+      logged(error);
+      return textsFromCapture(read.message).title;
+    },
+  );
   const where = read.decided
     ? `the ${workspaces.find((w) => w.id === read.workspaceId)?.name ?? ''} Inbox`
     : 'every Inbox, until a workspace is chosen for it';
   const link = new URL(`/w/${encodeURIComponent(read.workspaceId)}`, env.APP_ORIGIN);
   link.searchParams.set('item', itemId);
-  return { reply: `Captured "${item?.title ?? read.message}" in ${where}. Open it: ${link.href}` };
+  return { reply: `Captured "${title}" in ${where}. Open it: ${link.href}` };
 }
 
 /**
