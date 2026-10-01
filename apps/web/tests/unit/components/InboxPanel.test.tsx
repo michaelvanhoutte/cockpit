@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Filing, Item, WorkspaceSnapshot } from '@cockpit/shared';
 import { InboxHeading, InboxPanel } from '../../../src/components/InboxPanel';
@@ -64,11 +65,30 @@ vi.mock('../../../src/api/queries', () => ({
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),
   }),
-  // Read by the Inbox heading's own "Rewrite history…" entry, closed here so
-  // nothing opens it.
+  // Read by the Inbox heading's own "Smart refinements…" entry: one
+  // refinement, saying which query it came from.
   rewriteHistoryForWorkspaceQuery: (workspaceId: string) => ({
     queryKey: ['rewriteHistory', 'workspace', workspaceId],
-    queryFn: () => Promise.resolve({ entries: [] }),
+    queryFn: () =>
+      Promise.resolve({
+        entries: [
+          {
+            id: 'refinement-1',
+            itemId: '11111111-1111-7111-8111-000000000099',
+            titleBefore: 'call ann',
+            titleAfter: null,
+            descriptionBefore: null,
+            descriptionAfter: null,
+            proposedPanelName: null,
+            status: 'left-as-is',
+            message: `read across ${workspaceId}`,
+            attemptedAt: '2026-10-01T09:00:00.000Z',
+            looksAt: 'texts-and-panel',
+            suggestedPanelBefore: null,
+            suggestedPanelAfter: null,
+          },
+        ],
+      }),
   }),
   rewriteHistoryForItemQuery: (itemId: string) => ({
     queryKey: ['rewriteHistory', 'item', itemId],
@@ -210,6 +230,22 @@ describe('Capture', () => {
 
       expect(within(inbox).queryByLabelText('Capture a note or to-do')).toBeNull();
       expect(within(inbox).queryByRole('button', { name: 'Capture' })).toBeNull();
+    });
+  });
+});
+
+describe('Smart refinements', () => {
+  describe('the window is reached as "Smart refinements…" from the Inbox menu and from an item menu, and is titled Smart refinements', () => {
+    it("opens the Inbox's own refinements from the Inbox menu", async () => {
+      const user = userEvent.setup();
+      await showWorkspace([anItem('Buy milk')]);
+
+      await user.click(screen.getByRole('button', { name: 'Actions for the Inbox' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Smart refinements…' }));
+
+      const dialog = await screen.findByRole('dialog', { name: 'Smart refinements' });
+      expect(await within(dialog).findByText('Read across ws-work')).toBeVisible();
+      expect(within(dialog).getByRole('columnheader', { name: 'Item' })).toBeVisible();
     });
   });
 });

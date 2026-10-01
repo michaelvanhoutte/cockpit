@@ -222,6 +222,8 @@ type RewriteRow = {
   description_after: string | null;
   proposed_panel_id: string | null;
   proposed_panel_reason: string | null;
+  looks_at: string | null;
+  panel_before_id: string | null;
 };
 
 /** Every rewrite-history row in the account - read straight out of the store. */
@@ -229,7 +231,8 @@ async function historyRows(): Promise<RewriteRow[]> {
   return inStoreAsItIs(ACCOUNT_NAME, (sql) =>
     sql
       .exec<RewriteRow>(
-        `SELECT item_id, status, message, title_after, description_after, proposed_panel_id, proposed_panel_reason
+        `SELECT item_id, status, message, title_after, description_after, proposed_panel_id, proposed_panel_reason,
+                looks_at, panel_before_id
          FROM rewrite_history WHERE tenant_id = ?`,
         ACCOUNT_NAME,
       )
@@ -661,7 +664,7 @@ describe('Triage', () => {
  * directly, as "filing several items in quick succession" above is, so the
  * refresh is the only thing that ever asks the model or writes a row here.
  */
-describe('Rewrite history', () => {
+describe('Smart refinements', () => {
   /**
    * One refresh over an item in every situation it can end in. The one it
    * cannot is the item going between the read and the write: items are only
@@ -752,6 +755,29 @@ describe('Rewrite history', () => {
       }
     });
 
+    /**
+     * "Rename Rewrite history to Smart refinements, and show each field's
+     * change" (issue 614): whatever it ends in, a refresh looked at the
+     * suggested panel alone, and started from the one the item had.
+     */
+    it('records that it looked at the suggested panel, and the one the item had, whatever it ends in', async () => {
+      const { compliance, ids } = await aRefreshOverEverySituation();
+      const rows = await historyRows();
+
+      expect(
+        Object.entries(ids).map(([situation, itemId]) => {
+          const row = rows.find((one) => one.item_id === itemId)!;
+          return { situation, looksAt: row.looks_at, panelBefore: row.panel_before_id };
+        }),
+      ).toEqual(
+        Object.keys(ids).map((situation) => ({
+          situation,
+          looksAt: 'panel',
+          panelBefore: situation === 'noLongerFits' ? compliance : null,
+        })),
+      );
+    });
+
     it('records nothing where there was nothing to refresh', async () => {
       await aPanel('Compliance questions');
 
@@ -770,6 +796,30 @@ describe('Rewrite history', () => {
 
       expect(asked).toEqual([]);
       expect(await historyRows()).toEqual([]);
+    });
+  });
+
+  describe('the suggested panel a refresh settles on is the one the item carries, never one it was refused', () => {
+    it.each([
+      { situation: 'one panel to another', proposes: 'other' as const, files: false, after: 'other' as const },
+      { situation: 'the same panel suggested again', proposes: 'compliance' as const, files: false, after: 'compliance' as const },
+      { situation: 'filed while the refresh was reading it', proposes: 'other' as const, files: true, after: 'compliance' as const },
+    ])('$situation', async ({ proposes, files, after }) => {
+      const panels = { compliance: await aPanel('Compliance questions'), other: await aPanel('Validation') };
+      const filedOn = await aPanel('Somewhere else');
+      const itemId = await anUnfiledNote('a note being refreshed', panels.compliance);
+      answerFor = async (note) => {
+        if (note === 'a note being refreshed' && files) await fileOnto(itemId, filedOn);
+        return { says: proposing(panels[proposes]) };
+      };
+
+      await handleQueue(batchOf(aRefreshOf(WORKSPACE_ID)).batch, env);
+
+      const row = (await historyRows()).find((one) => one.item_id === itemId)!;
+      expect({ before: row.panel_before_id, after: row.proposed_panel_id }).toEqual({
+        before: panels.compliance,
+        after: panels[after],
+      });
     });
   });
 });

@@ -120,8 +120,52 @@ export function accountChanges(accountId: string): readonly Change[] {
     CONNECTION_FAILURES,
     CLAUDE_CODE_HOOKS,
     DROP_WORKSPACE_ROUTING_SUMMARY,
+    REWRITE_HISTORY_LOOKS_AT,
+    REWRITE_HISTORY_PANEL_BEFORE,
   ];
 }
+
+/*
+ * What a smart refinement looked at, and the suggested Panel it started from
+ * ("Rename Rewrite history to Smart refinements, and show each field's
+ * change", issue 614) - two nullable columns on `rewrite_history`, the second
+ * referencing `panels` as `proposed_panel_id` beside it does. Each is a change
+ * of its own, so each is one statement tracked on its own.
+ *
+ * Their failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): two `ADD COLUMN`s, and no statement that writes to a row.
+ * - **If it stops halfway:** the first column exists and the second does not.
+ *   The first is recorded as applied, so the next open applies only the
+ *   outstanding second.
+ * - **The second time it runs:** neither re-runs once recorded.
+ * - **Rows that already break the new rule:** there can be none. Every
+ *   existing row reads NULL in both, which is exactly "recorded before this
+ *   shipped", and the window says so.
+ * - **What each environment does:** staging and production hold real history
+ *   rows; additive only, nothing is rewritten or dropped.
+ * - **The windows it can be interrupted in.** *Before it runs*: the code then
+ *   deployed names neither column. *Run, with the older code still writing*
+ *   (deploy skew or a rollback): its rows carry NULL in both and read as
+ *   recorded before this shipped, which is true of what they hold. *Run,
+ *   with this code*: the full behaviour.
+ */
+const REWRITE_HISTORY_LOOKS_AT: Change = {
+  name: '0051-rewrite-history-looks-at',
+  statements: [{ sql: 'ALTER TABLE `rewrite_history` ADD COLUMN `looks_at` text' }],
+};
+
+/** The second of the two columns above, under the same failure modes. */
+const REWRITE_HISTORY_PANEL_BEFORE: Change = {
+  name: '0052-rewrite-history-panel-before',
+  statements: [
+    {
+      // The action spelled out, for the reason `0019-screen-sizes` gives.
+      sql: 'ALTER TABLE `rewrite_history` ADD COLUMN `panel_before_id` text REFERENCES `panels`(`id`) ON UPDATE no action ON DELETE restrict',
+    },
+  ],
+};
 
 /**
  * The contract half of `0025-workspace-routing-summary` ("Drop the
