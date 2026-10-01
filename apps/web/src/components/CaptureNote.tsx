@@ -664,7 +664,7 @@ export const NO_WORKSPACE =
   'No workspace to capture into — your note is safe. Make one with the + beside the tabs.';
 
 /** What is said where a capture was put back but could not be taken off the list. */
-export const STILL_LISTED = 'Put back in the box, but it could not be taken off this list - it will not be sent.';
+export const STILL_LISTED = 'Put back in the box, but it could not be taken off this list — it will not be sent.';
 
 /**
  * The key that captures, said the way this keyboard says it. A Mac reads ⌘ and

@@ -526,6 +526,28 @@ describe('Offline', () => {
       expect(await browserOutboxStore().all()).toEqual([]);
       expect(outbox.getShown()).toEqual([]);
     });
+
+    it('does not wait on another tab that is still sending', async () => {
+      const server = aServer();
+      // Never answers, until it is stopped.
+      server.sender.capture = (_payload, signal) =>
+        new Promise((_, reject) => signal.addEventListener('abort', () => reject(new TypeError('aborted'))));
+      // One lock between the two, as Web Locks are across tabs.
+      const lock = inTabLock();
+      const other = aTab(server, { lock });
+      const here = aTab(server, { lock, announce: (news) => other.heard(news) });
+      await settled();
+      await other.add(capture('Ring the plumber'));
+      await settled();
+
+      let signedOut = false;
+      const discarding = here.discardAll().then(() => (signedOut = true));
+      await settled();
+
+      expect(signedOut).toBe(true);
+      await discarding;
+      expect(await browserOutboxStore().all()).toEqual([]);
+    });
   });
 
   describe('what is shown is the latest read of what is kept', () => {

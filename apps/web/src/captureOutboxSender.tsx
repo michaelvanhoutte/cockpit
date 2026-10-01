@@ -100,11 +100,16 @@ export interface NewCapture {
 }
 
 /**
- * What one tab tells the others: that what is stored changed, or that a
- * capture landed whole - which only the tab that sent it would otherwise hear,
- * and which another tab with Capture open needs to show its time.
+ * What one tab tells the others: that what is stored changed; that a capture
+ * landed whole - which only the tab that sent it would otherwise hear, and
+ * which another tab with Capture open needs to show its time; or that a
+ * sign-out is discarding everything, so whatever they are sending stops and
+ * releases the lock the discard waits for.
  */
-export type OutboxNews = { kind: 'changed' } | { kind: 'landed'; entry: OutboxEntry };
+export type OutboxNews =
+  | { kind: 'changed' }
+  | { kind: 'landed'; entry: OutboxEntry }
+  | { kind: 'discarding' };
 
 /** A capture reaching the server: its note (`note`), or the whole of it (`whole`). */
 export interface Landing {
@@ -213,10 +218,15 @@ export class CaptureOutbox {
     return entries;
   }
 
-  /** What another tab said: re-read, or show a capture it landed as landed here too. */
+  /** What another tab said: re-read, show a capture it landed as landed here too, or stop sending. */
   heard(news: OutboxNews): void {
     if (news.kind === 'landed') this.tell({ kind: 'whole', entry: news.entry });
+    else if (news.kind === 'discarding') this.abortInFlight();
     else void this.refresh();
+  }
+
+  private abortInFlight(): void {
+    for (const sending of this.inFlight) sending.abort();
   }
 
   /**
@@ -266,12 +276,13 @@ export class CaptureOutbox {
   /**
    * Deletes every entry of the signed-in person's: the explicit sign-out,
    * confirmed. Under the lock and from a fresh read, so a pass in flight cannot
-   * write one back afterwards; what it is sending is aborted, so the sign-out
-   * does not wait on it.
+   * write one back afterwards; what this tab and every other is sending is
+   * aborted, so the sign-out does not wait on it.
    */
   async discardAll(): Promise<void> {
     const owner = this.owner;
-    for (const sending of this.inFlight) sending.abort();
+    this.abortInFlight();
+    this.deps.announce?.({ kind: 'discarding' });
     await this.deps.lock(async () => {
       const entries = await this.refresh();
       for (const entry of shownTo(entries, owner)) await this.deps.store.remove(entry.id);
