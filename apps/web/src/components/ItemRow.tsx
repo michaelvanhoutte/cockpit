@@ -29,6 +29,7 @@ import { capturingApp, openableAtSource } from '../itemSource';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
+import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
 import {
   ContextMenuContent,
   MenuContent,
@@ -48,9 +49,9 @@ const RewriteHistoryWindow = lazy(() => import('./RewriteHistoryWindow'));
  * choice of it.
  */
 const PRIORITY_MARKS: Record<Priority, { label: string; className: string }> = {
-  low: { label: 'Low priority', className: 'bg-priority-low' },
-  normal: { label: 'Normal priority', className: 'bg-priority-normal' },
-  high: { label: 'High priority', className: 'bg-priority-high' },
+  low: { label: `${PRIORITY_LABELS.low} priority`, className: PRIORITY_FLAG_COLOURS.low },
+  normal: { label: `${PRIORITY_LABELS.normal} priority`, className: PRIORITY_FLAG_COLOURS.normal },
+  high: { label: `${PRIORITY_LABELS.high} priority`, className: PRIORITY_FLAG_COLOURS.high },
 };
 
 /**

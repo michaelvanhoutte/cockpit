@@ -269,6 +269,7 @@ function heldUpload() {
 }
 
 const titleBox = () => screen.getByLabelText('Title');
+const priorityFlag = (level: string) => screen.getByRole('button', { name: `${level} priority` });
 const descriptionBox = () => screen.getByLabelText('Description');
 const sent = () =>
   held.send.mock.calls.map((call) => (call as unknown as [{ name: string }])[0]);
@@ -469,24 +470,36 @@ describe('Item editing', () => {
    * same rule the boxes above already follow.
    */
   describe('priority is edited from the form', () => {
-    const priorityBox = () => screen.getByLabelText('Priority');
+    it('says which level it is, lighting only the item’s own', async () => {
+      await theForm(anItem({ priority: 'normal' }));
 
-    it('opens with the item’s own priority selected', async () => {
-      await theForm(anItem({ priority: 'high' }));
-
-      expect(priorityBox()).toHaveValue('high');
+      expect(priorityFlag('Normal')).toHaveAttribute('aria-pressed', 'true');
+      expect(priorityFlag('Low')).toHaveAttribute('aria-pressed', 'false');
+      expect(priorityFlag('High')).toHaveAttribute('aria-pressed', 'false');
     });
 
-    it('opens with none selected for an item with no priority', async () => {
+    it('lights none for an item with no priority', async () => {
       await theForm(anItem({ priority: null }));
 
-      expect(priorityBox()).toHaveValue('');
+      for (const level of ['Low', 'Normal', 'High']) {
+        expect(priorityFlag(level)).toHaveAttribute('aria-pressed', 'false');
+      }
+    });
+
+    it('moves a level to another with one press', async () => {
+      const user = await theForm(anItem({ priority: 'high' }));
+
+      await user.click(priorityFlag('Low'));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+      expect(sent()[0]).toMatchObject({ name: 'set_priority', payload: { priority: 'low' } });
     });
 
     it('sends only a priority change when only the priority changed', async () => {
       const user = await theForm(anItem({ priority: null }));
 
-      await user.selectOptions(priorityBox(), 'high');
+      await user.click(priorityFlag('High'));
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
       await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
@@ -499,17 +512,17 @@ describe('Item editing', () => {
 
       await user.clear(titleBox());
       await user.type(titleBox(), 'Part 12');
-      await user.selectOptions(priorityBox(), 'low');
+      await user.click(priorityFlag('Low'));
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
       await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
       expect(sent().map((change) => change.name)).toEqual(['set_title', 'set_priority']);
     });
 
-    it('sends a priority change of null for “None” on an item that has one', async () => {
+    it('sends a priority change of null when the lit flag is pressed again', async () => {
       const user = await theForm(anItem({ priority: 'normal' }));
 
-      await user.selectOptions(priorityBox(), 'None');
+      await user.click(priorityFlag('Normal'));
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
       await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
@@ -673,6 +686,7 @@ describe('Item editing', () => {
 
       await waitFor(() => expect(descriptionBox()).toBeDisabled());
       expect(titleBox()).toBeDisabled();
+      expect(priorityFlag('High')).toBeDisabled();
       letItLand?.();
       await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
     });
@@ -1951,7 +1965,6 @@ describe('Item editing', () => {
    * form open`), so only its being reached from here is asked.
    */
   describe('a docked form writes each field as it is finished, not behind one Save', () => {
-    const priorityBox = () => screen.getByLabelText('Priority');
     const dueDateBox = () => screen.getByLabelText('Due date');
     const dockedForm = async (item: Item = anItem(), withUndo = false) => {
       held.itemFormPresentation = 'docked';
@@ -1983,7 +1996,7 @@ describe('Item editing', () => {
         situation: 'the priority, the moment one is picked',
         item: anItem(),
         finish: async (user: ReturnType<typeof userEvent.setup>) =>
-          user.selectOptions(priorityBox(), 'high'),
+          user.click(priorityFlag('High')),
         expected: 'set_priority',
       },
       {
@@ -2221,7 +2234,7 @@ describe('Item editing', () => {
       await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
 
       held.send.mockRejectedValue(new Error('offline'));
-      await user.selectOptions(priorityBox(), 'high');
+      await user.click(priorityFlag('High'));
       expect(await screen.findByRole('alert')).toHaveTextContent('offline');
       await user.click(screen.getByRole('button', { name: 'Close' }));
 
@@ -2232,7 +2245,7 @@ describe('Item editing', () => {
     it('keeps saying a write did not land while that field is still unwritten, whatever else is written', async () => {
       const user = await dockedForm();
       held.send.mockResolvedValueOnce({ ok: true as const, applied: false });
-      await user.selectOptions(priorityBox(), 'high');
+      await user.click(priorityFlag('High'));
       expect(await screen.findByRole('alert')).toHaveTextContent(/changed somewhere else/);
 
       await user.type(titleBox(), ' now');
@@ -2352,7 +2365,7 @@ describe('Item editing', () => {
 
       it('puts a priority back to none, not to whatever it was last shown as', async () => {
         const user = await dockedForm(anItem({ priority: null }), true);
-        await user.selectOptions(priorityBox(), 'high');
+        await user.click(priorityFlag('High'));
         const undo = await screen.findByText('Undo');
         held.send.mockClear();
 
@@ -2360,7 +2373,7 @@ describe('Item editing', () => {
 
         await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_priority']));
         expect(sent()[0]).toMatchObject({ payload: { priority: null } });
-        await waitFor(() => expect(priorityBox()).toHaveValue(''));
+        await waitFor(() => expect(priorityFlag('High')).toHaveAttribute('aria-pressed', 'false'));
       });
 
       it('says so, and leaves the box alone, where the item changed elsewhere in the meantime', async () => {
@@ -2380,7 +2393,7 @@ describe('Item editing', () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
         try {
           const user = await dockedForm(anItem(), true);
-          await user.selectOptions(priorityBox(), 'low');
+          await user.click(priorityFlag('Low'));
           expect(await screen.findByText('Undo')).toBeVisible();
 
           await act(async () => {
@@ -2410,7 +2423,7 @@ describe('Item editing', () => {
         const user = await dockedForm(anItem(), true);
         answer();
 
-        await user.selectOptions(priorityBox(), 'high');
+        await user.click(priorityFlag('High'));
 
         expect(await screen.findByRole('alert')).toHaveTextContent(said);
         expect(screen.queryByText('Undo')).toBeNull();

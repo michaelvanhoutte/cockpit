@@ -59,7 +59,7 @@ import {
   writeItemFormDockedWidth,
 } from '../itemFormDockedWidth';
 import { useScreenWidth } from '../panels/useScreenWidth';
-import { PRIORITY_LABELS } from '../priority';
+import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
 
 const DESCRIPTION_LIMIT = 60_000;
 
@@ -1572,8 +1572,8 @@ function TheForm({
                     <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(10rem,1fr)_auto] gap-4 @lg:grid-cols-[18rem_minmax(0,1fr)] @lg:grid-rows-[auto_minmax(0,1fr)]">
                       <div className="flex flex-col gap-3 @lg:col-start-1 @lg:row-start-1">
                       {/* Type and status beside each other above the rest of the short fields (issue 528). */}
-                      <div className="flex gap-3">
-                        <label className="block min-w-0 flex-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="block min-w-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
                           Type
                           <select
                             disabled={saving}
@@ -1595,7 +1595,7 @@ function TheForm({
                             ))}
                           </select>
                         </label>
-                        <label className="block min-w-0 flex-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                        <label className="block min-w-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
                           Status
                           <select
                             disabled={saving}
@@ -1611,32 +1611,51 @@ function TheForm({
                           </select>
                         </label>
                       </div>
-                      {/* Priority and due date share a row (issue 480). */}
-                      <div className="flex gap-3">
-                        <label className="block flex-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                          Priority
-                          <select
-                            disabled={saving}
-                            value={draft.priority ?? ''}
-                            onChange={(e) => {
-                              setDraft({
-                                ...draft,
-                                priority: (e.target.value || null) as Priority | null,
-                              });
-                              if (docked) void commitFields(['priority']);
-                            }}
-                            className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                      {/* Priority and due date share a row (issue 480), in the same two equal columns as Type and status above so each sits under its neighbour at every width. */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="min-w-0">
+                          <p
+                            id={`${formId}-priority`}
+                            className="text-xs font-semibold uppercase tracking-wide text-ink-faint"
                           >
-                            <option value="">None</option>
-                            {prioritySchema.options.map((value) => (
-                              <option key={value} value={value}>
-                                {PRIORITY_LABELS[value]}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
+                            Priority
+                          </p>
+                          {/* Three flags drawn as an Inbox row draws them: one
+                            press lights a level and fades the others, pressing
+                            the lit one clears it, so there is no "None". The
+                            level is named by each flag's title, not drawn. */}
+                          <div
+                            role="group"
+                            aria-labelledby={`${formId}-priority`}
+                            className="mt-1 flex h-[38px] items-center gap-2"
+                          >
+                            {prioritySchema.options.map((value) => {
+                              const lit = draft.priority === value;
+                              const name = `${PRIORITY_LABELS[value]} priority`;
+                              return (
+                                <button
+                                  key={value}
+                                  type="button"
+                                  disabled={saving}
+                                  aria-pressed={lit}
+                                  aria-label={name}
+                                  title={name}
+                                  onClick={() => {
+                                    setDraft({ ...draft, priority: lit ? null : value });
+                                    if (docked) void commitFields(['priority']);
+                                  }}
+                                  className={`flex size-7 shrink-0 items-center justify-center rounded-full text-xs leading-none text-white outline-none focus-visible:ring-2 focus-visible:ring-accent-soft/60 disabled:cursor-default ${PRIORITY_FLAG_COLOURS[value]} ${
+                                    lit ? '' : 'opacity-30 hover:opacity-60'
+                                  }`}
+                                >
+                                  <span aria-hidden="true">⚑</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
 
-                        <div className="min-w-0 flex-1">
+                        <div className="min-w-0">
                           <label className="block text-xs font-semibold uppercase tracking-wide text-ink-faint">
                             Due date
                             <input
@@ -1671,7 +1690,7 @@ function TheForm({
                             moment the button is pressed and each overriding
                             whatever the field already holds, the same as
                             typing over it would. */}
-                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          <div className="mt-1.5 flex gap-1">
                             {DUE_DATE_SHORTCUTS.map(({ label, dueDate }) => (
                               <button
                                 key={label}
