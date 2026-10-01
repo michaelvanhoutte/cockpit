@@ -9,7 +9,7 @@ import type { ScreenSizePick } from './arrangement';
  *
  * **Remembered in the browser, not in the database**, for the reason the last
  * view of a workspace is (lastVisited.ts) - and here the reason is the whole
- * feature. Layouts exist because the phone and the 4K screen want different
+ * feature. Layouts exist because a laptop and a 4K screen want different
  * arrangements; storing "I am looking at the wide one" would push that choice
  * onto every other device, which is exactly what following the screen avoids.
  *

@@ -384,14 +384,14 @@ export function WorkspaceTabs({
     <>
       {/* The strip and its own trailing button share this row's width, at the
           tighter of the two gaps the header uses: the wide `gap-4` between
-          the header's own sections left too little of a 480px phone for the
+          the header's own sections left too little of a 480px screen for the
           strip once this button and the header's own split joined it, and a
           single long tab name could no longer be scrolled wholly into view
           ("Give the open workspace and dashboard their own "…", and split
           the header's menu into settings and you", issue 567). */}
       <div className="flex min-w-0 flex-1 items-end gap-1">
         {/* Scrolls within itself rather than widening the page: with enough
-            workspaces a plain row pushed a 480px phone to 571px and took the
+            workspaces a plain row pushed a 480px screen to 571px and took the
             whole page sideways with it. The scrollbar is hidden, the way a tab
             strip's is everywhere - drag, trackpad and keyboard focus all still
             move it, and a strip cut off at the edge already says there is more.

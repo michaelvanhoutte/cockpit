@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { uuidv7, type Dashboard, type PanelKind, type WorkspaceSnapshot } from '@cockpit/shared';
+import { isPhoneWidth, uuidv7, type Dashboard, type PanelKind, type WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { refusalFrom, snapshotQuery, useCommand, useSendCommand } from '../api/queries';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
@@ -10,6 +10,7 @@ import { keepingTheOpenItem } from '../itemForm';
 import { useTabDrag } from '../tabDrag';
 import { dashboardToSwitchTo } from '../switchWhileDragging';
 import { layoutsOf } from '../panels/arrangement';
+import { useScreenWidth } from '../panels/useScreenWidth';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LayoutPicker } from './LayoutPicker';
 import { RowMenu, SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
@@ -56,6 +57,8 @@ export function DashboardBar({
   const { data } = useQuery(snapshotQuery(workspaceId));
   const dashboards = data?.dashboards ?? [];
   const roomForTheInbox = useRoomForTheInbox();
+  /** A phone has no Layouts to pick or make (`isPhoneWidth`), so the control for them is not drawn. */
+  const onAPhone = isPhoneWidth(useScreenWidth());
   const navigate = useNavigate();
 
   const command = useCommand();
@@ -517,19 +520,21 @@ export function DashboardBar({
           is answered by mounting them rather than by moving them. */}
       {openDashboardId && (
         <div className="ml-auto flex shrink-0 items-end gap-1 pl-2">
-          <LayoutPicker
-            // Keyed by the dashboard, for the reason the board is keyed by it
-            // (DashboardPage): the half-typed layout name and the open
-            // question belong to the dashboard being left. This bar is the
-            // shell's and stays mounted across a switch, so nothing else drops
-            // them.
-            key={openDashboardId}
-            workspaceId={workspaceId}
-            dashboardId={openDashboardId}
-            layouts={layoutsOf(data?.layouts ?? [], openDashboardId)}
-            screenSizes={data?.screenSizes ?? []}
-            panels={(data?.panels ?? []).filter((p) => p.dashboardId === openDashboardId)}
-          />
+          {!onAPhone && (
+            <LayoutPicker
+              // Keyed by the dashboard, for the reason the board is keyed by it
+              // (DashboardPage): the half-typed layout name and the open
+              // question belong to the dashboard being left. This bar is the
+              // shell's and stays mounted across a switch, so nothing else drops
+              // them.
+              key={openDashboardId}
+              workspaceId={workspaceId}
+              dashboardId={openDashboardId}
+              layouts={layoutsOf(data?.layouts ?? [], openDashboardId)}
+              screenSizes={data?.screenSizes ?? []}
+              panels={(data?.panels ?? []).filter((p) => p.dashboardId === openDashboardId)}
+            />
+          )}
           <AddPanel workspaceId={workspaceId} dashboardId={openDashboardId} />
           {/* The open dashboard's own actions - the same entries its tab's
               own menu offers, since a right-click said nothing was there. */}

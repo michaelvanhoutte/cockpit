@@ -1016,6 +1016,18 @@ describe('Layouts', () => {
       expect(screen.getByRole('button', { name: '+ Panel' })).toBeVisible();
     });
 
+    it('offers no layout on a phone, which is never arranged, and still the way to add a panel', async () => {
+      screenIs(375);
+      showBar(['Dashboard 1'], {
+        openDashboardId: OPEN,
+        layouts: [aLayout('l', 'sz-wide')],
+        screenSizes: [aScreenSize('sz-wide', 'Wide', 1280)],
+      });
+
+      expect(await screen.findByRole('button', { name: '+ Panel' })).toBeVisible();
+      expect(screen.queryByRole('button', { name: /^Layout for this dashboard/ })).toBeNull();
+    });
+
     it('offers neither on the Inbox, where there is no dashboard to have either', async () => {
       // The bar is the shell's and is drawn on the Inbox too. That is why these
       // used to be kept off it; mounting them only where a dashboard is open is

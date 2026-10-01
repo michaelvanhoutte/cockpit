@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MIN_ROW_HEIGHT } from '@cockpit/shared';
@@ -1487,6 +1487,64 @@ describe('Panels', () => {
       showBoard({ panels, layouts: [aLayout('laptop', 1280, ['falcon'])] });
 
       expect(screen.queryAllByTestId('row-line')).toHaveLength(lines);
+    });
+  });
+
+  describe('a phone is drawn one panel across and offers nothing to rearrange with', () => {
+    const rowsDrawn = () => document.querySelectorAll('[data-panel-row]').length;
+
+    it('ignores the layout made for a wider screen, however near it is', () => {
+      screenIs(375);
+      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+
+      expect(rowsDrawn()).toBe(2);
+    });
+
+    it('takes away every line and the grab that rearranging is done with', () => {
+      screenIs(375);
+      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+
+      expect(screen.queryAllByTestId('row-line')).toHaveLength(0);
+      expect(screen.queryAllByTestId('column-line')).toHaveLength(0);
+
+      // The header is no handle: pressing it picks nothing up, so no seam opens.
+      fireEvent.pointerDown(handleOf('To read'), { button: 0, pointerId: 1, pointerType: 'mouse' });
+      expect(screen.queryAllByTestId('row-seam')[0]).not.toHaveStyle({ height: '22px' });
+    });
+
+    it('keeps nothing of a drag the window was shrunk to a phone in the middle of', () => {
+      const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      const point = slotBefore('falcon');
+      dragTo('To read', point, false);
+
+      act(() => {
+        screenIs(375);
+        window.dispatchEvent(new Event('resize'));
+      });
+      fireEvent.pointerUp(handleOf('To read'), { pointerId: 1, clientX: point.x, clientY: point.y });
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('switches between the layout and one panel across as the window crosses the line, without a reload', () => {
+      screenIs(1280);
+      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      expect(rowsDrawn()).toBe(1);
+      expect(screen.queryAllByTestId('column-line')).toHaveLength(1);
+
+      act(() => {
+        screenIs(479);
+        window.dispatchEvent(new Event('resize'));
+      });
+      expect(rowsDrawn()).toBe(2);
+      expect(screen.queryAllByTestId('column-line')).toHaveLength(0);
+
+      act(() => {
+        screenIs(480);
+        window.dispatchEvent(new Event('resize'));
+      });
+      expect(rowsDrawn()).toBe(1);
+      expect(screen.queryAllByTestId('column-line')).toHaveLength(1);
     });
   });
 

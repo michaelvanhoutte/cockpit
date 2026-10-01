@@ -1,6 +1,7 @@
 import {
   DEFAULT_CELL_SPAN,
   GRID_COLUMNS,
+  isPhoneWidth,
   MAX_ROW_HEIGHT,
   MIN_ROW_HEIGHT,
   MOST_ACROSS,
@@ -26,8 +27,8 @@ import type { Layout, LayoutCell, LayoutRow, Panel, ScreenSize } from '@cockpit/
  * answer rather than falling into a bucket.
  *
  * 420px is about the width of a phone laid out at its comfortable size, and it
- * is what makes a 480px phone one panel across, a 1280px laptop three, and
- * anything wider four.
+ * is what makes a phone one panel across (anything under 480px, `isPhoneWidth`,
+ * and 480px itself), a 1280px laptop three, and anything wider four.
  *
  * What it is divided into is the width the *panels* have, not the window's:
  * where the Inbox sits beside them it takes about a fifth of the screen
@@ -191,6 +192,12 @@ export function nearestLayout(
  * following the screen, and the pick survives to be honoured on a Dashboard
  * that has defined it. A picked Layout that has been deleted falls through the
  * same way - nothing has to notice either case and clear the pick.
+ *
+ * **None at all on a phone** (`isPhoneWidth`): a Layout is an arrangement made
+ * for a wider screen, and handing one to a phone is what drew panels too narrow
+ * to read. The answer is the same null a Dashboard nobody has arranged gets, so
+ * it is drawn fitted to the screen, one panel across. The Layouts are left
+ * alone and are read again the moment the window is wide enough.
  */
 export function layoutToDraw(
   layouts: readonly Layout[],
@@ -199,6 +206,7 @@ export function layoutToDraw(
   screenWidth: number,
   pick: ScreenSizePick | null,
 ): Layout | null {
+  if (isPhoneWidth(screenWidth)) return null;
   const nearest = nearestLayout(layouts, screenSizes, dashboardId, screenWidth);
   if (!pick) return nearest;
   const accountNearest = nearestScreenSize(screenSizes, screenWidth);

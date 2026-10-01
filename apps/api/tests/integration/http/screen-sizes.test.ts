@@ -128,17 +128,49 @@ describe('Layouts', () => {
     });
   });
 
+  describe('a phone is never arranged, so no screen size is made at its width', () => {
+    const save = (screenWidth: number) =>
+      postChange('save_layout', {
+        ...envelope(),
+        workspaceId: WORKSPACE_ID,
+        dashboardId: DASHBOARD_ID,
+        layoutId: nextId(),
+        screenWidth,
+        rows: [],
+      });
+
+    it('refuses an arrangement that would make the account’s first screen size at a phone’s width, and stores nothing', async () => {
+      const saved = await save(479);
+
+      expect(saved.status).toBe(400);
+      expect(await saved.text()).toContain('phone');
+      expect(await theSizes()).toEqual([]);
+    });
+
+    it('still keeps an arrangement saved from a narrow window in the nearest size the account has', async () => {
+      await postChange('create_screen_size', {
+        ...envelope(),
+        screenSizeId: nextId(),
+        name: 'Laptop',
+        width: 1280,
+      });
+
+      expect((await save(479)).status).toBe(200);
+      expect((await theSizes()).map((size) => size.name)).toEqual(['Laptop']);
+    });
+  });
+
   describe('a screen size is only ever made deliberately', () => {
     it('takes the name and width typed in, and nothing else', async () => {
       const response = await postChange('create_screen_size', {
         ...envelope(),
         screenSizeId: nextId(),
-        name: 'Phone',
-        width: 430,
+        name: 'Narrow',
+        width: 480,
       });
 
       expect(response.status).toBe(200);
-      expect(await named('Phone')).toMatchObject({ name: 'Phone', width: 430 });
+      expect(await named('Narrow')).toMatchObject({ name: 'Narrow', width: 480 });
     });
 
     it.each([
@@ -146,6 +178,7 @@ describe('Layouts', () => {
       { situation: 'that name in another capitalisation', name: 'WIDE', width: 1000, answers: 409 },
       { situation: 'no name at all', name: '', width: 1000, answers: 400 },
       { situation: 'a width of zero', name: 'Tiny', width: 0, answers: 400 },
+      { situation: 'a width a phone has', name: 'Phone', width: 479, answers: 400 },
     ])('refuses $situation', async ({ name, width, answers }) => {
       await postChange('create_screen_size', {
         ...envelope(),
@@ -232,7 +265,7 @@ describe('Layouts', () => {
         ...envelope(),
         screenSizeId: nextId(),
         name: 'Phone',
-        width: 430,
+        width: 500,
       });
 
       const response = await postChange('rename_screen_size', {

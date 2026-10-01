@@ -125,6 +125,21 @@ describe('Layouts', () => {
       expect(layoutToDraw([phone, laptop, wide], sizes, 'today', screenWidth, pick)?.id).toBe(drawn);
     });
 
+    // A layout is made for a wider screen, and the nearest one is no better a
+    // fit on a phone than any other: it is what drew unreadable panels.
+    it.each([
+      { situation: 'a phone', screenWidth: 375, pick: null },
+      { situation: 'a phone, even with a size picked by hand', screenWidth: 375, pick: picked('sz-wide', 'sz-phone') },
+      { situation: 'the widest a phone gets', screenWidth: 479, pick: null },
+    ])('draws no layout at all on $situation', ({ screenWidth, pick }) => {
+      expect(layoutToDraw([phone, laptop, wide], sizes, 'today', screenWidth, pick)).toBeNull();
+    });
+
+    it('goes back to the layouts the moment the screen is as wide as a phone stops being', () => {
+      expect(layoutToDraw([phone, laptop, wide], sizes, 'today', 479, null)).toBeNull();
+      expect(layoutToDraw([phone, laptop, wide], sizes, 'today', 480, null)?.id).toBe('phone');
+    });
+
     it('goes to the narrower one when two are equally close, so two screens agree', () => {
       expect(layoutToDraw([phone, laptop], sizes, 'today', 880, null)?.id).toBe('phone');
     });

@@ -597,7 +597,7 @@ describe('Panels', () => {
       // them anyway, and a hundred and twenty round trips in a row is the
       // difference between a case that runs in a moment and one that outlasts
       // the runner's patience.
-      const widths = Array.from({ length: 120 }, (_, at) => 320 + at);
+      const widths = Array.from({ length: 120 }, (_, at) => 480 + at);
       const screenSizeIds = widths.map(() => nextId());
       expect(
         (
@@ -1492,7 +1492,7 @@ describe('Layouts', () => {
       const dashboardId = await aDashboard();
       const panelId = nextId();
       expect((await addPanel(dashboardId, aName(), { panelId })).status).toBe(200);
-      await aScreenSize('Phone', 430);
+      await aScreenSize('Tablet', 600);
       const wide = await aScreenSize('Wide', 1280);
 
       const saved = await saveLayout(dashboardId, nextId(), 1200, [{ panelId, span: 4 }]);

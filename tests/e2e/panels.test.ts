@@ -334,7 +334,7 @@ test.describe('Panels', () => {
       // dashboard has to follow it.
       const firstScreen = page.viewportSize()!.width;
       const firstLayout = (await layoutControl(page).textContent())!.trim();
-      await page.setViewportSize({ width: firstScreen > 700 ? 420 : 1100, height: 800 });
+      await page.setViewportSize({ width: firstScreen > 700 ? 520 : 1100, height: 800 });
       await expect.poll(() => panelsOnScreen(page)).toEqual(arranged);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
@@ -369,6 +369,18 @@ test.describe('Panels', () => {
       await expectLayouts(page, 2, isMobile);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
+
+      // A phone is never arranged: under 480px both layouts are left unread
+      // and the dashboard is one panel to a line with nothing to rearrange
+      // it by. Nothing is deleted - the layouts are drawn again below.
+      await page.setViewportSize({ width: 420, height: 800 });
+      await expect(layoutControl(page)).toHaveCount(0);
+      await expect
+        .poll(async () => (await rowsOnScreen(page)).map((row) => row.length))
+        .toEqual([1, 1, 1]);
+      await expect(page.getByTestId('row-line')).toHaveCount(0);
+      await expect(page.getByTestId('column-line')).toHaveCount(0);
+      await expectNoSidewaysScroll(page);
 
       // Back to the screen the first layout was made for, and the dashboard
       // goes back with it ("Layouts follow the screen you are on"). This is the
@@ -485,7 +497,7 @@ test.describe('Panels', () => {
       await page.getByLabel('Name of the new screen size').press('Enter');
       await expectLayouts(page, 1, isMobile);
 
-      await page.setViewportSize({ width: 420, height: 800 });
+      await page.setViewportSize({ width: 500, height: 800 });
       await expect.poll(async () => (await panel.boundingBox())!.width).toBeLessThan(200);
 
       // The count goes, because the list underneath already shows what is on
