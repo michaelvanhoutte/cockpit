@@ -20,33 +20,42 @@ import {
   useDeleteUser,
   useSetAccess,
 } from '../api/queries';
-import { DeleteQuestion } from '../components/DeleteQuestion';
-import { RowForm, wasOnTheRow } from '../components/RowForm';
-import { RowMenu } from '../components/Menu';
+import { DeleteQuestion } from './DeleteQuestion';
+import { CloseWindow, ManageWindow } from './ManageWindow';
+import { RowMenu } from './Menu';
+import { RowForm, wasOnTheRow } from './RowForm';
 
 /**
- * Who can sign in to this Cockpit, on a page only an admin can open ("See who
- * can sign in, on a page only an admin can open", issue 230).
+ * Who can sign in to this Cockpit, in a window only an admin is offered ("See
+ * who can sign in, on a page only an admin can open", issue 230).
  *
- * **A screen rather than a window over a workspace**, which is the one
- * exception to the rule that managing is a window (functional definition,
- * "Managing the Account is a window over the Workspace you are in"). The three
- * windows manage an *Account* - its workspaces, its types, its dashboards - and
- * this manages the environment: who exists at all, across every account. There
- * is no workspace behind it to keep, so it heads itself the way Capture does
- * rather than borrowing the band above.
+ * **A window over the workspace, like the rest of the account's settings**
+ * (`ManageWindow.tsx`). It used to be a page of its own, because it manages the
+ * environment - who exists at all, across every account - rather than an
+ * Account; but a detour that leaves the workspace is worse than one that
+ * returns to it, and the window needs no workspace of its own to keep.
  *
  * **It reads, it adds, it changes a person's name and role, it takes their
  * access away or gives it back, and it deletes them** with the account they
  * own ("Delete a user, and the account they owned with them", issue 234).
  *
- * **The server is what refuses**, not this page. The entry to it is hidden from
- * an ordinary user, and hiding is a courtesy: whoever types the address anyway
- * is refused by the gate in `auth/admin.ts`, and what they see here is that
+ * **The server is what refuses**, not this window. The entry to it is hidden
+ * from an ordinary user, and hiding is a courtesy: whoever reaches it anyway is
+ * refused by the gate in `auth/admin.ts`, and what they see here is that
  * refusal drawn.
  */
-export function AdminPage() {
-  const { data, error, isPending } = useQuery(registeredUsersQuery);
+export default function ManageUsers({
+  open,
+  onClose,
+  returnFocusTo,
+}: {
+  open: boolean;
+  onClose: () => void;
+  returnFocusTo?: HTMLElement | null | undefined;
+}) {
+  // Read only while open: the register holds other people's addresses and is
+  // never fetched for somebody who has not asked for it.
+  const { data, error, isPending } = useQuery({ ...registeredUsersQuery, enabled: open });
   // Who is asking, which one of the two refusals is about. A read that has not
   // settled or has failed simply leaves that refusal to the server, which makes
   // it either way.
@@ -139,85 +148,84 @@ export function AdminPage() {
     changing.reset();
   };
 
-  if (isPending) return <Framed>Reading who can sign in…</Framed>;
-  /**
-   * **Only a 403 is "you are not an admin".** Everything else - offline, a
-   * deploy in flight, a 500 - would be a false statement about the person
-   * reading it, and the alarming one: it tells an admin they have lost their
-   * role when what has happened is that a request failed.
-   */
-  if (error) {
-    return (
-      <Framed>
-        <p className="text-ink-faint">
-          {statusOf(error) === '403'
-            ? 'This page is for admins, and Cockpit does not have you down as one.'
-            : 'Who can sign in could not be read just now. Try again in a moment.'}
-        </p>
-      </Framed>
-    );
-  }
+  const close = () => {
+    setEditing(null);
+    changing.reset();
+    stopDeleting();
+    onClose();
+  };
 
   return (
-    <Framed>
-      <AddSomebody />
-      {/* A menu entry has nowhere of its own to be refused in - the menu is
-          shut by the time the server answers - so what it could not do is said
-          above the list, where the row it was about is. Without this, a refused
-          Disable is a row that simply did not change, which reads exactly like
-          a slow one. */}
-      {access.error && (
-        <p role="alert" className="mb-4 text-sm text-over">
-          {whatItSaid(access.error)}
-        </p>
+    <ManageWindow
+      title="Manage users"
+      wide
+      open={open}
+      onClose={close}
+      canClose={!changing.isPending && !remover.isPending}
+      returnFocusTo={returnFocusTo}
+    >
+      <p className="mt-2 text-sm text-ink-faint">
+        Everyone this Cockpit knows. Add somebody and they can sign in straight away.
+      </p>
+      {isPending && <p className="mt-3 text-sm text-ink-faint">Reading who can sign in…</p>}
+      {/*
+        **Only a 403 is "you are not an admin".** Everything else - offline, a
+        deploy in flight, a 500 - would be a false statement about the person
+        reading it, and the alarming one: it tells an admin they have lost their
+        role when what has happened is that a request failed.
+      */}
+      {error &&
+        (statusOf(error) === '403' ? (
+          <p className="mt-3 text-sm text-ink-faint">
+            This is for admins, and Cockpit does not have you down as one.
+          </p>
+        ) : (
+          <p className="mt-3 text-sm text-ink-faint">
+            Who can sign in could not be read just now. Try again in a moment.
+          </p>
+        ))}
+      {data && (
+        <>
+          <AddSomebody />
+          {/* A menu entry has nowhere of its own to be refused in - the menu is
+              shut by the time the server answers - so what it could not do is said
+              above the list, where the row it was about is. Without this, a refused
+              Disable is a row that simply did not change, which reads exactly like
+              a slow one. */}
+          {access.error && (
+            <p role="alert" className="mb-4 text-sm text-over">
+              {whatItSaid(access.error)}
+            </p>
+          )}
+          <section className="-mx-2 min-h-0 flex-1 overflow-y-auto">
+            <ul>
+                {byStaleness.map((user) => (
+                  <Row
+                    key={user.id}
+                    user={user}
+                    onEdit={startEditing}
+                    onAccess={(disabled) => access.mutate({ userId: user.id, disabled })}
+                    onDelete={startDeleting}
+                    deleteStuck={whyDeletingIsStuck(user, {
+                      me: me.data?.user.id,
+                      admins: adminsCounting(user),
+                    })}
+                    // Only a disabling is ever refused, so only a row that still
+                    // has its access has a reason to carry.
+                    accessStuck={
+                      user.disabled
+                        ? null
+                        : whyAccessIsStuck(user, { me: me.data?.user.id, admins: adminsCounting(user) })
+                    }
+                  />
+                ))}
+            </ul>
+          </section>
+        </>
       )}
-      {/* A table rather than the rows the management windows use: every column
-          here is a fact about somebody that an admin is comparing across
-          people - who has signed in, who is an admin - and a list of rows makes
-          that a scan rather than a glance. */}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b border-black/10 text-xs uppercase tracking-wide text-ink-faint">
-              <th className="py-2 pr-4 font-medium">Name</th>
-              <th className="py-2 pr-4 font-medium">Signs in with</th>
-              <th className="py-2 pr-4 font-medium">Role</th>
-              <th className="py-2 pr-4 font-medium">Account</th>
-              <th className="py-2 pr-4 font-medium">Signed in</th>
-              {/* The menu's column, named for a reader who cannot see that it
-                  holds a control rather than a fact. */}
-              <th className="py-2 font-medium">
-                <span className="sr-only">Actions</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {byStaleness.map((user) => (
-              <Row
-                key={user.id}
-                user={user}
-                onEdit={startEditing}
-                onAccess={(disabled) => access.mutate({ userId: user.id, disabled })}
-                onDelete={startDeleting}
-                deleteStuck={whyDeletingIsStuck(user, {
-                  me: me.data?.user.id,
-                  admins: adminsCounting(user),
-                })}
-                // Only a disabling is ever refused, so only a row that still
-                // has its access has a reason to carry.
-                accessStuck={
-                  user.disabled
-                    ? null
-                    : whyAccessIsStuck(user, { me: me.data?.user.id, admins: adminsCounting(user) })
-                }
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
 
-      {/* One form for the page: at most one row is being edited, and it covers
-          the page while it is. */}
+      {/* One form for the window: at most one row is being edited, and it
+          covers the window while it is. */}
       {beingEdited && editing && (
         <RowForm
           title={`Edit ${beingEdited.name}`}
@@ -298,7 +306,8 @@ export function AdminPage() {
           onConfirm={() => remover.mutate(beingDeleted.id, { onSuccess: () => setDeleting(null) })}
         />
       )}
-    </Framed>
+      <CloseWindow disabled={changing.isPending || remover.isPending} />
+    </ManageWindow>
   );
 }
 
@@ -599,42 +608,45 @@ function Row({
   deleteStuck: string | null;
 }) {
   return (
-    <tr
-      className="border-b border-black/5"
+    <li
+      className="border-b border-black/5 px-4 py-2 last:border-b-0"
       onDoubleClick={(event) => {
         if (wasOnTheRow(event)) onEdit(user, null);
       }}
     >
-      <td className="py-2 pr-4">
-        {user.name}
-        {/* The row stays where it was and says what happened to it, rather than
-            leaving the list: somebody disabled is still somebody this Cockpit
-            holds, and an admin looking for them would not find them in a list
-            they had dropped out of. */}
-        {user.disabled && (
-          <span className="ml-2 rounded bg-black/5 px-1.5 py-0.5 text-xs text-ink-faint">
-            No access
-          </span>
-        )}
-      </td>
-      {/* A person with no address is one nobody can sign in as, since the
-          address is how a sign-in finds its row. Said rather than left blank,
-          because a blank cell reads as a page that failed to draw. */}
-      <td className="py-2 pr-4 text-ink-faint">{user.email ?? 'no address — cannot sign in'}</td>
-      <td className="py-2 pr-4">{roleName(user.role)}</td>
-      <td className="py-2 pr-4 text-ink-faint">{user.accountName}</td>
-      <td className="py-2 pr-4 text-ink-faint">
-        {lastSignedInLabel(user.lastSignedInAt)}
-        {/* Said in words beside the date, since colour alone says nothing to a
-            screen reader. The row stays where it is: this only marks it, and
-            deleting is the row's own menu. */}
-        {isInactive(user.lastSignedInAt) && (
-          <span className="ml-2 rounded bg-due-soft px-1.5 py-0.5 text-xs text-due-ink">
-            Inactive 3 months+
-          </span>
-        )}
-      </td>
-      <td className="py-2">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm">
+            {user.name}
+            {/* The row stays where it was and says what happened to it, rather
+                than leaving the list: somebody disabled is still somebody this
+                Cockpit holds, and an admin looking for them would not find them
+                in a list they had dropped out of. */}
+            {user.disabled && (
+              <span className="ml-2 rounded bg-black/5 px-1.5 py-0.5 text-xs text-ink-faint">
+                No access
+              </span>
+            )}
+            {/* Said in words beside the name, since colour alone says nothing
+                to a screen reader. The row stays where it is: this only marks
+                it, and deleting is the row's own menu. */}
+            {isInactive(user.lastSignedInAt) && (
+              <span className="ml-2 rounded bg-due-soft px-1.5 py-0.5 text-xs text-due-ink">
+                Inactive 3 months+
+              </span>
+            )}
+          </p>
+          {/* A person with no address is one nobody can sign in as, since the
+              address is how a sign-in finds its row. Said rather than left
+              blank, because a blank line reads as a window that failed to
+              draw. */}
+          <p className="truncate text-sm text-ink-faint">
+            {user.email ?? 'no address — cannot sign in'}
+          </p>
+          <p className="text-sm text-ink-faint">
+            {roleName(user.role)} · {user.accountName} · {lastSignedInLabel(user.lastSignedInAt)}
+          </p>
+        </div>
         <RowMenu
           label={`Actions for ${user.name}`}
           entries={[
@@ -660,25 +672,7 @@ function Row({
             },
           ]}
         />
-      </td>
-    </tr>
-  );
-}
-
-/**
- * The page's own heading and frame. Written here rather than taken from the
- * shell for the reason the page exists outside a workspace: the band above
- * belongs to whichever workspace you were last in, and a page about the whole
- * environment must not wear one account's colour.
- */
-function Framed({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="mx-auto w-full max-w-4xl px-4 py-6">
-      <h1 className="mb-1 text-lg font-semibold">Who can sign in</h1>
-      <p className="mb-4 text-sm text-ink-faint">
-        Everyone this Cockpit knows. Add somebody and they can sign in straight away.
-      </p>
-      {children}
-    </main>
+      </div>
+    </li>
   );
 }

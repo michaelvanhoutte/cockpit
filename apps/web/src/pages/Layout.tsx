@@ -17,6 +17,7 @@ const AgentDock = lazy(() => import('../components/AgentDock'));
 // own agent controls with it).
 const ManageTypes = lazy(() => import('../components/ManageTypes'));
 const ManageConnectedApps = lazy(() => import('../components/ManageConnectedApps'));
+const ManageUsers = lazy(() => import('../components/ManageUsers'));
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { CaptureWindow } from '../components/CaptureWindow';
@@ -475,8 +476,22 @@ function TheShell() {
    * inside a workspace, and a page reached without one made it degrade into a
    * header wearing none of the workspace's colour, control or selected tab.
    */
-  const [managing, setManaging] = useState<'types' | 'apps' | null>(null);
+  const [managing, setManaging] = useState<'types' | 'apps' | 'users' | null>(null);
   const typesOpenedFrom = useRef<HTMLElement | null>(null);
+
+  /**
+   * Who is signed in - and, when it comes back refused, that nobody is.
+   *
+   * **Nothing waits for it.** The screen below paints from the stored copy
+   * first and this settles behind it, which is the standing never-block-paint
+   * rule (architecture, "Performance budgets and the standing rules"): opening
+   * the app on a train should show your work, not a spinner over an
+   * unanswerable question. The cost of that is a moment where a sign-in that
+   * has gone is not known to have gone, and the moment ends here.
+   */
+  const { data: me, error: sessionFailure } = useQuery(meQuery);
+  const signedOut = sessionFailure instanceof NotSignedIn;
+
   /**
    * The account's own entries, at the foot of the open workspace's "…"
    * (`WorkspaceTabs.tsx`).
@@ -508,20 +523,24 @@ function TheShell() {
       keepsFocus: true,
       onSelect: () => hideAgentDock(!agentDockHidden),
     },
+    // Last, under a separator of its own: everything above changes what this
+    // session shows, and this changes who can sign in for everybody. Offered to
+    // an admin only, which is a courtesy rather than the guard: what refuses an
+    // ordinary user is the server (auth/admin.ts), and hiding the entry keeps a
+    // door in front of them that only ever says no.
+    ...(me?.user.role === ADMIN
+      ? [
+          {
+            label: 'Manage users',
+            separatorBefore: true,
+            onSelect: (from: HTMLElement | null) => {
+              typesOpenedFrom.current = from;
+              setManaging('users');
+            },
+          },
+        ]
+      : []),
   ];
-
-  /**
-   * Who is signed in - and, when it comes back refused, that nobody is.
-   *
-   * **Nothing waits for it.** The screen below paints from the stored copy
-   * first and this settles behind it, which is the standing never-block-paint
-   * rule (architecture, "Performance budgets and the standing rules"): opening
-   * the app on a train should show your work, not a spinner over an
-   * unanswerable question. The cost of that is a moment where a sign-in that
-   * has gone is not known to have gone, and the moment ends here.
-   */
-  const { data: me, error: sessionFailure } = useQuery(meQuery);
-  const signedOut = sessionFailure instanceof NotSignedIn;
 
   /**
    * The capture outbox is sent for as long as somebody is signed in, and its
@@ -892,22 +911,6 @@ function TheShell() {
                 <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
                   {me ? `Signed in as ${me.user.name}` : 'Signed in'}
                 </DropdownMenu.Label>
-                {/* A link rather than an entry that opens a window, and the only
-                    one here: the admin pages are about the environment rather
-                    than this account, so there is no workspace to keep behind
-                    them and an address of their own is what a screen has ("See
-                    who can sign in, on a page only an admin can open", issue
-                    230).
-
-                    **Offered to an admin only, and that is a courtesy rather
-                    than the guard.** What refuses an ordinary user is the server
-                    (auth/admin.ts); hiding the entry just keeps a door in front
-                    of them that only ever says no. */}
-                {me?.user.role === ADMIN && (
-                  <DropdownMenu.Item asChild className={menuItemClass}>
-                    <Link to="/admin">Admin</Link>
-                  </DropdownMenu.Item>
-                )}
                 <DropdownMenu.Item
                   onSelect={() => (unsent > 0 ? setAskingToSignOut(true) : leave.mutate())}
                   className={menuItemClass}
@@ -1155,6 +1158,17 @@ function TheShell() {
           returnFocusTo={typesOpenedFrom.current}
         />
       </Suspense>
+
+      {/* Who can sign in, over the workspace as the types are. Offered to an admin only. */}
+      {me?.user.role === ADMIN && (
+        <Suspense fallback={null}>
+          <ManageUsers
+            open={managing === 'users'}
+            onClose={() => setManaging(null)}
+            returnFocusTo={typesOpenedFrom.current}
+          />
+        </Suspense>
+      )}
 
       {/* Capture, over the workspace rather than instead of it, at a desk. */}
       <CaptureWindow

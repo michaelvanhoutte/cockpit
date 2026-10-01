@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { RegisteredUser } from '@cockpit/shared';
-import { AdminPage, isInactive } from '../../../src/pages/AdminPage';
+import ManageUsers, { isInactive } from '../../../src/components/ManageUsers';
 
 /**
  * F1: what the page draws from what it is given. That only an admin may read it
@@ -89,7 +89,7 @@ function drawn() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <AdminPage />
+      <ManageUsers open onClose={() => {}} />
     </QueryClientProvider>,
   );
   return client;
@@ -193,12 +193,12 @@ describe('User management', () => {
       reads.mockResolvedValue({ users: PEOPLE });
       drawn();
 
-      const row = (await screen.findByText(person.name)).closest('tr')!;
+      const row = (await screen.findByText(person.name)).closest('li')!;
       // The role in the words the screen uses, not the word the register holds:
       // the form beside it offers "Admin", and a page that said both would be
       // saying they might be different things.
       for (const said of [person.email!, role, person.accountName, signedIn]) {
-        expect(within(row).getByText(said)).toBeVisible();
+        expect(row).toHaveTextContent(said);
       }
     });
 
@@ -231,9 +231,8 @@ describe('User management', () => {
       reads.mockResolvedValue({ users: [recent, stale, never] });
       drawn();
 
-      const rows = await screen.findAllByRole('row');
-      // The header row draws first, so the people are everything after it.
-      const names = rows.slice(1).map((row) => within(row).getByText(/Recent|Stale|Never/).textContent);
+      const rows = await screen.findAllByRole('listitem');
+            const names = rows.map((row) => /Recent|Stale|Never/.exec(row.textContent ?? '')?.[0]);
 
       expect(names).toEqual(['Never', 'Stale', 'Recent']);
     });
@@ -252,7 +251,7 @@ describe('User management', () => {
       reads.mockResolvedValue({ users: [PEOPLE[0]!, person] });
       drawn();
 
-      const row = (await screen.findByText(person.name)).closest('tr')!;
+      const row = (await screen.findByText(person.name)).closest('li')!;
       const flag = within(row).queryByText(/inactive/i);
       if (flagged) expect(flag).toBeVisible();
       else expect(flag).toBeNull();
@@ -319,7 +318,7 @@ describe('User management', () => {
 
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
-      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: /^Edit / })).toBeNull());
     });
 
     /**
@@ -334,7 +333,7 @@ describe('User management', () => {
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
       expect(await screen.findByRole('alert')).toHaveTextContent(/your own admin/);
-      expect(screen.getByRole('dialog')).toBeVisible();
+      expect(screen.getByRole('dialog', { name: /^Edit / })).toBeVisible();
     });
 
     it('does not offer to save a name of only spaces', async () => {
@@ -471,7 +470,7 @@ describe('User management', () => {
       reads.mockResolvedValue({ users: [PEOPLE[0]!, gone] });
       drawn();
 
-      const row = (await screen.findByText(gone.name)).closest('tr')!;
+      const row = (await screen.findByText(gone.name)).closest('li')!;
       expect(within(row).getByText(/no access/i)).toBeVisible();
     });
 
@@ -564,7 +563,7 @@ describe('User management', () => {
       drawn();
 
       expect(await screen.findByText(/for admins/i)).toBeVisible();
-      expect(screen.queryByRole('table')).toBeNull();
+      expect(screen.queryByRole('list')).toBeNull();
     });
 
     /**
