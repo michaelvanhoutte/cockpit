@@ -715,17 +715,18 @@ export const STILL_LISTED = 'Put back in the box, but it could not be taken off 
  * The key that captures, said the way this keyboard says it. A Mac reads ⌘ and
  * nothing else does, and a hint naming the wrong key is worse than none.
  */
-const SHORTCUT =
-  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent)
-    ? '⌘↵'
-    : 'Ctrl ↵';
+const SHORTCUT = isAMac() ? '⌘↵' : 'Ctrl ↵';
+
+function isAMac(userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : ''): boolean {
+  return /Mac|iPhone|iPad/.test(userAgent);
+}
 
 /** The key that pastes, said the way `SHORTCUT` says its own. */
 export function pasteKeyFor(userAgent: string): string {
-  return /Mac|iPhone|iPad/.test(userAgent) ? '⌘V' : 'Ctrl V';
+  return isAMac(userAgent) ? '⌘V' : 'Ctrl V';
 }
 
-const PASTE_KEY = pasteKeyFor(typeof navigator !== 'undefined' ? navigator.userAgent : '');
+const PASTE_KEY = isAMac() ? '⌘V' : 'Ctrl V';
 
 /** A due date as chosen: the day, and the shortcut that chose it where one did. */
 interface Due {
