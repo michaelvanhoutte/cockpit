@@ -74,6 +74,10 @@ async function setAccess(page: Page, who: string, entry: 'Disable' | 'Enable', i
 
 /** Leaves as whoever is signed in. */
 async function signOut(page: Page, isMobile: boolean) {
+  // The users window is a modal, so it has to be put away before the menu behind
+  // it can be reached.
+  const done = usersWindow(page).getByRole('button', { name: 'Done' });
+  if (await done.isVisible()) await press(done, isMobile);
   await press(page.getByRole('button', { name: 'Profile' }), isMobile);
   await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
 }
@@ -173,8 +177,7 @@ test.describe('User management', () => {
 
       // Now hers: a person the register did not hold a minute ago signs in and
       // arrives in an account of her own.
-      await press(page.getByRole('button', { name: 'Profile' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
+      await signOut(page, isMobile);
       await signInWith(page, anna.address, isMobile);
 
       // Asserted here rather than inside the helper: that somebody added a
