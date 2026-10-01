@@ -150,13 +150,13 @@
   //
   // **`kv_namespaces` is NOT inheritable**, so staging and `env.local` each
   // repeat it below, staging with a namespace of its own so a grant made there
-  // can never act on production. **The ids are not yet filled in**: the two
-  // namespaces are created by hand before the first deploy that carries this,
-  // and their ids written here (docs/deployment.md, "Bootstrap runbook").
+  // can never act on production. Both namespaces were created by hand, as
+  // `cockpit-oauth` and `cockpit-oauth-staging` (docs/deployment.md,
+  // "Bootstrap runbook").
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",
-      "id": "REPLACE-WITH-wrangler-kv-namespace-create-cockpit-oauth"
+      "id": "c2a6d73caf0d43bfac75e175516e4df1"
     }
   ],
 
@@ -289,11 +289,11 @@
       ],
       // Its own, for the reason it has its own database: `kv_namespaces` is
       // not inheritable, and a shared one would let a grant made on staging
-      // reach production. Not yet created - see the top level's own comment.
+      // reach production.
       "kv_namespaces": [
         {
           "binding": "OAUTH_KV",
-          "id": "REPLACE-WITH-wrangler-kv-namespace-create-cockpit-oauth-staging"
+          "id": "40afd4f58c914507b7047737ee4d75bc"
         }
       ],
       // Its own Google client rather than production's, so a secret that leaks

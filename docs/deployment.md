@@ -770,12 +770,11 @@ wrangler r2 bucket create cockpit-attachments
 wrangler r2 bucket create cockpit-attachments-staging
 ```
 
-**Not yet executed: two KV namespaces, for "Connect Claude to Cockpit, and
-capture an item from it" (issue 599).** They hold what the OAuth library keeps
-for connected apps (`OAUTH_KV`). `apps/api/wrangler.jsonc` carries placeholder
-ids for both until this runs, so a deploy fails rather than reaching a namespace
-nobody created. Run before the first deploy that carries the change - staging
-deploys on merge - and replace each placeholder with the id printed:
+**Two KV namespaces, for "Connect Claude to Cockpit, and capture an item from
+it" (issue 599).** They hold what the OAuth library keeps for connected apps
+(`OAUTH_KV`), and `apps/api/wrangler.jsonc` names each by the id it printed.
+Already run against the real account; repeat only for a new account, writing the
+printed ids there:
 
 ```bash
 wrangler kv namespace create cockpit-oauth
