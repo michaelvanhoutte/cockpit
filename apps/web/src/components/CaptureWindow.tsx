@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { CaptureNote } from './CaptureNote';
+import { Suspense, useEffect } from 'react';
+import { CaptureNote } from '../captureForm';
 import { ManageWindow } from './ManageWindow';
 
 /**
@@ -47,7 +47,9 @@ export function CaptureWindow({
   return (
     <ManageWindow title="Capture" open={open} onClose={onClose}>
       <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <CaptureNote startsIn={startsIn} />
+        <Suspense fallback={null}>
+          <CaptureNote startsIn={startsIn} />
+        </Suspense>
       </div>
     </ManageWindow>
   );

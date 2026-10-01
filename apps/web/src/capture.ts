@@ -14,6 +14,11 @@ import { useCommand } from './api/queries';
  * *Add an item* row asks for the same thing. What they send has to be the same
  * answer.
  *
+ * **Sent at once, and refused offline.** The Capture form keeps a note in the
+ * outbox instead (`captureOutboxSender.tsx`) and comes here only where that
+ * cannot be written; the Panel's row always comes here, because it files what
+ * it makes and filing needs the server.
+ *
  * **It used to make the type first**, where the name typed matched none of the
  * account's, and that was the only way a type came into existence. Types are
  * now made in the window they are managed in ("Make a type where types are

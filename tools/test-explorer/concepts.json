@@ -88,6 +88,7 @@
         "packages/shared/src/domain/item.ts",
         "apps/web/src/components/CaptureNote.tsx",
         "apps/web/src/components/CaptureWindow.tsx",
+        "apps/web/src/captureForm.ts",
         "apps/web/src/captureShortcut.ts",
         "apps/web/src/pages/CapturePage.tsx",
         "apps/web/src/capture.ts",
@@ -459,7 +460,7 @@
     {
       "key": "Offline",
       "label": "Offline",
-      "browserWalks": 2,
+      "browserWalks": 3,
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
         "apps/api/src/accounts/command-service.ts",
@@ -470,7 +471,9 @@
         "packages/shared/src/commands.ts",
         "apps/web/src/api/loadFailure.ts",
         "apps/web/src/components/LoadFailure.tsx",
-        "apps/web/src/persistence.tsx"
+        "apps/web/src/persistence.tsx",
+        "apps/web/src/captureOutbox.ts",
+        "apps/web/src/captureOutboxSender.tsx"
       ]
     }
   ]

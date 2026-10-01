@@ -43,6 +43,9 @@ import {
 import { readAgentDockHidden, togglesTheAgentDock, writeAgentDockHidden } from '../agentDockHidden';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useScrollWhileDraggingAnItem } from '../dragScroll';
+import { useOutbox, useSendingCaptures, useWaitingCaptures } from '../captureOutboxSender';
+import { loadCaptureNote } from '../captureForm';
+import { DeleteQuestion } from '../components/DeleteQuestion';
 
 /** The default theme in the shape a workspace carries it. */
 const DEFAULT_WORKSPACE_THEME_COLORS = {
@@ -513,6 +516,23 @@ function TheShell() {
   const signedOut = sessionFailure instanceof NotSignedIn;
 
   /**
+   * The capture outbox is sent for as long as somebody is signed in, and its
+   * entries are theirs: whoever signs in next sees and sends none of them
+   * ("Keep a capture made offline, and send it once a connection gets
+   * through", issue 610). Who that is comes from the stored copy offline,
+   * which is when it matters most.
+   */
+  useSendingCaptures(signedOut ? null : (me?.user.id ?? null));
+  const outbox = useOutbox();
+  const unsent = useWaitingCaptures().length;
+  /** The question asked before signing out loses captures that have not been sent. */
+  const [askingToSignOut, setAskingToSignOut] = useState(false);
+  // Fetched once the shell has painted, so Capture opens on a form already here.
+  useEffect(() => {
+    void loadCaptureNote();
+  }, []);
+
+  /**
    * The workspace you are in, failing to be read - said once here for the whole
    * window rather than by each thing reading it.
    *
@@ -555,6 +575,23 @@ function TheShell() {
     // again; the reason is worth reading there before moving it.
     onSettled: () => navigate({ to: '/signin' }),
   });
+
+  /**
+   * **Signing out is the one thing that deletes a waiting capture, and never
+   * without asking.** The logon page's own wipe leaves the outbox alone, so an
+   * expired sign-in loses nothing; this is the explicit way out, and where
+   * something has not been sent it says how much will go.
+   */
+  const signOutLosingWhatWaits = async () => {
+    setAskingToSignOut(false);
+    try {
+      await outbox.discardAll();
+    } catch {
+      // Storage that cannot be written to still holds them, under this
+      // person, unsent and unshown to anybody else.
+    }
+    leave.mutate();
+  };
   /**
    * The tab you are on, brought into view.
    *
@@ -781,6 +818,16 @@ function TheShell() {
                 }
               >
                 Capture
+                {/* Only while something has not landed, a refused one
+                    included: it needs you. */}
+                {unsent > 0 && (
+                  <span
+                    title={`${unsent} not sent yet`}
+                    className="ml-1.5 rounded-full bg-white/20 px-1.5 text-xs tabular-nums"
+                  >
+                    {unsent}
+                  </span>
+                )}
               </Link>
               <span
                 aria-hidden="true"
@@ -853,7 +900,10 @@ function TheShell() {
                     <Link to="/admin">Admin</Link>
                   </DropdownMenu.Item>
                 )}
-                <DropdownMenu.Item onSelect={() => leave.mutate()} className={menuItemClass}>
+                <DropdownMenu.Item
+                  onSelect={() => (unsent > 0 ? setAskingToSignOut(true) : leave.mutate())}
+                  className={menuItemClass}
+                >
                   Sign out
                 </DropdownMenu.Item>
               </MenuContent>
@@ -1094,6 +1144,19 @@ function TheShell() {
         open={capturing}
         onClose={() => setCapturing(false)}
         startsIn={params.workspaceId ?? null}
+      />
+
+      <DeleteQuestion
+        question={
+          unsent === 1
+            ? "1 capture hasn't been sent and will be lost"
+            : `${unsent} captures haven't been sent and will be lost`
+        }
+        confirmLabel="Sign out, losing what has not been sent"
+        confirmText="Sign out"
+        open={askingToSignOut}
+        onCancel={() => setAskingToSignOut(false)}
+        onConfirm={() => void signOutLosingWhatWaits()}
       />
 
       {/* The Item's form, drawn over whatever the address below resolves to and
