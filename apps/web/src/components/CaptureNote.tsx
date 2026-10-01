@@ -100,6 +100,9 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
    * closes; after a reload only what is still waiting or refused is listed.
    */
   const [landedHere, setLandedHere] = useState<Captured[]>([]);
+  /** The refused captures put back while this form was open, whose rows no longer offer it. */
+  const [putBackRows, setPutBack] = useState<ReadonlySet<string>>(new Set());
+  const putBackHere = useRef(new Set<string>());
   const form = useRef<HTMLFormElement>(null);
   const { ask, busy } = useCapture();
   const queryClient = useQueryClient();
@@ -176,8 +179,15 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
    * only then is its entry deleted - so there is no moment where the note is
    * in neither. Where only a file was refused the note already landed, and
    * just the file comes back.
+   *
+   * **Once per entry.** Its row loses the button the moment it is pressed, and
+   * where the entry cannot then be deleted it stays listed without one -
+   * pressing again would put the same note in the box twice.
    */
   const putBack = async (entry: OutboxEntry) => {
+    if (putBackHere.current.has(entry.id)) return;
+    putBackHere.current.add(entry.id);
+    setPutBack((was) => new Set(was).add(entry.id));
     const back = whatGoesBack(entry);
     if (back.message !== null) {
       const note = back.message;
@@ -188,7 +198,11 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
     const files = back.files.map(fileOf);
     setQueued((was) => [...was, ...files.map(toQueued)]);
     setRefused(null);
-    await outbox.remove(entry.id);
+    try {
+      await outbox.remove(entry.id);
+    } catch {
+      setRefused(STILL_LISTED);
+    }
   };
 
   const removeQueued = (id: string) => {
@@ -616,7 +630,7 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
                   captured={one}
                   types={known}
                   workspaces={workspaces}
-                  onPutBack={entry ? () => void putBack(entry) : null}
+                  onPutBack={entry && !putBackRows.has(entry.id) ? () => void putBack(entry) : null}
                 />
               );
             })}
@@ -648,6 +662,9 @@ export const STILL_READING = 'Still reading your workspace — your note is safe
  */
 export const NO_WORKSPACE =
   'No workspace to capture into — your note is safe. Make one with the + beside the tabs.';
+
+/** What is said where a capture was put back but could not be taken off the list. */
+export const STILL_LISTED = 'Put back in the box, but it could not be taken off this list - it will not be sent.';
 
 /**
  * The key that captures, said the way this keyboard says it. A Mac reads ⌘ and

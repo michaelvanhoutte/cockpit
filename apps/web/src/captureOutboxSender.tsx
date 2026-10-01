@@ -11,6 +11,7 @@ import {
   landedWhole,
   nextWait,
   outcomeOf,
+  uploadTimeoutMs,
   readEntry,
   shownTo,
   toSend,
@@ -53,14 +54,18 @@ export function browserOutboxStore(): OutboxStore {
   };
 }
 
-/** What the outbox sends with: the API client in the app. */
+/**
+ * What the outbox sends with: the API client in the app. Each send is handed
+ * a signal that aborts it once the outbox has given up on it, so a send
+ * abandoned for taking too long is not still running beside its own retry.
+ */
 export interface Sender {
-  capture: (payload: ReturnType<typeof capturePayload>) => Promise<unknown>;
-  upload: (args: Parameters<typeof uploadAttachment>[0]) => Promise<unknown>;
+  capture: (payload: ReturnType<typeof capturePayload>, signal: AbortSignal) => Promise<unknown>;
+  upload: (args: Parameters<typeof uploadAttachment>[0] & { signal: AbortSignal }) => Promise<unknown>;
 }
 
 export const serverSender: Sender = {
-  capture: (payload) => sendCommand('capture_item', payload),
+  capture: (payload, signal) => sendCommand('capture_item', payload, signal),
   upload: uploadAttachment,
 };
 
@@ -94,6 +99,13 @@ export interface NewCapture {
   files: { id: string; file: File }[];
 }
 
+/**
+ * What one tab tells the others: that what is stored changed, or that a
+ * capture landed whole - which only the tab that sent it would otherwise hear,
+ * and which another tab with Capture open needs to show its time.
+ */
+export type OutboxNews = { kind: 'changed' } | { kind: 'landed'; entry: OutboxEntry };
+
 /** A capture reaching the server: its note (`note`), or the whole of it (`whole`). */
 export interface Landing {
   kind: 'note' | 'whole';
@@ -112,6 +124,12 @@ export class CaptureOutbox {
   private again = false;
   private wait: number | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** Whether the last pass waited on a server that answered (429, 5xx and the like) rather than on no answer at all. */
+  private waitedOnAnAnswer = false;
+  /** Every send in flight, so a confirmed sign-out can stop them. */
+  private readonly inFlight = new Set<AbortController>();
+  /** Which read of storage is the latest, so one that finishes late is not applied over it. */
+  private reads = 0;
 
   constructor(
     private readonly deps: {
@@ -120,8 +138,8 @@ export class CaptureOutbox {
       lock: Lock;
       /** False only where the browser says it is offline, when no attempt is made. */
       online: () => boolean;
-      /** Told whenever this tab changed what is stored, so other tabs re-read it. */
-      announce?: () => void;
+      /** Told whenever this tab changed what is stored or landed a capture, for the other tabs. */
+      announce?: (news: OutboxNews) => void;
       timeoutMs?: number;
     },
   ) {}
@@ -162,19 +180,43 @@ export class CaptureOutbox {
     return toSend(this.entries, this.owner).length > 0;
   }
 
-  /** Re-reads what is stored, which another tab may have changed. */
-  async refresh(): Promise<void> {
+  /**
+   * Whether another request of the app's getting through should send now:
+   * only where something waits for want of any answer. Where the server
+   * answered and asked for patience, the backoff decides.
+   */
+  sendsOnAnotherSuccess(): boolean {
+    return this.hasWaiting() && !this.waitedOnAnAnswer;
+  }
+
+  /**
+   * Re-reads what is stored, which another tab may have changed, and hands
+   * back what it read. Only the latest of overlapping reads is shown.
+   */
+  async refresh(): Promise<OutboxEntry[]> {
+    const read = (this.reads += 1);
+    let entries: OutboxEntry[];
     try {
       const raw = await this.deps.store.all();
-      this.entries = raw.flatMap((one) => {
+      entries = raw.flatMap((one) => {
         const entry = readEntry(one);
         return entry ? [entry] : [];
       });
     } catch {
       // Storage that cannot be read holds nothing this tab can show or send.
-      this.entries = [];
+      entries = [];
     }
-    this.show();
+    if (read === this.reads) {
+      this.entries = entries;
+      this.show();
+    }
+    return entries;
+  }
+
+  /** What another tab said: re-read, or show a capture it landed as landed here too. */
+  heard(news: OutboxNews): void {
+    if (news.kind === 'landed') this.tell({ kind: 'whole', entry: news.entry });
+    else void this.refresh();
   }
 
   /**
@@ -221,9 +263,19 @@ export class CaptureOutbox {
     await this.changedHere();
   }
 
-  /** Deletes every entry of the signed-in person's: the explicit sign-out, confirmed. */
+  /**
+   * Deletes every entry of the signed-in person's: the explicit sign-out,
+   * confirmed. Under the lock and from a fresh read, so a pass in flight cannot
+   * write one back afterwards; what it is sending is aborted, so the sign-out
+   * does not wait on it.
+   */
   async discardAll(): Promise<void> {
-    for (const entry of shownTo(this.entries, this.owner)) await this.deps.store.remove(entry.id);
+    const owner = this.owner;
+    for (const sending of this.inFlight) sending.abort();
+    await this.deps.lock(async () => {
+      const entries = await this.refresh();
+      for (const entry of shownTo(entries, owner)) await this.deps.store.remove(entry.id);
+    });
     await this.changedHere();
   }
 
@@ -253,7 +305,10 @@ export class CaptureOutbox {
         this.running = null;
       }
       if (result === 'waits' && this.owner !== null) this.tryAgainLater();
-      else this.wait = null;
+      else {
+        this.wait = null;
+        this.waitedOnAnAnswer = false;
+      }
     })();
     return this.running;
   }
@@ -267,10 +322,12 @@ export class CaptureOutbox {
     const owner = this.owner;
     if (owner === null) return 'clear';
     // Read again inside the lock: another tab may have sent some of these.
-    await this.refresh();
-    const due = toSend(this.entries, owner);
+    const due = toSend(await this.refresh(), owner);
     if (due.length === 0) return 'clear';
-    if (!this.deps.online()) return 'waits';
+    if (!this.deps.online()) {
+      this.waitedOnAnAnswer = false;
+      return 'waits';
+    }
     for (const entry of due) {
       if (this.owner !== owner) return 'clear';
       if ((await this.sendOne(entry)) === 'waits') return 'waits';
@@ -282,10 +339,14 @@ export class CaptureOutbox {
     let current = entry;
     if (!current.landed) {
       try {
-        await this.timed(this.deps.sender.capture(capturePayload(current)));
+        const payload = capturePayload(current);
+        await this.timed((signal) => this.deps.sender.capture(payload, signal), this.noteTimeout());
       } catch (error) {
         const outcome = outcomeOf(error);
-        if (outcome.waits) return 'waits';
+        if (outcome.waits) {
+          this.waitedOnAnAnswer = outcome.answered;
+          return 'waits';
+        }
         await this.save({ ...current, refused: outcome.reason });
         return 'done';
       }
@@ -297,19 +358,27 @@ export class CaptureOutbox {
       if (file.landed || file.refused !== null) continue;
       let change: Partial<WaitingFile>;
       try {
+        const itemId = current.id;
+        const workspaceId = current.workspaceId;
         await this.timed(
-          this.deps.sender.upload({
-            itemId: current.id,
-            workspaceId: current.workspaceId,
-            attachmentId: file.id,
-            commandId: file.commandId,
-            file: fileOf(file),
-          }),
+          (signal) =>
+            this.deps.sender.upload({
+              itemId,
+              workspaceId,
+              attachmentId: file.id,
+              commandId: file.commandId,
+              file: fileOf(file),
+              signal,
+            }),
+          uploadTimeoutMs(file.bytes.byteLength, this.noteTimeout()),
         );
         change = { landed: true };
       } catch (error) {
         const outcome = outcomeOf(error);
-        if (outcome.waits) return 'waits';
+        if (outcome.waits) {
+          this.waitedOnAnAnswer = outcome.answered;
+          return 'waits';
+        }
         change = { refused: outcome.reason };
       }
       current = {
@@ -319,8 +388,10 @@ export class CaptureOutbox {
       await this.save(current);
     }
     if (landedWhole(current)) {
-      // Told before it is forgotten, so a list drawing both never draws it in neither.
+      // Told before it is forgotten, so a list drawing both never draws it in
+      // neither - here, and in any other tab with Capture open.
       this.tell({ kind: 'whole', entry: current });
+      this.deps.announce?.({ kind: 'landed', entry: { ...current, files: [] } });
       await this.deps.store.remove(current.id);
       await this.changedHere();
     }
@@ -334,15 +405,28 @@ export class CaptureOutbox {
 
   private async changedHere(): Promise<void> {
     await this.refresh();
-    this.deps.announce?.();
+    this.deps.announce?.({ kind: 'changed' });
   }
 
-  private timed<T>(sending: Promise<T>): Promise<T> {
+  private noteTimeout(): number {
+    return this.deps.timeoutMs ?? SEND_TIMEOUT_MS;
+  }
+
+  /** Runs one send, aborting it and giving up once it has taken `ms`. */
+  private timed<T>(send: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
+    const sending = new AbortController();
+    this.inFlight.add(sending);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new TimedOut()), this.deps.timeoutMs ?? SEND_TIMEOUT_MS);
+      timer = setTimeout(() => {
+        reject(new TimedOut());
+        sending.abort();
+      }, ms);
     });
-    return Promise.race([sending, late]).finally(() => clearTimeout(timer));
+    return Promise.race([send(sending.signal), late]).finally(() => {
+      clearTimeout(timer);
+      this.inFlight.delete(sending);
+    });
   }
 
   private tryAgainLater(): void {
@@ -395,9 +479,9 @@ function theAppWideOutbox(): CaptureOutbox {
     sender: serverSender,
     lock: browserLock(),
     online: () => typeof navigator === 'undefined' || navigator.onLine !== false,
-    announce: () => channel?.postMessage('changed'),
+    announce: (news) => channel?.postMessage(news),
   });
-  channel?.addEventListener('message', () => void outbox.refresh());
+  channel?.addEventListener('message', (event: MessageEvent<OutboxNews>) => outbox.heard(event.data));
   appWide = outbox;
   return outbox;
 }
@@ -438,11 +522,13 @@ export function useSendingCaptures(owner: string | null): void {
       if (document.visibilityState === 'visible') kick();
     };
     // Something of the app's own got through, so the connection is back
-    // whatever the browser said. A capture's own landing re-reads the snapshot
-    // and arrives here too, which is harmless: nothing is then waiting.
+    // whatever the browser said - the lie-fi case. Not after the server
+    // itself answered and asked for patience, which the backoff waits out. A
+    // capture's own landing re-reads the snapshot and arrives here too, which
+    // is harmless: nothing is then waiting.
     const succeeded = (event: { type: string; action?: { type: string; manual?: boolean } }) => {
       if (event.type !== 'updated' || event.action?.type !== 'success' || event.action.manual) return;
-      if (outbox.hasWaiting()) kick();
+      if (outbox.sendsOnAnotherSuccess()) kick();
     };
     window.addEventListener('online', kick);
     document.addEventListener('visibilitychange', backInView);

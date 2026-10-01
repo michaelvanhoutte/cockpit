@@ -8,6 +8,7 @@ import {
   readEntry,
   stateOf,
   toSend,
+  uploadTimeoutMs,
   whatGoesBack,
   type OutboxEntry,
   type WaitingFile,
@@ -109,18 +110,34 @@ describe('Offline', () => {
 
   describe('a capture keeps waiting unless the server refuses it, and then says why', () => {
     it.each([
-      { situation: 'no connection', error: new TypeError('Failed to fetch'), waits: true },
-      { situation: 'the send timed out', error: new TimedOut(), waits: true },
-      { situation: 'a server error', error: new CommandRefused(503, 'capture_item failed: 503'), waits: true },
-      { situation: 'the sign-in expired', error: new CommandRefused(401, 'not signed in'), waits: true },
-      { situation: 'the request took too long', error: new CommandRefused(408, 'timeout'), waits: true },
-      { situation: 'too many at once', error: new CommandRefused(429, 'slow down'), waits: true },
-      { situation: 'its workspace is gone', error: new CommandRefused(404, 'workspace ws-work not found'), waits: false },
-      { situation: 'it is not a valid capture', error: new CommandRefused(400, 'message is empty'), waits: false },
-    ])('$situation', ({ error, waits }) => {
+      { situation: 'no connection', error: new TypeError('Failed to fetch'), waits: true, answered: false },
+      { situation: 'the send timed out', error: new TimedOut(), waits: true, answered: false },
+      {
+        situation: 'a server error',
+        error: new CommandRefused(503, 'capture_item failed: 503'),
+        waits: true,
+        answered: true,
+      },
+      { situation: 'the sign-in expired', error: new CommandRefused(401, 'not signed in'), waits: true, answered: true },
+      { situation: 'the request took too long', error: new CommandRefused(408, 'timeout'), waits: true, answered: true },
+      { situation: 'too many at once', error: new CommandRefused(429, 'slow down'), waits: true, answered: true },
+      {
+        situation: 'its workspace is gone',
+        error: new CommandRefused(404, 'workspace ws-work not found'),
+        waits: false,
+        answered: true,
+      },
+      {
+        situation: 'it is not a valid capture',
+        error: new CommandRefused(400, 'message is empty'),
+        waits: false,
+        answered: true,
+      },
+    ])('$situation', ({ error, waits, answered }) => {
       const outcome = outcomeOf(error);
       expect(outcome.waits).toBe(waits);
-      if (!outcome.waits) expect(outcome.reason).toBe(error.message);
+      if (outcome.waits) expect(outcome.answered).toBe(answered);
+      else expect(outcome.reason).toBe(error.message);
     });
   });
 
@@ -130,6 +147,18 @@ describe('Offline', () => {
       const second = nextWait(first);
       const third = nextWait(second);
       expect([first, second, third]).toEqual([30_000, 60_000, 60_000]);
+    });
+  });
+
+  describe('a file is given longer to upload the bigger it is, so a slow upload can finish', () => {
+    it.each([
+      { situation: 'an empty file', bytes: 0, ms: 15_000 },
+      { situation: 'a small photo', bytes: 50 * 1024, ms: 16_000 },
+      { situation: 'exactly 100KB', bytes: 100 * 1024, ms: 16_000 },
+      { situation: 'a 2MB photo', bytes: 2 * 1024 * 1024, ms: 15_000 + 21_000 },
+      { situation: 'a 25MB clip', bytes: 25 * 1024 * 1024, ms: 15_000 + 256_000 },
+    ])('$situation', ({ bytes, ms }) => {
+      expect(uploadTimeoutMs(bytes)).toBe(ms);
     });
   });
 

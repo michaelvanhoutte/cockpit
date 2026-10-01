@@ -115,8 +115,19 @@ export function whatGoesBack(entry: OutboxEntry): { message: string | null; file
   return { message: null, files: entry.files.filter((file) => file.refused !== null) };
 }
 
-/** A send that took longer than this is abandoned and tried again later. */
+/** A note's send that took longer than this is abandoned, aborted, and tried again later. */
 export const SEND_TIMEOUT_MS = 15_000;
+
+/**
+ * How long a file's upload is given before it is abandoned: the note's 15s,
+ * and a second more for every 100KB. A file of up to 25MB on a phone's
+ * connection can take minutes and still be getting through, and an upload
+ * abandoned for being slow rather than stuck would only start again from the
+ * beginning.
+ */
+export function uploadTimeoutMs(bytes: number, base: number = SEND_TIMEOUT_MS): number {
+  return base + Math.ceil(bytes / (100 * 1024)) * 1_000;
+}
 
 /** The first wait after a pass that could not get through, doubling to `LONGEST_WAIT_MS`. */
 export const FIRST_WAIT_MS = 30_000;
@@ -145,11 +156,18 @@ const ABOUT_THE_MOMENT = new Set([401, 408, 429]);
 /**
  * What a failed send means: keep waiting, or the server refused this capture
  * and says why. Anything that is not the server answering - no connection, a
- * timeout - keeps it waiting.
+ * timeout - keeps it waiting too.
+ *
+ * `answered` says which kind of waiting it is. With no answer at all, any
+ * other request of the app's getting through is the news that the connection
+ * is back; where the server answered and asked for patience, it is not, and
+ * only the backoff decides when to ask again.
  */
-export function outcomeOf(error: unknown): { waits: true } | { waits: false; reason: string } {
-  if (!(error instanceof CommandRefused)) return { waits: true };
-  if (error.status >= 500 || ABOUT_THE_MOMENT.has(error.status)) return { waits: true };
+export function outcomeOf(
+  error: unknown,
+): { waits: true; answered: boolean } | { waits: false; reason: string } {
+  if (!(error instanceof CommandRefused)) return { waits: true, answered: false };
+  if (error.status >= 500 || ABOUT_THE_MOMENT.has(error.status)) return { waits: true, answered: true };
   return { waits: false, reason: error.message };
 }
 

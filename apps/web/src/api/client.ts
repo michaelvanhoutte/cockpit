@@ -1,4 +1,4 @@
-import { hc } from 'hono/client';
+import { hc, type ClientRequestOptions } from 'hono/client';
 import type { AppType } from '@cockpit/api';
 import {
   accountHoldingsSchema,
@@ -325,104 +325,104 @@ export async function startAgent(
 
 /** One sender per command; adding a command extends this map and nothing else. */
 const commandSenders = {
-  create_workspace: (p: CommandPayload<'create_workspace'>) =>
-    api.v1.commands.create_workspace.$post({ json: p }),
-  rename_workspace: (p: CommandPayload<'rename_workspace'>) =>
-    api.v1.commands.rename_workspace.$post({ json: p }),
-  delete_workspace: (p: CommandPayload<'delete_workspace'>) =>
-    api.v1.commands.delete_workspace.$post({ json: p }),
+  create_workspace: (p: CommandPayload<'create_workspace'>, o?: ClientRequestOptions) =>
+    api.v1.commands.create_workspace.$post({ json: p }, o),
+  rename_workspace: (p: CommandPayload<'rename_workspace'>, o?: ClientRequestOptions) =>
+    api.v1.commands.rename_workspace.$post({ json: p }, o),
+  delete_workspace: (p: CommandPayload<'delete_workspace'>, o?: ClientRequestOptions) =>
+    api.v1.commands.delete_workspace.$post({ json: p }, o),
   // Only the disconnect: connecting is a navigation through Microsoft, and
   // the command it ends in is written by the callback route rather than sent
   // from here (`connectSourceAccountSchema`, @cockpit/shared).
-  disconnect_source_account: (p: CommandPayload<'disconnect_source_account'>) =>
-    api.v1.commands.disconnect_source_account.$post({ json: p }),
-  reorder_workspaces: (p: CommandPayload<'reorder_workspaces'>) =>
-    api.v1.commands.reorder_workspaces.$post({ json: p }),
-  set_workspace_theme: (p: CommandPayload<'set_workspace_theme'>) =>
-    api.v1.commands.set_workspace_theme.$post({ json: p }),
-  add_dashboard: (p: CommandPayload<'add_dashboard'>) =>
-    api.v1.commands.add_dashboard.$post({ json: p }),
-  rename_dashboard: (p: CommandPayload<'rename_dashboard'>) =>
-    api.v1.commands.rename_dashboard.$post({ json: p }),
-  delete_dashboard: (p: CommandPayload<'delete_dashboard'>) =>
-    api.v1.commands.delete_dashboard.$post({ json: p }),
-  reorder_dashboards: (p: CommandPayload<'reorder_dashboards'>) =>
-    api.v1.commands.reorder_dashboards.$post({ json: p }),
-  add_panel: (p: CommandPayload<'add_panel'>) => api.v1.commands.add_panel.$post({ json: p }),
-  rename_panel: (p: CommandPayload<'rename_panel'>) =>
-    api.v1.commands.rename_panel.$post({ json: p }),
-  delete_panel: (p: CommandPayload<'delete_panel'>) =>
-    api.v1.commands.delete_panel.$post({ json: p }),
-  move_panel_to_dashboard: (p: CommandPayload<'move_panel_to_dashboard'>) =>
-    api.v1.commands.move_panel_to_dashboard.$post({ json: p }),
-  set_panel_text: (p: CommandPayload<'set_panel_text'>) =>
-    api.v1.commands.set_panel_text.$post({ json: p }),
-  set_panel_read_only: (p: CommandPayload<'set_panel_read_only'>) =>
-    api.v1.commands.set_panel_read_only.$post({ json: p }),
-  set_panel_format: (p: CommandPayload<'set_panel_format'>) =>
-    api.v1.commands.set_panel_format.$post({ json: p }),
-  set_panel_filter: (p: CommandPayload<'set_panel_filter'>) =>
-    api.v1.commands.set_panel_filter.$post({ json: p }),
-  set_panel_sort: (p: CommandPayload<'set_panel_sort'>) =>
-    api.v1.commands.set_panel_sort.$post({ json: p }),
-  save_layout: (p: CommandPayload<'save_layout'>) => api.v1.commands.save_layout.$post({ json: p }),
-  delete_layout: (p: CommandPayload<'delete_layout'>) =>
-    api.v1.commands.delete_layout.$post({ json: p }),
-  create_screen_size: (p: CommandPayload<'create_screen_size'>) =>
-    api.v1.commands.create_screen_size.$post({ json: p }),
-  rename_screen_size: (p: CommandPayload<'rename_screen_size'>) =>
-    api.v1.commands.rename_screen_size.$post({ json: p }),
-  delete_screen_size: (p: CommandPayload<'delete_screen_size'>) =>
-    api.v1.commands.delete_screen_size.$post({ json: p }),
-  capture_item: (p: CommandPayload<'capture_item'>) => api.v1.commands.capture_item.$post({ json: p }),
-  move_item_to_panel: (p: CommandPayload<'move_item_to_panel'>) =>
-    api.v1.commands.move_item_to_panel.$post({ json: p }),
-  add_item_to_panel: (p: CommandPayload<'add_item_to_panel'>) =>
-    api.v1.commands.add_item_to_panel.$post({ json: p }),
-  remove_item_from_panel: (p: CommandPayload<'remove_item_from_panel'>) =>
-    api.v1.commands.remove_item_from_panel.$post({ json: p }),
-  create_item_type: (p: CommandPayload<'create_item_type'>) =>
-    api.v1.commands.create_item_type.$post({ json: p }),
-  rename_item_type: (p: CommandPayload<'rename_item_type'>) =>
-    api.v1.commands.rename_item_type.$post({ json: p }),
-  set_item_type_color: (p: CommandPayload<'set_item_type_color'>) =>
-    api.v1.commands.set_item_type_color.$post({ json: p }),
-  delete_item_type: (p: CommandPayload<'delete_item_type'>) =>
-    api.v1.commands.delete_item_type.$post({ json: p }),
-  reorder_item_types: (p: CommandPayload<'reorder_item_types'>) =>
-    api.v1.commands.reorder_item_types.$post({ json: p }),
-  create_agent: (p: CommandPayload<'create_agent'>) => api.v1.commands.create_agent.$post({ json: p }),
-  update_agent: (p: CommandPayload<'update_agent'>) => api.v1.commands.update_agent.$post({ json: p }),
-  delete_agent: (p: CommandPayload<'delete_agent'>) => api.v1.commands.delete_agent.$post({ json: p }),
-  hide_agent_on_dashboard: (p: CommandPayload<'hide_agent_on_dashboard'>) =>
-    api.v1.commands.hide_agent_on_dashboard.$post({ json: p }),
-  show_agent_on_dashboard: (p: CommandPayload<'show_agent_on_dashboard'>) =>
-    api.v1.commands.show_agent_on_dashboard.$post({ json: p }),
-  set_ask_claude_enabled: (p: CommandPayload<'set_ask_claude_enabled'>) =>
-    api.v1.commands.set_ask_claude_enabled.$post({ json: p }),
-  set_done: (p: CommandPayload<'set_done'>) => api.v1.commands.set_done.$post({ json: p }),
-  set_started: (p: CommandPayload<'set_started'>) => api.v1.commands.set_started.$post({ json: p }),
-  finish_agent_run: (p: CommandPayload<'finish_agent_run'>) =>
-    api.v1.commands.finish_agent_run.$post({ json: p }),
-  set_dismissed: (p: CommandPayload<'set_dismissed'>) => api.v1.commands.set_dismissed.$post({ json: p }),
-  associate: (p: CommandPayload<'associate'>) => api.v1.commands.associate.$post({ json: p }),
-  set_next_action: (p: CommandPayload<'set_next_action'>) =>
-    api.v1.commands.set_next_action.$post({ json: p }),
-  set_priority: (p: CommandPayload<'set_priority'>) =>
-    api.v1.commands.set_priority.$post({ json: p }),
-  set_item_type: (p: CommandPayload<'set_item_type'>) =>
-    api.v1.commands.set_item_type.$post({ json: p }),
-  set_due_date: (p: CommandPayload<'set_due_date'>) =>
-    api.v1.commands.set_due_date.$post({ json: p }),
-  set_title: (p: CommandPayload<'set_title'>) => api.v1.commands.set_title.$post({ json: p }),
-  set_description: (p: CommandPayload<'set_description'>) =>
-    api.v1.commands.set_description.$post({ json: p }),
-  remove_attachment: (p: CommandPayload<'remove_attachment'>) =>
-    api.v1.commands.remove_attachment.$post({ json: p }),
-  set_duplicate_settled: (p: CommandPayload<'set_duplicate_settled'>) =>
-    api.v1.commands.set_duplicate_settled.$post({ json: p }),
-  set_item_form_presentation: (p: CommandPayload<'set_item_form_presentation'>) =>
-    api.v1.commands.set_item_form_presentation.$post({ json: p }),
+  disconnect_source_account: (p: CommandPayload<'disconnect_source_account'>, o?: ClientRequestOptions) =>
+    api.v1.commands.disconnect_source_account.$post({ json: p }, o),
+  reorder_workspaces: (p: CommandPayload<'reorder_workspaces'>, o?: ClientRequestOptions) =>
+    api.v1.commands.reorder_workspaces.$post({ json: p }, o),
+  set_workspace_theme: (p: CommandPayload<'set_workspace_theme'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_workspace_theme.$post({ json: p }, o),
+  add_dashboard: (p: CommandPayload<'add_dashboard'>, o?: ClientRequestOptions) =>
+    api.v1.commands.add_dashboard.$post({ json: p }, o),
+  rename_dashboard: (p: CommandPayload<'rename_dashboard'>, o?: ClientRequestOptions) =>
+    api.v1.commands.rename_dashboard.$post({ json: p }, o),
+  delete_dashboard: (p: CommandPayload<'delete_dashboard'>, o?: ClientRequestOptions) =>
+    api.v1.commands.delete_dashboard.$post({ json: p }, o),
+  reorder_dashboards: (p: CommandPayload<'reorder_dashboards'>, o?: ClientRequestOptions) =>
+    api.v1.commands.reorder_dashboards.$post({ json: p }, o),
+  add_panel: (p: CommandPayload<'add_panel'>, o?: ClientRequestOptions) => api.v1.commands.add_panel.$post({ json: p }, o),
+  rename_panel: (p: CommandPayload<'rename_panel'>, o?: ClientRequestOptions) =>
+    api.v1.commands.rename_panel.$post({ json: p }, o),
+  delete_panel: (p: CommandPayload<'delete_panel'>, o?: ClientRequestOptions) =>
+    api.v1.commands.delete_panel.$post({ json: p }, o),
+  move_panel_to_dashboard: (p: CommandPayload<'move_panel_to_dashboard'>, o?: ClientRequestOptions) =>
+    api.v1.commands.move_panel_to_dashboard.$post({ json: p }, o),
+  set_panel_text: (p: CommandPayload<'set_panel_text'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_panel_text.$post({ json: p }, o),
+  set_panel_read_only: (p: CommandPayload<'set_panel_read_only'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_panel_read_only.$post({ json: p }, o),
+  set_panel_format: (p: CommandPayload<'set_panel_format'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_panel_format.$post({ json: p }, o),
+  set_panel_filter: (p: CommandPayload<'set_panel_filter'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_panel_filter.$post({ json: p }, o),
+  set_panel_sort: (p: CommandPayload<'set_panel_sort'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_panel_sort.$post({ json: p }, o),
+  save_layout: (p: CommandPayload<'save_layout'>, o?: ClientRequestOptions) => api.v1.commands.save_layout.$post({ json: p }, o),
+  delete_layout: (p: CommandPayload<'delete_layout'>, o?: ClientRequestOptions) =>
+    api.v1.commands.delete_layout.$post({ json: p }, o),
+  create_screen_size: (p: CommandPayload<'create_screen_size'>, o?: ClientRequestOptions) =>
+    api.v1.commands.create_screen_size.$post({ json: p }, o),
+  rename_screen_size: (p: CommandPayload<'rename_screen_size'>, o?: ClientRequestOptions) =>
+    api.v1.commands.rename_screen_size.$post({ json: p }, o),
+  delete_screen_size: (p: CommandPayload<'delete_screen_size'>, o?: ClientRequestOptions) =>
+    api.v1.commands.delete_screen_size.$post({ json: p }, o),
+  capture_item: (p: CommandPayload<'capture_item'>, o?: ClientRequestOptions) => api.v1.commands.capture_item.$post({ json: p }, o),
+  move_item_to_panel: (p: CommandPayload<'move_item_to_panel'>, o?: ClientRequestOptions) =>
+    api.v1.commands.move_item_to_panel.$post({ json: p }, o),
+  add_item_to_panel: (p: CommandPayload<'add_item_to_panel'>, o?: ClientRequestOptions) =>
+    api.v1.commands.add_item_to_panel.$post({ json: p }, o),
+  remove_item_from_panel: (p: CommandPayload<'remove_item_from_panel'>, o?: ClientRequestOptions) =>
+    api.v1.commands.remove_item_from_panel.$post({ json: p }, o),
+  create_item_type: (p: CommandPayload<'create_item_type'>, o?: ClientRequestOptions) =>
+    api.v1.commands.create_item_type.$post({ json: p }, o),
+  rename_item_type: (p: CommandPayload<'rename_item_type'>, o?: ClientRequestOptions) =>
+    api.v1.commands.rename_item_type.$post({ json: p }, o),
+  set_item_type_color: (p: CommandPayload<'set_item_type_color'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_item_type_color.$post({ json: p }, o),
+  delete_item_type: (p: CommandPayload<'delete_item_type'>, o?: ClientRequestOptions) =>
+    api.v1.commands.delete_item_type.$post({ json: p }, o),
+  reorder_item_types: (p: CommandPayload<'reorder_item_types'>, o?: ClientRequestOptions) =>
+    api.v1.commands.reorder_item_types.$post({ json: p }, o),
+  create_agent: (p: CommandPayload<'create_agent'>, o?: ClientRequestOptions) => api.v1.commands.create_agent.$post({ json: p }, o),
+  update_agent: (p: CommandPayload<'update_agent'>, o?: ClientRequestOptions) => api.v1.commands.update_agent.$post({ json: p }, o),
+  delete_agent: (p: CommandPayload<'delete_agent'>, o?: ClientRequestOptions) => api.v1.commands.delete_agent.$post({ json: p }, o),
+  hide_agent_on_dashboard: (p: CommandPayload<'hide_agent_on_dashboard'>, o?: ClientRequestOptions) =>
+    api.v1.commands.hide_agent_on_dashboard.$post({ json: p }, o),
+  show_agent_on_dashboard: (p: CommandPayload<'show_agent_on_dashboard'>, o?: ClientRequestOptions) =>
+    api.v1.commands.show_agent_on_dashboard.$post({ json: p }, o),
+  set_ask_claude_enabled: (p: CommandPayload<'set_ask_claude_enabled'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_ask_claude_enabled.$post({ json: p }, o),
+  set_done: (p: CommandPayload<'set_done'>, o?: ClientRequestOptions) => api.v1.commands.set_done.$post({ json: p }, o),
+  set_started: (p: CommandPayload<'set_started'>, o?: ClientRequestOptions) => api.v1.commands.set_started.$post({ json: p }, o),
+  finish_agent_run: (p: CommandPayload<'finish_agent_run'>, o?: ClientRequestOptions) =>
+    api.v1.commands.finish_agent_run.$post({ json: p }, o),
+  set_dismissed: (p: CommandPayload<'set_dismissed'>, o?: ClientRequestOptions) => api.v1.commands.set_dismissed.$post({ json: p }, o),
+  associate: (p: CommandPayload<'associate'>, o?: ClientRequestOptions) => api.v1.commands.associate.$post({ json: p }, o),
+  set_next_action: (p: CommandPayload<'set_next_action'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_next_action.$post({ json: p }, o),
+  set_priority: (p: CommandPayload<'set_priority'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_priority.$post({ json: p }, o),
+  set_item_type: (p: CommandPayload<'set_item_type'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_item_type.$post({ json: p }, o),
+  set_due_date: (p: CommandPayload<'set_due_date'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_due_date.$post({ json: p }, o),
+  set_title: (p: CommandPayload<'set_title'>, o?: ClientRequestOptions) => api.v1.commands.set_title.$post({ json: p }, o),
+  set_description: (p: CommandPayload<'set_description'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_description.$post({ json: p }, o),
+  remove_attachment: (p: CommandPayload<'remove_attachment'>, o?: ClientRequestOptions) =>
+    api.v1.commands.remove_attachment.$post({ json: p }, o),
+  set_duplicate_settled: (p: CommandPayload<'set_duplicate_settled'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_duplicate_settled.$post({ json: p }, o),
+  set_item_form_presentation: (p: CommandPayload<'set_item_form_presentation'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_item_form_presentation.$post({ json: p }, o),
 } as const;
 
 /**
@@ -481,12 +481,15 @@ export async function uploadAttachment({
   attachmentId,
   commandId,
   file,
+  signal,
 }: {
   itemId: string;
   workspaceId: string;
   attachmentId: string;
   commandId: string;
   file: File;
+  /** Aborts the upload, for a sender that has given up waiting on it (`captureOutboxSender.tsx`). */
+  signal?: AbortSignal;
 }): Promise<CommandResult> {
   const res = await fetch(`/v1/items/${encodeURIComponent(itemId)}/attachments`, {
     method: 'POST',
@@ -499,6 +502,7 @@ export async function uploadAttachment({
       'X-Filename': encodeURIComponent(file.name),
     },
     body: file,
+    ...(signal ? { signal } : {}),
   });
   if (!res.ok) {
     throw new CommandRefused(res.status, (await refusalFrom(res)) ?? `attaching ${file.name} failed: ${res.status}`);
@@ -520,8 +524,11 @@ export function attachmentUrl(attachmentId: string): string {
 export async function sendCommand<N extends ClientCommandName>(
   name: N,
   payload: CommandPayload<N>,
+  /** Aborts the request, for a sender that has given up waiting on it (`captureOutboxSender.tsx`). */
+  signal?: AbortSignal,
 ): Promise<CommandResult> {
-  const res = await commandSenders[name](payload as never);
+  const send = commandSenders[name] as (p: never, o?: ClientRequestOptions) => Promise<Response>;
+  const res = await send(payload as never, signal ? { init: { signal } } : undefined);
   if (!res.ok) {
     throw new CommandRefused(res.status, (await refusalFrom(res)) ?? `${name} failed: ${res.status}`);
   }

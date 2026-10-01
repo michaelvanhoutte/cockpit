@@ -529,7 +529,7 @@ function TheShell() {
   const [askingToSignOut, setAskingToSignOut] = useState(false);
   // Fetched once the shell has painted, so Capture opens on a form already here.
   useEffect(() => {
-    void loadCaptureNote();
+    loadCaptureNote().catch(() => {});
   }, []);
 
   /**

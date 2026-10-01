@@ -13,6 +13,8 @@ import {
   inTabLock,
   useSendingCaptures,
   type Lock,
+  type OutboxNews,
+  type OutboxStore,
   type Sender,
 } from '../../src/captureOutboxSender';
 
@@ -93,13 +95,22 @@ function aServer() {
 type Server = ReturnType<typeof aServer>;
 
 /** One tab's outbox, over the IndexedDB every tab of this browser shares. */
-function aTab(server: Server, { lock = inTabLock(), owner = 'user-ada' as string | null } = {}) {
+function aTab(
+  server: Server,
+  {
+    lock = inTabLock(),
+    owner = 'user-ada' as string | null,
+    store = browserOutboxStore(),
+    announce = undefined as ((news: OutboxNews) => void) | undefined,
+  } = {},
+) {
   const outbox = new CaptureOutbox({
-    store: browserOutboxStore(),
+    store,
     sender: server.sender,
     lock,
     online: () => server.online,
     timeoutMs: 1_000,
+    ...(announce ? { announce } : {}),
   });
   outbox.signedInAs(owner);
   return outbox;
@@ -331,7 +342,7 @@ describe('Offline', () => {
       await settled();
 
       const reopened = aTab(server);
-      await reopened.refresh();
+      await settled();
       expect(reopened.getShown()[0]?.files.map((file) => file.name)).toEqual(['one.png', 'two.png']);
 
       server.reachable = true;
@@ -427,6 +438,179 @@ describe('Offline', () => {
       act(() => app.rerender({ who: 'user-ada' }));
       await settled();
       expect(messages(server)).toEqual(['Ring the plumber']);
+    });
+  });
+
+  /**
+   * A send abandoned for taking too long is stopped, not left running beside
+   * its own retry - the difference between one upload and a pile of them on a
+   * phone's connection.
+   */
+  describe('a send given up on is stopped, and a file gets longer the bigger it is', () => {
+    it('aborts a capture that hangs past its time, and keeps it waiting', async () => {
+      const server = aServer();
+      const signals: AbortSignal[] = [];
+      server.sender.capture = (_payload, signal) => {
+        signals.push(signal);
+        return new Promise(() => {});
+      };
+      const outbox = aTab(server);
+      await settled();
+
+      await outbox.add(capture('Ring the plumber'));
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      await settled();
+
+      expect(signals).toHaveLength(1);
+      expect(signals[0]!.aborted).toBe(true);
+      expect(stateOf(outbox.getShown()[0]!)).toEqual({ waiting: true });
+      outbox.stop();
+    });
+
+    it('lets a file that is slow but getting through finish, where the note would have been given up on', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const server = aServer();
+      const signals: AbortSignal[] = [];
+      server.sender.upload = ({ file, signal }) => {
+        signals.push(signal);
+        // Three seconds for 300KB, against the note's one (`aTab`).
+        return new Promise((resolve) =>
+          setTimeout(() => {
+            server.attachments.set('slow', { itemId: 'item', name: file.name, text: '' });
+            resolve({ ok: true, applied: true });
+          }, 3_000),
+        );
+      };
+      const outbox = aTab(server);
+      await outbox.add(capture('Receipts', [photo('scan.png', 'x'.repeat(300 * 1024))]));
+      await settled();
+
+      await vi.advanceTimersByTimeAsync(3_000);
+      await settled();
+
+      expect(signals[0]!.aborted).toBe(false);
+      expect([...server.attachments.values()].map((one) => one.name)).toEqual(['scan.png']);
+      expect(outbox.getShown()).toEqual([]);
+    });
+  });
+
+  describe('a confirmed sign-out loses waiting captures for good, even mid-send', () => {
+    it.each([
+      { situation: 'the server refuses the note it was sending', answer: 'refused' as const },
+      { situation: 'the note lands with a file still to go', answer: 'landed' as const },
+    ])('stays gone when $situation', async ({ answer }) => {
+      const server = aServer();
+      let answerNow: () => void = () => {};
+      server.sender.capture = (_payload, signal) =>
+        new Promise((resolve, reject) => {
+          answerNow = () =>
+            answer === 'refused'
+              ? reject(new CommandRefused(404, 'workspace ws-work not found'))
+              : resolve({ ok: true, applied: true });
+          // A send that ignores being stopped, the worst case for the lock.
+          void signal;
+        });
+      server.uploadsReachable = false;
+      const outbox = aTab(server);
+      await settled();
+      await outbox.add(capture('Ring the plumber', [photo()]));
+      await settled();
+
+      // The answer arrives only after the discard has had every chance to run.
+      const discarding = outbox.discardAll();
+      await settled();
+      answerNow();
+      await discarding;
+      await settled();
+
+      expect(await browserOutboxStore().all()).toEqual([]);
+      expect(outbox.getShown()).toEqual([]);
+    });
+  });
+
+  describe('what is shown is the latest read of what is kept', () => {
+    it('does not let an earlier read that finishes late replace a later one', async () => {
+      const kept = browserOutboxStore();
+      const held: (() => void)[] = [];
+      let slowNext = false;
+      const store: OutboxStore = {
+        ...kept,
+        all: async () => {
+          const read = await kept.all();
+          if (slowNext) {
+            slowNext = false;
+            await new Promise<void>((resolve) => held.push(resolve));
+          }
+          return read;
+        },
+      };
+      const server = aServer();
+      server.online = false;
+      const outbox = aTab(server, { store });
+      await settled();
+      await outbox.add(capture('Ring the plumber'));
+      await settled();
+
+      slowNext = true;
+      const early = outbox.refresh();
+      await settled();
+      await kept.remove(outbox.getShown()[0]!.id);
+      await outbox.refresh();
+      held.forEach((resolve) => resolve());
+      await early;
+
+      expect(outbox.getShown()).toEqual([]);
+    });
+  });
+
+  describe('another tab with Capture open hears that a capture landed', () => {
+    it('is told it landed whole, so it can show its time', async () => {
+      const server = aServer();
+      const elsewhere = aTab(server);
+      const heard: string[] = [];
+      elsewhere.onLanding(({ kind, entry }) => heard.push(`${kind}: ${entry.message}`));
+      const sending = aTab(server, { announce: (news) => elsewhere.heard(news) });
+      await settled();
+
+      await sending.add(capture('Ring the plumber'));
+      await settled();
+
+      expect(heard).toEqual(['whole: Ring the plumber']);
+    });
+  });
+
+  describe('another request getting through sends only what waits for want of any answer', () => {
+    it.each([
+      { situation: 'there was no answer at all', failure: () => new TypeError('Failed to fetch'), sends: true },
+      {
+        situation: 'the server answered too many at once',
+        failure: () => new CommandRefused(429, 'slow down'),
+        sends: false,
+      },
+      {
+        situation: 'the server answered with an error',
+        failure: () => new CommandRefused(503, 'capture_item failed: 503'),
+        sends: false,
+      },
+    ])('sends again when $situation: $sends', async ({ failure, sends }) => {
+      const server = aServer();
+      let failing = true;
+      const answering = server.sender.capture;
+      server.sender.capture = (payload, signal) =>
+        failing ? Promise.reject(failure()) : answering(payload, signal);
+      const outbox = aTab(server, { owner: null });
+      const { client } = anOpenApp(outbox);
+      await outbox.add(capture('Ring the plumber'));
+      await settled();
+
+      failing = false;
+      await act(async () => {
+        await client.fetchQuery({ queryKey: ['workspaces'], queryFn: () => Promise.resolve([]) });
+        await settled();
+      });
+
+      expect(messages(server)).toEqual(sends ? ['Ring the plumber'] : []);
+      outbox.stop();
     });
   });
 });

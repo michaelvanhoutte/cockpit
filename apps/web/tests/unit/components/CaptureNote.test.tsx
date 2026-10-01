@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MAX_ATTACHMENT_SIZE, type Item, type ItemType } from '@cockpit/shared';
 import { CommandRefused, sendCommand, uploadAttachment } from '../../../src/api/client';
-import { CaptureNote, NO_WORKSPACE, STILL_READING } from '../../../src/components/CaptureNote';
+import { CaptureNote, NO_WORKSPACE, STILL_LISTED, STILL_READING } from '../../../src/components/CaptureNote';
 import {
   CaptureOutbox,
   OutboxProvider,
@@ -606,6 +606,25 @@ describe('Capture', () => {
       expect(chip('Work')).toHaveAttribute('aria-pressed', 'true');
       await waitFor(() => expect(screen.queryByText('Just captured')).toBeNull());
       expect(user.outbox.getShown()).toEqual([]);
+    });
+
+    it('puts a note back once only, even where it cannot then be taken off the list', async () => {
+      vi.mocked(sendCommand).mockRejectedValue(new CommandRefused(404, 'workspace ws-home not found'));
+      const kept = browserOutboxStore();
+      const user = await thePage({
+        store: { ...kept, remove: () => Promise.reject(new Error('storage refused')) },
+      });
+      await user.type(box(), 'Ask Ada about the backup window');
+      await user.click(chip('Capture'));
+      const putBack = await screen.findByRole('button', { name: 'Put back' });
+
+      await user.click(putBack);
+
+      expect(box()).toHaveValue('Ask Ada about the backup window');
+      expect(await screen.findByRole('alert')).toHaveTextContent(STILL_LISTED);
+      // Still listed, and with nothing left to press that would put it back twice.
+      expect(rowOf('Ask Ada about the backup window').getByText(/^Not sent:/)).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Put back' })).toBeNull();
     });
   });
 
