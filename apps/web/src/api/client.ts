@@ -226,6 +226,21 @@ export const SIGN_IN_PATH = '/v1/sign-in/google';
  */
 export const GUEST_SIGN_IN_PATH = '/v1/sign-in/guest';
 
+/**
+ * The guest link, carrying where the person came from ('Record every sign-in,
+ * with guest activity, for 12 months', issue 653).
+ *
+ * **Read from the sign-in page, because the Worker cannot**: the Referer it
+ * sees on the guest route is Cockpit's own page. It is passed as a plain
+ * query parameter the Worker reduces to a host and never trusts; nothing is
+ * added when the browser reported no referrer.
+ */
+export function guestSignInPath(referrer: string): string {
+  return referrer
+    ? `${GUEST_SIGN_IN_PATH}?${new URLSearchParams({ referrer })}`
+    : GUEST_SIGN_IN_PATH;
+}
+
 export async function signOut(): Promise<void> {
   // Read before branching, and as a plain number: the typed client narrows the
   // response away entirely once `ok` is ruled out, which leaves nothing to ask

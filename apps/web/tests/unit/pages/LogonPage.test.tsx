@@ -73,4 +73,22 @@ describe('Sign-in', () => {
       expect(screen.queryByRole('alert')).toBeNull();
     });
   });
+
+  describe('the guest link says where the person came from', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it.each([
+      {
+        situation: 'the person followed a link from another site',
+        referrer: 'https://conselit.com/a?b=1',
+        href: '/v1/sign-in/guest?referrer=https%3A%2F%2Fconselit.com%2Fa%3Fb%3D1',
+      },
+      { situation: 'the browser reported no referrer', referrer: '', href: '/v1/sign-in/guest' },
+    ])('is drawn right when $situation', ({ referrer, href }) => {
+      vi.spyOn(document, 'referrer', 'get').mockReturnValue(referrer);
+      drawnAt('');
+
+      expect(screen.getByRole('link', { name: 'Continue as guest' })).toHaveAttribute('href', href);
+    });
+  });
 });

@@ -453,6 +453,10 @@ export async function endSignInsOf(env: Env, userId: string): Promise<void> {
  * was being destroyed: `sessions` points at `users`, so the person could not be
  * removed while it was there.
  *
+ * **So is their sign-in history** (`sign_ins`, issue 653), which points at
+ * `users` under a foreign key too - a guest's rows have no user and are not
+ * touched.
+ *
  * **So is where its connections pointed**, which is the register's own row
  * rather than an old one: `connector_directory` holds `tenants` under a
  * foreign key too, so an account with a connected source account could not be
@@ -475,6 +479,7 @@ export async function removeFromRegister(
     env.DB.prepare('DELETE FROM commands WHERE tenant_id = ?').bind(accountId),
     env.DB.prepare('DELETE FROM workspaces WHERE tenant_id = ?').bind(accountId),
     env.DB.prepare('DELETE FROM connector_directory WHERE account_id = ?').bind(accountId),
+    env.DB.prepare('DELETE FROM sign_ins WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId),
     env.DB.prepare('DELETE FROM tenants WHERE id = ?').bind(accountId),

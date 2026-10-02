@@ -1,4 +1,4 @@
-import { check, index, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import type { Role } from '@cockpit/shared';
 
@@ -290,5 +290,44 @@ export const sessions = sqliteTable(
     index('sessions_user').on(table.userId),
     check('sessions_created_at_is_timestamp', isTimestamp('created_at')),
     check('sessions_expires_at_is_timestamp', isTimestamp('expires_at')),
+  ],
+);
+
+/**
+ * One row per deliberate sign-in, a named user's or a guest's ("Record every
+ * sign-in, with guest activity, for 12 months", issue 653): the history the
+ * admin's Usage window reads, which `users.last_signed_in_at` cannot be since
+ * it keeps only the latest.
+ *
+ * **Keyed by the sign-in's own session id**, which is what lets a guest's
+ * counters be bumped by the request doing the action, naming nothing but the
+ * session it arrived on. There is deliberately no foreign key to `sessions`:
+ * a session ends at sign-out or expiry and the history outlives it.
+ *
+ * **A guest's row has no `user_id`.** Every guest is the same shared user, so
+ * the id says nothing, and a row pointing at it would be deleted with nobody
+ * and attributed to nobody; null is what marks the row a guest's, and it ages
+ * out after 12 months instead. A named user's rows go when they are deleted.
+ *
+ * **`country` and `referrer_host` are display text, never trusted**: the
+ * country is Cloudflare's own metadata and the referrer is client-supplied,
+ * reduced to a host and length-capped before it is written. No address is kept.
+ */
+export const signIns = sqliteTable(
+  'sign_ins',
+  {
+    sessionId: text('session_id').primaryKey(),
+    userId: text('user_id').references(() => users.id),
+    at: text('at').notNull(),
+    country: text('country'),
+    referrerHost: text('referrer_host'),
+    itemsCaptured: integer('items_captured').notNull().default(0),
+    dashboardsOpened: integer('dashboards_opened').notNull().default(0),
+  },
+  (table) => [
+    // What the nightly purge and the Usage window's bounded read both range over.
+    index('sign_ins_at').on(table.at),
+    index('sign_ins_user').on(table.userId),
+    check('sign_ins_at_is_timestamp', isTimestamp('at')),
   ],
 );

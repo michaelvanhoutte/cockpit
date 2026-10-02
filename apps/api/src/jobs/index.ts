@@ -1,6 +1,7 @@
 import type { Message, MessageBatch, ScheduledController } from '@cloudflare/workers-types';
 import type { Env } from '../env.js';
 import { resetGuestAccount } from '../accounts/index.js';
+import { purgeOldSignIns } from '../auth/sign-in-history.js';
 import {
   cleanUpACapturedNote,
   enrichmentJobSchema,
@@ -51,6 +52,28 @@ export type { BatchRead } from './backfill-meanings.js';
 export async function handleScheduled(controller: ScheduledController, env: Env): Promise<void> {
   void controller;
   await resetTheGuestAccount(env);
+  await purgeTheOldSignIns(env);
+}
+
+/**
+ * The sign-in history is kept 12 months and the nightly run removes the rest
+ * ("Record every sign-in, with guest activity, for 12 months", issue 653).
+ * Caught on its own like the reset beside it: one failing costs only itself,
+ * and the next night removes what this one left.
+ */
+async function purgeTheOldSignIns(env: Env): Promise<void> {
+  try {
+    await purgeOldSignIns(env, new Date());
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `old sign-in history was not removed tonight: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      }),
+    );
+  }
 }
 
 /**
