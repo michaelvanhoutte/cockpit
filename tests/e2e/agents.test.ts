@@ -220,6 +220,7 @@ test.describe('Agents', () => {
         await page.getByLabel('Name of the agent').fill(agent);
         await press(page.getByRole('button', { name: 'Save' }), isMobile);
         await expect(dock.getByRole('button', { name: agent })).toBeVisible();
+        await expect(dock.getByText('Drag an agent onto an item to start it.')).toBeVisible();
 
         // One row left in the Inbox, and one filed on a panel below the fold
         // of a dashboard too short to show it.
@@ -266,6 +267,9 @@ test.describe('Agents', () => {
         const at = await farRow.boundingBox();
         if (!at) throw new Error('the far row is not on screen');
         await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2, { steps: 8 });
+        // Only the row under the pointer is lit; every other row that takes it is merely tinted.
+        await expect(farRow).toHaveAttribute('data-agent-target', '');
+        await expect(itemRow(page, asked)).not.toHaveAttribute('data-agent-target', '');
         await page.mouse.up();
 
         const chip = farRow.getByRole('link', { name: `${agent} · Claude is working ↗` });

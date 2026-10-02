@@ -2010,6 +2010,65 @@ describe('Agents', () => {
     });
   });
 
+  describe('a row shows where a drop would land', () => {
+    const rowOf = () => screen.getByText('Make appointment with Novy').closest('li')!;
+    const agentDrag = {
+      types: [AGENT_BEING_DRAGGED],
+      getData: () => SCOPE_IT.id,
+      dropEffect: 'none',
+    };
+    const offering = () => aRow({ agentsHere: { offered: [SCOPE_IT], run: undefined, start: vi.fn(() => Promise.resolve()) } });
+    const marked = () => rowOf().hasAttribute('data-agent-target');
+    // jsdom's drag events carry no relatedTarget, so a pointer event stands in for one.
+    const leaveTo = (target: Element) =>
+      act(() => void rowOf().dispatchEvent(new MouseEvent('dragleave', { bubbles: true, relatedTarget: target })));
+
+    it('tints an eligible row while the agent is in the air, and marks only the one it is over', () => {
+      offering();
+      act(() => liftAgent(SCOPE_IT.id));
+      expect({ tinted: rowOf().hasAttribute('data-takes-agent'), marked: marked() }).toEqual({ tinted: true, marked: false });
+
+      fireEvent.dragOver(rowOf(), { dataTransfer: agentDrag });
+      expect(marked()).toBe(true);
+    });
+
+    it('drops the mark when the pointer leaves, and keeps it between the row’s own children', () => {
+      offering();
+      act(() => liftAgent(SCOPE_IT.id));
+      fireEvent.dragOver(rowOf(), { dataTransfer: agentDrag });
+
+      leaveTo(screen.getByText('Make appointment with Novy'));
+      expect(marked()).toBe(true);
+
+      leaveTo(document.body);
+      expect(marked()).toBe(false);
+    });
+
+    it('clears the mark on a drop', () => {
+      offering();
+      dropOnTheRow(SCOPE_IT.id);
+      expect(marked()).toBe(false);
+    });
+
+    it('leaves no stale mark when the drag ends off the row', () => {
+      offering();
+      act(() => liftAgent(SCOPE_IT.id));
+      fireEvent.dragOver(rowOf(), { dataTransfer: agentDrag });
+      act(() => landAgent());
+
+      act(() => liftAgent(SCOPE_IT.id));
+      expect(marked()).toBe(false);
+    });
+
+    it('never tints or marks a row that does not take the agent', () => {
+      aRow({ agentsHere: { offered: [ASKING], run: undefined, start: vi.fn() } });
+      act(() => liftAgent(SCOPE_IT.id));
+      fireEvent.dragOver(rowOf(), { dataTransfer: agentDrag });
+
+      expect({ tinted: rowOf().hasAttribute('data-takes-agent'), marked: marked() }).toEqual({ tinted: false, marked: false });
+    });
+  });
+
   describe('an agent dropped on a row starts on it', () => {
     it('takes an agent its dashboard offers, outlined while it is in the air', () => {
       const start = vi.fn(() => Promise.resolve());
