@@ -4,6 +4,8 @@ import {
   FIRST_WORKSPACE_NAME,
   GRID_COLUMNS,
   MOST_ACROSS,
+  filterMatchSchema,
+  panelFilterSchema,
   themeOf,
 } from '@cockpit/shared';
 import type { AssociationKind } from '@cockpit/shared';
@@ -11,8 +13,9 @@ import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
 import { foldName } from '../domain/names.js';
 import {
   GUEST_DEMO,
-  SEEDED_AT,
+  isFilter,
   type SeedDashboard,
+  type SeedInboxItem,
   type SeedItem,
   type SeedWorkspace,
 } from './guest-seed-data.js';
@@ -97,7 +100,6 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_MEANINGS,
     ACCOUNT_TEXT_RULES,
     firstWorkspace(accountId),
-    guestDemoSeed(accountId),
     DUPLICATE_SETTLEMENTS,
     PINNED_TEXT_EXAMPLES,
     ITEMS_TENANT_ID,
@@ -122,6 +124,14 @@ export function accountChanges(accountId: string): readonly Change[] {
     DROP_WORKSPACE_ROUTING_SUMMARY,
     REWRITE_HISTORY_LOOKS_AT,
     REWRITE_HISTORY_PANEL_BEFORE,
+    // Always last, so the demonstration is written into every column the
+    // changes above leave - a Filter's conditions and an Item's start among
+    // them. Append new changes above this line. The one exception to never
+    // reordering a shipped change, and safe for the reason that rule exists:
+    // every account but the guest applied it with no statements, so its place
+    // changes nothing in them, and the guest account is dropped and rebuilt
+    // from this list every night (`resetGuest`, store.ts).
+    guestDemoSeed(accountId),
   ];
 }
 
@@ -3246,6 +3256,20 @@ export function checkedGuestDemo(demo: readonly SeedWorkspace[]): readonly SeedW
     if (!slug) wrong(`the workspace "${workspace.name}" leaves no id behind`);
     if (workspaceIds.has(slug)) wrong(`two workspaces share the id "${slug}"`);
     workspaceIds.add(slug);
+    // An Inbox Item's suggestion is a foreign key to a Panel, found by name
+    // across every Dashboard of its Workspace - so the name has to find
+    // exactly one, and one that takes Items.
+    for (const item of workspace.inbox) {
+      if (!item.suggest) continue;
+      const named = workspace.dashboards
+        .flatMap((dashboard) => dashboard.rows.flatMap((row) => row.panels))
+        .filter((panel) => foldName(panel.name) === foldName(item.suggest!.panel));
+      if (named.length !== 1 || isFilter(named[0]!)) {
+        wrong(
+          `"${item.title}" suggests "${item.suggest.panel}", which is not one Panel of items in "${workspace.name}"`,
+        );
+      }
+    }
     for (const dashboard of workspace.dashboards) {
       const under = `${slug}-${demoSlug(dashboard.name)}`;
       if (dashboardIds.has(under)) wrong(`two dashboards share the id "${under}"`);
@@ -3268,6 +3292,20 @@ export function checkedGuestDemo(demo: readonly SeedWorkspace[]): readonly SeedW
             wrong(`"${dashboard.name}" has two panels called "${panel.name}"`);
           }
           panelNames.add(folded);
+          // A Filter the app cannot read draws as one with nothing chosen
+          // (`panelFilterFrom`), one with no conditions demonstrates nothing,
+          // and a `match` it cannot read is quietly All - each a typo here
+          // rather than a choice.
+          if (isFilter(panel)) {
+            const read = panelFilterSchema.safeParse(panel.filter);
+            if (
+              !read.success ||
+              read.data.conditions.length === 0 ||
+              !filterMatchSchema.safeParse(panel.filter.match).success
+            ) {
+              wrong(`the Filter "${panel.name}" has no conditions the app can read`);
+            }
+          }
         }
       }
     }
@@ -3275,13 +3313,13 @@ export function checkedGuestDemo(demo: readonly SeedWorkspace[]): readonly SeedW
   return demo;
 }
 
-/** Every Association one seeded Item carries, its Dashboard's Project included. */
+/** Every Association one seeded Item carries, its Dashboard's Project included where it has one. */
 function demoAssociations(
   item: SeedItem,
-  dashboard: SeedDashboard,
+  dashboard?: SeedDashboard,
 ): { kind: AssociationKind; label: string }[] {
   return [
-    ...(dashboard.project ? [{ kind: 'project' as const, label: dashboard.project }] : []),
+    ...(dashboard?.project ? [{ kind: 'project' as const, label: dashboard.project }] : []),
     ...(item.people ?? []).map((label) => ({ kind: 'person' as const, label })),
     ...(item.topics ?? []).map((label) => ({ kind: 'topic' as const, label })),
   ];
@@ -3289,10 +3327,25 @@ function demoAssociations(
 
 /**
  * What the shared guest account holds when somebody opens it: three Workspaces
- * of a contractor's week, their Dashboards arranged in rows, and the Items
- * filed on their Panels ("Seed the guest account with a full demo dataset",
- * issue 355). The content itself is in guest-seed-data.ts; this turns it into
- * rows.
+ * of a contractor's week, their Dashboards arranged in rows, the Items filed on
+ * their Panels, the Filters gathering them and what is still in each Inbox
+ * ("Seed the guest account with a full demo dataset", issue 355). The content
+ * itself is in guest-seed-data.ts; this turns it into rows.
+ *
+ * **Dated from the day it is written.** guest-seed-data.ts says when an Item is
+ * due or was started in days from that day, so the guest account - rebuilt
+ * every night - always has something overdue, something due today and a week
+ * ahead to fill a Filter with. When it was made is spread back over the weeks
+ * before, so how long each has waited reads like a real list rather than one
+ * moment, and always before the day it is written, so nothing waits a negative
+ * time.
+ *
+ * **No Item carries a captured message.** Filing one re-asks the model about
+ * every Inbox Item that has one (`reproposePanels`) - including a filed one a
+ * visitor has moved back - which on a shared account anybody can drive all day
+ * would be a model call per Item per filing. The Inbox's suggestions are
+ * written here instead, so the chip still shows; the only other reader is the
+ * form's Details tab, where it would repeat the title.
  *
  * **A no-op for every other account**, decided on the account's own name rather
  * than on a flag: there is exactly one guest account and it is named in one
@@ -3348,28 +3401,50 @@ function demoAssociations(
  *   an ordinary Workspace, Dashboard, Panel, Layout, Item or Association in
  *   columns that release already reads, so it draws the demonstration exactly
  *   as this one does. Nothing is lost either way.
+ * - **A night the reset fails:** the account keeps what it held, its dates a
+ *   day older, and the next night's reset writes them afresh.
  */
 function guestDemoSeed(accountId: string): Change {
   const name = '0026-guest-demo-seed';
   if (accountId !== GUEST_ACCOUNT_NAME) return { name, statements: [] };
-  seededOnce ??= guestDemoStatements(GUEST_ACCOUNT_NAME);
-  return { name, statements: seededOnce };
+  const day = new Date().toISOString().slice(0, 10);
+  if (seeded?.day !== day) seeded = { day, statements: guestDemoStatements(GUEST_ACCOUNT_NAME, day) };
+  return { name, statements: seeded.statements };
 }
 
 /**
- * The statements themselves, built once per isolate.
+ * The statements themselves, built once per isolate per day.
  *
- * `accountChanges` is called on every read an account serves, and the branch
- * above depends on nothing but a constant - so without this the demonstration's
- * four hundred statements were rebuilt for every request the guest account
- * answered, long after the change itself had been recorded as applied. Building
- * them once is also what makes `checkedGuestDemo` free enough to run always.
+ * `accountChanges` is called on every read an account serves, so without this
+ * the demonstration's five hundred statements were rebuilt for every request
+ * the guest account answered, long after the change itself had been recorded
+ * as applied. Building them once a day is also what makes `checkedGuestDemo`
+ * free enough to run always - and the day, not once, because an isolate that
+ * lives past midnight would otherwise write yesterday's dates.
  */
-let seededOnce: readonly Statement[] | undefined;
+let seeded: { readonly day: string; readonly statements: readonly Statement[] } | undefined;
 
-function guestDemoStatements(accountId: string): readonly Statement[] {
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long before the day it is written the nth seeded Item was made, in hours:
+ * between two and forty days for a filed one and under four for one still in
+ * the Inbox, counted rather than random so the dataset comes out the same each
+ * time. Never after it was started, nor after the date it is overdue for.
+ */
+function demoAgeInHours(item: SeedItem, nth: number, inInbox: boolean): number {
+  const days = inInbox ? (nth * 3) % 4 : 2 + ((nth * 7) % 38);
+  const floor = Math.max(item.started ?? -1, -(item.due ?? 0)) + 1;
+  return Math.max(days, floor) * 24 + 1 + ((nth * 5) % 11);
+}
+
+export function guestDemoStatements(accountId: string, day: string): readonly Statement[] {
   const demo = checkedGuestDemo(GUEST_DEMO);
-  const at = SEEDED_AT;
+  const midnight = Date.parse(`${day}T00:00:00.000Z`);
+  const dateIn = (days: number) => new Date(midnight + days * DAY_MS).toISOString().slice(0, 10);
+  const hoursBefore = (hours: number) => new Date(midnight - hours * 60 * 60 * 1000).toISOString();
+  // The Workspaces, Dashboards and Panels predate every Item on them.
+  const at = hoursBefore(60 * 24);
   const folded = foldName(DEMO_SCREEN_SIZE_NAME);
   const taskType = taskTypeId(accountId);
   const noteType = noteTypeId(accountId);
@@ -3399,6 +3474,8 @@ function guestDemoStatements(accountId: string): readonly Statement[] {
   demo.forEach((workspace, index) => {
     const workspaceId = `guest-ws-${demoSlug(workspace.name)}`;
     const theme = themeOf(workspace.tint);
+    /** Every Panel of items in this Workspace by folded name, for the Inbox's suggestions. */
+    const panelIds = new Map<string, string>();
     statements.push({
       sql: `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, bar, ground, header, position, created_at)
               SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
@@ -3483,9 +3560,13 @@ function guestDemoStatements(accountId: string): readonly Statement[] {
         row.panels.forEach((panel, position) => {
           panelsSoFar += 1;
           const panelId = demoId(DEMO_PANEL, panelsSoFar);
+          if (!isFilter(panel)) panelIds.set(foldName(panel.name), panelId);
           statements.push({
-            sql: `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, created_at)
-                    SELECT ?, ?, ?, ?, ?, ?
+            // A Filter is a Panel whose conditions are set, its stored kind
+            // left at `items` (`STORED_PANEL_KINDS`), so the column is all
+            // that tells one from the other.
+            sql: `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, filter_conditions, created_at)
+                    SELECT ?, ?, ?, ?, ?, ?, ?
                     WHERE EXISTS (SELECT 1 FROM dashboards WHERE id = ? AND tenant_id = ?)
                       AND NOT EXISTS (SELECT 1 FROM panels WHERE id = ?)`,
             params: [
@@ -3494,6 +3575,7 @@ function guestDemoStatements(accountId: string): readonly Statement[] {
               dashboardId,
               panel.name,
               foldName(panel.name),
+              isFilter(panel) ? JSON.stringify(panelFilterSchema.parse(panel.filter)) : null,
               at,
               dashboardId,
               accountId,
@@ -3522,38 +3604,9 @@ function guestDemoStatements(accountId: string): readonly Statement[] {
             ],
           });
 
+          if (isFilter(panel)) return;
           panel.items.forEach((item, filedAt) => {
-            itemsSoFar += 1;
-            const itemId = demoId(DEMO_ITEM, itemsSoFar);
-            statements.push({
-              // `source` is `internal` because these were captured inside
-              // Cockpit rather than synced from anywhere, and `status` carries
-              // `DEAD_STATUS_VALUE` (schema.ts) because the column is NOT NULL
-              // with a CHECK and nothing reads it. `focus_horizon` is left
-              // alone: it is dead too, and what this demonstrates in its place
-              // is a due date and a priority, which are live.
-              sql: `INSERT INTO items (id, tenant_id, workspace_id, captured_message, source, title, description,
-                                       type_id, priority, due_date, status, created_at, updated_at)
-                      SELECT ?, ?, ?, ?, 'internal', ?, ?, ?, ?, ?, 'to_process', ?, ?
-                      WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND tenant_id = ?)
-                        AND NOT EXISTS (SELECT 1 FROM items WHERE id = ?)`,
-              params: [
-                itemId,
-                accountId,
-                workspaceId,
-                item.title,
-                item.title,
-                item.description ?? null,
-                item.note ? noteType : taskType,
-                item.priority ?? null,
-                item.due ?? null,
-                at,
-                at,
-                workspaceId,
-                accountId,
-                itemId,
-              ],
-            });
+            const { itemId, madeAt } = writeItem(item, workspaceId, dashboard);
             statements.push({
               sql: `INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at)
                       SELECT ?, ?, ?, ?, ?
@@ -3565,7 +3618,7 @@ function guestDemoStatements(accountId: string): readonly Statement[] {
                 panelId,
                 itemId,
                 filedAt,
-                at,
+                madeAt,
                 panelId,
                 accountId,
                 itemId,
@@ -3574,33 +3627,102 @@ function guestDemoStatements(accountId: string): readonly Statement[] {
                 itemId,
               ],
             });
-
-            for (const association of demoAssociations(item, dashboard)) {
-              associationsSoFar += 1;
-              const associationId = demoId(DEMO_ASSOCIATION, associationsSoFar);
-              statements.push({
-                sql: `INSERT INTO associations (id, tenant_id, item_id, kind, label, created_at)
-                        SELECT ?, ?, ?, ?, ?, ?
-                        WHERE EXISTS (SELECT 1 FROM items WHERE id = ? AND tenant_id = ?)
-                          AND NOT EXISTS (SELECT 1 FROM associations WHERE id = ?)`,
-                params: [
-                  associationId,
-                  accountId,
-                  itemId,
-                  association.kind,
-                  association.label,
-                  at,
-                  itemId,
-                  accountId,
-                  associationId,
-                ],
-              });
-            }
           });
         });
+      });
+    }
+
+    // After every Dashboard, because a suggestion is a foreign key to a Panel
+    // on any of them; `checkedGuestDemo` has made sure the name finds one.
+    for (const item of workspace.inbox) {
+      const panelId = item.suggest ? panelIds.get(foldName(item.suggest.panel)) : undefined;
+      writeItem(item, workspaceId, undefined, {
+        suggestion: panelId && item.suggest ? { panelId, why: item.suggest.why } : null,
       });
     }
   });
 
   return statements;
+
+  /**
+   * One Item and its Associations - filed or not is the caller's business.
+   *
+   * `source` is `internal` because these were captured inside Cockpit rather
+   * than synced from anywhere, and `status` carries `DEAD_STATUS_VALUE`
+   * (schema.ts) because the column is NOT NULL with a CHECK and nothing reads
+   * it. `focus_horizon` is left alone: it is dead too, and what this
+   * demonstrates in its place is a due date and a priority, which are live.
+   * The suggested Panel is read back by a subquery, so a Panel skipped by a
+   * guard leaves the suggestion empty - its reason with it - rather than
+   * failing its foreign key. `inbox` is present for an Item filed on no Panel.
+   */
+  function writeItem(
+    item: SeedItem & Partial<SeedInboxItem>,
+    workspaceId: string,
+    dashboard: SeedDashboard | undefined,
+    inbox?: { suggestion: { panelId: string; why: string } | null },
+  ): { itemId: string; madeAt: string } {
+    const suggestion = inbox?.suggestion ?? null;
+    itemsSoFar += 1;
+    const itemId = demoId(DEMO_ITEM, itemsSoFar);
+    const madeAt = hoursBefore(demoAgeInHours(item, itemsSoFar, inbox !== undefined));
+    // Before midnight, like `madeAt`: the nightly reset runs early in the
+    // day, and a start later than it would be a start in the future.
+    const startedAt = item.started === undefined ? null : hoursBefore(item.started * 24 + 2);
+    statements.push({
+      sql: `INSERT INTO items (id, tenant_id, workspace_id, workspace_decided, captured_message, source, title,
+                               description, type_id, priority, due_date, started_at,
+                               proposed_panel_id, proposed_panel_reason, status, created_at, updated_at)
+              SELECT ?, ?, ?, ?, NULL, 'internal', ?, ?, ?, ?, ?, ?,
+                     (SELECT id FROM panels WHERE id = ? AND tenant_id = ?),
+                     (SELECT ? FROM panels WHERE id = ? AND tenant_id = ?), 'to_process', ?, ?
+              WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND tenant_id = ?)
+                AND NOT EXISTS (SELECT 1 FROM items WHERE id = ?)`,
+      params: [
+        itemId,
+        accountId,
+        workspaceId,
+        item.anyWorkspace ? 0 : 1,
+        item.title,
+        item.description ?? null,
+        item.note ? noteType : taskType,
+        item.priority ?? null,
+        item.due === undefined ? null : dateIn(item.due),
+        startedAt,
+        suggestion?.panelId ?? null,
+        accountId,
+        suggestion?.why ?? null,
+        suggestion?.panelId ?? null,
+        accountId,
+        madeAt,
+        madeAt,
+        workspaceId,
+        accountId,
+        itemId,
+      ],
+    });
+
+    for (const association of demoAssociations(item, dashboard)) {
+      associationsSoFar += 1;
+      const associationId = demoId(DEMO_ASSOCIATION, associationsSoFar);
+      statements.push({
+        sql: `INSERT INTO associations (id, tenant_id, item_id, kind, label, created_at)
+                SELECT ?, ?, ?, ?, ?, ?
+                WHERE EXISTS (SELECT 1 FROM items WHERE id = ? AND tenant_id = ?)
+                  AND NOT EXISTS (SELECT 1 FROM associations WHERE id = ?)`,
+        params: [
+          associationId,
+          accountId,
+          itemId,
+          association.kind,
+          association.label,
+          madeAt,
+          itemId,
+          accountId,
+          associationId,
+        ],
+      });
+    }
+    return { itemId, madeAt };
+  }
 }
