@@ -119,76 +119,76 @@ export function ConnectClaudeCode({
             {/* Title, steps and a refusal scroll as one piece; Cancel and
                 Connect stay below it, in view whatever the height. */}
             <div className="min-h-0 flex-1 overflow-y-auto">
-            <Dialog.Title className="text-base font-semibold">Connect Claude Code</Dialog.Title>
-            <Dialog.Description className="pt-2 text-sm text-ink-soft">
-              A routine that starts a Claude Code session on this workspace's items.
-            </Dialog.Description>
-            <ol className="flex flex-col gap-3 pt-4 text-sm">
-              <li>1. Create a routine on this workspace's repository in Claude Code.</li>
-              <li>
-                {/* The links an agent's message carries point here, and so do
-                    the hooks of step 5, and a routine's environment reaches
-                    only the domains it allows ("Send an item's attachments
-                    along when an agent starts", issue 573). Said once, here,
-                    since it is needed before the first start. */}
-                2. Allow its environment to reach{' '}
-                <code className="rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
-                  {window.location.hostname}
-                </code>
-                , so the session can read an item's attachments and say when it is waiting on you.
-              </li>
-              <li>
-                <p>
-                  3. A routine needs a prompt, but Cockpit's message supplies the task, so give it one that defers to
-                  that message:
-                </p>
-                <div className="mt-1 flex items-start gap-2">
-                  <code
-                    aria-label="Routine prompt"
-                    className="min-w-0 flex-1 whitespace-pre-wrap break-words rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft"
-                  >
-                    {ROUTINE_PROMPT}
+              <Dialog.Title className="text-base font-semibold">Connect Claude Code</Dialog.Title>
+              <Dialog.Description className="pt-2 text-sm text-ink-soft">
+                A routine that starts a Claude Code session on this workspace's items.
+              </Dialog.Description>
+              <ol className="flex flex-col gap-3 pt-4 text-sm">
+                <li>1. Create a routine on this workspace's repository in Claude Code.</li>
+                <li>
+                  {/* The links an agent's message carries point here, and so do
+                      the hooks of step 5, and a routine's environment reaches
+                      only the domains it allows ("Send an item's attachments
+                      along when an agent starts", issue 573). Said once, here,
+                      since it is needed before the first start. */}
+                  2. Allow its environment to reach{' '}
+                  <code className="rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
+                    {window.location.hostname}
                   </code>
-                  <button
-                    type="button"
-                    onClick={() => void navigator.clipboard.writeText(ROUTINE_PROMPT).catch(() => {})}
-                    className="shrink-0 rounded-md border border-black/10 px-2 py-1 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
-                  >
-                    Copy
-                  </button>
-                </div>
-              </li>
-              <li>
-                <p>4. Paste the routine's API trigger URL and token:</p>
-                <div className="mt-1 flex flex-col gap-2">
-                  <input
-                    value={routineUrl}
-                    onChange={(event) => setRoutineUrl(event.target.value)}
-                    aria-label="Routine trigger URL"
-                    placeholder="https://api.anthropic.com/v1/claude_code/routines/…/fire"
-                    autoFocus
-                    disabled={busy}
-                    className="w-full rounded-md border border-black/10 bg-surface px-3 py-2 text-base outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 disabled:opacity-50"
-                  />
-                  <input
-                    value={token}
-                    onChange={(event) => setToken(event.target.value)}
-                    type="password"
-                    aria-label="Routine token"
-                    placeholder="Token"
-                    disabled={busy}
-                    className="w-full rounded-md border border-black/10 bg-surface px-3 py-2 text-base outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 disabled:opacity-50"
-                  />
-                </div>
-              </li>
-              {connectionId && <ReportingBack open={open} workspaceId={workspaceId} connectionId={connectionId} />}
-            </ol>
+                  , so the session can read an item's attachments and say when it is waiting on you.
+                </li>
+                <li>
+                  <p>
+                    3. A routine needs a prompt, but Cockpit's message supplies the task, so give it one that defers to
+                    that message:
+                  </p>
+                  <div className="mt-1 flex items-start gap-2">
+                    <code
+                      aria-label="Routine prompt"
+                      className="min-w-0 flex-1 whitespace-pre-wrap break-words rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft"
+                    >
+                      {ROUTINE_PROMPT}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => void navigator.clipboard.writeText(ROUTINE_PROMPT).catch(() => {})}
+                      className="shrink-0 rounded-md border border-black/10 px-2 py-1 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                </li>
+                <li>
+                  <p>4. Paste the routine's API trigger URL and token:</p>
+                  <div className="mt-1 flex flex-col gap-2">
+                    <input
+                      value={routineUrl}
+                      onChange={(event) => setRoutineUrl(event.target.value)}
+                      aria-label="Routine trigger URL"
+                      placeholder="https://api.anthropic.com/v1/claude_code/routines/…/fire"
+                      autoFocus
+                      disabled={busy}
+                      className="w-full rounded-md border border-black/10 bg-surface px-3 py-2 text-base outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 disabled:opacity-50"
+                    />
+                    <input
+                      value={token}
+                      onChange={(event) => setToken(event.target.value)}
+                      type="password"
+                      aria-label="Routine token"
+                      placeholder="Token"
+                      disabled={busy}
+                      className="w-full rounded-md border border-black/10 bg-surface px-3 py-2 text-base outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 disabled:opacity-50"
+                    />
+                  </div>
+                </li>
+                {connectionId && <ReportingBack open={open} workspaceId={workspaceId} connectionId={connectionId} />}
+              </ol>
 
-            {refusal && (
-              <p role="alert" className="pt-3 text-sm text-over">
-                {refusal}
-              </p>
-            )}
+              {refusal && (
+                <p role="alert" className="pt-3 text-sm text-over">
+                  {refusal}
+                </p>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-4">

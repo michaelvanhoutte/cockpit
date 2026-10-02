@@ -27,7 +27,6 @@ interface Draft {
   startsInProgress: boolean;
 }
 
-
 /**
  * The dock: every Agent, reachable from any Dashboard ("Keep your agents in a
  * dock, and choose which each dashboard shows", issue 570). A strip of tiles
