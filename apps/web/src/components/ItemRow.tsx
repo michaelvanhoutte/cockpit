@@ -298,6 +298,13 @@ export function ItemRow({
   const takesAnAgent = agentsHere !== undefined && !runBlocksAStart(run);
   const lifted = useAgentInTheAir();
   const outlined = takesAnAgent && lifted !== null && agentsHere.offered.some((agent) => agent.id === lifted);
+  /** Whether the Agent in the air is over this row - the one row lit, where `outlined` only tints. */
+  const [agentOver, setAgentOver] = useState(false);
+  useEffect(() => {
+    // A drag that ends off the row never says so to it: clear on the Agent landing.
+    if (lifted === null) setAgentOver(false);
+  }, [lifted]);
+  const agentTarget = outlined && agentOver;
 
   const sendToClaude = async (agent: Agent, prompt?: string) => {
     if (!agentsHere || sending) return;
@@ -907,11 +914,18 @@ export function ItemRow({
         event.preventDefault();
         event.stopPropagation();
         event.dataTransfer.dropEffect = 'copy';
+        setAgentOver(true);
+      }}
+      onDragLeave={(event) => {
+        // Moving between the row's own children is not leaving it.
+        if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+        setAgentOver(false);
       }}
       onDrop={(event) => {
         if (!event.dataTransfer.types.includes(AGENT_BEING_DRAGGED)) return;
         event.preventDefault();
         event.stopPropagation();
+        setAgentOver(false);
         const agentId = event.dataTransfer.getData(AGENT_BEING_DRAGGED);
         landAgent();
         const agent = takesAnAgent ? agentsHere.offered.find((offered) => offered.id === agentId) : undefined;
@@ -938,11 +952,17 @@ export function ItemRow({
       className={`group relative touch-pan-y border-b border-black/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
         dock.openId === item.id ? 'ring-2 ring-inset ring-accent ' : ''
       }${selecting?.picked ? 'bg-accent-tint ' : ''}${
-        // Every row that will take the Agent in the air, the moment it is
-        // lifted - not only the one under the pointer (issue 571).
-        outlined ? 'outline-2 -outline-offset-2 outline-dashed outline-accent' : ''
+        // Every row that will take the Agent in the air is faintly tinted the
+        // moment it is lifted (issue 571); only the one under the pointer is
+        // lit, so it stands out on a long dashboard.
+        agentTarget
+          ? 'bg-accent-tint outline-2 -outline-offset-2 outline-solid outline-accent'
+          : outlined && !selecting?.picked
+            ? 'bg-accent-tint/30'
+            : ''
       }`}
       data-takes-agent={outlined ? '' : undefined}
+      data-agent-target={agentTarget ? '' : undefined}
     >
       <WhatLettingGoWouldDo across={gone} />
       {/* The row itself, which is what moves: the band above has to stay where

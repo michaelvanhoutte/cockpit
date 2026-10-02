@@ -297,7 +297,15 @@ export function AgentDock({
             )}
             {!hasClaudeCodeConnection && agents.length > 0 && (
               <span className="shrink-0 text-xs text-chrome-ink-faint">
-                Connect Claude Code to this workspace to start an agent.
+                Connect Claude Code to this workspace, then drag an agent onto an item to start it.
+              </span>
+            )}
+            {/* How a tile is used, since a click on one opens its form and so
+                reads as something to configure. Hidden on touch, where there
+                is no drag and the row's menu is the way in. */}
+            {hasClaudeCodeConnection && tiles.length > 0 && (
+              <span className="shrink-0 text-xs text-chrome-ink-faint pointer-coarse:hidden">
+                Drag an agent onto an item to start it.
               </span>
             )}
             {hasClaudeCodeConnection && claudeCodeFailing && (

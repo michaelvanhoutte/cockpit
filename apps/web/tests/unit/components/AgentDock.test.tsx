@@ -315,7 +315,7 @@ describe('Agents', () => {
   });
   describe('the dock says what stands between its tiles and Claude', () => {
     it.each([
-      { situation: 'no connection', connected: false, failing: null, says: 'Connect Claude Code to this workspace to start an agent.' },
+      { situation: 'no connection', connected: false, failing: null, says: 'Connect Claude Code to this workspace, then drag an agent onto an item to start it.' },
       { situation: 'a connection Claude refused', connected: true, failing: 'The token is wrong or was revoked.', says: 'Claude Code is failing: The token is wrong or was revoked.' },
       { situation: 'a connection that works', connected: true, failing: null, says: null },
     ])('$situation', ({ connected, failing, says }) => {
@@ -326,6 +326,44 @@ describe('Agents', () => {
         const shown = within(toolbar).queryByText(new RegExp(`^${line}`));
         expect(shown?.textContent ?? null).toBe(says?.startsWith(line) ? says : null);
       }
+    });
+  });
+
+  describe('the dock says how an agent is used', () => {
+    it.each([
+      { situation: 'connected, with tiles', connected: true, hidden: [], agents: [SCOPE_IT, SHIP_IT], hint: true },
+      {
+        situation: 'connected, every agent hidden here',
+        connected: true,
+        hidden: [SCOPE_IT.id, SHIP_IT.id],
+        agents: [SCOPE_IT, SHIP_IT],
+        hint: false,
+      },
+      { situation: 'not connected, agents exist', connected: false, hidden: [], agents: [SCOPE_IT], hint: false },
+      { situation: 'no agents at all', connected: true, hidden: [], agents: [], hint: false },
+    ])('$situation', ({ connected, hidden, agents, hint }) => {
+      renderDock({
+        hasClaudeCodeConnection: connected,
+        agents,
+        hiddenAgents: hidden.map((agentId) => ({ agentId, dashboardId: 'dash-1' })) as never,
+      });
+
+      const toolbar = screen.getByRole('toolbar', { name: 'Agents' });
+      expect(within(toolbar).queryByText('Drag an agent onto an item to start it.') !== null).toBe(hint);
+    });
+
+    it('names the drag in the line that asks to connect, and gives no second hint', () => {
+      renderDock({ hasClaudeCodeConnection: false });
+
+      expect(screen.getByText(/then drag an agent onto an item to start it\.$/)).toBeInTheDocument();
+      expect(screen.queryByText('Drag an agent onto an item to start it.')).toBeNull();
+    });
+
+    it('says nothing at all when there are no agents', () => {
+      renderDock({ hasClaudeCodeConnection: false, agents: [] });
+
+      expect(screen.queryByText(/drag an agent/i)).toBeNull();
+      expect(screen.queryByText(/Connect Claude Code/)).toBeNull();
     });
   });
 
