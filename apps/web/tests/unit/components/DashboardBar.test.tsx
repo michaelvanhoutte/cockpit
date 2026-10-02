@@ -1450,6 +1450,18 @@ describe('Dashboards', () => {
       expect(readDashboardFilter(localStorage, id('Funnel one'))).toEqual(NO_DASHBOARD_FILTER);
     });
 
+    it('opens the filter bar from the keyboard, on the funnel of the tab you are on', async () => {
+      const { user } = showBar(['Keys one'], {
+        openDashboardId: id('Keys one'),
+        withFilterBar: true,
+      });
+      (await screen.findByRole('button', { name: 'Filter this dashboard' })).focus();
+
+      await user.keyboard('{Enter}');
+
+      expect(screen.getByRole('search', BAR)).toBeVisible();
+    });
+
     it('clears the conditions with × and keeps the bar open, where nothing set leaves × unavailable', async () => {
       const { user } = showBar(['Cross one'], {
         openDashboardId: id('Cross one'),

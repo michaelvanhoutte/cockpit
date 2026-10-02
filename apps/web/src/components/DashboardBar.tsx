@@ -688,6 +688,15 @@ function FilterFunnel({
         event.stopPropagation();
         onPress();
       }}
+      // Reachable from the keyboard like any button, which a span is not on
+      // its own - and the key stays the funnel's rather than the tab link's.
+      tabIndex={pressable ? 0 : undefined}
+      onKeyDown={(event) => {
+        if (!pressable || (event.key !== 'Enter' && event.key !== ' ')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onPress();
+      }}
     >
       <FunnelGlyph filled={filtered} />
     </span>
