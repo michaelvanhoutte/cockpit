@@ -1,6 +1,6 @@
 ---
 name: scoping
-description: Cockpit's process for deciding whether a piece of work has to be seen before it is scoped and for sharpening fuzzy requirements into the whole, unsliced piece of work - before any design, slicing or code. Run by product or an engineer; hands off to `technical-design` and `slicing`. Use whenever starting new feature work, a bug fix, or a larger request, whether or not it will become a GitHub issue. Triggers on the work starting, not on the decision to file an issue.
+description: Cockpit's process for deciding whether a piece of work has to be seen before it is scoped and for sharpening fuzzy requirements into the whole, unsliced piece of work - before any design, slicing or code. Run by product or an engineer; hands off to `engineering-plan`. Use whenever starting new feature work, a bug fix, or a larger request, whether or not it will become a GitHub issue. Triggers on the work starting, not on the decision to file an issue.
 ---
 
 # Scoping a piece of work
@@ -45,7 +45,7 @@ Use the `grilling` skill's round-based interview (mattpocock-skills): number eac
 
 Do not write to `CONTEXT.md` or `docs/adr/` — Cockpit's product rules and glossary live in `docs/product/`, its open decisions in `functional-definition.md`, its architecture in `architecture.md`, and integration research in the `*-options.md` docs. Record anything permanent there, as the rule now stands and only once it is built: what the person sees, what the UI tells them and how it behaves. How it looks belongs in `docs/design-system.md`. Behaviour shared across features is stated once, in `docs/product/across-the-app.md`, and referred to from the feature. A rule is edited in place rather than appended, with its reason in a clause where it would otherwise look arbitrary. Designs not yet built go to `docs/ideas.md`, marked as decided where they are; what a rule replaced and which issue decided it stay in git and the issue.
 
-### 4. Gate before designing or slicing
+### 4. Gate before the engineering plan
 
 Do not hand off if any of these holds:
 
@@ -54,9 +54,6 @@ Do not hand off if any of these holds:
 
 ## Output
 
-**File the whole piece of work as one ticket**, unsliced, through the [github-issue](../github-issue/SKILL.md) skill: Problem, What to build and Out of scope, labelled `unsliced`, which tells `/build` and any reader that design and slicing have not run. Product can stop here; an engineer picks the ticket up by number.
+**File the whole piece of work as one ticket**, unsliced, through the [github-issue](../github-issue/SKILL.md) skill: Problem, What to build and Out of scope, labelled `unsliced`, which tells `/build` and any reader that the engineering plan has not run. Product can stop here; an engineer picks the ticket up by number.
 
-Name what runs next and who runs it; nothing here calls it:
-
-- [technical-design](../technical-design/SKILL.md), by the engineer, where the work stores data, crosses a sync or async boundary, adds an integration or job, or changes state it cannot put back. It adds its sections to the ticket.
-- [slicing](../slicing/SKILL.md), by the engineer, always, after design where design applied. It finishes the ticket or splits it into children under it.
+Name what runs next and who runs it; nothing here calls it: [engineering-plan](../engineering-plan/SKILL.md), by the engineer. It designs where the work stores data, crosses a sync or async boundary, adds an integration or job, or changes state it cannot put back, then — once the engineer agrees the design — finishes the ticket or splits it into children under it.

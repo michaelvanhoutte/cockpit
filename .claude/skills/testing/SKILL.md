@@ -1,6 +1,6 @@
 ---
 name: testing
-description: Cockpit's binding rules for tests - which level a test goes at, where it lives, how it is named and shaped, and what must be run before claiming something works. Use whenever writing, moving, reviewing or deleting a test; when adding logic, fixing a bug or finishing a capability (tests ship in the same change); when generating a statement list (see the `slicing` skill, which drafts one for every new piece of work); and before reporting that a change works.
+description: Cockpit's binding rules for tests - which level a test goes at, where it lives, how it is named and shaped, and what must be run before claiming something works. Use whenever writing, moving, reviewing or deleting a test; when adding logic, fixing a bug or finishing a capability (tests ship in the same change); when generating a statement list (see the `engineering-plan` skill, which drafts one for every new piece of work); and before reporting that a change works.
 ---
 
 # Testing in Cockpit
@@ -204,4 +204,4 @@ Prefer making a violation impossible over catching it in review: no network or f
 
 Read [references/statement-lists.md](references/statement-lists.md) — the passes in order, the collapsing step agents skip, the pruning criterion, the output shape. Worked example: [docs/statements-issue-36-experiment.md](../../../docs/statements-issue-36-experiment.md).
 
-Invoked by the [slicing](../slicing/SKILL.md) skill for every new piece of work, not only work being filed as a GitHub issue.
+Invoked by the [engineering-plan](../engineering-plan/SKILL.md) skill for every new piece of work, not only work being filed as a GitHub issue.
