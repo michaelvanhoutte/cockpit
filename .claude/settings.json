@@ -1,5 +1,19 @@
 {
   "enabledPlugins": {
     "mattpocock-skills@claude-plugins-official": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/sync-base.mjs",
+            "timeout": 20,
+            "statusMessage": "Syncing branch with origin/main"
+          }
+        ]
+      }
+    ]
   }
 }

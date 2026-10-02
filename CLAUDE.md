@@ -59,6 +59,8 @@ gh pr list --state open --json number,title,files --jq '.[] | select(any(.files[
 
 The desktop-app tools named here are missing from a terminal, scheduled or remote session: take the fallback where a rule gives one, and skip the rule where it does not.
 
+**A session starts from current `main`.** `.claude/hooks/sync-base.mjs` fast-forwards a branch with no commits of its own to `origin/main` at session start, since the app cuts worktrees from local `main`, which lags. The desktop app ignores project hooks, so a user-level `SessionStart` launcher must run it from the session's cwd, as for `.claude/hooks/build-title.mjs`.
+
 **A finding outside the issue's statement list becomes a chip, not a commit.** Call `spawn_task` with what a fresh session needs — file paths, the symptom, what you were doing — then carry on with your own scope. Fix it inline only where the current work cannot be proven without it, and say so in the pull request body. Without `spawn_task`, open a bare issue naming the symptom; it is a pointer rather than a brief, so the `github-issue` skill and the scoping it presumes do not apply.
 
 **Mark a chapter at each phase boundary** — scoping settled, built, review findings in, browser pass done — with `mark_chapter`, which is what lets a long thread be re-entered without scrolling it. Three to eight in a session, not one per tool call.
