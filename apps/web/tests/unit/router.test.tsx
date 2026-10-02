@@ -193,7 +193,16 @@ afterEach(() => {
 
 describe('Workspace management', () => {
   describe('the app opens somewhere you can work, whatever workspaces you have', () => {
-    it('opens the first workspace you have', async () => {
+    it('opens Capture on a phone, since jotting something down is what it is opened for', async () => {
+      // jsdom's own answer to a media query is the phone shape.
+      await open('/', [work, personal]);
+
+      expect(await screen.findByLabelText('What is on your mind?')).toBeVisible();
+      expect(screen.queryByRole('navigation', { name: 'Dashboards' })).toBeNull();
+    });
+
+    it('opens the first workspace you have at a desk', async () => {
+      withRoomForTheInbox();
       await open('/', [work, personal]);
 
       // On that workspace, and on a view of it: the tabs say which workspace,

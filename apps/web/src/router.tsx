@@ -25,6 +25,7 @@ import { CapturePage } from './pages/CapturePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { FirstWorkspacePage } from './pages/FirstWorkspacePage';
 import { WelcomePage } from './pages/WelcomePage';
+import { whereToLand } from './landing';
 import { shouldWelcome, welcomedBefore } from './welcoming';
 import { Layout } from './pages/Layout';
 import { LogonPage } from './pages/LogonPage';
@@ -70,16 +71,17 @@ async function orTheLogonPage<T>(read: Promise<T>): Promise<T> {
  * workspaces settings page, which is what made that page have to exist without
  * one at all.
  */
-const somewhereThatWorks = async (queryClient: QueryClient) => {
+const somewhereThatWorks = async (queryClient: QueryClient, room: boolean) => {
   const { workspaces } = await orTheLogonPage(queryClient.ensureQueryData(workspacesQuery));
-  const first = workspaces[0];
-  if (!first) throw redirect({ to: '/start' });
   // An account nobody has started on opens on the one question worth asking
   // before the app is drawn (pages/WelcomePage.tsx). **Only from here**, so a
   // link to a dashboard goes where it says and is never diverted into a screen
-  // about something else.
-  if (shouldWelcome(workspaces, welcomedBefore())) throw redirect({ to: '/welcome' });
-  throw redirect({ to: '/w/$workspaceId', params: { workspaceId: first.id } });
+  // about something else. A phone opens on Capture (`landing.ts`).
+  const landing = whereToLand(workspaces, welcomedBefore(), room);
+  if (landing.to === 'start') throw redirect({ to: '/start' });
+  if (landing.to === 'welcome') throw redirect({ to: '/welcome' });
+  if (landing.to === 'capture') throw redirect({ to: '/capture' });
+  throw redirect({ to: '/w/$workspaceId', params: { workspaceId: landing.workspaceId } });
 };
 
 /**
@@ -89,7 +91,9 @@ const somewhereThatWorks = async (queryClient: QueryClient) => {
  */
 const workspaceMustExist = async (queryClient: QueryClient, workspaceId: string) => {
   const { workspaces } = await orTheLogonPage(queryClient.ensureQueryData(workspacesQuery));
-  if (!workspaces.some((w) => w.id === workspaceId)) await somewhereThatWorks(queryClient);
+  // At desk width whatever the screen: a link to a workspace is not a bare `/`,
+  // so it never lands on Capture.
+  if (!workspaces.some((w) => w.id === workspaceId)) await somewhereThatWorks(queryClient, true);
 };
 
 /**
@@ -199,7 +203,7 @@ const appRoute = createRoute({
 const indexRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/',
-  beforeLoad: ({ context }) => somewhereThatWorks(context.queryClient),
+  beforeLoad: ({ context }) => somewhereThatWorks(context.queryClient, roomForTheInbox()),
 });
 
 /**
