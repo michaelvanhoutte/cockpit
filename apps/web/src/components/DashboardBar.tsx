@@ -4,13 +4,22 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isPhoneWidth, uuidv7, type Dashboard, type PanelKind, type WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { refusalFrom, snapshotQuery, useCommand, useSendCommand } from '../api/queries';
+import {
+  NO_DASHBOARD_FILTER,
+  isFiltering,
+  useDashboardFilter,
+  useFilterBarOpen,
+  useFilteredDashboardIds,
+} from '../dashboardFilter';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
+import { browserStore } from '../lastVisited';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { keepingTheOpenItem } from '../itemForm';
 import { useTabDrag } from '../tabDrag';
 import { dashboardToSwitchTo } from '../switchWhileDragging';
 import { layoutsOf } from '../panels/arrangement';
 import { useScreenWidth } from '../panels/useScreenWidth';
+import { FunnelGlyph } from './DashboardFilterBar';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LayoutPicker } from './LayoutPicker';
 import { RowMenu, SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
@@ -60,6 +69,15 @@ export function DashboardBar({
   /** A phone has no Layouts to pick or make (`isPhoneWidth`), so the control for them is not drawn. */
   const onAPhone = isPhoneWidth(useScreenWidth());
   const navigate = useNavigate();
+  const filteredIds = useFilteredDashboardIds(
+    browserStore(),
+    dashboards.map((d) => d.id),
+  );
+  const [filterBarOpen, setFilterBarOpen] = useFilterBarOpen(openDashboardId);
+  const [openFilter, setOpenFilter] = useDashboardFilter(browserStore(), openDashboardId);
+  // Read off the filter itself rather than the list of tabs, which waits on the
+  // snapshot: the controls below are locked from the first paint.
+  const openIsFiltered = isFiltering(openFilter);
 
   const command = useCommand();
   /**
@@ -495,7 +513,26 @@ export function DashboardBar({
             {...drag.tabProps(dashboard.id)}
             className={`${tabClass}${drag.inTheAir === dashboard.id ? ' opacity-60' : ''}`}
           >
-            {dashboard.name}
+            <span className="inline-flex items-center gap-1.5">
+              {dashboard.name}
+              {(dashboard.id === openDashboardId || filteredIds.has(dashboard.id)) && (
+                <FilterFunnel
+                  filtered={filteredIds.has(dashboard.id)}
+                  /* Only the tab you are on has a funnel to press; on another
+                     it is a sign, and a press on it is a press on the tab. */
+                  pressable={dashboard.id === openDashboardId}
+                  barOpen={filterBarOpen}
+                  onPress={() => {
+                    // Open: clears the filter and closes the bar with it, so a
+                    // filter is never on out of sight. Closed: opens the bar.
+                    if (filterBarOpen || openIsFiltered) {
+                      setOpenFilter(NO_DASHBOARD_FILTER);
+                      setFilterBarOpen(false);
+                    } else setFilterBarOpen(true);
+                  }}
+                />
+              )}
+            </span>
           </Link>
         </SurfaceMenu>
       ))}
@@ -533,9 +570,14 @@ export function DashboardBar({
               layouts={layoutsOf(data?.layouts ?? [], openDashboardId)}
               screenSizes={data?.screenSizes ?? []}
               panels={(data?.panels ?? []).filter((p) => p.dashboardId === openDashboardId)}
+              locked={openIsFiltered}
             />
           )}
-          <AddPanel workspaceId={workspaceId} dashboardId={openDashboardId} />
+          <AddPanel
+            workspaceId={workspaceId}
+            dashboardId={openDashboardId}
+            locked={openIsFiltered}
+          />
           {/* The open dashboard's own actions - the same entries its tab's
               own menu offers, since a right-click said nothing was there. */}
           {openDashboard && (
@@ -606,6 +648,61 @@ export function DashboardBar({
  * replaced it - so the controls to its right no longer move by the width of a
  * box every time somebody adds a dashboard.
  */
+/**
+ * The funnel on a dashboard's tab: filled where a Dashboard filter is on, and
+ * on the tab you are on a button that opens the filter bar, or clears the
+ * filter and closes it.
+ */
+function FilterFunnel({
+  filtered,
+  pressable,
+  barOpen,
+  onPress,
+}: {
+  filtered: boolean;
+  pressable: boolean;
+  barOpen: boolean;
+  onPress: () => void;
+}) {
+  const label = pressable
+    ? barOpen || filtered
+      ? 'Clear the filter and close it'
+      : 'Filter this dashboard'
+    : 'This dashboard is filtered';
+  return (
+    <span
+      role={pressable ? 'button' : 'img'}
+      aria-label={label}
+      title={label}
+      className={`inline-flex rounded p-0.5 ${filtered ? 'text-accent' : 'text-ink-faint hover:text-ink'} ${
+        pressable ? 'cursor-pointer hover:bg-black/8' : ''
+      }`}
+      // The tab is dragged by the pointer (`tabDrag.ts`) and is a link, so a
+      // press on the funnel must be neither.
+      onPointerDown={(event) => {
+        if (pressable) event.stopPropagation();
+      }}
+      onClick={(event) => {
+        if (!pressable) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onPress();
+      }}
+      // Reachable from the keyboard like any button, which a span is not on
+      // its own - and the key stays the funnel's rather than the tab link's.
+      tabIndex={pressable ? 0 : undefined}
+      onKeyDown={(event) => {
+        if (!pressable || (event.key !== 'Enter' && event.key !== ' ')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onPress();
+      }}
+    >
+      <FunnelGlyph filled={filtered} />
+    </span>
+  );
+}
+
 function AddDashboard({ workspaceId }: { workspaceId: string }) {
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
@@ -732,7 +829,15 @@ function AddDashboard({ workspaceId }: { workspaceId: string }) {
  * the workspace and the dashboard - and the server puts the new panel into
  * every layout of that dashboard itself (command-service.ts).
  */
-function AddPanel({ workspaceId, dashboardId }: { workspaceId: string; dashboardId: string }) {
+function AddPanel({
+  workspaceId,
+  dashboardId,
+  locked,
+}: {
+  workspaceId: string;
+  dashboardId: string;
+  locked: boolean;
+}) {
   const [naming, setNaming] = useState<string | null>(null);
   /**
    * What the new panel holds, asked here because here is the only place it can
@@ -778,6 +883,8 @@ function AddPanel({ workspaceId, dashboardId }: { workspaceId: string; dashboard
       <button
         type="button"
         ref={button}
+        disabled={locked}
+        title={locked ? 'Clear the dashboard filter to add a panel' : undefined}
         onClick={() => {
           command.reset();
           // Back to Items every time it opens. The kind is not a preference -
@@ -786,7 +893,7 @@ function AddPanel({ workspaceId, dashboardId }: { workspaceId: string; dashboard
           setKind('items');
           setNaming('');
         }}
-        className="mb-1 shrink-0 rounded-md border border-white/15 bg-white/6 px-2 py-1 text-xs text-chrome-ink hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-chrome-ink-soft"
+        className="mb-1 shrink-0 rounded-md border border-white/15 bg-white/6 px-2 py-1 text-xs text-chrome-ink hover:bg-white/12 focus-visible:outline-2 focus-visible:outline-chrome-ink-soft disabled:opacity-40"
       >
         + Panel
       </button>

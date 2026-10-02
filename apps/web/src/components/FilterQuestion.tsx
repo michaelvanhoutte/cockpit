@@ -364,7 +364,7 @@ function StatusConditionRow({ at, onRemove }: { at: number; onRemove: () => void
 }
 
 /** What each window is called on the form, in the order the question offers them. */
-const WINDOW_LABELS: Record<DueWindow, string> = {
+export const WINDOW_LABELS: Record<DueWindow, string> = {
   overdue: 'Overdue',
   today: 'Today',
   week: 'This week',

@@ -917,6 +917,54 @@ test.describe('Panels', () => {
       ).toBeLessThanOrEqual(2);
       expect(await busyWell.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
 
+      // **And a Dashboard filter fits the row to what is left, and rearranges
+      // nothing.** The row above is as tall as a drag made it and the busy
+      // panel holds eight items - narrowed to one, the row has to shrink to
+      // it, below the floor a drag can reach, which only a layout engine can
+      // say. What is shown for which condition is
+      // apps/web/tests/unit/components/PanelBoard.test.tsx's.
+      const storedHeight = (await row.boundingBox())!.height;
+      const storedShare = await shareOfTheRow(page, first, second);
+      let layoutsSent = 0;
+      page.on('request', (request) => {
+        if (
+          request.method() === 'POST' &&
+          new URL(request.url()).pathname === '/v1/commands/save_layout'
+        ) {
+          layoutsSent += 1;
+        }
+      });
+      await page.getByRole('button', { name: 'Filter this dashboard' }).click();
+      await page.getByRole('searchbox', { name: 'Containing' }).fill(items[3]!);
+      await expect.poll(() => itemsOn(page, first)).toEqual([items[3]]);
+      await expect
+        .poll(async () => (await row.boundingBox())!.height)
+        .toBeLessThan(MIN_ROW_HEIGHT);
+
+      // No line to take hold of, so nothing to drag or double-click - and the
+      // two panels keep their widths, the divider's track being kept rather
+      // than dropped with the divider.
+      await expect(page.getByTestId('row-line')).toHaveCount(0);
+      await expect(page.getByTestId('column-line')).toHaveCount(0);
+      expect(await shareOfTheRow(page, first, second)).toBeCloseTo(storedShare, 1);
+
+      // A panel dragged by its header goes nowhere.
+      const header = page.getByRole('region', { name: first }).locator('header');
+      const [headerX, headerY] = await centreOf(header);
+      const secondBox = (await page.getByRole('region', { name: second }).boundingBox())!;
+      await page.mouse.move(headerX, headerY);
+      await page.mouse.down();
+      await page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + 20, { steps: 8 });
+      await page.mouse.up();
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second]]);
+
+      // Cleared from the tab's own funnel: the stored height is back, because
+      // nothing was written in between.
+      await page.getByRole('button', { name: 'Clear the filter and close it' }).click();
+      await expect.poll(async () => (await row.boundingBox())!.height).toBe(storedHeight);
+      await expect.poll(() => itemsOn(page, first)).toEqual(items);
+      expect(layoutsSent, 'a filtered board must not write a layout').toBe(0);
+
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
     });

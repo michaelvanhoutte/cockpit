@@ -71,6 +71,8 @@ export interface PanelCardProps {
   onDelete: (openedFrom: HTMLElement | null) => void;
   /** Whether the workspace has anywhere else to move this panel to. */
   canMoveToAnotherDashboard: boolean;
+  /** POC: the dashboard is filtered. */
+  dashboardFiltered?: boolean;
   onMoveToAnotherDashboard: (openedFrom: HTMLElement | null) => void;
   /**
    * Lock a panel of text's prose, or hand it back. Never called for a panel of
@@ -139,6 +141,7 @@ export function PanelCard({
   onStopRenaming,
   onDelete,
   canMoveToAnotherDashboard,
+  dashboardFiltered = false,
   onMoveToAnotherDashboard,
   onReadOnlyChange,
   onFormatChange,
@@ -250,9 +253,11 @@ export function PanelCard({
                 ...(panelTakesItems(panel) || filter ? [{ label: 'Sort…', onSelect: onSort }] : []),
                 {
                   label: 'Move to another dashboard',
-                  unavailable: canMoveToAnotherDashboard
-                    ? undefined
-                    : 'This workspace has no other dashboard',
+                  unavailable: dashboardFiltered
+                    ? 'Clear the dashboard filter to move a panel'
+                    : canMoveToAnotherDashboard
+                      ? undefined
+                      : 'This workspace has no other dashboard',
                   onSelect: onMoveToAnotherDashboard,
                 },
                 { label: 'Delete', destructive: true, onSelect: onDelete },
@@ -585,9 +590,11 @@ export function PanelCard({
             gathered={filter !== null}
             // A sorted Panel's rows go where the sort puts them, so none is
             // dragged to a new place in it.
-            sorted={sortedAs !== null && filter === null}
+            sorted={(sortedAs !== null || dashboardFiltered) && filter === null}
             emptyMessage={
-              filter
+              dashboardFiltered
+                ? 'Nothing here matches the dashboard filter.'
+                : filter
                 ? filter.conditions.length === 0
                   ? NOTHING_CHOSEN_TO_SHOW
                   : NOTHING_MATCHES_YET
