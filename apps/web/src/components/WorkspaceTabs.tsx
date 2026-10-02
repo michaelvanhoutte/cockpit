@@ -61,10 +61,13 @@ export function WorkspaceTabs({
    * holds what they open, so they are its to give.
    */
   accountEntries,
+  /** What the open workspace's menu, and its tab's, offers before its own actions: it is about what the workspace holds rather than about changing it. */
+  openWorkspaceEntries = [],
 }: {
   children: React.ReactNode;
   bar: string;
   accountEntries: MenuEntry[];
+  openWorkspaceEntries?: MenuEntry[];
   bringIntoView: (tab: HTMLAnchorElement) => void;
 }) {
   const { data } = useQuery(workspacesQuery);
@@ -369,6 +372,7 @@ export function WorkspaceTabs({
 
   /** What can be done to this workspace. */
   const entriesFor = (ws: Workspace): MenuEntry[] => [
+    ...(ws.id === params.workspaceId ? openWorkspaceEntries : []),
     // One entry for changing a workspace rather than a Rename beside it: the
     // form is what renames, and two ways to reach the same box is one more
     // thing to choose between.
