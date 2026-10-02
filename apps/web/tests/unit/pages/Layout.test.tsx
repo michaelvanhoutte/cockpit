@@ -65,6 +65,7 @@ vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => unde
 vi.mock('../../../src/api/queries', () => ({
   // The users window is drawn for an admin and is shut here, but it is mounted.
   registeredUsersQuery: { queryKey: ['registeredUsers'], queryFn: () => Promise.resolve({ users: [] }) },
+  usageQuery: (days: number) => ({ queryKey: ['usage', days], queryFn: () => Promise.resolve({ days, analyticsUrl: null, named: [], guests: { perDay: [], byCountry: [], byReferrer: [] } }) }),
   accountHoldingsQuery: (userId: string) => ({ queryKey: ['accountHoldings', userId], queryFn: () => Promise.resolve({ workspaces: 0, empty: true }) }),
   useAddUser: () => ({ mutate: () => undefined, isPending: false, error: null, data: undefined }),
   useChangeUser: () => ({ mutate: () => undefined, isPending: false, error: null, reset: () => undefined }),
@@ -384,10 +385,12 @@ describe('User management', () => {
       );
       await screen.findByRole('menuitem', { name: 'Manage users' });
 
+      // Usage sits beside it, so the two are the end of the menu together.
       const entries = screen.getAllByRole('menuitem');
       const separators = screen.getAllByRole('separator');
-      expect(entries.at(-1)).toHaveTextContent('Manage users');
-      expect(separators.at(-1)!.nextElementSibling).toBe(entries.at(-1));
+      expect(entries.at(-2)).toHaveTextContent('Manage users');
+      expect(entries.at(-1)).toHaveTextContent('Usage');
+      expect(separators.at(-1)!.nextElementSibling).toBe(entries.at(-2));
     });
 
     it('opens it as a window over the workspace', async () => {
@@ -425,6 +428,51 @@ describe('User management', () => {
       expect(await screen.findByRole('menuitem', { name: 'Sign out' })).toBeVisible();
 
       expect(screen.queryByRole('menuitem', { name: 'Admin' })).toBeNull();
+    });
+  });
+
+  describe('the way into the usage window is offered to an admin and to nobody else', () => {
+    it.each([
+      { situation: 'an admin', role: 'admin', offered: true },
+      { situation: 'an ordinary user', role: 'user', offered: false },
+    ])('offers it to $situation: $offered', async ({ role, offered }) => {
+      signedInRole = role;
+      openWorkspaceId = 'ws-markup';
+      const user = userEvent.setup();
+      render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Layout />
+        </QueryClientProvider>,
+      );
+
+      await user.click(
+        await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }),
+      );
+      expect(await screen.findByRole('menuitem', { name: 'Manage types' })).toBeVisible();
+
+      expect(screen.queryByRole('menuitem', { name: 'Usage' }) !== null).toBe(offered);
+    });
+
+    it('opens it as a window over the workspace', async () => {
+      signedInRole = 'admin';
+      openWorkspaceId = 'ws-markup';
+      const user = userEvent.setup();
+      render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Layout />
+        </QueryClientProvider>,
+      );
+
+      await user.click(
+        await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }),
+      );
+      await user.click(await screen.findByRole('menuitem', { name: 'Usage' }));
+
+      expect(await screen.findByRole('dialog', { name: 'Usage' })).toBeVisible();
     });
   });
 });

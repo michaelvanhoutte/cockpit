@@ -152,6 +152,15 @@ test.describe('User management', () => {
         await expect(row).toHaveCount(1);
         await expect(row).toContainText(who);
       }
+
+      // Usage is beside it, for the same admin, and holds the sign-in that got
+      // here (pps/api/tests/integration/http/usage.test.ts settles the rest).
+      await press(usersWindow(page).getByRole('button', { name: 'Done' }), isMobile);
+      await press(workspaceMenuButton(page), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Usage' }), isMobile);
+      const usage = page.getByRole('dialog', { name: 'Usage' });
+      await expect(usage).toBeVisible();
+      await expect(usage.getByRole('list', { name: 'Sign-ins of Michael' }).getByRole('listitem')).not.toHaveCount(0);
     });
 
     /**

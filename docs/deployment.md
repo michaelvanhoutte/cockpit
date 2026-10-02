@@ -488,6 +488,7 @@ secret that leaks from one cannot sign anybody in to the other.
 | Variable | `GOOGLE_CLIENT_ID` | `apps/api/wrangler.jsonc`, per environment — not a secret |
 | Variable | `APP_ORIGIN` | same; must match a registered redirect URI exactly |
 | Variable | `GUEST_SIGN_IN` | same, production's block only — see below |
+| Variable | `WEB_ANALYTICS_URL` | same, production's block only; empty until a person enables Cloudflare Web Analytics for the app and pastes its dashboard address, and an empty value shows no link in the Usage window |
 | Secret | `GOOGLE_CLIENT_SECRET` | `wrangler secret put`, per environment |
 
 **`GUEST_SIGN_IN` is set on production and deliberately absent from staging**

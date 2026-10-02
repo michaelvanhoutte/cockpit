@@ -24,6 +24,7 @@ import {
   MAX_ATTACHMENT_SIZE,
   itemTypeListSchema,
   registeredUserListSchema,
+  usageSchema,
   rewriteHistoryResponseSchema,
   setAccessSchema,
   signedInSchema,
@@ -83,6 +84,7 @@ import {
   enqueueReproposeTexts,
   readWhatTheseNotesMean,
 } from '../jobs/index.js';
+import { readUsage } from '../accounts/usage.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
   MOVED_OPERATOR_PREFIXES,
@@ -544,6 +546,34 @@ const adminUsersRoute = createRoute({
   },
 });
 
+/**
+ * What the admin's Usage window reads: sign-ins and guest sessions over a
+ * bounded window of days ("Add an admin Usage window for sign-ins and guest
+ * sessions", issue 654). Behind the same role gate as the list of users.
+ *
+ * `days` is text so that a value that is not a number reads as the default
+ * rather than as a refusal: a window is a convenience, not a request to get
+ * right.
+ */
+const adminUsageRoute = createRoute({
+  method: 'get',
+  path: '/v1/admin/usage',
+  request: { query: z.object({ days: z.string().optional() }) },
+  responses: {
+    200: {
+      description: 'Named users’ sign-ins and guest sessions over the window',
+      content: { 'application/json': { schema: usageSchema } },
+    },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    403: {
+      description: 'Signed in, but not an admin',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
 /**
  * Adding somebody, from the admin page. Behind the same role gate as the list.
  *
@@ -1307,6 +1337,9 @@ const routes = app
     return c.json({ user: { id: userId, name, role } }, 200);
   })
   .openapi(adminUsersRoute, async (c) => c.json({ users: await registeredUsers(c.env) }, 200))
+  .openapi(adminUsageRoute, async (c) =>
+    c.json(await readUsage(c.env, c.req.valid('query').days, new Date()), 200),
+  )
   .openapi(addUserRoute, async (c) => {
     const { name, email } = c.req.valid('json');
     const added = await addUser(c.env, { name, address: email }, new Date());
