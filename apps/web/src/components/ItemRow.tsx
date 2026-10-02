@@ -957,7 +957,7 @@ export function ItemRow({
         // lit, so it stands out on a long dashboard.
         agentTarget
           ? 'bg-accent-tint outline-2 -outline-offset-2 outline-solid outline-accent'
-          : outlined
+          : outlined && !selecting?.picked
             ? 'bg-accent-tint/30'
             : ''
       }`}
