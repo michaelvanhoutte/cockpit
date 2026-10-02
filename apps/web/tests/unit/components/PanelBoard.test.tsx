@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MIN_ROW_HEIGHT } from '@cockpit/shared';
 import type {
+  AgentRun,
   Attachment,
   Dashboard,
   Filing,
@@ -235,6 +236,7 @@ function showBoard({
   screenSizes = layouts.map(screenSizeOf) as ScreenSize[],
   items = [] as Item[],
   attachments = [] as Attachment[],
+  agentRuns = [] as AgentRun[],
   filings = [] as Filing[],
   /** The account's live Types - what a Filter's Type condition offers, unless a case wants its own. */
   itemTypes = [] as ItemType[],
@@ -256,6 +258,7 @@ function showBoard({
   screenSizes?: ScreenSize[];
   items?: Item[];
   attachments?: Attachment[];
+  agentRuns?: AgentRun[];
   filings?: Filing[];
   itemTypes?: ItemType[];
   error?: Error;
@@ -283,6 +286,7 @@ function showBoard({
     drawing: Panel[],
     drawnItems: Item[] = items,
     drawnAttachments: Attachment[] = attachments,
+    drawnRuns: AgentRun[] = agentRuns,
   ) => (
     <QueryClientProvider client={client}>
       <PanelBoard
@@ -295,6 +299,7 @@ function showBoard({
         screenSizes={screenSizes}
         items={drawnItems}
         attachments={drawnAttachments}
+        agentRuns={drawnRuns}
         filings={filings}
         itemTypes={itemTypes}
       />
@@ -310,6 +315,8 @@ function showBoard({
     unmount,
     redrawnWith: (next: Panel[]) => rerender(board(next)),
     /** The next snapshot arriving with an item changed, or an attachment added. */
+    /** The next snapshot arriving with the open runs changed. */
+    redrawnWithRuns: (next: AgentRun[]) => rerender(board(panels, items, attachments, next)),
     redrawnWithItems: (next: Item[], nextAttachments: Attachment[] = attachments) =>
       rerender(board(panels, next, nextAttachments)),
     user: userEvent.setup(),
@@ -2638,6 +2645,48 @@ describe('Dashboards', () => {
 
       await screen.findByRole('region', { name: 'Project Falcon' });
       expect(rowsOf('Project Falcon')).toEqual([expect.stringContaining('Pay the rent')]);
+    });
+  });
+
+  describe('Agent running shows only the Items with an open run', () => {
+    const runOn = (n: number, status: AgentRun['status'] = 'working') => ({ itemId: ID(n), status }) as AgentRun;
+
+    it('narrows a panel of items and a Filter panel, meeting its own conditions too, to Items with a run', async () => {
+      filterTheDashboard({ agentRunning: true });
+      aFilteredBoard({ agentRuns: [runOn(2), runOn(3, 'failed')] });
+
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(rowsOf('Project Falcon')).toEqual([
+        expect.stringContaining('VAT refund'),
+        expect.stringContaining('Pay the rent'),
+      ]);
+      // The highs are 1 and 3; only 3 has a run.
+      expect(rowsOf('The highs')).toEqual([expect.stringContaining('Pay the rent')]);
+      expect(within(handleOf('Project Falcon')).getByText('2')).toBeVisible();
+      expect(within(handleOf('The highs')).getByText('1')).toBeVisible();
+    });
+
+    it('says nothing matches on every panel where nothing has a run', async () => {
+      filterTheDashboard({ agentRunning: true });
+      aFilteredBoard();
+
+      const falcon = await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(within(falcon).getByText('Nothing here matches the dashboard filter.')).toBeVisible();
+      const highs = screen.getByRole('region', { name: 'The highs' });
+      expect(within(highs).getByText('Nothing here matches the dashboard filter.')).toBeVisible();
+    });
+
+    it('follows a run as it starts and finishes', async () => {
+      filterTheDashboard({ agentRunning: true });
+      const { redrawnWithRuns } = aFilteredBoard({ agentRuns: [runOn(1)] });
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(rowsOf('Project Falcon')).toEqual([expect.stringContaining('VAT return')]);
+
+      redrawnWithRuns([runOn(1), runOn(2, 'starting')]);
+      expect(rowsOf('Project Falcon')).toHaveLength(2);
+
+      redrawnWithRuns([]);
+      expect(rowsOf('Project Falcon')).toEqual([]);
     });
   });
 
