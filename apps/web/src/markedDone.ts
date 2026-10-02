@@ -1,4 +1,4 @@
-import { UNTITLED, panelTakesItems, type Dashboard, type Filing, type Item, type Panel } from '@cockpit/shared';
+import { UNTITLED, panelPlace, panelTakesItems, type Dashboard, type Filing, type Item, type Panel } from '@cockpit/shared';
 import { howLongAgo } from './capture';
 import { containsText } from './dashboardFilter';
 import { dayOf, daysAfter } from './filters';
@@ -68,7 +68,7 @@ export function placesFiledOn(
     .filter((panel) => held.has(panel.id) && panelTakesItems(panel))
     .map((panel) => {
       const dashboard = dashboards.find((candidate) => candidate.id === panel.dashboardId);
-      return dashboard ? `${dashboard.name} ▸ ${panel.name}` : panel.name;
+      return dashboard ? panelPlace(dashboard.name, panel.name) : panel.name;
     });
 }
 

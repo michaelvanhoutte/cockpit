@@ -116,7 +116,7 @@ function aRow({
     onPick: (withShift: boolean) => void;
     onEndSelection: () => void;
   };
-  routingProposal?: { panelName: string; reason: string };
+  routingProposal?: { dashboardName: string; panelName: string; reason: string };
   onAcceptRouting?: () => void;
   mayBeADuplicate?: boolean;
   onSettleNotADuplicate?: () => void;
@@ -691,14 +691,17 @@ describe('Item editing', () => {
       expect(screen.queryByText(/^→/) !== null).toBe(false);
     });
 
-    it('names the panel, and explains why on hover', () => {
+    it('names the dashboard and the panel, and holds both then the reason on hover and as its name', () => {
       aRow({
-        routingProposal: { panelName: 'Compliance questions', reason: 'a compliance question' },
+        routingProposal: { dashboardName: 'Day to day', panelName: 'Compliance questions', reason: 'a compliance question' },
         onAcceptRouting: () => {},
       });
 
-      const chip = screen.getByText('→ Compliance questions');
-      expect(chip).toHaveAttribute('title', 'a compliance question');
+      const chip = screen.getByRole('button', {
+        name: 'Day to day ▸ Compliance questions - a compliance question',
+      });
+      expect(chip).toHaveTextContent('→ Day to day ▸ Compliance questions');
+      expect(chip).toHaveAttribute('title', 'Day to day ▸ Compliance questions - a compliance question');
     });
 
     it('takes the proposal with one click, and lets nothing else on the row hear it', async () => {
@@ -706,12 +709,12 @@ describe('Item editing', () => {
       const onAcceptRouting = vi.fn();
       const onOpen = vi.fn();
       aRow({
-        routingProposal: { panelName: 'Compliance questions', reason: 'a compliance question' },
+        routingProposal: { dashboardName: 'Day to day', panelName: 'Compliance questions', reason: 'a compliance question' },
         onAcceptRouting,
         onOpen,
       });
 
-      await user.click(screen.getByText('→ Compliance questions'));
+      await user.click(screen.getByRole('button', { name: /^Day to day ▸ Compliance questions/ }));
 
       expect(onAcceptRouting).toHaveBeenCalledOnce();
       expect(onOpen).not.toHaveBeenCalled();
@@ -719,7 +722,7 @@ describe('Item editing', () => {
   });
 
   describe('an alt-double-click takes the panel Cockpit proposed, and a plain double-click still opens the row', () => {
-    const proposal = { panelName: 'Compliance questions', reason: 'a compliance question' };
+    const proposal = { dashboardName: 'Day to day', panelName: 'Compliance questions', reason: 'a compliance question' };
 
     it('takes the proposal with alt held, and does not open the form', () => {
       const onAcceptRouting = vi.fn();
@@ -847,10 +850,10 @@ describe('Item editing', () => {
     // reads `window.setTimeout`, which fake ones do not reach here.
     it.each([
       { where: 'the row', target: () => screen.getByRole('listitem') },
-      { where: 'a control of its own', target: () => screen.getByText('→ Compliance questions') },
+      { where: 'a control of its own', target: () => screen.getByRole('button', { name: /^Day to day ▸ Compliance questions/ }) },
     ])('opens nothing on a long press by touch on ', async ({ target }) => {
       aRow({
-        routingProposal: { panelName: 'Compliance questions', reason: 'a compliance question' },
+        routingProposal: { dashboardName: 'Day to day', panelName: 'Compliance questions', reason: 'a compliance question' },
         onAcceptRouting: () => {},
       });
 
@@ -1861,13 +1864,13 @@ describe('Selection', () => {
       const onPick = vi.fn();
       const onOpen = vi.fn();
       aRow({
-        routingProposal: { panelName: 'Compliance questions', reason: 'a compliance question' },
+        routingProposal: { dashboardName: 'Day to day', panelName: 'Compliance questions', reason: 'a compliance question' },
         onAcceptRouting,
         onOpen,
         selecting: { picked: false, revealed: true, onPick, onEndSelection: vi.fn() },
       });
 
-      await user.click(screen.getByText('→ Compliance questions'));
+      await user.click(screen.getByRole('button', { name: /^Day to day ▸ Compliance questions/ }));
 
       expect(onAcceptRouting).toHaveBeenCalledOnce();
       expect(onOpen).not.toHaveBeenCalled();

@@ -5,6 +5,7 @@ import {
   itemHasOpenReadings,
   itemLabel,
   itemStatus,
+  panelPlace,
   runBlocksAStart,
   STARTING_GIVES_UP_AFTER_MS,
   uuidv7,
@@ -150,7 +151,7 @@ export function ItemRow({
    * that is - nothing was proposed, or the Item has since been filed and so
    * left the Inbox this chip only ever draws in.
    */
-  routingProposal?: { panelName: string; reason: string } | undefined;
+  routingProposal?: { dashboardName: string; panelName: string; reason: string } | undefined;
   /**
    * Taking the proposal above - the same filing the picker's own "Move to"
    * makes, by being the same call (`ItemList`'s `move`), so accepting a chip
@@ -464,6 +465,10 @@ export function ItemRow({
    */
   const priorityMark = item.priority ? PRIORITY_MARKS[item.priority] : undefined;
   const dueDateText = dueDateLabel(item.dueDate);
+  // The chip's hover and accessible name: the full "Dashboard ▸ Panel", then the reason.
+  const routingLabel = routingProposal
+    ? `${panelPlace(routingProposal.dashboardName, routingProposal.panelName)}${routingProposal.reason ? ` - ${routingProposal.reason}` : ''}`
+    : undefined;
   /**
    * The pill this row wears for how near its due date is - `Date.now()` the
    * same way `waited` above reads the real clock, with the ladder itself
@@ -1196,14 +1201,16 @@ export function ItemRow({
             {routingProposal && onAcceptRouting && (
               <button
                 type="button"
-                className="shrink-0 rounded-full bg-accent-tint px-1.5 text-accent-deep hover:bg-accent hover:text-white"
-                title={routingProposal.reason}
+                className="flex min-w-0 max-w-full items-baseline overflow-hidden rounded-full bg-accent-tint px-1.5 text-accent-deep hover:bg-accent hover:text-white"
+                title={routingLabel}
+                aria-label={routingLabel}
                 onClick={(event) => {
                   event.stopPropagation();
                   onAcceptRouting();
                 }}
               >
-                → {routingProposal.panelName}
+                <span className="shrink-0">→ {routingProposal.dashboardName} ▸&nbsp;</span>
+                <span className="truncate">{routingProposal.panelName}</span>
               </button>
             )}
           </span>

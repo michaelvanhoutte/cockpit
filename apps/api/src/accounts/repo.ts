@@ -1107,6 +1107,8 @@ export function recordRewriteOutcome(
  */
 const panelBefore = alias(panels, 'panel_before');
 const panelAfter = alias(panels, 'panel_after');
+const dashboardBefore = alias(dashboards, 'dashboard_before');
+const dashboardAfter = alias(dashboards, 'dashboard_after');
 
 /** The columns a rewrite-history row is read by. */
 const rewriteHistoryColumns = {
@@ -1126,11 +1128,23 @@ const rewriteHistoryColumns = {
   afterId: panelAfter.id,
   afterName: panelAfter.name,
   afterDeletedAt: panelAfter.deletedAt,
+  beforeDashboardName: dashboardBefore.name,
+  beforeDashboardDeletedAt: dashboardBefore.deletedAt,
+  afterDashboardName: dashboardAfter.name,
+  afterDashboardDeletedAt: dashboardAfter.deletedAt,
 };
 
-function suggestedPanel(id: string | null, name: string | null, deletedAt: string | null): SuggestedPanel | null {
+/** Named only while both the Panel and its Dashboard are live; otherwise it reads as a deleted Panel. */
+function suggestedPanel(
+  id: string | null,
+  name: string | null,
+  deletedAt: string | null,
+  dashboardName: string | null,
+  dashboardDeletedAt: string | null,
+): SuggestedPanel | null {
   if (id === null) return null;
-  return { id, name: deletedAt === null ? name : null };
+  const live = deletedAt === null && dashboardDeletedAt === null && dashboardName !== null;
+  return { id, name: live ? name : null, dashboardName: live ? dashboardName : null };
 }
 
 function asRewriteHistoryEntry(row: {
@@ -1150,8 +1164,18 @@ function asRewriteHistoryEntry(row: {
   afterId: string | null;
   afterName: string | null;
   afterDeletedAt: string | null;
+  beforeDashboardName: string | null;
+  beforeDashboardDeletedAt: string | null;
+  afterDashboardName: string | null;
+  afterDashboardDeletedAt: string | null;
 }): RewriteHistoryEntryRow {
-  const after = suggestedPanel(row.afterId, row.afterName, row.afterDeletedAt);
+  const after = suggestedPanel(
+    row.afterId,
+    row.afterName,
+    row.afterDeletedAt,
+    row.afterDashboardName,
+    row.afterDashboardDeletedAt,
+  );
   return {
     id: row.id,
     itemId: row.itemId,
@@ -1165,7 +1189,13 @@ function asRewriteHistoryEntry(row: {
     attemptedAt: row.attemptedAt,
     // A value outside the set (no CHECK holds it to one) reads as never recorded.
     looksAt: refinementScopeSchema.safeParse(row.looksAt).data ?? null,
-    suggestedPanelBefore: suggestedPanel(row.beforeId, row.beforeName, row.beforeDeletedAt),
+    suggestedPanelBefore: suggestedPanel(
+      row.beforeId,
+      row.beforeName,
+      row.beforeDeletedAt,
+      row.beforeDashboardName,
+      row.beforeDashboardDeletedAt,
+    ),
     suggestedPanelAfter: after,
   };
 }
@@ -1200,6 +1230,8 @@ export function rewriteHistoryForWorkspace(
     .innerJoin(items, eq(rewriteHistory.itemId, items.id))
     .leftJoin(panelBefore, eq(rewriteHistory.panelBeforeId, panelBefore.id))
     .leftJoin(panelAfter, eq(rewriteHistory.proposedPanelId, panelAfter.id))
+    .leftJoin(dashboardBefore, eq(panelBefore.dashboardId, dashboardBefore.id))
+    .leftJoin(dashboardAfter, eq(panelAfter.dashboardId, dashboardAfter.id))
     .where(
       and(
         eq(rewriteHistory.tenantId, tenantId),
@@ -1225,6 +1257,8 @@ export function rewriteHistoryForItem(db: AccountDb, tenantId: string, itemId: s
     .from(rewriteHistory)
     .leftJoin(panelBefore, eq(rewriteHistory.panelBeforeId, panelBefore.id))
     .leftJoin(panelAfter, eq(rewriteHistory.proposedPanelId, panelAfter.id))
+    .leftJoin(dashboardBefore, eq(panelBefore.dashboardId, dashboardBefore.id))
+    .leftJoin(dashboardAfter, eq(panelAfter.dashboardId, dashboardAfter.id))
     .where(and(eq(rewriteHistory.tenantId, tenantId), eq(rewriteHistory.itemId, itemId)))
     .orderBy(desc(rewriteHistory.attemptedAt))
     .limit(REWRITE_HISTORY_LIMIT)
