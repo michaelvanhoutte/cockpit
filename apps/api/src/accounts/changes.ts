@@ -4,6 +4,7 @@ import {
   FIRST_WORKSPACE_NAME,
   GRID_COLUMNS,
   MOST_ACROSS,
+  filterMatchSchema,
   panelFilterSchema,
   themeOf,
 } from '@cockpit/shared';
@@ -3292,11 +3293,16 @@ export function checkedGuestDemo(demo: readonly SeedWorkspace[]): readonly SeedW
           }
           panelNames.add(folded);
           // A Filter the app cannot read draws as one with nothing chosen
-          // (`panelFilterFrom`), and one with no conditions demonstrates
-          // nothing - both are a typo here rather than a choice.
+          // (`panelFilterFrom`), one with no conditions demonstrates nothing,
+          // and a `match` it cannot read is quietly All - each a typo here
+          // rather than a choice.
           if (isFilter(panel)) {
             const read = panelFilterSchema.safeParse(panel.filter);
-            if (!read.success || read.data.conditions.length === 0) {
+            if (
+              !read.success ||
+              read.data.conditions.length === 0 ||
+              !filterMatchSchema.safeParse(panel.filter.match).success
+            ) {
               wrong(`the Filter "${panel.name}" has no conditions the app can read`);
             }
           }
@@ -3334,10 +3340,12 @@ function demoAssociations(
  * moment, and always before the day it is written, so nothing waits a negative
  * time.
  *
- * **Inbox Items carry no captured message.** Filing one re-asks the model about
- * every other Inbox Item that has one (`reproposePanels`), which on a shared
- * account any visitor can drive all day would be a model call per Item per
- * filing. Their suggestions are written here instead, so the chip still shows.
+ * **No Item carries a captured message.** Filing one re-asks the model about
+ * every Inbox Item that has one (`reproposePanels`) - including a filed one a
+ * visitor has moved back - which on a shared account anybody can drive all day
+ * would be a model call per Item per filing. The Inbox's suggestions are
+ * written here instead, so the chip still shows; the only other reader is the
+ * form's Details tab, where it would repeat the title.
  *
  * **A no-op for every other account**, decided on the account's own name rather
  * than on a flag: there is exactly one guest account and it is named in one
@@ -3627,8 +3635,10 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
     // After every Dashboard, because a suggestion is a foreign key to a Panel
     // on any of them; `checkedGuestDemo` has made sure the name finds one.
     for (const item of workspace.inbox) {
-      const suggested = item.suggest ? panelIds.get(foldName(item.suggest.panel)) : undefined;
-      writeItem(item, workspaceId, undefined, { suggested, inInbox: true });
+      const panelId = item.suggest ? panelIds.get(foldName(item.suggest.panel)) : undefined;
+      writeItem(item, workspaceId, undefined, {
+        suggestion: panelId && item.suggest ? { panelId, why: item.suggest.why } : null,
+      });
     }
   });
 
@@ -3643,14 +3653,16 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
    * it. `focus_horizon` is left alone: it is dead too, and what this
    * demonstrates in its place is a due date and a priority, which are live.
    * The suggested Panel is read back by a subquery, so a Panel skipped by a
-   * guard leaves the suggestion empty rather than failing its foreign key.
+   * guard leaves the suggestion empty - its reason with it - rather than
+   * failing its foreign key. `inbox` is present for an Item filed on no Panel.
    */
   function writeItem(
     item: SeedItem & Partial<SeedInboxItem>,
     workspaceId: string,
     dashboard: SeedDashboard | undefined,
-    inbox?: { suggested: string | undefined; inInbox: true },
+    inbox?: { suggestion: { panelId: string; why: string } | null },
   ): { itemId: string; madeAt: string } {
+    const suggestion = inbox?.suggestion ?? null;
     itemsSoFar += 1;
     const itemId = demoId(DEMO_ITEM, itemsSoFar);
     const madeAt = hoursBefore(demoAgeInHours(item, itemsSoFar, inbox !== undefined));
@@ -3661,8 +3673,9 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
       sql: `INSERT INTO items (id, tenant_id, workspace_id, workspace_decided, captured_message, source, title,
                                description, type_id, priority, due_date, started_at,
                                proposed_panel_id, proposed_panel_reason, status, created_at, updated_at)
-              SELECT ?, ?, ?, ?, ?, 'internal', ?, ?, ?, ?, ?, ?,
-                     (SELECT id FROM panels WHERE id = ? AND tenant_id = ?), ?, 'to_process', ?, ?
+              SELECT ?, ?, ?, ?, NULL, 'internal', ?, ?, ?, ?, ?, ?,
+                     (SELECT id FROM panels WHERE id = ? AND tenant_id = ?),
+                     (SELECT ? FROM panels WHERE id = ? AND tenant_id = ?), 'to_process', ?, ?
               WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND tenant_id = ?)
                 AND NOT EXISTS (SELECT 1 FROM items WHERE id = ?)`,
       params: [
@@ -3670,16 +3683,17 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
         accountId,
         workspaceId,
         item.anyWorkspace ? 0 : 1,
-        inbox ? null : item.title,
         item.title,
         item.description ?? null,
         item.note ? noteType : taskType,
         item.priority ?? null,
         item.due === undefined ? null : dateIn(item.due),
         startedAt,
-        inbox?.suggested ?? null,
+        suggestion?.panelId ?? null,
         accountId,
-        inbox?.suggested ? item.suggest!.why : null,
+        suggestion?.why ?? null,
+        suggestion?.panelId ?? null,
+        accountId,
         madeAt,
         madeAt,
         workspaceId,

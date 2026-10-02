@@ -175,6 +175,9 @@ describe('Accounts', () => {
     });
 
     it('files items onto those panels, some due on a date at a priority, some started and some tied to a person or a project', async () => {
+      // The day the account is written on, read either side of it so a run
+      // straddling midnight still knows which day that was.
+      const before = new Date().toISOString().slice(0, 10);
       const cookie = await continueAsGuest();
       const halcyon = await snapshotOf(cookie, named(await workspacesOf(cookie), 'Halcyon Health').id);
 
@@ -189,8 +192,8 @@ describe('Accounts', () => {
       );
       // What the dates are there to show, on whichever day it is opened:
       // something already overdue, something due today, and something to come.
-      const today = new Date().toISOString().slice(0, 10);
       const dated = halcyon.items.flatMap((item) => (item.dueDate ? [item.dueDate] : []));
+      const today = dated.includes(before) ? before : new Date().toISOString().slice(0, 10);
       expect(dated.some((date) => date < today)).toBe(true);
       expect(dated).toContain(today);
       expect(dated.some((date) => date > today)).toBe(true);
@@ -216,6 +219,23 @@ describe('Accounts', () => {
         expect(inbox.map((item) => item.title)).toContain(
           'Call the accountant back about the invoice numbering',
         );
+      }
+    });
+
+    /**
+     * Filing an Item re-asks the model about every Inbox Item with a captured
+     * message, including a seeded one a visitor moved back - on a shared
+     * account, a model call per Item for every filing anybody makes.
+     */
+    it('holds no item that filing another would send to the model', async () => {
+      const cookie = await continueAsGuest();
+
+      for (const workspace of await workspacesOf(cookie)) {
+        const snapshot = await snapshotOf(cookie, workspace.id);
+        expect(
+          snapshot.items.filter((item) => item.capturedMessage !== null).map((item) => item.title),
+          workspace.name,
+        ).toEqual([]);
       }
     });
 

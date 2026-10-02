@@ -49,7 +49,6 @@ function boundBy(statements: readonly Statement[], table: string): unknown[] {
 /** What one written Item was bound with, by name rather than by position. */
 interface WrittenItem {
   id: string;
-  capturedMessage: unknown;
   title: string;
   dueDate: unknown;
   startedAt: unknown;
@@ -63,11 +62,10 @@ function itemsWritten(statements: readonly Statement[]): WrittenItem[] {
       const p = one.params!;
       return {
         id: String(p[0]),
-        capturedMessage: p[4],
-        title: String(p[5]),
-        dueDate: p[9],
-        startedAt: p[10],
-        createdAt: String(p[14]),
+        title: String(p[4]),
+        dueDate: p[8],
+        startedAt: p[9],
+        createdAt: String(p[15]),
       };
     });
 }
@@ -114,6 +112,9 @@ describe('Accounts', () => {
 
     it('files every item written on a panel onto it, leaves every inbox item on none, and gives each a type the account already has', () => {
       const statements = guestSeed();
+      // Every check below finds an Item by its title.
+      const titles = [...filedItems, ...inboxItems].map((item) => item.title);
+      expect(new Set(titles).size, 'two seeded items share a title').toBe(titles.length);
 
       const written = itemsWritten(statements);
       const filed = new Set(boundBy(statements, 'panel_items'));
@@ -136,19 +137,6 @@ describe('Accounts', () => {
           ),
         ),
       ).toEqual(new Set([taskTypeId(GUEST_ACCOUNT_NAME), noteTypeId(GUEST_ACCOUNT_NAME)]));
-    });
-
-    /**
-     * Filing one Inbox Item re-asks the model about every other one that has
-     * a captured message, so on a shared account a captured message here is
-     * a model call per Item for every filing any visitor makes.
-     */
-    it('leaves nothing in an inbox that filing another item would send to the model', () => {
-      const written = itemsWritten(guestSeed());
-
-      for (const item of inboxItems) {
-        expect(written.find((w) => w.title === item.title)!.capturedMessage, item.title).toBeNull();
-      }
     });
 
     it('leaves every seeded panel, item and association one a guest can go on to change', () => {
@@ -277,8 +265,8 @@ describe('Accounts', () => {
       inbox,
       dashboards: [{ name: 'Day to day', rows: panels.map((row) => ({ panels: row })) }],
     });
-    const filter = (name: string, conditions: unknown[]): SeedPanel =>
-      ({ name, filter: { match: 'all', conditions } }) as SeedPanel;
+    const filter = (name: string, conditions: unknown[], match = 'all'): SeedPanel =>
+      ({ name, filter: { match, conditions } }) as SeedPanel;
 
     it.each([
       {
@@ -332,6 +320,15 @@ describe('Accounts', () => {
         why: 'a filter has a condition the app cannot read',
         demo: [workspace('Personal', [[filter('Soon', [{ field: 'dueDate', window: 'fortnight' }])]])],
         says: 'the Filter "Soon"',
+      },
+      {
+        why: 'a filter says how its conditions combine in a way the app would read as All',
+        demo: [
+          workspace('Personal', [
+            [filter('Either', [{ field: 'dueDate', window: 'week', orOverdue: true }], 'anyy')],
+          ]),
+        ],
+        says: 'the Filter "Either"',
       },
     ])('refuses a dataset where $why', ({ demo, says }) => {
       expect(() => checkedGuestDemo(demo)).toThrow(says);
