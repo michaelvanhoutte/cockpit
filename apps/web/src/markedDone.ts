@@ -78,26 +78,44 @@ export function doneAgo(completedAt: string, now: Date): string {
   return ago === 'now' ? 'Done just now' : `Done ${ago} ago`;
 }
 
+/**
+ * The first `limit` rows of what matches, and how many matched in all. Each
+ * row's own line is worked out only for the ones returned, since placing an
+ * item scans the filings and a long history would otherwise pay that for rows
+ * nobody has scrolled to.
+ *
+ * The four lists besides the items are optional: a stored copy rehydrated from
+ * IndexedDB is not parsed again (`InboxPanel`), so one taken before a field
+ * existed lacks it.
+ */
 export function markedDoneRows(
   snapshot: {
     items: readonly Item[];
-    filings: readonly Filing[];
-    panels: readonly Panel[];
-    dashboards: readonly Dashboard[];
-    itemTypes: readonly { id: string; name: string }[];
+    filings?: readonly Filing[] | undefined;
+    panels?: readonly Panel[] | undefined;
+    dashboards?: readonly Dashboard[] | undefined;
+    itemTypes?: readonly { id: string; name: string }[] | undefined;
   },
   search: string,
   now: Date,
-): MarkedDoneRow[] {
-  return finishedItems(snapshot.items.filter((item) => containsText(item, search))).map((item) => {
+  limit: number,
+): { rows: MarkedDoneRow[]; total: number } {
+  const matching = finishedItems(snapshot.items.filter((item) => containsText(item, search)));
+  const rows = matching.slice(0, limit).map((item) => {
     const completedAt = item.completedAt ?? '';
-    const places = placesFiledOn(item, snapshot.filings, snapshot.panels, snapshot.dashboards);
+    const places = placesFiledOn(
+      item,
+      snapshot.filings ?? [],
+      snapshot.panels ?? [],
+      snapshot.dashboards ?? [],
+    );
     return {
       item,
       title: item.title.trim() || UNTITLED,
-      type: snapshot.itemTypes.find((type) => type.id === item.typeId)?.name ?? null,
+      type: (snapshot.itemTypes ?? []).find((type) => type.id === item.typeId)?.name ?? null,
       line: `${doneAgo(completedAt, now)} · was ${places.length > 0 ? `on ${places.join(', ')}` : 'in the Inbox'}`,
       group: groupOf(completedAt, now),
     };
   });
+  return { rows, total: matching.length };
 }

@@ -33,9 +33,10 @@ export default function MarkedDoneWindow({
   const [shown, setShown] = useState(MARKED_DONE_PAGE);
 
   // Fixed for this render, so the group a row is in and the age it says agree.
-  const rows = data ? markedDoneRows(data, search, new Date()) : [];
+  const { rows: drawn, total } = data
+    ? markedDoneRows(data, search, new Date(), shown)
+    : { rows: [], total: 0 };
   const everyFinished = data ? data.items.some((item) => item.completedAt) : false;
-  const drawn = rows.slice(0, shown);
 
   return (
     <ManageWindow
@@ -69,7 +70,7 @@ export default function MarkedDoneWindow({
           <p className="text-sm text-ink-faint">Loading…</p>
         ) : !everyFinished ? (
           <p className="text-sm text-ink-faint">Nothing has been marked done.</p>
-        ) : rows.length === 0 ? (
+        ) : total === 0 ? (
           <p className="text-sm text-ink-faint">Nothing finished matches.</p>
         ) : (
           <>
@@ -103,7 +104,7 @@ export default function MarkedDoneWindow({
                 </section>
               );
             })}
-            {rows.length > shown && (
+            {total > shown && (
               <button
                 type="button"
                 onClick={() => setShown(shown + MARKED_DONE_PAGE)}

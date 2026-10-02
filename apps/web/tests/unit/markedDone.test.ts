@@ -41,7 +41,7 @@ const PANELS = [
   { id: 'p-soon', dashboardId: 'd-work', name: 'Due soon', kind: 'filter' },
 ] as Panel[];
 
-function rowsOf(items: Item[], filings: Filing[] = [], search = '') {
+function rowsOf(items: Item[], filings: Filing[] = [], search = '', limit = 50) {
   return markedDoneRows(
     {
       items,
@@ -52,7 +52,8 @@ function rowsOf(items: Item[], filings: Filing[] = [], search = '') {
     },
     search,
     NOW,
-  );
+    limit,
+  ).rows;
 }
 
 const filed = (itemId: string, panelId: string): Filing => ({ itemId, panelId, position: 0 });
@@ -117,6 +118,20 @@ describe('Triage', () => {
       const justNow = anItem({ completedAt: new Date(NOW.getTime() - 20_000).toISOString() });
 
       expect(rowsOf([justNow])[0]!.line).toBe('Done just now · was in the Inbox');
+    });
+
+    it('reads a stored copy taken before the lists existed as filed nowhere', () => {
+      const { rows } = markedDoneRows({ items: [done] }, '', NOW, 50);
+
+      expect(rows[0]!.line).toBe('Done 2h ago · was in the Inbox');
+    });
+
+    it('works out only the first rows asked for, and counts them all', () => {
+      const three = [anItem(), anItem(), anItem()];
+
+      const { rows, total } = markedDoneRows({ items: three }, '', NOW, 2);
+
+      expect([rows.length, total]).toEqual([2, 3]);
     });
 
     it('carries the Type, or none', () => {
