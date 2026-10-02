@@ -6,15 +6,13 @@ import { api, refusal } from '../api/client';
 import { useConnectClaudeCode } from '../api/queries';
 
 /**
- * The one-line instruction the routine is given, shown with a Copy button so
- * it can be pasted into Claude Code exactly ("Connect a workspace to Claude
- * Code", issue 569, step 2). Matches `TEST_PROMPT`
- * (apps/api/src/connectors/claude-code.ts) only by accident of both being
- * short and imperative - this is the routine's own standing instruction,
- * fired for real Items; the server's test session is a one-off, fired to
- * prove the trigger address and token before either is stored.
+ * The prompt offered for the routine, shown in full with a Copy button so it
+ * can be pasted into Claude Code exactly ("Connect a workspace to Claude
+ * Code", issue 569, step 3). It only defers: what a session does is the
+ * message Cockpit sends, which opens with `AGENT_PREAMBLE` ("Make an agent's
+ * message the whole task, whatever the routine's prompt says", issue 638).
  */
-const ROUTINE_PROMPT = 'Work the Cockpit Item described in the trigger payload, then stop.';
+const ROUTINE_PROMPT = 'Do what the message in the trigger payload says.';
 
 /**
  * The form Claude Code's own *Connect* (or an existing connection's
@@ -105,13 +103,8 @@ export function ConnectClaudeCode({
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] max-h-[calc(100dvh-2rem_-_var(--edge-top))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 overflow-y-auto rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
+          className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] max-h-[calc(100dvh-2rem_-_var(--edge-top))] flex w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
-          <Dialog.Title className="text-base font-semibold">Connect Claude Code</Dialog.Title>
-          <Dialog.Description className="pt-2 text-sm text-ink-soft">
-            A routine that starts a Claude Code session on this workspace's items.
-          </Dialog.Description>
-
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -121,9 +114,16 @@ export function ConnectClaudeCode({
                 { onSuccess: (outcome) => outcome.accepted && onClose() },
               );
             }}
-            className="pt-4"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <ol className="flex flex-col gap-3 text-sm">
+            {/* Title, steps and a refusal scroll as one piece; Cancel and
+                Connect stay below it, in view whatever the height. */}
+            <div className="min-h-0 flex-1 overflow-y-auto">
+            <Dialog.Title className="text-base font-semibold">Connect Claude Code</Dialog.Title>
+            <Dialog.Description className="pt-2 text-sm text-ink-soft">
+              A routine that starts a Claude Code session on this workspace's items.
+            </Dialog.Description>
+            <ol className="flex flex-col gap-3 pt-4 text-sm">
               <li>1. Create a routine on this workspace's repository in Claude Code.</li>
               <li>
                 {/* The links an agent's message carries point here, and so do
@@ -138,9 +138,15 @@ export function ConnectClaudeCode({
                 , so the session can read an item's attachments and say when it is waiting on you.
               </li>
               <li>
-                <p>3. Give it this prompt:</p>
-                <div className="mt-1 flex items-center gap-2">
-                  <code className="min-w-0 flex-1 truncate rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
+                <p>
+                  3. A routine needs a prompt, but Cockpit's message supplies the task, so give it one that defers to
+                  that message:
+                </p>
+                <div className="mt-1 flex items-start gap-2">
+                  <code
+                    aria-label="Routine prompt"
+                    className="min-w-0 flex-1 whitespace-pre-wrap break-words rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft"
+                  >
                     {ROUTINE_PROMPT}
                   </code>
                   <button
@@ -183,8 +189,9 @@ export function ConnectClaudeCode({
                 {refusal}
               </p>
             )}
+            </div>
 
-            <div className="flex justify-end gap-2 pt-5">
+            <div className="flex justify-end gap-2 pt-4">
               <Dialog.Close
                 disabled={busy}
                 className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
@@ -252,7 +259,7 @@ function ReportingBack({
           <div className="flex items-start gap-2">
             <pre
               aria-label="Hooks for .claude/settings.json"
-              className="max-h-32 min-w-0 flex-1 overflow-auto rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs text-ink-soft"
+              className="max-h-72 min-w-0 flex-1 overflow-y-auto whitespace-pre-wrap break-all rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs text-ink-soft"
             >
               {claudeCodeHooksSnippet(data)}
             </pre>

@@ -6,6 +6,7 @@ import {
   waitingOnYou,
   agentsShownOnDashboard,
   colorNoAgentIsUsing,
+  DEFAULT_AGENT_MESSAGE,
   uuidv7,
 } from '@cockpit/shared';
 import type { Agent, AgentRun, HiddenAgent } from '@cockpit/shared';
@@ -26,7 +27,6 @@ interface Draft {
   startsInProgress: boolean;
 }
 
-const BLANK_MESSAGE = '{title}\n\n{description}';
 
 /**
  * The dock: every Agent, reachable from any Dashboard ("Keep your agents in a
@@ -133,7 +133,7 @@ export function AgentDock({
       id: null,
       name: '',
       color: colorNoAgentIsUsing(agents.map((agent) => agent.color)),
-      message: BLANK_MESSAGE,
+      message: DEFAULT_AGENT_MESSAGE,
       asksForPrompt: false,
       startsInProgress: true,
     });
