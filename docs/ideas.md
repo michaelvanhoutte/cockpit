@@ -101,8 +101,8 @@ The intended flow: log an action or a thought → it lands in the Inbox, or dire
 
 ## 10. Development process
 
-- **A skill to create issues.** *(Implemented: [github-issue](../.claude/skills/github-issue/SKILL.md) files an already-scoped piece of work; the sharpening lives in [scoping](../.claude/skills/scoping/SKILL.md) and the sizing in [slicing](../.claude/skills/slicing/SKILL.md) so they trigger on any new work starting.)*
-- **Issues must be small enough** that you can control what is tested. *(Enforced by `slicing` as a vertical-slice size gate.)*
+- **A skill to create issues.** *(Implemented: [github-issue](../.claude/skills/github-issue/SKILL.md) files an already-scoped piece of work; the sharpening lives in [scoping](../.claude/skills/scoping/SKILL.md) and the sizing in [engineering-plan](../.claude/skills/engineering-plan/SKILL.md) so they trigger on any new work starting.)*
+- **Issues must be small enough** that you can control what is tested. *(Enforced by `engineering-plan` as a vertical-slice size gate.)*
 - **Issues cannot be the long-term link.** The durable link is to *features*, because features change while issues are closed and left behind. *(The statement list says explicitly that it stops being the reference once building starts.)*
 - **Migrate the glossary/ADR layout?** mattpocock-skills' `domain-modeling` (`CONTEXT.md` + `docs/adr/`) came up while building the issue-creation skill. The functional definition's glossary maps closely onto `CONTEXT.md` — close to a rename. The architecture's decisions are a different matter: they live as prose sections inside one narrative document, so splitting them into `docs/adr/NNNN-slug.md` files is a real decomposition. Deferred, and worth deciding on its own footing.
 

@@ -1,13 +1,13 @@
 ---
 name: github-issue
-description: Cockpit's ticket template and the gh commands to create and update one - used by `scoping` to file the ticket, `technical-design` to add its sections, and `slicing` to finish it or split it into child tickets under a parent. Holds the body template and publishing only; never decides what goes in a section.
+description: Cockpit's ticket template and the gh commands to create and update one - used by `scoping` to file the ticket, `engineering-plan` to add its design sections and then to finish it or split it into child tickets under a parent. Holds the body template and publishing only; never decides what goes in a section.
 ---
 
 # The ticket
 
 Issues size work for one sitting. They are not the long-term record: once an issue is built, the source — code, tests, the feature's own docs — is what stays true, per [docs/testing-strategy.md](../../../docs/testing-strategy.md).
 
-One ticket carries a piece of work from `scoping` through `technical-design` to `slicing`, each adding its own sections, so what one skill produces the next finds on the ticket and not in a session that may have ended. [scoping](../scoping/SKILL.md) decides the Problem and What to build, [technical-design](../technical-design/SKILL.md) the design and failure modes, and [slicing](../slicing/SKILL.md) the units, models and test cases; none is repeated here. This skill covers only the body template and the `gh` commands.
+One ticket carries a piece of work from `scoping` through the two phases of `engineering-plan`, each adding its own sections, so what one skill produces the next finds on the ticket and not in a session that may have ended. [scoping](../scoping/SKILL.md) decides the Problem and What to build, and [engineering-plan](../engineering-plan/SKILL.md) the design, failure modes, units, models and test cases; none is repeated here. This skill covers only the body template and the `gh` commands.
 
 ## Length
 
@@ -40,42 +40,42 @@ can (schema, state machine) - trimmed to the decision, noted as coming from a pr
 
 What this deliberately doesn't cover, and questions whose answer wouldn't change the diff
 either way - record these here, never as a todo in the eventual test file. A question the
-gate of `scoping` or `technical-design` would refuse belongs there, not here.
+gate of `scoping` or `engineering-plan` would refuse belongs there, not here.
 
-## Technical design             <- technical-design
+## Technical design             <- engineering-plan (design)
 
 [The decisions, three lines each. "No design needed: <the trigger check in one line>" where
 it found nothing; omit the section only for a bug fix.]
 
-## Failure modes                <- technical-design
+## Failure modes                <- engineering-plan (design)
 
-[One line per question from technical-design's "Enumerate the failure modes when state cannot
+[One line per question from engineering-plan's "Enumerate the failure modes when state cannot
 be put back" step. Omit the section entirely where the work changes nothing it cannot put
 back.]
 
-## Blocked by                   <- slicing
+## Blocked by                   <- engineering-plan (slicing)
 
 Issue numbers this depends on, or "None."
 
-## Model                        <- slicing
+## Model                        <- engineering-plan (slicing)
 
-[Always: `Recommended: opus`, `Recommended: sonnet` or `Recommended: haiku`, with slicing's
+[Always: `Recommended: opus`, `Recommended: sonnet` or `Recommended: haiku`, with engineering-plan's
 one-line reason.]
 
-## Test cases                   <- slicing
+## Test cases                   <- engineering-plan (slicing)
 
-[the statement list slicing produced, with the framing line from slicing's "Generate the
+[the statement list engineering-plan produced, with the framing line from its "Generate the
 statement list" step]
 ```
 
 A **child** ticket opens with "Part of #N <parent title>" and carries only its own slice of each section: its What to build, the design points and failure modes that apply to it, and its own Blocked by, Model and Test cases. A **parent** keeps Problem, What to build, Technical design and Failure modes, drops Test cases, and gains the two sections below.
 
 ```
-## Children                     <- slicing
+## Children                     <- engineering-plan (slicing)
 
 One line per child: number, title, model, blocked by.
 
-## Coverage                     <- slicing
+## Coverage                     <- engineering-plan (slicing)
 
 One row per rule from What to build and per line of Failure modes, naming the one child that owns it.
 ```
@@ -83,6 +83,6 @@ One row per rule from What to build and per line of Failure modes, naming the on
 ### 2. Create, update, split
 
 - **File** (scoping): `gh issue create` with Problem, What to build and Out of scope, and the `unsliced` label, creating the label first if the repository has none. Show the draft and file on confirmation.
-- **Add** (technical-design): `gh issue edit <number> --body-file` with the design sections added and everything else as it was.
-- **Finish** (slicing, one unit): edit the same ticket to add Blocked by, Model and Test cases, and remove `unsliced`.
-- **Split** (slicing, several units): `gh issue create` the children in dependency order, blockers first, so each "Blocked by" names a real number; then edit the original into the parent and remove `unsliced` from it. Children never carry `unsliced`. Never close or edit any other parent or tracking ticket as a side effect.
+- **Add** (engineering-plan, design): `gh issue edit <number> --body-file` with the design sections added and everything else as it was.
+- **Finish** (engineering-plan, slicing, one unit): edit the same ticket to add Blocked by, Model and Test cases, and remove `unsliced`.
+- **Split** (engineering-plan, slicing, several units): `gh issue create` the children in dependency order, blockers first, so each "Blocked by" names a real number; then edit the original into the parent and remove `unsliced` from it. Children never carry `unsliced`. Never close or edit any other parent or tracking ticket as a side effect.
