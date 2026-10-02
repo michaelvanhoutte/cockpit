@@ -57,6 +57,22 @@ export function isFiltering(filter: DashboardFilter): boolean {
 }
 
 /**
+ * The *Containing* rule: whether the text, trimmed and case-insensitive, is in
+ * the title, the description or the next action. Nothing typed matches
+ * everything. Shared with the list of items marked done (`markedDone.ts`), so
+ * the two never disagree about what a search matches.
+ */
+export function containsText(
+  item: Pick<Item, 'title' | 'description' | 'nextAction'>,
+  text: string,
+): boolean {
+  const needle = text.trim().toLowerCase();
+  if (!needle) return true;
+  const haystack = [item.title, item.description ?? '', item.nextAction ?? ''].join('\n');
+  return haystack.toLowerCase().includes(needle);
+}
+
+/**
  * Whether an Item meets every condition that is set, on the day the person is
  * looking.
  *
@@ -78,11 +94,7 @@ export function matchesDashboardFilter(
   if (filter.due && !dueHolds(filter.due.window, filter.due.orOverdue, item.dueDate ?? null, on)) {
     return false;
   }
-  const needle = filter.text.trim().toLowerCase();
-  if (needle) {
-    const haystack = [item.title, item.description ?? '', item.nextAction ?? ''].join('\n');
-    if (!haystack.toLowerCase().includes(needle)) return false;
-  }
+  if (!containsText(item, filter.text)) return false;
   if (filter.attachments === 'with' && !withAttachments.has(item.id)) return false;
   if (filter.attachments === 'without' && withAttachments.has(item.id)) return false;
   return true;
