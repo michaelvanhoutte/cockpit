@@ -98,14 +98,23 @@ describe('Connector management', () => {
     });
   });
 
-  describe('the prompt is copied exactly, for pasting into the routine', () => {
-    it('copies the one-line prompt shown', async () => {
+  describe('the form says why the routine needs a prompt, and the prompt is copied exactly as shown', () => {
+    it('explains that Cockpit’s message supplies the task, and shows the prompt in full', () => {
+      showForm();
+
+      expect(screen.getByText(/Cockpit's message supplies the task/)).toBeInTheDocument();
+      expect(screen.getByLabelText('Routine prompt')).toHaveTextContent(
+        'Do what the message in the trigger payload says.',
+      );
+    });
+
+    it('copies the prompt shown, nothing more or less', async () => {
       showForm();
 
       await userEvent.click(screen.getByRole('button', { name: 'Copy' }));
 
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        expect.stringContaining('Cockpit Item'),
+        screen.getByLabelText('Routine prompt').textContent,
       );
     });
   });

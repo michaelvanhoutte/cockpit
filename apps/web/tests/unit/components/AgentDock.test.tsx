@@ -121,6 +121,23 @@ describe('Agents', () => {
       );
     });
 
+    it('starts a new agent’s template by saying to work the item, ahead of the item’s words', async () => {
+      const user = userEvent.setup();
+      const { sent } = renderDock({ agents: [] });
+
+      await user.click(screen.getByRole('button', { name: '+ New agent' }));
+      await user.type(screen.getByRole('textbox', { name: 'Name of the agent' }), 'Work it');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(sent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            message: expect.stringMatching(/^Work this item, then stop\.\s+\{title\}\s+\{description\}$/),
+          }),
+        }),
+      );
+    });
+
     it('opens Edit… with the agent’s own fields, and sends every field together', async () => {
       const user = userEvent.setup();
       const { sent } = renderDock();

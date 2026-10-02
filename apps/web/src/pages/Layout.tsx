@@ -18,6 +18,7 @@ const AgentDock = lazy(() => import('../components/AgentDock'));
 const ManageTypes = lazy(() => import('../components/ManageTypes'));
 const ManageConnectedApps = lazy(() => import('../components/ManageConnectedApps'));
 const ManageUsers = lazy(() => import('../components/ManageUsers'));
+const MarkedDoneWindow = lazy(() => import('../components/MarkedDoneWindow'));
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { CaptureWindow } from '../components/CaptureWindow';
@@ -476,7 +477,7 @@ function TheShell() {
    * inside a workspace, and a page reached without one made it degrade into a
    * header wearing none of the workspace's colour, control or selected tab.
    */
-  const [managing, setManaging] = useState<'types' | 'apps' | 'users' | null>(null);
+  const [managing, setManaging] = useState<'types' | 'apps' | 'users' | 'done' | null>(null);
   const typesOpenedFrom = useRef<HTMLElement | null>(null);
 
   /**
@@ -540,6 +541,21 @@ function TheShell() {
           },
         ]
       : []),
+  ];
+
+  /**
+   * What the open workspace's "…" offers first, ahead of its own actions: a
+   * window over the screen you are on listing what it has marked done ("See
+   * the items you have marked done, from the header menu", issue 637).
+   */
+  const openWorkspaceEntries: MenuEntry[] = [
+    {
+      label: 'Items marked done…',
+      onSelect: (from) => {
+        typesOpenedFrom.current = from;
+        setManaging('done');
+      },
+    },
   ];
 
   /**
@@ -885,6 +901,7 @@ function TheShell() {
             bar={theme.bar}
             bringIntoView={bringIntoView}
             accountEntries={accountEntries}
+            openWorkspaceEntries={openWorkspaceEntries}
           >
             <AddWorkspace />
           </WorkspaceTabs>
@@ -1148,6 +1165,21 @@ function TheShell() {
           returnFocusTo={typesOpenedFrom.current}
         />
       </Suspense>
+
+      {/* What this workspace has marked done, over the screen you are on. */}
+      {params.workspaceId && (
+        <Suspense fallback={null}>
+          <MarkedDoneWindow
+            // Remounted per workspace, so a search typed in one is not still in
+            // the box when the next is opened.
+            key={params.workspaceId}
+            workspaceId={params.workspaceId}
+            open={managing === 'done'}
+            onClose={() => setManaging(null)}
+            returnFocusTo={typesOpenedFrom.current}
+          />
+        </Suspense>
+      )}
 
       {/* The apps allowed into this Cockpit, over the workspace as the types are. */}
       <Suspense fallback={null}>

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { agentMessageFor, agentsShownOnDashboard } from '../../../src/domain/agent.js';
+import { AGENT_PREAMBLE, agentMessageFor, agentsShownOnDashboard } from '../../../src/domain/agent.js';
 import type { Agent } from '../../../src/domain/agent.js';
+
+const sent = (rest: string) => `${AGENT_PREAMBLE}
+
+${rest}`;
 
 const agent = (overrides: Partial<Agent> = {}): Agent => ({
   id: 'agent-1',
@@ -62,7 +66,41 @@ describe('Agents', () => {
         expected: 'Ship $& now',
       },
     ])('$situation', ({ template, item, prompt, expected }) => {
-      expect(agentMessageFor(agent({ message: template }), item, prompt)).toBe(expected);
+      expect(agentMessageFor(agent({ message: template }), item, prompt)).toBe(sent(expected));
+    });
+  });
+
+  describe('every start tells Claude the message is its whole task, whatever the template says', () => {
+    const item = { title: 'Chase the invoice', description: null, link: 'https://cockpit.test/i/9' };
+
+    it.each([
+      { situation: 'a template of only the item’s words', template: '{title}' },
+      { situation: 'a template naming a skill', template: '/scoping {title}\n\n{description}' },
+      { situation: 'a template with {prompt}', template: '{prompt}\n\n{title}' },
+    ])('$situation', ({ template }) => {
+      const message = agentMessageFor(agent({ message: template }), item, 'Be brief');
+
+      expect(message.startsWith(`${AGENT_PREAMBLE}\n\n`)).toBe(true);
+      expect(message).toContain('Chase the invoice');
+    });
+
+    it('puts the preamble first, the filled template next and the attachments last', () => {
+      const message = agentMessageFor(agent({ message: '{title}' }), {
+        ...item,
+        attachments: [{ id: 'a1', filename: 'x.mp4', contentType: 'video/mp4' }],
+      });
+
+      expect(message).toBe(
+        [
+          AGENT_PREAMBLE,
+          'Chase the invoice',
+          'Attachments - download each link and read the file. A link works for an hour, without signing in.\n- x.mp4 - not readable by Claude',
+        ].join('\n\n'),
+      );
+    });
+
+    it('is still the preamble for an item whose template fills to nothing', () => {
+      expect(agentMessageFor(agent({ message: '{description}' }), item)).toBe(AGENT_PREAMBLE);
     });
   });
 
@@ -155,7 +193,7 @@ describe('Agents', () => {
           link: 'https://cockpit.test/i/7',
           attachments,
         }),
-      ).toBe(expected);
+      ).toBe(sent(expected));
     });
   });
 

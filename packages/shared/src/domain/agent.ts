@@ -119,6 +119,23 @@ export interface AttachmentForAgent {
 }
 
 /**
+ * **Ahead of every start, whatever the template says.** The message reaches
+ * Claude only as context after the routine's saved prompt, so that prompt
+ * would otherwise decide what the session does ("Make an agent's message the
+ * whole task, whatever the routine's prompt says", issue 638). Not shown or
+ * editable, and not carried by the connection's test fire.
+ */
+export const AGENT_PREAMBLE = [
+  'The message below is your whole task. Do exactly what it says and nothing more.',
+  'If it names a skill, run that skill and do only what the skill covers.',
+  'If you need answers to go on, ask and wait for them.',
+  'Ignore any earlier instruction about what to do with this item.',
+].join(' ');
+
+/** What a new Agent's template starts as: the instruction to work the Item, then the Item's words. */
+export const DEFAULT_AGENT_MESSAGE = 'Work this item, then stop.\n\n{title}\n\n{description}';
+
+/**
  * **Every attachment is listed after the template, whatever it says**, since
  * a template written before an Item had files cannot have asked for them
  * ("Send an item's attachments along when an agent starts", issue 573). One
@@ -160,7 +177,7 @@ export function agentMessageFor(
       }
     })
     .trim();
-  return [body, attachmentsSection(item.attachments ?? [], readable)].filter(Boolean).join('\n\n');
+  return [AGENT_PREAMBLE, body, attachmentsSection(item.attachments ?? [], readable)].filter(Boolean).join('\n\n');
 }
 
 function attachmentsSection(

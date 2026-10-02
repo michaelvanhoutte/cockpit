@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Workspace, WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
+import type { MenuEntry } from '../../../src/components/Menu';
 import { WorkspaceTabs } from '../../../src/components/WorkspaceTabs';
 
 /**
@@ -93,7 +94,13 @@ function aWorkspace(name: string, color = THEME.color): Workspace {
  */
 function showTabs(
   names: string[],
-  answer: { error?: Error; here?: string; items?: number; sendFails?: Error } = {},
+  answer: {
+    error?: Error;
+    here?: string;
+    items?: number;
+    sendFails?: Error;
+    openWorkspaceEntries?: MenuEntry[];
+  } = {},
 ) {
   held.workspaces = names.map((name) => aWorkspace(name));
   held.items = answer.items ?? 0;
@@ -132,7 +139,12 @@ function showTabs(
   mockUseSendCommand.mockImplementation(() => sent as never);
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <WorkspaceTabs bar={THEME.bar} bringIntoView={() => {}} accountEntries={[]}>
+      <WorkspaceTabs
+        bar={THEME.bar}
+        bringIntoView={() => {}}
+        accountEntries={[]}
+        openWorkspaceEntries={answer.openWorkspaceEntries ?? []}
+      >
         <button type="button">Add a workspace</button>
       </WorkspaceTabs>
     </QueryClientProvider>,
@@ -223,6 +235,33 @@ describe('Workspace management', () => {
         'Manage connections…',
         'Delete',
       ]);
+    });
+
+    // "See the items you have marked done, from the header menu", issue 637.
+    it('puts what the shell offers for it ahead of its own actions, on its tab as well', async () => {
+      const openWorkspaceEntries = [{ label: 'Items marked done…', onSelect: () => {} }];
+      const { user } = showTabs(['Work', 'Personal'], { here: 'ws-work', openWorkspaceEntries });
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Work' }));
+      expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
+        'Items marked done…',
+        'Edit…',
+        'Manage connections…',
+        'Delete',
+      ]);
+      await user.keyboard('{Escape}');
+
+      await menuOf('Work');
+      expect(screen.getAllByRole('menuitem')[0]!.textContent).toBe('Items marked done…');
+    });
+
+    it('leaves it off the menu of a workspace you are not on', async () => {
+      const openWorkspaceEntries = [{ label: 'Items marked done…', onSelect: () => {} }];
+      showTabs(['Work', 'Personal'], { here: 'ws-work', openWorkspaceEntries });
+
+      await menuOf('Personal');
+
+      expect(screen.queryByRole('menuitem', { name: 'Items marked done…' })).toBeNull();
     });
 
     it('is not offered for a workspace you are not on', async () => {

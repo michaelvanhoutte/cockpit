@@ -107,14 +107,14 @@ export function ManageWindow({
 }
 
 /** The way out, in the same place in all three windows. */
-export function CloseWindow({ disabled }: { disabled?: boolean }) {
+export function CloseWindow({ disabled, label = 'Done' }: { disabled?: boolean; label?: string }) {
   return (
     <div className="flex justify-end pt-4">
       <Dialog.Close
         disabled={disabled}
         className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
       >
-        Done
+        {label}
       </Dialog.Close>
     </div>
   );
