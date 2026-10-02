@@ -54,17 +54,48 @@ export async function readUsage(env: Env, asked: string | number | undefined, no
   const { days, since } = usageWindow(asked, now);
   const db = createDb(env.DB);
 
-  const people = await db
-    .select({ id: users.id, name: users.name, lastSignedInAt: users.lastSignedInAt })
-    .from(users)
-    // Guests are one shared user with nothing to say about any one person.
-    .where(ne(users.id, GUEST_USER_ID));
+  const guest = and(isNull(signIns.userId), gte(signIns.at, since));
+  const day = sql<string>`substr(${signIns.at}, 1, 10)`;
+  const sessions = sql<number>`count(*)`;
 
-  const named = await db
-    .select({ userId: signIns.userId, at: signIns.at })
-    .from(signIns)
-    .where(and(isNotNull(signIns.userId), gte(signIns.at, since)))
-    .orderBy(desc(signIns.at));
+  // Five independent reads, started together: each is a D1 round trip.
+  const [people, named, perDay, byCountry, byReferrer] = await Promise.all([
+    db
+      .select({ id: users.id, name: users.name, lastSignedInAt: users.lastSignedInAt })
+      .from(users)
+      // Guests are one shared user with nothing to say about any one person.
+      .where(ne(users.id, GUEST_USER_ID)),
+    db
+      .select({ userId: signIns.userId, at: signIns.at })
+      .from(signIns)
+      .where(and(isNotNull(signIns.userId), gte(signIns.at, since)))
+      .orderBy(desc(signIns.at)),
+    db
+      .select({
+        day,
+        sessions,
+        itemsCaptured: sql<number>`sum(${signIns.itemsCaptured})`,
+        dashboardsOpened: sql<number>`sum(${signIns.dashboardsOpened})`,
+      })
+      .from(signIns)
+      .where(guest)
+      .groupBy(day)
+      .orderBy(desc(day)),
+    db
+      .select({ country: signIns.country, sessions })
+      .from(signIns)
+      .where(guest)
+      .groupBy(signIns.country)
+      .orderBy(desc(sessions), signIns.country)
+      .limit(LONGEST_BREAKDOWN),
+    db
+      .select({ host: signIns.referrerHost, sessions })
+      .from(signIns)
+      .where(guest)
+      .groupBy(signIns.referrerHost)
+      .orderBy(desc(sessions), signIns.referrerHost)
+      .limit(LONGEST_BREAKDOWN),
+  ]);
 
   const historyOf = new Map<string, string[]>();
   for (const row of named) {
@@ -72,38 +103,6 @@ export async function readUsage(env: Env, asked: string | number | undefined, no
     if (history.length < HISTORY_PER_PERSON) history.push(row.at);
     historyOf.set(row.userId!, history);
   }
-
-  const guest = and(isNull(signIns.userId), gte(signIns.at, since));
-  const day = sql<string>`substr(${signIns.at}, 1, 10)`;
-  const sessions = sql<number>`count(*)`;
-
-  const perDay = await db
-    .select({
-      day,
-      sessions,
-      itemsCaptured: sql<number>`sum(${signIns.itemsCaptured})`,
-      dashboardsOpened: sql<number>`sum(${signIns.dashboardsOpened})`,
-    })
-    .from(signIns)
-    .where(guest)
-    .groupBy(day)
-    .orderBy(desc(day));
-
-  const byCountry = await db
-    .select({ country: signIns.country, sessions })
-    .from(signIns)
-    .where(guest)
-    .groupBy(signIns.country)
-    .orderBy(desc(sessions), signIns.country)
-    .limit(LONGEST_BREAKDOWN);
-
-  const byReferrer = await db
-    .select({ host: signIns.referrerHost, sessions })
-    .from(signIns)
-    .where(guest)
-    .groupBy(signIns.referrerHost)
-    .orderBy(desc(sessions), signIns.referrerHost)
-    .limit(LONGEST_BREAKDOWN);
 
   return {
     days,
