@@ -3,10 +3,14 @@ import type { Role } from '@cockpit/shared';
 import { GUEST_ACCOUNT_NAME, GUEST_USER_ID } from '../accounts/new-user.js';
 import { admitNewcomer, hasNoAccess } from '../accounts/register.js';
 import { createDb } from '../db/client.js';
-import { sessions, tenants, users } from '../db/schema.js';
+import { sessions, signIns, tenants, users } from '../db/schema.js';
 import type { Env } from '../env.js';
 import type { Identity } from './oidc.js';
 import { endsFrom, type StoredSession } from './session.js';
+import type { WhereFrom } from './sign-in-history.js';
+
+/** A sign-in that says nothing about where it came from (tests, scripts). */
+const FROM_NOWHERE: WhereFrom = { country: null, referrerHost: null };
 
 /**
  * The register's half of signing in: who the people are, and which sign-ins are
@@ -67,14 +71,15 @@ export async function signInWithGoogle(
   env: Env,
   identity: Identity,
   now: Date,
+  from: WhereFrom = FROM_NOWHERE,
 ): Promise<SignIn> {
   for (let read = 1; read <= READS_BEFORE_GIVING_UP; read += 1) {
-    const known = await signInSomebodyKnown(env, identity, now);
+    const known = await signInSomebodyKnown(env, identity, now, from);
     if (known) return known;
 
     const admitted = await admitNewcomer(env, identity, now);
     if (admitted) {
-      return { ...(await startVisit(env, admitted.user, now)), newAccount: admitted.accountId };
+      return { ...(await startVisit(env, admitted.user, now, from)), newAccount: admitted.accountId };
     }
   }
   // Said without the address: the register logs ids, never who they belong to.
@@ -98,6 +103,7 @@ async function signInSomebodyKnown(
   env: Env,
   identity: Identity,
   now: Date,
+  from: WhereFrom,
 ): Promise<SignIn | null> {
   const db = createDb(env.DB);
 
@@ -110,7 +116,7 @@ async function signInSomebodyKnown(
     // Narrowed here rather than handed on whole, for the reason `SigningIn`
     // exists: what is signed in with is a row's id and name, and a column that
     // rode along would be one this path publishes without meaning to.
-    return startVisit(env, { id: known.id, name: known.name }, now);
+    return startVisit(env, { id: known.id, name: known.name }, now, from);
   }
 
   const [byAddress] = await db
@@ -145,7 +151,7 @@ async function signInSomebodyKnown(
   // recorded identity by the query above and succeeds.
   if (!recorded.meta.changes) return NOT_KNOWN;
 
-  return startVisit(env, { id: byAddress.id, name: byAddress.name }, now);
+  return startVisit(env, { id: byAddress.id, name: byAddress.name }, now, from);
 }
 
 /**
@@ -248,7 +254,11 @@ const GUEST_NAME = 'Guest';
  * this route belongs to whatever answers it for everybody else, not to guest
  * sign-in alone.
  */
-export async function signInAsGuest(env: Env, now: Date): Promise<SignIn> {
+export async function signInAsGuest(
+  env: Env,
+  now: Date,
+  from: WhereFrom = FROM_NOWHERE,
+): Promise<SignIn> {
   const db = createDb(env.DB);
   const createdAt = now.toISOString();
 
@@ -275,7 +285,7 @@ export async function signInAsGuest(env: Env, now: Date): Promise<SignIn> {
     return TURNED_AWAY;
   }
 
-  return startVisit(env, { id: GUEST_USER_ID, name: GUEST_NAME }, now);
+  return startVisit(env, { id: GUEST_USER_ID, name: GUEST_NAME }, now, from, true);
 }
 
 /**
@@ -320,12 +330,20 @@ export async function whoHoldsTheGuestAccount(
  * function runs only for a deliberate sign-in - a real round trip through
  * Google, or a press of "Continue as guest" - never when a session merely
  * renews itself (`extendSession`), so it is the one place that distinction
- * already exists to write from. Through `createDb`, like every other write
+ * already exists to write from - and so it writes the sign-in history row
+ * (`sign_ins`, "Record every sign-in, with guest activity, for 12 months", issue
+ * 653) from here too. Through `createDb`, like every other write
  * and read in this file, rather than a raw `env.DB.prepare(...)` - a column
  * renamed in `db/schema.ts` then fails to typecheck here instead of failing
  * at runtime the first time somebody signs in.
  */
-async function startVisit(env: Env, user: SigningIn, now: Date): Promise<Visit> {
+async function startVisit(
+  env: Env,
+  user: SigningIn,
+  now: Date,
+  from: WhereFrom,
+  guest = false,
+): Promise<Visit> {
   const sessionId = newSessionId();
   const expiresAt = endsFrom(now);
   const at = now.toISOString();
@@ -333,6 +351,16 @@ async function startVisit(env: Env, user: SigningIn, now: Date): Promise<Visit> 
   await db.batch([
     db.insert(sessions).values({ id: sessionId, userId: user.id, createdAt: at, expiresAt }),
     db.update(users).set({ lastSignedInAt: at }).where(eq(users.id, user.id)),
+    // The history row, in the same batch so no session exists without it and
+    // a failed batch writes neither (issue 653). A guest's has no user: they
+    // all share one, so it would say nothing, and the row ages out instead.
+    db.insert(signIns).values({
+      sessionId,
+      userId: guest ? null : user.id,
+      at,
+      country: from.country,
+      referrerHost: guest ? from.referrerHost : null,
+    }),
   ]);
   return { signedIn: true, sessionId, expiresAt, user };
 }

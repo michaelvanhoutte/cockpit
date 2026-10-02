@@ -112,6 +112,7 @@ import { revokeAppsOf } from '../mcp/revoke.js';
 import { open, seal, sealingKey } from '../connectors/credential-crypto.js';
 import { teamsAccountFrom } from '../connectors/teams.js';
 import { fireRoutine, testClaudeCodeConnection } from '../connectors/claude-code.js';
+import { countForGuest, countryOf, referrerHostOf } from '../auth/sign-in-history.js';
 import {
   GUEST_ACCOUNT_NAME,
   endSession,
@@ -1389,6 +1390,9 @@ const routes = app
     const { workspaceId } = c.req.valid('param');
     const account = await openAccount(c.env, c.get('visitor').accountName);
     const snapshot = await account.snapshot(workspaceId);
+    // Opening a Workspace is opening its Dashboards: the read the app makes
+    // each time one is shown (issue 653).
+    await countForGuest(c.env, c.get('sessionId'), 'dashboardsOpened');
     return c.json({ ...snapshot, generatedAt: new Date().toISOString() }, 200);
   })
   .openapi(sourceAccountsRoute, async (c) => {
@@ -1753,6 +1757,7 @@ const routes = app
     // already written and already carries its mechanical title, so the send
     // outlives the response rather than delaying it.
     if (result.applied) {
+      await countForGuest(c.env, c.get('sessionId'), 'itemsCaptured');
       const accountName = c.get('visitor').accountName;
       c.executionCtx.waitUntil(enqueueCleanUp(c.env, accountName, captured.itemId));
       // The two texts this capture just wrote are what a duplicate is looked
@@ -2269,7 +2274,12 @@ const routes = app
       );
       if (!verdict.identified) return refuse(c, verdict.refusal);
 
-      const signedIn = await signInWithGoogle(c.env, verdict.identity, new Date());
+      const signedIn = await signInWithGoogle(
+        c.env,
+        verdict.identity,
+        new Date(),
+        { country: countryOf(c.req.raw), referrerHost: null },
+      );
       // These are the two refusals the person can act on, so they are the two
       // the logon page is told about - and they are told apart, because a
       // colleague whose access was removed must not be sent looking for a
@@ -2331,7 +2341,10 @@ const routes = app
 
       if (c.env.GUEST_SIGN_IN !== 'true') return refuse(c, 'this environment offers no guest sign-in');
 
-      const signedIn = await signInAsGuest(c.env, new Date());
+      const signedIn = await signInAsGuest(c.env, new Date(), {
+        country: countryOf(c.req.raw),
+        referrerHost: referrerHostOf(c.req.query('referrer')),
+      });
       if (!signedIn.signedIn) return refuse(c, 'the guest account is not available');
       rememberSessionCookie(c, signedIn.sessionId);
       return c.redirect('/', 302);

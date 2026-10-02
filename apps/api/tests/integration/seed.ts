@@ -156,6 +156,7 @@ export async function startFromEmpty(): Promise<void> {
   // Children before parents: `sessions` points at `users` and
   // `connector_directory` at `tenants`, which `users` also points at, and every
   // one of those foreign keys is real.
+  await env.DB.prepare('DELETE FROM sign_ins').run();
   await env.DB.prepare('DELETE FROM sessions').run();
   await env.DB.prepare('DELETE FROM users').run();
   await env.DB.prepare('DELETE FROM connector_directory').run();
