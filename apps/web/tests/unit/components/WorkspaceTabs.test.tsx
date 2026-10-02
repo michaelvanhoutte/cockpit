@@ -436,6 +436,22 @@ describe('Workspace management', () => {
       await waitFor(() => expect(screen.getByRole('link', { name: 'Work' })).toHaveFocus());
     });
 
+    it('lands on a workspace that is left rather than on `/`, which opens Capture on a phone', async () => {
+      const { mutate, user } = showTabs(['Work', 'Personal'], { here: 'ws-personal' });
+      // The server's list, once the delete has gone through.
+      mutate.mockImplementation((_args, options) => {
+        held.workspaces = held.workspaces.filter((w) => w.id !== 'ws-personal');
+        options?.onSuccess?.();
+      });
+      await menuOf('Personal');
+      await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
+      await user.click(await screen.findByRole('button', { name: 'Yes, delete Personal' }));
+
+      await waitFor(() =>
+        expect(wentTo.calls).toEqual([{ to: '/w/$workspaceId', params: { workspaceId: 'ws-work' } }]),
+      );
+    });
+
     it('sends the delete only once the question has been answered', async () => {
       const { mutate, user } = showTabs(['Work', 'Personal'], { items: 2 });
       await menuOf('Personal');

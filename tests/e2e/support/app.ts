@@ -228,6 +228,9 @@ export async function signIn(page: Page, name: string, isMobile: boolean): Promi
 export async function pastOnboarding(page: Page, isMobile: boolean): Promise<void> {
   const skip = page.getByRole('button', { name: 'Skip' });
   if (await skip.isVisible()) await press(skip, isMobile);
+  // A phone's bare `/` opens Capture ("Open Cockpit on the Capture page on a
+  // phone", issue 644), which is no dashboard: press the first workspace's tab.
+  if (await captureBox(page).isVisible()) await press(page.locator('nav[aria-label="Workspaces"] a').first(), isMobile);
   await expect(dashboardBar(page)).toBeVisible();
 }
 
@@ -255,6 +258,7 @@ export async function signInWithoutSkipping(
   await page
     .getByRole('button', { name: 'Skip' })
     .or(dashboardBar(page))
+    .or(captureBox(page))
     .first()
     .waitFor({ state: 'visible' });
 }

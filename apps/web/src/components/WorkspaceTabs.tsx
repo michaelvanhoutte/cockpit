@@ -13,6 +13,7 @@ import {
 } from '../api/queries';
 import { litForChrome } from '../chrome';
 import { useConnections } from '../connections';
+import { survivingWorkspace } from '../landing';
 import { useTabDrag } from '../tabDrag';
 import { DeleteQuestion } from './DeleteQuestion';
 import { RowMenu, SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
@@ -284,12 +285,19 @@ export function WorkspaceTabs({
           const wasTheOneBehind = params.workspaceId === workspaceId;
           const wasTheLast = workspaces.length === 1;
           if (!wasTheOneBehind && !wasTheLast) return;
-          // Re-read before going anywhere: `/` decides where to land from the
-          // list of workspaces, and the list in hand still holds the one just
-          // deleted - so without this it lands you straight back on it, or
-          // fails to notice the account is now empty.
+          // Re-read before going anywhere: the list in hand still holds the one
+          // just deleted - so without this it lands you straight back on it, or
+          // fails to notice the account is now empty. Not `/`, which opens on
+          // Capture on a phone: you were deleting a workspace, not jotting
+          // something down (`landing.ts`).
           await queryClient.refetchQueries({ queryKey: ['workspaces'] });
-          void navigate({ to: '/' });
+          const left = queryClient.getQueryData<WorkspaceList>(workspacesQuery.queryKey);
+          const next = survivingWorkspace(left?.workspaces ?? []);
+          void navigate(
+            next.to === 'start'
+              ? { to: '/start' }
+              : { to: '/w/$workspaceId', params: { workspaceId: next.workspaceId } },
+          );
         },
       },
     );

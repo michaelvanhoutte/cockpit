@@ -30,4 +30,6 @@ Workspace: "Work"
     └── Panel: "To read"
 ```
 
+The landing dashboard is the desk landing: a bare `/` opens the first Workspace's dashboard at a desk, and the Capture page on a phone (see `docs/product/inbox.md`).
+
 Connecting a source to a Workspace is designed, not built — no connector exists yet, for Gmail, Slack, Notion or anything else. See "Sources to connect" in `docs/ideas.md`.
