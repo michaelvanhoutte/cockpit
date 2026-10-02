@@ -115,7 +115,7 @@ describe('Accounts', () => {
           row.cells.map((cell) => halcyon.panels.find((panel) => panel.id === cell.panelId)?.name),
         ),
       ).toEqual([
-        ['Infrastructure & cloud', 'Data migration', 'API & service cutover'],
+        ["This week's priorities", 'Infrastructure & cloud', 'Data migration', 'API & service cutover'],
         ['Testing & QA', 'Rollout & communications'],
       ]);
     });
@@ -174,24 +174,70 @@ describe('Accounts', () => {
       );
     });
 
-    it('files items onto those panels, some due on a date at a priority and some tied to a person or a project', async () => {
+    it('files items onto those panels, some due on a date at a priority, some started and some tied to a person or a project', async () => {
       const cookie = await continueAsGuest();
       const halcyon = await snapshotOf(cookie, named(await workspacesOf(cookie), 'Halcyon Health').id);
 
       const filed = new Set(halcyon.filings.map((one) => one.itemId));
-      expect(halcyon.items.length).toBeGreaterThan(10);
-      expect(halcyon.items.every((item) => filed.has(item.id))).toBe(true);
+      expect(halcyon.items.filter((item) => filed.has(item.id)).length).toBeGreaterThan(10);
       expect(halcyon.items.some((item) => item.dueDate !== null && item.priority !== null)).toBe(
         true,
       );
+      expect(halcyon.items.some((item) => item.startedAt !== null)).toBe(true);
       expect(new Set(halcyon.associations.map((one) => one.kind))).toEqual(
         new Set(['person', 'project', 'topic']),
       );
-      // The two the dates are there to show: one already past its date and one
-      // still to come, both of them wanted.
+      // What the dates are there to show, on whichever day it is opened:
+      // something already overdue, something due today, and something to come.
+      const today = new Date().toISOString().slice(0, 10);
       const dated = halcyon.items.flatMap((item) => (item.dueDate ? [item.dueDate] : []));
-      expect(Math.min(...dated.map(Date.parse))).toBeLessThan(Date.parse('2026-09-10'));
-      expect(Math.max(...dated.map(Date.parse))).toBeGreaterThan(Date.parse('2026-09-10'));
+      expect(dated.some((date) => date < today)).toBe(true);
+      expect(dated).toContain(today);
+      expect(dated.some((date) => date > today)).toBe(true);
+    });
+
+    it('leaves items in each inbox, some suggesting a panel of their own workspace and one shown in every workspace', async () => {
+      const cookie = await continueAsGuest();
+      const workspaces = await workspacesOf(cookie);
+
+      for (const name of ['Personal', 'Halcyon Health', 'Oakline Retail']) {
+        const snapshot = await snapshotOf(cookie, named(workspaces, name).id);
+        const filed = new Set(snapshot.filings.map((one) => one.itemId));
+        const inbox = snapshot.items.filter((item) => !filed.has(item.id));
+
+        expect(inbox.length, `${name}'s inbox`).toBeGreaterThanOrEqual(3);
+        const suggested = inbox.flatMap((item) => (item.proposedPanelId ? [item.proposedPanelId] : []));
+        expect(suggested.length, `${name}'s suggestions`).toBeGreaterThan(0);
+        for (const panelId of suggested) {
+          expect(snapshot.panels.map((panel) => panel.id), `${name} suggests a panel it lacks`).toContain(
+            panelId,
+          );
+        }
+        expect(inbox.map((item) => item.title)).toContain(
+          'Call the accountant back about the invoice numbering',
+        );
+      }
+    });
+
+    it('gathers filed items onto filters that come back with what they ask for', async () => {
+      const cookie = await continueAsGuest();
+      const halcyon = await snapshotOf(cookie, named(await workspacesOf(cookie), 'Halcyon Health').id);
+
+      const filters = halcyon.panels.filter((panel) => panel.kind === 'filter');
+
+      expect(filters.map((panel) => panel.name).sort()).toEqual(
+        ['In progress', 'Needs attention', "This week's priorities"].sort(),
+      );
+      expect(filters.find((panel) => panel.name === "This week's priorities")!.filter).toEqual({
+        match: 'all',
+        conditions: [
+          { field: 'dueDate', window: 'week', orOverdue: true },
+          { field: 'priority', values: ['high', 'normal'] },
+        ],
+      });
+      expect(halcyon.filings.some((one) => filters.some((panel) => panel.id === one.panelId))).toBe(
+        false,
+      );
     });
   });
 
