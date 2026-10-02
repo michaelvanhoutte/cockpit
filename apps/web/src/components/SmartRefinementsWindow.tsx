@@ -1,7 +1,7 @@
 import { Fragment, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useQuery } from '@tanstack/react-query';
-import type { RefinementScope, RewriteHistoryEntry, SuggestedPanel } from '@cockpit/shared';
+import { panelPlace, type RefinementScope, type RewriteHistoryEntry, type SuggestedPanel } from '@cockpit/shared';
 import { rewriteHistoryForItemQuery, rewriteHistoryForWorkspaceQuery } from '../api/queries';
 import { LoadFailure } from './LoadFailure';
 
@@ -53,7 +53,9 @@ function textValue(text: string | null): string {
 
 function panelValue(panel: SuggestedPanel | null): string {
   if (!panel) return 'None';
-  return panel.name ?? 'a deleted panel';
+  return panel.name !== null && panel.dashboardName !== null
+    ? panelPlace(panel.dashboardName, panel.name)
+    : 'a deleted panel';
 }
 
 /** One field's line: a text changed only where the new text differs from the old. */

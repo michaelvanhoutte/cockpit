@@ -1335,7 +1335,7 @@ describe('Smart refinements', () => {
           descriptionAfter: 'What it said.',
           looksAt: null,
           suggestedPanelBefore: null,
-          suggestedPanelAfter: { id: 'pn-before', name: 'Before' },
+          suggestedPanelAfter: { id: 'pn-before', name: 'Before', dashboardName: 'Before' },
         }),
       ]);
     });

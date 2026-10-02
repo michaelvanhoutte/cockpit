@@ -23,10 +23,15 @@ export type RewriteAttemptStatus = z.infer<typeof rewriteAttemptStatusSchema>;
 export const refinementScopeSchema = z.enum(['texts-and-panel', 'texts', 'panel']);
 export type RefinementScope = z.infer<typeof refinementScopeSchema>;
 
-/** A suggested Panel as a refinement saw it. `name` is null where that Panel has since been deleted. */
+/**
+ * A suggested Panel as a refinement saw it. `name` and `dashboardName` are
+ * both null where that Panel, or the Dashboard it sat on, has since been
+ * deleted; both are joined live when read, never stored.
+ */
 export const suggestedPanelSchema = z.object({
   id: z.string(),
   name: z.string().nullable(),
+  dashboardName: z.string().nullable(),
 });
 export type SuggestedPanel = z.infer<typeof suggestedPanelSchema>;
 

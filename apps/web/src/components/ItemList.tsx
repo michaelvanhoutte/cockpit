@@ -415,7 +415,7 @@ export function ItemList({
 
   /**
    * The proposal an Item's row draws as a chip, resolved to the Panel's live
-   * name - the display half of "Propose where a captured note belongs,
+   * name and its Dashboard's - the display half of "Propose where a captured note belongs,
    * without filing it there" (issue 298).
    *
    * **One function, not two kept in step by convention.** `acceptRoutingFor`
@@ -428,10 +428,15 @@ export function ItemList({
    * would refuse to write it fresh; this is only the display catching up to a
    * `proposedPanelId` that has gone stale.
    */
-  const routingProposalFor = (item: Item): { panelName: string; reason: string } | undefined => {
+  const routingProposalFor = (
+    item: Item,
+  ): { dashboardName: string; panelName: string; reason: string } | undefined => {
     if (!item.proposedPanelId) return undefined;
     const panel = data?.panels.find((p) => p.id === item.proposedPanelId);
-    return panel ? { panelName: panel.name, reason: item.proposedPanelReason ?? '' } : undefined;
+    const dashboard = data?.dashboards.find((d) => d.id === panel?.dashboardId);
+    return panel && dashboard
+      ? { dashboardName: dashboard.name, panelName: panel.name, reason: item.proposedPanelReason ?? '' }
+      : undefined;
   };
 
   /**

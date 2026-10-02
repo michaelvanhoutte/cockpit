@@ -464,6 +464,15 @@ export const rowInputSchema = z.object({
 export type RowInput = z.infer<typeof rowInputSchema>;
 
 /**
+ * How a Panel is named wherever it has to be told apart from one of the same
+ * name on another Dashboard: "Day to day ▸ Admin & money". The one place the
+ * wording lives.
+ */
+export function panelPlace(dashboardName: string, panelName: string): string {
+  return `${dashboardName} ▸ ${panelName}`;
+}
+
+/**
  * One Item filed on one Panel, and where it sits in that Panel's order
  * (issue 36; architecture.md §4.4). An Item may be filed on as many Panels as
  * you like; the Inbox is the absence of a filing, not a Panel of its own.

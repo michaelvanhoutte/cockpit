@@ -5,6 +5,7 @@ import {
   panelFilterFrom,
   panelGathers,
   panelHoldsText,
+  panelPlace,
   panelTakesItems,
   type FilterCondition,
 } from '../../../src/domain/panel.js';
@@ -22,6 +23,17 @@ const TYPE_OKR: FilterCondition = { field: 'type', values: ['type-okr'] };
 const PANEL_Q3: FilterCondition = { field: 'panel', values: ['panel-q3'] };
 
 describe('Panels', () => {
+  describe('a suggested panel is always named "Dashboard ▸ Panel"', () => {
+    it.each([
+      { situation: 'a panel on a live dashboard', dashboard: 'Day to day', panel: 'Admin & money', reads: 'Day to day ▸ Admin & money' },
+      { situation: 'the same name on one dashboard', dashboard: 'Day to day', panel: 'Inbox', reads: 'Day to day ▸ Inbox' },
+      { situation: 'the same name on another dashboard', dashboard: 'Work', panel: 'Inbox', reads: 'Work ▸ Inbox' },
+      { situation: 'a workspace with one dashboard', dashboard: 'Only', panel: 'Admin & money', reads: 'Only ▸ Admin & money' },
+    ])('$situation', ({ dashboard, panel, reads }) => {
+      expect(panelPlace(dashboard, panel)).toBe(reads);
+    });
+  });
+
   describe('a panel that gathers what it shows says so however its conditions were stored', () => {
     it('reads back exactly what was written', () => {
       expect(panelFilterFrom(panelFilterAsStored([DUE_TODAY]))).toEqual({

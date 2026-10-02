@@ -545,11 +545,19 @@ describe('Panels', () => {
   describe('a proposed panel is drawn as a chip, and taken with one click', () => {
     const proposed = { ...BART, proposedPanelId: 'p-falcon', proposedPanelReason: 'a Falcon question' };
 
-    it('draws the name of the panel proposed, resolved from the id the item carries', async () => {
+    it('draws the dashboard and the panel proposed, resolved from the id the item carries', async () => {
       await showList({ items: [proposed] });
 
-      const chip = screen.getByText('→ Falcon');
-      expect(chip).toHaveAttribute('title', 'a Falcon question');
+      const chip = screen.getByRole('button', { name: 'Today ▸ Falcon - a Falcon question' });
+      expect(chip).toHaveTextContent('→ Today ▸ Falcon');
+      expect(chip).toHaveAttribute('title', 'Today ▸ Falcon - a Falcon question');
+    });
+
+    it('draws nothing where the dashboard of the panel proposed is not in the snapshot', async () => {
+      held.dashboards = [RESEARCH];
+      await showList({ items: [proposed] });
+
+      expect(screen.queryByText(/^→/)).toBeNull();
     });
 
     it('draws nothing where the panel proposed no longer exists', async () => {
@@ -561,7 +569,7 @@ describe('Panels', () => {
     it('sends the same move the picker would, naming the panel proposed', async () => {
       const user = await showList({ items: [proposed] });
 
-      await user.click(screen.getByText('→ Falcon'));
+      await user.click(screen.getByRole('button', { name: /^Today ▸ Falcon/ }));
 
       expect(held.mutate).toHaveBeenCalledWith(
         expect.objectContaining({

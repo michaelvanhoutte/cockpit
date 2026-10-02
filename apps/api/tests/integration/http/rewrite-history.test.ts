@@ -568,6 +568,96 @@ describe('Smart refinements', () => {
     });
   });
 
+  describe('a suggested panel is named with the dashboard it sits on', () => {
+    type Named = { id: string; name: string | null; dashboardName: string | null } | null;
+
+    async function aDashboard(name: string): Promise<string> {
+      const dashboardId = nextId();
+      const response = await postChange('add_dashboard', {
+        commandId: nextId(),
+        issuedAt: '2026-09-16T09:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        dashboardId,
+        panelId: nextId(),
+        name,
+      });
+      expect(response.status).toBe(200);
+      return dashboardId;
+    }
+
+    /** An item whose second attempt started from the panel its first proposed, so the row holds both. */
+    async function aRefinedItem(panelId: string): Promise<string> {
+      env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
+      theModelIs({ says: { ...A_READING, panel: { panelId, reason: 'it fits' } } });
+      const itemId = await captureANote();
+      await vi.waitFor(async () => expect(await statusOf(itemId)).toBe('rewritten'), {
+        timeout: 15_000,
+        interval: 50,
+      });
+      const other = await captureANote({ itemId: nextId() });
+      await vi.waitFor(async () => expect(await statusOf(other)).toBe('rewritten'), {
+        timeout: 15_000,
+        interval: 50,
+      });
+      await correctTitle(other, 'My own title for this one');
+      await vi.waitFor(async () => expect(await rowsFor(itemId)).toHaveLength(2), {
+        timeout: 15_000,
+        interval: 50,
+      });
+      return itemId;
+    }
+
+    async function latestPanels(itemId: string): Promise<{ before: Named; after: Named }> {
+      const response = await asUser(`http://cockpit.test/v1/items/${itemId}/rewrite-history`);
+      const { entries } = (await response.json()) as {
+        entries: { suggestedPanelBefore: Named; suggestedPanelAfter: Named }[];
+      };
+      // Newest first: the re-read started from the panel the capture's own attempt settled on.
+      return { before: entries[0]!.suggestedPanelBefore, after: entries[1]!.suggestedPanelAfter };
+    }
+
+    it('carries the panel and dashboard names, before and after', async () => {
+      const dashboardId = await aDashboard('Day to day');
+      const panelId = await aPanel(WORKSPACE_ID, dashboardId, 'Admin & money');
+      const itemId = await aRefinedItem(panelId);
+
+      const named = { id: panelId, name: 'Admin & money', dashboardName: 'Day to day' };
+      expect(await latestPanels(itemId)).toEqual({ before: named, after: named });
+    });
+
+    it('reads as a deleted panel once the panel is deleted', async () => {
+      const dashboardId = await aDashboard('Day to day');
+      const panelId = await aPanel(WORKSPACE_ID, dashboardId, 'Admin & money');
+      const itemId = await aRefinedItem(panelId);
+      const deleted = await postChange('delete_panel', {
+        commandId: nextId(),
+        issuedAt: '2026-09-16T11:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        panelId,
+      });
+      expect(deleted.status).toBe(200);
+
+      const gone = { id: panelId, name: null, dashboardName: null };
+      expect(await latestPanels(itemId)).toEqual({ before: gone, after: gone });
+    });
+
+    it('reads as a deleted panel once its dashboard is deleted', async () => {
+      const dashboardId = await aDashboard('Day to day');
+      const panelId = await aPanel(WORKSPACE_ID, dashboardId, 'Admin & money');
+      const itemId = await aRefinedItem(panelId);
+      const deleted = await postChange('delete_dashboard', {
+        commandId: nextId(),
+        issuedAt: '2026-09-16T11:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        dashboardId,
+      });
+      expect(deleted.status).toBe(200);
+
+      const gone = { id: panelId, name: null, dashboardName: null };
+      expect(await latestPanels(itemId)).toEqual({ before: gone, after: gone });
+    });
+  });
+
   describe('a later, separate re-proposal is its own new record', () => {
     it('adds a second record for the item once a correction elsewhere re-reads it too', async () => {
       env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';

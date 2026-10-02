@@ -27,8 +27,8 @@ vi.mock('../../../src/api/queries', () => ({
 }));
 
 const ITEM_ID = '11111111-1111-7111-8111-000000000001';
-const COMPLIANCE = { id: 'p-compliance', name: 'Compliance' };
-const VALIDATION = { id: 'p-validation', name: 'Validation' };
+const COMPLIANCE = { id: 'p-compliance', name: 'Compliance', dashboardName: 'Day to day' };
+const VALIDATION = { id: 'p-validation', name: 'Validation', dashboardName: 'Quality' };
 
 let nextId = 0;
 
@@ -213,13 +213,13 @@ describe('Smart refinements', () => {
 
       const lines = await openTheRow(dialog);
       expect(lines.map((line) => line.field)).toEqual(['Suggested panel']);
-      expect(within(lines[0]!.says).getByRole('deletion')).toHaveTextContent('Compliance');
-      expect(within(lines[0]!.says).getByRole('insertion')).toHaveTextContent('Validation');
+      expect(within(lines[0]!.says).getByRole('deletion')).toHaveTextContent('Day to day ▸ Compliance');
+      expect(within(lines[0]!.says).getByRole('insertion')).toHaveTextContent('Quality ▸ Validation');
     });
 
     it('names a suggested panel deleted since as a deleted panel', async () => {
       const dialog = await openWith([
-        aRefinement({ looksAt: 'panel', suggestedPanelBefore: { id: 'p-gone', name: null }, suggestedPanelAfter: null }),
+        aRefinement({ looksAt: 'panel', suggestedPanelBefore: { id: 'p-gone', name: null, dashboardName: null }, suggestedPanelAfter: null }),
       ]);
 
       const [panel] = await openTheRow(dialog);
