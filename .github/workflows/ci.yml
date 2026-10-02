@@ -12,7 +12,7 @@ name: CI
 # checks on branch pushes on its way to building a preview, and without it an
 # unreviewed branch would be gated by nothing at all. That workflow is gone
 # (docs/deployment.md, "No branch environments"); the gap it leaves is
-# accepted rather than closed, because /issue's own process already runs
+# accepted rather than closed, because /build's own process already runs
 # typecheck, lint, the tests and a browser pass by hand throughout a unit of
 # work, and opens the pull request only once that is already done.
 #

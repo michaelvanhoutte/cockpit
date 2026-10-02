@@ -8,7 +8,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/issue-title.mjs\""
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/build-title.mjs\""
           }
         ]
       }

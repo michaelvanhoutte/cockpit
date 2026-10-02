@@ -32,7 +32,7 @@ pnpm dev
 
 ## Starting an issue
 
-**`/issue <number>` is the entry point for issue work.** It sequences everything below — confirm the issue is live, scope, build, test, prove it runs, review, ship — so assembling the phases by hand is only for work that never had an issue number.
+**`/build <number>` is the entry point for issue work.** It sequences everything below — confirm the issue is live, scope, build, test, prove it runs, review, ship — so assembling the phases by hand is only for work that never had an issue number.
 
 ## Scoping new work
 
