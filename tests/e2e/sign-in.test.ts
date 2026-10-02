@@ -3,6 +3,7 @@ import {
   MICHAEL,
   addressOf,
   capture,
+  captureBox,
   dashboardBar,
   expect,
   inbox,
@@ -64,6 +65,7 @@ test.describe('Sign-in', () => {
       await page
         .getByRole('button', { name: 'Skip' })
         .or(dashboardBar(page))
+        .or(captureBox(page))
         .first()
         .waitFor({ state: 'visible' });
       await pastOnboarding(page, isMobile);
@@ -105,6 +107,7 @@ test.describe('Sign-in', () => {
       await page
         .getByRole('button', { name: 'Skip' })
         .or(dashboardBar(page))
+        .or(captureBox(page))
         .first()
         .waitFor({ state: 'visible' });
       await pastOnboarding(page, isMobile);
@@ -135,6 +138,7 @@ test.describe('Sign-in', () => {
       await page
         .getByRole('button', { name: 'Skip' })
         .or(dashboardBar(page))
+        .or(captureBox(page))
         .first()
         .waitFor({ state: 'visible' });
       await pastOnboarding(page, isMobile);
@@ -230,6 +234,7 @@ test.describe('Accounts', () => {
       await page
         .getByRole('button', { name: 'Skip' })
         .or(dashboardBar(page))
+        .or(captureBox(page))
         .first()
         .waitFor({ state: 'visible' });
       await pastOnboarding(page, isMobile);
