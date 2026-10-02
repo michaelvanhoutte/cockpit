@@ -467,7 +467,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                   { title: 'Encryption at rest confirmed for every store', note: true, topics: ['Security'] },
                   { title: 'Password rules brought in line with the standard', priority: 'low' },
                   { title: 'Turn off the VPN accounts of last year\'s contractors', due: -4 },
-                  { title: 'Log retention on the firewall is only seven days' , note: true },
+                  { title: 'Log retention on the firewall is only seven days', note: true },
                   { title: 'Break-glass procedure for the clinical systems' },
                 ],
               },
