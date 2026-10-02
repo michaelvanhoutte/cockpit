@@ -196,7 +196,11 @@
   "vars": {
     "GOOGLE_CLIENT_ID": "1049607304950-0j1ssp9dn4cf35vjlfndtb45jgqof62a.apps.googleusercontent.com",
     "APP_ORIGIN": "https://cockpit.vanhoutte-michael.workers.dev",
-    "GUEST_SIGN_IN": "true"
+    "GUEST_SIGN_IN": "true",
+    // The Cloudflare Web Analytics dashboard the Usage window links to. Empty
+    // until a person has enabled Web Analytics for this app in the Cloudflare
+    // dashboard and pasted its address here; an empty value shows no link.
+    "WEB_ANALYTICS_URL": ""
   },
 
   // Deferred work, consumed by this same Worker (architecture, "Background

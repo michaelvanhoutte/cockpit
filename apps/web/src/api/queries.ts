@@ -18,6 +18,7 @@ import {
   fetchItemTypes,
   fetchMe,
   fetchRegisteredUsers,
+  fetchUsage,
   fetchRewriteHistoryForItem,
   fetchRewriteHistoryForWorkspace,
   fetchSnapshot,
@@ -76,6 +77,12 @@ export const registeredUsersQuery = queryOptions({
   staleTime: 0,
 });
 
+/**
+ * What the Usage window reads, for a window of this many days. Re-read on
+ * opening for the reason the register's list is: it is a question about now.
+ */
+export const usageQuery = (days: number) =>
+  queryOptions({ queryKey: ['usage', days], queryFn: () => fetchUsage(days), staleTime: 0 });
 /**
  * Adding somebody, and re-reading the list once they are in.
  *

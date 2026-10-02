@@ -7,6 +7,7 @@ import {
   startAgentOutcomeSchema,
   itemTypeListSchema,
   registeredUserListSchema,
+  usageSchema,
   rewriteHistoryResponseSchema,
   userDeletedSchema,
   type AccountHoldings,
@@ -28,6 +29,7 @@ import {
   type CommandResult,
   type ItemTypeList,
   type RegisteredUserList,
+  type Usage,
   type RewriteHistoryResponse,
   type UserAdded,
   type SignedIn,
@@ -103,6 +105,16 @@ export async function fetchRegisteredUsers(): Promise<RegisteredUserList> {
   return registeredUserListSchema.parse(await res.json());
 }
 
+/**
+ * What the admin's Usage window reads ("Add an admin Usage window for sign-ins
+ * and guest sessions", issue 654). A 403 arrives as an ordinary failure, for
+ * the reason `fetchRegisteredUsers` gives.
+ */
+export async function fetchUsage(days: number): Promise<Usage> {
+  const res = await api.v1.admin.usage.$get({ query: { days: String(days) } });
+  if (!res.ok) throw refusal('usage', res.status);
+  return usageSchema.parse(await res.json());
+}
 /**
  * Adds somebody ("Add a user on the admin page, so a second person no longer
  * needs SQL", issue 231).

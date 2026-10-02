@@ -18,6 +18,7 @@ const AgentDock = lazy(() => import('../components/AgentDock'));
 const ManageTypes = lazy(() => import('../components/ManageTypes'));
 const ManageConnectedApps = lazy(() => import('../components/ManageConnectedApps'));
 const ManageUsers = lazy(() => import('../components/ManageUsers'));
+const UsageWindow = lazy(() => import('../components/UsageWindow'));
 const MarkedDoneWindow = lazy(() => import('../components/MarkedDoneWindow'));
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
@@ -477,7 +478,7 @@ function TheShell() {
    * inside a workspace, and a page reached without one made it degrade into a
    * header wearing none of the workspace's colour, control or selected tab.
    */
-  const [managing, setManaging] = useState<'types' | 'apps' | 'users' | 'done' | null>(null);
+  const [managing, setManaging] = useState<'types' | 'apps' | 'users' | 'usage' | 'done' | null>(null);
   const typesOpenedFrom = useRef<HTMLElement | null>(null);
 
   /**
@@ -537,6 +538,13 @@ function TheShell() {
             onSelect: (from: HTMLElement | null) => {
               typesOpenedFrom.current = from;
               setManaging('users');
+            },
+          },
+          {
+            label: 'Usage',
+            onSelect: (from: HTMLElement | null) => {
+              typesOpenedFrom.current = from;
+              setManaging('usage');
             },
           },
         ]
@@ -1195,6 +1203,17 @@ function TheShell() {
         <Suspense fallback={null}>
           <ManageUsers
             open={managing === 'users'}
+            onClose={() => setManaging(null)}
+            returnFocusTo={typesOpenedFrom.current}
+          />
+        </Suspense>
+      )}
+
+      {/* What the sign-ins and guest sessions came to. Offered to an admin only, like the list of users. */}
+      {me?.user.role === ADMIN && (
+        <Suspense fallback={null}>
+          <UsageWindow
+            open={managing === 'usage'}
             onClose={() => setManaging(null)}
             returnFocusTo={typesOpenedFrom.current}
           />

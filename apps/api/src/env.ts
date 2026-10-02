@@ -201,6 +201,16 @@ export interface Env {
    */
   GUEST_SIGN_IN?: string;
   /**
+   * Where Cloudflare Web Analytics shows this Cockpit's page traffic, which the
+   * admin's Usage window links to and never fetches ("Add an admin Usage window
+   * for sign-ins and guest sessions", issue 654). Enabling Web Analytics in the
+   * dashboard and setting this are both a person's steps.
+   *
+   * Optional: absent or empty means no link is shown. Only an http(s) address
+   * is used (`accounts/usage.ts`).
+   */
+  WEB_ANALYTICS_URL?: string;
+  /**
    * The operator's secret, and the only thing standing in front of the backup
    * routes. Optional in the type because it is a secret rather than a binding:
    * an environment that has not had one put in it must refuse those routes
