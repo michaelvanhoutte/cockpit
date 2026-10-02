@@ -219,6 +219,7 @@ The three workflows that need a toolchain — CI and the two deploys — share [
 | Project instructions | [CLAUDE.md](CLAUDE.md) | Loaded into every session: how to run it, how to write, when to scope, the two testing rules that get skipped most, when a pull request is opened as a draft and marked ready, and what answering a review requires. |
 | `/build` command | [.claude/commands/build.md](.claude/commands/build.md) | The entry point for issue work: confirm the issue is live, scope it, build, test, prove it runs, review, ship — sequencing CLAUDE.md and its skills rather than restating them. |
 | `scoping` skill | [.claude/skills/scoping/](.claude/skills/scoping/SKILL.md) | Sharpen requirements, size the vertical slice, enumerate failure modes, produce the statement list — before any code. |
+| `technical-design` skill | [.claude/skills/technical-design/](.claude/skills/technical-design/SKILL.md) | Settle data placement, service placement, sync or async, and the quality attributes they affect — for the engineer, after scoping and before building. |
 | `testing` skill | [.claude/skills/testing/](.claude/skills/testing/SKILL.md) | The binding test rules, restated in full so no agent has to open the strategy document. |
 | `github-issue` skill | [.claude/skills/github-issue/](.claude/skills/github-issue/SKILL.md) | The issue body template, its length rules, and the `gh` publishing step. |
 | Enabled plugin | [.claude/settings.json](.claude/settings.json) | Records that `mattpocock-skills` should be on. The plugin itself is installed per machine. |

@@ -38,6 +38,8 @@ pnpm dev
 
 **Run the `scoping` skill before writing code for any feature or fix.** It decides whether the work has to be seen first, sharpens the requirements, sizes the vertical slice, enumerates the failure modes of anything that changes state it cannot put back, and produces the statement list. Starting the work triggers it, not the decision to file an issue.
 
+**Then run the `technical-design` skill where the work adds or moves a store, a service, a queue or a sync/async boundary.** `scoping` settles what is built and a product owner can run it; `technical-design` settles its architecture and an engineer runs it, so the two stay separate. It says "no design needed" for work inside a shape `docs/architecture.md` already records.
+
 **Check the issue is still open and unclaimed at the moment you start it.** Several sessions work this repository at once, so it can be closed by work that merged before your branch point, or while you read it. Fetching `main` is not this check.
 
 ```bash

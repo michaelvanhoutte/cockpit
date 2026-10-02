@@ -36,6 +36,11 @@ layer-by-layer implementation list. No file paths or code snippets; they go stal
 Exception: a snippet from a prototype that encodes a decision more precisely than prose
 can (schema, state machine) - trimmed to the decision, noted as coming from a prototype.
 
+## Technical design
+
+[The decision lines from the `technical-design` skill. Omit the section where that skill
+said no design was needed.]
+
 ## Failure modes
 
 [One line per question from scoping's "Enumerate the failure modes when state cannot be put
