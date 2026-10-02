@@ -334,6 +334,75 @@ describe('Offline', () => {
     });
   });
 
+  describe('a tab that dies mid-send leaves a capture the next tab finishes', () => {
+    it('clears one that landed whole but was never forgotten, without sending it again', async () => {
+      const server = aServer();
+      const store = browserOutboxStore();
+      await store.put({
+        v: 1,
+        id: 'item-landed',
+        owner: 'user-ada',
+        commandId: 'command-landed',
+        capturedAt: '2026-10-01T08:00:00.000Z',
+        workspaceId: 'ws-work',
+        decided: true,
+        message: 'tes',
+        typeId: 'type-task',
+        files: [],
+        landed: true,
+        refused: null,
+      });
+
+      const outbox = aTab(server, { owner: null });
+      outbox.signedInAs('user-ada');
+      await settled();
+
+      expect(outbox.getShown()).toEqual([]);
+      expect(await store.all()).toEqual([]);
+      expect(server.captureCalls).toBe(0);
+    });
+
+    /**
+     * Storage that fails on its `dies`th write or delete of the capture, as a
+     * frozen tab does between two steps; the capture is one note and one file.
+     */
+    it.each([
+      { situation: 'before the note is marked landed', dies: 2 },
+      { situation: 'before the file is marked landed', dies: 3 },
+      { situation: 'before the finished capture is forgotten', dies: 4 },
+    ])('converges on one Item, one attachment and an empty outbox, dying $situation', async ({ dies }) => {
+      const server = aServer();
+      const real = browserOutboxStore();
+      let writes = 0;
+      const dyingStore: OutboxStore = {
+        all: () => real.all(),
+        put: async (entry) => {
+          if ((writes += 1) === dies) throw new Error('the tab was frozen');
+          return real.put(entry);
+        },
+        remove: async (id) => {
+          if ((writes += 1) === dies) throw new Error('the tab was frozen');
+          return real.remove(id);
+        },
+      };
+      const first = aTab(server, { store: dyingStore });
+      await first.add(capture('Receipts', [photo()]));
+      await settled();
+      first.stop();
+
+      const next = aTab(server, { owner: null });
+      next.signedInAs('user-ada');
+      await next.send();
+      await settled();
+
+      expect(messages(server)).toEqual(['Receipts']);
+      expect([...server.attachments.values()].map((one) => one.name)).toEqual(['photo.png']);
+      expect(next.getShown()).toEqual([]);
+      expect(await real.all()).toEqual([]);
+      next.stop();
+    });
+  });
+
   describe('files captured with a note wait with it, and attach once it lands', () => {
     it('keeps both files of a note captured offline across a reload, and attaches them once it lands', async () => {
       const server = aServer();
