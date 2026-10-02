@@ -1,4 +1,4 @@
-// UserPromptSubmit hook: a prompt starting `/build <number>` names the session `#<number> <title>`.
+// UserPromptSubmit hook: a prompt starting `/build <number>` (or `/build <issue URL>`) names the session `#<number> <title>`.
 import { execFileSync } from 'node:child_process';
 
 let input = '';
@@ -7,7 +7,7 @@ for await (const chunk of process.stdin) input += chunk;
 try {
   const event = JSON.parse(input);
   const prompt = String(event.prompt ?? event.user_message ?? '');
-  const number = /^\s*\/build\s+#?(\d+)/.exec(prompt)?.[1];
+  const number = /^\s*\/build\s+(?:#|\S*\/issues\/)?(\d+)/.exec(prompt)?.[1];
   if (number) {
     const title = execFileSync(
       'gh',
