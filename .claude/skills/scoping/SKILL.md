@@ -1,11 +1,11 @@
 ---
 name: scoping
-description: Cockpit's process for deciding whether a piece of work has to be seen before it is scoped, sharpening fuzzy requirements, sizing it as a vertical slice naming the model that builds each unit, handing architecture and failure modes to the `technical-design` skill, and producing its statement list of test cases - before any code is written. Use whenever starting new feature work, a bug fix, or a larger request, whether or not it will become a GitHub issue. Triggers on the work starting, not on the decision to file an issue.
+description: Cockpit's process for deciding whether a piece of work has to be seen before it is scoped and for sharpening fuzzy requirements into the whole, unsliced piece of work - before any design, slicing or code. Run by product or an engineer; hands off to `technical-design` and `slicing`. Use whenever starting new feature work, a bug fix, or a larger request, whether or not it will become a GitHub issue. Triggers on the work starting, not on the decision to file an issue.
 ---
 
 # Scoping a piece of work
 
-Fuzzy scope is where features go wrong, before a line of code or an issue exists. This runs on **any** new piece of work — built straight into this session, filed as an issue, or split into several. Filing an issue is one possible output, never the trigger.
+Fuzzy scope is where features go wrong, before a line of code or an issue exists. This runs on **any** new piece of work, and starting the work is the trigger. It ends by filing the ticket the next two skills build on.
 
 ## Process
 
@@ -45,46 +45,18 @@ Use the `grilling` skill's round-based interview (mattpocock-skills): number eac
 
 Do not write to `CONTEXT.md` or `docs/adr/` — Cockpit's product rules and glossary live in `docs/product/`, its open decisions in `functional-definition.md`, its architecture in `architecture.md`, and integration research in the `*-options.md` docs. Record anything permanent there, as the rule now stands and only once it is built: what the person sees, what the UI tells them and how it behaves. How it looks belongs in `docs/design-system.md`. Behaviour shared across features is stated once, in `docs/product/across-the-app.md`, and referred to from the feature. A rule is edited in place rather than appended, with its reason in a clause where it would otherwise look arbitrary. Designs not yet built go to `docs/ideas.md`, marked as decided where they are; what a rule replaced and which issue decided it stay in git and the issue.
 
-### 4. Size it as a vertical slice
+### 4. Gate before designing or slicing
 
-One unit of work is one narrow but complete path through every layer it touches (schema, API, UI, tests): demoable on its own, and sized to fit a single fresh context window.
-
-**A context window is one measure of size, and elapsed time is the other.** `main` merges roughly one pull request an hour, and a branch pays for every one that lands while it is open — twelve landed under "Edit an item's title and description on a form of its own" (pull request 163) in fifteen hours, costing six merges that each re-resolved the Item model, capture and the row, and a full re-run of three test tiers apiece. Ask whether the slice can be *merged today*, not only whether it fits a sitting; where it cannot, split it again.
-
-If the request doesn't fit, split it into units in dependency order, each declaring what it is **blocked by**. Work the frontier of unblocked units first; if they get filed, that is also the filing order.
-
-**Exception:** a wide mechanical refactor (rename a shared symbol, retype a column) can't be sliced vertically. Sequence it as expand (add the new form beside the old) → migrate in batches, each its own unit blocked by the expand → contract (delete the old form), blocked by every batch.
-
-**Name the model that builds each unit, every unit, with a one-line reason** — never "default" and never nothing, since the session that builds it is rarely the one that scoped it:
-
-- `opus` — the unit changes state it cannot put back (so a wrong call costs more than the stronger model does), or step 3 leaves genuine design judgment unresolved rather than a fuzzy term to look up. A migrate batch that itself changes such state — a data backfill, a row rewrite — stays `opus` however mechanical its pattern looks.
-- `haiku` — the unit is mechanical, fully specified, and changes no state it cannot put back: a shared-symbol rename swept across files, or a migrate batch that only touches code, never stored data.
-- `sonnet` — everything else.
-
-**When the work grows mid-session, say what it now costs.** Each addition gets judged against the one before it rather than the original ask, so a run of reasonable expansions quadruples a change without anyone deciding to. Name the new total and what it drags behind it — its own tests, another documentation sweep, another review round — so continuing is chosen rather than defaulted into.
-
-### 5. Hand off the technical design
-
-**Scoping stops at what is built, for whom and in what order.** Where the work stores data, crosses a sync or async boundary, adds an integration or job, or changes state it cannot put back, the [technical-design](../technical-design/SKILL.md) skill runs next, by the engineer, and owns the architecture and the failure modes. Note here that it applies; do not decide it.
-
-### 6. Generate the statement list
-
-Follow [.claude/skills/testing/references/statement-lists.md](../testing/references/statement-lists.md) exactly — the passes in order, the collapsing step, the pruning criterion, the ways-things-break checklist — using the docs read in step 1.
-
-This tells the build agent which tests to implement, which is why it is drafted now, while the scope is still small enough to reason about. It stops being authoritative once building starts: the test names in source supersede it, per "Name it after the product" in the testing skill. If this is going into a GitHub issue, head that section verbatim:
-
-> Drafted for build-time reference. Once implemented, these become test names in source per the testing skill; this list is not maintained afterward.
-
-### 7. Gate before building or filing
-
-Do not proceed — to code or to `gh issue create` — if any of these holds:
+Do not hand off if any of these holds:
 
 - The work puts up a surface nobody has seen and step 2's question was never asked → step 2.
-- The slice is too big for one sitting, or a unit names no model → step 4.
-- The work stores data, crosses a sync or async boundary, or changes state it cannot put back, and `technical-design` has not run → step 5.
-- Any real behaviour this work describes has no row in the statement list → step 6.
 - A question would produce a different diff depending on its answer → step 3, or step 2's POC where discussion can't settle it. It is unfinished scope, not an entry for **Out of scope / open questions**.
 
 ## Output
 
-A scoped unit of work (or several, in dependency order), its statement list, the model that builds it, and a note where `technical-design` applies. Hand off to `technical-design` where it does, then to the `github-issue` skill, which covers only the body template and publishing, or build it directly with the statement list going straight into the test files.
+**File the whole piece of work as one ticket**, unsliced, through the [github-issue](../github-issue/SKILL.md) skill: Problem, What to build and Out of scope, labelled `unsliced`, which tells `/build` and any reader that design and slicing have not run. Product can stop here; an engineer picks the ticket up by number.
+
+Name what runs next and who runs it; nothing here calls it:
+
+- [technical-design](../technical-design/SKILL.md), by the engineer, where the work stores data, crosses a sync or async boundary, adds an integration or job, or changes state it cannot put back. It adds its sections to the ticket.
+- [slicing](../slicing/SKILL.md), by the engineer, always, after design where design applied. It finishes the ticket or splits it into children under it.

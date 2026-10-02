@@ -1,6 +1,6 @@
 ---
 name: harness-cost-review
-description: Cockpit's process for periodically checking whether a required CI check, agent review, or branch-protection gate is still earning its cost - sampling recent pull requests for how often each required check actually blocked one and what tools/ci-stability says about its duration, and reading agent-review verdicts for warnings that fire without signal - then filing one issue per candidate for a person to decide. Never a report, and never on an impression without a sampled window behind it. Hands each candidate through scoping and github-issue; never edits workflows, branch-protection, or review prompts itself.
+description: Cockpit's process for periodically checking whether a required CI check, agent review, or branch-protection gate is still earning its cost - sampling recent pull requests for how often each required check actually blocked one and what tools/ci-stability says about its duration, and reading agent-review verdicts for warnings that fire without signal - then filing one issue per candidate for a person to decide. Never a report, and never on an impression without a sampled window behind it. Hands each candidate through scoping, slicing and github-issue; never edits workflows, branch-protection, or review prompts itself.
 ---
 
 # Is the harness still earning its cost
@@ -101,7 +101,7 @@ Matching on body, not title, for the same reason [periodic-review](../periodic-r
 
 ### 8. Size and file each candidate
 
-Each candidate is already one unit for [scoping](../scoping/SKILL.md)'s sizing step. Technical design: "No design needed"; failure modes: none — the fix this issue asks for is a person tightening, narrowing, or dropping a check, not a state change this skill makes. A statement list is rarely the right shape for a decision like "is this check worth its cost"; where scoping's own step would produce "None," say that.
+Each candidate is already one unit for [slicing](../slicing/SKILL.md)'s sizing step. Technical design: "No design needed"; failure modes: none — the fix this issue asks for is a person tightening, narrowing, or dropping a check, not a state change this skill makes. A statement list is rarely the right shape for a decision like "is this check worth its cost"; where slicing's own step would produce "None," say that.
 
 Hand it to [github-issue](../github-issue/SKILL.md) for the body. **Problem** and **What to build** carry the evidence — the check's name, which bar it cleared, the numbers, the window and sample size — and name it as a candidate to tighten, narrow, or drop, not a decision already made: the person who reads it still chooses whether the cost is worth it. Apply the `harness-cost-review` label after filing.
 

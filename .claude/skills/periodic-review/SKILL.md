@@ -1,6 +1,6 @@
 ---
 name: periodic-review
-description: Cockpit's process for periodically reading merged pull requests, their review threads, and closed issues since the last run, and filing one issue per class of finding that recurs at least twice and isn't already tracked - never a report, and never on a single instance. Use every few weeks to look back over recent work, or when asked to review recent pull requests or issues for process gaps. Hands each class through `scoping` and `github-issue`; never edits code, workflows, or guidance itself.
+description: Cockpit's process for periodically reading merged pull requests, their review threads, and closed issues since the last run, and filing one issue per class of finding that recurs at least twice and isn't already tracked - never a report, and never on a single instance. Use every few weeks to look back over recent work, or when asked to review recent pull requests or issues for process gaps. Hands each class through `scoping`, `slicing` and `github-issue`; never edits code, workflows, or guidance itself.
 ---
 
 # Looking back over recent work
@@ -68,7 +68,7 @@ Skip filing if one matches — the open issue is the record, not a fresh one.
 
 ### 5. Size and file each class
 
-Each class that clears the bar is already one unit — [scoping](../scoping/SKILL.md)'s "Size it as a vertical slice" step needs no further split. Run its remaining steps in brief: `technical-design` only if the fix touches state that cannot be put back (rare for a process or guidance fix); a statement list per its "Generate the statement list" step, and where the fix is prose rather than code, "None" is the honest answer most recent process issues already give.
+Each class that clears the bar is already one unit — [slicing](../slicing/SKILL.md)'s "Size it as a vertical slice" step needs no further split. Run the rest in brief: `technical-design` only if the fix touches state that cannot be put back (rare for a process or guidance fix); a statement list per slicing's "Generate the statement list" step, and where the fix is prose rather than code, "None" is the honest answer most recent process issues already give.
 
 Hand the sized class to [github-issue](../github-issue/SKILL.md) for the body: the count and the sample go in **Problem**, naming the governing file from step 3 there as context for what is broken. **What to build** stays the end-to-end behaviour with no path in it, per github-issue's own rule. File in any order — classes from one run are independent of each other. After filing, apply the `periodic-review` label so the next run's window starts here.
 

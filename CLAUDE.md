@@ -36,9 +36,11 @@ pnpm dev
 
 ## Scoping new work
 
-**Run the `scoping` skill before writing code for any feature or fix.** It decides whether the work has to be seen first, sharpens the requirements, sizes the vertical slice, and produces the statement list. Starting the work triggers it, not the decision to file an issue.
+**Run `scoping`, `technical-design` and `slicing`, in that order, before writing code for any feature or fix.** Each is run by the person who owns it and none calls the next: they share one ticket, which `scoping` files labelled `unsliced`, `technical-design` adds to, and `slicing` finishes or splits into children under it as parent. So product can stop after scoping. Starting the work triggers the first.
 
-**Run the `technical-design` skill after scoping and before building or filing.** It answers "no design needed" unless the work stores data, crosses a sync or async boundary, adds an integration or job, or changes state it cannot put back; then it settles the placement and enumerates the failure modes.
+- `scoping` decides whether the work has to be seen first and sharpens the requirements into the whole, unsliced piece of work.
+- `technical-design` answers "no design needed" unless the work stores data, crosses a sync or async boundary, adds an integration or job, or changes state it cannot put back; then it settles the placement and enumerates the failure modes, over the whole scope so no decision sees half of it.
+- `slicing` cuts the scope and design into vertical slices, names each unit's model, and produces the statement list.
 
 **Check the issue is still open and unclaimed at the moment you start it.** Several sessions work this repository at once, so it can be closed by work that merged before your branch point, or while you read it. Fetching `main` is not this check.
 
