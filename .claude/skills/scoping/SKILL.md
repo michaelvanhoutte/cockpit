@@ -1,6 +1,6 @@
 ---
 name: scoping
-description: Cockpit's process for deciding whether a piece of work has to be seen before it is scoped, sharpening fuzzy requirements, sizing it as a vertical slice naming the model that builds each unit, enumerating the failure modes of anything that changes state it cannot put back, and producing its statement list of test cases - before any code is written. Use whenever starting new feature work, a bug fix, or a larger request, whether or not it will become a GitHub issue. Triggers on the work starting, not on the decision to file an issue.
+description: Cockpit's process for deciding whether a piece of work has to be seen before it is scoped, sharpening fuzzy requirements, sizing it as a vertical slice naming the model that builds each unit, handing architecture and failure modes to the `technical-design` skill, and producing its statement list of test cases - before any code is written. Use whenever starting new feature work, a bug fix, or a larger request, whether or not it will become a GitHub issue. Triggers on the work starting, not on the decision to file an issue.
 ---
 
 # Scoping a piece of work
@@ -57,27 +57,15 @@ If the request doesn't fit, split it into units in dependency order, each declar
 
 **Name the model that builds each unit, every unit, with a one-line reason** — never "default" and never nothing, since the session that builds it is rarely the one that scoped it:
 
-- `opus` — the unit trips step 5 below (it changes state it cannot put back, so a wrong call costs more than the stronger model does), or step 3 leaves genuine design judgment unresolved rather than a fuzzy term to look up. A migrate batch that itself trips step 5 — a data backfill, a row rewrite — stays `opus` however mechanical its pattern looks.
-- `haiku` — the unit is mechanical, fully specified, and touches nothing step 5 would flag: a shared-symbol rename swept across files, or a migrate batch that only touches code, never stored data.
+- `opus` — the unit changes state it cannot put back (so a wrong call costs more than the stronger model does), or step 3 leaves genuine design judgment unresolved rather than a fuzzy term to look up. A migrate batch that itself changes such state — a data backfill, a row rewrite — stays `opus` however mechanical its pattern looks.
+- `haiku` — the unit is mechanical, fully specified, and changes no state it cannot put back: a shared-symbol rename swept across files, or a migrate batch that only touches code, never stored data.
 - `sonnet` — everything else.
 
 **When the work grows mid-session, say what it now costs.** Each addition gets judged against the one before it rather than the original ask, so a run of reasonable expansions quadruples a change without anyone deciding to. Name the new total and what it drags behind it — its own tests, another documentation sweep, another review round — so continuing is chosen rather than defaulted into.
 
-### 5. Enumerate the failure modes when state cannot be put back
+### 5. Hand off the technical design
 
-**Skip this step unless the work changes state it cannot put back** — a migration, a backfill, a script that rewrites or deletes rows, a secret rotation, a one-way call into somebody else's system. Most work is safe to get wrong once, because a wrong query just returns wrong rows until somebody fixes it. This kind is not: get it wrong and what it touched is gone. The test is whether running it twice, or running only half of it, could leave something nobody can put back.
-
-**What this step produces:** one line answering each question below. They go in the issue under **Failure modes**, and later as a header comment on the thing itself, so it gets built to satisfy them rather than discovering them one at a time. They are asked now because they cost minutes while the change is still an idea, and a review round each once it is code.
-
-- **If it stops halfway, what has already happened and what has not?** A migration file's statements run one at a time with nothing wrapping them, so a file that fails in the middle leaves everything before the failure applied and nothing after it.
-- **What happens the second time it runs?** Work that did not finish is never recorded as finished, so the next deploy runs it again — and since a failed migration fails the deploy, the old code carries on writing in the meantime.
-- **What happens to the rows that already break the new rule?** The rows written before the rule existed are the likeliest to break it. **Refuse loudly rather than dropping them**, and never inherit whatever the tool does by default: a row dropped to get a migration through is somebody's, and the deploy stopping costs one fix by hand.
-- **What is actually in each environment?** Real data in both, from 7 September 2026 — see "The environments" in `docs/deployment.md` for what that forbids.
-- **At which exact moments can it be interrupted, and what has to be true at each?** List them. "Before the swap" and "during the swap" are different questions with different right answers.
-
-None of these was asked on "Make the database enforce the schema conventions, not just the callers" (pull request 69). It then took five rounds of review to find four separate ways that one change could have destroyed data — the first being a rebuild that would have emptied staging and production — and three of the four were introduced by the fix for the one before it. The question that set the whole sequence off was the fourth one above, and two greps would have answered it.
-
-The answers are also rows for the statement list in step 6: *a re-run after an interruption loses nothing* is one rule with a case per interruption window.
+**Scoping stops at what is built, for whom and in what order.** Where the work stores data, crosses a sync or async boundary, adds an integration or job, or changes state it cannot put back, the [technical-design](../technical-design/SKILL.md) skill runs next, by the engineer, and owns the architecture and the failure modes. Note here that it applies; do not decide it.
 
 ### 6. Generate the statement list
 
@@ -93,10 +81,10 @@ Do not proceed — to code or to `gh issue create` — if any of these holds:
 
 - The work puts up a surface nobody has seen and step 2's question was never asked → step 2.
 - The slice is too big for one sitting, or a unit names no model → step 4.
-- The work changes state it cannot put back and its failure modes are not written down → step 5. A review round is an expensive way to be told what a checklist asks.
+- The work stores data, crosses a sync or async boundary, or changes state it cannot put back, and `technical-design` has not run → step 5.
 - Any real behaviour this work describes has no row in the statement list → step 6.
 - A question would produce a different diff depending on its answer → step 3, or step 2's POC where discussion can't settle it. It is unfinished scope, not an entry for **Out of scope / open questions**.
 
 ## Output
 
-A scoped unit of work (or several, in dependency order), its statement list, the model that builds it, and — where it changes state it cannot put back — the failure modes its implementation must satisfy. Either hand off to the `github-issue` skill, which covers only the body template and publishing, or build it directly with the statement list going straight into the test files.
+A scoped unit of work (or several, in dependency order), its statement list, the model that builds it, and a note where `technical-design` applies. Hand off to `technical-design` where it does, then to the `github-issue` skill, which covers only the body template and publishing, or build it directly with the statement list going straight into the test files.
