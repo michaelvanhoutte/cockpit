@@ -59,6 +59,7 @@ export function DashboardPage() {
           items={data.items}
           filings={data.filings ?? []}
           itemTypes={data.itemTypes}
+          attachments={data.attachments ?? []}
         />
       )}
     </div>

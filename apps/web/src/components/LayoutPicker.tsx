@@ -4,6 +4,7 @@ import { nearestScreenSize, uuidv7 } from '@cockpit/shared';
 import type { Layout, Panel, ScreenSize } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
+import { CLEAR_THE_FILTER_FIRST } from '../dashboardFilter';
 import { browserStore } from '../lastVisited';
 import { useChosenLayout } from '../panels/chosenLayout';
 import { drawnRows, layoutLabel, layoutToDraw, layoutsOf } from '../panels/arrangement';
@@ -36,7 +37,13 @@ export function LayoutPicker({
   layouts,
   screenSizes,
   panels,
+  locked = false,
 }: {
+  /**
+   * The dashboard is filtered, so its arrangement cannot change: no layout is
+   * defined or removed from here, and each entry says why (`CLEAR_THE_FILTER_FIRST`).
+   */
+  locked?: boolean;
   workspaceId: string;
   dashboardId: string;
   /** Every layout of this dashboard, which is what says which sizes it has defined. */
@@ -332,12 +339,16 @@ export function LayoutPicker({
                   <DropdownMenu.Item
                     key={size.id}
                     className={`${menuItemClass} flex items-start gap-2`}
+                    disabled={locked}
                     onSelect={opens(() => setDefining(size))}
                   >
                     <span className="w-3 shrink-0" aria-hidden="true" />
                     <span className="min-w-0">
                       {size.name}
                       <span className="block text-xs text-ink-faint">{`${size.width} px`}</span>
+                      {locked && (
+                        <span className="block text-xs text-ink-faint">{CLEAR_THE_FILTER_FIRST}</span>
+                      )}
                     </span>
                   </DropdownMenu.Item>
                 ))}
@@ -347,9 +358,13 @@ export function LayoutPicker({
             <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
             <DropdownMenu.Item
               className={menuItemClass}
+              disabled={locked}
               onSelect={opens(() => setNaming({ what: 'newSize', name: '' }))}
             >
               New screen size…
+              {locked && (
+                <span className="block text-xs text-ink-faint">{CLEAR_THE_FILTER_FIRST}</span>
+              )}
             </DropdownMenu.Item>
             {drawnSize && (
               <>
@@ -361,6 +376,7 @@ export function LayoutPicker({
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
                   className={menuItemClass}
+                  disabled={locked}
                   onSelect={() => {
                     // Not `opens()`: nothing opens here, so the focus Radix
                     // would otherwise put back on the trigger must not be
@@ -371,6 +387,9 @@ export function LayoutPicker({
                   }}
                 >
                   {`Remove this dashboard's ${drawnSize.name} layout`}
+                  {locked && (
+                    <span className="block text-xs text-ink-faint">{CLEAR_THE_FILTER_FIRST}</span>
+                  )}
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
                   className={`${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`}

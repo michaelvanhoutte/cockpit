@@ -15,6 +15,7 @@ import type {
   Filing,
   FilterCondition,
   FilterMatch,
+  Attachment,
   Item,
   ItemType,
   Layout,
@@ -29,6 +30,8 @@ import { scrollWhileDragging } from '../dragScroll';
 import { filingsThatFile, itemsOnPanel } from '../filing';
 import { dayOf, filtersUsingPanel, itemsMatchingFilter, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
+import { isFiltering, itemIdsWithAttachments, matchesDashboardFilter, useDashboardFilter } from '../dashboardFilter';
+import { DashboardFilterBar } from './DashboardFilterBar';
 import { DEFAULT_FILTER_SORT, inSortOrder, sortOf } from '../sorting';
 import { useChosenLayout } from '../panels/chosenLayout';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
@@ -105,6 +108,7 @@ export function PanelBoard({
   items,
   filings,
   itemTypes,
+  attachments = [],
 }: {
   workspaceId: string;
   dashboard: Dashboard;
@@ -137,6 +141,8 @@ export function PanelBoard({
    * priority and type", issue 464).
    */
   itemTypes: readonly ItemType[];
+  /** Every attachment of the workspace's items, which is all a Dashboard filter's Attachments condition reads. */
+  attachments?: readonly Attachment[];
 }) {
   const screenWidth = useScreenWidth();
   /**
@@ -154,7 +160,14 @@ export function PanelBoard({
    * drawn one panel across whatever Layouts exist and has no surface to change
    * one through: no drag, no row line, no divider (`isPhoneWidth`).
    */
-  const arrangeable = !isPhoneWidth(screenWidth);
+  const [dashboardFilter] = useDashboardFilter(browserStore(), dashboard.id);
+  /**
+   * **A filtered board is never rearranged**, whichever way: its rows are fitted
+   * to what is left rather than to the sizes stored, so a drag or a divider
+   * would write the shrunken one back as if it were the person's.
+   */
+  const filteringOn = isFiltering(dashboardFilter);
+  const arrangeable = !isPhoneWidth(screenWidth) && !filteringOn;
   const command = useCommand();
   const queryClient = useQueryClient();
 
@@ -296,6 +309,11 @@ export function PanelBoard({
    * timer for.
    */
   const today = dayOf(new Date());
+  const withAttachments = itemIdsWithAttachments(attachments);
+  const narrowed = (list: Item[]): Item[] =>
+    filteringOn
+      ? list.filter((item) => matchesDashboardFilter(dashboardFilter, item, withAttachments, today))
+      : list;
 
   /**
    * The filings that file, read once for the whole board rather than per panel:
@@ -935,6 +953,12 @@ export function PanelBoard({
           and the tab is the one that says *which of several*, so the tab is
           the one that stays. */}
       <h2 className="sr-only">{dashboard.name}</h2>
+      <DashboardFilterBar dashboardId={dashboard.id} />
+      {filteringOn && (
+        <p className="sr-only" role="status">
+          This dashboard is filtered
+        </p>
+      )}
 
       {/* Only the arrangement's. A refused add or rename is said where the
           name still is - in the dialog, or in the panel's own header. */}
@@ -1015,8 +1039,8 @@ export function PanelBoard({
                   // it header - and filing an item into it stopped working
                   // where there was nothing left to aim at.
                   style={{
-                    height: row.height ?? undefined,
-                    minHeight: MIN_ROW_HEIGHT,
+                    height: filteringOn ? undefined : (row.height ?? undefined),
+                    minHeight: filteringOn ? undefined : MIN_ROW_HEIGHT,
                     display: 'grid',
                     // The gap between two panels is a track of its own rather
                     // than a `gap`, so it is an element a hand can take hold
@@ -1034,6 +1058,7 @@ export function PanelBoard({
                     if (!panel) return null;
                     return (
                       <Fragment key={panel.id}>
+                        {at > 0 && !arrangeable && <div aria-hidden="true" />}
                         {at > 0 && arrangeable && (
                           <ColumnLine
                             dragging={dragging !== null}
@@ -1045,7 +1070,8 @@ export function PanelBoard({
                         <PanelCard
                           panel={panel}
                           workspaceId={workspaceId}
-                          items={
+                          dashboardFiltered={filteringOn}
+                          items={narrowed(
                             panelGathers(panel)
                               ? itemsMatchingFilter(
                                   items,
@@ -1060,8 +1086,8 @@ export function PanelBoard({
                                   itemsOnPanel(items, filings, panel.id),
                                   sortOf(panel),
                                   itemTypes,
-                                )
-                          }
+                                ),
+                          )}
                           itemTypes={itemTypes}
                           panelsInWorkspace={panelsInWorkspace}
                           // What is filed anywhere, which a filing onto a

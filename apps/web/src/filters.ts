@@ -157,15 +157,28 @@ function holdsFor(
   if (condition.field === 'status') {
     return itemStatus(item) === 'in_progress';
   }
-  const due = item.dueDate ?? null;
-  if (condition.window === 'none') return due === null;
+  return dueHolds(condition.window, condition.orOverdue, item.dueDate ?? null, on);
+}
+
+/**
+ * Whether a due date falls in a window on the day the person is looking - a
+ * Filter panel's Due condition, and a Dashboard filter's, which ask the same
+ * question of an Item.
+ */
+export function dueHolds(
+  window: DueWindow,
+  orOverdue: boolean,
+  due: Day | null,
+  on: Day,
+): boolean {
+  if (window === 'none') return due === null;
   if (due === null) return false;
-  if (condition.window === 'overdue') return due < on;
-  const span = spanOf(condition.window, on);
+  if (window === 'overdue') return due < on;
+  const span = spanOf(window, on);
   if (!span) return false;
   // Widened past the window's own start rather than replacing it: *due this
   // week or overdue* is everything up to Sunday, last month's included.
-  if (condition.orOverdue && due < on) return true;
+  if (orOverdue && due < on) return true;
   return due >= span.from && due <= span.to;
 }
 

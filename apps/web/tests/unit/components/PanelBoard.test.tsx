@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MIN_ROW_HEIGHT } from '@cockpit/shared';
 import type {
+  Attachment,
   Dashboard,
   Filing,
   FilterCondition,
@@ -16,6 +17,11 @@ import type {
   ScreenSize,
 } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
+import {
+  NO_DASHBOARD_FILTER,
+  writeDashboardFilter,
+  type DashboardFilter,
+} from '../../../src/dashboardFilter';
 import { dayOf } from '../../../src/filters';
 import { QUIET } from '../../../src/panels/PanelText';
 import {
@@ -228,6 +234,7 @@ function showBoard({
   // board to draw it automatically at all.
   screenSizes = layouts.map(screenSizeOf) as ScreenSize[],
   items = [] as Item[],
+  attachments = [] as Attachment[],
   filings = [] as Filing[],
   /** The account's live Types - what a Filter's Type condition offers, unless a case wants its own. */
   itemTypes = [] as ItemType[],
@@ -248,6 +255,7 @@ function showBoard({
   layouts?: Layout[];
   screenSizes?: ScreenSize[];
   items?: Item[];
+  attachments?: Attachment[];
   filings?: Filing[];
   itemTypes?: ItemType[];
   error?: Error;
@@ -271,7 +279,11 @@ function showBoard({
     variables,
   } as never);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const board = (drawing: Panel[]) => (
+  const board = (
+    drawing: Panel[],
+    drawnItems: Item[] = items,
+    drawnAttachments: Attachment[] = attachments,
+  ) => (
     <QueryClientProvider client={client}>
       <PanelBoard
         workspaceId="ws-work"
@@ -281,7 +293,8 @@ function showBoard({
         panelsInWorkspace={panelsInWorkspace}
         layouts={layouts}
         screenSizes={screenSizes}
-        items={items}
+        items={drawnItems}
+        attachments={drawnAttachments}
         filings={filings}
         itemTypes={itemTypes}
       />
@@ -296,6 +309,9 @@ function showBoard({
     mutate,
     unmount,
     redrawnWith: (next: Panel[]) => rerender(board(next)),
+    /** The next snapshot arriving with an item changed, or an attachment added. */
+    redrawnWithItems: (next: Item[], nextAttachments: Attachment[] = attachments) =>
+      rerender(board(panels, next, nextAttachments)),
     user: userEvent.setup(),
   };
 }
@@ -2539,6 +2555,151 @@ describe('Onboarding', () => {
       expect(
         within(due).getByRole('img', { name: 'Shows priority is high and type is okr or task' }),
       ).toBeVisible();
+    });
+  });
+});
+
+/** Puts a Dashboard filter on the Dashboard these cases draw, where the board reads it from. */
+function filterTheDashboard(fields: Partial<DashboardFilter>) {
+  writeDashboardFilter(localStorage, DASHBOARD.id, { ...NO_DASHBOARD_FILTER, ...fields });
+}
+
+/** What a panel lists, as the text of its rows. */
+function rowsOf(panelName: string) {
+  const region = screen.getByRole('region', { name: panelName });
+  return within(region)
+    .queryAllByRole('listitem')
+    .map((row) => row.textContent ?? '');
+}
+
+describe('Dashboards', () => {
+  const ID = (n: number) => `11111111-1111-7111-8111-00000000000${n}`;
+  const vatHigh = { ...anItem(ID(1), 'VAT return'), priority: 'high' as const };
+  const vatLow = { ...anItem(ID(2), 'VAT refund'), priority: 'low' as const };
+  const rentHigh = { ...anItem(ID(3), 'Pay the rent'), priority: 'high' as const };
+  const FILED = [
+    { panelId: 'falcon', itemId: ID(1), position: 0 },
+    { panelId: 'falcon', itemId: ID(2), position: 1 },
+    { panelId: 'falcon', itemId: ID(3), position: 2 },
+  ];
+
+  /** A board with a panel of items, a Filter panel, a panel of text and a panel nothing is filed on. */
+  function aFilteredBoard(more: Parameters<typeof showBoard>[0] = {}) {
+    return showBoard({
+      panels: [
+        aPanel('falcon', 'Project Falcon'),
+        aFilter('highs', 'The highs', [PRIORITY_HIGH]),
+        aPanelOfText('notes', 'Notes', { body: 'Remember the VAT deadline' }),
+        aPanel('reading', 'To read'),
+      ],
+      items: [vatHigh, vatLow, rentHigh],
+      filings: FILED,
+      ...more,
+    });
+  }
+
+  describe('a Dashboard filter shows, on every panel of items and Filter panel, only the Items meeting its conditions', () => {
+    it('narrows a panel of items, a Filter panel and each header count, and leaves a panel of text alone', async () => {
+      filterTheDashboard({ text: 'vat' });
+      aFilteredBoard();
+
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(rowsOf('Project Falcon')).toEqual([
+        expect.stringContaining('VAT return'),
+        expect.stringContaining('VAT refund'),
+      ]);
+      // A Filter panel shows the intersection of its own conditions and the Dashboard's.
+      expect(rowsOf('The highs')).toEqual([expect.stringContaining('VAT return')]);
+      expect(within(handleOf('Project Falcon')).getByText('2')).toBeVisible();
+      expect(within(handleOf('The highs')).getByText('1')).toBeVisible();
+      expect(screen.getByText('Remember the VAT deadline')).toBeVisible();
+    });
+
+    it('keeps a panel with nothing matching in place, saying so', async () => {
+      filterTheDashboard({ text: 'vat' });
+      aFilteredBoard();
+
+      const reading = await screen.findByRole('region', { name: 'To read' });
+      expect(within(reading).getByText('Nothing here matches the dashboard filter.')).toBeVisible();
+    });
+
+    it('draws every panel exactly as unfiltered where no condition is set', async () => {
+      aFilteredBoard();
+
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(rowsOf('Project Falcon')).toHaveLength(3);
+      expect(rowsOf('The highs')).toHaveLength(2);
+      expect(screen.queryByText('Nothing here matches the dashboard filter.')).toBeNull();
+    });
+
+    it('reads attachments off the Items, and shows Items that hold one', async () => {
+      filterTheDashboard({ attachments: 'with' });
+      aFilteredBoard({ attachments: [{ itemId: ID(3) } as Attachment] });
+
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(rowsOf('Project Falcon')).toEqual([expect.stringContaining('Pay the rent')]);
+    });
+  });
+
+  describe('what is drawn follows the Items as they change', () => {
+    it('drops an Item that stops matching and shows one that starts to', async () => {
+      filterTheDashboard({ text: 'vat' });
+      const { redrawnWithItems } = aFilteredBoard();
+      await screen.findByRole('region', { name: 'Project Falcon' });
+
+      redrawnWithItems([{ ...vatHigh, title: 'Tax return' }, vatLow, { ...rentHigh, title: 'VAT rent' }]);
+
+      expect(rowsOf('Project Falcon')).toEqual([
+        expect.stringContaining('VAT refund'),
+        expect.stringContaining('VAT rent'),
+      ]);
+    });
+
+    it('shows an Item that comes to hold an attachment', async () => {
+      filterTheDashboard({ attachments: 'with' });
+      const { redrawnWithItems } = aFilteredBoard();
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(rowsOf('Project Falcon')).toEqual([]);
+
+      redrawnWithItems([vatHigh, vatLow, rentHigh], [{ itemId: ID(2) } as Attachment]);
+
+      expect(rowsOf('Project Falcon')).toEqual([expect.stringContaining('VAT refund')]);
+    });
+  });
+
+  describe('while filtered, nothing about the arrangement can change', () => {
+    const SIDE_BY_SIDE = [aLayout('wide', 1280, ['falcon', 'reading'])];
+    const TWO = [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read')];
+
+    it('offers a line between two panels where the board is not filtered', async () => {
+      showBoard({ panels: TWO, layouts: SIDE_BY_SIDE });
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(screen.getAllByTestId('column-line')).toHaveLength(1);
+    });
+
+    it('offers no line between two panels, and a header drag sends nothing', async () => {
+      filterTheDashboard({ text: 'vat' });
+      const { mutate } = showBoard({ panels: TWO, layouts: SIDE_BY_SIDE });
+      await screen.findByRole('region', { name: 'Project Falcon' });
+
+      expect(screen.queryAllByTestId('column-line')).toHaveLength(0);
+      dragTo('Project Falcon', { x: 500, y: 150 });
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('says to clear the dashboard filter where a panel is moved to another dashboard', async () => {
+      filterTheDashboard({ text: 'vat' });
+      showBoard({ dashboards: [DASHBOARD, RESEARCH] });
+      await screen.findByRole('region', { name: 'Project Falcon' });
+
+      openMenu('Project Falcon');
+
+      expect(
+        await screen.findByRole('menuitem', {
+          name: 'Move to another dashboard: Clear the dashboard filter to move a panel',
+        }),
+      ).toHaveAttribute('aria-disabled', 'true');
     });
   });
 });

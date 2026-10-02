@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
@@ -11,6 +11,12 @@ import type {
   WorkspaceSnapshot,
 } from '@cockpit/shared';
 import { DashboardBar } from '../../../src/components/DashboardBar';
+import { DashboardFilterBar } from '../../../src/components/DashboardFilterBar';
+import {
+  NO_DASHBOARD_FILTER,
+  readDashboardFilter,
+  writeDashboardFilter,
+} from '../../../src/dashboardFilter';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
@@ -172,6 +178,8 @@ function showBar(
     sendFails?: Error;
     /** A dashboard another tab adds while a refused move is in flight. */
     arrivesInFlight?: string;
+    /** Draws the filter bar beneath, which the page does in the board's own place. */
+    withFilterBar?: boolean;
   } = {},
 ) {
   held.dashboards = names.map(aDashboard);
@@ -248,6 +256,9 @@ function showBar(
         ground="#e3e1f2"
         openDashboardId={openDashboardId}
       />
+      {answer.withFilterBar && openDashboardId && (
+        <DashboardFilterBar dashboardId={openDashboardId} />
+      )}
     </QueryClientProvider>
   );
   const { container, rerender } = render(bar(answer.openDashboardId ?? null));
@@ -1409,6 +1420,133 @@ describe('Panels', () => {
       await user.click(screen.getByRole('button', { name: 'Add' }));
 
       expect(mutate.mock.calls[0]![0].payload.kind).toBe('items');
+    });
+  });
+});
+
+describe('Dashboards', () => {
+  /** Distinct per case: whether the filter bar is open is kept in memory across them. */
+  const id = (name: string) => `ws-work-${name.toLowerCase()}`;
+  const BAR = { name: 'Dashboard filter' };
+
+  beforeEach(() => localStorage.clear());
+
+  describe('a filter is never on out of sight', () => {
+    it('opens the filter bar from the funnel on the tab you are on, and closes it clearing the filter', async () => {
+      const { user } = showBar(['Funnel one'], {
+        openDashboardId: id('Funnel one'),
+        withFilterBar: true,
+      });
+      expect(screen.queryByRole('search', BAR)).toBeNull();
+
+      await user.click(await screen.findByRole('button', { name: 'Filter this dashboard' }));
+      expect(screen.getByRole('search', BAR)).toBeVisible();
+
+      await user.click(screen.getByRole('button', { name: 'High' }));
+      expect(readDashboardFilter(localStorage, id('Funnel one')).priorities).toEqual(['high']);
+
+      await user.click(screen.getByRole('button', { name: 'Clear the filter and close it' }));
+      expect(screen.queryByRole('search', BAR)).toBeNull();
+      expect(readDashboardFilter(localStorage, id('Funnel one'))).toEqual(NO_DASHBOARD_FILTER);
+    });
+
+    it('clears the conditions with × and keeps the bar open, where nothing set leaves × unavailable', async () => {
+      const { user } = showBar(['Cross one'], {
+        openDashboardId: id('Cross one'),
+        withFilterBar: true,
+      });
+      await user.click(await screen.findByRole('button', { name: 'Filter this dashboard' }));
+      expect(screen.getByRole('button', { name: 'Clear the filter' })).toBeDisabled();
+
+      await user.type(screen.getByRole('searchbox'), 'vat');
+      await user.click(screen.getByRole('button', { name: 'Clear the filter' }));
+
+      expect(screen.getByRole('search', BAR)).toBeVisible();
+      expect(readDashboardFilter(localStorage, id('Cross one'))).toEqual(NO_DASHBOARD_FILTER);
+      expect(screen.getByRole('button', { name: 'Clear the filter' })).toBeDisabled();
+    });
+
+    it('shows the bar on a filtered Dashboard without being asked, as after a reload', async () => {
+      writeDashboardFilter(localStorage, id('Reload one'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
+      showBar(['Reload one'], { openDashboardId: id('Reload one'), withFilterBar: true });
+
+      expect(await screen.findByRole('search', BAR)).toBeVisible();
+      expect(screen.getByRole('searchbox')).toHaveValue('vat');
+    });
+
+    it('carries a filled funnel on a filtered tab you are not on, and none on an unfiltered one', async () => {
+      writeDashboardFilter(localStorage, id('Away filtered'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
+      showBar(['Home one', 'Away filtered', 'Away plain'], { openDashboardId: id('Home one') });
+
+      const filtered = await screen.findByRole('link', { name: /Away filtered/ });
+      expect(within(filtered).getByRole('img', { name: 'This dashboard is filtered' })).toBeVisible();
+      expect(within(screen.getByRole('link', { name: 'Away plain' })).queryByRole('img')).toBeNull();
+    });
+
+    it('draws no bar on another Dashboard, and draws the filter again on coming back', async () => {
+      writeDashboardFilter(localStorage, id('Switch a'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
+      const { switchTo } = showBar(['Switch a', 'Switch b'], {
+        openDashboardId: id('Switch a'),
+        withFilterBar: true,
+      });
+      expect(await screen.findByRole('search', BAR)).toBeVisible();
+
+      switchTo(id('Switch b'));
+      expect(screen.queryByRole('search', BAR)).toBeNull();
+
+      switchTo(id('Switch a'));
+      expect(screen.getByRole('searchbox')).toHaveValue('vat');
+    });
+
+    it('does not carry a bar opened empty on one Dashboard to the next', async () => {
+      const { user, switchTo } = showBar(['Empty a', 'Empty b'], {
+        openDashboardId: id('Empty a'),
+        withFilterBar: true,
+      });
+      await user.click(await screen.findByRole('button', { name: 'Filter this dashboard' }));
+      expect(screen.getByRole('search', BAR)).toBeVisible();
+
+      switchTo(id('Empty b'));
+
+      expect(screen.queryByRole('search', BAR)).toBeNull();
+    });
+  });
+
+  describe('while filtered, nothing about the arrangement can change', () => {
+    it('says why a panel cannot be added, and offers no new layout', async () => {
+      const open = id('Locked one');
+      writeDashboardFilter(localStorage, open, { ...NO_DASHBOARD_FILTER, text: 'vat' });
+      const sizes: ScreenSize[] = [
+        { id: 'sz-laptop', tenantId: 'tenant', name: 'Laptop', width: 1280, createdAt: '2026-09-01T09:00:00.000Z' },
+        { id: 'sz-wide', tenantId: 'tenant', name: 'Wide', width: 2560, createdAt: '2026-09-01T09:00:00.000Z' },
+      ];
+      const layout: Layout = {
+        id: 'laptop',
+        tenantId: 'tenant',
+        dashboardId: open,
+        screenSizeId: 'sz-laptop',
+        rows: [],
+      };
+      const { user } = showBar(['Locked one'], {
+        openDashboardId: open,
+        layouts: [layout],
+        screenSizes: sizes,
+      });
+
+      const add = await screen.findByRole('button', { name: '+ Panel' });
+      expect(add).toBeDisabled();
+      expect(add).toHaveAttribute('title', expect.stringContaining('Clear the dashboard filter'));
+
+      await user.click(screen.getByRole('button', { name: /Layout for this dashboard/ }));
+      for (const entry of [/Wide/, /New screen size/, /Remove this dashboard's Laptop layout/]) {
+        const item = screen.getAllByRole('menuitem').find((one) => entry.test(one.textContent ?? ''))!;
+        expect(item).toHaveAttribute('data-disabled');
+        expect(item).toHaveTextContent('Clear the dashboard filter first');
+      }
+      // Picking a layout that exists is not rearranging anything.
+      expect(screen.getByRole('menuitemradio', { name: /Laptop/ })).not.toHaveAttribute(
+        'data-disabled',
+      );
     });
   });
 });
