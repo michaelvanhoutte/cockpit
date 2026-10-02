@@ -23,6 +23,16 @@ describe('Sign-in', () => {
     });
   });
 
+  describe('a referrer on Cockpit’s own host says nothing about where somebody came from', () => {
+    it.each([
+      { situation: 'the same host', referrer: 'https://cockpit.test/logon', kept: null },
+      { situation: 'the same host in capitals', referrer: 'https://COCKPIT.test/', kept: null },
+      { situation: 'another host', referrer: 'https://conselit.com/', kept: 'conselit.com' },
+    ])('keeps $kept for $situation', ({ referrer, kept }) => {
+      expect(referrerHostOf(referrer, 'cockpit.test')).toBe(kept);
+    });
+  });
+
   describe('a row’s country is the one Cloudflare names, or nothing', () => {
     it.each([
       { situation: 'a country on the request', cf: { country: 'be' }, kept: 'BE' },

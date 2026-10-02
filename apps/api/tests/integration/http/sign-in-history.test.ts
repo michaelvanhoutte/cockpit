@@ -185,6 +185,11 @@ describe('Sign-in', () => {
         query: `?${new URLSearchParams({ referrer: 'https://conselit.com/a?b=1' })}`,
         recorded: 'conselit.com',
       },
+      {
+        situation: 'the guest link carries Cockpit’s own page',
+        query: `?${new URLSearchParams({ referrer: 'http://cockpit.test/logon' })}`,
+        recorded: null,
+      },
       { situation: 'the guest link carries no referrer', query: '', recorded: null },
       { situation: 'the guest link carries something that is not an address', query: '?referrer=nonsense', recorded: null },
       {

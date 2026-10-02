@@ -2343,7 +2343,7 @@ const routes = app
 
       const signedIn = await signInAsGuest(c.env, new Date(), {
         country: countryOf(c.req.raw),
-        referrerHost: referrerHostOf(c.req.query('referrer')),
+        referrerHost: referrerHostOf(c.req.query('referrer'), new URL(c.req.url).hostname),
       });
       if (!signedIn.signedIn) return refuse(c, 'the guest account is not available');
       rememberSessionCookie(c, signedIn.sessionId);

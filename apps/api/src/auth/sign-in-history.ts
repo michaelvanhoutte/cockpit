@@ -39,8 +39,9 @@ export interface WhereFrom {
  * or query, which can carry anything - lowercased and capped, and everything
  * else (absent, not an address, absurdly long) is `null` rather than an error,
  * because a sign-in must never fail over a field that is only for display.
+ * A referrer on `ownHost` (the host the request arrived on) is `null` too.
  */
-export function referrerHostOf(referrer: unknown): string | null {
+export function referrerHostOf(referrer: unknown, ownHost?: string): string | null {
   if (typeof referrer !== 'string' || !referrer || referrer.length > LONGEST_REFERRER) return null;
   let url: URL;
   try {
@@ -49,7 +50,11 @@ export function referrerHostOf(referrer: unknown): string | null {
     return null;
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
-  return url.hostname ? url.hostname.slice(0, LONGEST_HOST) : null;
+  // Cockpit's own host is where the guest link was pressed (a redirect to the
+  // logon page from inside the app), so it says nothing about where they came
+  // from and would distort the "by referrer" figures.
+  if (!url.hostname || url.hostname === ownHost?.toLowerCase()) return null;
+  return url.hostname.slice(0, LONGEST_HOST);
 }
 
 /**
