@@ -7,7 +7,7 @@ description: Cockpit's process for turning an already-scoped piece of work into 
 
 Issues size work for one sitting. They are not the long-term record: once an issue is built, the source — code, tests, the feature's own docs — is what stays true, per [docs/testing-strategy.md](../../../docs/testing-strategy.md).
 
-Sharpening, sizing, a per-unit model recommendation, failure modes and the statement list belong to the [scoping](../scoping/SKILL.md) skill and are not repeated here. This skill covers only the body template and publishing.
+Sharpening, sizing, a per-unit model recommendation and the statement list belong to the [scoping](../scoping/SKILL.md) skill, and architecture decisions and failure modes to [technical-design](../technical-design/SKILL.md); neither is repeated here. This skill covers only the body template and publishing.
 
 ## Length
 
@@ -36,12 +36,18 @@ layer-by-layer implementation list. No file paths or code snippets; they go stal
 Exception: a snippet from a prototype that encodes a decision more precisely than prose
 can (schema, state machine) - trimmed to the decision, noted as coming from a prototype.
 
+## Technical design
+
+[The decisions from the `technical-design` skill, three lines each. Write "No design needed:
+<the trigger check in one line>" where it found nothing; omit the section only where that
+skill did not run because the work is a bug fix.]
+
 ## Failure modes
 
-[One line per question from scoping's "Enumerate the failure modes when state cannot be put
-back" step. Omit the section entirely where the work changes nothing it cannot put back;
-where it does, an issue that drops it makes whoever builds this redo the expensive part of
-scoping.]
+[One line per question from technical-design's "Enumerate the failure modes when state cannot
+be put back" step. Omit the section entirely where the work changes nothing it cannot put
+back; where it does, an issue that drops it makes whoever builds this redo the expensive part
+of design.]
 
 ## Blocked by
 

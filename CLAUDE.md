@@ -36,7 +36,9 @@ pnpm dev
 
 ## Scoping new work
 
-**Run the `scoping` skill before writing code for any feature or fix.** It decides whether the work has to be seen first, sharpens the requirements, sizes the vertical slice, enumerates the failure modes of anything that changes state it cannot put back, and produces the statement list. Starting the work triggers it, not the decision to file an issue.
+**Run the `scoping` skill before writing code for any feature or fix.** It decides whether the work has to be seen first, sharpens the requirements, sizes the vertical slice, and produces the statement list. Starting the work triggers it, not the decision to file an issue.
+
+**Run the `technical-design` skill after scoping and before building or filing.** It answers "no design needed" unless the work stores data, crosses a sync or async boundary, adds an integration or job, or changes state it cannot put back; then it settles the placement and enumerates the failure modes.
 
 **Check the issue is still open and unclaimed at the moment you start it.** Several sessions work this repository at once, so it can be closed by work that merged before your branch point, or while you read it. Fetching `main` is not this check.
 
