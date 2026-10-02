@@ -49,7 +49,6 @@ export default function MarkedDoneWindow({
       }}
       returnFocusTo={returnFocusTo}
       wide
-      tall
     >
       <label className="mt-3 block">
         <span className="sr-only">Search items marked done</span>
@@ -65,7 +64,7 @@ export default function MarkedDoneWindow({
         />
       </label>
 
-      <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
+      <div className="mt-3 min-h-[min(36rem,60dvh)] flex-1 overflow-y-auto">
         {!data ? (
           <p className="text-sm text-ink-faint">Loading…</p>
         ) : !everyFinished ? (
