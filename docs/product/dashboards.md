@@ -46,7 +46,7 @@ The sort is **kept on the Panel**, the same on every device, and **Manual is hav
 
 ## Narrowing a Dashboard — the Dashboard filter
 
-**A Dashboard filter narrows the Panels already on a Dashboard**, where a Filter panel gathers from the whole Workspace and replaces nothing. A **funnel on the tab you are on** opens a bar under the dashboard bar holding four conditions that must all hold:
+**A Dashboard filter narrows the Panels already on a Dashboard**, where a Filter panel gathers from the whole Workspace and replaces nothing. A **funnel on the tab you are on** opens a bar under the dashboard bar holding five conditions that must all hold:
 
 | Condition | Takes |
 |---|---|
@@ -54,6 +54,7 @@ The sort is **kept on the Panel**, the same on every device, and **Manual is hav
 | **Due** | the windows a Filter panel offers, with *or overdue* ticked by default |
 | **Containing** | case-insensitive, over an Item's title, description and next action — not its sender |
 | **Attachments** | *Any*, *With* or *Without* |
+| **Agent running** | off by default; on, only Items with an open run, whatever its status — a refused start included, which still shows its *didn't start* chip |
 
 While any is set, every Panel of items and every Filter panel on that Dashboard shows only the Items that meet them: a Filter panel shows the intersection of its own conditions and the Dashboard filter's, a Panel's count counts the matching Items only, and a Panel with nothing matching stays in place saying *Nothing here matches the dashboard filter*. A Panel of text and the Inbox are untouched. An Item that stops matching leaves its Panel at once, its open form staying open.
 

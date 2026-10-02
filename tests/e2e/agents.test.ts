@@ -336,11 +336,20 @@ test.describe('Agents', () => {
       await expect(itemRow(page, asked).getByRole('link', { name: `${asking} · Claude is working ↗` })).toBeVisible();
       await expect(page.getByText(/waiting on you/)).toHaveCount(0);
 
-      // Agent finished: Still to do - the chip goes, and the row stays.
+      // The dashboard filter's Agent running toggle shows this row, and lets it
+      // go the moment the run is over, until × clears it.
+      await press(page.getByRole('button', { name: 'Filter this dashboard' }), isMobile);
+      await press(page.getByRole('button', { name: 'Agent running' }), isMobile);
+      await expect(itemRow(page, asked)).toBeVisible();
+
+      // Agent finished: Still to do - the chip goes, and the row stays unless filtered.
       await press(itemRow(page, asked).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Agent finished: Still to do' }), isMobile);
+      await expect(itemRow(page, asked)).toHaveCount(0);
+      await press(page.getByRole('button', { name: 'Clear the filter', exact: true }), isMobile);
       await expect(itemRow(page, asked).getByText(/Claude is working/)).toHaveCount(0);
       await expect(itemRow(page, asked)).toBeVisible();
+      await press(page.getByRole('button', { name: 'Clear the filter and close it' }), isMobile);
 
       await expectNoSidewaysScroll(page);
       if (!isMobile) {

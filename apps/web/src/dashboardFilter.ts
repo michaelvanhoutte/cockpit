@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
-import { DUE_WINDOWS, type Attachment, type DueWindow, type Item, type Priority } from '@cockpit/shared';
+import { DUE_WINDOWS, type AgentRun, type Attachment, type DueWindow, type Item, type Priority } from '@cockpit/shared';
 import { dueHolds, type Day } from './filters';
 
 /**
- * A Dashboard filter: four conditions, all of which must hold, narrowing what
+ * A Dashboard filter: five conditions, all of which must hold, narrowing what
  * the Panels of items and Filter panels already on one Dashboard show
  * ("Filter a dashboard by priority, due date, text and attachments", issue 633).
  *
@@ -31,6 +31,8 @@ export type DashboardFilter = {
   /** Case-insensitive, over the title, the description and the next action. */
   text: string;
   attachments: AttachmentsChoice;
+  /** Only Items with an open run, whatever its status - a refused start included, which still shows its chip. */
+  agentRunning: boolean;
 };
 
 export const NO_DASHBOARD_FILTER: DashboardFilter = {
@@ -38,6 +40,7 @@ export const NO_DASHBOARD_FILTER: DashboardFilter = {
   due: null,
   text: '',
   attachments: 'any',
+  agentRunning: false,
 };
 
 /** What an arrangement control says while a Dashboard filter is on: the filter fits the rows to what is left, so none can be rearranged. */
@@ -46,13 +49,14 @@ export const CLEAR_THE_FILTER_FIRST = 'Clear the dashboard filter first';
 const PRIORITY_CHOICES: readonly PriorityChoice[] = ['high', 'normal', 'low', 'none'];
 const ATTACHMENT_CHOICES: readonly AttachmentsChoice[] = ['any', 'with', 'without'];
 
-/** Whether any of the four conditions is set - which is all "filtered" means. */
+/** Whether any of the five conditions is set - which is all "filtered" means. */
 export function isFiltering(filter: DashboardFilter): boolean {
   return (
     filter.priorities.length > 0 ||
     filter.due !== null ||
     filter.text.trim() !== '' ||
-    filter.attachments !== 'any'
+    filter.attachments !== 'any' ||
+    filter.agentRunning
   );
 }
 
@@ -84,6 +88,7 @@ export function matchesDashboardFilter(
   item: Item,
   withAttachments: ReadonlySet<string>,
   on: Day,
+  withRun: ReadonlySet<string>,
 ): boolean {
   if (
     filter.priorities.length > 0 &&
@@ -97,12 +102,18 @@ export function matchesDashboardFilter(
   if (!containsText(item, filter.text)) return false;
   if (filter.attachments === 'with' && !withAttachments.has(item.id)) return false;
   if (filter.attachments === 'without' && withAttachments.has(item.id)) return false;
+  if (filter.agentRunning && !withRun.has(item.id)) return false;
   return true;
 }
 
 /** The ids of the Items holding at least one attachment, read once for the whole board. */
 export function itemIdsWithAttachments(attachments: readonly Attachment[]): Set<string> {
   return new Set(attachments.map((attachment) => attachment.itemId));
+}
+
+/** The ids of the Items with an open run, read once for the whole board. */
+export function itemIdsWithRun(runs: readonly AgentRun[]): Set<string> {
+  return new Set(runs.map((run) => run.itemId));
 }
 
 const KEY = 'cockpit.dashboard-filter.';
@@ -127,7 +138,7 @@ function parseFilter(raw: string | null): DashboardFilter {
   try {
     const read: unknown = JSON.parse(raw);
     if (typeof read !== 'object' || read === null) return NO_DASHBOARD_FILTER;
-    const { priorities, due, text, attachments } = read as Record<string, unknown>;
+    const { priorities, due, text, attachments, agentRunning } = read as Record<string, unknown>;
     const dueRead = due as { window?: unknown; orOverdue?: unknown } | null | undefined;
     return {
       priorities: Array.isArray(priorities)
@@ -141,6 +152,7 @@ function parseFilter(raw: string | null): DashboardFilter {
           : null,
       text: typeof text === 'string' ? text : '',
       attachments: ATTACHMENT_CHOICES.find((choice) => choice === attachments) ?? 'any',
+      agentRunning: agentRunning === true,
     };
   } catch {
     return NO_DASHBOARD_FILTER;

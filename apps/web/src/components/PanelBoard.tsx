@@ -15,6 +15,7 @@ import type {
   Filing,
   FilterCondition,
   FilterMatch,
+  AgentRun,
   Attachment,
   Item,
   ItemType,
@@ -30,7 +31,7 @@ import { scrollWhileDragging } from '../dragScroll';
 import { filingsThatFile, itemsOnPanel } from '../filing';
 import { dayOf, filtersUsingPanel, itemsMatchingFilter, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
-import { isFiltering, itemIdsWithAttachments, matchesDashboardFilter, useDashboardFilter } from '../dashboardFilter';
+import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, matchesDashboardFilter, useDashboardFilter } from '../dashboardFilter';
 import { DashboardFilterBar } from './DashboardFilterBar';
 import { DEFAULT_FILTER_SORT, inSortOrder, sortOf } from '../sorting';
 import { useChosenLayout } from '../panels/chosenLayout';
@@ -109,6 +110,7 @@ export function PanelBoard({
   filings,
   itemTypes,
   attachments = [],
+  agentRuns = [],
 }: {
   workspaceId: string;
   dashboard: Dashboard;
@@ -143,6 +145,8 @@ export function PanelBoard({
   itemTypes: readonly ItemType[];
   /** Every attachment of the workspace's items, which is all a Dashboard filter's Attachments condition reads. */
   attachments?: readonly Attachment[];
+  /** The workspace's open runs, which is all a Dashboard filter's Agent running condition reads. */
+  agentRuns?: readonly AgentRun[];
 }) {
   const screenWidth = useScreenWidth();
   /**
@@ -310,9 +314,10 @@ export function PanelBoard({
    */
   const today = dayOf(new Date());
   const withAttachments = itemIdsWithAttachments(attachments);
+  const withRun = itemIdsWithRun(agentRuns);
   const narrowed = (list: Item[]): Item[] =>
     filteringOn
-      ? list.filter((item) => matchesDashboardFilter(dashboardFilter, item, withAttachments, today))
+      ? list.filter((item) => matchesDashboardFilter(dashboardFilter, item, withAttachments, today, withRun))
       : list;
 
   /**

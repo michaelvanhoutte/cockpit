@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { Item } from '@cockpit/shared';
+import type { AgentRun, Item } from '@cockpit/shared';
 import {
   NO_DASHBOARD_FILTER,
   forgetEveryDashboardFilter,
   isFiltering,
+  itemIdsWithRun,
   matchesDashboardFilter,
   readDashboardFilter,
   writeDashboardFilter,
@@ -118,8 +119,8 @@ describe('Dashboards', () => {
         stopped: [],
       },
     ])('$situation', ({ filter, passes, stopped }) => {
-      for (const item of passes) expect(matchesDashboardFilter(filter, item, NONE, ON)).toBe(true);
-      for (const item of stopped) expect(matchesDashboardFilter(filter, item, NONE, ON)).toBe(false);
+      for (const item of passes) expect(matchesDashboardFilter(filter, item, NONE, ON, NONE)).toBe(true);
+      for (const item of stopped) expect(matchesDashboardFilter(filter, item, NONE, ON, NONE)).toBe(false);
     });
 
     it.each([
@@ -128,13 +129,33 @@ describe('Dashboards', () => {
     ])('Attachments $situation', ({ choice, holds }) => {
       const filter = filterOf({ attachments: choice });
       const withAttachments = new Set(['item']);
-      expect(matchesDashboardFilter(filter, anItem(), withAttachments, ON)).toBe(holds);
-      expect(matchesDashboardFilter(filter, anItem({ id: 'other' }), withAttachments, ON)).toBe(!holds);
+      expect(matchesDashboardFilter(filter, anItem(), withAttachments, ON, NONE)).toBe(holds);
+      expect(matchesDashboardFilter(filter, anItem({ id: 'other' }), withAttachments, ON, NONE)).toBe(!holds);
+    });
+
+    it.each([
+      { situation: 'Agent running takes an Item with an open run', filter: filterOf({ agentRunning: true }), item: anItem(), runs: ['item'], shown: true },
+      { situation: 'Agent running leaves out an Item with no run', filter: filterOf({ agentRunning: true }), item: anItem(), runs: ['other'], shown: false },
+      { situation: 'Agent running leaves out every Item where nothing has a run', filter: filterOf({ agentRunning: true }), item: anItem(), runs: [], shown: false },
+      { situation: 'Agent running off makes no difference to what runs exist', filter: filterOf({ priorities: ['high'] }), item: anItem({ priority: 'high' }), runs: [], shown: true },
+      { situation: 'Agent running and Priority High leaves out a Low Item that has a run', filter: filterOf({ agentRunning: true, priorities: ['high'] }), item: anItem({ priority: 'low' }), runs: ['item'], shown: false },
+      { situation: 'Agent running and Priority High takes a High Item with a run', filter: filterOf({ agentRunning: true, priorities: ['high'] }), item: anItem({ priority: 'high' }), runs: ['item'], shown: true },
+    ])('$situation', ({ filter, item, runs, shown }) => {
+      expect(matchesDashboardFilter(filter, item, NONE, ON, new Set(runs))).toBe(shown);
+    });
+
+    it('reads one Item id per run, whatever its status, over any number of runs', () => {
+      const runs = ['starting', 'working', 'failed', 'unknown'].map((status, at) => ({ itemId: `i${at}`, status }) as AgentRun);
+      const many = Array.from({ length: 5000 }, (_, at) => ({ itemId: `m${at % 100}` }) as AgentRun);
+      expect([...itemIdsWithRun(runs)]).toEqual(['i0', 'i1', 'i2', 'i3']);
+      expect(itemIdsWithRun([]).size).toBe(0);
+      expect(itemIdsWithRun(many).size).toBe(100);
     });
 
     it('a filter with only blank text set is not filtering', () => {
       expect(isFiltering(filterOf({ text: '   ' }))).toBe(false);
       expect(isFiltering(filterOf({ attachments: 'with' }))).toBe(true);
+      expect(isFiltering(filterOf({ agentRunning: true }))).toBe(true);
     });
   });
 
@@ -186,7 +207,27 @@ describe('Dashboards', () => {
         due: null,
         text: '',
         attachments: 'with',
+        agentRunning: false,
       });
+    });
+
+    it.each([
+      { situation: 'stored before the field existed', stored: { text: 'vat' }, reads: false },
+      { situation: 'stored with a non-boolean', stored: { agentRunning: 'yes' }, reads: false },
+      { situation: 'stored on', stored: { agentRunning: true }, reads: true },
+    ])('Agent running $situation reads as $reads', ({ stored, reads }) => {
+      const store = aStore();
+      store.setItem('cockpit.dashboard-filter.a', JSON.stringify(stored));
+      expect(readDashboardFilter(store, 'a').agentRunning).toBe(reads);
+    });
+
+    it('keeps Agent running in this browser for its Dashboard alone, and forgets it at sign-out', () => {
+      const store = aStore();
+      writeDashboardFilter(store, 'a', filterOf({ agentRunning: true }));
+      expect(readDashboardFilter(store, 'a').agentRunning).toBe(true);
+      expect(readDashboardFilter(store, 'b').agentRunning).toBe(false);
+      forgetEveryDashboardFilter(store);
+      expect(readDashboardFilter(store, 'a').agentRunning).toBe(false);
     });
   });
 });

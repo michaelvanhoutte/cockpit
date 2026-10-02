@@ -1486,6 +1486,32 @@ describe('Dashboards', () => {
       expect(screen.getByRole('searchbox')).toHaveValue('vat');
     });
 
+    it('opens the bar, fills the funnel, and is cleared by × and by the funnel, for Agent running alone', async () => {
+      const { user } = showBar(['Agent one'], { openDashboardId: id('Agent one'), withFilterBar: true });
+      await user.click(await screen.findByRole('button', { name: 'Filter this dashboard' }));
+
+      await user.click(screen.getByRole('button', { name: 'Agent running' }));
+      expect(screen.getByRole('button', { name: 'Agent running' })).toHaveAttribute('aria-pressed', 'true');
+      expect(readDashboardFilter(localStorage, id('Agent one')).agentRunning).toBe(true);
+      expect(screen.getByRole('button', { name: 'Clear the filter' })).toBeEnabled();
+
+      await user.click(screen.getByRole('button', { name: 'Clear the filter' }));
+      expect(readDashboardFilter(localStorage, id('Agent one'))).toEqual(NO_DASHBOARD_FILTER);
+
+      await user.click(screen.getByRole('button', { name: 'Agent running' }));
+      await user.click(screen.getByRole('button', { name: 'Clear the filter and close it' }));
+      expect(readDashboardFilter(localStorage, id('Agent one'))).toEqual(NO_DASHBOARD_FILTER);
+      expect(screen.queryByRole('search', BAR)).toBeNull();
+    });
+
+    it('carries a filled funnel on a tab filtered by Agent running alone', async () => {
+      writeDashboardFilter(localStorage, id('Away agent'), { ...NO_DASHBOARD_FILTER, agentRunning: true });
+      showBar(['Home two', 'Away agent'], { openDashboardId: id('Home two') });
+
+      const tab = await screen.findByRole('link', { name: /Away agent/ });
+      expect(within(tab).getByRole('img', { name: 'This dashboard is filtered' })).toBeVisible();
+    });
+
     it('carries a filled funnel on a filtered tab you are not on, and none on an unfiltered one', async () => {
       writeDashboardFilter(localStorage, id('Away filtered'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
       showBar(['Home one', 'Away filtered', 'Away plain'], { openDashboardId: id('Home one') });

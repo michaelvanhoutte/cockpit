@@ -168,6 +168,16 @@ export function DashboardFilterBar({ dashboardId }: { dashboardId: string }) {
 
       <button
         type="button"
+        aria-pressed={filter.agentRunning}
+        title="Only Items with an agent started on them, a refused start included"
+        className={chip(filter.agentRunning)}
+        onClick={() => setFilter({ ...filter, agentRunning: !filter.agentRunning })}
+      >
+        Agent running
+      </button>
+
+      <button
+        type="button"
         aria-label="Clear the filter"
         title="Clear the filter"
         className="ml-auto rounded px-1.5 py-0.5 text-ink-soft hover:bg-black/5 disabled:opacity-40"
