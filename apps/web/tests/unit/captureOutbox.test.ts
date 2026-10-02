@@ -85,6 +85,11 @@ describe('Offline', () => {
         entries: [anEntry({ landed: true, files: [aFile({ refused: 'too big' })] })],
         goes: [],
       },
+      {
+        situation: 'a note that landed whole but was never cleared',
+        entries: [anEntry({ landed: true, files: [aFile({ landed: true })] }), anEntry({ id: 'bare', landed: true })],
+        goes: ['bare', 'item-1'],
+      },
     ])('$situation', ({ entries, goes }) => {
       expect(toSend(entries, 'user-ada').map((entry) => entry.id)).toEqual(goes);
     });
@@ -195,6 +200,7 @@ describe('Offline', () => {
         entry: anEntry({ landed: true, files: [aFile()] }),
         reads: { waiting: true },
       },
+      { situation: 'landed whole, not yet cleared', entry: anEntry({ landed: true }), reads: { waiting: true } },
       {
         situation: 'refused',
         entry: anEntry({ refused: 'workspace ws-work not found' }),

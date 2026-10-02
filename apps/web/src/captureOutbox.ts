@@ -88,12 +88,13 @@ const stillToGo = (file: WaitingFile) => !file.landed && file.refused === null;
 
 /**
  * What is sent next, oldest first: this person's entries with a note or a
- * file still to go. A refused note sends nothing more; a refused file leaves
- * the rest of its entry to go on.
+ * file still to go, and one that landed whole but was never forgotten (a tab
+ * frozen between the two), which the sender only has to clear. A refused note
+ * sends nothing more; a refused file leaves the rest of its entry to go on.
  */
 export function toSend(entries: readonly OutboxEntry[], owner: string | null): OutboxEntry[] {
   return shownTo(entries, owner).filter(
-    (entry) => entry.refused === null && (!entry.landed || entry.files.some(stillToGo)),
+    (entry) => entry.refused === null && (!entry.landed || entry.files.some(stillToGo) || landedWhole(entry)),
   );
 }
 
@@ -102,7 +103,7 @@ export type EntryState = { waiting: true } | { waiting: false; notSent: string }
 
 export function stateOf(entry: OutboxEntry): EntryState {
   if (entry.refused !== null) return { waiting: false, notSent: entry.refused };
-  if (!entry.landed || entry.files.some(stillToGo)) return { waiting: true };
+  if (!entry.landed || entry.files.some(stillToGo) || landedWhole(entry)) return { waiting: true };
   const refusals = entry.files.flatMap((file) => (file.refused === null ? [] : [file.refused]));
   return { waiting: false, notSent: refusals.join(' ') };
 }
