@@ -1,77 +1,77 @@
 ---
 name: periodic-review
-description: Cockpit's process for periodically reading merged pull requests, their review threads, and closed issues since the last run, and filing one issue per class of finding that recurs at least twice and isn't already tracked - never a report, and never on a single instance. Use every few weeks to look back over recent work, or when asked to review recent pull requests or issues for process gaps. Hands each class through `scoping`, `engineering-plan` and `github-issue`; never edits code, workflows, or guidance itself.
+description: Cockpit's process for periodically reading what had to be corrected after a build and the review comments left on merged pull requests since the last run, working out where each mistake got through, and proposing the fix that stops the next build repeating it - a numbered table the person approves, then one `unsliced` ticket per approved lesson and one closed record issue per run. Use every few weeks, or when asked to review recent pull requests or issues for process gaps. Hands each approved lesson through `scoping`, `engineering-plan` and `github-issue`; never edits code, workflows, or guidance itself.
 ---
 
-# Looking back over recent work
+# Learning from what got through
 
-A single bad review comment is noise; the same one on nine pull requests is a hole in the harness. This finds the holes by counting, and files one issue per hole rather than writing up what was read — a report gets read once and an issue gets built.
+A mistake that shipped and was fixed is evidence of where the harness let it through. This turns that evidence into a proposal the person decides on, not a report — a report gets read once and a ticket gets built. Harness cost and speed belong to [harness-cost-review](../harness-cost-review/SKILL.md), and corrections inside a live session to [session-review](../session-review/SKILL.md).
+
+Every read and filing uses REST (`gh api repos/{owner}/{repo}/...`) or the GitHub MCP tools: a cloud session blocks GraphQL.
 
 ## Process
 
 ### 1. Find the window
 
-The window is since the last time a run filed something, not a fixed lookback and not simply "since this last ran." Every issue this skill files carries the `periodic-review` label, so that start is:
+The window starts at the `closed_at` of the latest closed issue labelled `periodic-review`, the record step 6 writes; four weeks before this run's own clock if there is none.
 
 ```bash
-gh label create periodic-review --color 5319e7 --force
-gh issue list --label periodic-review --state all --search "sort:created-desc" -L 1 --json createdAt
+gh api "repos/{owner}/{repo}/issues?labels=periodic-review&state=closed&per_page=1" --jq '.[0] | {number, closed_at, body}'
 ```
 
-`--force` makes the first line safe to run every time — it updates the label instead of erroring when it already exists. No result from the second line means no run has ever filed anything yet, so there is no anchor: default to four weeks back from *that run's own clock* — a window that rolls forward every time this runs, and a singleton close to its edge can still fall out of it before anything has ever been filed.
+Its body lists each rejected lesson, which step 4 must not re-propose.
 
-Once something has been filed, the anchor holds: a later run that files nothing — every class stayed a singleton, or every recurring one was already tracked (step 4) — leaves the window exactly where the filed issue set it, on purpose, so a class sitting at one instance stays in view rather than falling out the moment an unanchored window would have moved past it. That guarantee belongs to the closed-issues read in step 2, which is bounded by this window; it does not reach the pull-request sample there, which is bounded by count instead. It also still leaves the gap "Buy the invariant on the second finding of a class, not the third" (issue 286) names in its own "Out of scope" — nothing here carries a class's count *across* a run that does file something — and this skill doesn't solve that either.
+### 2. Read what shipped
 
-### 2. Read what shipped in the window
+Merged pull requests and closed issues since the window start, bodies included — two instances of a mistake rarely share wording:
 
 ```bash
-gh pr list --state merged --search "merged:>=<window-start> sort:created-desc" --json number,title,url,mergedAt -L 200
-gh issue list --state closed --search "closed:>=<window-start> -label:periodic-review sort:created-desc" --json number,title,url,closedAt,body -L 200
+gh api "search/issues?q=repo:{owner}/{repo}+is:pr+is:merged+merged:>=<start>&per_page=100" --jq '.items[] | {number, title, body}'
+gh api "search/issues?q=repo:{owner}/{repo}+is:issue+is:closed+closed:>=<start>+-label:periodic-review&per_page=100" --jq '.items[] | {number, title, body}'
 ```
 
-`sort:created-desc` is there because `--search` otherwise ranks by relevance, not by date — the same qualifier the window-finding step above already relies on — so the 200-item cap keeps a predictable slice rather than an arbitrary one; raise it if the window is unusually large. The label exclusion keeps this skill's own earlier output out of its own input. Read every closed issue's body, not just its title — the same reason the pull-request path below reads full threads: two instances of a class rarely share wording, and a title-only read misses the ones that don't.
+Two kinds of instance count:
 
-From the merged pull requests, sample the 25 most recently *merged* for a review read — the sample size "Fail on the writing rules a script can decide, instead of finding them in review" (issue 278) itself used. This sample is bounded by count, not by the window, so it does not carry step 1's window-hold guarantee: once 25 pull requests have merged since an older one, that older one's threads drop out of the sample regardless of whether the window is still open. Sort this sample by `mergedAt`, not `createdAt`: a pull request opened early but merged late is exactly the kind that draws the most review, and the cap above sorted by creation only to keep the 200-item read predictable, not to answer this. A finding lands in three different places on a pull request here — an inline thread, a top-level comment (this repo's own security-review bot posts one on every pull request it ran on, inline or not — it skips a pull request that touches no security path), or a review's summary body — so read all three, not only the inline threads:
+- **Correction**: a merged issue or pull request that fixes, reworks or reverses behaviour an earlier built issue shipped, where that issue can be named. A planned follow-up (the next child of a split ticket, the cleanup after a migration) or new scope added on top is not one.
+- **Review comment**: a comment or review left on a pull request merged in the window, by a person or a bot. A finding lands in three places, so read all three for each pull request:
 
 ```bash
-gh api graphql -f query='
-  query($owner:String!,$repo:String!,$number:Int!){
-    repository(owner:$owner,name:$repo){
-      pullRequest(number:$number){
-        reviewThreads(first:100){ nodes{ comments(first:20){ nodes{ body path } } } }
-        comments(first:100){ nodes{ body } }
-        reviews(first:20){ nodes{ body } }
-      }
-    }
-  }' -F owner=<owner> -F repo=<repo> -F number=<n>
+gh api repos/{owner}/{repo}/pulls/<n>/comments    # inline
+gh api repos/{owner}/{repo}/issues/<n>/comments   # top-level, including bots
+gh api repos/{owner}/{repo}/pulls/<n>/reviews     # review bodies
 ```
 
-Each list is capped (100 threads, 20 replies per thread, 100 top-level comments, 20 reviews) — a known truncation, not a claim that nothing past it exists.
+Count a comment restated on another surface once; add `--paginate` for long lists.
 
-### 3. Group into classes
+### 3. Place each instance
 
-A class is the mistake shared, not the wording — "cites a section by number" is one class whether it names `§9.1` or `rule 2`. For each class, note which file actually governs the behaviour it broke: `CLAUDE.md`, a `.claude/skills/*/SKILL.md`, a `.claude/commands/*.md`, a `docs/*.md`, or a script or test if the fix is genuinely code. Most of what turns up here is process, not logic — issue 278's sample was 40% prose — so do not assume the governing file is code by default.
+Open the original issue and pull request and decide where the mistake got through, which decides the fix:
 
-Keep the raw count and which pull request or issue each instance came from — but count each underlying occurrence once. The security-review bot's top-level comment restating an inline thread's finding, or a reply repeating what the opening comment already said, is the same occurrence read from two of the surfaces step 2 pulls, not two. That list is the sample, and it goes in the filed issue.
+| Where it got through | Proposed fix |
+|---|---|
+| The case was never in the issue's test list | Missing test coverage for that area, or a gap in how test lists are drafted |
+| The case was listed or a rule existed, and it was skipped anyway | A test or mechanical check, never another rule |
+| No rule covered it | A rule where the agent reads it at that moment |
+| The design was right as specified and reversed once seen | A scoping lesson, kept separate from build lessons |
 
-### 4. File only what recurs
+### 4. Group and qualify
 
-**A class needs at least two instances in the sample to be filed** — the bar issue 278's own sample draws, and the one issue 286 draws for the same reason. Two on the same pull request count as much as two across different ones — issue 286 allows both. A class shown once is dropped here, not carried anywhere: there is no report to hold it in reserve for next time.
+Group instances that teach the same lesson, by the mistake and not the wording. A lesson qualifies on one correction, or on at least two review comments of the same kind. Where a class has two or more instances, the fix is one invariant test, not a patch per instance.
 
-**Unless an open `periodic-review` issue already covers it.** A class that recurs because its fix hasn't shipped yet will clear the bar again on every later run; check whether one already names the same mistake, matching on body rather than title for the same reason step 2 does:
+Drop a lesson whose fix already landed, that an open issue covers (match on body, not title), or that the previous record rejected, unless an instance since then is new.
 
-```bash
-gh issue list --label periodic-review --state open --json number,title,body -L 100
-```
+### 5. Keep the guidance lean
 
-Skip filing if one matches — the open issue is the record, not a fresh one.
+- Prefer a test or check over prose wherever one can decide the case.
+- A prose proposal edits an existing rule in place or names the rule it replaces, and shows its net change in lines.
+- A proposal whose check makes a rule redundant also removes that rule.
 
-### 5. Size and file each class
+### 6. Propose, file, record
 
-Each class that clears the bar is already one unit — [engineering-plan](../engineering-plan/SKILL.md)'s "Size it as a vertical slice" step needs no further split. Run the rest in brief: its design phase only if the fix touches state that cannot be put back (rare for a process or guidance fix); a statement list per its "Generate the statement list" step, and where the fix is prose rather than code, "None" is the honest answer most recent process issues already give.
+Show the candidates in the conversation as a numbered table, recurring classes first: lesson, instances (issue or pull request numbers), the row of step 3, proposed fix with net lines. The person approves, edits or rejects each; file nothing before they answer.
 
-Hand the sized class to [github-issue](../github-issue/SKILL.md) for the body: the count and the sample go in **Problem**, naming the governing file from step 3 there as context for what is broken. **What to build** stays the end-to-end behaviour with no path in it, per github-issue's own rule. File in any order — classes from one run are independent of each other. After filing, apply the `periodic-review` label so the next run's window starts here.
+Hand each approved one through [scoping](../scoping/SKILL.md), [engineering-plan](../engineering-plan/SKILL.md) and [github-issue](../github-issue/SKILL.md), as an `unsliced` ticket, its instances in **Problem**.
 
-## Output
+End with one record: create an issue labelled `periodic-review` with the MCP `issue_write` (creating the label first with `gh api repos/{owner}/{repo}/labels -f name=periodic-review -f color=5319e7` if absent), listing every candidate with its outcome, a ticket number or a one-line reason for rejecting it, then close it. Its close date anchors the next run, so create it even when nothing was approved.
 
-Filed issues, one per class that recurred at least twice and wasn't already tracked, each carrying the count and the sample it came from and naming the file its fix belongs in. Nothing is edited by this skill itself, and nothing is written down for a class seen only once.
+The skill itself edits nothing.
