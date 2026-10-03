@@ -86,32 +86,36 @@ function stepDurationMs(step) {
 }
 
 /**
- * Each step of a job, ordered by its number in the job (ties by name). A step is
- * keyed by number and name, so a step renamed at the same number is a separate
- * row, and two steps sharing a name stay apart, the later ones shown as
- * "name (2)". Takes only the job's finished runs, as for the job's own
- * durations: a cancelled job's steps are truncated, and a step seen only there
- * has no row. A step nothing was counted for stays listed with `durations: null`
- * — no data, not 0.
+ * Each step of a job, keyed by its name and its occurrence of that name within
+ * the job run (the 1st "Upload", the 2nd "Upload"). GitHub numbers steps 1..N
+ * without gaps, so a number shifts whenever a step is inserted and cannot be a
+ * key. Rows are ordered by the median of the step's position across the runs
+ * that have it, ties by name then occurrence, so a step since removed from the
+ * job still sits where it used to. Takes only the job's finished runs, as for
+ * the job's own durations: a cancelled job's steps are truncated, and a step
+ * seen only there has no row. A step nothing was counted for stays listed with
+ * `durations: null` — no data, not 0.
  */
 function stepDurations(finishedJobs) {
-  const rows = new Map();
+  const samples = [];
   for (const jobRun of finishedJobs) {
-    for (const step of jobRun.steps ?? []) {
-      const key = `${step.number}\u0000${step.name}`;
-      if (!rows.has(key)) rows.set(key, { number: step.number, name: step.name, values: [] });
-      const ms = stepDurationMs(step);
-      if (ms !== null) rows.get(key).values.push(ms);
-    }
-  }
-  const seen = new Map();
-  return [...rows.values()]
-    .sort((x, y) => x.number - y.number || x.name.localeCompare(y.name))
-    .map(({ name, values }) => {
-      const nth = (seen.get(name) ?? 0) + 1;
-      seen.set(name, nth);
-      return { name: nth === 1 ? name : `${name} (${nth})`, durations: quantiles(values) };
+    const seen = new Map();
+    (jobRun.steps ?? []).forEach((step, position) => {
+      const name = step.name ?? '';
+      const occurrence = (seen.get(name) ?? 0) + 1;
+      seen.set(name, occurrence);
+      samples.push({ name, occurrence, position, ms: stepDurationMs(step) });
     });
+  }
+  return [...group(samples, (x) => `${x.name}\u0000${x.occurrence}`).values()]
+    .map((rows) => ({
+      name: rows[0].name,
+      occurrence: rows[0].occurrence,
+      at: quantiles(rows.map((x) => x.position)).median,
+      durations: quantiles(rows.map((x) => x.ms).filter((ms) => ms !== null)),
+    }))
+    .sort((x, y) => x.at - y.at || x.name.localeCompare(y.name) || x.occurrence - y.occurrence)
+    .map(({ name, occurrence, durations }) => ({ name, occurrence, durations }));
 }
 
 const byCreatedAsc = (a, b) => new Date(a.createdAt) - new Date(b.createdAt);

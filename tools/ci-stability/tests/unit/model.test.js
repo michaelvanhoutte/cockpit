@@ -391,39 +391,55 @@ describe('Step durations', () => {
           job({ runId: b.id, steps: [step(1, 'Install', 120), step(2, 'Test', 20)] }),
         ],
       );
-      expect(install).toEqual({ name: 'Install', durations: { median: 90_000, p90: 120_000, count: 2 } });
+      expect(install).toEqual({ name: 'Install', occurrence: 1, durations: { median: 90_000, p90: 120_000, count: 2 } });
 
       const [only] = stepsOf([c], [job({ runId: c.id, steps: [step(1, 'Install', 45)] })]);
       expect(only.durations).toEqual({ median: 45_000, p90: 45_000, count: 1 });
     });
 
     it('keeps the steps in the order the job ran them, even when an older run had one more', () => {
-      // Runs arrive newest first; the older run had an extra step in the middle.
+      // Runs arrive newest first; the older run had a Build step in the middle.
       const [newer, older] = [run(), run()];
       const steps = stepsOf(
         [newer, older],
         [
-          job({ runId: newer.id, steps: [step(1, 'Checkout', 1), step(3, 'Test', 9)] }),
-          job({ runId: older.id, steps: [step(1, 'Checkout', 1), step(2, 'Build', 5), step(3, 'Test', 9)] }),
+          job({ runId: newer.id, steps: [step(1, 'Checkout', 1), step(2, 'Test', 10)] }),
+          job({ runId: older.id, steps: [step(1, 'Checkout', 1), step(2, 'Build', 5), step(3, 'Test', 20)] }),
         ],
       );
       expect(steps.map((s) => s.name)).toEqual(['Checkout', 'Build', 'Test']);
+      expect(steps[2].durations).toEqual({ median: 15_000, p90: 20_000, count: 2 });
     });
 
-    it('keeps two steps sharing a name apart, and a step renamed at the same number as a separate row', () => {
+    it('keeps two steps sharing a name apart, one row each, by occurrence', () => {
       const [a, b] = [run(), run()];
       const steps = stepsOf(
         [a, b],
         [
-          job({ runId: a.id, steps: [step(1, 'Upload', 2), step(2, 'Upload', 10), step(3, 'Old name', 4)] }),
-          job({ runId: b.id, steps: [step(1, 'Upload', 4), step(2, 'Upload', 20), step(3, 'New name', 6)] }),
+          job({ runId: a.id, steps: [step(1, 'Upload', 2), step(2, 'Upload', 10)] }),
+          job({ runId: b.id, steps: [step(1, 'Upload', 4), step(2, 'Upload', 20)] }),
         ],
       );
-      expect(steps.map((s) => [s.name, s.durations.median, s.durations.count])).toEqual([
-        ['Upload', 3000, 2],
-        ['Upload (2)', 15_000, 2],
-        ['New name', 6000, 1],
-        ['Old name', 4000, 1],
+      expect(steps.map((s) => [s.name, s.occurrence, s.durations.median, s.durations.count])).toEqual([
+        ['Upload', 1, 3000, 2],
+        ['Upload', 2, 15_000, 2],
+      ]);
+    });
+
+    it('leaves the later steps as one row each when a step is inserted, shifting their numbers', () => {
+      const [newer, older] = [run(), run()];
+      const steps = stepsOf(
+        [newer, older],
+        [
+          job({ runId: newer.id, steps: [step(1, 'Checkout', 1), step(2, 'Cache', 3), step(3, 'Install', 30), step(4, 'Test', 90)] }),
+          job({ runId: older.id, steps: [step(1, 'Checkout', 1), step(2, 'Install', 50), step(3, 'Test', 110)] }),
+        ],
+      );
+      expect(steps.map((s) => [s.name, s.durations.count])).toEqual([
+        ['Checkout', 2],
+        ['Cache', 1],
+        ['Install', 2],
+        ['Test', 2],
       ]);
     });
   });

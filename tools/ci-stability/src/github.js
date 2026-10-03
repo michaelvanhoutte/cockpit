@@ -149,8 +149,8 @@ function normalizeRun(raw) {
 /** @returns {Job} */
 function normalizeJob(raw) {
   const steps = (raw.steps ?? []).map((s) => ({
-    number: s.number,
-    name: s.name,
+    number: s.number ?? null,
+    name: s.name ?? '',
     conclusion: s.conclusion ?? null,
     startedAt: s.started_at ?? null,
     completedAt: s.completed_at ?? null,
