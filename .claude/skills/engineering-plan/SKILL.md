@@ -21,11 +21,14 @@ The two phases are one skill so that one engineer pays for one invocation, and t
 
 ## Design
 
-Design stops at services, stores, boundaries and ownership. Classes, functions and file layout are the builder's. It takes the ticket whole, before any slicing, so each decision sees all of it.
+Design stops at what an engineer would draw on a whiteboard to explain the change to a colleague: the parts, their lifecycles and states, what talks to what, who owns which data, and the guarantees between them. This repository's own classes, functions, files and module names are the builder's. It takes the ticket whole, before any slicing, so each decision sees all of it.
 
 ### The altitude
 
-**A decision belongs here only if it names a store, a boundary, a service, who owns a piece of data, or a guarantee** (what is consistent, how fresh, what survives an outage). Test each one: would an engineer who never opens the code still understand it and be able to challenge it? If it names a class, function, file, column, endpoint shape or the order of build steps, it is an implementation plan — leave it to the builder and do not raise it, even when asked a code-adjacent question.
+**A decision belongs here when it fits on that whiteboard and an engineer who never opens the code can challenge it**: a store, a boundary, a service, a lifecycle (what state a part is in and what moves it on), who owns a piece of data, or a guarantee (what is consistent, how fresh, what survives an outage). **Name frameworks, platform APIs and protocols freely** (the service worker lifecycle, a Workbox strategy, SSE, D1, a queue): they are the shared vocabulary. Two levels fail:
+
+- **Too low** names this repository's own classes, functions, files, columns, endpoint shapes or the order of build steps. Leave it to the builder, even when asked a code-adjacent question.
+- **Too high** asks what the person sees, how long they accept waiting, or what a message says. Those are `scoping`'s: take the ticket's answer as a constraint, and where it leaves one open, name it and send it back rather than asking it here.
 
 | Here | Not here |
 |---|---|
@@ -33,6 +36,10 @@ Design stops at services, stores, boundaries and ownership. Classes, functions a
 | "The activity feed lives in D1, not a new store" | the columns and indexes |
 | "Teams messages arrive by webhook, with a cron sweep for gaps" | the parsing code |
 | "A stale feed is acceptable for a minute; a lost message is not" | the retry loop |
+| "A new service worker installs and waits; open pages keep the old one until told to activate" | the module that sends the message |
+| "The page asks the browser for a newer worker on open, on becoming visible and on SSE reconnect" | the function that does it |
+
+**State each decision's consequences in system terms**: the states each part can be in, the interleavings that break it (several tabs, a deploy mid-session, an interrupted switch), what it costs in load or against a budget, and what stays unguarded. A name from this repository, as opposed to a framework or the platform, in a question or a decision means it has dropped to code.
 
 Code is read in step 1 only to learn what already exists, and is never quoted in the output.
 
@@ -66,13 +73,15 @@ Work one round at a time with the `grilling` skill's interview: number each ques
 | Supportability | How does someone find out it broke, and what do they do about it? |
 | Maintainability | Whose change does this make harder, and what would undo it? |
 
-Settle the placement questions explicitly: which store owns each piece of data, what is synchronous and what is queued, which Worker or service runs it, and which existing mechanism it reuses. **Prefer the existing mechanism**; a new store, queue or service has to name what the existing one cannot do.
+Settle the placement questions explicitly: which store owns each piece of data, what is synchronous and what is queued, which Worker or service runs it, and which existing mechanism it reuses. **Prefer the existing mechanism**; a new store, queue or service has to name what the existing one cannot do. Where the change stores nothing, settle the lifecycle instead: which part is in which state, and what moves it on.
+
+**Offer each option as an arrangement of parts and what it does under the scenario**: the states it passes through, what it costs, what it leaves unguarded.
 
 **Challenge the result rather than presenting it**: name what you chose and what you rejected, and ask the engineer about each. A question whose two answers would produce different diffs is closed here, not carried into the issue.
 
 ### 4. Record the decisions
 
-One entry per decision, three lines at most: the decision, the option rejected and why in a clause, and what it costs later. These become the ticket's **Technical design** section, added through [github-issue](../github-issue/SKILL.md) with the rest of the body untouched.
+One entry per decision, four lines at most: the decision as an arrangement of parts, the option rejected and why in a clause, what it costs or limits in the system, and the risk it leaves open. A remaining risk goes in its entry, not in a closing note. These become the ticket's **Technical design** section, added through [github-issue](../github-issue/SKILL.md) with the rest of the body untouched.
 
 **A decision that outlives the issue goes to `architecture.md`, edited in place and only once built**, as the rule now stands with its reason in a clause. Nothing goes to `docs/adr/`; what was weighed stays in the issue.
 
