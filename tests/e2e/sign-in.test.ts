@@ -154,6 +154,11 @@ test.describe('Sign-in', () => {
       isMobile,
     }) => {
       await signIn(page, MICHAEL, isMobile);
+      // The All items tab switched on, which is remembered in the browser and
+      // is one of the keys `localKeys` below must find gone.
+      await press(dashboardBar(page).getByRole('button', { name: /^Actions for/ }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Show all items' }), isMobile);
+      await expect(dashboardBar(page).getByRole('link', { name: 'All items' })).toBeVisible();
       // Somewhere with something in it, so there is genuinely something to be
       // left behind: opening a workspace is what fills the stored copy and what
       // writes down which view it was on.

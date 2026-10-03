@@ -147,6 +147,10 @@ function TheShell() {
       return pathname === '/capture' || pathname.startsWith('/capture/');
     },
   });
+  /** *All items* is the page on screen (`router.tsx`), which the bar marks in place of a dashboard. */
+  const onAllItems = useRouterState({
+    select: (state) => /^\/w\/[^/]+\/items\/?$/.test(state.location.pathname),
+  });
   useScrollWhileDraggingAnItem();
   const roomForTheInbox = useRoomForTheInbox();
 
@@ -1037,6 +1041,7 @@ function TheShell() {
               tint={theme.color}
               ground={theme.ground}
               openDashboardId={params.dashboardId ?? null}
+              allItemsOpen={onAllItems}
             />
           </>
         )}

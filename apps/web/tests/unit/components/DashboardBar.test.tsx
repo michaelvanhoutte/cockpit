@@ -11,6 +11,7 @@ import type {
   WorkspaceSnapshot,
 } from '@cockpit/shared';
 import { DashboardBar } from '../../../src/components/DashboardBar';
+import { readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
 import { DashboardFilterBar } from '../../../src/components/DashboardFilterBar';
 import {
   NO_DASHBOARD_FILTER,
@@ -41,6 +42,8 @@ const held = vi.hoisted(() => ({
    * here, and every rule about the tab you are on would pass by asking nothing.
    */
   openDashboardId: null as string | null,
+  /** That the address is *All items*, so its tab is marked the way the router marks it. */
+  allItemsOpen: false,
 }));
 
 // The router is not under test, and `to`/`params` are its props rather than an
@@ -57,14 +60,14 @@ vi.mock('@tanstack/react-router', () => ({
   // `children` would quietly render it as an ordinary anchor.
   Link: ({
     children,
-    to: _to,
+    to,
     search: _search,
     params,
     className,
     ...rest
   }: {
     children?: React.ReactNode;
-    to?: unknown;
+    to?: string;
     search?: unknown;
     params?: { dashboardId?: string };
   } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
@@ -74,7 +77,10 @@ vi.mock('@tanstack/react-router', () => ({
       // on screen, which is what the bar's own styling and its focus after a
       // delete both read.
       className={`${className ?? ''}${
-        params?.dashboardId && params.dashboardId === held.openDashboardId ? ' active' : ''
+        (params?.dashboardId && params.dashboardId === held.openDashboardId) ||
+        (to === '/w/$workspaceId/items' && held.allItemsOpen)
+          ? ' active'
+          : ''
       }`}
       {...rest}
     >
@@ -180,6 +186,8 @@ function showBar(
     arrivesInFlight?: string;
     /** Draws the filter bar beneath, which the page does in the board's own place. */
     withFilterBar?: boolean;
+    /** *All items* is the page on screen, as its address makes it. */
+    allItemsOpen?: boolean;
   } = {},
 ) {
   held.dashboards = names.map(aDashboard);
@@ -187,6 +195,7 @@ function showBar(
   held.layouts = answer.layouts ?? [];
   held.screenSizes = answer.screenSizes ?? [];
   held.openDashboardId = answer.openDashboardId ?? null;
+  held.allItemsOpen = answer.allItemsOpen ?? false;
   wentTo.calls = [];
   const asked: { error: Error | null; variables: unknown; keptOnRefusal: string[] } = {
     error: answer.error ?? null,
@@ -255,6 +264,7 @@ function showBar(
         tint="#6f62b5"
         ground="#e3e1f2"
         openDashboardId={openDashboardId}
+        allItemsOpen={held.allItemsOpen}
       />
       {answer.withFilterBar && openDashboardId && (
         <DashboardFilterBar dashboardId={openDashboardId} />
@@ -502,6 +512,7 @@ describe('Dashboards', () => {
       expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toEqual([
         'Edit…',
         'Delete',
+        'Show all items',
       ]);
       await user.keyboard('{Escape}');
       expect(screen.queryByRole('menu')).toBeNull();
@@ -556,6 +567,7 @@ describe('Dashboards', () => {
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Edit…',
         'Delete',
+        'Show all items',
       ]);
     });
 
@@ -848,6 +860,118 @@ describe('Dashboards', () => {
       expect(strip.style.backgroundColor).toBe('');
       expect(strip.style.getPropertyValue('--tab-on')).toBe('#e3e1f2');
       expect(strip.style.getPropertyValue('--tab-mark')).toBe('#6f62b5');
+    });
+  });
+});
+
+describe('Dashboards', () => {
+  describe('All items is switched on and off from a dashboard’s menu, per workspace, in this browser', () => {
+    const OPEN = 'ws-work-research';
+    const entries = () => screen.getAllByRole('menuitem').map((entry) => entry.textContent);
+
+    beforeEach(() => localStorage.clear());
+    afterEach(() => {
+      localStorage.clear();
+      Object.defineProperty(globalThis, 'innerWidth', { value: 1280, configurable: true, writable: true });
+    });
+
+    it('offers Show all items on a dashboard’s "…" and on its tab', async () => {
+      const { user } = showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN });
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Research' }));
+      expect(entries()).toContain('Show all items');
+      await user.keyboard('{Escape}');
+
+      fireEvent.contextMenu(screen.getByRole('link', { name: 'Dashboard 1' }));
+      expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toContain(
+        'Show all items',
+      );
+    });
+
+    it('puts the tab after the dashboards and before the +, and then offers Hide all items', async () => {
+      const { user } = showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN });
+      expect(screen.queryByRole('link', { name: 'All items' })).toBeNull();
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Research' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Show all items' }));
+
+      expect(screen.getAllByRole('link').map((tab) => tab.textContent)).toEqual([
+        'Inbox',
+        'Dashboard 1',
+        'Research',
+        'All items',
+      ]);
+      const tab = screen.getByRole('link', { name: 'All items' });
+      const plus = screen.getByRole('button', { name: /add.*dashboard/i });
+      expect(tab.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      await user.click(screen.getByRole('button', { name: 'Actions for Research' }));
+      expect(entries()).toContain('Hide all items');
+      expect(entries()).not.toContain('Show all items');
+    });
+
+    it('offers only Hide all items on its own "…", and nothing of a dashboard’s', async () => {
+      setAllItemsTab('ws-work', true);
+      const { user } = showBar(['Dashboard 1', 'Research'], { allItemsOpen: true });
+
+      expect(await screen.findByRole('link', { name: 'Research' })).not.toHaveClass('active');
+      expect(screen.getByRole('link', { name: 'All items' })).toHaveClass('active');
+      await user.click(screen.getByRole('button', { name: 'Actions for All items' }));
+      expect(entries()).toEqual(['Hide all items']);
+      expect(screen.queryByRole('button', { name: '+ Panel' })).toBeNull();
+    });
+
+    it('takes the tab away from a dashboard’s menu, and stays where it was', async () => {
+      setAllItemsTab('ws-work', true);
+      const { user } = showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN });
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Research' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Hide all items' }));
+
+      expect(screen.queryByRole('link', { name: 'All items' })).toBeNull();
+      expect(wentTo.calls).toEqual([]);
+    });
+
+    it('takes the tab away from its own menu, and goes to the first dashboard', async () => {
+      setAllItemsTab('ws-work', true);
+      const { user } = showBar(['Dashboard 1', 'Research'], { allItemsOpen: true });
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for All items' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Hide all items' }));
+
+      expect(screen.queryByRole('link', { name: 'All items' })).toBeNull();
+      expect(wentTo.calls).toMatchObject([
+        { to: '/w/$workspaceId/d/$dashboardId', params: { dashboardId: 'ws-work-dashboard 1' } },
+      ]);
+    });
+
+    it('stays on the dashboard when the tab is hidden from its menu while on another page', async () => {
+      setAllItemsTab('ws-work', true);
+      showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN });
+
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'All items' }));
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Hide all items' }));
+
+      await waitFor(() => expect(screen.queryByRole('link', { name: 'All items' })).toBeNull());
+      expect(wentTo.calls).toEqual([]);
+    });
+
+    it('is remembered for the workspace it was switched on in, and for no other', async () => {
+      setAllItemsTab('ws-work', true);
+      showBar(['Dashboard 1']);
+
+      expect(await screen.findByRole('link', { name: 'All items' })).toBeVisible();
+      expect(readAllItemsTab(localStorage, 'ws-work')).toBe(true);
+      expect(readAllItemsTab(localStorage, 'ws-personal')).toBe(false);
+    });
+
+    it('is the same entry and tab on a phone-width screen', async () => {
+      Object.defineProperty(globalThis, 'innerWidth', { value: 375, configurable: true, writable: true });
+      const { user } = showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN });
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Research' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Show all items' }));
+
+      expect(screen.getByRole('link', { name: 'All items' })).toBeVisible();
     });
   });
 });

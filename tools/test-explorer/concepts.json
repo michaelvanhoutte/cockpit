@@ -154,7 +154,7 @@
     {
       "key": "Dashboards",
       "label": "Dashboards",
-      "browserWalks": 3,
+      "browserWalks": 4,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/api/src/domain/dashboards.ts",
@@ -167,6 +167,10 @@
         "packages/shared/src/domain/item.ts",
         "apps/web/src/components/DashboardBar.tsx",
         "apps/web/src/pages/DashboardPage.tsx",
+        "apps/web/src/allItems.ts",
+        "apps/web/src/allItemsTab.ts",
+        "apps/web/src/components/AllItemsBoard.tsx",
+        "apps/web/src/pages/AllItemsPage.tsx",
         "apps/web/src/components/PanelBoard.tsx",
         "apps/web/src/lastVisited.ts",
         "apps/web/src/router.tsx",

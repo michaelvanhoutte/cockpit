@@ -872,6 +872,76 @@ describe('Dashboards', () => {
       expect(await screen.findByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
     });
   });
+
+  describe('All items has an address, and opening it turns the tab on', () => {
+    const tab = () => screen.findByRole('link', { name: 'All items' });
+
+    it('shows the table with the All items tab selected and no dashboard selected', async () => {
+      await open('/w/ws-work/items', [work, personal]);
+
+      expect(await screen.findByRole('region', { name: 'All items' })).toBeVisible();
+      expect(await tab()).toHaveClass('active');
+      expect(screen.getByRole('link', { name: 'Dashboard 1' })).not.toHaveClass('active');
+      expect(screen.getByRole('link', { name: 'Research' })).not.toHaveClass('active');
+    });
+
+    it('turns the tab on where it was off, and keeps it on after a reload', async () => {
+      await open('/w/ws-work/items', [work, personal]);
+      await tab();
+      cleanup();
+
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+
+      expect(await tab()).not.toHaveClass('active');
+    });
+
+    it('does not turn the tab on for a link only brushed past', async () => {
+      // Preloaded on intent, which runs `beforeLoad` without anybody having gone there.
+      readsWorkspaces.mockResolvedValue({ workspaces: [work, personal] });
+      const router = createAppRouter(new QueryClient({ defaultOptions: { queries: { retry: false } } }));
+      readsSnapshot.mockImplementation((workspaceId) =>
+        Promise.resolve({
+          workspace: work,
+          items: [],
+          dashboards: dashboardsOf(workspaceId),
+          panels: [],
+          layouts: [],
+          associations: [],
+          attachments: [],
+          itemTypes: [],
+          screenSizes: [],
+          itemFormPresentation: 'centered',
+          duplicates: [],
+          filings: [],
+          agents: [],
+          hiddenAgents: [],
+          hasClaudeCodeConnection: false,
+          agentRuns: [],
+          claudeCodeFailing: null,
+          generatedAt: '2026-08-31T10:00:00.000Z',
+        } as never),
+      );
+
+      await router.preloadRoute({ to: '/w/$workspaceId/items', params: { workspaceId: 'ws-work' } });
+
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+      await screen.findByRole('heading', { name: 'Research' });
+      expect(screen.queryByRole('link', { name: 'All items' })).toBeNull();
+    });
+
+    it('returns to the page before on Back', async () => {
+      window.localStorage.setItem('cockpit.all-items-tab.ws-work', '1');
+      const user = userEvent.setup();
+      await open('/w/ws-work/d/ws-work-research', [work, personal]);
+
+      await user.click(await tab());
+      expect(await screen.findByRole('region', { name: 'All items' })).toBeVisible();
+      act(() => window.history.back());
+
+      expect(await screen.findByRole('heading', { name: 'Research' })).toBeVisible();
+      expect(screen.queryByRole('region', { name: 'All items' })).toBeNull();
+    });
+  });
 });
 
 /**

@@ -1,4 +1,5 @@
 import {
+  capture,
   chooseRowAction,
   chooseTabAction,
   dashboardBar,
@@ -8,7 +9,9 @@ import {
   expect,
   expectNoSidewaysScroll,
   inbox,
+  itemRow,
   makeWorkspace,
+  openDashboard,
   openFirstWorkspace,
   press,
   switchTo,
@@ -209,6 +212,66 @@ test.describe('Dashboards', () => {
       await expect(page.getByRole('heading', { name: 'Dashboard 1' })).toBeVisible();
       expect(page.url()).not.toBe(itsAddress);
       await expectNoSidewaysScroll(page);
+    });
+  });
+
+  test.describe('a person reads every item from All items', () => {
+    /**
+     * F3, because only a browser has the real tab, address and item form
+     * together, on a mouse at 1280px and a finger at 480px. Which items the
+     * table lists, how a row reads and how a header orders it is
+     * apps/web/tests/unit/allItems.test.ts, and that the address turns the tab
+     * on is apps/web/tests/unit/router.test.tsx.
+     */
+    test('shows the tab from a dashboard’s menu, lists a finished item, and reopens it from its form', async ({
+      page,
+      isMobile,
+    }) => {
+      // Its own workspace, for the reason the walks above give.
+      const workspace = uniqueTitle('Bookkeeping');
+      await openFirstWorkspace(page, isMobile);
+      await makeWorkspace(page, workspace, isMobile);
+      await switchTo(page, workspace, isMobile);
+
+      // A finished item, which no list shows: finished from its form.
+      const finished = uniqueTitle('Filed the return');
+      if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      await capture(page, finished, isMobile);
+      await press(itemRow(page, finished).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
+      await page.getByRole('dialog').getByLabel('Status').selectOption('done');
+      await press(page.getByRole('dialog').getByRole('button', { name: 'Save' }), isMobile);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(itemRow(page, finished)).toHaveCount(0);
+
+      await openDashboard(page, 'Dashboard 1', isMobile);
+      await expect(dashboardBar(page).getByRole('link', { name: 'All items' })).toHaveCount(0);
+      await chooseRowAction(page, 'Dashboard 1', 'Show all items', isMobile);
+
+      // After the dashboards, and open on it: the tab is the one marked, the
+      // dashboard behind it is not.
+      const tab = dashboardBar(page).getByRole('link', { name: 'All items' });
+      await expect(tab).toBeVisible();
+      await press(tab, isMobile);
+      await expect(page).toHaveURL(/\/items$/);
+      await expect(tab).toHaveClass(/(^|\s)active(\s|$)/);
+      await expect(dashboardTab(page, 'Dashboard 1')).not.toHaveClass(/(^|\s)active(\s|$)/);
+      const row = page.getByRole('row').filter({ hasText: finished });
+      await expect(row).toContainText('Done');
+      await expect(row).toContainText('Inbox');
+      await expectNoSidewaysScroll(page);
+
+      // A reload lands on the same table: the address and the remembered tab.
+      await page.reload();
+      await expect(row).toBeVisible();
+      await expect(tab).toHaveClass(/(^|\s)active(\s|$)/);
+
+      // The row opens its form, and the Status control reopens the item.
+      await press(row.getByRole('button', { name: finished }), isMobile);
+      await page.getByRole('dialog').getByLabel('Status').selectOption('to_do');
+      await press(page.getByRole('dialog').getByRole('button', { name: 'Save' }), isMobile);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(row).toContainText('To do');
     });
   });
 });
