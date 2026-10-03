@@ -59,6 +59,14 @@ A pull request is one line, cut into parts:
   attempts — and not a red round. Its cost is the time from the failed attempt finishing to the
   passing one finishing. A failure the next push fixed is a red round; two jobs that share a
   name in different workflows are two checks, not one re-run.
+- **A failed attempt names what it failed on.** Every failed attempt of a red round or a fluke
+  carries, in the round's `failures`, the steps its job ended failed at and, for `Test` and
+  `E2E (F3)`, the test files its own `test-selection-record` or `e2e-selection-record` marks
+  failed. A record is matched to its attempt by being created during that attempt's job (30
+  seconds' slack after it ends), since a re-run uploads a second artifact of the same name. An
+  attempt whose record expired, was never uploaded or matches two artifacts reads `not-recorded`
+  with its `why`, never as failing nothing, and a package that wrote no report is named in
+  `packagesNotRecorded`. A download that errors names the pull request in `coverage.failed`.
 - **Ready or draft**: a round in which the code review or the security review ran is `ready`,
   since a draft skips both.
 - **A conclusion it does not know is neither a pass nor a fail**, and is named in the round's
@@ -77,6 +85,10 @@ how many rounds ran past ten minutes, and what each kind of check held rounds up
 minutes, runs, and rounds it finished last). Each pull request carries the same `harness` shape
 for its own rounds, so the page can plot one pull request the way it reads a window. `pulls` in
 the model is the per-pull-request detail behind them.
+
+Each window's `failures` lists every failing test file and every failing step with the pull
+requests it failed on and the attempts on each, most pull requests first, and counts the attempts
+whose files could not be read (`notRecorded`). It is empty lists, never `null`, where nothing failed.
 
 **Coding against the harness** is each pull request's `balance`, and over a window its `balance`
 holds the dots and the median of their ratios. Coding is the time before the first push plus the
@@ -126,7 +138,8 @@ collect(repo)  →  buildModel(...)  →  renderHtml(model)  →  out/index.html
 `scripts/lib/session-record.mjs`'s, imported rather than copied, so the two cannot drift.
 
 **Request cost is what shapes `github.js`**, and its header comment is where that is worked out:
-about 5 to 6 requests per pull request against the 1,000 an hour a `GITHUB_TOKEN` allows.
+about 5 to 6 requests per pull request, and about three more per failed attempt (its job, its run's
+artifact list, one record download), against the 1,000 an hour a `GITHUB_TOKEN` allows.
 `--max-pulls` stops rather than spending it, and the model's `coverage` reports the period it
 actually reached — as does a listing that ends before the window does. A pull request whose
 commits or check runs cannot be read is named in `coverage.failed` and left out; a spent rate

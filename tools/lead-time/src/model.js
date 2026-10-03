@@ -75,6 +75,57 @@ export function classify({ status, conclusion }) {
 }
 
 /**
+ * The jobs whose attempts upload a record of which test files failed, and the
+ * artifact each uploads. Every other check names the step that failed and no files.
+ */
+export const RECORD_ARTIFACTS = { Test: 'test-selection-record', 'E2E (F3)': 'e2e-selection-record' };
+
+/**
+ * How long after a job completed an artifact it uploaded may still be stamped:
+ * the upload is a step of the job, but the two clocks are read to the second and
+ * the job's end can be recorded just before its last step's artifact is. Small
+ * enough that a re-run, which starts later and uploads minutes after that, never
+ * falls inside the earlier attempt's window.
+ */
+export const UPLOAD_SLACK_MS = 30_000;
+
+/**
+ * The one artifact an attempt uploaded, out of the run's artifacts of that name.
+ * A re-run uploads a second one under the same name with no attempt number, so an
+ * attempt owns the artifacts created during its own job. Zero is `absent`, and more
+ * than one is `ambiguous` — never the first guessed — and both read as not recorded,
+ * as does one that has `expired`.
+ *
+ * @param {{ id: number, createdAt: string, expired: boolean }[]} artifacts
+ * @param {{ startedAt: string|null, completedAt: string|null }} job
+ * @returns {{ artifact: { id: number } } | { why: 'absent'|'expired'|'ambiguous' }}
+ */
+export function matchArtifact(artifacts, { startedAt, completedAt }) {
+  const from = time(startedAt);
+  const to = time(completedAt);
+  if (from === null || to === null) return { why: 'absent' };
+  const inside = artifacts.filter((artifact) => {
+    const made = time(artifact.createdAt);
+    return made !== null && made >= from && made <= to + UPLOAD_SLACK_MS;
+  });
+  if (inside.length === 0) return { why: 'absent' };
+  if (inside.length > 1) return { why: 'ambiguous' };
+  return inside[0].expired ? { why: 'expired' } : { artifact: { id: inside[0].id } };
+}
+
+/**
+ * The test files a `test-selection-record` or `e2e-selection-record` marks failed,
+ * and the packages that wrote no report, whose files it cannot say anything about.
+ */
+export function failedFilesOf(record) {
+  const packages = Array.isArray(record?.packages) ? record.packages : [];
+  return {
+    files: packages.filter((pkg) => pkg.report !== 'none').flatMap((pkg) => (pkg.files ?? []).filter((file) => file.status === 'failed').map((file) => file.path)),
+    packagesNotRecorded: packages.filter((pkg) => pkg.report === 'none').map((pkg) => pkg.name),
+  };
+}
+
+/**
  * Median and p95 of a set of durations, in milliseconds. Median averages the
  * middle pair on an even count; p95 is nearest-rank, so it is always a duration
  * that really happened. One value is therefore both, which is the honest answer
@@ -148,6 +199,41 @@ function flukesOf(groups, sha) {
 }
 
 /**
+ * What each failed attempt of a round failed on: the step it stopped at and, for
+ * `Test` and `E2E (F3)`, the files its own record marks failed. `outcome` is `red`
+ * where the check never passed on the commit and `fluke` where a re-run did.
+ *
+ * `record` is `null` for a check that keeps none, `read`, or `not-recorded` with
+ * `why` — never an empty file list standing in for it, since an attempt nobody
+ * can read is not an attempt that failed on nothing.
+ */
+function failuresOf(groups) {
+  const decisive = (attempt) => ['pass', 'fail'].includes(classify(attempt));
+  const failures = [];
+  for (const attempts of groups) {
+    const outcome = classify(attempts.findLast(decisive) ?? attempts[0]) === 'fail' ? 'red' : 'fluke';
+    attempts.forEach((attempt, index) => {
+      if (classify(attempt) !== 'fail') return;
+      const detail = attempt.failure ?? null;
+      const failure = { check: attempt.name, attempt: index + 1, outcome, steps: detail?.steps ?? [], files: [], record: null, why: null, packagesNotRecorded: [] };
+      if (Object.hasOwn(RECORD_ARTIFACTS, attempt.name)) {
+        if (detail?.record?.state === 'read') {
+          failure.record = 'read';
+          const { files, packagesNotRecorded } = failedFilesOf(detail.record.value);
+          failure.files = files;
+          failure.packagesNotRecorded = packagesNotRecorded;
+        } else {
+          failure.record = 'not-recorded';
+          failure.why = detail?.record?.why ?? 'absent';
+        }
+      }
+      failures.push(failure);
+    });
+  }
+  return failures;
+}
+
+/**
  * The rounds of a pull request, in push order.
  *
  * A commit no check ran on — or only skipped ones did — is not a round of its
@@ -213,6 +299,7 @@ function buildRounds(commits, mergedAt) {
       held,
       last: held.length ? held[held.length - 1].name : null,
       flukes: flukesOf(push.groups, push.commit.sha),
+      failures: failuresOf(push.groups),
       commits: push.commits,
     };
   });
@@ -373,6 +460,40 @@ function harnessOf(rounds) {
   return { rounds: rounds.length, kinds };
 }
 
+/**
+ * Each step and each test file that failed an attempt in these rounds, with the
+ * pull requests it failed on and how many attempts it failed there — a spec
+ * failing twice on one pull request is one pull request and two attempts. Always
+ * lists, never `null`: no failure is an empty list. `notRecorded` counts the
+ * failed attempts whose files could not be read, wholly or for some package.
+ */
+function failuresOfWindow(inWindow) {
+  const entries = inWindow.flatMap((pull) => pull.rounds.flatMap((round) => round.failures.map((failure) => ({ pull: pull.number, failure }))));
+
+  const tally = (keyed) => {
+    const groups = new Map();
+    for (const { key, pull, ...rest } of keyed) {
+      if (!groups.has(key)) groups.set(key, { ...rest, pulls: new Map() });
+      const group = groups.get(key);
+      group.pulls.set(pull, (group.pulls.get(pull) ?? 0) + 1);
+    }
+    return [...groups.values()]
+      .map(({ pulls, ...rest }) => ({
+        ...rest,
+        attempts: sum([...pulls.values()]),
+        pulls: [...pulls].map(([number, attempts]) => ({ number, attempts })).sort((a, b) => a.number - b.number),
+      }))
+      .sort((a, b) => b.pulls.length - a.pulls.length || b.attempts - a.attempts || (a.check ?? '').localeCompare(b.check ?? '') || (a.step ?? a.path).localeCompare(b.step ?? b.path));
+  };
+
+  return {
+    attempts: entries.length,
+    notRecorded: entries.filter(({ failure }) => failure.record === 'not-recorded' || failure.packagesNotRecorded.length > 0).length,
+    steps: tally(entries.flatMap(({ pull, failure }) => failure.steps.map((step) => ({ key: `${failure.check}\n${step}`, pull, check: failure.check, step })))),
+    files: tally(entries.flatMap(({ pull, failure }) => failure.files.map((path) => ({ key: path, pull, path })))),
+  };
+}
+
 /** One window's picture: the pull requests merged in it, and every part's median and p95. */
 function windowModel(pulls, { days, now, coveredSince }) {
   const since = now.getTime() - days * DAY_MS;
@@ -438,6 +559,7 @@ function windowModel(pulls, { days, now, coveredSince }) {
     // Null too where pull requests merged but no check ever ran on any of them: no
     // rounds is no data about what held them, not a harness that held nothing.
     harness: rounds.length ? harnessOf(rounds.map((entry) => entry.round)) : null,
+    failures: failuresOfWindow(inWindow),
     flukes: rounds.length
       ? {
           count: sum(inWindow.map((pull) => pull.flukes.length)),

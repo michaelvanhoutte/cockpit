@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { renderBlock } from '../../../../scripts/lib/session-record.mjs';
-import { buildModel, pullModel } from '../../src/model.js';
+import { buildModel, matchArtifact, pullModel } from '../../src/model.js';
 
 const MIN = 60_000;
 const BASE = Date.UTC(2026, 8, 15, 9, 0);
@@ -504,6 +504,127 @@ describe('Lead time', () => {
     it('reads a window with no weighed pull request as no median, never as a ratio of zero', () => {
       const [window] = buildModel({ pulls: [], now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] }).windows;
       expect(window.balance).toEqual({ dots: [], ratio: null, noChecks: 0 });
+    });
+  });
+
+  describe('a failed attempt names the files and the step it failed on', () => {
+    const recordOf = (...packages) => ({ packages });
+    const pkg = (name, files, report = 'written') => ({ name, report, files: files.map(([path, status]) => ({ path, status })) });
+    const failing = (name, steps, record, from = 2, to = 10) =>
+      check(name, from, to, 'failure', { failure: { steps, record: record === undefined ? null : record } });
+    const read = (value) => ({ state: 'read', value });
+    const roundOf = (checks) => pullModel(pull({ commits: [commit('a', 0, checks)] })).rounds[0];
+
+    it.each([
+      {
+        situation: 'a red round whose Test attempt marks two files failed',
+        checks: [failing('Test', ['Run the tests'], read(recordOf(pkg('api', [['a.test.ts', 'failed'], ['b.test.ts', 'failed'], ['c.test.ts', 'passed']]))))],
+        outcome: 'red',
+        files: ['a.test.ts', 'b.test.ts'],
+      },
+      {
+        situation: 'a fluke: the E2E attempt failed on one spec and the re-run passed',
+        checks: [failing('E2E (F3)', ['Run the walks'], read(recordOf(pkg('e2e', [['tests/e2e/x.test.ts', 'failed']])))), check('E2E (F3)', 12, 25)],
+        outcome: 'fluke',
+        files: ['tests/e2e/x.test.ts'],
+      },
+    ])('$situation names the files its own record marks failed', ({ checks, outcome, files }) => {
+      const [failure] = roundOf(checks).failures;
+      expect(failure).toMatchObject({ outcome, files, record: 'read', packagesNotRecorded: [] });
+    });
+
+    it('reads a package that wrote no report as not recorded while the others still name their files', () => {
+      const record = recordOf(pkg('api', [['a.test.ts', 'failed']]), pkg('web', [], 'none'));
+      const [failure] = roundOf([failing('Test', ['Run the tests'], read(record))]).failures;
+      expect(failure).toMatchObject({ files: ['a.test.ts'], record: 'read', packagesNotRecorded: ['web'] });
+    });
+
+    it.each([
+      { situation: 'Checks failed at Lint', steps: ['Lint'], expected: ['Lint'] },
+      { situation: 'two steps failed in one job', steps: ['Lint', 'Typecheck'], expected: ['Lint', 'Typecheck'] },
+    ])('names the step, so $situation', ({ steps, expected }) => {
+      const [failure] = roundOf([failing('Checks', steps)]).failures;
+      expect(failure).toMatchObject({ check: 'Checks', steps: expected, files: [], record: null });
+    });
+
+    it('does not name files for a check that keeps no record', () => {
+      const record = read(recordOf(pkg('api', [['a.test.ts', 'failed']])));
+      expect(roundOf([failing('Checks', ['Lint'], record)]).failures[0].files).toEqual([]);
+    });
+
+    it.each([
+      { situation: 'the artifact expired', record: { state: 'not-recorded', why: 'expired' }, why: 'expired' },
+      { situation: 'no artifact was created during the job', record: { state: 'not-recorded', why: 'absent' }, why: 'absent' },
+      { situation: 'two artifacts fall inside the job', record: { state: 'not-recorded', why: 'ambiguous' }, why: 'ambiguous' },
+      { situation: 'nothing was fetched for the attempt', record: undefined, why: 'absent' },
+    ])('reads a Test attempt as not recorded, never as passing, where $situation', ({ record, why }) => {
+      const [failure] = roundOf([failing('Test', ['Run the tests'], record)]).failures;
+      expect(failure).toMatchObject({ record: 'not-recorded', why, files: [] });
+    });
+
+    it('numbers the attempts of a check in the order they ran', () => {
+      const round = roundOf([failing('Checks', ['Lint']), failing('Checks', ['Typecheck'], undefined, 12, 20), check('Checks', 22, 30)]);
+      expect(round.failures.map((failure) => [failure.attempt, failure.outcome, failure.steps])).toEqual([[1, 'fluke', ['Lint']], [2, 'fluke', ['Typecheck']]]);
+    });
+  });
+
+  describe('a record is matched to the attempt that uploaded it by when it was made', () => {
+    const job = { startedAt: at(2), completedAt: at(10) };
+    const artifact = (id, minute, expired = false) => ({ id, createdAt: at(minute), expired });
+
+    it.each([
+      { situation: 'one made during the job', artifacts: [artifact(1, 9)], expected: { artifact: { id: 1 } } },
+      { situation: 'one made seconds after the job completed', artifacts: [artifact(1, 10.2)], expected: { artifact: { id: 1 } } },
+      { situation: 'a re-run uploading under the same name: each attempt owns its own', artifacts: [artifact(1, 9), artifact(2, 24)], expected: { artifact: { id: 1 } } },
+      { situation: 'one that has expired', artifacts: [artifact(1, 9, true)], expected: { why: 'expired' } },
+      { situation: 'none made during the job', artifacts: [artifact(1, 30)], expected: { why: 'absent' } },
+      { situation: 'none at all', artifacts: [], expected: { why: 'absent' } },
+      { situation: 'two made during the job', artifacts: [artifact(1, 5), artifact(2, 9)], expected: { why: 'ambiguous' } },
+    ])('finds the right one, or none, with $situation', ({ artifacts, expected }) => {
+      expect(matchArtifact(artifacts, job)).toEqual(expected);
+    });
+
+    it('finds the second attempt its own record, not the first one', () => {
+      expect(matchArtifact([artifact(1, 9), artifact(2, 24)], { startedAt: at(12), completedAt: at(25) })).toEqual({ artifact: { id: 2 } });
+    });
+  });
+
+  describe('a window lists each failing file and step with the pull requests it failed on', () => {
+    const record = (...paths) => ({ state: 'read', value: { packages: [{ name: 'p', report: 'written', files: paths.map((path) => ({ path, status: 'failed' })) }] } });
+    const failedPull = (number, checks) => pull({ number, mergedAt: at(120), commits: [commit(`s${number}`, 0, checks)] });
+    const failing = (name, steps, rec = null, from = 2, to = 10) => check(name, from, to, 'failure', { failure: { steps, record: rec } });
+    const windowOf = (pulls) =>
+      buildModel({ pulls, now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] }).windows[0];
+
+    it('gives one row for a spec failing on two pull requests, with both', () => {
+      const { failures } = windowOf([
+        failedPull(1, [failing('Test', ['Run'], record('a.test.ts'))]),
+        failedPull(2, [failing('Test', ['Run'], record('a.test.ts', 'b.test.ts'))]),
+      ]);
+      expect(failures.files.find((file) => file.path === 'a.test.ts')).toEqual({ path: 'a.test.ts', attempts: 2, pulls: [{ number: 1, attempts: 1 }, { number: 2, attempts: 1 }] });
+      expect(failures.files.map((file) => file.path)).toEqual(['a.test.ts', 'b.test.ts']);
+      expect(failures.steps).toEqual([{ check: 'Test', step: 'Run', attempts: 2, pulls: [{ number: 1, attempts: 1 }, { number: 2, attempts: 1 }] }]);
+    });
+
+    it('gives one pull request and two attempts for a spec failing twice on one pull request', () => {
+      const { failures } = windowOf([failedPull(1, [failing('E2E (F3)', ['Walks'], record('x.test.ts')), failing('E2E (F3)', ['Walks'], record('x.test.ts'), 12, 20), check('E2E (F3)', 22, 30)])]);
+      expect(failures.files).toEqual([{ path: 'x.test.ts', attempts: 2, pulls: [{ number: 1, attempts: 2 }] }]);
+    });
+
+    it('gives empty lists, not null, for a window with pull requests and no failures', () => {
+      const { failures } = windowOf([failedPull(1, [check('Test', 2, 10)])]);
+      expect(failures).toEqual({ attempts: 0, notRecorded: 0, steps: [], files: [] });
+    });
+
+    it('counts the attempts it could not read, leaving them out of the files', () => {
+      const { failures } = windowOf([
+        failedPull(1, [failing('Test', ['Run'], { state: 'not-recorded', why: 'expired' })]),
+        failedPull(2, [failing('Test', ['Run'], record('a.test.ts'))]),
+        failedPull(3, [failing('Checks', ['Lint'])]),
+      ]);
+      expect(failures).toMatchObject({ attempts: 3, notRecorded: 1 });
+      expect(failures.files.map((file) => file.path)).toEqual(['a.test.ts']);
+      expect(failures.steps.map((step) => [step.check, step.step, step.attempts])).toEqual([['Test', 'Run', 2], ['Checks', 'Lint', 1]]);
     });
   });
 });
