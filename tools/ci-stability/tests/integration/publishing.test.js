@@ -26,6 +26,7 @@ const publish = readFileSync(path.join(repo, '.github/workflows/publish.yml'), '
 describe('the published site, as ci.yml and publish.yml assemble it', () => {
   it('writes the report where the job then uploads it from', () => {
     expect(ci).toContain('--out tools/ci-stability/out/index.html');
+    expect(ci).toContain('--model tools/ci-stability/out/model.json');
     expect(ci).toContain('path: tools/ci-stability/out/');
   });
 

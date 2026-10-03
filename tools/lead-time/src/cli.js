@@ -25,6 +25,7 @@ const USAGE = `Usage: node src/cli.js [options]
 
   --out <path>        where to write (default ../out/index.html, or model.json with --json)
   --json              write the model instead of the page
+  --model <path>      also write the model, as --json would, to this path
   --days <n>          how far back to read (default: the widest window)
   --windows <a,b>     the windows to report, in days (default 7,14)
   --max-pulls <n>     stop after this many pull requests, and report the shorter period (default 120)
@@ -77,6 +78,14 @@ export function parseArgs(argv) {
     if (arg === '--help' || arg === '-h') args.help = true;
     else if (arg === '--json') args.json = true;
     else if (arg === '--out') args.out = value();
+    else if (arg === '--model') {
+      const modelValue = value();
+      if (!modelValue) {
+        args.invalid ??= '--model needs a path';
+      } else {
+        args.model = modelValue;
+      }
+    }
     else if (arg === '--days') args.days = positive(value(), '--days', args);
     else if (arg === '--max-pulls') args.maxPulls = positive(value(), '--max-pulls', args);
     else if (arg === '--repo') args.repo = value();
@@ -101,8 +110,19 @@ export function parseArgs(argv) {
  */
 export function output(args, model) {
   return args.json
-    ? { file: 'model.json', content: JSON.stringify(model, null, 2) }
+    ? { file: 'model.json', content: modelJson(model) }
     : { file: 'index.html', content: renderHtml(model) };
+}
+
+/** The model as JSON, the same as output() returns for --json. */
+function modelJson(model) {
+  return JSON.stringify(model, null, 2);
+}
+
+/** The default output path for the page or --json model. */
+function defaultOut(args) {
+  const file = args.json ? 'model.json' : 'index.html';
+  return path.join(here, '../out', file);
 }
 
 export async function main(argv) {
@@ -118,6 +138,14 @@ export async function main(argv) {
   if (args.help) {
     process.stdout.write(USAGE);
     return 0;
+  }
+
+  if (args.model) {
+    const effectiveOut = args.out ?? defaultOut(args);
+    if (path.resolve(args.model) === path.resolve(effectiveOut)) {
+      process.stderr.write(`--model and --out cannot be the same path\n\n${USAGE}`);
+      return 2;
+    }
   }
 
   const repo = args.repo ?? process.env.GITHUB_REPOSITORY ?? repoFromGitRemote();
@@ -156,11 +184,20 @@ export async function main(argv) {
   });
 
   const { file, content } = output(args, model);
-  const out = path.resolve(args.out ?? path.join(here, '../out', file));
+  const out = path.resolve(args.out ?? defaultOut(args));
   mkdirSync(path.dirname(out), { recursive: true });
   writeFileSync(out, content, 'utf8');
+  const writtenFiles = [out];
+
+  if (args.model) {
+    const modelOut = path.resolve(args.model);
+    mkdirSync(path.dirname(modelOut), { recursive: true });
+    writeFileSync(modelOut, modelJson(model), 'utf8');
+    writtenFiles.push(modelOut);
+  }
+
   process.stderr.write(
-    `wrote ${out} — ${collected.pulls.length} pull requests, ${collected.requests} requests` +
+    `wrote ${writtenFiles.join(', ')} — ${collected.pulls.length} pull requests, ${collected.requests} requests` +
       `${collected.failed.length ? `, ${collected.failed.length} unreadable` : ''}` +
       `${collected.truncated ? `, stopped at --max-pulls after ${model.coverage.actualDays.toFixed(1)} days` : ''}\n`,
   );

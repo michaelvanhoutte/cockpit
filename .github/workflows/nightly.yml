@@ -56,7 +56,7 @@ jobs:
         with:
           node-version-file: package.json
       - name: Work out where a change spends its time
-        run: node tools/lead-time/src/cli.js --out tools/lead-time/out/index.html
+        run: node tools/lead-time/src/cli.js --out tools/lead-time/out/index.html --model tools/lead-time/out/model.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
@@ -85,7 +85,7 @@ jobs:
         with:
           node-version-file: package.json
       - name: Work out whether test selection is working
-        run: node tools/selection/src/cli.js --out tools/selection/out/index.html
+        run: node tools/selection/src/cli.js --out tools/selection/out/index.html --model tools/selection/out/model.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4

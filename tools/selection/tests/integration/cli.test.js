@@ -64,4 +64,57 @@ describe('main', () => {
     expect(code).toBe(1);
     expect(existsSync(out)).toBe(false);
   });
+
+  it('writes both the page and the model with --model', async () => {
+    collect.mockResolvedValue({ pulls: [pullData()], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
+    const tmpDir = tmp();
+    const modelPath = path.join(tmpDir, 'model.json');
+    const pagePath = path.join(tmpDir, 'index.html');
+    const code = await main(['--out', pagePath, '--model', modelPath, '--repo', 'o/r']);
+    expect(code).toBe(0);
+    expect(existsSync(pagePath)).toBe(true);
+    expect(existsSync(modelPath)).toBe(true);
+    expect(readFileSync(pagePath, 'utf8')).toContain('Is test selection working?');
+    expect(JSON.parse(readFileSync(modelPath, 'utf8'))).toMatchObject({ repo: 'o/r' });
+  });
+
+  it('the model with --model equals the model from --json', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-03T12:00:00Z'));
+    try {
+      const pullDataWithFixedDate = {
+        pull: { number: 1, title: 'A pull request', url: 'https://github.com/o/r/pull/1', mergedAt: '2026-10-03T12:00:00Z' },
+        prRun: null,
+        mainRun: null,
+        files: ['docs/notes.md'],
+      };
+      collect.mockResolvedValue({ pulls: [pullDataWithFixedDate], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
+      const tmpDir = tmp();
+      const jsonOutput = path.join(tmpDir, 'a.json');
+      const modelOutput = path.join(tmpDir, 'b.json');
+
+      expect(await main(['--repo', 'o/r', '--json', '--out', jsonOutput])).toBe(0);
+      collect.mockResolvedValue({ pulls: [pullDataWithFixedDate], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
+      expect(await main(['--repo', 'o/r', '--out', path.join(tmpDir, 'page.html'), '--model', modelOutput])).toBe(0);
+
+      const jsonContent = readFileSync(jsonOutput, 'utf8');
+      const modelContent = readFileSync(modelOutput, 'utf8');
+      expect(jsonContent).toBe(modelContent);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refuses when --model and --out resolve to the same path', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const tmpDir = tmp();
+    const samePath = path.join(tmpDir, 'model.json');
+    try {
+      expect(await main(['--repo', 'o/r', '--out', samePath, '--model', samePath])).toBe(2);
+      expect(collect).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
+    expect(existsSync(samePath)).toBe(false);
+  });
 });

@@ -16,6 +16,7 @@ per merge, and by hand from the Actions tab when a night was missed. It is uploa
 **<https://michaelvanhoutte.github.io/cockpit/lead-time/>**, beside the test explorer, the
 [CI stability page](../ci-stability/README.md) and the [test-selection page](../selection/README.md) —
 the same night, not waiting on the next merge. A missing artifact costs this page and never the site.
+The published site carries `model.json` beside the page.
 
 ## Running it
 
@@ -30,6 +31,7 @@ node src/cli.js                       # over 7 and 14 days
 node src/cli.js --windows 1,7         # different windows
 node src/cli.js --max-pulls 40        # stop at 40 pull requests, and report the period it reached
 node src/cli.js --repo owner/name     # a different repository
+node src/cli.js --model out/model.json   # writes the page and, beside it, the model
 node src/cli.js --help
 ```
 
