@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-router';
 import { NotSignedIn } from './api/client';
 import { snapshotQuery, workspacesQuery } from './api/queries';
+import { setAllItemsTab } from './allItemsTab';
 import { connectionsSearch } from './connections';
 import { loadCaptureNote } from './captureForm';
 import { itemFormSearch } from './itemForm';
@@ -21,6 +22,7 @@ import {
 } from './lastVisited';
 import { roomForTheInbox } from './roomForTheInbox';
 import { LoadFailure } from './components/LoadFailure';
+import { AllItemsPage } from './pages/AllItemsPage';
 import { CapturePage } from './pages/CapturePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { FirstWorkspacePage } from './pages/FirstWorkspacePage';
@@ -300,6 +302,29 @@ export const dashboardRoute = createRoute({
   component: DashboardPage,
 });
 
+/**
+ * Every item of the workspace in one table. It has an address of its own, like
+ * the Inbox's phone tab, so Back, a reload and a copied link land on it - and
+ * so the dashboard bar has no dashboard to mark as the one you are on.
+ *
+ * **Opening it turns the tab on**, since going there is an explicit ask. Not on
+ * a preload, which runs on hover and would switch the tab on for a brush past a
+ * link.
+ */
+export const allItemsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/w/$workspaceId/items',
+  beforeLoad: async ({ context, params, preload }) => {
+    await workspaceMustExist(context.queryClient, params.workspaceId);
+    await snapshotOf(context.queryClient, params.workspaceId);
+    if (!preload) {
+      setAllItemsTab(params.workspaceId, true);
+      rememberWorkspace(browserStore(), params.workspaceId);
+    }
+  },
+  component: AllItemsPage,
+});
+
 /*
  * There is no address for managing the dashboards, the workspaces or the
  * types. All three are windows over the workspace you are in, opened from a
@@ -361,6 +386,7 @@ const routeTree = rootRoute.addChildren([
     workspaceRoute,
     inboxRoute,
     dashboardRoute,
+    allItemsRoute,
   ]),
 ]);
 
