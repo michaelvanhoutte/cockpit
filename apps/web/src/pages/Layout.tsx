@@ -597,7 +597,6 @@ function TheShell() {
     if (!backFromMicrosoft || !data) return;
     const workspaceId = params.workspaceId;
     if (roomForTheInbox && workspaceId && data.workspaces.some((ws) => ws.id === workspaceId)) {
-      typesOpenedFrom.current = profileControl.current;
       openSettings('connections', { workspaceId, outcome: backFromMicrosoft });
     }
     forgetTheTrip();

@@ -89,7 +89,7 @@ export function createTeamsConnector(config: TeamsConnectorConfig): Connector {
       if (!connection) {
         host.log('info', 'a Teams save named an account no workspace has connected');
         return saidInTeams(
-          'That Microsoft Teams account is not connected to a Cockpit workspace yet. Connect it under Manage connections and try again.',
+          'That Microsoft Teams account is not connected to a Cockpit workspace yet. Connect it under Settings, Connections, and try again.',
         );
       }
 

@@ -133,7 +133,7 @@ describe('Capture', () => {
         situation: 'the Microsoft account is not connected to any workspace',
         host: () => hostThatHasConnected(null).host,
         said:
-          'That Microsoft Teams account is not connected to a Cockpit workspace yet. Connect it under Manage connections and try again.',
+          'That Microsoft Teams account is not connected to a Cockpit workspace yet. Connect it under Settings, Connections, and try again.',
       },
     ])('$situation', async ({ host, said }) => {
       const answer = await save(host());
