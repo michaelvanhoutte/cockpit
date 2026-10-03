@@ -201,6 +201,9 @@ function flukesOf(groups, sha) {
   return flukes;
 }
 
+/** How far before its creation a job may start and still be a job that ran: the two stamps are read to the second. */
+export const COPY_TOLERANCE_MS = 5_000;
+
 /**
  * A re-run copies the jobs that passed, and a copy is created after the start it carries.
  * Only known where the job list was read.
@@ -209,7 +212,7 @@ const isCopy = (attempt) => {
   if (attempt.queue?.state !== 'read') return false;
   const created = time(attempt.queue.createdAt);
   const started = time(attempt.startedAt);
-  return created !== null && started !== null && started < created;
+  return created !== null && started !== null && started < created - COPY_TOLERANCE_MS;
 };
 
 /**
@@ -221,7 +224,7 @@ function queuedMs(attempt) {
   if (attempt.queue?.state !== 'read' || isCopy(attempt) || classify(attempt) === 'skipped') return null;
   const created = time(attempt.queue.createdAt);
   const started = time(attempt.startedAt);
-  return created === null || started === null ? null : started - created;
+  return created === null || started === null ? null : Math.max(0, started - created);
 }
 
 /** Runner time one attempt used, start to end; a copy, a skipped job and one that never started used none. */
@@ -242,21 +245,21 @@ export const SUPERSEDE_SLACK_MS = 5_000;
 
 /**
  * The runner minutes of a pull request, and those thrown away by cancelling. A cancelled
- * attempt is `superseded` when another push on the pull request arrived after its own and
- * before it ended (within `SUPERSEDE_SLACK_MS` after it), which is what `cancel-in-progress` does; any other cancellation is `other`.
+ * attempt is `superseded` when a push on the pull request arrived after the attempt started (after
+ * its creation where it never did) and before it ended (within `SUPERSEDE_SLACK_MS` after it), which is what `cancel-in-progress` does; any other cancellation is `other`.
  */
 function runnerOf(commits, rounds) {
   const pushes = rounds.map((round) => time(round.pushedAt));
   const cancelled = { superseded: { runs: 0, ms: 0 }, other: { runs: 0, ms: 0 } };
   let total = 0;
   for (const commit of commits) {
-    const own = pushTime(commit.checks);
     for (const attempt of commit.checks) {
+      if (attempt.app != null && attempt.app !== 'github-actions') continue;
       const ms = runnerMs(attempt);
       total += ms;
       if (classify(attempt) !== 'cancelled' || isCopy(attempt)) continue;
       const ended = time(attempt.completedAt);
-      const from = own ?? time(attempt.startedAt);
+      const from = time(attempt.startedAt) ?? time(attempt.queue?.createdAt);
       const superseded = ended !== null && from !== null && pushes.some((push) => push > from && push <= ended + SUPERSEDE_SLACK_MS);
       cancelled[superseded ? 'superseded' : 'other'].runs += 1;
       cancelled[superseded ? 'superseded' : 'other'].ms += ms;

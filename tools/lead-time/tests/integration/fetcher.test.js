@@ -348,9 +348,9 @@ describe('Lead time', () => {
     const job = (id, name, created, started) => ({ id, name, created_at: `2026-09-10T${created}Z`, started_at: `2026-09-10T${started}Z` });
 
     /** One pull with `commits` (sha -> check runs), CI runs `ci` (ids), and each run's jobs. */
-    function stub({ commits, ci = [60], jobs = {}, listing = undefined }) {
+    function stub({ commits, ci = [60], jobs = {}, listing = undefined, merged = '2026-09-11T00:00:00Z' }) {
       return stubApi({
-        listing: [listed(1, '2026-09-11T00:00:00Z')],
+        listing: [listed(1, merged)],
         override: (url) => {
           const { pathname } = new URL(url);
           if (pathname.endsWith('/pulls/1/commits')) return ok(Object.keys(commits).map((sha) => ({ sha, commit: { author: { date: '2026-09-10T09:00:00Z' } }, parents: [{}] })));
@@ -423,6 +423,27 @@ describe('Lead time', () => {
       const { pulls, failed } = await collectFrom(api);
       expect(failed).toEqual([]);
       expect(pulls[0].commits[0].checks[0].queue).toEqual({ state: 'not-recorded', why: 'unreadable' });
+    });
+
+    it('leaves queue not recorded where the listing reports more CI runs than it can return, rather than silently absent', async () => {
+      const api = stub({ commits: ONE, listing: ok({ total_count: 1500, workflow_runs: Array.from({ length: 100 }, (_, i) => ({ id: 1000 + i })) }) });
+      const { pulls } = await collectFrom({ ...api, fetchImpl: async (url) => (/ci\.yml\/runs/.test(url) && !/page=1(&|$)/.test(url) ? ok({ total_count: 1500, workflow_runs: [] }) : api.fetchImpl(url)) });
+      expect(pulls[0].commits[0].checks[0].queue).toEqual({ state: 'not-recorded', why: 'unreadable' });
+      expect(jobLists(api)).toHaveLength(0);
+    });
+
+    it('leaves queue not recorded for a check older than the listing reaches, and bounds the listing by the window', async () => {
+      const api = stub({ commits: { a: [run(11, 'Test', 60, '09:05', '09:15')] }, ci: [], merged: '2026-09-25T00:00:00Z' });
+      const early = new Date('2026-09-20T00:00:00Z');
+      const { pulls } = await collect({ repo: 'o/r', since: early, now: NOW, fetchImpl: api.fetchImpl, retries: 0 });
+      expect(pulls[0].commits[0].checks[0].queue).toEqual({ state: 'not-recorded', why: 'outside-listing' });
+      expect(api.calls.find((url) => url.includes('ci.yml/runs'))).toContain(encodeURIComponent('>=2026-09-19'));
+    });
+
+    it('spares a review check, which is known not to be CI, where the CI listing cannot be read', async () => {
+      const api = stub({ commits: { a: [run(11, 'Test', 60, '09:05', '09:15'), run(12, 'claude-review', 61, '09:05', '09:20')] }, listing: refuse(500) });
+      const { pulls } = await collectFrom(api);
+      expect(pulls[0].commits[0].checks.map((check) => check.queue?.state)).toEqual(['not-recorded', undefined]);
     });
 
     it.each([

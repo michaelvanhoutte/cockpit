@@ -7,30 +7,29 @@
  * early — without one.
  *
  * **Request cost is what shapes this file.** `GITHUB_TOKEN` is capped at 1,000
- * requests an hour, and a pull request costs one for its detail, one for its
- * commits and one per commit for its check runs (`filter=all`, so the earlier
- * attempts of a re-run check arrive in the same request rather than a second
- * one) — about 5 to 6 in all. The listing that finds the pulls is one request in
- * a hundred. Two things read further:
+ * requests an hour. A pull request costs about 7 to 8:
  *
- * - **A failed attempt** costs one for its job (the failing step) and, for `Test`
- *   and `E2E (F3)`, one artifact list per run and record name (shared by every
- *   failed attempt of that run) and one download of the record: 1 for a check that
- *   keeps no record, about 3 for one that does. A passing attempt costs nothing.
- * - **Queue time** costs one request per CI run, its job list (shared by every
- *   round, attempt and pull request on that run), plus one listing of the CI
- *   workflow's runs per hundred, since a check run does not name its workflow and
- *   a review run is skipped on that list instead of asked about. That is about 1.4
- *   per pull request.
+ * - 1 for its detail, 1 for its commits, and 1 per commit for its check runs
+ *   (`filter=all`, so the earlier attempts of a re-run arrive in the same request);
+ *   about 5 to 6.
+ * - For each *failed* attempt, 1 for its job (the failing step) and, for `Test` and
+ *   `E2E (F3)`, one artifact list per run and record name (shared by every failed
+ *   attempt of that run) and one download of the record: 1 for a check that keeps no
+ *   record, about 3 for one that does. A passing attempt costs nothing.
+ * - For queue time, 1 per CI run, its job list (shared by every round, attempt and
+ *   pull on that run); about 1.4. A check run does not name its workflow, so the CI
+ *   runs are listed once beforehand, 1 request per 100, and a review run is skipped
+ *   by its absence from that list.
  *
- * Measured over fourteen days of this repository's merges, 103 pulls cost 767
- * requests. `maxPulls` (150 by default) is what keeps the hour's allowance
- * from being spent if the merge rate climbs: it stops rather than spending it, and the coverage it returns names the period it actually reached,
- * so the model reports that instead of the one it was asked for.
+ * The listing that finds the pulls is 1 request in a hundred. `maxPulls` is 120 by
+ * default, which is about 900 at that cost and leaves room for the hour's other
+ * requests; it stops rather than spending the allowance, and the coverage it returns
+ * names the period it actually reached, so the model reports that instead of the one
+ * it was asked for.
  */
 
 import { readZipJson } from '../../selection/src/zip.js';
-import { classify, matchArtifact, recordArtifactOf } from './model.js';
+import { classify, matchArtifact, recordArtifactOf, REVIEW_CHECKS } from './model.js';
 
 const API = 'https://api.github.com';
 const RECORD_FILE = 'record.json';
@@ -240,6 +239,12 @@ export async function listPulls({ repo, base = 'main', since, maxPulls, ...ctx }
   return { pulls, truncated, reachedWindowEdge, oldestSeen };
 }
 
+/** Anything but a GitHub failure is a bug in this code; a spent allowance or a stopped run fails the whole fetch. Everything else is a read that may be skipped. */
+const isFatal = (error) => !(error instanceof GitHubError) || error.reason === 'rate-limit' || error.reason === 'stopped';
+
+/** `listAll`'s `paged` for a listing that reports `total_count`. */
+const byTotal = (body, items) => items.length < (body.total_count ?? 0);
+
 /** Every page of a listing that reports how many there are in all. */
 async function listAll(path, key, ctx, { paged }) {
   const items = [];
@@ -254,7 +259,7 @@ async function listAll(path, key, ctx, { paged }) {
 /** Every check run on one commit, the earlier attempts of a re-run included. @returns {Promise<CheckRun[]>} */
 export async function listChecks({ repo, sha, ...ctx }) {
   const raw = await listAll(`/repos/${repo}/commits/${sha}/check-runs?filter=all`, 'check_runs', ctx, {
-    paged: (body, items) => items.length < (body.total_count ?? 0),
+    paged: byTotal,
   });
   return raw.map(normalizeCheck);
 }
@@ -282,7 +287,7 @@ async function readFailure({ repo, check, artifacts, ...ctx }) {
 
     const key = `${job.run_id}|${name}`;
     if (!artifacts.has(key)) {
-      artifacts.set(key, listAll(`/repos/${repo}/actions/runs/${job.run_id}/artifacts?name=${encodeURIComponent(name)}`, 'artifacts', ctx, { paged: (body, items) => items.length < (body.total_count ?? 0) }));
+      artifacts.set(key, listAll(`/repos/${repo}/actions/runs/${job.run_id}/artifacts?name=${encodeURIComponent(name)}`, 'artifacts', ctx, { paged: byTotal }));
     }
     const named = (await artifacts.get(key)).map((raw) => ({ id: raw.id, createdAt: raw.created_at, expired: Boolean(raw.expired) }));
     const match = matchArtifact(named, { startedAt: job.started_at ?? check.startedAt, completedAt: job.completed_at ?? check.completedAt });
@@ -298,48 +303,71 @@ async function readFailure({ repo, check, artifacts, ...ctx }) {
     return { steps, record: value ? { state: 'read', value } : { state: 'not-recorded', why: 'absent' } };
   } catch (error) {
     // Only a GitHub or archive failure is "unreadable"; a bug in this code must still throw.
-    if (!(error instanceof GitHubError) || error.reason === 'rate-limit' || error.reason === 'stopped') throw error;
+    if (isFatal(error)) throw error;
     return unreadable(steps);
   }
 }
 
+/** The most runs a filtered listing can return, however many it reports. */
+const LISTING_CAP = 1000;
+
 /**
  * When each job of the CI workflow was created, put on its check run as `queue`, so the
  * model can say how long it waited for a runner. A check run does not name its workflow,
- * so the CI runs are listed once, from the earliest check read: about one request per 100
+ * so the CI runs are listed once, from a day before `since`: about one request per 100
  * runs, against one per run to ask each. Then each distinct CI run's job list is read once,
  * however many rounds, attempts or pulls share it (`filter=all`, so a re-run's attempts come
- * together), and a job's id is its check run's id. A review or other workflow's run is not in
- * that list and costs nothing.
+ * together), and a job's id is its check run's id. A review run is not in that list and
+ * costs nothing.
  *
- * This is supplementary detail like `readFailure`: an error but a spent allowance (or the run
- * already stopping) leaves the affected checks `not-recorded` and every pull request in place.
+ * This is supplementary detail like `readFailure`: any error but a spent allowance (or the
+ * run already stopping) leaves the affected checks `not-recorded` and every pull request in
+ * place. A check is never left silently without a queue where its run could have been CI:
+ * a listing that failed or reports more runs than it can return (`unreadable`), or a check
+ * older than the listing reaches (`outside-listing`), says so. The two review checks are
+ * known by name not to be CI, which is how a failed listing spares them.
  */
-async function readQueue({ repo, pulls, concurrency = 4, ...ctx }) {
+async function readQueue({ repo, pulls, since, concurrency = 4, ...ctx }) {
+  const reviewNames = Object.values(REVIEW_CHECKS);
   const checks = pulls
     .flatMap((pull) => pull.commits.flatMap((commit) => commit.checks))
-    .filter((check) => check.runId !== null && (check.app === null || check.app === 'github-actions'));
+    .filter((check) => check.runId !== null && (check.app === null || check.app === 'github-actions') && !reviewNames.includes(check.name));
   if (checks.length === 0) return;
 
   const notRecorded = (list, why) => list.forEach((check) => (check.queue = { state: 'not-recorded', why }));
-  const rethrows = (error) => !(error instanceof GitHubError) || error.reason === 'rate-limit' || error.reason === 'stopped';
 
-  const earliest = Math.min(...checks.map((check) => Date.parse(check.startedAt ?? check.completedAt)).filter(Number.isFinite));
-  const from = new Date((Number.isFinite(earliest) ? earliest : Date.now()) - DAY_MS).toISOString().slice(0, 10);
+  const bound = new Date(since.getTime() - DAY_MS);
+  const from = bound.toISOString().slice(0, 10);
 
   let ci;
+  let complete = true;
   try {
+    let total = 0;
     const runs = await listAll(
       `/repos/${repo}/actions/workflows/${CI_WORKFLOW}/runs?event=pull_request&exclude_pull_requests=true&created=${encodeURIComponent(`>=${from}`)}`,
       'workflow_runs',
       ctx,
-      { paged: (body, items) => items.length < (body.total_count ?? 0) },
+      {
+        paged: (body, items) => {
+          total = body.total_count ?? 0;
+          return items.length < total;
+        },
+      },
     );
     ci = new Set(runs.map((run) => run.id));
+    complete = total <= LISTING_CAP && runs.length >= total;
   } catch (error) {
-    if (rethrows(error)) throw error;
+    if (isFatal(error)) throw error;
     notRecorded(checks, 'unreadable');
     return;
+  }
+
+  // Not in the list, and not provably something else: a listing that is short, or that starts
+  // after the check did, cannot say the run was not CI.
+  const edge = Date.parse(`${from}T00:00:00Z`);
+  for (const check of checks.filter((each) => !ci.has(each.runId))) {
+    if (!complete) notRecorded([check], 'unreadable');
+    else if ((Date.parse(check.startedAt ?? check.completedAt) || Infinity) < edge) notRecorded([check], 'outside-listing');
   }
 
   const ofCi = checks.filter((check) => ci.has(check.runId));
@@ -350,10 +378,10 @@ async function readQueue({ repo, pulls, concurrency = 4, ...ctx }) {
     concurrency,
     async (runId) => {
       try {
-        const listed = await listAll(`/repos/${repo}/actions/runs/${runId}/jobs?filter=all`, 'jobs', ctx, { paged: (body, items) => items.length < (body.total_count ?? 0) });
+        const listed = await listAll(`/repos/${repo}/actions/runs/${runId}/jobs?filter=all`, 'jobs', ctx, { paged: byTotal });
         jobs.set(runId, new Map(listed.map((job) => [job.id, job])));
       } catch (error) {
-        if (rethrows(error)) throw error;
+        if (isFatal(error)) throw error;
         jobs.set(runId, null);
       }
     },
@@ -427,7 +455,7 @@ export async function collect({
   branch = 'main',
   since,
   now = new Date(),
-  maxPulls = 150,
+  maxPulls = 120,
   concurrency = 2,
   token,
   fetchImpl = globalThis.fetch,
@@ -452,7 +480,7 @@ export async function collect({
       try {
         return await readPull({ repo, number, ...ctx });
       } catch (error) {
-        if (!(error instanceof GitHubError) || error.reason === 'rate-limit' || error.reason === 'stopped') throw error;
+        if (isFatal(error)) throw error;
         failed.push({ number, reason: error.message });
         return null;
       }
@@ -461,7 +489,7 @@ export async function collect({
   );
 
   const pulls = read.filter(Boolean);
-  await readQueue({ repo, pulls, ...ctx });
+  await readQueue({ repo, pulls, since, ...ctx });
 
   return {
     pulls,

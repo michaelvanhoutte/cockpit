@@ -660,6 +660,7 @@ describe('Lead time', () => {
       { situation: 'a job created 2 seconds before it started', checks: [job('Test', 1, 1 + 2 / 60, 5)], queued: [{ name: 'Test', ms: 2 * SEC }] },
       { situation: "a re-run's copied job, started before it was created", checks: [job('Test', 1, 1, 5), job('Checks', 20, 2, 4)], queued: [{ name: 'Test', ms: 0 }] },
       { situation: 'a job created when its dependency finished, long after the push', checks: [job('Test', 0, 0.5, 5), job('Publish', 5, 5.5, 6)], queued: [{ name: 'Test', ms: 0.5 * MIN }, { name: 'Publish', ms: 0.5 * MIN }] },
+      { situation: 'a job that started a second before it was created, which is the stamps rounding', checks: [job('Test', 1 + 1 / 60, 1, 5)], queued: [{ name: 'Test', ms: 0 }] },
       { situation: 'a job whose list was not read', checks: [check('Test', 1, 5)], queued: [] },
     ])('reads $situation', ({ checks, queued }) => {
       expect(queuedOf(checks)).toEqual(queued);
@@ -700,17 +701,27 @@ describe('Lead time', () => {
         expected: { superseded: { runs: 1, ms: 5 * MIN }, other: { runs: 0, ms: 0 } },
       },
       {
+        situation: 'a re-run started after the later push, then cancelled by hand',
+        commits: [commit('a', 0, [check('Test', 1, 10), check('Test', 20, 25, 'cancelled')]), commit('b', 15, [check('Test', 15, 30)])],
+        expected: { superseded: { runs: 0, ms: 0 }, other: { runs: 1, ms: 5 * MIN } },
+      },
+      {
         situation: 'a job cancelled with no later push before it ended',
         commits: [commit('a', 0, [check('Test', 1, 6, 'cancelled')]), commit('b', 30, [check('Test', 31, 36)])],
         expected: { superseded: { runs: 0, ms: 0 }, other: { runs: 1, ms: 5 * MIN } },
       },
       {
         situation: 'a job cancelled before it started',
-        commits: [commit('a', 0, [check('Test', 1, 6), check('E2E (F3)', 5, 5.5, 'cancelled', { startedAt: null })]), commit('b', 5, [check('Test', 4, 12)])],
+        commits: [commit('a', 0, [check('Test', 1, 6), check('E2E (F3)', 5, 5.5, 'cancelled', { startedAt: null, queue: { state: 'read', createdAt: at(3) } })]), commit('b', 5, [check('Test', 4, 12)])],
         expected: { superseded: { runs: 1, ms: 0 }, other: { runs: 0, ms: 0 } },
       },
     ])('counts $situation', ({ commits, expected }) => {
       expect(pullModel(merged({ commits })).cancelled).toEqual(expected);
+    });
+
+    it("ignores a third-party app's check, which is no harness minutes of ours", () => {
+      const model = pullModel(merged({ commits: [commit('a', 0, [check('Test', 1, 5), check('Lint', 1, 30, 'cancelled', { app: 'other-app' })])] }));
+      expect(model).toMatchObject({ runnerMs: 4 * MIN, cancelled: { superseded: { runs: 0 }, other: { runs: 0 } } });
     });
 
     it('leaves a re-run copy out of the runner minutes, since it only repeats the original attempt', () => {
