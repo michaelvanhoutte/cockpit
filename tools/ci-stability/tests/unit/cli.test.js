@@ -54,4 +54,9 @@ describe('parseArgs', () => {
     const args = parseArgs(['--repo', 'o/r', '--branch', 'trunk', '--out', 'a/b.html', '--json']);
     expect(args).toMatchObject({ repo: 'o/r', branch: 'trunk', out: 'a/b.html', json: true });
   });
+
+  it('takes a model path as given', () => {
+    const args = parseArgs(['--model', 'out/model.json']);
+    expect(args.model).toBe('out/model.json');
+  });
 });

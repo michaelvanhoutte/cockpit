@@ -16,6 +16,7 @@ per merge, and by hand from the Actions tab when a night was missed. It is uploa
 **<https://michaelvanhoutte.github.io/cockpit/lead-time/>**, beside the test explorer, the
 [CI stability page](../ci-stability/README.md) and the [test-selection page](../selection/README.md) —
 the same night, not waiting on the next merge. A missing artifact costs this page and never the site.
+The published site carries `model.json` beside the page.
 
 ## Running it
 

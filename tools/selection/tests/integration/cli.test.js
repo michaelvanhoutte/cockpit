@@ -64,4 +64,27 @@ describe('main', () => {
     expect(code).toBe(1);
     expect(existsSync(out)).toBe(false);
   });
+
+  it('writes both the page and the model with --model', async () => {
+    collect.mockResolvedValue({ pulls: [pullData()], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
+    const tmpDir = tmp();
+    const modelPath = path.join(tmpDir, 'model.json');
+    const pagePath = path.join(tmpDir, 'index.html');
+    const code = await main(['--out', pagePath, '--model', modelPath, '--repo', 'o/r']);
+    expect(code).toBe(0);
+    expect(existsSync(pagePath)).toBe(true);
+    expect(existsSync(modelPath)).toBe(true);
+    expect(readFileSync(pagePath, 'utf8')).toContain('Is test selection working?');
+    expect(JSON.parse(readFileSync(modelPath, 'utf8'))).toMatchObject({ repo: 'o/r' });
+  });
+
+  it('the model with --model equals the model from --json', async () => {
+    collect.mockResolvedValue({ pulls: [pullData()], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
+    const tmpDir = tmp();
+    const modelPath = path.join(tmpDir, 'model.json');
+    const code = await main(['--model', modelPath, '--repo', 'o/r']);
+    expect(code).toBe(0);
+    const model = JSON.parse(readFileSync(modelPath, 'utf8'));
+    expect(model).toMatchObject({ repo: 'o/r', windows: expect.any(Array) });
+  });
 });

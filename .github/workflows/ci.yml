@@ -462,7 +462,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Measure how reliable each job on main has been
-        run: node tools/ci-stability/src/cli.js --out tools/ci-stability/out/index.html
+        run: node tools/ci-stability/src/cli.js --out tools/ci-stability/out/index.html --model tools/ci-stability/out/model.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4

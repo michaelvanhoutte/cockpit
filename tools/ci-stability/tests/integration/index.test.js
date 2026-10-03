@@ -123,4 +123,29 @@ describe('the generator, end to end against a stubbed API', () => {
     }
     expect(fetched).toEqual([]);
   });
+
+  it('writes both the page and the model with --model', async () => {
+    stubApi({ runs: [rawRun()], jobs: [rawJob()] });
+    const tmpDir = tmp();
+    const modelPath = path.join(tmpDir, 'model.json');
+    const pagePath = path.join(tmpDir, 'index.html');
+
+    expect(await main(['--repo', 'o/r', '--out', pagePath, '--model', modelPath])).toBe(0);
+
+    expect(existsSync(pagePath)).toBe(true);
+    expect(existsSync(modelPath)).toBe(true);
+    expect(readFileSync(pagePath, 'utf8')).toContain('<title>Cockpit CI Stability</title>');
+    expect(JSON.parse(readFileSync(modelPath, 'utf8'))).toMatchObject({ repo: 'o/r' });
+  });
+
+  it('the model with --model equals the model from --json', async () => {
+    stubApi({ runs: [rawRun()], jobs: [rawJob()] });
+    const tmpDir = tmp();
+    const modelPath = path.join(tmpDir, 'model.json');
+
+    expect(await main(['--repo', 'o/r', '--model', modelPath])).toBe(0);
+
+    const model = JSON.parse(readFileSync(modelPath, 'utf8'));
+    expect(model).toMatchObject({ repo: 'o/r', windows: expect.any(Array) });
+  });
 });

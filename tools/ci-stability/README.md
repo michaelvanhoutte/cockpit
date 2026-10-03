@@ -15,7 +15,8 @@ explorer is at the root, the [lead-time page](../lead-time/README.md) at `/lead-
 [test-selection page](../selection/README.md) at `/selection/`; the four link to one another.
 
 Every `main` run also uploads the page as the `ci-stability-report` artifact, from the
-`Stability` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
+`Stability` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). The published
+site carries `model.json` beside the page.
 
 ## Running it
 

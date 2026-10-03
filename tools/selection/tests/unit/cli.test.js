@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseArgs } from '../../src/cli.js';
+import { parseArgs, output } from '../../src/cli.js';
+import { buildModel } from '../../src/model.js';
 
 describe('parseArgs', () => {
   it('reads the windows to report as a list of days', () => {
@@ -46,5 +47,35 @@ describe('parseArgs', () => {
   it('takes a repository, a branch and an output path as given', () => {
     const args = parseArgs(['--repo', 'o/r', '--branch', 'trunk', '--out', 'a/b.html', '--json']);
     expect(args).toMatchObject({ repo: 'o/r', branch: 'trunk', out: 'a/b.html', json: true });
+  });
+
+  it('takes a model path as given', () => {
+    const args = parseArgs(['--model', 'out/model.json']);
+    expect(args.model).toBe('out/model.json');
+  });
+});
+
+describe('Selection', () => {
+  describe('the command writes the page, or with --json the model', () => {
+    const model = buildModel({
+      pulls: [],
+      now: new Date('2026-09-21T12:00:00Z'),
+      requestedDays: 14,
+      coveredSince: new Date('2026-09-07T12:00:00Z'),
+      repo: 'o/r',
+    });
+
+    it('writes the page when told nothing', () => {
+      const { file, content } = output(parseArgs([]), model);
+      expect(file).toBe('index.html');
+      expect(content).toMatch(/^<!doctype html>/);
+    });
+
+    it('writes the model rather than the page with --json', () => {
+      const { file, content } = output(parseArgs(['--json']), model);
+      expect(file).toBe('model.json');
+      expect(JSON.parse(content)).toMatchObject({ repo: 'o/r' });
+      expect(content).not.toContain('<html');
+    });
   });
 });
