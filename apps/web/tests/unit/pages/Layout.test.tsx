@@ -90,7 +90,7 @@ vi.mock('../../../src/components/InboxPanel', () => ({
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
 
 vi.mock('../../../src/api/queries', () => ({
-  // The users window is drawn for an admin and is shut here, but it is mounted.
+  // What Platform settings reads, in the cases that open it as an admin.
   registeredUsersQuery: { queryKey: ['registeredUsers'], queryFn: () => Promise.resolve({ users: [] }) },
   usageQuery: (days: number) => ({ queryKey: ['usage', days], queryFn: () => Promise.resolve({ days, analyticsUrl: null, named: [], guests: { perDay: [], byCountry: [], byReferrer: [] } }) }),
   accountHoldingsQuery: (userId: string) => ({ queryKey: ['accountHoldings', userId], queryFn: () => Promise.resolve({ workspaces: 0, empty: true }) }),
