@@ -46,6 +46,7 @@ export function AgentDock({
   hasClaudeCodeConnection,
   agentRuns = [],
   claudeCodeFailing = null,
+  onHide,
 }: {
   /** The chrome it sits in - a Workspace's own header colour, the same paint `<header>` wears (`pages/Layout.tsx`), so the dock reads as part of the shell rather than a plain panel dropped onto the page. */
   /** This Dashboard's own Workspace - what a hide or show is scoped to. */
@@ -58,6 +59,8 @@ export function AgentDock({
   agentRuns?: readonly AgentRun[];
   /** Why Claude last refused this Workspace's Claude Code connection, said on the dock until a start works (issue 571). */
   claudeCodeFailing?: string | null;
+  /** Puts the dock away; the shell then draws a strip in its place that brings it back. */
+  onHide?: () => void;
 }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -257,6 +260,17 @@ export function AgentDock({
             paddingInline: 'calc(0.75rem + var(--edge-left)) calc(0.5rem + var(--edge-right))',
           }}
         >
+          {onHide && (
+            <button
+              type="button"
+              onClick={onHide}
+              aria-label="Hide the agents’ dock"
+              title="Hide the agents’ dock (A)"
+              className="-mr-1 shrink-0 rounded-md px-1.5 py-1 text-sm text-chrome-ink-faint hover:bg-white/10 hover:text-chrome-ink"
+            >
+              ▼
+            </button>
+          )}
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto rounded-xl bg-black/25 px-2 py-1.5 shadow-[inset_0_1px_3px_rgb(0_0_0/0.45)]">
             <span className="shrink-0 text-xs font-semibold uppercase tracking-[0.11em] text-chrome-ink-faint">
               Agents

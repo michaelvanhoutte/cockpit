@@ -10,7 +10,6 @@ import {
   deleteWorkspace,
   expect,
   expectNoSidewaysScroll,
-  workspaceMenuButton,
   fileOnto,
   itemRow,
   makeWorkspace,
@@ -109,11 +108,15 @@ test.describe('Agents', () => {
       await press(menu.getByRole('menuitem', { name: `Show ${renamed}` }), isMobile);
       await expect(dock.getByRole('button', { name: renamed })).toBeVisible();
 
-      // The dock hides and shows with A and from the workspace’s “…”.
+      // The dock hides from its own control and the strip it leaves brings it
+      // back; A toggles either way.
+      await dock.getByRole('button', { name: 'Hide the agents’ dock' }).click();
+      await expect(dock).toHaveCount(0);
+      await page.getByRole('button', { name: 'Show the agents’ dock' }).click();
+      await expect(dock).toBeVisible();
       await page.keyboard.press('a');
       await expect(dock).toHaveCount(0);
-      await press(workspaceMenuButton(page), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Show the agents’ dock' }), isMobile);
+      await page.keyboard.press('a');
       await expect(dock).toBeVisible();
 
       // Deleted, asked first, from the tile's own menu.

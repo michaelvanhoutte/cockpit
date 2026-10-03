@@ -502,8 +502,8 @@ function TheShell() {
    * instead of replacing it, so managing them is a detour and not a journey.
    * **The workspaces are not here**: a workspace is changed on its own tab
    * ("Manage the types, and put them in the order you want", issue 156). The
-   * dock's entry is its own visibility, not its content - the dock's own "…"
-   * is where an agent is hidden.
+   * dock hides itself from its own control, and an agent is hidden from the
+   * dock's own "…".
    */
   const accountEntries: MenuEntry[] = [
     {
@@ -519,11 +519,6 @@ function TheShell() {
         typesOpenedFrom.current = from;
         setManaging('apps');
       },
-    },
-    {
-      label: agentDockHidden ? 'Show the agents’ dock' : 'Hide the agents’ dock',
-      keepsFocus: true,
-      onSelect: () => hideAgentDock(!agentDockHidden),
     },
     // Last, under a separator of its own: everything above changes what this
     // session shows, and this changes who can sign in for everybody. Offered to
@@ -1146,12 +1141,27 @@ function TheShell() {
           Workspace, since hiding one is scoped to it; hidden on a phone,
           where there is no drag, the same room `roomForTheInbox` answers for
           the Inbox column - a desk-sized screen either way. */}
+      {params.workspaceId && params.dashboardId && roomForTheInbox && agentDockHidden && (
+        // A hidden dock leaves a strip where its hide control was, which
+        // brings it back: nothing else on screen does.
+        <button
+          type="button"
+          onClick={() => hideAgentDock(false)}
+          aria-label="Show the agents’ dock"
+          title="Show the agents’ dock (A)"
+          className="graphite flex shrink-0 items-center gap-2 py-2 text-xs font-semibold uppercase tracking-[0.11em] text-chrome-ink-faint hover:text-chrome-ink"
+          style={{ paddingInline: 'calc(0.75rem + var(--edge-left)) 1rem' }}
+        >
+          ▲ Agents
+        </button>
+      )}
       {params.workspaceId && params.dashboardId && roomForTheInbox && !agentDockHidden && (
         // No fallback: a beat of nothing where the dock will be costs less
         // than a placeholder shaped like it, the same call `ManageConnections`
         // makes for its own chunk.
         <Suspense fallback={null}>
           <AgentDock
+            onHide={() => hideAgentDock(true)}
             workspaceId={params.workspaceId}
             dashboardId={params.dashboardId}
             agents={workspace.data?.agents ?? []}

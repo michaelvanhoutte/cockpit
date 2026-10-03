@@ -24,11 +24,16 @@ let signedInRole = 'user';
 /** The workspace the router says is open; none, unless a case opens one. */
 let openWorkspaceId: string | undefined;
 
+/** The dashboard the router says is open; the dock is drawn only on one. */
+let openDashboardId: string | undefined;
+
 // Put back after every case, so a case added later renders the shell for the
 // ordinary user it reads as rather than for whichever role ran last.
 afterEach(() => {
   signedInRole = 'user';
   openWorkspaceId = undefined;
+  openDashboardId = undefined;
+  localStorage.clear();
 });
 
 // The router itself is not under test, and `to`/`params` are its props rather
@@ -49,7 +54,10 @@ vi.mock('@tanstack/react-router', () => ({
     params?: unknown;
   } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...rest}>{children}</a>,
   Outlet: () => null,
-  useParams: () => (openWorkspaceId ? { workspaceId: openWorkspaceId } : {}),
+  useParams: () =>
+    openWorkspaceId
+      ? { workspaceId: openWorkspaceId, ...(openDashboardId ? { dashboardId: openDashboardId } : {}) }
+      : {},
   useNavigate: () => () => Promise.resolve(),
   // No item named, so the shell draws no form over itself - these cases are
   // about the chrome.
@@ -58,6 +66,14 @@ vi.mock('@tanstack/react-router', () => ({
   // cases are inside a workspace, which is never that page.
   useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
     select({ location: { pathname: '/w/a-workspace' } }),
+}));
+
+// Drawn once a dashboard is open, and about the Inbox rather than the chrome
+// these cases look at, so they stop here rather than being fed what they read.
+vi.mock('../../../src/components/InboxPanel', () => ({
+  InboxChip: () => null,
+  InboxHeading: () => null,
+  InboxPanel: () => null,
 }));
 
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
@@ -208,7 +224,6 @@ describe('Across the app', () => {
         'Delete',
         'Manage types',
         'MCP connections',
-        'Hide the agents’ dock',
       ]);
       expect(screen.getByRole('separator')).toBeInTheDocument();
     });
@@ -274,30 +289,6 @@ describe('Across the app', () => {
       await user.click(screen.getByRole('button', { name: 'Close' }));
 
       await waitFor(() => expect(dots()).toHaveFocus());
-    });
-
-    it('hides and shows the agents’ dock from the entry, keeping the focus on the “…”', async () => {
-      openWorkspaceId = 'ws-markup';
-      const user = userEvent.setup();
-      render(
-        <QueryClientProvider
-          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-        >
-          <Layout />
-        </QueryClientProvider>,
-      );
-      const dots = () =>
-        screen.getByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` });
-
-      await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` });
-      await user.click(dots());
-      await user.click(await screen.findByRole('menuitem', { name: 'Hide the agents’ dock' }));
-      await waitFor(() => expect(dots()).toHaveFocus());
-
-      await user.click(dots());
-      await user.click(await screen.findByRole('menuitem', { name: 'Show the agents’ dock' }));
-      await user.click(dots());
-      expect(await screen.findByRole('menuitem', { name: 'Hide the agents’ dock' })).toBeVisible();
     });
 
     // Whether Admin joins these two is a question of role rather than of
@@ -473,6 +464,107 @@ describe('User management', () => {
       await user.click(await screen.findByRole('menuitem', { name: 'Usage' }));
 
       expect(await screen.findByRole('dialog', { name: 'Usage' })).toBeVisible();
+    });
+  });
+});
+
+describe('Agents', () => {
+  describe('the dock hides and shows from the dock itself', () => {
+    /** A desk-sized screen: the dock is drawn only where the Inbox has room beside the dashboards. */
+    const onADesk = (matches: boolean) =>
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches,
+        media: query,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      }));
+    const shell = () =>
+      render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <Layout />
+        </QueryClientProvider>,
+      );
+    const dock = () => screen.queryByRole('toolbar', { name: 'Agents' });
+    const strip = () => screen.queryByRole('button', { name: 'Show the agents’ dock' });
+    const openADashboard = () => {
+      openWorkspaceId = 'ws-markup';
+      openDashboardId = 'dash-1';
+    };
+
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('puts the dock away from its own control, and brings it back from the strip', async () => {
+      onADesk(true);
+      openADashboard();
+      const user = userEvent.setup();
+      shell();
+
+      await screen.findByRole('toolbar', { name: 'Agents' });
+      expect(strip()).toBeNull();
+
+      await user.click(screen.getByRole('button', { name: 'Hide the agents’ dock' }));
+      expect(dock()).toBeNull();
+      await user.click(strip()!);
+
+      expect(await screen.findByRole('toolbar', { name: 'Agents' })).toBeInTheDocument();
+      expect(strip()).toBeNull();
+    });
+
+    it('toggles on A, either way', async () => {
+      onADesk(true);
+      openADashboard();
+      const user = userEvent.setup();
+      shell();
+      await screen.findByRole('toolbar', { name: 'Agents' });
+
+      await user.keyboard('a');
+      expect(dock()).toBeNull();
+      expect(strip()).not.toBeNull();
+
+      await user.keyboard('a');
+      expect(await screen.findByRole('toolbar', { name: 'Agents' })).toBeInTheDocument();
+    });
+
+    it('is still hidden when the page is loaded again', async () => {
+      onADesk(true);
+      openADashboard();
+      const user = userEvent.setup();
+      const first = shell();
+      await screen.findByRole('toolbar', { name: 'Agents' });
+      await user.click(screen.getByRole('button', { name: 'Hide the agents’ dock' }));
+      first.unmount();
+
+      shell();
+
+      expect(await screen.findByRole('button', { name: 'Show the agents’ dock' })).toBeInTheDocument();
+      expect(dock()).toBeNull();
+    });
+
+    it('draws neither the dock nor the strip on a phone', async () => {
+      onADesk(false);
+      openADashboard();
+      localStorage.setItem('cockpit.agent-dock-hidden', '1');
+      shell();
+      await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` });
+
+      expect(dock()).toBeNull();
+      expect(strip()).toBeNull();
+    });
+  });
+
+  describe('no menu hides or shows the dock', () => {
+    it('offers no such entry on the open workspace’s “…”', async () => {
+      openWorkspaceId = 'ws-markup';
+      const user = userEvent.setup();
+      render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <Layout />
+        </QueryClientProvider>,
+      );
+
+      await user.click(await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }));
+
+      expect(screen.queryByRole('menuitem', { name: /agents’ dock/ })).toBeNull();
     });
   });
 });
