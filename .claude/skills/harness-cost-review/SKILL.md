@@ -1,11 +1,11 @@
 ---
 name: harness-cost-review
-description: Cockpit's process for periodically checking whether a required CI check, agent review, or branch-protection gate is still earning its cost - sampling recent pull requests for how often each required check actually blocked one and what tools/ci-stability says about its duration, and reading agent-review verdicts for warnings that fire without signal - then filing one issue per candidate for a person to decide. Never a report, and never on an impression without a sampled window behind it. Hands each candidate through scoping, engineering-plan and github-issue; never edits workflows, branch-protection, or review prompts itself.
+description: Cockpit's process for periodically checking whether a required CI check, agent review, or branch-protection gate is still earning its cost - sampling recent pull requests for how often each required check failed and then passed on the same commit and what tools/ci-stability says about its duration, and reading agent-review verdicts for warnings that fire without signal - then filing one issue per candidate for a person to decide. Never a report, and never on an impression without a sampled window behind it. Hands each candidate through scoping, engineering-plan and github-issue; never edits workflows, branch-protection, or review prompts itself.
 ---
 
 # Is the harness still earning its cost
 
-A check that blocks constantly is visible from inside a single pull request. A check that almost never blocks, or has quietly gotten slow, is not — it looks the same as a healthy gate from any one pull request, and only counted across many does the pattern show. This finds that pattern by counting, the same discipline [periodic-review](../periodic-review/SKILL.md) applies to recurring mistakes, and files one issue per candidate rather than a report.
+A check that fails on good code now and then, or has quietly gotten slow, looks the same as a healthy gate from any one pull request, and only counted across many does the pattern show. This finds that pattern by counting, the same discipline [periodic-review](../periodic-review/SKILL.md) applies to recurring mistakes, and files one issue per candidate rather than a report.
 
 **This never removes or weakens anything itself.** It files a candidate, with the evidence that produced it, for a person to decide — the harness stays exactly as strict until someone acts on the issue.
 
@@ -21,7 +21,7 @@ Read `required_status_checks.contexts` — that list is the whole scope; nothing
 
 Split what's left into two kinds, because they need different evidence:
 
-- **Mechanical** — Checks, Test, E2E (F3). Pass or fail is a deterministic fact about the code.
+- **Mechanical** — Checks, Test, E2E (F3). Pass or fail should be a deterministic fact about the code. **Never count a low fail rate against one**: a check that rarely fails is guarding code that is rarely broken, and dropping it is what lets the next break through. Judge it only on what it costs without telling you anything: flakes and duration.
 - **Judgement** — a check whose pass or fail is a model's call. This repository has none on the runner since "Remove the remote code and security reviews", which left the judgement passes local; a required check of this kind can be "working" at a low hit rate the way a smoke detector is, so rarely firing is not by itself evidence of nothing to fire on.
 
 ### 2. Sample the pull requests both tracks read from
@@ -33,15 +33,15 @@ gh pr list --state merged --search "sort:created-desc" --json number,title,url,m
   | jq 'sort_by(.mergedAt) | reverse | .[:25]'
 ```
 
-`--search` sorts by creation, not merge, and GitHub's PR search has no qualifier that sorts by merge date — the same reason [periodic-review](../periodic-review/SKILL.md) step 2 fetches a larger creation-sorted slice and re-sorts it before sampling, which this pipes through `jq` to do in one step. 25 is the sample size "Fail on the writing rules a script can decide, instead of finding them in review" (issue 278) itself drew from; each pull request in it usually carries several commits, so step 3's check-run tally — which nothing skips for a draft or a fork, unlike the judgement checks — comfortably clears step 6's 20-attempt floor. The re-sort is by `mergedAt`, not creation: a pull request opened early and merged late is the kind with the most pushed commits and the most review to read.
+`--search` sorts by creation, not merge, and GitHub's PR search has no qualifier that sorts by merge date — the same reason [periodic-review](../periodic-review/SKILL.md) step 2 fetches a larger creation-sorted slice and re-sorts it before sampling, which this pipes through `jq` to do in one step. 25 is the sample size "Fail on the writing rules a script can decide, instead of finding them in review" (issue 278) itself drew from; each pull request in it usually carries several commits, so step 3's check-run tally — which nothing skips for a draft or a fork, unlike the judgement checks — comfortably clears step 6's 20-commit floor. The re-sort is by `mergedAt`, not creation: a pull request opened early and merged late is the kind with the most pushed commits and the most review to read.
 
-**A merged pull request's final head commit already passed every required check** — branch protection would not have allowed the merge otherwise — so reading only that commit's check-runs measures nothing but successes, the same tautology a bare `main`-branch pass rate has: `main`'s own history is exactly the population of code that already cleared these checks, so a rate read off it says how green `main` stays, not how often a check actually stopped anything. Every *earlier* commit pushed to the pull request carries its own check-run history, and a push that failed and was then fixed is exactly the evidence "did this check ever block" needs:
+**Read every commit pushed to each sampled pull request, not only its head**: a flake is re-run to green before the next push, so it lives on the earlier commits as often as on the head. Pass `filter=all`, because the default listing returns only the latest run per name and hides the failure the re-run replaced:
 
 ```bash
-gh api repos/<owner>/<repo>/commits/<sha>/check-runs --jq '.check_runs[] | {name, conclusion, started_at, completed_at}'
+gh api "repos/<owner>/<repo>/commits/<sha>/check-runs?per_page=100&filter=all" --jq '.check_runs[] | {name, conclusion, started_at, completed_at}'
 ```
 
-Run it for every commit `oid` in each sampled pull request's `commits` list, not just the head. A commit can carry more than one check-run under the same name — a superseded rerun shows as `skipped` then a real conclusion, a flaky one as `failure` then `success` — so read every row, not only the last.
+Run it for every commit `oid` in each sampled pull request's `commits` list. A commit can carry more than one check-run under the same name — a superseded rerun shows as `skipped` then a real conclusion, a flaky one as `failure` then `success` — so read every row, not only the last.
 
 For the judgement checks, also pull the review content with the same GraphQL query [periodic-review](../periodic-review/SKILL.md) step 2 uses, extended with the `author` field this skill needs to tell the gate's own comment apart from a human quoting the same text:
 
@@ -58,9 +58,9 @@ gh api graphql -f query='
   }' -F owner=<owner> -F repo=<repo> -F number=<n>
 ```
 
-### 3. Tally how often each mechanical check actually blocked
+### 3. Tally each mechanical check's flakes
 
-From step 2's check-run rows, classify each one the way `tools/ci-stability` itself does (`src/model.js`'s `CONCLUSIONS` map): `success` is a pass, `failure`/`timed_out`/`startup_failure` is a fail, and `skipped`/`cancelled` are not an attempt at all — a superseded rerun is not evidence either way. Tally pass and fail per required context, across every commit in the sample.
+From step 2's check-run rows, classify each one the way `tools/ci-stability` itself does (`src/model.js`'s `CONCLUSIONS` map): `success` is a pass, `failure`/`timed_out`/`startup_failure` is a fail, and `skipped`/`cancelled` are not an attempt at all — a superseded rerun is not evidence either way. Per required context, count the commits it ran on and, of those, the commits where it both failed and passed — a flake, since the code under it did not change. A fail that a later commit fixed is the check working, and counts for nothing here.
 
 ### 4. Pull duration for the mechanical checks from ci-stability
 
@@ -70,7 +70,7 @@ pnpm --filter @cockpit/ci-stability model -- --days 30 --max-runs 2500 --out /tm
 
 Raise `--max-runs` past its default of 800: measured against this repository on 10 September 2026, the default budget stopped barely 12 days back, well short of the requested 30 — merge volume alone outruns it. Check `coverage.partial` and each `windows[].partial` in the written model before reading a number out of it; a partial window's own `actualDays` is what it actually covers, not what was asked for. Raise `--max-runs` only as far as clearing 30 days needs: fetching job detail costs one request per non-skipped run, and an authenticated token is capped at 1,000 requests an hour per repository (`tools/ci-stability/src/github.js`'s own header comment) — a budget large enough for 90 days would spend that allowance before finishing.
 
-The model's `windows[].workflows[].jobs[].durations` gives `median`/`p90` in milliseconds per job, over the runs `main` actually saw — read `tools/ci-stability/README.md`'s "What the numbers mean" for what it does and doesn't count (cancelled runs excluded). This is duration only: step 3 is where a check's block rate comes from now, not this model's own `tally.rate`, for the reason step 2 gives.
+The model's `windows[].workflows[].jobs[].durations` gives `median`/`p90` in milliseconds per job, over the runs `main` actually saw — read `tools/ci-stability/README.md`'s "What the numbers mean" for what it does and doesn't count (cancelled runs excluded). This is duration only: step 3 is where a check's flake count comes from, not this model's own `tally.rate`, which reads `main` alone and so never sees a pull request's re-runs.
 
 ### 5. Sample the judgement checks for warnings that carry no signal
 
@@ -84,7 +84,7 @@ A turn count, a token or cost figure, and any other run-level number are not in 
 
 ### 6. Flag only what clears its bar
 
-- **Mechanical, rarely blocks**: step 3's tally shows ≥ 20 attempts (skipped/cancelled excluded) for the check, and it failed on ≤ 2% of them — or never. Note the fail count, the attempt count, and the pull-request sample it came from.
+- **Mechanical, flaky**: step 3's tally shows the check ran on ≥ 20 commits and flaked on at least 3 of them and at least 5%. Note the flake count, the commit count, the pull requests the flakes were on, and the sample it came from. The candidate is to make the check reliable, not to drop it.
 - **Mechanical, grown expensive**: `durations.median` at least 50% higher in the 7-day window than the 30-day window (step 4), both non-partial with ≥ 20 completed runs, and the 7-day median itself at least 3 minutes — a job that doubled from 10 seconds to 20 is not a finding. Median, not p90, decides this: the 7-day window is a subset of the 30-day one, so a regression only needs to fill about a tenth of the 30-day window before its p90 already equals the 7-day figure, making the ratio read 1.0 for a real, ongoing doubling once it is a few days old. A regression has to fill more than half the 30-day window before doing the same thing to the median, which is why the median survives as a signal for far longer — p90 is still worth reporting alongside it, but only as a second number, not what the bar is read from. Skip this bar entirely for a check where either window came back partial (step 4) rather than filing a trend off a window that doesn't actually cover what it claims to.
 - **Judgement, signal-free warning**: the step-5 bar. Note the fraction, the sample, and what was checked for correlation and found none.
 
@@ -101,9 +101,9 @@ Matching on body, not title, for the same reason [periodic-review](../periodic-r
 
 ### 8. Size and file each candidate
 
-Each candidate is already one unit for [engineering-plan](../engineering-plan/SKILL.md)'s sizing step. Technical design: "No design needed"; failure modes: none — the fix this issue asks for is a person tightening, narrowing, or dropping a check, not a state change this skill makes. A statement list is rarely the right shape for a decision like "is this check worth its cost"; where engineering-plan's own step would produce "None," say that.
+Each candidate is already one unit for [engineering-plan](../engineering-plan/SKILL.md)'s sizing step. Technical design: "No design needed"; failure modes: none — the fix this issue asks for is a person making a check reliable, narrowing it, or speeding it up, not a state change this skill makes. A statement list is rarely the right shape for a decision like "is this check worth its cost"; where engineering-plan's own step would produce "None," say that.
 
-Hand it to [github-issue](../github-issue/SKILL.md) for the body. **Problem** and **What to build** carry the evidence — the check's name, which bar it cleared, the numbers, the window and sample size — and name it as a candidate to tighten, narrow, or drop, not a decision already made: the person who reads it still chooses whether the cost is worth it. Apply the `harness-cost-review` label after filing.
+Hand it to [github-issue](../github-issue/SKILL.md) for the body. **Problem** and **What to build** carry the evidence — the check's name, which bar it cleared, the numbers, the window and sample size — and name it as a candidate to make reliable, narrow, or speed up, not a decision already made: the person who reads it still chooses whether the cost is worth it. Apply the `harness-cost-review` label after filing.
 
 ## Output
 
@@ -111,4 +111,4 @@ Filed issues, one per required check that cleared a bar in step 6 and wasn't alr
 
 ## Cadence
 
-Run this monthly, or after a required check is added or changed enough to want a fresh baseline — not on a schedule as tight as periodic-review's few weeks. The evidence here is a block rate and a duration trend, and both move slowly: neither shifts much week to week, so running this weekly would mostly re-read the same sample and find nothing new. A scheduled cloud agent set up through the `schedule` skill, or a repository cron added with `CronCreate`, fits better than a per-push or per-merge trigger, since nothing about a single pull request should make this run.
+Run this monthly, or after a required check is added or changed enough to want a fresh baseline — not on a schedule as tight as periodic-review's few weeks. The evidence here is a flake rate and a duration trend, and both move slowly: neither shifts much week to week, so running this weekly would mostly re-read the same sample and find nothing new. A scheduled cloud agent set up through the `schedule` skill, or a repository cron added with `CronCreate`, fits better than a per-push or per-merge trigger, since nothing about a single pull request should make this run.
