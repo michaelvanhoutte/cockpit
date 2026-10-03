@@ -21,7 +21,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { readFlags } from './lib/operator.mjs';
-import { buildReport, parseLine, projectDirsFor } from './lib/issue-cost.mjs';
+import { buildReport, marksFromBody, parseLine, projectDirsFor } from './lib/issue-cost.mjs';
 
 let args;
 try {
@@ -64,7 +64,8 @@ const projectDirs = projectDirsFor(repoRoot, allDirs)
   .map((name) => join(projectsDir, name))
   .filter((dir) => ownsDir(repoRoot, dir));
 
-const report = buildReport({ projectDirs, resolveIssue: makeIssueResolver(repoRoot), since: sinceMs, only });
+const { resolveIssue, resolveMarks } = makeIssueResolver(repoRoot);
+const report = buildReport({ projectDirs, resolveIssue, resolveMarks, since: sinceMs, only });
 
 if (args.json) {
   console.log(JSON.stringify(report, null, 2));
@@ -111,24 +112,31 @@ function ownsDir(repoRoot, dir) {
  * carry `github-issue-<n>` themselves, and a call per branch is what made an
  * early version of this time out past two minutes on a single issue. Returns
  * the branch name itself for one no pull request names, or whose pull
- * request closes nothing - the fallback issue 421 asks for.
+ * request closes nothing - the fallback issue 421 asks for. Also keeps each pull request's session-record
+ * marks by branch, read from the body the same call returns, for splitting an
+ * issue's cost by phase.
  */
 function makeIssueResolver(cwd) {
   const byBranch = new Map();
+  const marksByBranch = new Map();
   try {
     const output = execFileSync(
       'gh',
-      ['pr', 'list', '--state', 'all', '--limit', '2000', '--json', 'headRefName,closingIssuesReferences'],
+      ['pr', 'list', '--state', 'all', '--limit', '2000', '--json', 'headRefName,closingIssuesReferences,body'],
       { cwd, encoding: 'utf8' },
     );
     for (const pr of JSON.parse(output)) {
       const issueNumber = pr.closingIssuesReferences?.[0]?.number;
       if (issueNumber && !byBranch.has(pr.headRefName)) byBranch.set(pr.headRefName, issueNumber);
+      if (!marksByBranch.has(pr.headRefName)) marksByBranch.set(pr.headRefName, marksFromBody(pr.body));
     }
   } catch {
     // No gh, or no network - every branch not naming `github-issue-<n>` itself stands in as its own key.
   }
-  return (branch) => (branch ? (byBranch.get(branch) ?? branch) : null);
+  return {
+    resolveIssue: (branch) => (branch ? (byBranch.get(branch) ?? branch) : null),
+    resolveMarks: (branch) => (branch ? (marksByBranch.get(branch) ?? null) : null),
+  };
 }
 
 function printTable(fullReport) {
@@ -160,6 +168,12 @@ function printTable(fullReport) {
       `  cost:         $${issue.costUSD.total.toFixed(4)} ($${issue.costUSD.main.toFixed(4)} main, $${issue.costUSD.subagent.toFixed(4)} subagent)` +
         (issue.unpricedTokens ? `, plus ${issue.unpricedTokens} unpriced tokens (no rate for that model)` : ''),
     );
+    if (issue.phases) {
+      const shown = Object.entries(issue.phases).filter(([, p]) => p.costUSD > 0 || p.unpricedTokens > 0 || Object.values(p.tokens).some((n) => n > 0));
+      console.log(`  by phase:     ${shown.map(([name, p]) => `${name} $${p.costUSD.toFixed(4)}`).join(', ')}`);
+    } else {
+      console.log(`  by phase:     unsplit (${issue.phasesNote})`);
+    }
     if (issue.reviews.codeReview.length || issue.reviews.securityReview) {
       const codeReview = issue.reviews.codeReview.map((r) => `${r.level} x${r.count}`).join(', ') || 'none';
       console.log(`  code-review:  ${codeReview}`);

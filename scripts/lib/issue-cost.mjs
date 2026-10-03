@@ -42,6 +42,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { readBlock } from './session-record.mjs';
+
 /**
  * List prices, dated, at list rates - copied verbatim from issue 421 rather
  * than re-derived, so a rate change is one diff against the issue that named
@@ -155,8 +157,47 @@ export function activeMillis(sortedTimestampsMs) {
   return total;
 }
 
+/** The phases a request's cost is split into, in the order a session reaches them; `unrecorded` is a request whose branch has no readable session record. */
+export const COST_PHASES = ['outsideRun', 'scoping', 'building', 'localReview', 'afterPush', 'unrecorded'];
+
+/**
+ * The marks a pull request body's session record carries, or `null` where there are none to read: no block, a block with no marks, or a body with one marker and not the other, which the record module refuses and so leaves the issue unsplit.
+ */
+export function marksFromBody(body) {
+  try {
+    const marks = readBlock(String(body ?? ''));
+    return marks.length === 0 ? null : marks;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The phase a moment falls in, by the mark that last preceded it: before `start` is outside the run, `start` to `scoped` scoping, `scoped` onwards building, and after the first `pushed` after push. A moment inside a `review-start`..`review-end` window is local review whatever else holds, a window still open at the end of the record included. A mark exactly at the moment counts as preceding it.
+ */
+export function phaseAt(marks, momentMs) {
+  let base = 'outsideRun';
+  let pushed = false;
+  let inReview = false;
+  const ordered = marks
+    .map((mark) => ({ ...mark, ms: Date.parse(mark.at) }))
+    .filter((mark) => !Number.isNaN(mark.ms))
+    .sort((a, b) => a.ms - b.ms);
+  for (const mark of ordered) {
+    if (mark.ms > momentMs) break;
+    if (mark.phase === 'review-start') inReview = true;
+    else if (mark.phase === 'review-end') inReview = false;
+    else if (mark.phase === 'pushed') pushed = true;
+    else if (pushed) continue;
+    else if (mark.phase === 'start') base = 'scoping';
+    else if (mark.phase === 'scoped' || mark.phase === 'built') base = 'building';
+  }
+  if (inReview) return 'localReview';
+  return pushed ? 'afterPush' : base;
+}
+
 /** A fresh, empty per-issue accumulator - one is created the first time an issue's key is seen. */
-function emptyIssueStats(key) {
+export function emptyIssueStats(key) {
   return {
     issue: key,
     branches: new Set(),
@@ -351,10 +392,14 @@ function mainSessionFilesIn(projectDir) {
  * because resolving it costs a `gh` call the caller may want to cache or
  * skip.
  *
+ * `resolveMarks(branch)` answers the session-record marks of the pull request whose head is that
+ * branch, or `null` for none; a request is split by the marks of its own line's branch, so an issue
+ * worked across several sessions needs nothing more - marks are absolute times.
+ *
  * `since`, if given, is milliseconds since epoch: lines timestamped earlier
  * are left out entirely, from both the wall-clock span and every count.
  */
-export function buildReport({ projectDirs, resolveIssue, since = null, only = null }) {
+export function buildReport({ projectDirs, resolveIssue, resolveMarks = null, since = null, only = null }) {
   const perIssue = new Map();
 
   function issueStats(key) {
@@ -409,7 +454,9 @@ export function buildReport({ projectDirs, resolveIssue, since = null, only = nu
         if (!seenRequestIds.has(line.requestId)) {
           seenRequestIds.add(line.requestId);
           const bucket = isSubagent ? stats.requests.subagent : stats.requests.main;
-          bucket.set(line.requestId, { model: line.message?.model, speed: line.message?.usage?.speed, usage: line.message?.usage });
+          const marks = resolveMarks?.(line.resolvedBranch) ?? null;
+          const phase = marks === null ? 'unrecorded' : phaseAt(marks, timestampMs);
+          bucket.set(line.requestId, { model: line.message?.model, speed: line.message?.usage?.speed, usage: line.message?.usage, phase });
         }
       }
 
@@ -441,7 +488,7 @@ function sortByIssue(a, b) {
 }
 
 /** Turns one issue's raw accumulator into the shape a caller (the CLI table, or JSON) reads. */
-function summarize(stats) {
+export function summarize(stats) {
   const timestamps = [...stats.timestampsMs].sort((a, b) => a - b);
 
   const tokens = { input: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, output: 0 };
@@ -450,10 +497,15 @@ function summarize(stats) {
   let costMain = 0;
   let costSubagent = 0;
   let unpricedTokens = 0;
+  const byPhase = Object.fromEntries(
+    COST_PHASES.map((name) => [name, { tokens: { input: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, output: 0 }, costUSD: 0, unpricedTokens: 0 }]),
+  );
 
   function fold(entries, isSubagent) {
-    for (const { model, speed, usage } of entries) {
+    for (const { model, speed, usage, phase } of entries) {
       const t = tokensOf(usage);
+      const slice = byPhase[phase] ?? byPhase.unrecorded;
+      for (const kind of Object.keys(t)) slice.tokens[kind] += t[kind];
       tokens.input += t.input;
       tokens.cacheRead += t.cacheRead;
       tokens.cacheWrite5m += t.cacheWrite5m;
@@ -464,8 +516,11 @@ function summarize(stats) {
 
       const cost = costOf(usage, model, speed);
       if (cost === null) {
-        unpricedTokens += t.input + t.cacheRead + t.cacheWrite5m + t.cacheWrite1h + t.output;
+        const unpriced = t.input + t.cacheRead + t.cacheWrite5m + t.cacheWrite1h + t.output;
+        unpricedTokens += unpriced;
+        slice.unpricedTokens += unpriced;
       } else {
+        slice.costUSD += cost;
         modelsByCost.set(model, (modelsByCost.get(model) ?? 0) + cost);
         if (isSubagent) costSubagent += cost;
         else costMain += cost;
@@ -487,6 +542,13 @@ function summarize(stats) {
   const mainCost = round(costMain);
   const subagentCost = round(costSubagent);
 
+  // Unsplit where no request had a record to be placed by; otherwise every phase, `unrecorded` holding
+  // the requests of a branch with none, so the phases always add up to the totals above.
+  const split = [...stats.requests.main.values(), ...stats.requests.subagent.values()].some((entry) => entry.phase !== undefined && entry.phase !== 'unrecorded');
+  const phases = split
+    ? Object.fromEntries(COST_PHASES.map((name) => [name, { ...byPhase[name], costUSD: round(byPhase[name].costUSD) }]))
+    : null;
+
   return {
     issue: stats.issue,
     branches: [...stats.branches].sort(),
@@ -502,6 +564,8 @@ function summarize(stats) {
     tokens,
     costUSD: { total: round(mainCost + subagentCost), main: mainCost, subagent: subagentCost },
     unpricedTokens,
+    phases,
+    phasesNote: phases === null ? 'no session record' : null,
     reviews: {
       codeReview: [...stats.reviews.codeReview].map(([level, count]) => ({ level, count })).sort((a, b) => a.level.localeCompare(b.level)),
       securityReview: stats.reviews.securityReview,

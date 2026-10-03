@@ -5,12 +5,17 @@ import {
   activeMillis,
   costOf,
   dedupedFindings,
+  emptyIssueStats,
+  marksFromBody,
   issueFromBranchName,
+  phaseAt,
   projectDirsFor,
   reviewLevel,
   sanitizePath,
+  summarize,
   tokensOf,
 } from './issue-cost.mjs';
+import { BLOCK_END, BLOCK_START } from './session-record.mjs';
 
 describe('sanitizePath', () => {
   it('turns every path separator and colon into a dash', () => {
@@ -218,5 +223,125 @@ describe('dedupedFindings', () => {
     const differentKeys = (lineIndex) => (lineIndex === 0 ? 'issue-1' : 'issue-2');
     const result = dedupedFindings(lines, differentKeys);
     assert.equal(result.length, 2, 'both calls survive - they belong to different issues, so neither supersedes the other');
+  });
+});
+
+describe("An issue's cost by session phase", () => {
+  const at = (minute) => new Date(Date.UTC(2026, 9, 3, 10, minute)).toISOString();
+  const ms = (minute) => Date.parse(at(minute));
+  const marks = [
+    { at: at(10), phase: 'start' },
+    { at: at(20), phase: 'scoped' },
+    { at: at(30), phase: 'built' },
+    { at: at(40), phase: 'review-start', kind: 'code-review', level: 'high' },
+    { at: at(45), phase: 'review-end', kind: 'code-review', level: 'high' },
+    { at: at(50), phase: 'pushed' },
+    { at: at(60), phase: 'review-start', kind: 'code-review', level: 'low' },
+    { at: at(65), phase: 'review-end', kind: 'code-review', level: 'low' },
+  ];
+
+  describe('each line goes to the phase whose mark last preceded it', () => {
+    for (const { situation, minute, phase } of [
+    { situation: 'a line before the session started', minute: 5, phase: 'outsideRun' },
+    { situation: 'a line between start and scoped', minute: 15, phase: 'scoping' },
+    { situation: 'a line between scoped and built', minute: 25, phase: 'building' },
+    { situation: 'a line between built and a review, before pushing', minute: 35, phase: 'building' },
+    { situation: 'a line inside a review window', minute: 42, phase: 'localReview' },
+    { situation: 'a line after the review, before pushing', minute: 47, phase: 'building' },
+    { situation: 'a line after pushed', minute: 55, phase: 'afterPush' },
+    { situation: 'a line inside a review window after pushed', minute: 62, phase: 'localReview' },
+    { situation: 'a line after that review window', minute: 70, phase: 'afterPush' },
+    ]) {
+      it(situation, () => {
+        assert.equal(phaseAt(marks, ms(minute)), phase);
+      });
+    }
+  });
+
+  it('counts a review window left open as review to the end of the record', () => {
+    assert.equal(phaseAt([{ at: at(1), phase: 'start' }, { at: at(2), phase: 'review-start' }], ms(30)), 'localReview');
+  });
+
+  /** One request in `phase`, 1,000,000 input and 100,000 output tokens of Sonnet 5: $2.00 and $1.00 a request. */
+  function request(phase) {
+    return {
+      model: 'claude-sonnet-5',
+      speed: 'standard',
+      usage: { input_tokens: 1_000_000, output_tokens: 100_000, cache_creation: {} },
+      phase,
+    };
+  }
+  function statsWith(entries, subagentEntries = []) {
+    const stats = emptyIssueStats(669);
+    entries.forEach((entry, i) => stats.requests.main.set(`m${i}`, entry));
+    subagentEntries.forEach((entry, i) => stats.requests.subagent.set(`s${i}`, entry));
+    return stats;
+  }
+
+  it("the phases add up to the issue's total", () => {
+    const report = summarize(
+      statsWith([request('scoping'), request('building'), request('building'), request('localReview'), request('afterPush')], [
+        request('afterPush'),
+        request('outsideRun'),
+      ]),
+    );
+    const phases = Object.values(report.phases);
+    const sum = (read) => phases.reduce((total, phase) => total + read(phase), 0);
+    assert.equal(sum((p) => p.costUSD), report.costUSD.total);
+    for (const kind of Object.keys(report.tokens)) assert.equal(sum((p) => p.tokens[kind]), report.tokens[kind], kind);
+    assert.equal(report.phases.building.costUSD, 6);
+    assert.equal(report.phases.afterPush.tokens.output, 200_000);
+  });
+
+  it('a request on a model with no price counts as unpriced in its phase, not as cost', () => {
+    const unpriced = { ...request('afterPush'), model: 'claude-fable-5-1' };
+    const report = summarize(statsWith([request('building'), unpriced]));
+    assert.equal(report.phases.afterPush.costUSD, 0);
+    assert.equal(report.phases.afterPush.unpricedTokens, 1_100_000);
+    assert.equal(report.unpricedTokens, 1_100_000);
+  });
+
+  it('an issue whose requests have no record is left unsplit and says so', () => {
+    const report = summarize(statsWith([request('unrecorded'), request('unrecorded')]));
+    assert.equal(report.phases, null);
+    assert.equal(report.phasesNote, 'no session record');
+    assert.equal(report.costUSD.total, 6);
+  });
+
+  it('a request from a branch with no record is kept apart from the phases of one that has', () => {
+    const report = summarize(statsWith([request('building'), request('unrecorded')]));
+    assert.equal(report.phases.building.costUSD, 3);
+    assert.equal(report.phases.unrecorded.costUSD, 3);
+    assert.equal(report.phasesNote, null);
+  });
+
+  describe('a pull request without a readable record leaves the issue unsplit', () => {
+    for (const { situation, body } of [
+    { situation: 'a body with no session record block', body: '## Summary\n\nSomething.' },
+    { situation: 'a body with only the start marker', body: `text\n${BLOCK_START}\n- ${at(1)} start\n` },
+    { situation: 'a body with only the end marker', body: `text\n- ${at(1)} start\n${BLOCK_END}` },
+    { situation: 'a block carrying no marks', body: `${BLOCK_START}\n### Session record\n${BLOCK_END}` },
+    { situation: 'no body at all', body: null },
+    ]) {
+      it(situation, () => {
+        assert.equal(marksFromBody(body), null);
+      });
+    }
+  });
+
+  it('reads the marks of a body with a complete block', () => {
+    const body = `## Summary\n\n${BLOCK_START}\n### Session record\n\n- ${at(1)} start\n- ${at(2)} pushed\n${BLOCK_END}`;
+    assert.deepEqual(marksFromBody(body), [
+      { at: at(1), phase: 'start' },
+      { at: at(2), phase: 'pushed' },
+    ]);
+  });
+
+  it('the JSON output carries each phase\'s tokens and cost', () => {
+    const json = JSON.parse(JSON.stringify(summarize(statsWith([request('scoping'), request('afterPush')]))));
+    assert.deepEqual(Object.keys(json.phases), ['outsideRun', 'scoping', 'building', 'localReview', 'afterPush', 'unrecorded']);
+    assert.equal(json.phases.scoping.costUSD, 3);
+    assert.equal(json.phases.afterPush.tokens.input, 1_000_000);
+    assert.equal(json.phases.building.costUSD, 0);
   });
 });
