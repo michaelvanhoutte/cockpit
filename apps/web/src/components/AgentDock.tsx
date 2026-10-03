@@ -46,7 +46,13 @@ export function AgentDock({
   hasClaudeCodeConnection,
   agentRuns = [],
   claudeCodeFailing = null,
+  onHide,
+  onConnections,
 }: {
+  /** POC: opens Settings on Connections, for this dock's workspace. */
+  onConnections?: () => void;
+  /** POC: the dock hides itself, leaving a slim strip to open it again. */
+  onHide?: () => void;
   /** The chrome it sits in - a Workspace's own header colour, the same paint `<header>` wears (`pages/Layout.tsx`), so the dock reads as part of the shell rather than a plain panel dropped onto the page. */
   /** This Dashboard's own Workspace - what a hide or show is scoped to. */
   workspaceId: string;
@@ -247,7 +253,7 @@ export function AgentDock({
           included, per its own hidden-count tooltip ("Right-click the
           dock..."): `DockEmptyAreaMenu` wraps the bar whole rather than only
           the scrolling tile strip inside it. */}
-      <DockEmptyAreaMenu hiddenHere={hiddenHere} onShow={show}>
+      <DockEmptyAreaMenu hiddenHere={hiddenHere} onShow={show} onConnections={onConnections}>
         <div
           ref={bar}
           role="toolbar"
@@ -257,6 +263,17 @@ export function AgentDock({
             paddingInline: 'calc(0.75rem + var(--edge-left)) calc(0.5rem + var(--edge-right))',
           }}
         >
+          {onHide && (
+            <button
+              type="button"
+              onClick={onHide}
+              aria-label="Hide the agents’ dock"
+              title="Hide the agents’ dock (A)"
+              className="-mr-1 shrink-0 rounded-md px-1.5 py-1 text-sm text-chrome-ink-faint hover:bg-white/10 hover:text-chrome-ink"
+            >
+              ▼
+            </button>
+          )}
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto rounded-xl bg-black/25 px-2 py-1.5 shadow-[inset_0_1px_3px_rgb(0_0_0/0.45)]">
             <span className="shrink-0 text-xs font-semibold uppercase tracking-[0.11em] text-chrome-ink-faint">
               Agents
@@ -329,7 +346,7 @@ export function AgentDock({
           <DropdownMenu.Root>
             <MenuTrigger label="What is hidden here" onChrome />
             <MenuContent>
-              <DockMenuEntries hiddenHere={hiddenHere} onShow={show} asDropdown />
+              <DockMenuEntries hiddenHere={hiddenHere} onShow={show} onConnections={onConnections} asDropdown />
             </MenuContent>
           </DropdownMenu.Root>
         </div>
@@ -531,10 +548,12 @@ function AgentTile({
 function DockMenuEntries({
   hiddenHere,
   onShow,
+  onConnections,
   asDropdown,
 }: {
   hiddenHere: Agent[];
   onShow: (agentId: string) => void;
+  onConnections?: (() => void) | undefined;
   /** Which Radix item primitive to draw with - `DropdownMenu.Item` or `ContextMenu.Item`. */
   asDropdown: boolean;
 }) {
@@ -551,6 +570,11 @@ function DockMenuEntries({
           Show {agent.name}
         </Item>
       ))}
+      {onConnections && (
+        <Item className={menuItemClass} onSelect={() => onConnections()}>
+          Agent settings…
+        </Item>
+      )}
     </>
   );
 }
@@ -559,17 +583,19 @@ function DockMenuEntries({
 function DockEmptyAreaMenu({
   hiddenHere,
   onShow,
+  onConnections,
   children,
 }: {
   hiddenHere: Agent[];
   onShow: (agentId: string) => void;
+  onConnections?: (() => void) | undefined;
   children: React.ReactNode;
 }) {
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
       <ContextMenuContent label="The agents' dock">
-        <DockMenuEntries hiddenHere={hiddenHere} onShow={onShow} asDropdown={false} />
+        <DockMenuEntries hiddenHere={hiddenHere} onShow={onShow} onConnections={onConnections} asDropdown={false} />
       </ContextMenuContent>
     </ContextMenu.Root>
   );

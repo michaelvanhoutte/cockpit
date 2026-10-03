@@ -1,5 +1,9 @@
+import { createContext, useContext } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { takesFiles } from '../attachmentQueue';
+
+/** POC: inside a settings modal a ManageWindow draws as a section, not as a dialog of its own. */
+export const EmbeddedInSettings = createContext<false | { heading: string | null }>(false);
 
 /**
  * The window a list of named things is managed in: the dashboards of a
@@ -61,6 +65,15 @@ export function ManageWindow({
   wide?: boolean;
   children: React.ReactNode;
 }) {
+  const embedded = useContext(EmbeddedInSettings);
+  if (embedded) {
+    return open ? (
+      <section ref={ref} className="flex min-h-0 flex-col">
+        <h3 className="text-base font-semibold">{embedded.heading ?? title}</h3>
+        {children}
+      </section>
+    ) : null;
+  }
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && canClose && onClose()}>
       <Dialog.Portal>
@@ -108,6 +121,7 @@ export function ManageWindow({
 
 /** The way out, in the same place in all three windows. */
 export function CloseWindow({ disabled, label = 'Done' }: { disabled?: boolean; label?: string }) {
+  if (useContext(EmbeddedInSettings)) return null;
   return (
     <div className="flex justify-end pt-4">
       <Dialog.Close

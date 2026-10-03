@@ -1,5 +1,15 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
-import { DUE_WINDOWS, type AgentRun, type Attachment, type DueWindow, type Item, type Priority } from '@cockpit/shared';
+import {
+  DUE_WINDOWS,
+  ITEM_STATUSES,
+  itemStatus,
+  type AgentRun,
+  type Attachment,
+  type DueWindow,
+  type Item,
+  type ItemStatus,
+  type Priority,
+} from '@cockpit/shared';
 import { dueHolds, type Day } from './filters';
 
 /**
@@ -24,6 +34,8 @@ export type PriorityChoice = Priority | 'none';
 export type AttachmentsChoice = 'any' | 'with' | 'without';
 
 export type DashboardFilter = {
+  /** POC: any of these statuses, an empty list meaning every status. */
+  statuses: ItemStatus[];
   /** Any of these, an empty list meaning every Priority. */
   priorities: PriorityChoice[];
   /** The window an Item's due date falls in, or null for any time. */
@@ -36,6 +48,7 @@ export type DashboardFilter = {
 };
 
 export const NO_DASHBOARD_FILTER: DashboardFilter = {
+  statuses: [],
   priorities: [],
   due: null,
   text: '',
@@ -52,6 +65,7 @@ const ATTACHMENT_CHOICES: readonly AttachmentsChoice[] = ['any', 'with', 'withou
 /** Whether any of the five conditions is set - which is all "filtered" means. */
 export function isFiltering(filter: DashboardFilter): boolean {
   return (
+    filter.statuses.length > 0 ||
     filter.priorities.length > 0 ||
     filter.due !== null ||
     filter.text.trim() !== '' ||
@@ -90,6 +104,7 @@ export function matchesDashboardFilter(
   on: Day,
   withRun: ReadonlySet<string>,
 ): boolean {
+  if (filter.statuses.length > 0 && !filter.statuses.includes(itemStatus(item))) return false;
   if (
     filter.priorities.length > 0 &&
     !filter.priorities.includes(item.priority ?? 'none')
@@ -138,9 +153,10 @@ function parseFilter(raw: string | null): DashboardFilter {
   try {
     const read: unknown = JSON.parse(raw);
     if (typeof read !== 'object' || read === null) return NO_DASHBOARD_FILTER;
-    const { priorities, due, text, attachments, agentRunning } = read as Record<string, unknown>;
+    const { statuses, priorities, due, text, attachments, agentRunning } = read as Record<string, unknown>;
     const dueRead = due as { window?: unknown; orOverdue?: unknown } | null | undefined;
     return {
+      statuses: Array.isArray(statuses) ? ITEM_STATUSES.filter((choice) => statuses.includes(choice)) : [],
       priorities: Array.isArray(priorities)
         ? PRIORITY_CHOICES.filter((choice) => priorities.includes(choice))
         : [],

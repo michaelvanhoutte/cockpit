@@ -36,7 +36,7 @@ const LOOKS_AT: Record<RefinementScope, Field[]> = {
   panel: ['suggestedPanel'],
 };
 
-const WHY: Record<RefinementScope, string> = {
+export const WHY: Record<RefinementScope, string> = {
   'texts-and-panel': 'When you captured it',
   texts: 'After you edited another item',
   panel: 'After you filed another item',
@@ -81,7 +81,7 @@ function linesFor(entry: RewriteHistoryEntry): FieldLine[] {
 }
 
 /** The fields a settled refinement changed, in the order the window lists them. */
-function changedFields(entry: RewriteHistoryEntry): Field[] {
+export function changedFields(entry: RewriteHistoryEntry): Field[] {
   if (entry.status !== 'rewritten') return [];
   return linesFor(entry)
     .filter((line) => line.kind === 'changed')
@@ -97,7 +97,7 @@ function listed(words: string[]): string {
 }
 
 /** What happened, in one sentence. */
-function whatHappened(entry: RewriteHistoryEntry, changed: Field[]): string {
+export function whatHappened(entry: RewriteHistoryEntry, changed: Field[]): string {
   if (entry.status === 'pending') return 'Working on it…';
   if (entry.status === 'failed') return `Failed: ${entry.message ?? 'no reason was given'}`;
   if (changed.length > 0) return `Changed the ${listed(changed.map((field) => FIELD_LABEL[field].toLowerCase()))}`;
@@ -109,7 +109,7 @@ function whatHappened(entry: RewriteHistoryEntry, changed: Field[]): string {
   return 'Nothing changed';
 }
 
-function FieldLines({ entry }: { entry: RewriteHistoryEntry }) {
+export function FieldLines({ entry }: { entry: RewriteHistoryEntry }) {
   return (
     <dl aria-label="What changed" className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-2 py-1">
       {linesFor(entry).map((line) => (
@@ -192,7 +192,7 @@ export function SmartRefinementsWindow({
           // appear at all; the table scrolls inside its own box below.
           className="fixed left-1/2 top-1/2 flex h-[min(36rem,calc(100dvh-4rem))] max-h-[calc(100dvh-2rem)] min-h-[min(16rem,calc(100dvh-2rem))] w-[min(64rem,calc(100vw-2rem))] min-w-[min(20rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 resize-none flex-col overflow-hidden rounded-lg border border-black/10 bg-surface p-5 shadow-lg sm:resize"
         >
-          <Dialog.Title className="text-base font-semibold">Smart refinements</Dialog.Title>
+          <Dialog.Title className="text-base font-semibold">What Cockpit changed</Dialog.Title>
           <Dialog.Description className="mt-0.5 text-xs text-ink-faint">
             {scoped
               ? 'How Cockpit refined this item, and when.'

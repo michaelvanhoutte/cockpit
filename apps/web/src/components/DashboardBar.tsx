@@ -11,6 +11,7 @@ import {
   useFilterBarOpen,
   useFilteredDashboardIds,
 } from '../dashboardFilter';
+import { doneFilterId, useDoneTab } from '../doneTab';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { browserStore } from '../lastVisited';
 import { useRoomForTheInbox } from '../roomForTheInbox';
@@ -49,7 +50,7 @@ export function DashboardBar({
   workspaceId,
   tint,
   ground,
-  openDashboardId = null,
+  openDashboardId: openDashboardIdProp = null,
 }: {
   workspaceId: string;
   /**
@@ -65,6 +66,11 @@ export function DashboardBar({
 }) {
   const { data } = useQuery(snapshotQuery(workspaceId));
   const dashboards = data?.dashboards ?? [];
+  // POC: while the Done tab is the one being looked at, no dashboard is.
+  const done = useDoneTab(workspaceId);
+  const openDashboardId = done.viewing ? null : openDashboardIdProp;
+  const [doneFilter, setDoneFilter] = useDashboardFilter(browserStore(), doneFilterId(workspaceId));
+  const [doneBarOpen, setDoneBarOpen] = useFilterBarOpen(doneFilterId(workspaceId));
   const roomForTheInbox = useRoomForTheInbox();
   /** A phone has no Layouts to pick or make (`isPhoneWidth`), so the control for them is not drawn. */
   const onAPhone = isPhoneWidth(useScreenWidth());
@@ -425,6 +431,21 @@ export function DashboardBar({
         setDeleting(dashboard.id);
       },
     },
+    // POC: the Done tab is the workspace's, and switched on from any dashboard.
+    {
+      label: done.enabled ? 'Hide all items' : 'Show all items',
+      separatorBefore: true,
+      onSelect: () => {
+        if (done.enabled) done.setEnabled(false);
+        else {
+          done.setEnabled(true);
+          done.setViewing(true);
+        }
+      },
+    },
+  ];
+  const hideDoneEntry: MenuEntry[] = [
+    { label: 'Hide all items', onSelect: () => done.setEnabled(false) },
   ];
 
   /*
@@ -446,8 +467,12 @@ export function DashboardBar({
    * height when it becomes the current one, which would shuffle the whole
    * strip by two pixels on every switch.
    */
-  const tabClass =
-    'shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-1 pb-1.5 text-sm text-chrome-ink hover:bg-white/8 [&.active]:bg-[var(--tab-on)] [&.active]:font-medium [&.active]:text-ink [&.active]:shadow-[inset_0_2px_0_0_var(--tab-mark)]';
+  const tabBase =
+    'shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-1 pb-1.5 text-sm text-chrome-ink hover:bg-white/8';
+  const tabActive =
+    ' [&.active]:bg-[var(--tab-on)] [&.active]:font-medium [&.active]:text-ink [&.active]:shadow-[inset_0_2px_0_0_var(--tab-mark)]';
+  // POC: the router still calls the dashboard behind the Done tab active; the tab must not look it.
+  const tabClass = done.viewing ? tabBase : tabBase + tabActive;
 
   return (
     <nav
@@ -509,7 +534,10 @@ export function DashboardBar({
             onDragOver={(event) => restOn(event, dashboard.id)}
             onDragLeave={leftIt}
             onDrop={droppedOnIt}
-            onClick={opensOnPress(dashboard.id === openDashboardId)}
+            onClick={(event) => {
+              done.setViewing(false);
+              opensOnPress(dashboard.id === openDashboardId)(event);
+            }}
             {...drag.tabProps(dashboard.id)}
             className={`${tabClass}${drag.inTheAir === dashboard.id ? ' opacity-60' : ''}`}
           >
@@ -536,6 +564,36 @@ export function DashboardBar({
           </Link>
         </SurfaceMenu>
       ))}
+      {done.enabled && (
+        // POC: a drawn tab, after the dashboards and the + that makes one.
+        <button
+          type="button"
+          onClick={() => done.setViewing(true)}
+          aria-current={done.viewing ? 'page' : undefined}
+          className={`${tabBase}${
+            done.viewing
+              ? ' bg-[var(--tab-on)] font-medium text-ink shadow-[inset_0_2px_0_0_var(--tab-mark)]'
+              : ''
+          }`}
+        >
+          <span className="inline-flex items-center gap-1.5">
+            All items
+            {(done.viewing || isFiltering(doneFilter)) && (
+              <FilterFunnel
+                filtered={isFiltering(doneFilter)}
+                pressable={done.viewing}
+                barOpen={doneBarOpen}
+                onPress={() => {
+                  if (doneBarOpen || isFiltering(doneFilter)) {
+                    setDoneFilter(NO_DASHBOARD_FILTER);
+                    setDoneBarOpen(false);
+                  } else setDoneBarOpen(true);
+                }}
+              />
+            )}
+          </span>
+        </button>
+      )}
       <AddDashboard workspaceId={workspaceId} />
 
       {/* The open dashboard's own controls, at the right of its own bar: which
@@ -555,6 +613,11 @@ export function DashboardBar({
           well, where there is neither a layout to pick nor a dashboard to put a
           panel on - which is exactly why these were kept off it before, and it
           is answered by mounting them rather than by moving them. */}
+      {done.viewing && (
+        <div className="ml-auto flex shrink-0 items-end gap-1 pl-2">
+          <RowMenu label="Actions for All items" entries={hideDoneEntry} onChrome />
+        </div>
+      )}
       {openDashboardId && (
         <div className="ml-auto flex shrink-0 items-end gap-1 pl-2">
           {!onAPhone && (

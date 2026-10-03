@@ -388,8 +388,7 @@ export function WorkspaceTabs({
     // On the tab rather than in the header's menu, because a connection
     // belongs to one Workspace and no other Workspace ever sees it ("Connect a
     // Microsoft Teams source account", issue 485).
-    { label: 'Manage connections…', onSelect: (from) => startConnections(ws, from) },
-    { label: 'Delete', destructive: true, onSelect: (from) => startDeleting(ws, from) },
+    { label: 'Delete', destructive: true, separatorBefore: true, onSelect: (from) => startDeleting(ws, from) },
   ];
 
   return (

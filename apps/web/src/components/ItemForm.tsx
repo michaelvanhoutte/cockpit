@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { CockpitChangedNote, WhatCockpitChanged } from './WhatCockpitChanged';
 import { useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -840,7 +841,9 @@ function TheForm({
    * item's form more room, and put clutter out of the way", issue 480).
    * Starts on the form each time it opens.
    */
-  const [tab, setTab] = useState<'item' | 'details'>('item');
+  const [tab, setTab] = useState<'item' | 'details' | 'changes'>('item');
+  // POC: the history is a tab of its own, always there.
+  const tabs = ['item', 'details', 'changes'] as const;
   const formId = useId();
 
   /**
@@ -1457,12 +1460,13 @@ function TheForm({
                   onKeyDown={(e) => {
                     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
                     e.preventDefault();
-                    const next = tab === 'item' ? 'details' : 'item';
+                    const at = tabs.indexOf(tab as (typeof tabs)[number]);
+                    const next = tabs[(at + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]!;
                     setTab(next);
                     document.getElementById(`${formId}-${next}-tab`)?.focus();
                   }}
                 >
-                  {(['item', 'details'] as const).map((which) => (
+                  {tabs.map((which) => (
                     <button
                       key={which}
                       id={`${formId}-${which}-tab`}
@@ -1478,7 +1482,7 @@ function TheForm({
                           : 'border-transparent text-ink-faint hover:text-ink'
                       }`}
                     >
-                      {which === 'item' ? 'Item' : 'Details'}
+                      {which === 'item' ? 'Item' : which === 'details' ? 'Details' : 'What Cockpit changed'}
                     </button>
                   ))}
                 </div>
@@ -1489,6 +1493,11 @@ function TheForm({
                   aria-labelledby={`${formId}-item-tab`}
                   className={tab === 'item' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
                 >
+                  {/* POC: said once, where the surprise is, and only if Cockpit changed something. */}
+                  <CockpitChangedNote
+                    itemId={item.id}
+                    onSee={() => setTab('changes')}
+                  />
                   {/* Readings and duplicates both need a decision, so both sit
                     in one banner directly under the title rather than being
                     buried below attachments ("Give the item's form more
@@ -1983,6 +1992,17 @@ function TheForm({
                         </dd>
                       </div>
                     </dl>
+                  </div>
+                )}
+
+                {tab === 'changes' && (
+                  <div
+                    role="tabpanel"
+                    id={`${formId}-changes`}
+                    aria-labelledby={`${formId}-changes-tab`}
+                    className="mt-4 min-h-0 flex-1 overflow-y-auto text-sm text-ink-soft"
+                  >
+                    <WhatCockpitChanged itemId={item.id} />
                   </div>
                 )}
               </div>

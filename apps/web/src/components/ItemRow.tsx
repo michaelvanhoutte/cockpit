@@ -758,15 +758,6 @@ export function ItemRow({
         <M.Item className={menuItemClass} onSelect={markDone}>
           Mark done
         </M.Item>
-        <M.Item
-          className={menuItemClass}
-          onSelect={() => {
-            opening.current = true;
-            setHistoryOpen(true);
-          }}
-        >
-          Smart refinements…
-        </M.Item>
         <M.Separator className="my-1 h-px bg-black/10" />
         <M.Item
           className={destructiveItemClass}

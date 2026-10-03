@@ -1,4 +1,4 @@
-import { DUE_WINDOWS, type DueWindow } from '@cockpit/shared';
+import { DUE_WINDOWS, type DueWindow, type ItemStatus } from '@cockpit/shared';
 import {
   NO_DASHBOARD_FILTER,
   isFiltering,
@@ -49,7 +49,14 @@ export function FunnelGlyph({ filled = false }: { filled?: boolean }) {
  * clears the conditions and keeps the bar open - it is for starting over - and
  * the funnel on the open tab is what clears and closes (`DashboardBar`).
  */
-export function DashboardFilterBar({ dashboardId }: { dashboardId: string }) {
+const STATUS_CHOICES: { value: ItemStatus; label: string }[] = [
+  { value: 'to_do', label: 'To do' },
+  { value: 'in_progress', label: 'In progress' },
+  { value: 'done', label: 'Done' },
+];
+
+/** `withDone`: POC - only the All items tab offers Done, since a finished item is on no dashboard. */
+export function DashboardFilterBar({ dashboardId, withDone = false }: { dashboardId: string; withDone?: boolean }) {
   const [filter, setFilter] = useDashboardFilter(browserStore(), dashboardId);
   const [open, setOpen] = useFilterBarOpen(dashboardId);
   const filtering = isFiltering(filter);
@@ -58,6 +65,14 @@ export function DashboardFilterBar({ dashboardId }: { dashboardId: string }) {
   const chip = (on: boolean) =>
     `rounded-full border px-2.5 py-0.5 text-xs ${
       on ? 'border-accent bg-accent-tint text-ink' : 'border-black/15 text-ink-soft hover:bg-black/5'
+    }`;
+
+  // POC: the chips of one filter are joined inside one outline, so where a
+  // filter ends is plain without spending width on a divider.
+  const group = 'inline-flex items-center overflow-hidden rounded-full border border-black/15';
+  const segment = (on: boolean) =>
+    `border-l border-black/15 px-2.5 py-0.5 text-xs first:border-l-0 ${
+      on ? 'bg-accent-tint text-ink' : 'text-ink-soft hover:bg-black/5'
     }`;
 
   return (
@@ -71,7 +86,32 @@ export function DashboardFilterBar({ dashboardId }: { dashboardId: string }) {
         <span className="font-medium">Filter</span>
       </span>
 
-      <fieldset className="flex items-center gap-1">
+      <fieldset className={group}>
+        <legend className="sr-only">Status</legend>
+        {STATUS_CHOICES.filter(({ value }) => withDone || value !== 'done').map(({ value, label }) => {
+          const on = filter.statuses.includes(value);
+          return (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={on}
+              className={segment(on)}
+              onClick={() =>
+                setFilter({
+                  ...filter,
+                  statuses: on
+                    ? filter.statuses.filter((s) => s !== value)
+                    : [...filter.statuses, value],
+                })
+              }
+            >
+              {label}
+            </button>
+          );
+        })}
+      </fieldset>
+
+      <fieldset className={group}>
         <legend className="sr-only">Priority</legend>
         {PRIORITIES.map(({ value, label }) => {
           const on = filter.priorities.includes(value);
@@ -80,7 +120,7 @@ export function DashboardFilterBar({ dashboardId }: { dashboardId: string }) {
               key={value}
               type="button"
               aria-pressed={on}
-              className={chip(on)}
+              className={segment(on)}
               onClick={() =>
                 setFilter({
                   ...filter,
@@ -148,22 +188,24 @@ export function DashboardFilterBar({ dashboardId }: { dashboardId: string }) {
         />
       </label>
 
-      <fieldset className="flex items-center gap-1">
+      <fieldset className="flex items-center gap-1.5">
         <legend className="sr-only">Attachments</legend>
-        <span className="mr-1 text-ink-soft" aria-hidden="true">
+        <span className="text-ink-soft" aria-hidden="true">
           Attachments
         </span>
-        {ATTACHMENTS.map(({ value, label }) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={filter.attachments === value}
-            className={chip(filter.attachments === value)}
-            onClick={() => setFilter({ ...filter, attachments: value })}
-          >
-            {label}
-          </button>
-        ))}
+        <span className={group}>
+          {ATTACHMENTS.map(({ value, label }) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={filter.attachments === value}
+              className={segment(filter.attachments === value)}
+              onClick={() => setFilter({ ...filter, attachments: value })}
+            >
+              {label}
+            </button>
+          ))}
+        </span>
       </fieldset>
 
       <button

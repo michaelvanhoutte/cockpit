@@ -3,7 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ADMIN, DEFAULT_WORKSPACE_THEME, isPaletteTheme, themeOf, uuidv7 } from '@cockpit/shared';
+import { ADMIN, CLAUDE_CODE, TEAMS, DEFAULT_WORKSPACE_THEME, isPaletteTheme, themeOf, uuidv7 } from '@cockpit/shared';
 import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, refusalFrom, snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
@@ -20,6 +20,11 @@ const ManageConnectedApps = lazy(() => import('../components/ManageConnectedApps
 const ManageUsers = lazy(() => import('../components/ManageUsers'));
 const UsageWindow = lazy(() => import('../components/UsageWindow'));
 const MarkedDoneWindow = lazy(() => import('../components/MarkedDoneWindow'));
+const ManageConnections = lazy(() => import('../components/ManageConnections'));
+import { SettingsModal } from '../components/SettingsModal';
+import { AllItemsBoard } from '../components/AllItemsBoard';
+import { useDoneTab } from '../doneTab';
+import { EmbeddedInSettings } from '../components/ManageWindow';
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { CaptureWindow } from '../components/CaptureWindow';
@@ -478,7 +483,7 @@ function TheShell() {
    * inside a workspace, and a page reached without one made it degrade into a
    * header wearing none of the workspace's colour, control or selected tab.
    */
-  const [managing, setManaging] = useState<'types' | 'apps' | 'users' | 'usage' | 'done' | null>(null);
+  const [managing, setManaging] = useState<'settings' | 'platform' | null>(null);
   const typesOpenedFrom = useRef<HTMLElement | null>(null);
 
   /**
@@ -505,66 +510,24 @@ function TheShell() {
    * dock's entry is its own visibility, not its content - the dock's own "…"
    * is where an agent is hidden.
    */
-  const accountEntries: MenuEntry[] = [
-    {
-      label: 'Manage types',
-      onSelect: (from) => {
-        typesOpenedFrom.current = from;
-        setManaging('types');
-      },
-    },
-    {
-      label: 'MCP connections',
-      onSelect: (from) => {
-        typesOpenedFrom.current = from;
-        setManaging('apps');
-      },
-    },
-    {
-      label: agentDockHidden ? 'Show the agents’ dock' : 'Hide the agents’ dock',
-      keepsFocus: true,
-      onSelect: () => hideAgentDock(!agentDockHidden),
-    },
-    // Last, under a separator of its own: everything above changes what this
-    // session shows, and this changes who can sign in for everybody. Offered to
-    // an admin only, which is a courtesy rather than the guard: what refuses an
-    // ordinary user is the server (auth/admin.ts), and hiding the entry keeps a
-    // door in front of them that only ever says no.
-    ...(me?.user.role === ADMIN
-      ? [
-          {
-            label: 'Manage users',
-            separatorBefore: true,
-            onSelect: (from: HTMLElement | null) => {
-              typesOpenedFrom.current = from;
-              setManaging('users');
-            },
-          },
-          {
-            label: 'Usage',
-            onSelect: (from: HTMLElement | null) => {
-              typesOpenedFrom.current = from;
-              setManaging('usage');
-            },
-          },
-        ]
-      : []),
-  ];
+  // POC: the account's entries left the workspace's "…" for the profile menu.
+  const accountEntries: MenuEntry[] = [];
+  // POC: the Done tab; going anywhere else by address leaves it.
+  const done = useDoneTab(params.workspaceId);
+  const leaveDone = done.setViewing;
+  useEffect(() => {
+    leaveDone(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.workspaceId, params.dashboardId]);
+  const [settingsOn, setSettingsOn] = useState<string | undefined>(undefined);
+  const allWorkspaces = useQuery(workspacesQuery).data?.workspaces ?? [];
 
   /**
    * What the open workspace's "…" offers first, ahead of its own actions: a
    * window over the screen you are on listing what it has marked done ("See
    * the items you have marked done, from the header menu", issue 637).
    */
-  const openWorkspaceEntries: MenuEntry[] = [
-    {
-      label: 'Items marked done…',
-      onSelect: (from) => {
-        typesOpenedFrom.current = from;
-        setManaging('done');
-      },
-    },
-  ];
+  const openWorkspaceEntries: MenuEntry[] = [];
 
   /**
    * The capture outbox is sent for as long as somebody is signed in, and its
@@ -936,6 +899,29 @@ function TheShell() {
                 <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
                   {me ? `Signed in as ${me.user.name}` : 'Signed in'}
                 </DropdownMenu.Label>
+                {roomForTheInbox && (
+                  <DropdownMenu.Item
+                    onSelect={() => {
+                      typesOpenedFrom.current = null;
+                      setSettingsOn(undefined);
+                      setManaging('settings');
+                    }}
+                    className={menuItemClass}
+                  >
+                    Settings…
+                  </DropdownMenu.Item>
+                )}
+                {roomForTheInbox && me?.user.role === ADMIN && (
+                  <DropdownMenu.Item
+                    onSelect={() => {
+                      typesOpenedFrom.current = null;
+                      setManaging('platform');
+                    }}
+                    className={menuItemClass}
+                  >
+                    Platform settings…
+                  </DropdownMenu.Item>
+                )}
                 <DropdownMenu.Item
                   onSelect={() => (unsent > 0 ? setAskingToSignOut(true) : leave.mutate())}
                   className={menuItemClass}
@@ -1136,7 +1122,7 @@ function TheShell() {
             (components/ManageWindow.tsx) - so the shell no longer has to ask
             which kind of page this is. */}
         <div data-drag-scroll="dashboard" className="min-w-0 flex-1 overflow-y-auto pb-[var(--edge-bottom)]">
-          <Outlet />
+          {done.viewing && params.workspaceId ? <AllItemsBoard workspaceId={params.workspaceId} /> : <Outlet />}
         </div>
       </main>
 
@@ -1146,12 +1132,30 @@ function TheShell() {
           Workspace, since hiding one is scoped to it; hidden on a phone,
           where there is no drag, the same room `roomForTheInbox` answers for
           the Inbox column - a desk-sized screen either way. */}
+      {params.workspaceId && params.dashboardId && roomForTheInbox && agentDockHidden && (
+        // POC: a hidden dock leaves a slim strip that opens it again.
+        <button
+          type="button"
+          onClick={() => hideAgentDock(false)}
+          aria-label="Show the agents’ dock"
+          className="graphite flex shrink-0 items-center gap-2 py-2 text-xs font-semibold uppercase tracking-[0.11em] text-chrome-ink-faint hover:text-chrome-ink"
+          style={{ paddingInline: 'calc(0.75rem + var(--edge-left)) 1rem' }}
+        >
+          ▲ Agents
+        </button>
+      )}
       {params.workspaceId && params.dashboardId && roomForTheInbox && !agentDockHidden && (
         // No fallback: a beat of nothing where the dock will be costs less
         // than a placeholder shaped like it, the same call `ManageConnections`
         // makes for its own chunk.
         <Suspense fallback={null}>
           <AgentDock
+            onHide={() => hideAgentDock(true)}
+            onConnections={() => {
+              typesOpenedFrom.current = null;
+              setSettingsOn('agents');
+              setManaging('settings');
+            }}
             workspaceId={params.workspaceId}
             dashboardId={params.dashboardId}
             agents={workspace.data?.agents ?? []}
@@ -1166,56 +1170,62 @@ function TheShell() {
       {/* The account's list of types, over the workspace rather than instead
           of it. Here rather than in a page, because there is no page: the
           shell is the one thing that is always drawn inside a workspace. */}
-      <Suspense fallback={null}>
-        <ManageTypes
-          open={managing === 'types'}
-          onClose={() => setManaging(null)}
-          returnFocusTo={typesOpenedFrom.current}
-        />
-      </Suspense>
-
-      {/* What this workspace has marked done, over the screen you are on. */}
-      {params.workspaceId && (
+      {/* POC: one Settings modal, and an admin's Platform settings, each with
+          the old windows drawn inline as its sections. */}
+      {managing === 'settings' && (
         <Suspense fallback={null}>
-          <MarkedDoneWindow
-            // Remounted per workspace, so a search typed in one is not still in
-            // the box when the next is opened.
-            key={params.workspaceId}
-            workspaceId={params.workspaceId}
-            open={managing === 'done'}
+          <SettingsModal
+            title="Settings"
+            initial={settingsOn}
+            open
             onClose={() => setManaging(null)}
             returnFocusTo={typesOpenedFrom.current}
+            sections={[
+              { key: 'types', label: 'Types', content: <ManageTypes open onClose={() => setManaging(null)} /> },
+              {
+                key: 'connections',
+                label: 'Connections',
+                content: (
+                  <ConnectionsSection
+                    workspaces={allWorkspaces}
+                    startsIn={params.workspaceId}
+                    onClose={() => setManaging(null)}
+                    only={TEAMS}
+                  />
+                ),
+              },
+              {
+                key: 'agents',
+                label: 'Agent settings',
+                content: (
+                  <ConnectionsSection
+                    workspaces={allWorkspaces}
+                    startsIn={params.workspaceId}
+                    onClose={() => setManaging(null)}
+                    only={CLAUDE_CODE}
+                  />
+                ),
+              },
+              {
+                key: 'mcp',
+                label: 'MCP',
+                content: <ManageConnectedApps open onClose={() => setManaging(null)} />,
+              },
+            ]}
           />
         </Suspense>
       )}
-
-      {/* The apps allowed into this Cockpit, over the workspace as the types are. */}
-      <Suspense fallback={null}>
-        <ManageConnectedApps
-          open={managing === 'apps'}
-          onClose={() => setManaging(null)}
-          returnFocusTo={typesOpenedFrom.current}
-        />
-      </Suspense>
-
-      {/* Who can sign in, over the workspace as the types are. Offered to an admin only. */}
-      {me?.user.role === ADMIN && (
+      {managing === 'platform' && me?.user.role === ADMIN && (
         <Suspense fallback={null}>
-          <ManageUsers
-            open={managing === 'users'}
+          <SettingsModal
+            title="Platform settings"
+            open
             onClose={() => setManaging(null)}
             returnFocusTo={typesOpenedFrom.current}
-          />
-        </Suspense>
-      )}
-
-      {/* What the sign-ins and guest sessions came to. Offered to an admin only, like the list of users. */}
-      {me?.user.role === ADMIN && (
-        <Suspense fallback={null}>
-          <UsageWindow
-            open={managing === 'usage'}
-            onClose={() => setManaging(null)}
-            returnFocusTo={typesOpenedFrom.current}
+            sections={[
+              { key: 'users', label: 'Users', content: <ManageUsers open onClose={() => setManaging(null)} /> },
+              { key: 'usage', label: 'Usage', content: <UsageWindow open onClose={() => setManaging(null)} /> },
+            ]}
           />
         </Suspense>
       )}
@@ -1334,5 +1344,37 @@ function AddWorkspace() {
         returnFocusTo={button.current}
       />
     </>
+  );
+}
+
+/** POC: connections are per workspace in the data model, so the section asks which one. */
+function ConnectionsSection({
+  workspaces,
+  startsIn,
+  onClose,
+  only,
+}: {
+  only: string;
+  workspaces: { id: string; name: string }[];
+  startsIn: string | undefined;
+  onClose: () => void;
+}) {
+  const [picked, setPicked] = useState(startsIn ?? workspaces[0]?.id);
+  const chosen = workspaces.find((ws) => ws.id === picked) ?? workspaces[0];
+  if (!chosen) return null;
+  return (
+    <div className="flex min-h-0 flex-col">
+      <label className="mb-3 text-sm text-ink-soft">
+        Workspace{' '}
+        <select value={chosen.id} onChange={(event) => setPicked(event.target.value)} className="rounded border border-black/10 px-1 py-0.5">
+          {workspaces.map((ws) => (
+            <option key={ws.id} value={ws.id}>
+              {ws.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <ManageConnections only={only} key={chosen.id} workspaceId={chosen.id} workspaceName={chosen.name} open onClose={onClose} />
+    </div>
   );
 }

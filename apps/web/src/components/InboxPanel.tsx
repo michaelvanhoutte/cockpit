@@ -141,7 +141,7 @@ export function InboxHeading({
             label="Actions for the Inbox"
             entries={[
               {
-                label: 'Smart refinements…',
+                label: 'What Cockpit changed…',
                 onSelect: (openedFrom) => {
                   opener.current = openedFrom;
                   setHistoryOpen(true);
