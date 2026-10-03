@@ -556,7 +556,8 @@ describe('Lead time', () => {
       { situation: 'the artifact expired', record: { state: 'not-recorded', why: 'expired' }, why: 'expired' },
       { situation: 'no artifact was created during the job', record: { state: 'not-recorded', why: 'absent' }, why: 'absent' },
       { situation: 'two artifacts fall inside the job', record: { state: 'not-recorded', why: 'ambiguous' }, why: 'ambiguous' },
-      { situation: 'nothing was fetched for the attempt', record: undefined, why: 'absent' },
+      { situation: 'the record could not be read', record: { state: 'not-recorded', why: 'unreadable' }, why: 'unreadable' },
+      { situation: 'nothing was fetched for the attempt', record: undefined, why: 'not-fetched' },
     ])('reads a Test attempt as not recorded, never as passing, where $situation', ({ record, why }) => {
       const [failure] = roundOf([failing('Test', ['Run the tests'], record)]).failures;
       expect(failure).toMatchObject({ record: 'not-recorded', why, files: [] });

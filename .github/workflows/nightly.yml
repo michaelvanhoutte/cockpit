@@ -2,8 +2,9 @@ name: Nightly
 
 # The reports that are too dear to build on every merge, built once a night
 # ("Run the lead-time report nightly, and publish it beside the other two",
-# issue 515). The lead-time report re-reads 14 days of history, about 800
-# requests against the 1,000 an hour every workflow in this repository shares:
+# issue 515). The lead-time report re-reads 14 days of history, about 950
+# requests (800 for 150 pull requests, 150 more for failed attempts) against
+# the 1,000 an hour every workflow in this repository shares:
 # run on each merge it would fail in a burst, and take the stability report
 # down with it.
 #

@@ -64,9 +64,9 @@ A pull request is one line, cut into parts:
   `E2E (F3)`, the test files its own `test-selection-record` or `e2e-selection-record` marks
   failed. A record is matched to its attempt by being created during that attempt's job (30
   seconds' slack after it ends), since a re-run uploads a second artifact of the same name. An
-  attempt whose record expired, was never uploaded or matches two artifacts reads `not-recorded`
-  with its `why`, never as failing nothing, and a package that wrote no report is named in
-  `packagesNotRecorded`. A download that errors names the pull request in `coverage.failed`.
+  attempt whose record expired, was never uploaded, matches two artifacts or could not be read reads
+  `not-recorded` with its `why`, never as failing nothing, and a package that wrote no report is named in
+  `packagesNotRecorded`. An error reading a failed attempt never drops its pull request; only a spent rate limit fails the run.
 - **Ready or draft**: a round in which the code review or the security review ran is `ready`,
   since a draft skips both.
 - **A conclusion it does not know is neither a pass nor a fail**, and is named in the round's
@@ -139,7 +139,7 @@ collect(repo)  →  buildModel(...)  →  renderHtml(model)  →  out/index.html
 
 **Request cost is what shapes `github.js`**, and its header comment is where that is worked out:
 about 5 to 6 requests per pull request, and about three more per failed attempt (its job, its run's
-artifact list, one record download), against the 1,000 an hour a `GITHUB_TOKEN` allows.
+artifact list, one record download), so about 950 for 150 pull requests, against the 1,000 an hour a `GITHUB_TOKEN` allows.
 `--max-pulls` stops rather than spending it, and the model's `coverage` reports the period it
 actually reached — as does a listing that ends before the window does. A pull request whose
 commits or check runs cannot be read is named in `coverage.failed` and left out; a spent rate

@@ -204,14 +204,13 @@ function flukesOf(groups, sha) {
  * where the check never passed on the commit and `fluke` where a re-run did.
  *
  * `record` is `null` for a check that keeps none, `read`, or `not-recorded` with
- * `why` — never an empty file list standing in for it, since an attempt nobody
+ * `why` (`expired`, `absent`, `ambiguous`, `unreadable`, or `not-fetched` where nothing was asked for) — never an empty file list standing in for it, since an attempt nobody
  * can read is not an attempt that failed on nothing.
  */
 function failuresOf(groups) {
-  const decisive = (attempt) => ['pass', 'fail'].includes(classify(attempt));
   const failures = [];
-  for (const attempts of groups) {
-    const outcome = classify(attempts.findLast(decisive) ?? attempts[0]) === 'fail' ? 'red' : 'fluke';
+  for (const { attempts, red } of groups) {
+    const outcome = red ? 'red' : 'fluke';
     attempts.forEach((attempt, index) => {
       if (classify(attempt) !== 'fail') return;
       const detail = attempt.failure ?? null;
@@ -224,7 +223,7 @@ function failuresOf(groups) {
           failure.packagesNotRecorded = packagesNotRecorded;
         } else {
           failure.record = 'not-recorded';
-          failure.why = detail?.record?.why ?? 'absent';
+          failure.why = detail?.record?.why ?? 'not-fetched';
         }
       }
       failures.push(failure);
@@ -280,7 +279,8 @@ function buildRounds(commits, mergedAt) {
     // re-run to a pass is a fluke, not a red round, while one whose re-run was
     // cancelled before it finished has still never passed.
     const decisive = (attempt) => ['pass', 'fail'].includes(classify(attempt));
-    const failed = push.groups.filter((attempts) => classify(attempts.findLast(decisive) ?? attempts[0]) === 'fail').map((attempts) => attempts[0].name);
+    const verdicts = push.groups.map((attempts) => ({ attempts, red: classify(attempts.findLast(decisive) ?? attempts[0]) === 'fail' }));
+    const failed = verdicts.filter((group) => group.red).map((group) => group.attempts[0].name);
     const finals = push.groups.map((attempts) => attempts[attempts.length - 1]);
     const unrecognised = finals
       .filter((attempt) => classify(attempt) === 'unknown')
@@ -299,7 +299,7 @@ function buildRounds(commits, mergedAt) {
       held,
       last: held.length ? held[held.length - 1].name : null,
       flukes: flukesOf(push.groups, push.commit.sha),
-      failures: failuresOf(push.groups),
+      failures: failuresOf(verdicts),
       commits: push.commits,
     };
   });

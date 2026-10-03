@@ -10,11 +10,12 @@
  * requests an hour, and a pull request costs one for its detail, one for its
  * commits and one per commit for its check runs (`filter=all`, so the earlier
  * attempts of a re-run check arrive in the same request rather than a second
- * one) — about 5 to 6 in all, roughly 800 for fourteen days. The listing that
+ * one) — about 5 to 6 in all, roughly 800 for the 150 pulls `maxPulls` allows by
+ * default (fourteen days of this repository's merges). The listing that
  * finds them is one request in a hundred pulls. A *failed* attempt costs about
  * three more — its job (the failing step), its run's artifact list (shared by every
  * failed attempt of that run) and, for `Test` and `E2E (F3)`, one download of the
- * record it uploaded — roughly 150 a night over fourteen days. Attempts that
+ * record it uploaded — roughly 150 more over fourteen days, so about 950 in all. Attempts that
  * passed cost nothing extra. `maxPulls` is what keeps that
  * true if the merge rate climbs: it stops rather than spending the hour's
  * allowance, and the coverage it returns names the period it actually reached,
@@ -247,31 +248,37 @@ export async function listChecks({ repo, sha, ...ctx }) {
  * `Test` and `E2E (F3)` the record whose artifact was created during that job.
  * `artifacts` memoizes a run's artifact list, since a re-run puts several failed
  * attempts in one run.
+ *
+ * This is supplementary detail, so nothing here may cost a pull request its place in
+ * the other figures: any error but a spent allowance (or the run already stopping)
+ * reads as `unreadable`, and a job that cannot be read names no steps.
  */
 async function readFailure({ repo, check, artifacts, ...ctx }) {
-  const job = await request(`/repos/${repo}/actions/jobs/${check.id}`, ctx);
-  const steps = (job.steps ?? []).filter((step) => classify(step) === 'fail').map((step) => step.name);
   const name = Object.hasOwn(RECORD_ARTIFACTS, check.name) ? RECORD_ARTIFACTS[check.name] : null;
-  if (!name) return { steps, record: null };
+  const unreadable = (steps) => ({ steps, record: name ? { state: 'not-recorded', why: 'unreadable' } : null });
+  let steps = [];
 
-  if (!artifacts.has(job.run_id)) {
-    artifacts.set(job.run_id, request(`/repos/${repo}/actions/runs/${job.run_id}/artifacts?per_page=${PER_PAGE}`, ctx));
-  }
-  const listed = await artifacts.get(job.run_id);
-  const named = (listed.artifacts ?? [])
-    .filter((raw) => raw.name === name)
-    .map((raw) => ({ id: raw.id, createdAt: raw.created_at, expired: Boolean(raw.expired) }));
-  const match = matchArtifact(named, { startedAt: job.started_at ?? check.startedAt, completedAt: job.completed_at ?? check.completedAt });
-  if (!match.artifact) return { steps, record: { state: 'not-recorded', why: match.why } };
-
-  const zip = Buffer.from(await request(`/repos/${repo}/actions/artifacts/${match.artifact.id}/zip`, ctx, (res) => res.arrayBuffer()));
-  let value;
   try {
-    value = readZipJson(zip, RECORD_FILE);
+    const job = await request(`/repos/${repo}/actions/jobs/${check.id}`, ctx);
+    steps = (job.steps ?? []).filter((step) => classify(step) === 'fail').map((step) => step.name);
+    if (!name) return { steps, record: null };
+
+    if (!artifacts.has(job.run_id)) {
+      artifacts.set(job.run_id, listAll(`/repos/${repo}/actions/runs/${job.run_id}/artifacts`, 'artifacts', ctx, { paged: (body, items) => items.length < (body.total_count ?? 0) }));
+    }
+    const named = (await artifacts.get(job.run_id))
+      .filter((raw) => raw.name === name)
+      .map((raw) => ({ id: raw.id, createdAt: raw.created_at, expired: Boolean(raw.expired) }));
+    const match = matchArtifact(named, { startedAt: job.started_at ?? check.startedAt, completedAt: job.completed_at ?? check.completedAt });
+    if (!match.artifact) return { steps, record: { state: 'not-recorded', why: match.why } };
+
+    const zip = Buffer.from(await request(`/repos/${repo}/actions/artifacts/${match.artifact.id}/zip`, ctx, (res) => res.arrayBuffer()));
+    const value = readZipJson(zip, RECORD_FILE);
+    return { steps, record: value ? { state: 'read', value } : { state: 'not-recorded', why: 'absent' } };
   } catch (error) {
-    throw new GitHubError(`The ${name} artifact (id ${match.artifact.id}) could not be read: ${error.message}`, { reason: 'bad-artifact' });
+    if (error instanceof GitHubError && (error.reason === 'rate-limit' || error.reason === 'stopped')) throw error;
+    return unreadable(steps);
   }
-  return { steps, record: value ? { state: 'read', value } : { state: 'not-recorded', why: 'absent' } };
 }
 
 /** One pull request: its detail, its commits and each commit's check runs. @returns {Promise<Pull>} */
@@ -286,10 +293,13 @@ export async function readPull({ repo, number, commitConcurrency = 4, ...ctx }) 
   // Only a failed attempt says anything a passing one does not, so only those are read further.
   const artifacts = new Map();
   const failed = checks.flat().filter((check) => classify(check) === 'fail' && (check.app === null || check.app === 'github-actions'));
-  await Promise.all(
-    failed.map(async (check) => {
+  await pool(
+    failed,
+    commitConcurrency,
+    async (check) => {
       check.failure = await readFailure({ repo, check, artifacts, ...ctx });
-    }),
+    },
+    ctx.abort,
   );
 
   return {

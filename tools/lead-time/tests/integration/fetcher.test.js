@@ -272,16 +272,35 @@ describe('Lead time', () => {
       expect(kinds(api, '/zip')).toBe(0);
     });
 
-    it('names the pull request in the coverage, leaving it out, where the download errors', async () => {
+    it.each([
+      { situation: 'the download errors', zips: { 900: refuse(404) }, steps: ['Run the tests'] },
+      { situation: 'the archive is not a zip', zips: { 900: { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => new TextEncoder().encode('nope').buffer } }, steps: ['Run the tests'] },
+    ])('reads the attempt as unreadable and keeps the pull request in the figures where $situation', async ({ zips, steps }) => {
       const api = stub({
         runs: [attempt(11, 'Test', 'failure', '09:05', '09:15')],
-        jobs: { 11: { started_at: '2026-09-10T09:05:00Z', completed_at: '2026-09-10T09:15:00Z', steps: [] } },
+        jobs: { 11: { started_at: '2026-09-10T09:05:00Z', completed_at: '2026-09-10T09:15:00Z', steps: [{ name: 'Run the tests', conclusion: 'failure' }] } },
         artifacts: [artifact(900, '2026-09-10T09:14:50Z')],
-        zips: { 900: refuse(403) },
+        zips,
       });
       const { pulls, failed } = await collectFrom(api);
-      expect(pulls).toEqual([]);
-      expect(failed).toEqual([{ number: 1, reason: expect.stringContaining('403') }]);
+      expect(failed).toEqual([]);
+      expect(pulls.map((pull) => pull.number)).toEqual([1]);
+      expect(pulls[0].commits[0].checks[0].failure).toEqual({ steps, record: { state: 'not-recorded', why: 'unreadable' } });
+    });
+
+    it('reads the attempt as unreadable, with no steps, where its job cannot be read', async () => {
+      const api = stub({ runs: [attempt(11, 'Test', 'failure', '09:05', '09:15')], jobs: {} });
+      const { pulls, failed } = await collectFrom(api);
+      expect(failed).toEqual([]);
+      expect(pulls[0].commits[0].checks[0].failure).toEqual({ steps: [], record: { state: 'not-recorded', why: 'unreadable' } });
+    });
+
+    it('still fails the run where reading a failed attempt spends the rate limit', async () => {
+      const spent = refuse(403, { 'x-ratelimit-remaining': '0' });
+      const api = stub({ runs: [attempt(11, 'Test', 'failure', '09:05', '09:15')], jobs: {} });
+      const inner = api.fetchImpl;
+      const fetchImpl = async (url) => (new URL(url).pathname.includes('/actions/jobs/') ? spent : inner(url));
+      await expect(collectFrom({ fetchImpl })).rejects.toMatchObject({ reason: 'rate-limit' });
     });
 
     it('reads only the failing step, and no record, for a check that keeps none', async () => {
