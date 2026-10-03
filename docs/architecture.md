@@ -250,7 +250,7 @@ The Zod schemas in `packages/shared/src` are the wire contract; where a decision
 
 The server is authoritative; the client keeps a persisted cache purely for speed.
 
-- On load the client paints **immediately from a snapshot in IndexedDB** (TanStack Query cache persistence), then revalidates in the background. Cold open makes zero blocking network requests.
+- On load the client paints **immediately from a snapshot in IndexedDB** (TanStack Query cache persistence), then revalidates in the background. Cold open makes no blocking network request beyond the bounded new-version check (see Performance budgets).
 - The working set is kilobytes, so the snapshot is **one API call per workspace**, not a replication protocol.
 - **Panel rules evaluate client-side** against the snapshot, so reconfiguring, dragging, filtering and grouping stay inside the §7 interaction budget with no round trip.
 - **Which layout a dashboard is drawn with is decided client-side too**, from that same snapshot, which carries every panel and every layout of the workspace: switching dashboard, resizing the window and picking a layout by name all reflow without a request (functional definition, "Layouts: the arrangement that follows your screen"). Only *changing* an arrangement is a write, and it is one command carrying the whole arrangement rather than one per gesture.
@@ -402,6 +402,7 @@ Budgets are gates, not aspirations; exceeding one makes restoring it priority wo
 | Initial JS bundle (compressed) | **< 206KB**, hard CI gate |
 | Any one file fetched separately (compressed) | **< 206KB**, same gate, charged on its own |
 | Snapshot revalidation after cold open | background, never blocking paint |
+| Cold open's check for a new version (a waiting service worker, or the browser asked for one) | holds the app **at most 1.5s**; an answer after that shows the message over the open app |
 
 **A lazy chunk gets its own line because charging it to the entry would defeat the point of splitting it.** Today the entry is 200KB and the editor's chunk is 115KB, so a single combined budget would be failing already. The gate (`scripts/bundle-budget.mjs`) reads every JavaScript file under `apps/web/dist` after a build and splits them by what `index.html` names: what it names is the initial bundle, and everything else is charged on its own. **Every file lands on one line or the other**, which is what keeps the service worker and its registration script from being missed — the PWA plugin writes those beside `assets/` rather than inside it, and the document references one of them.
 

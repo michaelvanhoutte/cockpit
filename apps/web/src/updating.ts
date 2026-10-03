@@ -23,16 +23,19 @@ import { statusOf } from './api/loadFailure';
  * back in a shape this build cannot understand, so the mismatch surfaces on the
  * load rather than whenever something next happens to re-read.
  *
- * **Why reloading by hand never worked.** The shell is precached by a service
- * worker (apps/web/vite.config.ts). A reload does make the browser look for a
- * new `sw.js`, but the navigation it looks *during* has already been answered
- * from the old precache; the new worker installs, skips waiting and claims the
- * page a moment later, far too late for the page now on screen. So the second
- * reload would have worked and the first never could — and nobody clicks twice
- * on a button that does nothing. Waiting for the check before reloading is the
- * whole fix. Measured against a real service worker: one bare reload serves the
- * old build, two serve the new, and awaiting the check first serves the new on
- * one.
+ * **A new worker waits; only a click activates it.** The shell is precached by a
+ * service worker (apps/web/vite.config.ts), and a worker that took over a live
+ * page on install would delete the precache the page was loaded from and still
+ * asks for, which is what left an open tab with "Formatting could not be
+ * loaded". So a new worker installs and waits, every open page keeps serving
+ * from the worker it started with, and a page learns a new version is out when
+ * it finds one waiting (`checkOnOpening`, `Workers`). The click sends the
+ * waiting worker a `SKIP_WAITING` message and reloads once it is active: one
+ * click, one reload, no hard reload.
+ *
+ * The gate below, which takes the version unasked, awaits its check before
+ * reloading, because a navigation is answered from the old precache before a
+ * check started by the reload could finish.
  *
  * **And "nothing newer" is conclusive rather than a guess.** `sw.js` carries
  * the precache manifest, which is content-hashed, so any changed asset changes
@@ -86,7 +89,10 @@ export type Update =
  * injected the way `Surroundings` is in api/loadFailure.ts.
  */
 export interface Versions {
-  /** Asks whatever precaches the shell to go and look for a newer one. */
+  /**
+   * Asks whatever precaches the shell to go and look for a newer one, and if
+   * one is there activates it, so the reload that follows lands on it.
+   */
   newVersionWaiting(): Promise<boolean>;
   /** Which build this page is running, so an attempt can be told from a repeat. */
   thisBuild(): string;
@@ -106,17 +112,19 @@ export interface Versions {
 
 export const realVersions: Versions = {
   newVersionWaiting: async () => {
-    const workers: ServiceWorkerContainer | undefined = globalThis.navigator?.serviceWorker;
+    const container: ServiceWorkerContainer | undefined = globalThis.navigator?.serviceWorker;
     // Nothing precaching the shell — the dev server, or a browser without
     // service workers. A reload genuinely fetches whatever the server now has,
     // so there is nothing to ask and no reason to hold it up.
-    if (!workers) return true;
-    const registration = await workers.getRegistration();
+    if (!container) return true;
+    const registration = await container.getRegistration();
     if (!registration) return true;
-    await registration.update();
-    // `skipWaiting` and `clientsClaim` are both in the generated worker, so one
-    // that has begun installing will be the one answering the reload below.
-    return Boolean(registration.installing ?? registration.waiting);
+    // A refused check still leaves a worker that was already waiting.
+    await registration.update().catch(() => undefined);
+    if (!(await waitingIn(registration))) return false;
+    // This gate takes the version unasked, so it is its own click: the worker
+    // waits for a message and must be told before the reload can land on it.
+    return activateWaiting(registration);
   },
 
   /**
@@ -154,6 +162,57 @@ export const realVersions: Versions = {
 
   reload: () => globalThis.location.reload(),
 };
+
+/** The message the generated worker (registerType 'prompt') activates on. */
+const SKIP_WAITING = { type: 'SKIP_WAITING' };
+
+/** The longest a click waits for the worker to say it is active. */
+const ACTIVATION_WAIT_MS = 5_000;
+
+/**
+ * The worker waiting to take over, once any that is still installing has
+ * finished: `update()` resolves when a new script is found, not when it has
+ * installed.
+ */
+async function waitingIn(registration: ServiceWorkerRegistration): Promise<ServiceWorker | null> {
+  const installing = registration.installing;
+  if (installing) await settled(installing);
+  return registration.waiting;
+}
+
+/** Resolves once the worker is past installing, whichever way it went. */
+function settled(worker: ServiceWorker): Promise<void> {
+  return new Promise((resolve) => {
+    const check = () => {
+      if (worker.state === 'parsed' || worker.state === 'installing') return;
+      worker.removeEventListener('statechange', check);
+      resolve();
+    };
+    worker.addEventListener('statechange', check);
+    check();
+  });
+}
+
+/**
+ * Tell the waiting worker to take over and resolve when it has - bounded, so a
+ * click is never left hanging on a worker that never answers. Resolves true
+ * once active, false on a timeout or a worker that went redundant. Nothing
+ * waiting (another tab already activated it) is true at once.
+ */
+async function activateWaiting(registration: ServiceWorkerRegistration): Promise<boolean> {
+  const waiting = registration.waiting;
+  if (!waiting) return true;
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), ACTIVATION_WAIT_MS);
+    waiting.addEventListener('statechange', () => {
+      if (waiting.state === 'activated' || waiting.state === 'redundant') {
+        clearTimeout(timer);
+        resolve(waiting.state === 'activated');
+      }
+    });
+    waiting.postMessage(SKIP_WAITING);
+  });
+}
 
 /** Which build a page is, read the one way that is already content-hashed. */
 function buildOf(page: Document | undefined): string | null {
@@ -224,21 +283,22 @@ export async function pickUpTheNewVersion(
  *
  * The two above are things the server *said*. This one is a file that is not
  * there: the shell is split, and the parts fetched on demand are content-hashed,
- * so a deploy replaces their names. A tab open across one keeps running the old
- * page while the new worker claims it and deletes the precache that page was
- * loaded from (vite.config.ts), and the next part it asks for is in neither the
- * cache nor the deployment. Which the gate above cannot see: the API answers
- * this build perfectly well - an older client reading a newer server is what
- * expand-then-contract is for (deployment, "Migrations and rollback") - and a
- * file the browser fetches for itself passes through neither cache the gate
- * watches.
+ * so a deploy replaces their names. A new worker now waits rather than taking
+ * over, so an open tab keeps its files until told; what is left is the window
+ * between another tab's click activating the worker and this tab's own click,
+ * and a server that is ahead of the page for any other reason. The next part
+ * the page asks for is then in neither the cache nor the deployment. Which the
+ * gate above cannot see: the API answers this build perfectly well - an older
+ * client reading a newer server is what expand-then-contract is for
+ * (deployment, "Migrations and rollback") - and a file the browser fetches for
+ * itself passes through neither cache the gate watches.
  *
  * **`newVersionWaiting` is deliberately not asked, because it answers the wrong
  * question.** It looks for a worker installing or waiting, and by the time a
- * part has gone missing the new worker has already installed, skipped waiting
- * and claimed the page - that takeover is what took the file. So it reports
- * nothing waiting, and reporting nothing waiting is right: what is out of step
- * here is the page against its worker, not the worker against the server.
+ * part has gone missing the worker has usually been activated by another tab,
+ * so it reports nothing waiting, and reporting nothing waiting is right: what
+ * is out of step here is the page against its worker, not the worker against
+ * the server.
  *
  * **The file being missing is not on its own evidence that anything is newer.**
  * A part of the shell fails to arrive for the dull reasons too - a connection
@@ -297,3 +357,119 @@ function write(memory: Storage | undefined, build: string, mark: string): void {
     // dead end one reload later than it would have, rather than never.
   }
 }
+
+/**
+ * Knowing a new version is out, and loading it on a click - the service worker
+ * half of "Never run an old version". The worker itself waits (see the top of
+ * this file); these are the page's questions of it, injected like `Versions`.
+ */
+export interface Workers {
+  /** Whether this browser has a service worker to ask at all. */
+  supported(): boolean;
+  /** A worker already waiting, known without the network. */
+  waiting(): Promise<boolean>;
+  /**
+   * Asks the server for a newer worker and resolves true once one is installed
+   * and waiting. Rejects where the question could not be asked.
+   */
+  check(): Promise<boolean>;
+  /** Tells the waiting worker to take over; true once it has (or none waits), false if it did not. */
+  activate(): Promise<boolean>;
+  /** The worker serving this page changed under it - another tab's click. */
+  onTakenOver(listener: () => void): () => void;
+}
+
+export const realWorkers: Workers = {
+  supported: () => Boolean(globalThis.navigator?.serviceWorker),
+  waiting: async () => Boolean((await registered())?.waiting),
+  check: async () => {
+    const registration = await registered();
+    if (!registration) return false;
+    await registration.update();
+    return Boolean(await waitingIn(registration));
+  },
+  activate: async () => {
+    const registration = await registered();
+    return registration ? activateWaiting(registration) : true;
+  },
+  onTakenOver: (listener) => {
+    const container = globalThis.navigator?.serviceWorker;
+    container?.addEventListener('controllerchange', listener);
+    return () => container?.removeEventListener('controllerchange', listener);
+  },
+};
+
+async function registered(): Promise<ServiceWorkerRegistration | undefined> {
+  return globalThis.navigator?.serviceWorker?.getRegistration();
+}
+
+/**
+ * How long opening waits for the check before showing the app anyway
+ * (architecture, "Performance budgets"): scoping's answer to a cold open that
+ * now has a network question in it.
+ */
+export const OPENING_CHECK_MS = 1_500;
+
+/** What opening Cockpit learned about a new version. */
+export interface Opening {
+  /** `new` shows the message and not the app; `open` shows the app. */
+  now: 'new' | 'open';
+  /** An answer that missed the bound: true means show the message over the app. */
+  later: Promise<boolean>;
+}
+
+/**
+ * Decide what opening shows. A worker already waiting from an earlier visit is
+ * answered with no network at all; otherwise the browser is asked for a newer
+ * one, for at most `boundMs`. An answer that does not come in time, an error,
+ * and being offline all open the old version - a gate that cannot be tested
+ * must not block offline use - and the same question is asked again at the next
+ * trigger (`RECONNECTED`, the tab coming back into view).
+ */
+export async function checkOnOpening(
+  workers: Workers,
+  boundMs: number = OPENING_CHECK_MS,
+): Promise<Opening> {
+  const never = Promise.resolve(false);
+  if (!workers.supported()) return { now: 'open', later: never };
+  if (await workers.waiting().catch(() => false)) return { now: 'new', later: never };
+
+  const answer = workers.check().catch(() => false);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<'late'>((resolve) => {
+    timer = setTimeout(() => resolve('late'), boundMs);
+  });
+  const first = await Promise.race([answer, late]);
+  clearTimeout(timer);
+  if (first === 'late') return { now: 'open', later: answer };
+  return { now: first ? 'new' : 'open', later: never };
+}
+
+/**
+ * The click: activate the waiting worker, then reload once onto it. Resolves
+ * false, with no reload, when the worker did not activate: reloading would land
+ * on the old version with the same worker still waiting.
+ *
+ * Marked with the same tab memory as the gate, so a version that is *still*
+ * behind after the click is not taken a second time automatically (the gate
+ * answers `nothing-new` for it). A second click while this one is in flight is
+ * the caller's to ignore; asking twice here still reloads once per call, so it
+ * is not left to chance there.
+ */
+export async function continueToNewVersion(
+  workers: Workers,
+  versions: Versions = realVersions,
+  memory: Storage | undefined = tabMemory(),
+): Promise<boolean> {
+  const active = await workers.activate().catch(() => false);
+  if (!active) return false;
+  take(versions, memory, versions.thisBuild(), TRIED_FROM);
+  return true;
+}
+
+/**
+ * Dispatched on `globalThis` by the live-updates stream each time it comes up
+ * again after a drop. A deploy drops every open stream, so this is the signal a
+ * new build is out and the server announces nothing (useServerEvents.ts).
+ */
+export const RECONNECTED = 'cockpit:stream-reconnected';

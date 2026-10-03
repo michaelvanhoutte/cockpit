@@ -1,13 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { workspaceListSchema } from '@cockpit/shared';
 import { Updating } from '../../../src/components/Updating';
 import {
+  RECONNECTED,
+  checkOnOpening,
+  continueToNewVersion,
   pickUpTheNewVersion,
   realVersions,
   takeTheNewVersion,
   type Versions,
+  type Workers,
 } from '../../../src/updating';
 
 /**
@@ -404,4 +409,303 @@ describe('Updating', () => {
       expect(reload).toHaveBeenCalledTimes(2);
     });
   });
+
+/**
+ * The service worker half: a new worker waits and only a click activates it.
+ * The browser's worker is replaced by `Workers`, the same way `Versions` is,
+ * so everything here is a decision about what the page shows and when. That a
+ * real worker waits, keeps an open tab's files and activates on the message is
+ * the browser pass on the built app, which jsdom cannot give.
+ */
+describe('a new version is announced, and loaded on a click', () => {
+  /** A worker that can be steered: what waits, what a check answers, who is told. */
+  function aWorker(
+    over: {
+      waiting?: boolean;
+      check?: () => Promise<boolean>;
+      supported?: boolean;
+    } = {},
+  ) {
+    const takenOver = new Set<() => void>();
+    const worker = {
+      supported: () => over.supported ?? true,
+      waiting: vi.fn(() => Promise.resolve(over.waiting ?? false)),
+      check: vi.fn(over.check ?? (() => Promise.resolve(false))),
+      activate: vi.fn(() => Promise.resolve(true)),
+      onTakenOver: (listener: () => void) => {
+        takenOver.add(listener);
+        return () => takenOver.delete(listener);
+      },
+      /** Another tab's click changed the worker serving this page. */
+      takenOverByAnotherTab: () => takenOver.forEach((listener) => listener()),
+    } satisfies Workers & { takenOverByAnotherTab(): void };
+    return worker;
+  }
+
+  const here = (reload = vi.fn()): Versions => ({
+    newVersionWaiting: () => Promise.resolve(false),
+    thisBuild: () => 'build-1',
+    servedBuild: () => Promise.resolve('build-1'),
+    reload,
+  });
+
+  function opened(workers: Workers, versions: Versions = here(), memory = scratchMemory()) {
+    return render(
+      <QueryClientProvider client={newClient()}>
+        <Updating workers={workers} versions={versions} memory={memory}>
+          <label>
+            Description
+            <textarea />
+          </label>
+        </Updating>
+      </QueryClientProvider>,
+    );
+  }
+
+  const message = () => screen.queryByRole('alertdialog', { name: 'A new version of Cockpit is out' });
+
+  describe('on opening', () => {
+    it('shows the message first, with no network asked, when a worker is already waiting', async () => {
+      const worker = aWorker({ waiting: true });
+      opened(worker);
+
+      expect(await screen.findByRole('alertdialog')).toBeVisible();
+      expect(screen.queryByLabelText('Description')).not.toBeInTheDocument();
+      expect(worker.check).not.toHaveBeenCalled();
+    });
+
+    it('shows the message first when the check answers new in time', async () => {
+      const worker = aWorker({ check: () => Promise.resolve(true) });
+      opened(worker);
+
+      expect(await screen.findByRole('alertdialog')).toBeVisible();
+      expect(screen.queryByLabelText('Description')).not.toBeInTheDocument();
+    });
+
+    it('opens the app with no message when the check answers none', async () => {
+      opened(aWorker({ check: () => Promise.resolve(false) }));
+
+      expect(await screen.findByLabelText('Description')).toBeVisible();
+      expect(message()).not.toBeInTheDocument();
+    });
+
+    // Which is also what offline and a refused check look like to the page.
+    it('opens the app when the check errors', async () => {
+      opened(aWorker({ check: () => Promise.reject(new Error('offline')) }));
+
+      expect(await screen.findByLabelText('Description')).toBeVisible();
+      expect(message()).not.toBeInTheDocument();
+    });
+
+    it('opens the app with nothing held at all where there is no service worker', () => {
+      opened(aWorker({ supported: false }));
+
+      expect(screen.getByLabelText('Description')).toBeVisible();
+    });
+  });
+
+  describe('the opening check is bounded', () => {
+    // The decision is a function of the worker's answer and the clock, so the
+    // clock is faked rather than waited for.
+    it('opens the old version at 1.5 s without an answer, and hands the answer on when it comes', async () => {
+      vi.useFakeTimers();
+      try {
+        let answer: (isNew: boolean) => void = () => undefined;
+        const worker = aWorker({ check: () => new Promise((resolve) => (answer = resolve)) });
+
+        const deciding = checkOnOpening(worker);
+        let decided = false;
+        void deciding.then(() => (decided = true));
+
+        await vi.advanceTimersByTimeAsync(1_499);
+        expect(decided).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        const opening = await deciding;
+        expect(opening.now).toBe('open');
+
+        answer(true);
+        await expect(opening.later).resolves.toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('shows the message over the open app when the answer arrives after the bound', async () => {
+      vi.useFakeTimers();
+      try {
+        let answer: (isNew: boolean) => void = () => undefined;
+        opened(aWorker({ check: () => new Promise((resolve) => (answer = resolve)) }));
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1_500);
+        });
+        expect(screen.getByLabelText('Description')).toBeVisible();
+        expect(message()).not.toBeInTheDocument();
+
+        await act(async () => answer(true));
+
+        expect(message()).toBeVisible();
+        expect(screen.getByLabelText('Description')).toBeVisible();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('a tab already open learns of it when it is looked at or reconnects', () => {
+    async function openAndQuiet(worker: ReturnType<typeof aWorker>) {
+      opened(worker);
+      await screen.findByLabelText('Description');
+      worker.check.mockClear();
+    }
+
+    function becomesVisible() {
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+    }
+
+    it('checks when the tab becomes visible', async () => {
+      const worker = aWorker();
+      await openAndQuiet(worker);
+      worker.check.mockResolvedValue(true);
+
+      becomesVisible();
+
+      expect(await screen.findByRole('alertdialog')).toBeVisible();
+      expect(worker.check).toHaveBeenCalledTimes(1);
+    });
+
+    it('checks when the live-updates stream comes back after a drop', async () => {
+      const worker = aWorker();
+      await openAndQuiet(worker);
+      worker.check.mockResolvedValue(true);
+
+      act(() => void globalThis.dispatchEvent(new Event(RECONNECTED)));
+
+      expect(await screen.findByRole('alertdialog')).toBeVisible();
+    });
+
+    it('asks nothing of a tab that stays hidden with a healthy stream', async () => {
+      const worker = aWorker();
+      await openAndQuiet(worker);
+
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(worker.check).not.toHaveBeenCalled();
+    });
+
+    it('is one message, not two, when two triggers come close together', async () => {
+      const worker = aWorker();
+      await openAndQuiet(worker);
+      worker.check.mockResolvedValue(true);
+
+      becomesVisible();
+      act(() => void globalThis.dispatchEvent(new Event(RECONNECTED)));
+
+      await screen.findByRole('alertdialog');
+      expect(screen.getAllByRole('alertdialog')).toHaveLength(1);
+      expect(worker.check).toHaveBeenCalledTimes(1);
+    });
+
+    it('says nothing when a trigger cannot be answered, and asks again at the next', async () => {
+      const worker = aWorker();
+      await openAndQuiet(worker);
+      worker.check.mockRejectedValueOnce(new Error('offline'));
+
+      act(() => void globalThis.dispatchEvent(new Event(RECONNECTED)));
+      await waitFor(() => expect(worker.check).toHaveBeenCalledTimes(1));
+      expect(message()).not.toBeInTheDocument();
+
+      worker.check.mockResolvedValue(true);
+      act(() => void globalThis.dispatchEvent(new Event(RECONNECTED)));
+
+      expect(await screen.findByRole('alertdialog')).toBeVisible();
+    });
+
+    // Another tab's click activates the worker for every tab of the origin.
+    it('shows the message, held until its own click, when another tab activated the worker', async () => {
+      const worker = aWorker();
+      await openAndQuiet(worker);
+
+      act(() => worker.takenOverByAnotherTab());
+
+      expect(await screen.findByRole('alertdialog')).toBeVisible();
+    });
+  });
+
+  describe('the message holds the window and takes nothing away', () => {
+    it('keeps half-typed text on screen, and editable, under the message', async () => {
+      const worker = aWorker();
+      opened(worker);
+      const box = await screen.findByLabelText('Description');
+      await userEvent.type(box, 'half a thought');
+
+      act(() => worker.takenOverByAnotherTab());
+      await screen.findByRole('alertdialog');
+
+      expect(screen.getByLabelText('Description')).toBe(box);
+      expect(box).toHaveValue('half a thought');
+      await userEvent.type(box, ' and the rest', { pointerEventsCheck: 0 });
+      expect(box).toHaveValue('half a thought and the rest');
+      expect(worker.activate).not.toHaveBeenCalled();
+    });
+
+    it('activates and reloads once on the click, and not before', async () => {
+      const reload = vi.fn();
+      const worker = aWorker({ waiting: true });
+      opened(worker, here(reload));
+
+      await screen.findByRole('alertdialog');
+      expect(reload).not.toHaveBeenCalled();
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+      expect(worker.activate).toHaveBeenCalledTimes(1);
+      expect(worker.activate.mock.invocationCallOrder[0]).toBeLessThan(
+        reload.mock.invocationCallOrder[0] as number,
+      );
+    });
+
+    it('reloads once however quickly the click is repeated', async () => {
+      const reload = vi.fn();
+      const worker = aWorker({ waiting: true });
+      opened(worker, here(reload));
+
+      const button = await screen.findByRole('button', { name: 'Continue' });
+      fireEvent.click(button);
+      fireEvent.click(button);
+
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+      expect(worker.activate).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not reload, and says so, when the worker did not activate, and a second click can try again', async () => {
+      const reload = vi.fn();
+      const worker = aWorker({ waiting: true });
+      worker.activate.mockResolvedValueOnce(false);
+      opened(worker, here(reload));
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+
+      expect(await screen.findByText('Could not load the new version. Try again.')).toBeVisible();
+      expect(reload).not.toHaveBeenCalled();
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    });
+
+    it('does not try again by itself when the new version is still behind after the click', async () => {
+      const reload = vi.fn();
+      const memory = scratchMemory();
+      const versions = { ...here(reload), newVersionWaiting: () => Promise.resolve(true) };
+
+      await continueToNewVersion(aWorker(), versions, memory);
+      expect(reload).toHaveBeenCalledTimes(1);
+
+      // Back on the same build and still out of date: the gate has no second attempt.
+      await expect(pickUpTheNewVersion(versions, memory)).resolves.toBe('nothing-new');
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+  });
+});
 });
