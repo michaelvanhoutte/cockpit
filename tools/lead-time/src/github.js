@@ -12,18 +12,19 @@
  * attempts of a re-run check arrive in the same request rather than a second
  * one) — about 5 to 6 in all, roughly 800 for the 150 pulls `maxPulls` allows by
  * default (fourteen days of this repository's merges). The listing that
- * finds them is one request in a hundred pulls. A *failed* attempt costs about
- * three more — its job (the failing step), its run's artifact list (shared by every
- * failed attempt of that run) and, for `Test` and `E2E (F3)`, one download of the
- * record it uploaded — roughly 150 more over fourteen days, so about 950 in all. Attempts that
- * passed cost nothing extra. `maxPulls` is what keeps that
+ * finds them is one request in a hundred pulls. A *failed* attempt costs more, and
+ * a passing one nothing: one for its job (the failing step) and, for `Test` and
+ * `E2E (F3)`, one artifact list per run and record name (shared by every failed
+ * attempt of that run) and one download of the record. That is 1 for a check that
+ * keeps no record and about 3 for one that does — roughly 150 more over fourteen
+ * days, so about 950 in all. `maxPulls` is what keeps that
  * true if the merge rate climbs: it stops rather than spending the hour's
  * allowance, and the coverage it returns names the period it actually reached,
  * so the model reports that instead of the one it was asked for.
  */
 
 import { readZipJson } from '../../selection/src/zip.js';
-import { classify, matchArtifact, RECORD_ARTIFACTS } from './model.js';
+import { classify, matchArtifact, recordArtifactOf } from './model.js';
 
 const API = 'https://api.github.com';
 const RECORD_FILE = 'record.json';
@@ -251,11 +252,12 @@ export async function listChecks({ repo, sha, ...ctx }) {
  *
  * This is supplementary detail, so nothing here may cost a pull request its place in
  * the other figures: any error but a spent allowance (or the run already stopping)
- * reads as `unreadable`, and a job that cannot be read names no steps.
+ * reads as `unreadable` (a bug in this code is not one and still throws), and a job
+ * that cannot be read names no steps.
  */
 async function readFailure({ repo, check, artifacts, ...ctx }) {
-  const name = Object.hasOwn(RECORD_ARTIFACTS, check.name) ? RECORD_ARTIFACTS[check.name] : null;
-  const unreadable = (steps) => ({ steps, record: name ? { state: 'not-recorded', why: 'unreadable' } : null });
+  const name = recordArtifactOf(check.name);
+  const unreadable = (steps) => ({ steps, record: name ? { state: 'not-recorded', why: 'unreadable' } : null, unreadable: true });
   let steps = [];
 
   try {
@@ -263,20 +265,25 @@ async function readFailure({ repo, check, artifacts, ...ctx }) {
     steps = (job.steps ?? []).filter((step) => classify(step) === 'fail').map((step) => step.name);
     if (!name) return { steps, record: null };
 
-    if (!artifacts.has(job.run_id)) {
-      artifacts.set(job.run_id, listAll(`/repos/${repo}/actions/runs/${job.run_id}/artifacts`, 'artifacts', ctx, { paged: (body, items) => items.length < (body.total_count ?? 0) }));
+    const key = `${job.run_id}|${name}`;
+    if (!artifacts.has(key)) {
+      artifacts.set(key, listAll(`/repos/${repo}/actions/runs/${job.run_id}/artifacts?name=${encodeURIComponent(name)}`, 'artifacts', ctx, { paged: (body, items) => items.length < (body.total_count ?? 0) }));
     }
-    const named = (await artifacts.get(job.run_id))
-      .filter((raw) => raw.name === name)
-      .map((raw) => ({ id: raw.id, createdAt: raw.created_at, expired: Boolean(raw.expired) }));
+    const named = (await artifacts.get(key)).map((raw) => ({ id: raw.id, createdAt: raw.created_at, expired: Boolean(raw.expired) }));
     const match = matchArtifact(named, { startedAt: job.started_at ?? check.startedAt, completedAt: job.completed_at ?? check.completedAt });
     if (!match.artifact) return { steps, record: { state: 'not-recorded', why: match.why } };
 
     const zip = Buffer.from(await request(`/repos/${repo}/actions/artifacts/${match.artifact.id}/zip`, ctx, (res) => res.arrayBuffer()));
-    const value = readZipJson(zip, RECORD_FILE);
+    let value;
+    try {
+      value = readZipJson(zip, RECORD_FILE);
+    } catch (error) {
+      throw new GitHubError(`The ${name} artifact (id ${match.artifact.id}) could not be read: ${error.message}`, { reason: 'bad-artifact' });
+    }
     return { steps, record: value ? { state: 'read', value } : { state: 'not-recorded', why: 'absent' } };
   } catch (error) {
-    if (error instanceof GitHubError && (error.reason === 'rate-limit' || error.reason === 'stopped')) throw error;
+    // Only a GitHub or archive failure is "unreadable"; a bug in this code must still throw.
+    if (!(error instanceof GitHubError) || error.reason === 'rate-limit' || error.reason === 'stopped') throw error;
     return unreadable(steps);
   }
 }

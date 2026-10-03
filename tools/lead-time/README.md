@@ -138,8 +138,7 @@ collect(repo)  →  buildModel(...)  →  renderHtml(model)  →  out/index.html
 `scripts/lib/session-record.mjs`'s, imported rather than copied, so the two cannot drift.
 
 **Request cost is what shapes `github.js`**, and its header comment is where that is worked out:
-about 5 to 6 requests per pull request, and about three more per failed attempt (its job, its run's
-artifact list, one record download), so about 950 for 150 pull requests, against the 1,000 an hour a `GITHUB_TOKEN` allows.
+what each pull request and each failed attempt costs, against the 1,000 an hour a `GITHUB_TOKEN` allows.
 `--max-pulls` stops rather than spending it, and the model's `coverage` reports the period it
 actually reached — as does a listing that ends before the window does. A pull request whose
 commits or check runs cannot be read is named in `coverage.failed` and left out; a spent rate

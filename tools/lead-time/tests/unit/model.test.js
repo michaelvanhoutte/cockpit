@@ -563,6 +563,16 @@ describe('Lead time', () => {
       expect(failure).toMatchObject({ record: 'not-recorded', why, files: [] });
     });
 
+    it('reads a Test attempt whose record was read but marks no file failed as failing outside any file', () => {
+      const [failure] = roundOf([failing('Test', ['Run the tests'], read(recordOf(pkg('api', [['a.test.ts', 'passed']]))))]).failures;
+      expect(failure).toMatchObject({ record: 'read', why: 'no-file-failed', files: [] });
+    });
+
+    it('counts an unreadable attempt of a check that keeps no record as not recorded', () => {
+      const [failure] = roundOf([check('Checks', 2, 10, 'failure', { failure: { steps: [], record: null, unreadable: true } })]).failures;
+      expect(failure).toMatchObject({ record: null, why: 'unreadable', steps: [] });
+    });
+
     it('numbers the attempts of a check in the order they ran', () => {
       const round = roundOf([failing('Checks', ['Lint']), failing('Checks', ['Typecheck'], undefined, 12, 20), check('Checks', 22, 30)]);
       expect(round.failures.map((failure) => [failure.attempt, failure.outcome, failure.steps])).toEqual([[1, 'fluke', ['Lint']], [2, 'fluke', ['Typecheck']]]);
@@ -614,7 +624,15 @@ describe('Lead time', () => {
 
     it('gives empty lists, not null, for a window with pull requests and no failures', () => {
       const { failures } = windowOf([failedPull(1, [check('Test', 2, 10)])]);
-      expect(failures).toEqual({ attempts: 0, notRecorded: 0, steps: [], files: [] });
+      expect(failures).toEqual({ attempts: 0, notRecorded: 0, noFileFailed: 0, steps: [], files: [] });
+    });
+
+    it('counts unreadable attempts of any check, and the records that name no failed file apart', () => {
+      const { failures } = windowOf([
+        failedPull(1, [check('Checks', 2, 10, 'failure', { failure: { steps: [], record: null, unreadable: true } })]),
+        failedPull(2, [failing('Test', ['Run'], { state: 'read', value: { packages: [{ name: 'p', report: 'written', files: [] }] } })]),
+      ]);
+      expect(failures).toMatchObject({ attempts: 2, notRecorded: 1, noFileFailed: 1 });
     });
 
     it('counts the attempts it could not read, leaving them out of the files', () => {

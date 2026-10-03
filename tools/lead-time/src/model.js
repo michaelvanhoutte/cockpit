@@ -78,7 +78,10 @@ export function classify({ status, conclusion }) {
  * The jobs whose attempts upload a record of which test files failed, and the
  * artifact each uploads. Every other check names the step that failed and no files.
  */
-export const RECORD_ARTIFACTS = { Test: 'test-selection-record', 'E2E (F3)': 'e2e-selection-record' };
+const RECORD_ARTIFACTS = { Test: 'test-selection-record', 'E2E (F3)': 'e2e-selection-record' };
+
+/** The artifact a job uploads its record as, or `null` for a check that keeps none. */
+export const recordArtifactOf = (check) => (Object.hasOwn(RECORD_ARTIFACTS, check) ? RECORD_ARTIFACTS[check] : null);
 
 /**
  * How long after a job completed an artifact it uploaded may still be stamped:
@@ -204,7 +207,7 @@ function flukesOf(groups, sha) {
  * where the check never passed on the commit and `fluke` where a re-run did.
  *
  * `record` is `null` for a check that keeps none, `read`, or `not-recorded` with
- * `why` (`expired`, `absent`, `ambiguous`, `unreadable`, or `not-fetched` where nothing was asked for) — never an empty file list standing in for it, since an attempt nobody
+ * `why` (`expired`, `absent`, `ambiguous`, `unreadable`, `not-fetched` where nothing was asked for, or `no-file-failed` where a record was read and marks none) — never an empty file list standing in for it, since an attempt nobody
  * can read is not an attempt that failed on nothing.
  */
 function failuresOf(groups) {
@@ -215,17 +218,20 @@ function failuresOf(groups) {
       if (classify(attempt) !== 'fail') return;
       const detail = attempt.failure ?? null;
       const failure = { check: attempt.name, attempt: index + 1, outcome, steps: detail?.steps ?? [], files: [], record: null, why: null, packagesNotRecorded: [] };
-      if (Object.hasOwn(RECORD_ARTIFACTS, attempt.name)) {
+      if (recordArtifactOf(attempt.name) !== null) {
         if (detail?.record?.state === 'read') {
           failure.record = 'read';
           const { files, packagesNotRecorded } = failedFilesOf(detail.record.value);
           failure.files = files;
           failure.packagesNotRecorded = packagesNotRecorded;
+          // Read, and no file in it failed: the job failed outside any test file, which is not the same as nothing failing.
+          if (files.length === 0 && packagesNotRecorded.length === 0) failure.why = 'no-file-failed';
         } else {
           failure.record = 'not-recorded';
           failure.why = detail?.record?.why ?? 'not-fetched';
         }
       }
+      else if (detail?.unreadable) failure.why = 'unreadable';
       failures.push(failure);
     });
   }
@@ -465,7 +471,7 @@ function harnessOf(rounds) {
  * pull requests it failed on and how many attempts it failed there — a spec
  * failing twice on one pull request is one pull request and two attempts. Always
  * lists, never `null`: no failure is an empty list. `notRecorded` counts the
- * failed attempts whose files could not be read, wholly or for some package.
+ * failed attempts whose detail could not be read, wholly or for some package, and `noFileFailed` those whose record was read and names no failed file.
  */
 function failuresOfWindow(inWindow) {
   const entries = inWindow.flatMap((pull) => pull.rounds.flatMap((round) => round.failures.map((failure) => ({ pull: pull.number, failure }))));
@@ -488,7 +494,8 @@ function failuresOfWindow(inWindow) {
 
   return {
     attempts: entries.length,
-    notRecorded: entries.filter(({ failure }) => failure.record === 'not-recorded' || failure.packagesNotRecorded.length > 0).length,
+    notRecorded: entries.filter(({ failure }) => failure.record === 'not-recorded' || failure.packagesNotRecorded.length > 0 || failure.why === 'unreadable').length,
+    noFileFailed: entries.filter(({ failure }) => failure.why === 'no-file-failed').length,
     steps: tally(entries.flatMap(({ pull, failure }) => failure.steps.map((step) => ({ key: `${failure.check}\n${step}`, pull, check: failure.check, step })))),
     files: tally(entries.flatMap(({ pull, failure }) => failure.files.map((path) => ({ key: path, pull, path })))),
   };

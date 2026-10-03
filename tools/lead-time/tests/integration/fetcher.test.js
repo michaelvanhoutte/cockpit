@@ -200,7 +200,7 @@ describe('Lead time', () => {
      * detail, `artifacts` lists the run's artifacts, `zips` answers a download by artifact id.
      */
     function stub({ runs, jobs = {}, artifacts = [], zips = {} }) {
-      const base = stubApi({
+      return stubApi({
         listing: [listed(1, '2026-09-11T00:00:00Z')],
         override: (url) => {
           const { pathname } = new URL(url);
@@ -208,13 +208,15 @@ describe('Lead time', () => {
           if (pathname.endsWith('/commits/a/check-runs')) return ok({ total_count: runs.length, check_runs: runs });
           const job = pathname.match(/\/actions\/jobs\/(\d+)$/);
           if (job) return jobs[job[1]] ? ok({ run_id: 50, ...jobs[job[1]] }) : refuse(404);
-          if (pathname.endsWith('/actions/runs/50/artifacts')) return ok({ total_count: artifacts.length, artifacts });
+          if (pathname.endsWith('/actions/runs/50/artifacts')) {
+            const named = artifacts.filter((each) => each.name === new URL(url).searchParams.get('name'));
+            return ok({ total_count: named.length, artifacts: named });
+          }
           const zip = pathname.match(/\/actions\/artifacts\/(\d+)\/zip$/);
           if (zip) return zips[zip[1]] ?? refuse(500);
           return undefined;
         },
       });
-      return base;
     }
     const artifact = (id, created, name = 'test-selection-record', expired = false) => ({ id, name, created_at: created, expired, archive_download_url: 'x' });
     const kinds = (api, part) => api.calls.filter((url) => new URL(url).pathname.includes(part)).length;
@@ -285,14 +287,29 @@ describe('Lead time', () => {
       const { pulls, failed } = await collectFrom(api);
       expect(failed).toEqual([]);
       expect(pulls.map((pull) => pull.number)).toEqual([1]);
-      expect(pulls[0].commits[0].checks[0].failure).toEqual({ steps, record: { state: 'not-recorded', why: 'unreadable' } });
+      expect(pulls[0].commits[0].checks[0].failure).toEqual({ steps, record: { state: 'not-recorded', why: 'unreadable' }, unreadable: true });
     });
 
     it('reads the attempt as unreadable, with no steps, where its job cannot be read', async () => {
       const api = stub({ runs: [attempt(11, 'Test', 'failure', '09:05', '09:15')], jobs: {} });
       const { pulls, failed } = await collectFrom(api);
       expect(failed).toEqual([]);
-      expect(pulls[0].commits[0].checks[0].failure).toEqual({ steps: [], record: { state: 'not-recorded', why: 'unreadable' } });
+      expect(pulls[0].commits[0].checks[0].failure).toEqual({ steps: [], record: { state: 'not-recorded', why: 'unreadable' }, unreadable: true });
+    });
+
+    it('marks a check that keeps no record unreadable too, where its job cannot be read', async () => {
+      const api = stub({ runs: [attempt(11, 'Checks', 'failure', '09:05', '09:08')], jobs: {} });
+      const { pulls, failed } = await collectFrom(api);
+      expect(failed).toEqual([]);
+      expect(pulls[0].commits[0].checks[0].failure).toEqual({ steps: [], record: null, unreadable: true });
+    });
+
+    it('does not swallow a programming error as an unreadable attempt', async () => {
+      const api = stub({ runs: [attempt(11, 'Checks', 'failure', '09:05', '09:08')], jobs: {} });
+      const inner = api.fetchImpl;
+      // A job whose steps hold a hole: reading it is a bug in this code's assumptions, not a failure of GitHub.
+      const fetchImpl = async (url) => (new URL(url).pathname.includes('/actions/jobs/') ? ok({ run_id: 50, steps: [undefined] }) : inner(url));
+      await expect(collectFrom({ fetchImpl })).rejects.toBeInstanceOf(TypeError);
     });
 
     it('still fails the run where reading a failed attempt spends the rate limit', async () => {
