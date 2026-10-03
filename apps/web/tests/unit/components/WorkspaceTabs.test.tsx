@@ -138,7 +138,6 @@ function showTabs(
       <WorkspaceTabs
         bar={THEME.bar}
         bringIntoView={() => {}}
-        accountEntries={[]}
         openWorkspaceEntries={answer.openWorkspaceEntries ?? []}
       >
         <button type="button">Add a workspace</button>

@@ -311,18 +311,10 @@ export interface MenuEntry {
 export function RowMenu({
   label,
   entries,
-  footer = [],
   onChrome = false,
 }: {
   label: string;
   entries: MenuEntry[];
-  /**
-   * Entries that are not about the row, under a separator at the foot: an
-   * admin's, on the open workspace's "…". The account's own settings are not
-   * here but in Settings, opened from the profile menu ("Open Settings from the
-   * profile menu", issue 693, which replaced where issue 595 put them).
-   */
-  footer?: MenuEntry[];
   /** Whether this one sits on the chrome rather than on the sheet - see `MenuTrigger`. */
   onChrome?: boolean;
 }) {
@@ -347,9 +339,9 @@ export function RowMenu({
           event.preventDefault();
         }}
       >
-        {[...entries, ...footer].map((entry, at) => (
+        {entries.map((entry, at) => (
           <Fragment key={entry.label}>
-            {((at === entries.length && at > 0) || (entry.separatorBefore && at > 0)) && (
+            {entry.separatorBefore && at > 0 && (
               <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
             )}
             <DropdownMenu.Item

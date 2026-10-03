@@ -90,7 +90,7 @@ vi.mock('../../../src/components/InboxPanel', () => ({
 vi.mock('../../../src/api/useServerEvents', () => ({ useServerEvents: () => undefined }));
 
 vi.mock('../../../src/api/queries', () => ({
-  // The users window is drawn for an admin and is shut here, but it is mounted.
+  // What Platform settings reads, in the cases that open it as an admin.
   registeredUsersQuery: { queryKey: ['registeredUsers'], queryFn: () => Promise.resolve({ users: [] }) },
   usageQuery: (days: number) => ({ queryKey: ['usage', days], queryFn: () => Promise.resolve({ days, analyticsUrl: null, named: [], guests: { perDay: [], byCountry: [], byReferrer: [] } }) }),
   accountHoldingsQuery: (userId: string) => ({ queryKey: ['accountHoldings', userId], queryFn: () => Promise.resolve({ workspaces: 0, empty: true }) }),
@@ -400,143 +400,98 @@ describe('Across the app', () => {
 });
 
 describe('User management', () => {
-  describe('the way into it is offered to an admin and to nobody else', () => {
+  /** A desk-sized screen, which is where Platform settings is offered at all. */
+  const onADesk = (matches: boolean) =>
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches,
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+  const shell = () =>
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <Layout />
+      </QueryClientProvider>,
+    );
+  afterEach(() => vi.unstubAllGlobals());
+
+  describe('Platform settings is offered to an admin on a desk and to nobody else', () => {
     /**
      * Hiding it is a courtesy rather than the guard - the server refuses an
      * ordinary user who reaches it (`auth/admin.ts`) - but a door that only
-     * ever says no is worse than no door, which is what this holds. It sits
-     * with the account's other settings, not under the person's own menu.
+     * ever says no is worse than no door, which is what this holds.
      */
     it.each([
-      { situation: 'an admin', role: 'admin', offered: true },
-      { situation: 'an ordinary user', role: 'user', offered: false },
-    ])('offers it to $situation: $offered', async ({ role, offered }) => {
+      { situation: 'an admin on a desk-sized screen', role: 'admin', desk: true, offered: true },
+      { situation: 'an ordinary user on a desk-sized screen', role: 'user', desk: true, offered: false },
+      { situation: 'an admin on a phone-width screen', role: 'admin', desk: false, offered: false },
+    ])('offers it to $situation: $offered', async ({ role, desk, offered }) => {
       signedInRole = role;
-      openWorkspaceId = 'ws-markup';
+      onADesk(desk);
       const user = userEvent.setup();
-      render(
-        <QueryClientProvider
-          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-        >
-          <Layout />
-        </QueryClientProvider>,
-      );
-
-      await user.click(
-        await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }),
-      );
-      // Awaited on something that is always there, so the absent case is a
-      // menu that has finished opening rather than one that has not started.
-      expect(await screen.findByRole('menuitem', { name: 'Edit…' })).toBeVisible();
-
-      expect(screen.queryByRole('menuitem', { name: 'Manage users' }) !== null).toBe(offered);
-    });
-
-    it('puts it last, under a separator of its own', async () => {
-      signedInRole = 'admin';
-      openWorkspaceId = 'ws-markup';
-      const user = userEvent.setup();
-      render(
-        <QueryClientProvider
-          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-        >
-          <Layout />
-        </QueryClientProvider>,
-      );
-
-      await user.click(
-        await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }),
-      );
-      await screen.findByRole('menuitem', { name: 'Manage users' });
-
-      // Usage sits beside it, so the two are the end of the menu together.
-      const entries = screen.getAllByRole('menuitem');
-      const separators = screen.getAllByRole('separator');
-      expect(entries.at(-2)).toHaveTextContent('Manage users');
-      expect(entries.at(-1)).toHaveTextContent('Usage');
-      expect(separators.at(-1)!.nextElementSibling).toBe(entries.at(-2));
-    });
-
-    it('opens it as a window over the workspace', async () => {
-      signedInRole = 'admin';
-      openWorkspaceId = 'ws-markup';
-      const user = userEvent.setup();
-      render(
-        <QueryClientProvider
-          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-        >
-          <Layout />
-        </QueryClientProvider>,
-      );
-
-      await user.click(
-        await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }),
-      );
-      await user.click(await screen.findByRole('menuitem', { name: 'Manage users' }));
-
-      expect(await screen.findByRole('dialog', { name: 'Manage users' })).toBeVisible();
-    });
-
-    it('does not put it under the profile menu', async () => {
-      signedInRole = 'admin';
-      const user = userEvent.setup();
-      render(
-        <QueryClientProvider
-          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-        >
-          <Layout />
-        </QueryClientProvider>,
-      );
+      shell();
 
       await user.click(await screen.findByRole('button', { name: 'Profile' }));
+      // Awaited on something that is always there, so the absent case is a
+      // menu that has finished opening rather than one that has not started.
       expect(await screen.findByRole('menuitem', { name: 'Sign out' })).toBeVisible();
 
-      expect(screen.queryByRole('menuitem', { name: 'Admin' })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: 'Platform settings…' }) !== null).toBe(offered);
+    });
+
+    it('puts it after Settings and before Sign out', async () => {
+      signedInRole = 'admin';
+      onADesk(true);
+      const user = userEvent.setup();
+      shell();
+
+      await user.click(await screen.findByRole('button', { name: 'Profile' }));
+      await screen.findByRole('menuitem', { name: 'Platform settings…' });
+
+      expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
+        'Settings…',
+        'Platform settings…',
+        'Sign out',
+      ]);
     });
   });
 
-  describe('the way into the usage window is offered to an admin and to nobody else', () => {
-    it.each([
-      { situation: 'an admin', role: 'admin', offered: true },
-      { situation: 'an ordinary user', role: 'user', offered: false },
-    ])('offers it to $situation: $offered', async ({ role, offered }) => {
-      signedInRole = role;
+  describe('Platform settings holds the users and the usage, and neither stays on the workspace’s menu', () => {
+    it.each(['Manage users', 'Usage'])('leaves %s off the open workspace’s “…” for an admin', async (entry) => {
+      signedInRole = 'admin';
+      onADesk(true);
       openWorkspaceId = 'ws-markup';
       const user = userEvent.setup();
-      render(
-        <QueryClientProvider
-          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-        >
-          <Layout />
-        </QueryClientProvider>,
-      );
+      shell();
 
-      await user.click(
-        await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }),
-      );
+      await user.click(await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }));
       expect(await screen.findByRole('menuitem', { name: 'Edit…' })).toBeVisible();
 
-      expect(screen.queryByRole('menuitem', { name: 'Usage' }) !== null).toBe(offered);
+      expect(screen.queryByRole('menuitem', { name: entry })).toBeNull();
     });
 
-    it('opens it as a window over the workspace', async () => {
+    it('opens on Users with the focus on it, headed by its entry, and gives the focus back to the profile control', async () => {
       signedInRole = 'admin';
+      onADesk(true);
       openWorkspaceId = 'ws-markup';
       const user = userEvent.setup();
-      render(
-        <QueryClientProvider
-          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-        >
-          <Layout />
-        </QueryClientProvider>,
-      );
+      shell();
 
-      await user.click(
-        await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }),
-      );
-      await user.click(await screen.findByRole('menuitem', { name: 'Usage' }));
+      await user.click(await screen.findByRole('button', { name: 'Profile' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Platform settings…' }));
 
-      expect(await screen.findByRole('dialog', { name: 'Usage' })).toBeVisible();
+      const platform = await screen.findByRole('dialog', { name: 'Platform settings' });
+      await waitFor(() => expect(within(platform).getByRole('button', { name: 'Users' })).toHaveFocus());
+      expect(platform.querySelectorAll('[aria-current="true"]')).toHaveLength(1);
+      expect(await within(platform).findByRole('heading', { name: 'Users' })).toBeVisible();
+
+      await user.click(within(platform).getByRole('button', { name: 'Usage' }));
+      expect(await within(platform).findByRole('heading', { name: 'Usage' })).toBeVisible();
+
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Profile' })).toHaveFocus());
     });
   });
 });

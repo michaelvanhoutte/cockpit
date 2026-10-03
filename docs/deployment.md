@@ -488,7 +488,7 @@ secret that leaks from one cannot sign anybody in to the other.
 | Variable | `GOOGLE_CLIENT_ID` | `apps/api/wrangler.jsonc`, per environment — not a secret |
 | Variable | `APP_ORIGIN` | same; must match a registered redirect URI exactly |
 | Variable | `GUEST_SIGN_IN` | same, production's block only — see below |
-| Variable | `WEB_ANALYTICS_URL` | same, production's block only; empty until a person enables Cloudflare Web Analytics for the app and pastes its dashboard address, and an empty value shows no link in the Usage window |
+| Variable | `WEB_ANALYTICS_URL` | same, production's block only; empty until a person enables Cloudflare Web Analytics for the app and pastes its dashboard address, and an empty value shows no link in Usage |
 | Secret | `GOOGLE_CLIENT_SECRET` | `wrangler secret put`, per environment |
 
 **`GUEST_SIGN_IN` is set on production and deliberately absent from staging**
@@ -789,7 +789,7 @@ Production is seeded here as a **one-time bootstrap**, not as part of the deploy
 workflow: `seed.sql` puts the accounts *and the people who own them* in the
 register — two accounts and the two people who own them, one an admin and one
 not, which is what lets a fresh environment prove both answers. **Only the admin
-row is load-bearing now.** Everybody after them is added in Manage users ("Add
+row is load-bearing now.** Everybody after them is added in Platform settings ("Add
 a user on the admin page, so a second person no longer needs SQL", issue 231)
 and made an admin there too ("Rename a user, and make somebody an admin", issue
 232), and this step stays exactly as long as the chicken and egg does: nobody

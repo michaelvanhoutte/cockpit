@@ -11,18 +11,18 @@ import {
   signInWith,
   somebodyNew,
   test,
-  workspaceMenuButton,
   workspaceTab,
 } from './support/app';
 
-/** The window the users are managed in, over the workspace. */
-const usersWindow = (page: Page) => page.getByRole('dialog', { name: 'Manage users' });
+/** The window the users are managed in, over the workspace: Platform settings, whose first section is the users. */
+const usersWindow = (page: Page) => page.getByRole('dialog', { name: 'Platform settings' });
 
-/** Opens it from the open workspace's "…" - an admin is the only one offered the entry. */
+/** Opens it from the profile menu - an admin is the only one offered the entry. */
 async function openManageUsers(page: Page, isMobile: boolean) {
-  await press(workspaceMenuButton(page), isMobile);
-  await press(page.getByRole('menuitem', { name: 'Manage users' }), isMobile);
+  await press(page.getByRole('button', { name: 'Profile' }), isMobile);
+  await press(page.getByRole('menuitem', { name: 'Platform settings…' }), isMobile);
   await expect(usersWindow(page)).toBeVisible();
+  await expect(usersWindow(page).getByRole('heading', { name: 'Users', exact: true })).toBeVisible();
 }
 
 /** Opens somebody's row, sets the role, and waits for the list to say so. */
@@ -74,9 +74,9 @@ async function setAccess(page: Page, who: string, entry: 'Disable' | 'Enable', i
 
 /** Leaves as whoever is signed in. */
 async function signOut(page: Page, isMobile: boolean) {
-  // The users window is a modal, so it has to be put away before the menu behind
+  // Platform settings is a modal, so it has to be put away before the menu behind
   // it can be reached.
-  const done = usersWindow(page).getByRole('button', { name: 'Done' });
+  const done = usersWindow(page).getByRole('button', { name: 'Close', exact: true });
   if (await done.isVisible()) await press(done, isMobile);
   await press(page.getByRole('button', { name: 'Profile' }), isMobile);
   await press(page.getByRole('menuitem', { name: 'Sign out' }), isMobile);
@@ -126,9 +126,9 @@ async function signOutAndIn(page: Page, address: string, isMobile: boolean) {
  * re-proved here.
  */
 test.describe('User management', () => {
-  test.describe('the users window is offered to an admin and to nobody else', () => {
-    // It is on the workspace's "…", which is not there below `sm` (connected-apps).
-    test.skip(({ isMobile }) => isMobile, 'The workspace menu is not drawn on a phone');
+  test.describe('Platform settings is offered to an admin and to nobody else', () => {
+    // Not offered on a phone, by decision (Settings is not either).
+    test.skip(({ isMobile }) => isMobile, 'a phone has no Platform settings');
 
     test('takes an admin from the menu to the list of everyone who can sign in', async ({
       page,
@@ -155,11 +155,9 @@ test.describe('User management', () => {
 
       // Usage is beside it, for the same admin, and holds the sign-in that got
       // here (pps/api/tests/integration/http/usage.test.ts settles the rest).
-      await press(usersWindow(page).getByRole('button', { name: 'Done' }), isMobile);
-      await press(workspaceMenuButton(page), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Usage' }), isMobile);
-      const usage = page.getByRole('dialog', { name: 'Usage' });
-      await expect(usage).toBeVisible();
+      const usage = usersWindow(page);
+      await press(usage.getByRole('button', { name: 'Usage', exact: true }), isMobile);
+      await expect(usage.getByRole('heading', { name: 'Usage', exact: true })).toBeVisible();
       await expect(usage.getByRole('list', { name: 'Sign-ins of Michael' }).getByRole('listitem')).not.toHaveCount(0);
     });
 
@@ -255,9 +253,9 @@ test.describe('User management', () => {
       await makeThem(page, anna.name, 'User', isMobile);
 
       await signOutAndIn(page, anna.address, isMobile);
-      await press(workspaceMenuButton(page), isMobile);
-      await expect(page.getByRole('menuitem', { name: 'Edit…' })).toBeVisible();
-      await expect(page.getByRole('menuitem', { name: 'Manage users' })).toHaveCount(0);
+      await press(page.getByRole('button', { name: 'Profile' }), isMobile);
+      await expect(page.getByRole('menuitem', { name: 'Sign out' })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Platform settings…' })).toHaveCount(0);
     });
 
     /**
