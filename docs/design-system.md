@@ -39,7 +39,7 @@ A Workspace is never assigned colours outside this table: a stored set that is n
 
 ## Chrome
 
-- **Top bar and agents' dock** — one soft graphite gradient, `#2d2e35` at the top to `#17181c`, in every Workspace. The agents sit in a recessed tray in the dock, each tile with a 10px round dot in its colour. A row that takes an Agent being dragged wears a faint `accent-tint`; the one under the pointer wears a full `accent-tint` and a solid 2px `accent` outline inset on the row.
+- **Top bar and agents' dock** — one soft graphite gradient, `#2d2e35` at the top to `#17181c`, in every Workspace. The agents sit in a recessed tray in the dock, each tile with a 10px round dot in its colour. A hide control (▼) leads the dock; while the dock is hidden, a strip as tall as a button (▲ Agents) stays in the same spot at the bottom edge and opens it again. A row that takes an Agent being dragged wears a faint `accent-tint`; the one under the pointer wears a full `accent-tint` and a solid 2px `accent` outline inset on the row.
 - **Dashboard band** — the Workspace's `bar`. The selected Workspace tab is filled with it and runs down into it; unselected dashboard tabs are near-white; the selected one is filled with the page. The Inbox's heading is a rounded tab in the page's colour with a strip of band above it.
 - **Logo** — a bold "C" with a dot in the Workspace's tint (`components/Logo.tsx`), beside the name and gone with it below `sm`. The favicon and installed-app icon are the same mark on a graphite tile with the default violet dot.
 - **Panel frame** — each panel wears a faint 1px dotted frame around its heading and list, the list inset 4px.
