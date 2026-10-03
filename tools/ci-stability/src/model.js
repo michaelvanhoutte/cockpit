@@ -79,6 +79,31 @@ function durationMs(job) {
   return Number.isFinite(ms) && ms >= 0 ? ms : null;
 }
 
+/** A step's duration, or null when it did not run to a finish with timings of its own. */
+function stepDurationMs(step) {
+  if (step.conclusion === 'skipped' || step.conclusion === 'cancelled') return null;
+  return durationMs(step);
+}
+
+/**
+ * Each step of a job, in the order the job ran them (first seen wins, so a step
+ * added later follows the ones it was added after). Only finished jobs count, as
+ * for the job's own durations: a cancelled job's steps are truncated. A step
+ * nothing was counted for stays listed with `durations: null` — no data, not 0.
+ */
+function stepDurations(jobRuns, outcomes) {
+  const byName = new Map();
+  jobRuns.forEach((jobRun, index) => {
+    const finished = outcomes[index] === 'pass' || outcomes[index] === 'fail';
+    for (const step of jobRun.steps ?? []) {
+      if (!byName.has(step.name)) byName.set(step.name, []);
+      const ms = finished ? stepDurationMs(step) : null;
+      if (ms !== null) byName.get(step.name).push(ms);
+    }
+  });
+  return [...byName.entries()].map(([name, values]) => ({ name, durations: quantiles(values) }));
+}
+
 const byCreatedAsc = (a, b) => new Date(a.createdAt) - new Date(b.createdAt);
 
 /**
@@ -183,6 +208,7 @@ function windowModel(runs, jobsByRun, { days, now, oldestRun, reachedWindowEdge,
                   .map(durationMs)
                   .filter((ms) => ms !== null),
               ),
+              steps: stepDurations(jobRuns, outcomes),
             };
           })
           .sort(byReliability),

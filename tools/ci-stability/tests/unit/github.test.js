@@ -202,7 +202,12 @@ describe('collect', () => {
           completed_at: '2026-09-01T12:05:00Z',
           html_url: 'https://github.com/o/r/actions/runs/1/job/9',
           steps: [
-            { name: 'Checkout', conclusion: 'success' },
+            {
+              name: 'Checkout',
+              conclusion: 'success',
+              started_at: '2026-09-01T12:00:00Z',
+              completed_at: '2026-09-01T12:00:05Z',
+            },
             { name: 'Run pnpm test:e2e', conclusion: 'failure' },
           ],
         },
@@ -221,5 +226,34 @@ describe('collect', () => {
     const { jobs } = await collect({ repo: 'o/r', since: SINCE, fetchImpl });
     expect(jobs[0].failedStep).toBe('Run pnpm test:e2e');
     expect(jobs[1].failedStep).toBeNull();
+  });
+
+  it('carries each step with its timings through, empty where the API gave none', async () => {
+    const { fetchImpl } = stubFetch({
+      pages: [[rawRun()]],
+      jobs: [
+        {
+          run_id: 1,
+          name: 'Test',
+          conclusion: 'success',
+          status: 'completed',
+          html_url: 'https://github.com/o/r/actions/runs/1/job/9',
+          steps: [
+            {
+              name: 'Checkout',
+              conclusion: 'success',
+              started_at: '2026-09-01T12:00:00Z',
+              completed_at: '2026-09-01T12:00:05Z',
+            },
+            { name: 'Deploy', conclusion: 'skipped' },
+          ],
+        },
+      ],
+    });
+    const { jobs } = await collect({ repo: 'o/r', since: SINCE, fetchImpl });
+    expect(jobs[0].steps).toEqual([
+      { name: 'Checkout', conclusion: 'success', startedAt: '2026-09-01T12:00:00Z', completedAt: '2026-09-01T12:00:05Z' },
+      { name: 'Deploy', conclusion: 'skipped', startedAt: null, completedAt: null },
+    ]);
   });
 });

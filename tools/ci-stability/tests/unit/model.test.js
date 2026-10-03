@@ -31,7 +31,17 @@ const job = (overrides = {}) => ({
   startedAt: '2026-09-06T12:00:00Z',
   completedAt: '2026-09-06T12:01:00Z',
   failedStep: null,
+  steps: [],
   url: 'https://github.com/o/r/actions/runs/1/job/1',
+  ...overrides,
+});
+
+/** A step that ran for `seconds`, as the job list would carry it. */
+const step = (name, seconds, overrides = {}) => ({
+  name,
+  conclusion: 'success',
+  startedAt: '2026-09-06T12:00:00Z',
+  completedAt: new Date(Date.parse('2026-09-06T12:00:00Z') + seconds * 1000).toISOString(),
   ...overrides,
 });
 
@@ -360,5 +370,81 @@ describe('buildModel', () => {
     expect(model.coverage.oldestRun).toBeNull();
     expect(model.windows.every((w) => w.workflows.length === 0)).toBe(true);
     expect(model.redWindows).toEqual([]);
+  });
+});
+
+describe('Job durations', () => {
+  const stepsOf = (runs, jobs) => {
+    const model = build({ runs, jobs, windows: [30] });
+    return model.windows[0].workflows[0].jobs[0].steps;
+  };
+
+  it('gives each step of a job a median and p90 duration beside the job\'s own', () => {
+    const [a, b] = [run(), run()];
+    const [install] = stepsOf(
+      [a, b],
+      [
+        job({ runId: a.id, steps: [step('Install', 60), step('Test', 10)] }),
+        job({ runId: b.id, steps: [step('Install', 120), step('Test', 20)] }),
+      ],
+    );
+    expect(install).toEqual({ name: 'Install', durations: { median: 90_000, p90: 120_000, count: 2 } });
+
+    const one = run();
+    const [only] = stepsOf([one], [job({ runId: one.id, steps: [step('Install', 45)] })]);
+    expect(only.durations).toEqual({ median: 45_000, p90: 45_000, count: 1 });
+  });
+
+  it('keeps the steps in the order the job ran them', () => {
+    const r = run();
+    const steps = stepsOf(
+      [r],
+      [job({ runId: r.id, steps: [step('Checkout', 1), step('Build', 5), step('Test', 9), step('Alpha', 2)] })],
+    );
+    expect(steps.map((s) => s.name)).toEqual(['Checkout', 'Build', 'Test', 'Alpha']);
+  });
+
+  it('counts nothing for a step that did not run or has no timings, and never reads it as zero', () => {
+    const r = run();
+    const [skipped, untimed, timed] = stepsOf(
+      [r],
+      [
+        job({
+          runId: r.id,
+          steps: [
+            step('Skipped', 0, { conclusion: 'skipped' }),
+            step('Untimed', 0, { startedAt: null }),
+            step('Timed', 30),
+          ],
+        }),
+      ],
+    );
+    expect(skipped.durations).toBeNull();
+    expect(untimed.durations).toBeNull();
+    expect(timed.durations.count).toBe(1);
+  });
+
+  it('leaves out the steps of a cancelled job, as it leaves out the job\'s own duration', () => {
+    const [done, cut] = [run(), run({ conclusion: 'cancelled' })];
+    const [install] = stepsOf(
+      [done, cut],
+      [
+        job({ runId: done.id, steps: [step('Install', 60)] }),
+        job({ runId: cut.id, conclusion: 'cancelled', steps: [step('Install', 5)] }),
+      ],
+    );
+    expect(install.durations).toEqual({ median: 60_000, p90: 60_000, count: 1 });
+  });
+
+  it('reads a step skipped in every run of the window as no data', () => {
+    const [a, b] = [run(), run()];
+    const [deploy] = stepsOf(
+      [a, b],
+      [
+        job({ runId: a.id, steps: [step('Deploy', 0, { conclusion: 'skipped' })] }),
+        job({ runId: b.id, steps: [step('Deploy', 0, { conclusion: 'skipped' })] }),
+      ],
+    );
+    expect(deploy.durations).toBeNull();
   });
 });
