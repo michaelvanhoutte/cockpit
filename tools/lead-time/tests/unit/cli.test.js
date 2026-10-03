@@ -36,12 +36,20 @@ describe('Lead time', () => {
       expect(args.model).toBe('out/model.json');
     });
 
+    it('refuses a --model with no path', () => {
+      expect(parseArgs(['--model']).invalid).toContain('--model needs a path');
+    });
+
     it('refuses a model path that would overwrite the page, before fetching anything', async () => {
+      const fetch = vi.fn();
       const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      vi.stubGlobal('fetch', fetch);
       try {
         expect(await main(['--out', 'out/page.html', '--model', 'out/page.html'])).toBe(2);
         expect(stderr.mock.calls.join('')).toContain('--model and --out cannot be the same path');
+        expect(fetch).not.toHaveBeenCalled();
       } finally {
+        vi.unstubAllGlobals();
         stderr.mockRestore();
       }
     });

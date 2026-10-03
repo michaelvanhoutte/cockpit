@@ -31,6 +31,7 @@ node src/cli.js                       # over 7 and 14 days
 node src/cli.js --windows 1,7         # different windows
 node src/cli.js --max-pulls 40        # stop at 40 pull requests, and report the period it reached
 node src/cli.js --repo owner/name     # a different repository
+node src/cli.js --model out/model.json   # writes the page and, beside it, the model
 node src/cli.js --help
 ```
 

@@ -162,16 +162,20 @@ describe('the generator, end to end against a stubbed API', () => {
   });
 
   it('refuses when --model and --out resolve to the same path', async () => {
-    stubApi({ runs: [rawRun()], jobs: [rawJob()] });
+    const fetched = [];
+    vi.stubGlobal('fetch', async (url) => {
+      fetched.push(url);
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ workflow_runs: [] }) };
+    });
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const tmpDir = tmp();
     const samePath = path.join(tmpDir, 'model.json');
-
-    const write = process.stderr.write.bind(process.stderr);
-    process.stderr.write = () => true;
     try {
       expect(await main(['--repo', 'o/r', '--out', samePath, '--model', samePath])).toBe(2);
+      expect(fetched).toEqual([]);
     } finally {
-      process.stderr.write = write;
+      vi.unstubAllGlobals();
+      stderr.mockRestore();
     }
     expect(existsSync(samePath)).toBe(false);
   });

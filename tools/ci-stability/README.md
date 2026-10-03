@@ -14,7 +14,7 @@ Published on every merge to `main` at
 explorer is at the root, the [lead-time page](../lead-time/README.md) at `/lead-time/` and the
 [test-selection page](../selection/README.md) at `/selection/`; the four link to one another.
 
-Every `main` run also uploads the page as the `ci-stability-report` artifact, from the
+Every `main` run also uploads the page and model as the `ci-stability-report` artifact, from the
 `Stability` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). The published
 site carries `model.json` beside the page.
 
@@ -31,6 +31,7 @@ node src/cli.js --json                # writes out/model.json instead
 node src/cli.js --days 7              # a shorter window
 node src/cli.js --windows 1,7         # different columns
 node src/cli.js --repo owner/name     # a different repository
+node src/cli.js --model out/model.json   # writes the page and, beside it, the model
 node src/cli.js --help
 ```
 

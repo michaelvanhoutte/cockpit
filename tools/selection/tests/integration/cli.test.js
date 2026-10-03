@@ -106,16 +106,14 @@ describe('main', () => {
   });
 
   it('refuses when --model and --out resolve to the same path', async () => {
-    collect.mockResolvedValue({ pulls: [pullData()], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const tmpDir = tmp();
     const samePath = path.join(tmpDir, 'model.json');
-
-    const write = process.stderr.write.bind(process.stderr);
-    process.stderr.write = () => true;
     try {
       expect(await main(['--repo', 'o/r', '--out', samePath, '--model', samePath])).toBe(2);
+      expect(collect).not.toHaveBeenCalled();
     } finally {
-      process.stderr.write = write;
+      stderr.mockRestore();
     }
     expect(existsSync(samePath)).toBe(false);
   });

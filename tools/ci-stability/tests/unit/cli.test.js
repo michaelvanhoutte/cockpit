@@ -59,4 +59,8 @@ describe('parseArgs', () => {
     const args = parseArgs(['--model', 'out/model.json']);
     expect(args.model).toBe('out/model.json');
   });
+
+  it('refuses a --model with no path', () => {
+    expect(parseArgs(['--model']).invalid).toContain('--model needs a path');
+  });
 });

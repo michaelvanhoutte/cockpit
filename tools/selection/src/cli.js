@@ -86,7 +86,14 @@ export function parseArgs(argv) {
     if (arg === '--help' || arg === '-h') args.help = true;
     else if (arg === '--json') args.json = true;
     else if (arg === '--out') args.out = value();
-    else if (arg === '--model') args.model = value();
+    else if (arg === '--model') {
+      const modelValue = value();
+      if (!modelValue) {
+        args.invalid ??= '--model needs a path';
+      } else {
+        args.model = modelValue;
+      }
+    }
     else if (arg === '--days') args.days = positive(value(), '--days', args);
     else if (arg === '--max-pulls') args.maxPulls = positive(value(), '--max-pulls', args);
     else if (arg === '--repo') args.repo = value();
@@ -116,6 +123,12 @@ function modelJson(model) {
   return JSON.stringify(model, null, 2);
 }
 
+/** The default output path for the page or --json model. */
+function defaultOut(args) {
+  const file = args.json ? 'model.json' : 'index.html';
+  return path.join(here, '../out', file);
+}
+
 export async function main(argv) {
   const args = parseArgs(argv);
   if (args.unknown) {
@@ -132,9 +145,7 @@ export async function main(argv) {
   }
 
   if (args.model) {
-    // Determine what the output path will be
-    const defaultFile = args.json ? 'model.json' : 'index.html';
-    const effectiveOut = args.out ?? path.join(here, '../out', defaultFile);
+    const effectiveOut = args.out ?? defaultOut(args);
     if (path.resolve(args.model) === path.resolve(effectiveOut)) {
       process.stderr.write(`--model and --out cannot be the same path\n\n${USAGE}`);
       return 2;
@@ -176,7 +187,7 @@ export async function main(argv) {
   });
 
   const { file, content } = output(args, model);
-  const out = path.resolve(args.out ?? path.join(here, '../out', file));
+  const out = path.resolve(args.out ?? defaultOut(args));
   mkdirSync(path.dirname(out), { recursive: true });
   writeFileSync(out, content, 'utf8');
   const writtenFiles = [out];
