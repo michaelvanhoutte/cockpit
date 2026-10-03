@@ -27,7 +27,7 @@ const USAGE = `Usage: node src/cli.js [options]
   --json              write the model instead of the page
   --days <n>          how far back to read (default: the widest window)
   --windows <a,b>     the windows to report, in days (default 7,14)
-  --max-pulls <n>     stop after this many pull requests, and report the shorter period (default 150)
+  --max-pulls <n>     stop after this many pull requests, and report the shorter period (default 120)
   --repo <owner/name> default: $GITHUB_REPOSITORY, else this checkout's origin
   --branch <name>     default: main
   --help
@@ -133,7 +133,7 @@ export async function main(argv) {
 
   let collected;
   try {
-    collected = await collect({ repo, branch, since, now, maxPulls: args.maxPulls ?? 150, token: resolveToken() });
+    collected = await collect({ repo, branch, since, now, maxPulls: args.maxPulls ?? 120, token: resolveToken() });
   } catch (error) {
     if (error instanceof GitHubError) {
       process.stderr.write(`${error.message}\n`);
