@@ -1504,6 +1504,57 @@ describe('Dashboards', () => {
       expect(screen.queryByRole('search', BAR)).toBeNull();
     });
 
+    it('opens the bar, fills the funnel, and is cleared by ×, for a Status alone', async () => {
+      const { user } = showBar(['Status one'], { openDashboardId: id('Status one'), withFilterBar: true });
+      await user.click(await screen.findByRole('button', { name: 'Filter this dashboard' }));
+      expect(screen.getByRole('button', { name: 'Clear the filter' })).toBeDisabled();
+
+      await user.click(within(screen.getByRole('group', { name: 'Status' })).getByRole('button', { name: 'In progress' }));
+      expect(readDashboardFilter(localStorage, id('Status one')).statuses).toEqual(['in_progress']);
+      expect(screen.getByRole('button', { name: 'Clear the filter' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Clear the filter and close it' })).toBeVisible();
+
+      await user.click(screen.getByRole('button', { name: 'Clear the filter' }));
+      expect(readDashboardFilter(localStorage, id('Status one'))).toEqual(NO_DASHBOARD_FILTER);
+      expect(screen.getByRole('button', { name: 'Clear the filter' })).toBeDisabled();
+    });
+
+    it('offers To do and In progress on a dashboard, and Done as well where it is told to', async () => {
+      const group = () => within(screen.getByRole('group', { name: 'Status' }));
+      writeDashboardFilter(localStorage, 'offers-a', { ...NO_DASHBOARD_FILTER, text: 'x' });
+      const { unmount } = render(<DashboardFilterBar dashboardId="offers-a" />);
+      expect(group().getAllByRole('button').map((b) => b.textContent)).toEqual(['To do', 'In progress']);
+      unmount();
+
+      writeDashboardFilter(localStorage, 'offers-b', { ...NO_DASHBOARD_FILTER, text: 'x' });
+      render(<DashboardFilterBar dashboardId="offers-b" withDone />);
+      expect(group().getAllByRole('button').map((b) => b.textContent)).toEqual(['To do', 'In progress', 'Done']);
+    });
+
+    it('reads Status, Priority, Due, Containing, Attachments, Agent running, with Status, Priority and Attachments each one group', () => {
+      writeDashboardFilter(localStorage, 'order-a', { ...NO_DASHBOARD_FILTER, text: 'x' });
+      render(<DashboardFilterBar dashboardId="order-a" />);
+      const bar = screen.getByRole('search', BAR);
+
+      const controls = [
+        screen.getByRole('group', { name: 'Status' }),
+        screen.getByRole('group', { name: 'Priority' }),
+        screen.getByRole('combobox'),
+        screen.getByRole('searchbox', { name: 'Containing' }),
+        screen.getByRole('group', { name: 'Attachments' }),
+        screen.getByRole('button', { name: 'Agent running' }),
+      ];
+      for (let at = 1; at < controls.length; at += 1) {
+        expect(controls[at - 1]!.compareDocumentPosition(controls[at]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      }
+      // Each chip filter is one fieldset holding its buttons; Agent running is a lone button beside them.
+      expect(bar.querySelectorAll('fieldset')).toHaveLength(3);
+      expect(controls[4]!.querySelector('span[aria-hidden="true"]')?.textContent).toBe('Attachments');
+      expect(controls[0]!.querySelector('span[aria-hidden="true"]')).toBeNull();
+      expect(controls[1]!.querySelector('span[aria-hidden="true"]')).toBeNull();
+      expect(controls[5]!.closest('fieldset')).toBeNull();
+    });
+
     it('carries a filled funnel on a tab filtered by Agent running alone', async () => {
       writeDashboardFilter(localStorage, id('Away agent'), { ...NO_DASHBOARD_FILTER, agentRunning: true });
       showBar(['Home two', 'Away agent'], { openDashboardId: id('Home two') });

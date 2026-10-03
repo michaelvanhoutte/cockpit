@@ -965,6 +965,21 @@ test.describe('Panels', () => {
       await expect.poll(() => itemsOn(page, first)).toEqual(items);
       expect(layoutsSent, 'a filtered board must not write a layout').toBe(0);
 
+      // **And a person can narrow the dashboard to what is in progress.** One
+      // item is started from its row's menu, then the filter's Status group
+      // keeps only it. Which statuses match is
+      // apps/web/tests/unit/dashboardFilter.test.ts's.
+      const started = items[1]!;
+      await press(itemRow(page, started).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: /^Status/ }), isMobile);
+      await press(page.getByRole('menuitemradio', { name: 'In progress' }), isMobile);
+      await expect(itemRow(page, started).getByText('In progress')).toBeVisible();
+      await page.getByRole('button', { name: 'Filter this dashboard' }).click();
+      await page.getByRole('group', { name: 'Status' }).getByRole('button', { name: 'In progress' }).click();
+      await expect.poll(() => itemsOn(page, first)).toEqual([started]);
+      await page.getByRole('button', { name: 'Clear the filter and close it' }).click();
+      await expect.poll(() => itemsOn(page, first)).toEqual(items);
+
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
     });

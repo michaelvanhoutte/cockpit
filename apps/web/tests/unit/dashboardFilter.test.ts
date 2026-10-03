@@ -31,6 +31,8 @@ function anItem(fields: Partial<Item> = {}): Item {
     sender: null,
     priority: null,
     dueDate: null,
+    startedAt: null,
+    completedAt: null,
     ...fields,
   } as Item;
 }
@@ -40,6 +42,8 @@ function filterOf(fields: Partial<DashboardFilter>): DashboardFilter {
 }
 
 const NONE = new Set<string>();
+const STARTED = '2026-09-08T09:00:00.000Z';
+const DONE = '2026-09-08T17:00:00.000Z';
 
 function aStore(): Storage {
   const held = new Map<string, string>();
@@ -72,6 +76,36 @@ function aStoreThatRefuses(): Storage {
 describe('Dashboards', () => {
   describe('a Dashboard filter lets through only the Items meeting every condition set', () => {
     it.each([
+      {
+        situation: 'Status To do takes Items not started and not finished',
+        filter: filterOf({ statuses: ['to_do'] }),
+        passes: [anItem()],
+        stopped: [anItem({ startedAt: STARTED }), anItem({ completedAt: DONE }), anItem({ startedAt: STARTED, completedAt: DONE })],
+      },
+      {
+        situation: 'Status In progress takes Items started and not finished',
+        filter: filterOf({ statuses: ['in_progress'] }),
+        passes: [anItem({ startedAt: STARTED })],
+        stopped: [anItem(), anItem({ startedAt: STARTED, completedAt: DONE })],
+      },
+      {
+        situation: 'Status Done takes Items finished, started or not',
+        filter: filterOf({ statuses: ['done'] }),
+        passes: [anItem({ completedAt: DONE }), anItem({ startedAt: STARTED, completedAt: DONE })],
+        stopped: [anItem(), anItem({ startedAt: STARTED })],
+      },
+      {
+        situation: 'Status To do and In progress takes Items in either',
+        filter: filterOf({ statuses: ['to_do', 'in_progress'] }),
+        passes: [anItem(), anItem({ startedAt: STARTED })],
+        stopped: [anItem({ completedAt: DONE })],
+      },
+      {
+        situation: 'Status In progress and Priority High takes only Items meeting both',
+        filter: filterOf({ statuses: ['in_progress'], priorities: ['high'] }),
+        passes: [anItem({ startedAt: STARTED, priority: 'high' })],
+        stopped: [anItem({ startedAt: STARTED, priority: 'low' }), anItem({ priority: 'high' })],
+      },
       {
         situation: 'Priority High and No priority takes High and unprioritised Items',
         filter: filterOf({ priorities: ['high', 'none'] }),
@@ -156,6 +190,7 @@ describe('Dashboards', () => {
       expect(isFiltering(filterOf({ text: '   ' }))).toBe(false);
       expect(isFiltering(filterOf({ attachments: 'with' }))).toBe(true);
       expect(isFiltering(filterOf({ agentRunning: true }))).toBe(true);
+      expect(isFiltering(filterOf({ statuses: ['in_progress'] }))).toBe(true);
     });
   });
 
@@ -203,12 +238,28 @@ describe('Dashboards', () => {
         JSON.stringify({ priorities: ['high', 'urgent'], due: { window: 'someday' }, text: 7, attachments: 'with' }),
       );
       expect(readDashboardFilter(store, 'a')).toEqual({
+        statuses: [],
         priorities: ['high'],
         due: null,
         text: '',
         attachments: 'with',
         agentRunning: false,
       });
+    });
+
+    it('reads a filter stored before Status existed as one with no status, its other conditions intact', () => {
+      const store = aStore();
+      store.setItem('cockpit.dashboard-filter.a', JSON.stringify({ priorities: ['high'], text: 'vat', attachments: 'with' }));
+      expect(readDashboardFilter(store, 'a')).toEqual(filterOf({ priorities: ['high'], text: 'vat', attachments: 'with' }));
+      expect(store.getItem('cockpit.dashboard-filter.a')).toBe(
+        JSON.stringify({ priorities: ['high'], text: 'vat', attachments: 'with' }),
+      );
+    });
+
+    it('drops a stored status that is not one of the three and keeps the rest', () => {
+      const store = aStore();
+      store.setItem('cockpit.dashboard-filter.a', JSON.stringify({ statuses: ['in_progress', 'blocked'], text: 'vat' }));
+      expect(readDashboardFilter(store, 'a')).toEqual(filterOf({ statuses: ['in_progress'], text: 'vat' }));
     });
 
     it.each([
