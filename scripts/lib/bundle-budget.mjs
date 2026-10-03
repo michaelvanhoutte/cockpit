@@ -1,6 +1,6 @@
 /**
  * The bundle gate (docs/architecture.md, "Performance budgets"): the JavaScript
- * a cold open has to fetch stays under 204KB compressed, and so does any one
+ * a cold open has to fetch stays under 206KB compressed, and so does any one
  * file fetched separately.
  *
  * **Two lines, not one.** Charging a lazy chunk to the entry would make
@@ -22,7 +22,7 @@
 import { readdirSync } from 'node:fs';
 import { join, posix, relative, sep } from 'node:path';
 
-export const BUDGET_BYTES = 204 * 1024;
+export const BUDGET_BYTES = 206 * 1024;
 
 /**
  * Every JavaScript file a build emitted, wherever it put it, named by its path

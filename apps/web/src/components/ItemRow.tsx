@@ -44,7 +44,7 @@ import {
 /** What the item menu is drawn with: Radix's dropdown menu and context menu share these parts. */
 type MenuPrimitive = Pick<
   typeof DropdownMenu,
-  'Item' | 'Separator' | 'Sub' | 'SubTrigger' | 'SubContent' | 'Portal' | 'RadioGroup' | 'RadioItem' | 'ItemIndicator'
+  'Item' | 'Separator' | 'Sub' | 'SubTrigger' | 'SubContent' | 'Portal'
 >;
 
 /** The Status submenu's width, which on a phone it also steps back from the menu's edge by. */
@@ -794,31 +794,26 @@ export function ItemRow({
               style={{ width: SUBMENU_WIDTH_PX }}
               className="rounded-md border border-black/10 bg-surface p-1 shadow-lg"
             >
-              <M.RadioGroup value={status === 'in_progress' ? 'in_progress' : 'todo'}>
-                <M.RadioItem
-                  value="todo"
+              {(
+                [
+                  ['To do', status !== 'in_progress', () => setStarted(false)],
+                  ['In progress', status === 'in_progress', () => setStarted(true)],
+                  ['Done', false, markDone],
+                ] as const
+              ).map(([name, ticked, choose]) => (
+                <M.Item
+                  key={name}
+                  role="menuitemradio"
+                  aria-checked={ticked}
                   className={flexItemClass}
                   onSelect={() => {
-                    if (status === 'in_progress') setStarted(false);
+                    if (!ticked) choose();
                   }}
                 >
-                  <span>To do</span>
-                  <M.ItemIndicator aria-hidden="true">✓</M.ItemIndicator>
-                </M.RadioItem>
-                <M.RadioItem
-                  value="in_progress"
-                  className={flexItemClass}
-                  onSelect={() => {
-                    if (status !== 'in_progress') setStarted(true);
-                  }}
-                >
-                  <span>In progress</span>
-                  <M.ItemIndicator aria-hidden="true">✓</M.ItemIndicator>
-                </M.RadioItem>
-                <M.RadioItem value="done" className={flexItemClass} onSelect={markDone}>
-                  <span>Done</span>
-                </M.RadioItem>
-              </M.RadioGroup>
+                  <span>{name}</span>
+                  {ticked && <span aria-hidden="true">✓</span>}
+                </M.Item>
+              ))}
             </M.SubContent>
           </M.Portal>
         </M.Sub>,
