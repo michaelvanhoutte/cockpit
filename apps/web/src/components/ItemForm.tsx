@@ -816,8 +816,11 @@ function TheForm({
     editingRef.current = change(editingRef.current);
     setEditing(editingRef.current);
   };
+  /** The box and its baseline both put on what the item holds. */
+  const settleOn = (held: Partial<Draft>) =>
+    changeEditing((now) => (now ? { was: { ...now.was, ...held }, now: { ...now.now, ...held } } : now));
   const draft = editing?.now ?? null;
-  const setDraft = (now: Draft) => changeEditing((held) => (held ? { ...held, now } : held));
+  const setDraft =(now: Draft) => changeEditing((held) => (held ? { ...held, now } : held));
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   /**
@@ -1066,11 +1069,7 @@ function TheForm({
           const { failure, held: reached } = await writeField(field, value, editingRef.current!.was);
           if (failure !== null) {
             // A status that did not all land shows what the item holds.
-            if (reached) {
-              changeEditing((now) =>
-                now ? { was: { ...now.was, ...reached }, now: { ...now.now, ...reached } } : now,
-              );
-            }
+            if (reached) settleOn(reached);
             stopped = failure;
             break;
           }
@@ -1112,18 +1111,11 @@ function TheForm({
               const back = asStored({ ...held.now, [field]: before }, field);
               const { failure, held: reached } = await writeField(field, back, { ...held.now, ...after });
               if (failure !== null) {
-                if (reached) {
-                  changeEditing((now) =>
-                    now ? { was: { ...now.was, ...reached }, now: { ...now.now, ...reached } } : now,
-                  );
-                }
+                if (reached) settleOn(reached);
                 throw new Error(failure);
               }
               // The status goes back with the start time it had, not only its name.
-              const put = landedAs(field, before, reached);
-              changeEditing((now) =>
-                now ? { was: { ...now.was, ...put }, now: { ...now.now, ...put } } : now,
-              );
+              settleOn(landedAs(field, before, reached));
               // The editor owns its document once made, so a description put
               // back from outside needs it rebuilt (`readingPicked`).
               if (field === 'description') setReadingPicked((was) => was + 1);
