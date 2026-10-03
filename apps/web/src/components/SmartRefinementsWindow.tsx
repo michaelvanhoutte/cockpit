@@ -192,7 +192,7 @@ export function SmartRefinementsWindow({
           // appear at all; the table scrolls inside its own box below.
           className="fixed left-1/2 top-1/2 flex h-[min(36rem,calc(100dvh-4rem))] max-h-[calc(100dvh-2rem)] min-h-[min(16rem,calc(100dvh-2rem))] w-[min(64rem,calc(100vw-2rem))] min-w-[min(20rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 resize-none flex-col overflow-hidden rounded-lg border border-black/10 bg-surface p-5 shadow-lg sm:resize"
         >
-          <Dialog.Title className="text-base font-semibold">Smart refinements</Dialog.Title>
+          <Dialog.Title className="text-base font-semibold">Cockpit&apos;s suggestions</Dialog.Title>
           <Dialog.Description className="mt-0.5 text-xs text-ink-faint">
             {scoped
               ? 'How Cockpit refined this item, and when.'

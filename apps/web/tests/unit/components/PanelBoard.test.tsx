@@ -2422,7 +2422,7 @@ describe('Onboarding', () => {
       await user.click(within(due).getByRole('button', { name: 'Item actions' }));
 
       expect(await screen.findByRole('menuitem', { name: 'Move to…' })).toBeVisible();
-      expect(screen.getByRole('menuitem', { name: 'Add to…' })).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: 'Also show on…' })).toBeVisible();
       expect(screen.queryByRole('menuitem', { name: 'Remove from this panel' })).toBeNull();
     });
 

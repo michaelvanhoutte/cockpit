@@ -1085,7 +1085,7 @@ describe('Panels', () => {
           panelId: 'p-falcon',
         });
         await user.click(screen.getByRole('button', { name: 'Item actions' }));
-        await user.click(await screen.findByRole('menuitem', { name: 'Add to…' }));
+        await user.click(await screen.findByRole('menuitem', { name: 'Also show on…' }));
         const picker = await screen.findByRole('dialog');
         await user.click(within(picker).getByRole('button', { name: 'Anna' }));
         expect(await within(picker).findByRole('alert')).toBeVisible();
@@ -1141,7 +1141,7 @@ describe('Panels', () => {
     it('offers both on a panel, and neither in the Inbox', async () => {
       const user = await aRowOnAPanel();
       await user.click(screen.getByRole('button', { name: 'Item actions' }));
-      expect(await screen.findByRole('menuitem', { name: 'Add to…' })).toBeVisible();
+      expect(await screen.findByRole('menuitem', { name: 'Also show on…' })).toBeVisible();
       expect(screen.getByRole('menuitem', { name: 'Remove from this panel' })).toBeVisible();
 
       cleanup();
@@ -1149,7 +1149,7 @@ describe('Panels', () => {
       const inbox = await showList({ openDashboardId: null, panelId: null });
       await inbox.click(screen.getByRole('button', { name: 'Item actions' }));
 
-      expect(screen.queryByRole('menuitem', { name: 'Add to…' })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: 'Also show on…' })).toBeNull();
       expect(screen.queryByRole('menuitem', { name: 'Remove from this panel' })).toBeNull();
     });
 
@@ -1157,7 +1157,7 @@ describe('Panels', () => {
       const user = await aRowOnAPanel();
 
       await user.click(screen.getByRole('button', { name: 'Item actions' }));
-      await user.click(await screen.findByRole('menuitem', { name: 'Add to…' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Also show on…' }));
 
       const picker = await screen.findByRole('dialog');
       expect(picker).toHaveTextContent('Also show “Reply to Bart” on');
@@ -1180,7 +1180,7 @@ describe('Panels', () => {
       const user = await aRowOnAPanel();
 
       await user.click(screen.getByRole('button', { name: 'Item actions' }));
-      await user.click(await screen.findByRole('menuitem', { name: 'Add to…' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Also show on…' }));
       const picker = await screen.findByRole('dialog');
 
       expect(within(picker).queryByRole('button', { name: 'Falcon' })).toBeNull();
@@ -1205,7 +1205,7 @@ describe('Panels', () => {
 
   describe('what just happened can be put back, until the offer runs out', () => {
     it.each([
-      { situation: 'adding it to a panel', entry: 'Add to…', undoes: 'remove_item_from_panel' },
+      { situation: 'adding it to a panel', entry: 'Also show on…', undoes: 'remove_item_from_panel' },
       {
         situation: 'taking it off a panel',
         entry: 'Remove from this panel',
@@ -1222,7 +1222,7 @@ describe('Panels', () => {
 
       await user.click(screen.getByRole('button', { name: 'Item actions' }));
       await user.click(await screen.findByRole('menuitem', { name: entry }));
-      if (entry === 'Add to…') {
+      if (entry === 'Also show on…') {
         await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Anna' }));
       }
       await user.click(screen.getByRole('button', { name: 'Undo' }));

@@ -213,7 +213,7 @@ test.describe('Agents', () => {
       if (isMobile) {
         await press(dashboardBar(page).getByRole('link', { name: 'Dashboard 1' }), isMobile);
         await press(itemRow(page, asked).getByRole('button', { name: 'Item actions' }), isMobile);
-        await press(page.getByRole('menuitem', { name: `Start ${asking}…` }), isMobile);
+        await press(page.getByRole('menuitem', { name: `${asking}…` }), isMobile);
       } else {
         const dock = page.getByRole('toolbar', { name: 'Agents' });
         await press(dock.getByRole('button', { name: '+ New agent' }), isMobile);

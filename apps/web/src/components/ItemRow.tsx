@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
@@ -28,6 +28,7 @@ import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
 import { capturingApp, openableAtSource } from '../itemSource';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
+import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
 import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
@@ -37,7 +38,17 @@ import {
   MenuTrigger,
   destructiveItemClass,
   menuItemClass,
+  menuItemSplitClass,
 } from './Menu';
+
+/** What the item menu is drawn with: Radix's dropdown menu and context menu share these parts. */
+type MenuPrimitive = Pick<
+  typeof DropdownMenu,
+  'Item' | 'Separator' | 'Sub' | 'SubTrigger' | 'SubContent' | 'Portal'
+>;
+
+/** The Status submenu's width, which on a phone it also steps back from the menu's edge by. */
+const SUBMENU_WIDTH_PX = 144;
 
 // Out of the initial bundle, the same boundary AgentDock and ManageConnections
 // draw around themselves: two windows a row mounts only once asked for.
@@ -263,6 +274,8 @@ export function ItemRow({
 
   /** To do, In progress or Done ("Mark an item In progress, and see since when", issue 568). Done never reaches this row - `stillOpen`, `filing.ts`. */
   const status = itemStatus(item);
+  /** Whether the Status submenu has room beside the menu; watched, so a window resized under an open menu is answered. */
+  const roomBesideTheMenu = useRoomForTheInbox();
 
   /**
    * Starting work, and taking that back - no undo bar either way, unlike
@@ -638,10 +651,18 @@ export function ItemRow({
    * Both primitives are Radix's menu underneath and share an item and a
    * separator with the same props, which is what lets one list serve both.
    */
-  const menuEntries = (M: { Item: typeof DropdownMenu.Item; Separator: typeof DropdownMenu.Separator }) => (
-    <>
-        {onOpen && (
+  const menuEntries = (M: MenuPrimitive) => {
+    const flexItemClass = menuItemSplitClass;
+    const subTriggerClass = `${flexItemClass} data-[state=open]:bg-accent-tint`;
+    // The menu is grouped by kind, a divider only between groups that have
+    // something to offer on this row ("Group the item row's menu by kind, and
+    // name its entries for what they do", issue 683); a group left empty draws neither entries nor divider.
+    const groups: React.ReactNode[][] = [
+      // Open.
+      [
+        onOpen && (
           <M.Item
+            key="open"
             className={menuItemClass}
             onSelect={() => {
               // The form takes the focus itself, like the pickers below.
@@ -651,32 +672,36 @@ export function ItemRow({
           >
             Open
           </M.Item>
-        )}
-        {/* An `<a>` rather than a select handler, so it is a real link the
-            browser opens in a new tab and not a script opening one; Radix
-            closes the menu on its own selection either way. */}
-        {atSource && (
-          <M.Item asChild className={menuItemClass}>
+        ),
+        // An `<a>` rather than a select handler, so it is a real link the
+        // browser opens in a new tab and not a script opening one; Radix
+        // closes the menu on its own selection either way.
+        atSource && (
+          <M.Item key="open-in" asChild className={menuItemClass}>
             <a href={atSource.link} target="_blank" rel="noopener noreferrer">
               Open in {atSource.name}
             </a>
           </M.Item>
-        )}
-        {/* The common case in one press ("Capture something before you know
-            which workspace it belongs to", issue 165): a row read in Work is
-            usually Work's, and saying so should not cost a dialog listing
-            every alternative. Above Move to…, which is the same answer with
-            the other workspaces in it.
-
-            Only on a row that belongs to no workspace: on any other it would
-            be an entry that does nothing. */}
-        {undecided && onMoveHere && (
-          <M.Item className={menuItemClass} onSelect={onMoveHere}>
+        ),
+      ],
+      // Filing.
+      [
+        // The common case in one press ("Capture something before you know
+        // which workspace it belongs to", issue 165): a row read in Work is
+        // usually Work's, and saying so should not cost a dialog listing
+        // every alternative. Above Move to…, which is the same answer with
+        // the other workspaces in it.
+        //
+        // Only on a row that belongs to no workspace: on any other it would
+        // be an entry that does nothing.
+        undecided && onMoveHere && (
+          <M.Item key="move-here" className={menuItemClass} onSelect={onMoveHere}>
             Move to this workspace
           </M.Item>
-        )}
-        {onMoveTo && (
+        ),
+        onMoveTo && (
           <M.Item
+            key="move-to"
             className={menuItemClass}
             onSelect={() => {
               opening.current = true;
@@ -685,97 +710,153 @@ export function ItemRow({
           >
             Move to…
           </M.Item>
-        )}
-        {onAddTo && (
+        ),
+        onAddTo && (
           <M.Item
+            key="also-show-on"
             className={menuItemClass}
             onSelect={() => {
               opening.current = true;
               onAddTo(trigger.current);
             }}
           >
-            Add to…
+            Also show on…
           </M.Item>
-        )}
-        {onRemoveFromHere && (
-          <M.Item className={menuItemClass} onSelect={onRemoveFromHere}>
+        ),
+        onRemoveFromHere && (
+          <M.Item key="remove-from-here" className={menuItemClass} onSelect={onRemoveFromHere}>
             Remove from this panel
           </M.Item>
-        )}
-        {mayBeADuplicate && onSettleNotADuplicate && (
-          <M.Item className={menuItemClass} onSelect={onSettleNotADuplicate}>
-            Not a duplicate
-          </M.Item>
-        )}
-        {/* The run's own ways on, while it is open ("Drop an agent on an item
-            to start a Claude Code session on it", issue 571): the session
-            itself, a real link in a new tab as "Open in …" above is, and
-            saying the agent finished, which ends it. */}
-        {chip?.href && (
-          <M.Item asChild className={menuItemClass}>
+        ),
+      ],
+      // Agent. The run's own ways on, while it is open ("Drop an agent on an
+      // item to start a Claude Code session on it", issue 571): the session
+      // itself, a real link in a new tab as "Open in …" above is, and saying
+      // the agent finished, which ends it. Then every Agent this dashboard
+      // shows, where nothing is already running on the row - the way a
+      // keyboard starts one, since it has no drag. The ellipsis says a box
+      // opens first; the tag says it is an agent.
+      [
+        chip?.href && (
+          <M.Item key="session" asChild className={menuItemClass}>
             <a href={chip.href} target="_blank" rel="noopener noreferrer">
               Open the Claude session ↗
             </a>
           </M.Item>
-        )}
-        {run && (
-          <>
-            <M.Item className={menuItemClass} onSelect={() => finishRun('done')}>
-              Agent finished: Done
-            </M.Item>
-            <M.Item className={menuItemClass} onSelect={() => finishRun('still_to_do')}>
-              Agent finished: Still to do
-            </M.Item>
-          </>
-        )}
-        {/* Every Agent this dashboard shows, where nothing is already running
-            on the row - the way a keyboard starts one, since it has no drag.
-            The ellipsis says a box opens first. */}
-        {takesAnAgent &&
-          agentsHere.offered.map((agent) => (
-            <M.Item
-              key={agent.id}
-              className={menuItemClass}
-              onSelect={() => {
-                // The prompt box takes the focus itself, like the pickers.
-                if (agent.asksForPrompt) opening.current = true;
-                startWith(agent);
-              }}
+        ),
+        run && (
+          <M.Item key="finished-done" className={menuItemClass} onSelect={() => finishRun('done')}>
+            Agent finished: Done
+          </M.Item>
+        ),
+        run && (
+          <M.Item key="finished-still" className={menuItemClass} onSelect={() => finishRun('still_to_do')}>
+            Agent finished: Still to do
+          </M.Item>
+        ),
+        ...(takesAnAgent
+          ? agentsHere.offered.map((agent) => (
+              <M.Item
+                key={agent.id}
+                className={flexItemClass}
+                onSelect={() => {
+                  // The prompt box takes the focus itself, like the pickers.
+                  if (agent.asksForPrompt) opening.current = true;
+                  startWith(agent);
+                }}
+              >
+                <span>
+                  {agent.name}
+                  {agent.asksForPrompt ? '…' : ''}
+                </span>{' '}
+                <span className="rounded bg-black/5 px-1.5 text-xs text-ink-faint">Agent</span>
+              </M.Item>
+            ))
+          : []),
+      ],
+      // Status: one row showing where the item stands, a submenu offering all
+      // three. Choosing the state it is already in changes nothing.
+      [
+        <M.Sub key="status">
+          <M.SubTrigger className={subTriggerClass}>
+            <span>Status</span>{' '}
+            <span className="text-xs text-ink-faint">
+              {status === 'in_progress' ? 'In progress' : 'To do'}
+              <span aria-hidden="true"> ▸</span>
+            </span>
+          </M.SubTrigger>
+          <M.Portal>
+            {/* On a phone the menu fills the width, leaving no room beside it for
+                the three states: they are laid over its right-hand end instead,
+                a submenu's own width back from the edge. */}
+            <M.SubContent
+              sideOffset={roomBesideTheMenu ? 0 : -SUBMENU_WIDTH_PX}
+              style={{ width: SUBMENU_WIDTH_PX }}
+              className="rounded-md border border-black/10 bg-surface p-1 shadow-lg"
             >
-              Start {agent.name}
-              {agent.asksForPrompt ? '…' : ''}
-            </M.Item>
-          ))}
-        {status === 'in_progress' ? (
-          <M.Item className={menuItemClass} onSelect={() => setStarted(false)}>
-            Back to To do
-          </M.Item>
-        ) : (
-          <M.Item className={menuItemClass} onSelect={() => setStarted(true)}>
-            Mark In progress
-          </M.Item>
-        )}
-        <M.Item className={menuItemClass} onSelect={markDone}>
-          Mark done
-        </M.Item>
+              {(
+                [
+                  ['To do', status !== 'in_progress', () => setStarted(false)],
+                  ['In progress', status === 'in_progress', () => setStarted(true)],
+                  ['Done', false, markDone],
+                ] as const
+              ).map(([name, ticked, choose]) => (
+                <M.Item
+                  key={name}
+                  role="menuitemradio"
+                  aria-checked={ticked}
+                  className={flexItemClass}
+                  onSelect={() => {
+                    if (!ticked) choose();
+                  }}
+                >
+                  <span>{name}</span>
+                  {ticked && <span aria-hidden="true">✓</span>}
+                </M.Item>
+              ))}
+            </M.SubContent>
+          </M.Portal>
+        </M.Sub>,
+      ],
+      // Suggestions.
+      [
         <M.Item
+          key="suggestions"
           className={menuItemClass}
           onSelect={() => {
             opening.current = true;
             setHistoryOpen(true);
           }}
         >
-          Smart refinements…
-        </M.Item>
-        <M.Separator className="my-1 h-px bg-black/10" />
-        <M.Item
-          className={destructiveItemClass}
-          onSelect={dismiss}
-        >
+          Cockpit's suggestions for this item…
+        </M.Item>,
+        mayBeADuplicate && onSettleNotADuplicate && (
+          <M.Item key="not-a-duplicate" className={menuItemClass} onSelect={onSettleNotADuplicate}>
+            Not a duplicate
+          </M.Item>
+        ),
+      ],
+      // Dismiss.
+      [
+        <M.Item key="dismiss" className={destructiveItemClass} onSelect={dismiss}>
           Dismiss
-        </M.Item>
-    </>
-  );
+        </M.Item>,
+      ],
+    ];
+    return (
+      <>
+        {groups
+          .map((group) => group.filter(Boolean))
+          .filter((group) => group.length > 0)
+          .map((group, at) => (
+            <Fragment key={at}>
+              {at > 0 && <M.Separator className="my-1 h-px bg-black/10" />}
+              {group}
+            </Fragment>
+          ))}
+      </>
+    );
+  };
 
   return (
     // `gap-1.5` rather than `gap-2`: the row gained a mark at its head and an

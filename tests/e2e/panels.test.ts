@@ -1034,7 +1034,7 @@ test.describe('Panels', () => {
       // A Filter is never a place to file into, so it is not among the targets
       // the filing above went through. Nor is Work, which it is on already.
       await press(itemRow(page, chase).getByRole('button', { name: 'Item actions' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Add to…' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Also show on…' }), isMobile);
       const picker = page.getByRole('dialog');
       await expect(picker.getByRole('searchbox')).toBeVisible();
       await expect(picker.getByRole('button', { name: work, exact: true })).toHaveCount(0);

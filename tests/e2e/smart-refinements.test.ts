@@ -19,15 +19,15 @@ import { capture, expect, itemRow, openInbox, press, test, uniqueTitle } from '.
 const NO_KEY = 'Nothing was enriched: this environment has no ANTHROPIC_API_KEY';
 
 test.describe('Capture', () => {
-  test.describe('the window is reached as "Smart refinements…" from the Inbox menu and from an item menu, and is titled Smart refinements', () => {
+  test.describe("the window is reached as \"Cockpit's suggestions…\" from the Inbox menu and \"Cockpit's suggestions for this item…\" from an item menu, and is titled Cockpit's suggestions", () => {
     test('shows the same refinement scoped to the item, and again across the Inbox', async ({ page, isMobile }) => {
       await openInbox(page, isMobile);
       const title = uniqueTitle('call the plumber about the leak');
       await capture(page, title, isMobile);
 
       await press(itemRow(page, title).getByRole('button', { name: 'Item actions' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Smart refinements…' }), isMobile);
-      const itemDialog = page.getByRole('dialog', { name: 'Smart refinements' });
+      await press(page.getByRole('menuitem', { name: "Cockpit's suggestions for this item…" }), isMobile);
+      const itemDialog = page.getByRole('dialog', { name: "Cockpit's suggestions" });
       await expect(itemDialog).toBeVisible();
       await expect(itemDialog.getByText('How Cockpit refined this item, and when.')).toBeVisible();
       await expect(itemDialog.getByRole('cell', { name: 'When you captured it' })).toBeVisible();
@@ -41,8 +41,8 @@ test.describe('Capture', () => {
       // landmark, not inside it (Layout.tsx), so this is asked for on the
       // page rather than scoped to `inbox(page)`.
       await press(page.getByRole('button', { name: 'Actions for the Inbox' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Smart refinements…' }), isMobile);
-      const workspaceDialog = page.getByRole('dialog', { name: 'Smart refinements' });
+      await press(page.getByRole('menuitem', { name: "Cockpit's suggestions…" }), isMobile);
+      const workspaceDialog = page.getByRole('dialog', { name: "Cockpit's suggestions" });
       await expect(workspaceDialog).toBeVisible();
       await expect(workspaceDialog.getByText('How Cockpit refined the items in this Inbox, and when.')).toBeVisible();
       // Every visible item's refinements, with an Item column - the whole

@@ -6,7 +6,7 @@ import type { RewriteHistoryEntry } from '@cockpit/shared';
 import { SmartRefinementsWindow } from '../../../src/components/SmartRefinementsWindow';
 
 /**
- * F1: what the Smart refinements window draws from the rows it is handed
+ * F1: what the Cockpit's suggestions window draws from the rows it is handed
  * ("Rename Rewrite history to Smart refinements, and show each field's
  * change", issue 614). Which rows a refinement records, and what it records
  * in them, is apps/api/tests/integration/http/rewrite-history.test.ts against
@@ -66,7 +66,7 @@ async function openWith(entries: RewriteHistoryEntry[], { fromAnItem = true } = 
       />
     </QueryClientProvider>,
   );
-  const dialog = await screen.findByRole('dialog', { name: 'Smart refinements' });
+  const dialog = await screen.findByRole('dialog', { name: "Cockpit's suggestions" });
   if (entries.length > 0) await within(dialog).findByRole('table');
   return dialog;
 }
@@ -85,7 +85,7 @@ async function openTheRow(dialog: HTMLElement) {
     .map((term) => ({ field: term.textContent, says: term.nextElementSibling as HTMLElement }));
 }
 
-describe('Smart refinements', () => {
+describe("Cockpit's suggestions", () => {
   describe('closed, a row says when, why and what happened in one sentence, and only a row that changed something opens', () => {
     it.each([
       {
