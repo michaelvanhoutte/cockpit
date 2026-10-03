@@ -1,114 +1,66 @@
 ---
 name: harness-cost-review
-description: Cockpit's process for periodically checking whether a required CI check, agent review, or branch-protection gate is still earning its cost - sampling recent pull requests for how often each required check failed and then passed on the same commit and what tools/ci-stability says about its duration, and reading agent-review verdicts for warnings that fire without signal - then filing one issue per candidate for a person to decide. Never a report, and never on an impression without a sampled window behind it. Hands each candidate through scoping, engineering-plan and github-issue; never edits workflows, branch-protection, or review prompts itself.
+description: Cockpit's process for periodically checking whether the harness - CI, local reviews and the session's own waiting on them - is too slow or too expensive for the development it gates, and why - reading the lead-time, selection and CI stability models and pnpm cost:issue, applying one bar per cause (harness outweighing coding, unselective tests, slices too small, avoidable rounds, repeating failures, token cost, queue time, serial jobs, cancelled runs, setup overhead, a job grown slower), then filing one issue per cause for a person to decide. Never counts anything a tool already measures, never a report, and never on an impression without a sampled window behind it. Hands each candidate through scoping, engineering-plan and github-issue; never edits workflows, branch-protection, or review prompts itself.
 ---
 
-# Is the harness still earning its cost
+# Is the harness too heavy for the development
 
-A check that fails on good code now and then, or has quietly gotten slow, looks the same as a healthy gate from any one pull request, and only counted across many does the pattern show. This finds that pattern by counting, the same discipline [periodic-review](../periodic-review/SKILL.md) applies to recurring mistakes, and files one issue per candidate rather than a report.
+The harness is everything a change waits on after it is written: CI, the local reviews, and the tokens a session spends waiting and fixing. It is too heavy when it costs more than the development it gates, and each cause needs a different fix — so this names the cause, not only the symptom, and files one issue per cause for a person to decide. **It never removes or weakens a check itself**, and **a check that rarely fails is never a candidate**: it is guarding code that is rarely broken.
 
-**This never removes or weakens anything itself.** It files a candidate, with the evidence that produced it, for a person to decide — the harness stays exactly as strict until someone acts on the issue.
+**Tools measure; this skill reads and decides.** Every number below comes from a tool's model. Where a bar needs a number no tool has yet, the bar names the issue that adds it: skip that bar and say so, never count it by hand.
 
 ## Process
 
-### 1. Inventory the required checks
+### 1. Build the models
 
-```bash
-cat .github/branch-protection.json
-```
+| Model | Command | Gives |
+|---|---|---|
+| Lead time | `node tools/lead-time/src/cli.js --json --out <scratch>/lead.json` | per merged pull request: coding against harness (`balance`), rounds, red rounds, flukes, which check held each round, local reviews, size |
+| Selection | `node tools/selection/src/cli.js --json --out <scratch>/sel.json` | paths forcing a full run, tests selected on nearly every pull request, misses |
+| CI stability | `node tools/ci-stability/src/cli.js --json --days 30 --max-runs 2500 --out <scratch>/ci.json` | job durations on `main` per window |
+| Token cost | `pnpm cost:issue --since <window start> --json` | per issue: tokens, API-equivalent cost, subagents, review passes by level |
 
-Read `required_status_checks.contexts` — that list is the whole scope; nothing not on it is a candidate here, however slow or noisy. Cross-reference each context against `.github/workflows/*.yml` to find what produces it: a required context is a job's `name:` (or its job id, when the job declares none), not the workflow's own top-level `name:`. CodeQL held three of these contexts until "Decide whether CodeQL earns its run on every pull request push, or moves to main and a schedule" (issue 379) removed it from the pull-request gate entirely — it is out of scope here now, not because it was measured and kept, but because nothing on `main`-only and weekly triggers is a pull request cost this process samples.
+Each tool's README says what its figures count and leave out; read it before quoting a number from it. Check each model's `coverage.partial` and every window's `partial` first, and read a partial window by its `actualDays`. Selection downloads run artifacts and token cost reads Claude Code's own logs on the machine, so both run only on a developer's machine; elsewhere skip their bars and say so. "Publish each nightly report's model beside its page" (issue 670) will let all three CI models be read from the site instead.
 
-Split what's left into two kinds, because they need different evidence:
+### 2. Apply one bar per cause
 
-- **Mechanical** — Checks, Test, E2E (F3). Pass or fail should be a deterministic fact about the code. **Never count a low fail rate against one**: a check that rarely fails is guarding code that is rarely broken, and dropping it is what lets the next break through. Judge it only on what it costs without telling you anything: flakes and duration.
-- **Judgement** — a check whose pass or fail is a model's call. This repository has none on the runner since "Remove the remote code and security reviews", which left the judgement passes local; a required check of this kind can be "working" at a low hit rate the way a smoke detector is, so rarely firing is not by itself evidence of nothing to fire on.
+Read the 14-day window unless a bar says otherwise. A bar needs at least 20 merged pull requests in its window, or the count it names. These thresholds are starting values: when one fires on noise or misses a real cause, change it here.
 
-### 2. Sample the pull requests both tracks read from
+| Cause | Bar | Read from |
+|---|---|---|
+| **Harness outweighs coding** | `balance.ratio.median` > 1, or more than half the `balance.dots` above 1, over ≥ 20 recorded pull requests | lead time |
+| **Not selective enough** | one `forcedFull` rule or path forces a full run on ≥ 25% of the pull requests that ran; or a test file selected on ≥ 80% of the pull requests that could have skipped it, over ≥ 10 | selection |
+| **Slices too small** | pull requests under 100 lines changed (`size.additions + size.deletions`) with a median `balance.ratio` ≥ 2, over ≥ 8 of them: the fixed cost of a round outweighs the change | lead time |
+| **Avoidable rounds** | `rounds.perPull.median` ≥ 2; or red rounds whose `failed` includes `Checks` (lint, typecheck, build — all runnable before a push) on ≥ 10% of rounds | lead time |
+| **Repeating failures** | a check with flukes on ≥ 3 pull requests and ≥ 5% of its rounds; or one test file failing on ≥ 3 pull requests, once "Name the failing tests and step behind every red and fluke round in the lead-time model" (issue 666) lands | lead time |
+| **Token cost** | an issue costing ≥ 3× the window's median cost per 100 lines changed, where ≥ 2 such issues share a cause; a `/code-review` or `/security-review` level above what CLAUDE.md's review table gives the change, on ≥ 2 issues; subagents ≥ 50% of an issue's cost on ≥ 2 issues; or cost after `pushed` ≥ 40% of an issue's total on ≥ 2 issues, once "Split an issue's token cost by session phase in pnpm cost:issue" (issue 669) lands | token cost, joined to lead time by the pull request that closes the issue |
+| **Queue time** | median queue time ≥ 2 minutes for any required check, once "Split queue time from run time, and count cancelled runs, in the lead-time model" (issue 667) lands | lead time |
+| **Serial jobs** | a job that others `needs:` in `.github/workflows/ci.yml` takes ≥ 25% of the critical path: its median plus the slowest median of the jobs waiting on it | CI stability, 7-day window |
+| **Cancelled runs** | cancelled runner minutes ≥ 10% of all harness minutes, once issue 667 lands | lead time |
+| **Setup overhead** | setup steps (install, browser install, build) ≥ 25% of a job's median, once "Report step durations per job in the CI stability model" (issue 668) lands | CI stability |
+| **A job grown slower** | a required job's 7-day median ≥ 50% above its 30-day median and ≥ 3 minutes, both windows non-partial with ≥ 20 runs. Median, not p90: the 7-day window is inside the 30-day one, so a regression lifts the 30-day p90 to match within days and the ratio reads flat | CI stability |
 
-Both tracks below read off the same sample, so pull it once:
+For a cause that clears its bar, note the numbers, the window, the counts behind them and the pull requests or issues they came from. Where several causes clear on the same pull requests, say which explains the most: small slices and avoidable rounds both inflate the balance, and fixing the wrong one changes nothing.
 
-```bash
-gh pr list --state merged --search "sort:created-desc" --json number,title,url,mergedAt,additions,deletions,changedFiles,commits -L 100 \
-  | jq 'sort_by(.mergedAt) | reverse | .[:25]'
-```
+**Optional review nits that start a push** have no model. Where avoidable rounds clear, read the review threads of the pull requests with the most rounds (`gh api repos/<owner>/<repo>/pulls/<n>/comments`) and count rounds pushed only for a finding the review marked optional.
 
-`--search` sorts by creation, not merge, and GitHub's PR search has no qualifier that sorts by merge date — the same reason [periodic-review](../periodic-review/SKILL.md) step 2 fetches a larger creation-sorted slice and re-sorts it before sampling, which this pipes through `jq` to do in one step. 25 is the sample size "Fail on the writing rules a script can decide, instead of finding them in review" (issue 278) itself drew from; each pull request in it usually carries several commits, so step 3's check-run tally — which nothing skips for a draft or a fork, unlike the judgement checks — comfortably clears step 6's 20-commit floor. The re-sort is by `mergedAt`, not creation: a pull request opened early and merged late is the kind with the most pushed commits and the most review to read.
-
-**Read every commit pushed to each sampled pull request, not only its head**: a flake is re-run to green before the next push, so it lives on the earlier commits as often as on the head. Pass `filter=all`, because the default listing returns only the latest run per name and hides the failure the re-run replaced:
-
-```bash
-gh api "repos/<owner>/<repo>/commits/<sha>/check-runs?per_page=100&filter=all" --jq '.check_runs[] | {name, conclusion, started_at, completed_at}'
-```
-
-Run it for every commit `oid` in each sampled pull request's `commits` list. A commit can carry more than one check-run under the same name — a superseded rerun shows as `skipped` then a real conclusion, a flaky one as `failure` then `success` — so read every row, not only the last.
-
-For the judgement checks, also pull the review content with the same GraphQL query [periodic-review](../periodic-review/SKILL.md) step 2 uses, extended with the `author` field this skill needs to tell the gate's own comment apart from a human quoting the same text:
-
-```bash
-gh api graphql -f query='
-  query($owner:String!,$repo:String!,$number:Int!){
-    repository(owner:$owner,name:$repo){
-      pullRequest(number:$number){
-        reviewThreads(first:100){ nodes{ comments(first:20){ nodes{ body path author{ login } } } } }
-        comments(first:100){ nodes{ body author{ login } } }
-        reviews(first:20){ nodes{ body author{ login } } }
-      }
-    }
-  }' -F owner=<owner> -F repo=<repo> -F number=<n>
-```
-
-### 3. Tally each mechanical check's flakes
-
-From step 2's check-run rows, classify each one the way `tools/ci-stability` itself does (`src/model.js`'s `CONCLUSIONS` map): `success` is a pass, `failure`/`timed_out`/`startup_failure` is a fail, and `skipped`/`cancelled` are not an attempt at all — a superseded rerun is not evidence either way. Per required context, count the commits it ran on and, of those, the commits where it both failed and passed — a flake, since the code under it did not change. A fail that a later commit fixed is the check working, and counts for nothing here.
-
-### 4. Pull duration for the mechanical checks from ci-stability
-
-```bash
-pnpm --filter @cockpit/ci-stability model -- --days 30 --max-runs 2500 --out /tmp/harness-cost-model.json
-```
-
-Raise `--max-runs` past its default of 800: measured against this repository on 10 September 2026, the default budget stopped barely 12 days back, well short of the requested 30 — merge volume alone outruns it. Check `coverage.partial` and each `windows[].partial` in the written model before reading a number out of it; a partial window's own `actualDays` is what it actually covers, not what was asked for. Raise `--max-runs` only as far as clearing 30 days needs: fetching job detail costs one request per non-skipped run, and an authenticated token is capped at 1,000 requests an hour per repository (`tools/ci-stability/src/github.js`'s own header comment) — a budget large enough for 90 days would spend that allowance before finishing.
-
-The model's `windows[].workflows[].jobs[].durations` gives `median`/`p90` in milliseconds per job, over the runs `main` actually saw — read `tools/ci-stability/README.md`'s "What the numbers mean" for what it does and doesn't count (cancelled runs excluded). This is duration only: step 3 is where a check's flake count comes from, not this model's own `tally.rate`, which reads `main` alone and so never sees a pull request's re-runs.
-
-### 5. Sample the judgement checks for warnings that carry no signal
-
-Pass/fail is the wrong instrument here — a low hit rate can be correct. What "Make the security review's warnings mean something, or drop them" (PR 323) found instead was a *sub-signal inside a passing check* that fired on almost every run regardless of what the run was: 7 of 8 sampled pull requests carried a turn-count warning under a clean verdict, with the turn count itself (4–9) uncorrelated with diff size — a 448-line, 5-file change took 4 turns, a 556-line, 25-file one took 9. That is what this step looks for again, generalized past that one warning, over step 2's GraphQL pull.
-
-From each sampled pull request, keep only the comments and review bodies whose `author.login` is the check's own bot — a human quoting the same warning back is not a second occurrence of it. Match the login by prefix: GraphQL's `author.login` omits the `[bot]` suffix REST appends, so a literal comparison against either spelling misses half the rows. Tabulate every distinct warning or recurring finding-type against the sampled pull requests' `additions`/`deletions`/`changedFiles` and the verdict it appeared under.
-
-A turn count, a token or cost figure, and any other run-level number are not in that comment — they were dropped from it by PR 323 for exactly this reason — so a candidate that needs one falls back to the run log: `gh run view <run-id> --log --job <job-id>`, the same way PR 323 pulled real denial text from two runs by hand. Treat that as a deeper, optional step, not the default path.
-
-**A warning is a candidate only if it fires on at least three-quarters of a sample of at least eight runs, under a verdict that didn't block, with no visible correlation to the size or shape of the change.** That is the 7-of-8 bar PR 323 itself cleared, stated as a threshold rather than a one-off count.
-
-### 6. Flag only what clears its bar
-
-- **Mechanical, flaky**: step 3's tally shows the check ran on ≥ 20 commits and flaked on at least 3 of them and at least 5%. Note the flake count, the commit count, the pull requests the flakes were on, and the sample it came from. The candidate is to make the check reliable, not to drop it.
-- **Mechanical, grown expensive**: `durations.median` at least 50% higher in the 7-day window than the 30-day window (step 4), both non-partial with ≥ 20 completed runs, and the 7-day median itself at least 3 minutes — a job that doubled from 10 seconds to 20 is not a finding. Median, not p90, decides this: the 7-day window is a subset of the 30-day one, so a regression only needs to fill about a tenth of the 30-day window before its p90 already equals the 7-day figure, making the ratio read 1.0 for a real, ongoing doubling once it is a few days old. A regression has to fill more than half the 30-day window before doing the same thing to the median, which is why the median survives as a signal for far longer — p90 is still worth reporting alongside it, but only as a second number, not what the bar is read from. Skip this bar entirely for a check where either window came back partial (step 4) rather than filing a trend off a window that doesn't actually cover what it claims to.
-- **Judgement, signal-free warning**: the step-5 bar. Note the fraction, the sample, and what was checked for correlation and found none.
-
-A check can clear more than one bar; file it once, noting every bar it cleared.
-
-### 7. Check it isn't already tracked
+### 3. Check it isn't already tracked
 
 ```bash
 gh label create harness-cost-review --color 5319e7 --force
 gh issue list --label harness-cost-review --state all --json number,title,body,state -L 100
 ```
 
-Matching on body, not title, for the same reason [periodic-review](../periodic-review/SKILL.md) step 4 does. `--state all`, not just `open`: an open one is unfixed and still clearing the bar for that reason alone, exactly as periodic-review reads it — but a *closed* `harness-cost-review` issue is not evidence the mistake stopped recurring the way a closed `periodic-review` issue is, because closing this kind of issue often means a person read the evidence and decided the check is worth its cost exactly as it stands, not that anything about the check changed. Its rate or duration doesn't move just because the issue did. Skip filing against either state unless the fresh numbers have moved meaningfully past what the earlier issue recorded — the same order of movement step 6's own bars already ask for, applied against that issue's numbers instead of an absolute floor — and when they have, name in the new issue what the earlier one decided and what changed since.
+Match on the body, not the title, as [periodic-review](../periodic-review/SKILL.md) does. A closed issue often means a person read the evidence and kept the harness as it was, so skip a cause tracked in either state unless its numbers have moved past what that issue recorded by as much as its bar asks; when they have, name what the earlier issue decided and what changed since.
 
-### 8. Size and file each candidate
+### 4. File one issue per cause
 
-Each candidate is already one unit for [engineering-plan](../engineering-plan/SKILL.md)'s sizing step. Technical design: "No design needed"; failure modes: none — the fix this issue asks for is a person making a check reliable, narrowing it, or speeding it up, not a state change this skill makes. A statement list is rarely the right shape for a decision like "is this check worth its cost"; where engineering-plan's own step would produce "None," say that.
-
-Hand it to [github-issue](../github-issue/SKILL.md) for the body. **Problem** and **What to build** carry the evidence — the check's name, which bar it cleared, the numbers, the window and sample size — and name it as a candidate to make reliable, narrow, or speed up, not a decision already made: the person who reads it still chooses whether the cost is worth it. Apply the `harness-cost-review` label after filing.
+Each cause is one unit for [engineering-plan](../engineering-plan/SKILL.md)'s sizing. Hand it to [github-issue](../github-issue/SKILL.md): **Problem** carries the cause, the bar it cleared and the numbers with their counts; **What to build** names the candidate fixes for that cause — a narrower selection rule, bigger slices, a pre-push step, a robust test, caching, a parallel job — as candidates, not a decision. Apply the `harness-cost-review` label after filing.
 
 ## Output
 
-Filed issues, one per required check that cleared a bar in step 6 and wasn't already tracked, each carrying the numbers that produced it.
+Filed issues, one per cause that cleared its bar and was not already tracked, each carrying the numbers behind it — and a line naming the bars skipped and why.
 
 ## Cadence
 
-Run this monthly, or after a required check is added or changed enough to want a fresh baseline — not on a schedule as tight as periodic-review's few weeks. The evidence here is a flake rate and a duration trend, and both move slowly: neither shifts much week to week, so running this weekly would mostly re-read the same sample and find nothing new. A scheduled cloud agent set up through the `schedule` skill, or a repository cron added with `CronCreate`, fits better than a per-push or per-merge trigger, since nothing about a single pull request should make this run.
+Monthly, or after the harness changes enough to want a fresh baseline. Balance, selection and cost move slowly, so a weekly run mostly re-reads the same pull requests.
