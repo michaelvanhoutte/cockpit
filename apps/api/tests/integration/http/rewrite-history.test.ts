@@ -244,7 +244,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('Smart refinements', () => {
+describe("Cockpit's suggestions", () => {
   describe('an attempt is recorded from the moment it is queued through to its outcome', () => {
     it('is Pending the moment it is queued, before the job has run', async () => {
       env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';

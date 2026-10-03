@@ -245,7 +245,7 @@ test.describe('Selection', () => {
       // meant to be pressed anyway.
       if (isMobile) await menu.tap({ force: true });
       else await menu.click({ force: true });
-      await expect(page.getByRole('menuitem', { name: 'Mark done' })).toHaveCount(0);
+      await expect(page.getByRole('menuitem', { name: /^Status/ })).toHaveCount(0);
     });
   });
 });

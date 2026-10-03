@@ -58,12 +58,14 @@ test.describe('Triage', () => {
       await capture(page, thought, isMobile);
 
       await press(itemRow(page, thought).getByRole('button', { name: 'Item actions' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Mark In progress' }), isMobile);
+      await press(page.getByRole('menuitem', { name: /^Status/ }), isMobile);
+      await press(page.getByRole('menuitemradio', { name: 'In progress' }), isMobile);
 
       await expect(itemRow(page, thought).getByText('In progress')).toBeVisible();
 
       await press(itemRow(page, thought).getByRole('button', { name: 'Item actions' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Back to To do' }), isMobile);
+      await press(page.getByRole('menuitem', { name: /^Status/ }), isMobile);
+      await press(page.getByRole('menuitemradio', { name: 'To do' }), isMobile);
 
       await expect(itemRow(page, thought).getByText('In progress')).toHaveCount(0);
     });
