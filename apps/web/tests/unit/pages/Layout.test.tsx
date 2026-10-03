@@ -504,10 +504,15 @@ describe('Agents', () => {
 
       await user.click(screen.getByRole('button', { name: 'Hide the agents’ dock' }));
       expect(dock()).toBeNull();
+      // The control that was pressed is gone; the focus lands on its stand-in.
+      await waitFor(() => expect(strip()).toHaveFocus());
       await user.click(strip()!);
 
       expect(await screen.findByRole('toolbar', { name: 'Agents' })).toBeInTheDocument();
       expect(strip()).toBeNull();
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Hide the agents’ dock' })).toHaveFocus(),
+      );
     });
 
     it('toggles on A, either way', async () => {

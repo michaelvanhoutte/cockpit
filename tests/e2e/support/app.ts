@@ -351,7 +351,7 @@ export function workspaceTab(page: Page, name: string): Locator {
 
 /**
  * The open workspace's "…" at the right of the header, whose foot holds the
- * account's own entries (Manage types, the agents' dock). Not there below
+ * account's own entry (Manage types). Not there below
  * `sm`, so a walk that needs it is the pointer's.
  */
 export function workspaceMenuButton(page: Page): Locator {

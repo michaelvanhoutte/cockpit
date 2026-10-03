@@ -47,6 +47,7 @@ export function AgentDock({
   agentRuns = [],
   claudeCodeFailing = null,
   onHide,
+  focusHideControl = false,
 }: {
   /** The chrome it sits in - a Workspace's own header colour, the same paint `<header>` wears (`pages/Layout.tsx`), so the dock reads as part of the shell rather than a plain panel dropped onto the page. */
   /** This Dashboard's own Workspace - what a hide or show is scoped to. */
@@ -61,6 +62,8 @@ export function AgentDock({
   claudeCodeFailing?: string | null;
   /** Puts the dock away; the shell then draws a strip in its place that brings it back. */
   onHide?: () => void;
+  /** Takes the focus on mount, for a dock brought back by pressing the strip that stood where its hide control is. */
+  focusHideControl?: boolean;
 }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -263,6 +266,7 @@ export function AgentDock({
           {onHide && (
             <button
               type="button"
+              autoFocus={focusHideControl}
               onClick={onHide}
               aria-label="Hide the agents’ dock"
               title="Hide the agents’ dock (A)"

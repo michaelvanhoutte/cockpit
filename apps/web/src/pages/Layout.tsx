@@ -236,6 +236,24 @@ function TheShell() {
   }, []);
   const agentDockHiddenRef = useRef(agentDockHidden);
   agentDockHiddenRef.current = agentDockHidden;
+  // Where the focus goes when the dock's own control or strip is pressed: the
+  // pressed element unmounts, and focus would otherwise fall to the page.
+  const dockFocusNext = useRef<'strip' | 'dock' | null>(null);
+  const dockStrip = useRef<HTMLButtonElement>(null);
+  const dockStripShown = Boolean(
+    params.workspaceId && params.dashboardId && roomForTheInbox && agentDockHidden,
+  );
+  useEffect(() => {
+    if (!dockStripShown || !dockStrip.current) return;
+    if (dockFocusNext.current === 'strip') dockStrip.current.focus();
+    // The dock publishes `--dock-h` so the undo offer clears it; the strip
+    // stands in the same spot and must clear it too.
+    const root = document.documentElement;
+    root.style.setProperty('--dock-h', `${dockStrip.current.offsetHeight}px`);
+    return () => {
+      root.style.removeProperty('--dock-h');
+    };
+  }, [dockStripShown]);
   useEffect(() => {
     if (!roomForTheInbox || !inWorkspace) return;
     const onKey = (event: KeyboardEvent) => {
@@ -251,7 +269,10 @@ function TheShell() {
         },
         somethingIsOpenOverThePage(),
       );
-      if (toggles) hideAgentDock(!agentDockHiddenRef.current);
+      if (toggles) {
+        dockFocusNext.current = null;
+        hideAgentDock(!agentDockHiddenRef.current);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -1141,12 +1162,16 @@ function TheShell() {
           Workspace, since hiding one is scoped to it; hidden on a phone,
           where there is no drag, the same room `roomForTheInbox` answers for
           the Inbox column - a desk-sized screen either way. */}
-      {params.workspaceId && params.dashboardId && roomForTheInbox && agentDockHidden && (
+      {dockStripShown && (
         // A hidden dock leaves a strip where its hide control was, which
         // brings it back: nothing else on screen does.
         <button
           type="button"
-          onClick={() => hideAgentDock(false)}
+          ref={dockStrip}
+          onClick={() => {
+            dockFocusNext.current = 'dock';
+            hideAgentDock(false);
+          }}
           aria-label="Show the agents’ dock"
           title="Show the agents’ dock (A)"
           className="graphite flex shrink-0 items-center gap-2 py-2 text-xs font-semibold uppercase tracking-[0.11em] text-chrome-ink-faint hover:text-chrome-ink"
@@ -1161,7 +1186,11 @@ function TheShell() {
         // makes for its own chunk.
         <Suspense fallback={null}>
           <AgentDock
-            onHide={() => hideAgentDock(true)}
+            onHide={() => {
+              dockFocusNext.current = 'strip';
+              hideAgentDock(true);
+            }}
+            focusHideControl={dockFocusNext.current === 'dock'}
             workspaceId={params.workspaceId}
             dashboardId={params.dashboardId}
             agents={workspace.data?.agents ?? []}
