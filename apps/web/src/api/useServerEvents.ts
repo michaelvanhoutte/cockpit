@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { ACCOUNT_WIDE, serverEventSchema } from '@cockpit/shared';
 import type { ServerEvent, WorkspaceSnapshot } from '@cockpit/shared';
+import { RECONNECTED } from '../updating';
 import { diagnoseConnection } from './loadFailure';
 
 /**
@@ -41,14 +42,23 @@ export function useServerEvents() {
     let retry: ReturnType<typeof setTimeout> | undefined;
     let wait = FIRST_WAIT_MS;
     let unmounted = false;
+    let streamsMade = 0;
 
     const listen = () => {
       const stream = new EventSource('/v1/events');
       source = stream;
+      // Whichever way it comes up again - the browser retrying this stream, or
+      // a replacement made after it gave up - is a reconnect.
+      const replacement = streamsMade++ > 0;
+      let wasUp = false;
 
       stream.addEventListener('open', () => {
         // Back to square one, so a later failure waits the short time again.
         wait = FIRST_WAIT_MS;
+        // Up again after a drop: a deploy drops every open stream, so this is
+        // how a tab learns a new version may be out (updating.ts, RECONNECTED).
+        if (wasUp || replacement) globalThis.dispatchEvent(new Event(RECONNECTED));
+        wasUp = true;
       });
 
       stream.addEventListener('change', (message) => {

@@ -31,7 +31,12 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // `prompt`, not `autoUpdate`: a new worker installs and waits, and only
+      // the page's click messages it to activate (src/updating.ts). Under
+      // `autoUpdate` it skips waiting and claims every open page, deleting the
+      // precache a live page still asks for. Registration stays the plugin's
+      // own `registerSW.js`; the page asks the registration for what waits.
+      registerType: 'prompt',
       // `crossorigin="use-credentials"` on <link rel="manifest">, which is
       // **inert today and kept as a trap marker**. Static assets are served
       // before the Worker (`run_worker_first` in apps/api/wrangler.jsonc), so
@@ -47,7 +52,8 @@ export default defineConfig({
       // sit here. Removing this line would put that back.
       useCredentials: true,
       // The service worker serves the cached app shell so cold open makes
-      // zero blocking network requests (architecture, "The read model"); API
+      // no blocking network request beyond the bounded new-version check
+      // (architecture, "The read model", "Performance budgets"); API
       // calls are never intercepted — the persisted snapshot lives in IndexedDB.
       workbox: {
         navigateFallback: '/index.html',

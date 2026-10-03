@@ -3,6 +3,7 @@ import { render } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useServerEvents } from '../../../src/api/useServerEvents';
 import { diagnoseConnection } from '../../../src/api/loadFailure';
+import { RECONNECTED } from '../../../src/updating';
 
 /**
  * F1: reconnection is timing and branching, and both ends are replaced — jsdom
@@ -115,6 +116,42 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe('Updating', () => {
+  describe('a stream coming back up is the signal that a new version may be out', () => {
+    function listenForReconnects() {
+      const heard = vi.fn();
+      globalThis.addEventListener(RECONNECTED, heard);
+      return { heard, stop: () => globalThis.removeEventListener(RECONNECTED, heard) };
+    }
+
+    it('says so when the browser retries a dropped stream and it comes up again', () => {
+      const { heard, stop } = listenForReconnects();
+      open();
+      const stream = FakeStream.made.at(-1)!;
+
+      stream.comesUp();
+      expect(heard).not.toHaveBeenCalled();
+      stream.droppedAndRetrying();
+      stream.comesUp();
+
+      expect(heard).toHaveBeenCalledTimes(1);
+      stop();
+    });
+
+    it('says so when a replacement made after a refusal comes up', async () => {
+      const { heard, stop } = listenForReconnects();
+      open();
+      await refuseTheConnection();
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      FakeStream.made.at(-1)!.comesUp();
+
+      expect(heard).toHaveBeenCalledTimes(1);
+      stop();
+    });
+  });
 });
 
 describe('Offline', () => {
