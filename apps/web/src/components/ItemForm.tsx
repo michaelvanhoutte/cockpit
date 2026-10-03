@@ -17,15 +17,17 @@ import {
   connectorNamed,
   itemHasOpenReadings,
   itemLabel,
+  itemStatus,
   prioritySchema,
   uuidv7,
   type Attachment,
   type Item,
   type ItemFormPresentation,
+  type ItemStatus,
   type Priority,
 } from '@cockpit/shared';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../api/client';
-import { snapshotQuery, useSendCommand, type CommandArgs } from '../api/queries';
+import { snapshotQuery, useSendCommand } from '../api/queries';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { DescriptionBox } from './DescriptionBox';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
@@ -38,9 +40,10 @@ import {
   FIELDS,
   FIELD_NAMES,
   asStored,
-  fieldCommand,
+  fieldWrites,
   type Draft,
   type Field,
+  type StatusState,
 } from '../itemFieldCommands';
 import {
   useItemForm,
@@ -73,6 +76,10 @@ const DESCRIPTION_LIMIT = 60_000;
 export const DUE_DATE_SETTLES_MS = 600;
 
 const CHANGED_ELSEWHERE = 'That item changed somewhere else. Copy what you want to keep and reopen it.';
+
+/** What a field's box and its baseline hold once its write has landed: the value, or - for the status - the item's own two times. */
+const landedAs = (field: Field, drafted: Draft[Field], held: StatusState | null): Partial<Draft> =>
+  held ?? { [field]: drafted };
 
 /** Whether a paste landing here is a text box's to handle rather than the form's. */
 function isATextBox(target: EventTarget | null): boolean {
@@ -116,7 +123,7 @@ export function whatChanged(
   priority?: Priority | null;
   dueDate?: string | null;
   typeId?: string | null;
-  done?: boolean;
+  status?: ItemStatus;
 } {
   const changed: {
     title?: string;
@@ -124,7 +131,7 @@ export function whatChanged(
     priority?: Priority | null;
     dueDate?: string | null;
     typeId?: string | null;
-    done?: boolean;
+    status?: ItemStatus;
   } = {};
   const title = now.title.trim();
   const description = now.description.trim();
@@ -137,7 +144,8 @@ export function whatChanged(
   if (now.dueDate !== was.dueDate) changed.dueDate = now.dueDate;
   // An id from the list the form offers, or the none it opened on - not text either.
   if (now.typeId !== was.typeId) changed.typeId = now.typeId;
-  if (now.done !== was.done) changed.done = now.done;
+  // Compared as the status chosen, never the start time it may keep.
+  if (now.status !== was.status) changed.status = now.status;
   return changed;
 }
 
@@ -849,7 +857,8 @@ function TheForm({
         dueDate: item.dueDate,
         // A type since deleted reads as none, the way the row draws it.
         typeId: typeOf(data?.itemTypes ?? [], item)?.id ?? null,
-        done: !!item.completedAt,
+        status: itemStatus(item),
+        started: !!item.startedAt,
       };
       changeEditing(() => ({ was: from, now: { ...from } }));
     }
@@ -888,17 +897,53 @@ function TheForm({
       : undefined);
   const tooLong = overCap !== undefined;
 
+  const envelope = () => ({
+    commandId: uuidv7(),
+    issuedAt: new Date().toISOString(),
+    workspaceId,
+    itemId,
+  });
+
+  /**
+   * One field's change, or - for a status moving between To do, In progress and
+   * Done - the two the row's own rules can make it, one after the other.
+   *
+   * **A refusal is returned, not thrown, with what the item holds.** A status
+   * change from Done can land its first command and not its second, leaving the
+   * item no longer Done and not yet what was chosen; the caller puts the box
+   * and its baseline on `held` so the form shows the status the item has.
+   */
+  const writeField = async (
+    field: Field,
+    value: ReturnType<typeof asStored>,
+    from: Draft,
+  ): Promise<{ failure: string | null; held: StatusState | null }> => {
+    let held: StatusState | null = null;
+    for (const write of fieldWrites(field, envelope, value, from)) {
+      let failure: string | null = null;
+      try {
+        if (!(await send(write.command)).applied) failure = CHANGED_ELSEWHERE;
+      } catch (error) {
+        failure = error instanceof Error ? error.message : 'That could not be saved';
+      }
+      if (failure !== null) {
+        return field === 'status'
+          ? {
+              failure: `The status change failed. ${failure}`,
+              held: held ?? { status: from.status, started: from.started },
+            }
+          : { failure, held: null };
+      }
+      held = write.held;
+    }
+    return { failure: null, held };
+  };
+
   const save = async () => {
     if (!item || !editing || tooLong) return;
     const changed = changing;
     setSaving(true);
     setRefusal(null);
-    const envelope = () => ({
-      commandId: uuidv7(),
-      issuedAt: new Date().toISOString(),
-      workspaceId,
-      itemId,
-    });
     /**
      * Each text as it lands, and the baseline moved with it.
      *
@@ -915,26 +960,27 @@ function TheForm({
      * a 200 (`isStale`), so a form that took "it did not throw" for "it saved"
      * would close on it and take what was typed with it.
      */
-    const landed = async (
-      what: Field,
-      change: CommandArgs,
-    ): Promise<boolean> => {
-      const answer = await send(change);
-      if (!answer.applied) return false;
-      changeEditing((held) =>
-        held ? { ...held, was: { ...held.was, [what]: editing.now[what] } } : held,
+    const landed = async (what: Field, value: ReturnType<typeof asStored>): Promise<boolean> => {
+      const { failure, held } = await writeField(what, value, editingRef.current!.was);
+      const settled = failure === null ? landedAs(what, editing.now[what], held) : (held ?? {});
+      changeEditing((now) =>
+        now
+          ? {
+              // A status that did not all land shows what the item holds, not what was chosen.
+              now: failure === null ? now.now : { ...now.now, ...held },
+              was: { ...now.was, ...settled },
+            }
+          : now,
       );
-      return true;
+      if (failure !== null) setRefusal(failure);
+      return failure === null;
     };
 
     try {
       for (const field of FIELDS) {
         const value = changed[field];
         if (value === undefined) continue;
-        if (!(await landed(field, fieldCommand(field, envelope(), value)))) {
-          setRefusal(CHANGED_ELSEWHERE);
-          return;
-        }
+        if (!(await landed(field, value))) return;
       }
       onClose();
     } catch (failure) {
@@ -1003,13 +1049,8 @@ function TheForm({
       }
       const pending = fields.filter((field) => changed[field] !== undefined);
       if (pending.length === 0) return;
-      const envelope = () => ({
-        commandId: uuidv7(),
-        issuedAt: new Date().toISOString(),
-        workspaceId,
-        itemId,
-      });
-      const committed: { field: Field; before: Draft[Field] }[] = [];
+      /** `after` is what the box and baseline hold once it landed, which an undo starts from. */
+      const committed: { field: Field; before: Draft[Field]; after: Partial<Draft> }[] = [];
       let stopped: string | null = null;
       try {
         for (const field of pending) {
@@ -1022,23 +1063,33 @@ function TheForm({
           ) {
             continue;
           }
-          const answer = await send(fieldCommand(field, envelope(), value));
-          if (!answer.applied) {
-            stopped = CHANGED_ELSEWHERE;
+          const { failure, held: reached } = await writeField(field, value, editingRef.current!.was);
+          if (failure !== null) {
+            // A status that did not all land shows what the item holds.
+            if (reached) {
+              changeEditing((now) =>
+                now ? { was: { ...now.was, ...reached }, now: { ...now.now, ...reached } } : now,
+              );
+            }
+            stopped = failure;
             break;
           }
-          committed.push({ field, before: held.was[field] });
+          const after = landedAs(field, held.now[field], reached);
+          committed.push({ field, before: held.was[field], after });
           unwritten.current.delete(field);
-          changeEditing((now) =>
-            now ? { ...now, was: { ...now.was, [field]: held.now[field] } } : now,
-          );
+          changeEditing((now) => (now ? { ...now, was: { ...now.was, ...after } } : now));
         }
       } catch (failure) {
         stopped = failure instanceof Error ? failure.message : 'That could not be saved';
       }
       if (stopped !== null) {
+        // What the box already shows as the item holds is not left unwritten.
+        const now = editingRef.current;
+        const stillDiffers = now ? whatChanged(now.was, now.now) : {};
         for (const field of pending) {
-          if (!committed.some((done) => done.field === field)) unwritten.current.add(field);
+          if (!committed.some((done) => done.field === field) && stillDiffers[field] !== undefined) {
+            unwritten.current.add(field);
+          }
         }
         setRefusal(stopped);
       } else if (unwritten.current.size === 0) {
@@ -1057,17 +1108,21 @@ function TheForm({
         undo: () => {
           undoneCount.current += 1;
           const run = inTurn.current.then(async () => {
-            for (const { field, before } of [...undoable].reverse()) {
+            for (const { field, before, after } of [...undoable].reverse()) {
               const back = asStored({ ...held.now, [field]: before }, field);
-              const answer = await send(fieldCommand(field, envelope(), back));
-              if (!answer.applied) throw new Error(CHANGED_ELSEWHERE);
+              const { failure, held: reached } = await writeField(field, back, { ...held.now, ...after });
+              if (failure !== null) {
+                if (reached) {
+                  changeEditing((now) =>
+                    now ? { was: { ...now.was, ...reached }, now: { ...now.now, ...reached } } : now,
+                  );
+                }
+                throw new Error(failure);
+              }
+              // The status goes back with the start time it had, not only its name.
+              const put = landedAs(field, before, reached);
               changeEditing((now) =>
-                now
-                  ? {
-                      was: { ...now.was, [field]: before },
-                      now: { ...now.now, [field]: before },
-                    }
-                  : now,
+                now ? { was: { ...now.was, ...put }, now: { ...now.now, ...put } } : now,
               );
               // The editor owns its document once made, so a description put
               // back from outside needs it rebuilt (`readingPicked`).
@@ -1592,14 +1647,15 @@ function TheForm({
                           Status
                           <select
                             disabled={saving}
-                            value={draft.done ? 'done' : 'open'}
+                            value={draft.status}
                             onChange={(e) => {
-                              setDraft({ ...draft, done: e.target.value === 'done' });
-                              if (docked) void commitFields(['done']);
+                              setDraft({ ...draft, status: e.target.value as ItemStatus });
+                              if (docked) void commitFields(['status']);
                             }}
                             className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
                           >
-                            <option value="open">To deal with</option>
+                            <option value="to_do">To do</option>
+                            <option value="in_progress">In progress</option>
                             <option value="done">Done</option>
                           </select>
                         </label>

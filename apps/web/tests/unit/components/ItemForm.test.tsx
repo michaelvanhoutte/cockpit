@@ -303,104 +303,109 @@ describe('Item editing', () => {
     it.each([
       {
         situation: 'the title edited and nothing else',
-        draft: { title: 'Part 12', description: '', priority: null, dueDate: null, typeId: null, done: false },
+        draft: { title: 'Part 12', description: '', priority: null, dueDate: null, typeId: null, status: 'to_do' as const, started: false },
         asks: { title: 'Part 12' },
       },
       {
         situation: 'the description written and nothing else',
-        draft: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, typeId: null, done: false },
+        draft: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, typeId: null, status: 'to_do' as const, started: false },
         asks: { description: 'Tolerances' },
       },
       {
         situation: 'both',
-        draft: { title: 'Part 12', description: 'Tolerances', priority: null, dueDate: null, typeId: null, done: false },
+        draft: { title: 'Part 12', description: 'Tolerances', priority: null, dueDate: null, typeId: null, status: 'to_do' as const, started: false },
         asks: { title: 'Part 12', description: 'Tolerances' },
       },
       {
         situation: 'neither',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, done: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, status: 'to_do' as const, started: false },
         asks: {},
       },
       // Adding a space to the end of a title is not a change to the title: the
       // space would not be stored either.
       {
         situation: 'a title with a space added to the end',
-        draft: { title: 'Part 11 ', description: '', priority: null, dueDate: null, typeId: null, done: false },
+        draft: { title: 'Part 11 ', description: '', priority: null, dueDate: null, typeId: null, status: 'to_do' as const, started: false },
         asks: {},
       },
       // Emptied is cleared, and there is no third state to send.
       {
         situation: 'a description emptied',
-        stored: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, typeId: null, done: false },
-        draft: { title: 'Part 11', description: '   ', priority: null, dueDate: null, typeId: null, done: false },
+        stored: { title: 'Part 11', description: 'Tolerances', priority: null, dueDate: null, typeId: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '   ', priority: null, dueDate: null, typeId: null, status: 'to_do' as const, started: false },
         asks: { description: null },
       },
       {
         situation: 'a description that was never there and is still empty',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, done: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, status: 'to_do' as const, started: false },
         asks: {},
       },
       {
         situation: 'the priority changed and nothing else',
-        draft: { title: 'Part 11', description: '', priority: 'high' as const, dueDate: null, typeId: null, done: false },
+        draft: { title: 'Part 11', description: '', priority: 'high' as const, dueDate: null, typeId: null, status: 'to_do' as const, started: false },
         asks: { priority: 'high' },
       },
       {
         situation: 'the priority cleared to none',
-        stored: { title: 'Part 11', description: '', priority: 'low' as const, dueDate: null, typeId: null, done: false },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, done: false },
+        stored: { title: 'Part 11', description: '', priority: 'low' as const, dueDate: null, typeId: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, status: 'to_do' as const, started: false },
         asks: { priority: null },
       },
       {
         situation: 'a priority left as it was',
-        stored: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, typeId: null, done: false },
-        draft: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, typeId: null, done: false },
+        stored: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, typeId: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: 'normal' as const, dueDate: null, typeId: null, status: 'to_do' as const, started: false },
         asks: {},
       },
       {
         situation: 'a due date set on an item that had none',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', typeId: null, done: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', typeId: null, status: 'to_do' as const, started: false },
         asks: { dueDate: '2026-09-30' },
       },
       {
         situation: 'a due date changed to another date',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', typeId: null, done: false },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-15', typeId: null, done: false },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', typeId: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-10-15', typeId: null, status: 'to_do' as const, started: false },
         asks: { dueDate: '2026-10-15' },
       },
       {
         situation: 'a due date cleared',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', typeId: null, done: false },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, done: false },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', typeId: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, status: 'to_do' as const, started: false },
         asks: { dueDate: null },
       },
       {
         situation: 'the type changed and nothing else',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: 'task', done: false },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: 'idea', done: false },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: 'task', status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: 'idea', status: 'to_do' as const, started: false },
         asks: { typeId: 'idea' },
       },
       {
         situation: 'a type left as it was',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: 'task', done: false },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: 'task', done: false },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: 'task', status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: 'task', status: 'to_do' as const, started: false },
         asks: {},
       },
       {
         situation: 'the status set to done',
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, done: true },
-        asks: { done: true },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, status: 'done' as const, started: false },
+        asks: { status: 'done' },
+      },
+      {
+        situation: 'the status set to in progress',
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, status: 'in_progress' as const, started: false },
+        asks: { status: 'in_progress' },
       },
       {
         situation: 'a due date left as it was',
-        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', typeId: null, done: false },
-        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', typeId: null, done: false },
+        stored: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', typeId: null, status: 'to_do' as const, started: false },
+        draft: { title: 'Part 11', description: '', priority: null, dueDate: '2026-09-30', typeId: null, status: 'to_do' as const, started: false },
         asks: {},
       },
     ])('$situation', ({ stored, draft, asks }) => {
       expect(
         whatChanged(
-          stored ?? { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, done: false },
+          stored ?? { title: 'Part 11', description: '', priority: null, dueDate: null, typeId: null, status: 'to_do' as const, started: false },
           draft,
         ),
       ).toEqual(asks);
@@ -823,18 +828,14 @@ describe('Item editing', () => {
 
     describe('the status', () => {
       it.each([
-        { situation: 'an open item', completedAt: null, shown: 'open' },
-        { situation: 'a finished item', completedAt: '2026-09-01T08:00:00.000Z', shown: 'done' },
-      ])('selects the one $situation is', async ({ completedAt, shown }) => {
-        await theForm(anItem({ completedAt }));
+        { situation: 'a to do item', over: {}, shown: 'to_do' },
+        { situation: 'an item in progress', over: { startedAt: '2026-09-01T08:00:00.000Z' }, shown: 'in_progress' },
+        { situation: 'a finished item', over: { completedAt: '2026-09-01T08:00:00.000Z' }, shown: 'done' },
+      ])('selects the one $situation is, among To do, In progress and Done in that order', async ({ over, shown }) => {
+        await theForm(anItem(over));
 
         expect(statusBox()).toHaveValue(shown);
-      });
-
-      it('offers to deal with and done, and never dismissed', async () => {
-        await theForm();
-
-        expect(optionsOf(statusBox())).toEqual(['To deal with', 'Done']);
+        expect(optionsOf(statusBox())).toEqual(['To do', 'In progress', 'Done']);
       });
 
       it('sends a finish, alone, on Save', async () => {
@@ -848,14 +849,39 @@ describe('Item editing', () => {
         expect(sent()[0]).toMatchObject({ payload: { done: true } });
       });
 
-      it('sends the way back for a finished item set to be dealt with', async () => {
-        const user = await theForm(anItem({ completedAt: '2026-09-01T08:00:00.000Z' }));
+      it('sends a start, alone, for In progress, and nothing until Save', async () => {
+        const user = await theForm();
 
-        await user.selectOptions(statusBox(), 'To deal with');
+        await user.selectOptions(statusBox(), 'In progress');
+        expect(held.send).not.toHaveBeenCalled();
         await user.click(screen.getByRole('button', { name: 'Save' }));
 
         await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
-        expect(sent()[0]).toMatchObject({ name: 'set_done', payload: { done: false } });
+        expect(sent().map((change) => change.name)).toEqual(['set_started']);
+        expect(sent()[0]).toMatchObject({ payload: { started: true } });
+      });
+
+      it('reopens, then starts, a finished item that never was, set to In progress', async () => {
+        const user = await theForm(anItem({ completedAt: '2026-09-01T08:00:00.000Z' }));
+
+        await user.selectOptions(statusBox(), 'In progress');
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent().map((change) => change.name)).toEqual(['set_done', 'set_started']);
+        expect(sent()[0]).toMatchObject({ payload: { done: false } });
+        expect(sent()[1]).toMatchObject({ payload: { started: true } });
+      });
+
+      it('sends the way back for a finished item set to To do', async () => {
+        const user = await theForm(anItem({ completedAt: '2026-09-01T08:00:00.000Z' }));
+
+        await user.selectOptions(statusBox(), 'To do');
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent().map((change) => change.name)).toEqual(['set_done']);
+        expect(sent()[0]).toMatchObject({ payload: { done: false } });
       });
     });
 
@@ -867,8 +893,8 @@ describe('Item editing', () => {
           .mockResolvedValueOnce({ ok: true as const, applied: true })
           .mockRejectedValueOnce(new Error('Too many requests'));
 
+        await user.type(descriptionBox(), 'Notes');
         await user.selectOptions(typeBox(), 'Idea');
-        await user.selectOptions(statusBox(), 'Done');
         await user.click(screen.getByRole('button', { name: 'Save' }));
 
         await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Too many requests/));
@@ -878,7 +904,7 @@ describe('Item editing', () => {
         await user.click(screen.getByRole('button', { name: 'Save' }));
 
         await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
-        expect(sent().map((change) => change.name)).toEqual(['set_done']);
+        expect(sent().map((change) => change.name)).toEqual(['set_item_type']);
       });
     });
   });
@@ -2343,7 +2369,53 @@ describe('Item editing', () => {
         fireEvent.click(undo);
 
         await waitFor(() => expect(sent()[0]).toMatchObject({ name: 'set_done', payload: { done: false } }));
-        await waitFor(() => expect(screen.getByLabelText('Status')).toHaveValue('open'));
+        await waitFor(() => expect(screen.getByLabelText('Status')).toHaveValue('to_do'));
+      });
+
+      it('starts an item at once, and undoes it to To do', async () => {
+        const user = await dockedForm(anItem(), true);
+
+        await user.selectOptions(screen.getByLabelText('Status'), 'In progress');
+
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_started']));
+        expect(sent()[0]).toMatchObject({ payload: { started: true } });
+        const undo = await screen.findByText('Undo');
+        held.send.mockClear();
+        fireEvent.click(undo);
+
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_started']));
+        expect(sent()[0]).toMatchObject({ payload: { started: false } });
+        await waitFor(() => expect(screen.getByLabelText('Status')).toHaveValue('to_do'));
+      });
+
+      it('undoes finishing an item in progress back to In progress, leaving its start time alone', async () => {
+        const user = await dockedForm(anItem({ startedAt: '2026-09-01T08:00:00.000Z' }), true);
+
+        await user.selectOptions(screen.getByLabelText('Status'), 'Done');
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_done']));
+        const undo = await screen.findByText('Undo');
+        held.send.mockClear();
+        fireEvent.click(undo);
+
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_done']));
+        expect(sent()[0]).toMatchObject({ payload: { done: false } });
+        await waitFor(() => expect(screen.getByLabelText('Status')).toHaveValue('in_progress'));
+      });
+
+      it('says the status change failed, and shows the status the item holds, when the second of two is refused', async () => {
+        const user = await dockedForm(anItem({ completedAt: '2026-09-01T08:00:00.000Z' }), true);
+        held.send
+          .mockResolvedValueOnce({ ok: true as const, applied: true })
+          .mockRejectedValueOnce(new Error('Too many requests'));
+
+        await user.selectOptions(screen.getByLabelText('Status'), 'In progress');
+
+        await waitFor(() =>
+          expect(screen.getByRole('alert')).toHaveTextContent(/The status change failed.*Too many requests/),
+        );
+        expect(sent().map((change) => change.name)).toEqual(['set_done', 'set_started']);
+        expect(screen.getByLabelText('Status')).toHaveValue('to_do');
+        expect(screen.queryByText('Undo')).toBeNull();
       });
     });
 
