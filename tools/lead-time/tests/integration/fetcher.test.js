@@ -370,7 +370,7 @@ describe('Lead time', () => {
     it('puts the creation time of a CI job on its check run, read from the run it belongs to', async () => {
       const api = stub({ commits: ONE, jobs: { 60: [job(11, 'Test', '09:04:58', '09:05:00')] } });
       const { pulls } = await collectFrom(api);
-      expect(pulls[0].commits[0].checks[0].queue).toEqual({ state: 'read', createdAt: '2026-09-10T09:04:58Z' });
+      expect(pulls[0].commits[0].checks[0].queue).toEqual({ state: 'read', createdAt: '2026-09-10T09:04:58Z', startedAt: '2026-09-10T09:05:00Z' });
       expect(jobLists(api)[0]).toContain('filter=all');
 
       const model = buildModel({ pulls, now: NOW, requestedDays: 14, coveredSince: SINCE, repo: 'o/r' });
@@ -446,14 +446,29 @@ describe('Lead time', () => {
       expect(pulls[0].commits[0].checks.map((check) => check.queue?.state)).toEqual(['not-recorded', undefined]);
     });
 
+    it('leaves a CI check whose run the complete listing lacks as outside the listing, never silent', async () => {
+      const api = stub({ commits: { a: [run(11, 'Test', 99, '09:05', '09:15')] }, ci: [60] });
+      const { pulls } = await collectFrom(api);
+      expect(pulls[0].commits[0].checks[0].queue).toEqual({ state: 'not-recorded', why: 'outside-listing' });
+    });
+
     it.each([
       { situation: 'listing the CI runs', spendAt: '/actions/workflows/ci.yml/runs' },
-      { situation: 'listing the jobs of a run', spendAt: '/actions/runs/60/jobs' },
-    ])('still fails the run where $situation spends the rate limit', async ({ spendAt }) => {
+      { situation: 'listing the jobs of a run', spendAt: '/actions/runs/61/jobs' },
+    ])('still produces the report, the checks not yet read not recorded, where $situation spends the rate limit', async ({ spendAt }) => {
       const spent = refuse(403, { 'x-ratelimit-remaining': '0' });
-      const api = stub({ commits: ONE, jobs: { 60: [job(11, 'Test', '09:04:58', '09:05:00')] } });
+      const api = stub({
+        commits: { a: [run(11, 'Test', 60, '09:05', '09:15')], b: [run(12, 'Test', 61, '09:25', '09:35')] },
+        ci: [60, 61],
+        jobs: { 60: [job(11, 'Test', '09:04:58', '09:05:00')], 61: [job(12, 'Test', '09:24:58', '09:25:00')] },
+      });
       const inner = api.fetchImpl;
-      await expect(collectFrom({ fetchImpl: async (url) => (new URL(url).pathname.endsWith(spendAt) ? spent : inner(url)) })).rejects.toMatchObject({ reason: 'rate-limit' });
+      const { pulls, failed } = await collectFrom({ fetchImpl: async (url) => (new URL(url).pathname.endsWith(spendAt) ? spent : inner(url)), concurrency: 1 });
+      expect(failed).toEqual([]);
+      expect(pulls).toHaveLength(1);
+      const queues = pulls[0].commits.map((commit) => commit.checks[0].queue);
+      expect(queues[1]).toEqual({ state: 'not-recorded', why: 'rate-limit' });
+      if (spendAt.includes('ci.yml')) expect(queues[0]).toEqual({ state: 'not-recorded', why: 'rate-limit' });
     });
   });
 });

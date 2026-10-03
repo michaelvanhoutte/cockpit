@@ -29,7 +29,7 @@
  */
 
 import { readZipJson } from '../../selection/src/zip.js';
-import { classify, matchArtifact, recordArtifactOf, REVIEW_CHECKS } from './model.js';
+import { classify, matchArtifact, kindOf, recordArtifactOf } from './model.js';
 
 const API = 'https://api.github.com';
 const RECORD_FILE = 'record.json';
@@ -62,7 +62,7 @@ export class GitHubError extends Error {
  * @property {string|null} completedAt
  * @property {string|null} app the Actions app is the only one with a job to read
  * @property {number|null} runId the workflow run it belongs to, read off its `details_url`
- * @property {{ state: 'read', createdAt: string } | { state: 'not-recorded', why: string }} [queue]
+ * @property {{ state: 'read', createdAt: string, startedAt: string|null } | { state: 'not-recorded', why: string }} [queue]
  *   on a job of the CI workflow only: when the job was created, which with its start is the time it
  *   waited for a runner
  * @property {{ steps: string[], record: null | { state: 'read', value: object } | { state: 'not-recorded', why: string } }} [failure]
@@ -242,6 +242,12 @@ export async function listPulls({ repo, base = 'main', since, maxPulls, ...ctx }
 /** Anything but a GitHub failure is a bug in this code; a spent allowance or a stopped run fails the whole fetch. Everything else is a read that may be skipped. */
 const isFatal = (error) => !(error instanceof GitHubError) || error.reason === 'rate-limit' || error.reason === 'stopped';
 
+/** Not a GitHub failure at all: a bug in this code, which must throw. */
+const isBug = (error) => !(error instanceof GitHubError);
+
+/** The allowance is spent, or the run already stopped for it. */
+const limited = (error) => error.reason === 'rate-limit' || error.reason === 'stopped';
+
 /** `listAll`'s `paged` for a listing that reports `total_count`. */
 const byTotal = (body, items) => items.length < (body.total_count ?? 0);
 
@@ -320,18 +326,17 @@ const LISTING_CAP = 1000;
  * together), and a job's id is its check run's id. A review run is not in that list and
  * costs nothing.
  *
- * This is supplementary detail like `readFailure`: any error but a spent allowance (or the
- * run already stopping) leaves the affected checks `not-recorded` and every pull request in
- * place. A check is never left silently without a queue where its run could have been CI:
+ * This is supplementary detail read last, so unlike `readFailure` even a spent allowance
+ * leaves the affected checks `not-recorded` (`rate-limit`) and every pull request in place,
+ * rather than discarding what was already read. Only a bug in this code throws. A check is never left silently without a queue where its run could have been CI:
  * a listing that failed or reports more runs than it can return (`unreadable`), or a check
  * older than the listing reaches (`outside-listing`), says so. The two review checks are
  * known by name not to be CI, which is how a failed listing spares them.
  */
 async function readQueue({ repo, pulls, since, concurrency = 4, ...ctx }) {
-  const reviewNames = Object.values(REVIEW_CHECKS);
   const checks = pulls
     .flatMap((pull) => pull.commits.flatMap((commit) => commit.checks))
-    .filter((check) => check.runId !== null && (check.app === null || check.app === 'github-actions') && !reviewNames.includes(check.name));
+    .filter((check) => check.runId !== null && (check.app === null || check.app === 'github-actions') && kindOf(check.name) === 'checks');
   if (checks.length === 0) return;
 
   const notRecorded = (list, why) => list.forEach((check) => (check.queue = { state: 'not-recorded', why }));
@@ -357,18 +362,14 @@ async function readQueue({ repo, pulls, since, concurrency = 4, ...ctx }) {
     ci = new Set(runs.map((run) => run.id));
     complete = total <= LISTING_CAP && runs.length >= total;
   } catch (error) {
-    if (isFatal(error)) throw error;
-    notRecorded(checks, 'unreadable');
+    if (isBug(error)) throw error;
+    notRecorded(checks, limited(error) ? 'rate-limit' : 'unreadable');
     return;
   }
 
-  // Not in the list, and not provably something else: a listing that is short, or that starts
-  // after the check did, cannot say the run was not CI.
-  const edge = Date.parse(`${from}T00:00:00Z`);
-  for (const check of checks.filter((each) => !ci.has(each.runId))) {
-    if (!complete) notRecorded([check], 'unreadable');
-    else if ((Date.parse(check.startedAt ?? check.completedAt) || Infinity) < edge) notRecorded([check], 'outside-listing');
-  }
+  // Not in the list, and not a review: a listing that is short cannot say the run was not CI,
+  // and a complete one that lacks it (a re-run of an older CI run, say) does not reach it.
+  for (const check of checks.filter((each) => !ci.has(each.runId))) notRecorded([check], complete ? 'outside-listing' : 'unreadable');
 
   const ofCi = checks.filter((check) => ci.has(check.runId));
   const ids = [...new Set(ofCi.map((check) => check.runId))];
@@ -381,8 +382,9 @@ async function readQueue({ repo, pulls, since, concurrency = 4, ...ctx }) {
         const listed = await listAll(`/repos/${repo}/actions/runs/${runId}/jobs?filter=all`, 'jobs', ctx, { paged: byTotal });
         jobs.set(runId, new Map(listed.map((job) => [job.id, job])));
       } catch (error) {
-        if (isFatal(error)) throw error;
-        jobs.set(runId, null);
+        if (isBug(error)) throw error;
+        // Left unset on a spent allowance, which is what reads as `rate-limit` below.
+        if (!limited(error)) jobs.set(runId, null);
       }
     },
     ctx.abort,
@@ -391,8 +393,8 @@ async function readQueue({ repo, pulls, since, concurrency = 4, ...ctx }) {
   for (const check of ofCi) {
     const run = jobs.get(check.runId);
     const job = run?.get(check.id);
-    if (job?.created_at) check.queue = { state: 'read', createdAt: job.created_at };
-    else notRecorded([check], run ? 'absent' : 'unreadable');
+    if (job?.created_at) check.queue = { state: 'read', createdAt: job.created_at, startedAt: job.started_at ?? null };
+    else notRecorded([check], run === undefined ? 'rate-limit' : run ? 'absent' : 'unreadable');
   }
 }
 

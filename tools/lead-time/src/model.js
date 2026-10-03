@@ -34,7 +34,7 @@ export const AWAY_MS = 3 * HOUR_MS;
  * longer exist — they were removed in "Remove the remote code and security
  * reviews" (pull request 512), and history before it still carries them.
  */
-export const REVIEW_CHECKS = { 'code-review': 'claude-review', 'security-review': 'Security review' };
+const REVIEW_CHECKS = { 'code-review': 'claude-review', 'security-review': 'Security review' };
 
 /** A round that took longer than this is one somebody was kept waiting on. */
 export const LONG_ROUND_MS = 10 * 60_000;
@@ -211,7 +211,7 @@ export const COPY_TOLERANCE_MS = 5_000;
 const isCopy = (attempt) => {
   if (attempt.queue?.state !== 'read') return false;
   const created = time(attempt.queue.createdAt);
-  const started = time(attempt.startedAt);
+  const started = time(attempt.queue.startedAt);
   return created !== null && started !== null && started < created - COPY_TOLERANCE_MS;
 };
 
@@ -223,7 +223,7 @@ const isCopy = (attempt) => {
 function queuedMs(attempt) {
   if (attempt.queue?.state !== 'read' || isCopy(attempt) || classify(attempt) === 'skipped') return null;
   const created = time(attempt.queue.createdAt);
-  const started = time(attempt.startedAt);
+  const started = time(attempt.queue.startedAt);
   return created === null || started === null ? null : Math.max(0, started - created);
 }
 
@@ -234,6 +234,12 @@ function runnerMs(attempt) {
   if (isCopy(attempt) || classify(attempt) === 'skipped' || from === null || to === null) return 0;
   return Math.max(0, to - from);
 }
+
+/** A cancelled job stamped as started the moment it ended was cancelled before a runner took it. */
+const neverStarted = (attempt) => {
+  const from = time(attempt.startedAt);
+  return from === null || from === time(attempt.completedAt);
+};
 
 /**
  * How long after a cancellation the next push may be seen and still have caused it. A push is
@@ -249,7 +255,15 @@ export const SUPERSEDE_SLACK_MS = 5_000;
  * its creation where it never did) and before it ended (within `SUPERSEDE_SLACK_MS` after it), which is what `cancel-in-progress` does; any other cancellation is `other`.
  */
 function runnerOf(commits, rounds) {
-  const pushes = rounds.map((round) => time(round.pushedAt));
+  // A push is when its first CI job was created where that was read: a job that waited for a
+  // runner is stamped as started long after the push that created it.
+  const pushes = rounds.map((round) => {
+    const created = (commits.find((commit) => commit.sha === round.sha)?.checks ?? [])
+      .filter((attempt) => attempt.queue?.state === 'read')
+      .map((attempt) => time(attempt.queue.createdAt))
+      .filter((ms) => ms !== null);
+    return created.length ? Math.min(...created) : time(round.pushedAt);
+  });
   const cancelled = { superseded: { runs: 0, ms: 0 }, other: { runs: 0, ms: 0 } };
   let total = 0;
   for (const commit of commits) {
@@ -259,7 +273,7 @@ function runnerOf(commits, rounds) {
       total += ms;
       if (classify(attempt) !== 'cancelled' || isCopy(attempt)) continue;
       const ended = time(attempt.completedAt);
-      const from = time(attempt.startedAt) ?? time(attempt.queue?.createdAt);
+      const from = neverStarted(attempt) ? time(attempt.queue?.createdAt) : time(attempt.startedAt);
       const superseded = ended !== null && from !== null && pushes.some((push) => push > from && push <= ended + SUPERSEDE_SLACK_MS);
       cancelled[superseded ? 'superseded' : 'other'].runs += 1;
       cancelled[superseded ? 'superseded' : 'other'].ms += ms;

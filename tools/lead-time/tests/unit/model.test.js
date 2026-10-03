@@ -653,7 +653,7 @@ describe('Lead time', () => {
       buildModel({ pulls, now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] });
     const merged = (overrides) => pull({ createdAt: at(-10), mergedAt: at(120), ...overrides });
     /** A job created `created` minutes past 09:00 whose check run ran `from` to `to`. */
-    const job = (name, created, from, to, conclusion = 'success') => check(name, from, to, conclusion, { queue: { state: 'read', createdAt: at(created) } });
+    const job = (name, created, from, to, conclusion = 'success') => check(name, from, to, conclusion, { queue: { state: 'read', createdAt: at(created), startedAt: at(from) } });
     const queuedOf = (checks) => pullModel(merged({ commits: [commit('a', 0, checks)] })).rounds[0].queued;
 
     it.each([
@@ -706,13 +706,23 @@ describe('Lead time', () => {
         expected: { superseded: { runs: 0, ms: 0 }, other: { runs: 1, ms: 5 * MIN } },
       },
       {
+        situation: 'Test whose new push waited 40 seconds for a runner, then cancelled it',
+        commits: [commit('a', 0, [check('Test', 1, 6, 'cancelled')]), commit('b', 5.8, [check('Test', 5.8 + 40 / 60, 12, 'success', { queue: { state: 'read', createdAt: at(5.8), startedAt: at(5.8 + 40 / 60) } })])],
+        expected: { superseded: { runs: 1, ms: 5 * MIN }, other: { runs: 0, ms: 0 } },
+      },
+      {
+        situation: 'a job stamped started the moment it was cancelled, with a push after its creation',
+        commits: [commit('a', 0, [check('Test', 1, 10), check('Test', 20, 20, 'cancelled', { queue: { state: 'read', createdAt: at(18), startedAt: at(20) } })]), commit('b', 19, [check('Test', 19, 30)])],
+        expected: { superseded: { runs: 1, ms: 0 }, other: { runs: 0, ms: 0 } },
+      },
+      {
         situation: 'a job cancelled with no later push before it ended',
         commits: [commit('a', 0, [check('Test', 1, 6, 'cancelled')]), commit('b', 30, [check('Test', 31, 36)])],
         expected: { superseded: { runs: 0, ms: 0 }, other: { runs: 1, ms: 5 * MIN } },
       },
       {
         situation: 'a job cancelled before it started',
-        commits: [commit('a', 0, [check('Test', 1, 6), check('E2E (F3)', 5, 5.5, 'cancelled', { startedAt: null, queue: { state: 'read', createdAt: at(3) } })]), commit('b', 5, [check('Test', 4, 12)])],
+        commits: [commit('a', 0, [check('Test', 1, 6), check('E2E (F3)', 5, 5.5, 'cancelled', { startedAt: null, queue: { state: 'read', createdAt: at(3), startedAt: null } })]), commit('b', 5, [check('Test', 4, 12)])],
         expected: { superseded: { runs: 1, ms: 0 }, other: { runs: 0, ms: 0 } },
       },
     ])('counts $situation', ({ commits, expected }) => {
@@ -726,7 +736,7 @@ describe('Lead time', () => {
 
     it('leaves a re-run copy out of the runner minutes, since it only repeats the original attempt', () => {
       const original = check('Checks', 1, 5);
-      const copy = check('Checks', 1, 5, 'success', { queue: { state: 'read', createdAt: at(20) } });
+      const copy = check('Checks', 1, 5, 'success', { queue: { state: 'read', createdAt: at(20), startedAt: at(1) } });
       expect(pullModel(merged({ commits: [commit('a', 0, [original, copy])] })).runnerMs).toBe(4 * MIN);
     });
   });
