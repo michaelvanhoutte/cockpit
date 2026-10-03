@@ -21,7 +21,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { readFlags } from './lib/operator.mjs';
-import { buildReport, marksFromBody, parseLine, projectDirsFor } from './lib/issue-cost.mjs';
+import { buildReport, marksByBranch, parseLine, projectDirsFor } from './lib/issue-cost.mjs';
 
 let args;
 try {
@@ -64,8 +64,8 @@ const projectDirs = projectDirsFor(repoRoot, allDirs)
   .map((name) => join(projectsDir, name))
   .filter((dir) => ownsDir(repoRoot, dir));
 
-const { resolveIssue, resolveMarks } = makeIssueResolver(repoRoot);
-const report = buildReport({ projectDirs, resolveIssue, resolveMarks, since: sinceMs, only });
+const { resolveIssue, resolveMarks, marksUnreadable } = makeIssueResolver(repoRoot);
+const report = buildReport({ projectDirs, resolveIssue, resolveMarks, marksUnreadable, since: sinceMs, only });
 
 if (args.json) {
   console.log(JSON.stringify(report, null, 2));
@@ -118,30 +118,47 @@ function ownsDir(repoRoot, dir) {
  */
 function makeIssueResolver(cwd) {
   const byBranch = new Map();
-  const marksByBranch = new Map();
+  let issuePrs = [];
+  let bodyPrs = [];
+  let marksUnreadable = false;
   try {
-    const output = execFileSync(
-      'gh',
-      ['pr', 'list', '--state', 'all', '--limit', '2000', '--json', 'headRefName,closingIssuesReferences,body'],
-      { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
-    );
-    for (const pr of JSON.parse(output)) {
+    issuePrs = listPullRequests(cwd, 'number,headRefName,closingIssuesReferences');
+    for (const pr of issuePrs) {
       const issueNumber = pr.closingIssuesReferences?.[0]?.number;
       if (issueNumber && !byBranch.has(pr.headRefName)) byBranch.set(pr.headRefName, issueNumber);
-      const marks = marksFromBody(pr.body);
-      if (marks !== null && !marksByBranch.has(pr.headRefName)) marksByBranch.set(pr.headRefName, marks);
     }
   } catch (error) {
     // No gh, no network, or gh failing - every branch not naming `github-issue-<n>` itself stands in as its own key.
     // Output that was cut off or unreadable is a loss the reader should hear about.
     if (error?.code === 'ENOBUFS' || error instanceof SyntaxError) {
-      console.error(`warning: could not read the pull request list (${error.message}); pull requests are not resolved and phases are not split`);
+      console.error(`warning: could not read the pull request list (${error.message}); pull requests are not resolved`);
     }
   }
+  // A second call, for the bodies the session records are read from: its failure loses the split and nothing else.
+  try {
+    bodyPrs = listPullRequests(cwd, 'number,headRefName,body');
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      marksUnreadable = true;
+      console.error(`warning: could not read the pull request bodies (${String(error?.message ?? error).split('\n')[0]}); phases are not split`);
+    }
+  }
+  const marks = marksByBranch(issuePrs, bodyPrs);
   return {
     resolveIssue: (branch) => (branch ? (byBranch.get(branch) ?? branch) : null),
-    resolveMarks: (branch) => (branch ? (marksByBranch.get(branch) ?? null) : null),
+    resolveMarks: (branch) => (branch ? (marks.get(branch) ?? null) : null),
+    marksUnreadable,
   };
+}
+
+/** Every pull request in the repository with the given fields, newest first; the buffer is large because bodies are long. */
+function listPullRequests(cwd, fields) {
+  const output = execFileSync('gh', ['pr', 'list', '--state', 'all', '--limit', '2000', '--json', fields], {
+    cwd,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return JSON.parse(output);
 }
 
 function printTable(fullReport) {

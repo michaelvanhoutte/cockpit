@@ -157,18 +157,44 @@ export function activeMillis(sortedTimestampsMs) {
   return total;
 }
 
-/** The phases a request's cost is split into, in the order a session reaches them; `unrecorded` is a request whose branch has no readable session record. */
-export const COST_PHASES = ['outsideRun', 'scoping', 'building', 'localReview', 'afterPush', 'unrecorded'];
+/** The phases a request's cost is split into, in the order a session reaches them; `localReview` is a review window before `pushed` and `afterPushReview` one after it (cost after pushing is `afterPush` plus `afterPushReview`); `unrecorded` is a request whose branch has no readable session record, or whose phase the record's marks do not bound. */
+export const COST_PHASES = ['outsideRun', 'scoping', 'building', 'localReview', 'afterPush', 'afterPushReview', 'unrecorded'];
 
 /**
- * The marks as a plain scan wants them: time-ordered `{ phase, kind, ms }`, with marks whose time does not parse left out, `null` where none are left.
+ * A session record as `phaseAt` wants it: the first time each of `start`, `scoped`, `built` and `pushed` was marked (`null` where never), the time of the last mark, and the review windows as `{ from, to, toEnd }` - `to` the matching `review-end` of the same kind, else the next mark that is not a review mark, else (`toEnd`) the end of the record, where nothing after it can be placed. `null` where no mark has a time that parses.
  */
 export function normaliseMarks(marks) {
   const ordered = marks
-    .map(({ at, phase, kind }) => ({ phase, kind, ms: Date.parse(at) }))
+    .map(({ at, phase, kind }) => ({ phase, kind: kind ?? 'code-review', ms: Date.parse(at) }))
     .filter((mark) => !Number.isNaN(mark.ms))
     .sort((a, b) => a.ms - b.ms);
-  return ordered.length === 0 ? null : ordered;
+  if (ordered.length === 0) return null;
+
+  const isReview = (mark) => mark.phase === 'review-start' || mark.phase === 'review-end';
+  const firstOf = (phase) => ordered.find((mark) => mark.phase === phase)?.ms ?? null;
+  const windows = [];
+  ordered.forEach((mark, i) => {
+    if (mark.phase !== 'review-start') return;
+    let end = null;
+    for (const later of ordered.slice(i + 1)) {
+      if (later.phase === 'review-start' && later.kind === mark.kind) break;
+      if (later.phase === 'review-end' && later.kind === mark.kind) {
+        end = later;
+        break;
+      }
+    }
+    if (end === null) end = ordered.slice(i + 1).find((later) => !isReview(later)) ?? null;
+    windows.push(end === null ? { from: mark.ms, to: mark.ms, toEnd: true } : { from: mark.ms, to: end.ms, toEnd: false });
+  });
+
+  return {
+    start: firstOf('start'),
+    scoped: firstOf('scoped'),
+    built: firstOf('built'),
+    pushed: firstOf('pushed'),
+    lastMs: ordered[ordered.length - 1].ms,
+    windows,
+  };
 }
 
 /**
@@ -183,26 +209,42 @@ export function marksFromBody(body) {
 }
 
 /**
- * The phase a moment falls in, by the mark that last preceded it: before `start` is outside the run, `start` to `scoped` scoping, `scoped` onwards building, and after the first `pushed` after push. A moment inside any `review-start`..`review-end` window is local review whatever else holds, a window still open at the end of the record included; windows are tracked by kind, so a code review and a security review may overlap. A mark exactly at the moment counts as preceding it. `marks` come from `normaliseMarks`.
+ * The marks each branch's cost is split by, from two lists of the same pull requests: `issuePrs` (`number`, `headRefName`, `closingIssuesReferences`) and `bodyPrs` (`number`, `headRefName`, `body`), newest first. A branch's issue and its marks come from the same pull request: the first on the branch with a closing reference, `null` marks if its body has none. Only a branch no pull request maps to an issue takes the first on it whose body has a record.
+ */
+export function marksByBranch(issuePrs, bodyPrs) {
+  const marksOf = new Map(bodyPrs.map((pr) => [pr.number, marksFromBody(pr.body)]));
+  const result = new Map();
+  const mapped = new Set();
+  for (const pr of issuePrs) {
+    if (pr.closingIssuesReferences?.[0]?.number && !mapped.has(pr.headRefName)) {
+      mapped.add(pr.headRefName);
+      result.set(pr.headRefName, marksOf.get(pr.number) ?? null);
+    }
+  }
+  for (const pr of bodyPrs) {
+    const marks = marksOf.get(pr.number);
+    if (!mapped.has(pr.headRefName) && marks !== null && !result.has(pr.headRefName)) result.set(pr.headRefName, marks);
+  }
+  return result;
+}
+
+/**
+ * The phase a moment falls in, by the marks on either side of it. A moment is placed only where both marks bounding its phase exist, never read as the neighbouring phase: outside the run needs a `start` after it, scoping `start` and `scoped`, building `scoped` and `built` (and after `built`, a `pushed`, or any later mark), after push a `pushed` before it. A moment inside a `review-start`..`review-end` window is local review before `pushed` and after-push review after it, whatever else holds; windows are tracked by kind, so a code review and a security review may overlap. A window with no end closes at the next mark that is not a review mark, and one with nothing after it leaves every later moment unrecorded. A mark exactly at the moment counts as preceding it. `marks` come from `normaliseMarks`.
  */
 export function phaseAt(marks, momentMs) {
-  let base = 'outsideRun';
-  let pushed = false;
-  let codeOpen = false;
-  let securityOpen = false;
-  for (const mark of marks) {
-    if (mark.ms > momentMs) break;
-    if (mark.phase === 'review-start' || mark.phase === 'review-end') {
-      const open = mark.phase === 'review-start';
-      if (mark.kind === 'security-review') securityOpen = open;
-      else codeOpen = open;
-    } else if (mark.phase === 'pushed') pushed = true;
-    else if (pushed) continue;
-    else if (mark.phase === 'start') base = 'scoping';
-    else if (mark.phase === 'scoped' || mark.phase === 'built') base = 'building';
+  const { start, scoped, built, pushed, lastMs, windows } = marks;
+  const afterPushed = pushed !== null && momentMs >= pushed;
+  for (const window of windows) {
+    if (momentMs < window.from) continue;
+    if (window.toEnd) return 'unrecorded';
+    if (momentMs < window.to) return afterPushed ? 'afterPushReview' : 'localReview';
   }
-  if (codeOpen || securityOpen) return 'localReview';
-  return pushed ? 'afterPush' : base;
+  if (afterPushed) return 'afterPush';
+  if (start !== null && momentMs < start) return 'outsideRun';
+  if (start !== null && scoped !== null && momentMs >= start && momentMs < scoped) return 'scoping';
+  if (scoped !== null && built !== null && momentMs >= scoped && momentMs < built) return 'building';
+  if (scoped !== null && built !== null && momentMs >= built && (pushed !== null || momentMs < lastMs)) return 'building';
+  return 'unrecorded';
 }
 
 /** Every token kind at zero - the shape both the issue's totals and each phase's slice start from. */
@@ -413,7 +455,7 @@ function mainSessionFilesIn(projectDir) {
  * `since`, if given, is milliseconds since epoch: lines timestamped earlier
  * are left out entirely, from both the wall-clock span and every count.
  */
-export function buildReport({ projectDirs, resolveIssue, resolveMarks = null, since = null, only = null }) {
+export function buildReport({ projectDirs, resolveIssue, resolveMarks = null, marksUnreadable = false, since = null, only = null }) {
   const perIssue = new Map();
 
   function issueStats(key) {
@@ -490,7 +532,7 @@ export function buildReport({ projectDirs, resolveIssue, resolveMarks = null, si
     }
   }
 
-  const issues = [...perIssue.values()].map(summarize).sort(sortByIssue);
+  const issues = [...perIssue.values()].map((stats) => summarize(stats, { marksUnreadable })).sort(sortByIssue);
   return { issues, unpricedTokens: issues.reduce((total, issue) => total + issue.unpricedTokens, 0) };
 }
 
@@ -502,7 +544,7 @@ function sortByIssue(a, b) {
 }
 
 /** Turns one issue's raw accumulator into the shape a caller (the CLI table, or JSON) reads. */
-export function summarize(stats) {
+export function summarize(stats, { marksUnreadable = false } = {}) {
   const timestamps = [...stats.timestampsMs].sort((a, b) => a - b);
 
   const tokens = zeroTokens();
@@ -559,17 +601,29 @@ export function summarize(stats) {
   const subagentCost = round(costSubagent);
 
   // Unsplit where no request had a record to be placed by; otherwise every phase, `unrecorded` holding
-  // the requests of a branch with none. Each phase is rounded to a cent-hundredth on its own, and
-  // whatever rounding left over against the total (the rounded sum of the two halves above) goes to
-  // the largest phase, so the phases always add up exactly to the total printed beside them.
+  // the requests of a branch with none. Each phase's exact cost is apportioned over the total's
+  // rounded units (the rounded sum of the two halves above) by largest remainder: every phase gets
+  // its whole units, and the units left over go one each to the largest fractions. So no phase is
+  // negative and the phases add up exactly to the total printed beside them.
   let phases = null;
   if (recorded > 0) {
-    const units = (dollars) => Math.round(dollars * 10000);
-    const rounded = COST_PHASES.map((name) => ({ name, units: units(byPhase[name].costUSD) }));
-    const remainder = units(mainCost) + units(subagentCost) - rounded.reduce((sum, phase) => sum + phase.units, 0);
-    const largest = rounded.reduce((best, phase) => (phase.units > best.units ? phase : best));
-    largest.units += remainder;
-    phases = Object.fromEntries(rounded.map(({ name, units: u }) => [name, { ...byPhase[name], costUSD: u / 10000 }]));
+    const total = toUnits(mainCost) + toUnits(subagentCost);
+    const exact = COST_PHASES.map((name) => ({ name, units: Math.floor(byPhase[name].costUSD * ROUND_FACTOR + 1e-9), fraction: 0 }));
+    COST_PHASES.forEach((name, i) => (exact[i].fraction = byPhase[name].costUSD * ROUND_FACTOR - exact[i].units));
+    let left = total - exact.reduce((sum, phase) => sum + phase.units, 0);
+    for (const phase of [...exact].sort((a, b) => b.fraction - a.fraction)) {
+      if (left <= 0) break;
+      phase.units += 1;
+      left -= 1;
+    }
+    for (const phase of [...exact].sort((a, b) => b.units - a.units)) {
+      if (left >= 0) break;
+      if (phase.units > 0) {
+        phase.units -= 1;
+        left += 1;
+      }
+    }
+    phases = Object.fromEntries(exact.map(({ name, units }) => [name, { ...byPhase[name], costUSD: units / ROUND_FACTOR }]));
   }
 
   return {
@@ -588,7 +642,7 @@ export function summarize(stats) {
     costUSD: { total: round(mainCost + subagentCost), main: mainCost, subagent: subagentCost },
     unpricedTokens,
     phases,
-    phasesNote: phases === null ? 'no session record' : null,
+    phasesNote: phases === null ? (marksUnreadable ? 'pull requests unreadable' : 'no session record') : null,
     reviews: {
       codeReview: [...stats.reviews.codeReview].map(([level, count]) => ({ level, count })).sort((a, b) => a.level.localeCompare(b.level)),
       securityReview: stats.reviews.securityReview,
@@ -601,8 +655,15 @@ export function summarize(stats) {
   };
 }
 
+/** Costs are kept to a hundredth of a cent; every rounding goes through this one factor. */
+const ROUND_FACTOR = 10000;
+
+function toUnits(dollars) {
+  return Math.round(dollars * ROUND_FACTOR);
+}
+
 function round(dollars) {
-  return Math.round(dollars * 10000) / 10000;
+  return toUnits(dollars) / ROUND_FACTOR;
 }
 
 function mapToObject(map, transform = (v) => v) {
