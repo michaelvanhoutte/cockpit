@@ -28,7 +28,7 @@ import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
 import { capturingApp, openableAtSource } from '../itemSource';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
-import { roomForTheInbox } from '../roomForTheInbox';
+import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useUndo } from '../undo';
 import { waitedSince } from '../waited';
 import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
@@ -38,6 +38,7 @@ import {
   MenuTrigger,
   destructiveItemClass,
   menuItemClass,
+  menuItemSplitClass,
 } from './Menu';
 
 /** What the item menu is drawn with: Radix's dropdown menu and context menu share these parts. */
@@ -46,7 +47,7 @@ type MenuPrimitive = Pick<
   'Item' | 'Separator' | 'Sub' | 'SubTrigger' | 'SubContent' | 'Portal' | 'RadioGroup' | 'RadioItem' | 'ItemIndicator'
 >;
 
-/** `w-36` in pixels, which a phone's Status submenu steps back from the menu's edge by. */
+/** The Status submenu's width, which on a phone it also steps back from the menu's edge by. */
 const SUBMENU_WIDTH_PX = 144;
 
 // Out of the initial bundle, the same boundary AgentDock and ManageConnections
@@ -273,6 +274,8 @@ export function ItemRow({
 
   /** To do, In progress or Done ("Mark an item In progress, and see since when", issue 568). Done never reaches this row - `stillOpen`, `filing.ts`. */
   const status = itemStatus(item);
+  /** Whether the Status submenu has room beside the menu; watched, so a window resized under an open menu is answered. */
+  const roomBesideTheMenu = useRoomForTheInbox();
 
   /**
    * Starting work, and taking that back - no undo bar either way, unlike
@@ -649,11 +652,11 @@ export function ItemRow({
    * separator with the same props, which is what lets one list serve both.
    */
   const menuEntries = (M: MenuPrimitive) => {
-    const flexItemClass = menuItemClass.replace('block', 'flex items-center justify-between gap-6');
+    const flexItemClass = menuItemSplitClass;
     const subTriggerClass = `${flexItemClass} data-[state=open]:bg-accent-tint`;
     // The menu is grouped by kind, a divider only between groups that have
-    // something to offer on this row ("Make the item row's menu easier to
-    // scan", issue 683); a group left empty draws neither entries nor divider.
+    // something to offer on this row ("Group the item row's menu by kind, and
+    // name its entries for what they do", issue 683); a group left empty draws neither entries nor divider.
     const groups: React.ReactNode[][] = [
       // Open.
       [
@@ -785,10 +788,11 @@ export function ItemRow({
           <M.Portal>
             {/* On a phone the menu fills the width, leaving no room beside it for
                 the three states: they are laid over its right-hand end instead,
-                a submenu's own width back from the edge (`w-36`). */}
+                a submenu's own width back from the edge. */}
             <M.SubContent
-              sideOffset={roomForTheInbox() ? 0 : -SUBMENU_WIDTH_PX}
-              className="w-36 min-w-36 rounded-md border border-black/10 bg-surface p-1 shadow-lg"
+              sideOffset={roomBesideTheMenu ? 0 : -SUBMENU_WIDTH_PX}
+              style={{ width: SUBMENU_WIDTH_PX }}
+              className="rounded-md border border-black/10 bg-surface p-1 shadow-lg"
             >
               <M.RadioGroup value={status === 'in_progress' ? 'in_progress' : 'todo'}>
                 <M.RadioItem
