@@ -2,10 +2,11 @@ import {
   captureBox,
   closeCapture,
   openCapture,
+  closeSettings,
+  openSettings,
   chooseRowAction,
   expect,
   expectNoSidewaysScroll,
-  workspaceMenuButton,
   inbox,
   itemRow,
   openInbox,
@@ -36,15 +37,14 @@ test.describe('Capture', () => {
       page,
       isMobile,
     }) => {
-      // The entry is on the workspace's "…", which is not there below `sm`.
-      test.skip(isMobile, 'the account’s entries are the pointer’s; a phone has no “…” for them');
+      // Settings is the pointer's, by decision.
+      test.skip(isMobile, 'a phone has no Settings');
       await openInbox(page, isMobile);
 
-      await press(workspaceMenuButton(page), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Manage types' }), isMobile);
+      await openSettings(page, 'Types', isMobile);
       // Over the workspace rather than instead of it, like the dashboards'
       // list and the workspaces'.
-      await expect(page.getByRole('dialog', { name: 'Manage types' })).toBeVisible();
+      await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
       await expectNoSidewaysScroll(page);
 
       // A type of this walk's own, made the only way one is made.
@@ -52,7 +52,7 @@ test.describe('Capture', () => {
       await page.getByLabel('Name of the new type').fill(kind);
       await press(page.getByRole('button', { name: 'New type' }), isMobile);
       await expect(page.getByRole('button', { name: `Actions for ${kind}` })).toBeVisible();
-      await press(page.getByRole('button', { name: 'Done' }), isMobile);
+      await closeSettings(page, isMobile);
 
       // On offer at capture the moment it exists, without a reload.
       await openInbox(page, isMobile);
@@ -65,14 +65,13 @@ test.describe('Capture', () => {
       await closeCapture(page, isMobile);
       await expect(itemRow(page, thought).getByText(kind)).toBeVisible();
 
-      await press(workspaceMenuButton(page), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Manage types' }), isMobile);
+      await openSettings(page, 'Types', isMobile);
       const renamed = uniqueTitle('Renamed');
       await chooseRowAction(page, kind, 'Edit…', isMobile);
       await page.getByLabel(`Name of ${kind}`).fill(renamed);
       await press(page.getByRole('button', { name: 'Save' }), isMobile);
       await expect(page.getByRole('button', { name: `Actions for ${renamed}` })).toBeVisible();
-      await press(page.getByRole('button', { name: 'Done' }), isMobile);
+      await closeSettings(page, isMobile);
 
       // Back to the rows, which is where the rename has to show.
       await openInbox(page, isMobile);

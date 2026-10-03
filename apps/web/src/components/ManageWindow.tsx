@@ -1,5 +1,15 @@
+import { createContext, useContext, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { takesFiles } from '../attachmentQueue';
+
+/**
+ * Set where a window is drawn as a section of Settings (`SettingsModal.tsx`)
+ * rather than as a dialog of its own: it keeps its content, takes the section's
+ * name as its heading, and has no way out of its own - the modal around it is
+ * the way out. `hold` is how a section with a change in flight stops that modal
+ * closing, as `canClose` stops its own dialog.
+ */
+export const InSettings = createContext<{ heading: string; hold: (held: boolean) => void } | null>(null);
 
 /**
  * The window a list of named things is managed in: the dashboards of a
@@ -61,6 +71,21 @@ export function ManageWindow({
   wide?: boolean;
   children: React.ReactNode;
 }) {
+  const inSettings = useContext(InSettings);
+  const hold = inSettings?.hold;
+  useEffect(() => {
+    if (!hold) return;
+    hold(!canClose);
+    return () => hold(false);
+  }, [hold, canClose]);
+  if (inSettings) {
+    return open ? (
+      <section ref={ref} tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
+        <h3 className="text-base font-semibold">{inSettings.heading}</h3>
+        {children}
+      </section>
+    ) : null;
+  }
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && canClose && onClose()}>
       <Dialog.Portal>
@@ -108,6 +133,7 @@ export function ManageWindow({
 
 /** The way out, in the same place in all three windows. */
 export function CloseWindow({ disabled, label = 'Done' }: { disabled?: boolean; label?: string }) {
+  if (useContext(InSettings)) return null;
   return (
     <div className="flex justify-end pt-4">
       <Dialog.Close

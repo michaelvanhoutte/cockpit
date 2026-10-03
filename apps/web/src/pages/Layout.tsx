@@ -11,12 +11,10 @@ import { useServerEvents } from '../api/useServerEvents';
 // around itself in WorkspaceTabs.tsx - since the dock is not what the shell
 // has to paint first.
 const AgentDock = lazy(() => import('../components/AgentDock'));
-// Out of the initial bundle too: the window is drawn closed at first paint,
-// so its code can arrive a beat after it ("Drop an agent on an item to
-// start a Claude Code session on it", issue 571, which paid for the rows'
-// own agent controls with it).
-const ManageTypes = lazy(() => import('../components/ManageTypes'));
-const ManageConnectedApps = lazy(() => import('../components/ManageConnectedApps'));
+// Out of the initial bundle too: Settings and what it holds are fetched when it
+// is first opened, and each section when it is first shown
+// (components/SettingsWindow.tsx).
+const SettingsWindow = lazy(() => import('../components/SettingsWindow'));
 const ManageUsers = lazy(() => import('../components/ManageUsers'));
 const UsageWindow = lazy(() => import('../components/UsageWindow'));
 const MarkedDoneWindow = lazy(() => import('../components/MarkedDoneWindow'));
@@ -46,6 +44,8 @@ import {
 } from '../inboxCollapsed';
 import { readAgentDockHidden, togglesTheAgentDock, writeAgentDockHidden } from '../agentDockHidden';
 import { useRoomForTheInbox } from '../roomForTheInbox';
+import { useConnections } from '../connections';
+import type { ConnectOutcomeFor, SettingsKey } from '../components/SettingsWindow';
 import { useScrollWhileDraggingAnItem } from '../dragScroll';
 import { useOutbox, useSendingCaptures, useWaitingCaptures } from '../captureOutboxSender';
 import { loadCaptureNote } from '../captureForm';
@@ -503,8 +503,18 @@ function TheShell() {
    * inside a workspace, and a page reached without one made it degrade into a
    * header wearing none of the workspace's colour, control or selected tab.
    */
-  const [managing, setManaging] = useState<'types' | 'apps' | 'users' | 'usage' | 'done' | null>(null);
+  const [managing, setManaging] = useState<'settings' | 'users' | 'usage' | 'done' | null>(null);
   const typesOpenedFrom = useRef<HTMLElement | null>(null);
+  /** The section Settings opens on, and how a trip out to Microsoft ended where that is what opened it. */
+  const [settingsOn, setSettingsOn] = useState<SettingsKey>('types');
+  const [connectOutcome, setConnectOutcome] = useState<ConnectOutcomeFor | undefined>(undefined);
+  /** The profile control, which the focus returns to when Settings closes. */
+  const profileControl = useRef<HTMLButtonElement>(null);
+  const openSettings = useCallback((on: SettingsKey, outcome?: ConnectOutcomeFor) => {
+    setSettingsOn(on);
+    setConnectOutcome(outcome);
+    setManaging('settings');
+  }, []);
 
   /**
    * Who is signed in - and, when it comes back refused, that nobody is.
@@ -523,30 +533,18 @@ function TheShell() {
    * The account's own entries, at the foot of the open workspace's "…"
    * (`WorkspaceTabs.tsx`).
    *
-   * An entry rather than a link: the types open a window over the workspace
-   * instead of replacing it, so managing them is a detour and not a journey.
-   * **The workspaces are not here**: a workspace is changed on its own tab
+   * An entry rather than a link: a window over the workspace instead of
+   * replacing it, so managing them is a detour and not a journey. **The
+   * account's own settings are not here**: they are Settings, opened from the
+   * profile menu ("Open Settings from the profile menu", issue 693). **The
+   * workspaces are not here either**: a workspace is changed on its own tab
    * ("Manage the types, and put them in the order you want", issue 156). The
    * dock hides itself from its own control, and an agent is hidden from the
    * dock's own "…".
    */
   const accountEntries: MenuEntry[] = [
-    {
-      label: 'Manage types',
-      onSelect: (from) => {
-        typesOpenedFrom.current = from;
-        setManaging('types');
-      },
-    },
-    {
-      label: 'MCP connections',
-      onSelect: (from) => {
-        typesOpenedFrom.current = from;
-        setManaging('apps');
-      },
-    },
-    // Last, under a separator of its own: everything above changes what this
-    // session shows, and this changes who can sign in for everybody. Offered to
+    // Under a separator of its own, since this changes who can sign in for
+    // everybody rather than what this session shows. Offered to
     // an admin only, which is a courtesy rather than the guard: what refuses an
     // ordinary user is the server (auth/admin.ts), and hiding the entry keeps a
     // door in front of them that only ever says no.
@@ -585,6 +583,26 @@ function TheShell() {
       },
     },
   ];
+
+  /**
+   * Coming back from Microsoft after connecting Teams reopens Settings on
+   * Connections, for the workspace it was started from, saying how it went.
+   * The redirect keeps its address (`/w/<workspace>?connections=...`,
+   * `connections.ts`); this reads it once and clears it, so Back does not
+   * open Settings again. Settings is not offered on a phone, and a workspace
+   * this person cannot see gets no window - the parameter is cleared either way.
+   */
+  const { outcome: backFromMicrosoft, forget: forgetTheTrip } = useConnections();
+  useEffect(() => {
+    if (!backFromMicrosoft || !data) return;
+    const workspaceId = params.workspaceId;
+    if (roomForTheInbox && workspaceId && data.workspaces.some((ws) => ws.id === workspaceId)) {
+      typesOpenedFrom.current = profileControl.current;
+      openSettings('connections', { workspaceId, outcome: backFromMicrosoft });
+    }
+    forgetTheTrip();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backFromMicrosoft, data, params.workspaceId, roomForTheInbox]);
 
   /**
    * The capture outbox is sent for as long as somebody is signed in, and its
@@ -949,6 +967,7 @@ function TheShell() {
                 // pressed is the same doubling `AddPanel` (DashboardBar.tsx)
                 // already uses for a chrome control that stays tinted.
                 className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-medium text-chrome-ink hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-chrome-ink-soft data-[state=open]:bg-white/20"
+                ref={profileControl}
               >
                 {initialOf(me?.user.name)}
               </DropdownMenu.Trigger>
@@ -956,6 +975,12 @@ function TheShell() {
                 <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
                   {me ? `Signed in as ${me.user.name}` : 'Signed in'}
                 </DropdownMenu.Label>
+                {/* Not on a phone, by decision: the same room the Inbox column asks for. */}
+                {roomForTheInbox && (
+                  <DropdownMenu.Item onSelect={() => openSettings('types')} className={menuItemClass}>
+                    Settings…
+                  </DropdownMenu.Item>
+                )}
                 <DropdownMenu.Item
                   onSelect={() => (unsent > 0 ? setAskingToSignOut(true) : leave.mutate())}
                   className={menuItemClass}
@@ -1196,6 +1221,7 @@ function TheShell() {
               hideAgentDock(true);
             }}
             focusHideControl={dockFocusNext.current === 'dock'}
+            onAgentSettings={() => openSettings('agents')}
             workspaceId={params.workspaceId}
             dashboardId={params.dashboardId}
             agents={workspace.data?.agents ?? []}
@@ -1207,16 +1233,22 @@ function TheShell() {
         </Suspense>
       )}
 
-      {/* The account's list of types, over the workspace rather than instead
-          of it. Here rather than in a page, because there is no page: the
-          shell is the one thing that is always drawn inside a workspace. */}
-      <Suspense fallback={null}>
-        <ManageTypes
-          open={managing === 'types'}
-          onClose={() => setManaging(null)}
-          returnFocusTo={typesOpenedFrom.current}
-        />
-      </Suspense>
+      {/* Settings - the account's types, connections, agent settings and MCP
+          apps - over the workspace rather than instead of it. Here rather than
+          in a page, because there is no page: the shell is the one thing that
+          is always drawn inside a workspace. Drawn only while open, so its code
+          is fetched when it is first asked for. */}
+      {managing === 'settings' && roomForTheInbox && (
+        <Suspense fallback={null}>
+          <SettingsWindow
+            on={settingsOn}
+            startsIn={params.workspaceId}
+            outcome={connectOutcome}
+            onClose={() => setManaging(null)}
+            returnFocusTo={profileControl.current}
+          />
+        </Suspense>
+      )}
 
       {/* What this workspace has marked done, over the screen you are on. */}
       {params.workspaceId && (
@@ -1232,15 +1264,6 @@ function TheShell() {
           />
         </Suspense>
       )}
-
-      {/* The apps allowed into this Cockpit, over the workspace as the types are. */}
-      <Suspense fallback={null}>
-        <ManageConnectedApps
-          open={managing === 'apps'}
-          onClose={() => setManaging(null)}
-          returnFocusTo={typesOpenedFrom.current}
-        />
-      </Suspense>
 
       {/* Who can sign in, over the workspace as the types are. Offered to an admin only. */}
       {me?.user.role === ADMIN && (

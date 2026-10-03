@@ -8,7 +8,8 @@ import {
   STARTING_WORKSPACE,
   test,
   uniqueTitle,
-  workspaceMenuButton,
+  closeSettings,
+  openSettings,
 } from './support/app';
 
 /**
@@ -107,11 +108,9 @@ test.describe('MCP connections', () => {
       await expect(row).toBeVisible();
       await expect(row.getByText(/Claude/)).toBeVisible();
 
-      // The window is on the workspace's "…", which is not there below `sm`.
+      // The window is in Settings, which a phone does not have.
       if (isMobile) return;
-      await press(workspaceMenuButton(page), isMobile);
-      await press(page.getByRole('menuitem', { name: 'MCP connections' }), isMobile);
-      const window = page.getByRole('dialog', { name: 'MCP connections' });
+      const window = await openSettings(page, 'MCP', isMobile);
       await expect(window.getByText(new URL(page.url()).origin + '/mcp')).toBeVisible();
       const listed = window.getByRole('listitem').filter({ hasText: 'Claude' });
       await expect(listed).toContainText(/last captured/);
@@ -127,7 +126,7 @@ test.describe('MCP connections', () => {
         data: { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
       });
       expect(refused.status()).toBe(401);
-      await press(window.getByRole('button', { name: 'Done' }), isMobile);
+      await closeSettings(page, isMobile);
       await expect(row).toBeVisible();
     });
   });

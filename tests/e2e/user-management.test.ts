@@ -256,7 +256,7 @@ test.describe('User management', () => {
 
       await signOutAndIn(page, anna.address, isMobile);
       await press(workspaceMenuButton(page), isMobile);
-      await expect(page.getByRole('menuitem', { name: 'Manage types' })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Edit…' })).toBeVisible();
       await expect(page.getByRole('menuitem', { name: 'Manage users' })).toHaveCount(0);
     });
 

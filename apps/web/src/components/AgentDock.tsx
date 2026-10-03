@@ -48,6 +48,7 @@ export function AgentDock({
   claudeCodeFailing = null,
   onHide,
   focusHideControl = false,
+  onAgentSettings,
 }: {
   /** The chrome it sits in - a Workspace's own header colour, the same paint `<header>` wears (`pages/Layout.tsx`), so the dock reads as part of the shell rather than a plain panel dropped onto the page. */
   /** This Dashboard's own Workspace - what a hide or show is scoped to. */
@@ -64,6 +65,8 @@ export function AgentDock({
   onHide?: () => void;
   /** Takes the focus on mount, for a dock brought back by pressing the strip that stood where its hide control is. */
   focusHideControl?: boolean;
+  /** Opens Settings on *Agent settings* for this dock's workspace; the dock's menus offer it when given. */
+  onAgentSettings?: () => void;
 }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -253,7 +256,7 @@ export function AgentDock({
           included, per its own hidden-count tooltip ("Right-click the
           dock..."): `DockEmptyAreaMenu` wraps the bar whole rather than only
           the scrolling tile strip inside it. */}
-      <DockEmptyAreaMenu hiddenHere={hiddenHere} onShow={show}>
+      <DockEmptyAreaMenu hiddenHere={hiddenHere} onShow={show} onAgentSettings={onAgentSettings}>
         <div
           ref={bar}
           role="toolbar"
@@ -347,7 +350,7 @@ export function AgentDock({
           <DropdownMenu.Root>
             <MenuTrigger label="What is hidden here" onChrome />
             <MenuContent>
-              <DockMenuEntries hiddenHere={hiddenHere} onShow={show} asDropdown />
+              <DockMenuEntries hiddenHere={hiddenHere} onShow={show} onAgentSettings={onAgentSettings} asDropdown />
             </MenuContent>
           </DropdownMenu.Root>
         </div>
@@ -549,10 +552,12 @@ function AgentTile({
 function DockMenuEntries({
   hiddenHere,
   onShow,
+  onAgentSettings,
   asDropdown,
 }: {
   hiddenHere: Agent[];
   onShow: (agentId: string) => void;
+  onAgentSettings?: (() => void) | undefined;
   /** Which Radix item primitive to draw with - `DropdownMenu.Item` or `ContextMenu.Item`. */
   asDropdown: boolean;
 }) {
@@ -569,6 +574,11 @@ function DockMenuEntries({
           Show {agent.name}
         </Item>
       ))}
+      {onAgentSettings && (
+        <Item className={menuItemClass} onSelect={() => onAgentSettings()}>
+          Agent settings…
+        </Item>
+      )}
     </>
   );
 }
@@ -577,17 +587,24 @@ function DockMenuEntries({
 function DockEmptyAreaMenu({
   hiddenHere,
   onShow,
+  onAgentSettings,
   children,
 }: {
   hiddenHere: Agent[];
   onShow: (agentId: string) => void;
+  onAgentSettings?: (() => void) | undefined;
   children: React.ReactNode;
 }) {
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
       <ContextMenuContent label="The agents' dock">
-        <DockMenuEntries hiddenHere={hiddenHere} onShow={onShow} asDropdown={false} />
+        <DockMenuEntries
+          hiddenHere={hiddenHere}
+          onShow={onShow}
+          onAgentSettings={onAgentSettings}
+          asDropdown={false}
+        />
       </ContextMenuContent>
     </ContextMenu.Root>
   );
