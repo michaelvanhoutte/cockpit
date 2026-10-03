@@ -431,7 +431,7 @@ describe('a new version is announced, and loaded on a click', () => {
       supported: () => over.supported ?? true,
       waiting: vi.fn(() => Promise.resolve(over.waiting ?? false)),
       check: vi.fn(over.check ?? (() => Promise.resolve(false))),
-      activate: vi.fn(() => Promise.resolve()),
+      activate: vi.fn(() => Promise.resolve(true)),
       onTakenOver: (listener: () => void) => {
         takenOver.add(listener);
         return () => takenOver.delete(listener);
@@ -678,6 +678,20 @@ describe('a new version is announced, and loaded on a click', () => {
 
       await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
       expect(worker.activate).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not reload, and says so, when the worker did not activate, and a second click can try again', async () => {
+      const reload = vi.fn();
+      const worker = aWorker({ waiting: true });
+      worker.activate.mockResolvedValueOnce(false);
+      opened(worker, here(reload));
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+
+      expect(await screen.findByText('Could not load the new version. Try again.')).toBeVisible();
+      expect(reload).not.toHaveBeenCalled();
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
     });
 
     it('does not try again by itself when the new version is still behind after the click', async () => {

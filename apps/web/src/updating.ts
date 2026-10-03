@@ -33,10 +33,9 @@ import { statusOf } from './api/loadFailure';
  * waiting worker a `SKIP_WAITING` message and reloads once it is active: one
  * click, one reload, no hard reload.
  *
- * Before this, a reload could never take the new version on the first try: the
- * navigation it looked for a new `sw.js` during had already been answered from
- * the old precache, so awaiting the check before reloading was the fix. That
- * still applies to the gate below, which takes the version unasked.
+ * The gate below, which takes the version unasked, awaits its check before
+ * reloading, because a navigation is answered from the old precache before a
+ * check started by the reload could finish.
  *
  * **And "nothing newer" is conclusive rather than a guess.** `sw.js` carries
  * the precache manifest, which is content-hashed, so any changed asset changes
@@ -125,8 +124,7 @@ export const realVersions: Versions = {
     if (!(await waitingIn(registration))) return false;
     // This gate takes the version unasked, so it is its own click: the worker
     // waits for a message and must be told before the reload can land on it.
-    await activateWaiting(registration);
-    return true;
+    return activateWaiting(registration);
   },
 
   /**
@@ -197,18 +195,19 @@ function settled(worker: ServiceWorker): Promise<void> {
 
 /**
  * Tell the waiting worker to take over and resolve when it has - bounded, so a
- * click is never left hanging on a worker that never answers. Nothing waiting
- * (another tab already activated it) resolves at once.
+ * click is never left hanging on a worker that never answers. Resolves true
+ * once active, false on a timeout or a worker that went redundant. Nothing
+ * waiting (another tab already activated it) is true at once.
  */
-async function activateWaiting(registration: ServiceWorkerRegistration): Promise<void> {
+async function activateWaiting(registration: ServiceWorkerRegistration): Promise<boolean> {
   const waiting = registration.waiting;
-  if (!waiting) return;
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ACTIVATION_WAIT_MS);
+  if (!waiting) return true;
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), ACTIVATION_WAIT_MS);
     waiting.addEventListener('statechange', () => {
       if (waiting.state === 'activated' || waiting.state === 'redundant') {
         clearTimeout(timer);
-        resolve();
+        resolve(waiting.state === 'activated');
       }
     });
     waiting.postMessage(SKIP_WAITING);
@@ -374,8 +373,8 @@ export interface Workers {
    * and waiting. Rejects where the question could not be asked.
    */
   check(): Promise<boolean>;
-  /** Tells the waiting worker to take over; resolves once it has (or none waits). */
-  activate(): Promise<void>;
+  /** Tells the waiting worker to take over; true once it has (or none waits), false if it did not. */
+  activate(): Promise<boolean>;
   /** The worker serving this page changed under it - another tab's click. */
   onTakenOver(listener: () => void): () => void;
 }
@@ -391,7 +390,7 @@ export const realWorkers: Workers = {
   },
   activate: async () => {
     const registration = await registered();
-    if (registration) await activateWaiting(registration);
+    return registration ? activateWaiting(registration) : true;
   },
   onTakenOver: (listener) => {
     const container = globalThis.navigator?.serviceWorker;
@@ -447,7 +446,9 @@ export async function checkOnOpening(
 }
 
 /**
- * The click: activate the waiting worker, then reload once onto it.
+ * The click: activate the waiting worker, then reload once onto it. Resolves
+ * false, with no reload, when the worker did not activate: reloading would land
+ * on the old version with the same worker still waiting.
  *
  * Marked with the same tab memory as the gate, so a version that is *still*
  * behind after the click is not taken a second time automatically (the gate
@@ -459,9 +460,11 @@ export async function continueToNewVersion(
   workers: Workers,
   versions: Versions = realVersions,
   memory: Storage | undefined = tabMemory(),
-): Promise<void> {
-  await workers.activate().catch(() => undefined);
+): Promise<boolean> {
+  const active = await workers.activate().catch(() => false);
+  if (!active) return false;
   take(versions, memory, versions.thisBuild(), TRIED_FROM);
+  return true;
 }
 
 /**

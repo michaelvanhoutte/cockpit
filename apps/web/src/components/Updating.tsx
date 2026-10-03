@@ -218,6 +218,7 @@ function NewVersion({
   memory: Storage | undefined;
 }) {
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
   const card = (
     <div role="alertdialog" aria-labelledby="new-version-title" className="pointer-events-auto max-w-sm rounded-lg bg-surface p-4 shadow-panel">
       <h2 id="new-version-title" className="text-base font-semibold text-ink">
@@ -228,6 +229,11 @@ function NewVersion({
           ? 'Continue to load it.'
           : 'Save what you are writing, then continue to load it. Nothing on screen is lost until you do.'}
       </p>
+      {failed && (
+        <p role="alert" className="mt-2 text-sm text-over">
+          Could not load the new version. Try again.
+        </p>
+      )}
       <button
         type="button"
         disabled={loading}
@@ -237,7 +243,12 @@ function NewVersion({
           // is ignored rather than started again.
           if (loading) return;
           setLoading(true);
-          void continueToNewVersion(workers, versions, memory);
+          setFailed(false);
+          void continueToNewVersion(workers, versions, memory).then((loaded) => {
+            if (loaded) return;
+            setLoading(false);
+            setFailed(true);
+          });
         }}
       >
         Continue
