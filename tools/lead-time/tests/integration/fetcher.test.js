@@ -330,4 +330,109 @@ describe('Lead time', () => {
       expect([kinds(api, '/runs/50/artifacts'), kinds(api, '/zip')]).toEqual([0, 0]);
     });
   });
+
+  describe('a job waits for a runner, and that is read once per CI run', () => {
+    const detailsUrl = (runId, jobId) => `https://github.com/o/r/actions/runs/${runId}/job/${jobId}`;
+    const run = (id, name, runId, from, to, extra = {}) => ({
+      id,
+      name,
+      status: 'completed',
+      conclusion: 'success',
+      started_at: `2026-09-10T${from}:00Z`,
+      completed_at: `2026-09-10T${to}:00Z`,
+      check_suite: { id: 7 },
+      app: { slug: 'github-actions' },
+      details_url: detailsUrl(runId, id),
+      ...extra,
+    });
+    const job = (id, name, created, started) => ({ id, name, created_at: `2026-09-10T${created}Z`, started_at: `2026-09-10T${started}Z` });
+
+    /** One pull with `commits` (sha -> check runs), CI runs `ci` (ids), and each run's jobs. */
+    function stub({ commits, ci = [60], jobs = {}, listing = undefined }) {
+      return stubApi({
+        listing: [listed(1, '2026-09-11T00:00:00Z')],
+        override: (url) => {
+          const { pathname } = new URL(url);
+          if (pathname.endsWith('/pulls/1/commits')) return ok(Object.keys(commits).map((sha) => ({ sha, commit: { author: { date: '2026-09-10T09:00:00Z' } }, parents: [{}] })));
+          const checks = pathname.match(/\/commits\/(\w+)\/check-runs$/);
+          if (checks) return ok({ total_count: commits[checks[1]].length, check_runs: commits[checks[1]] });
+          if (pathname.endsWith('/actions/workflows/ci.yml/runs')) return listing ?? ok({ total_count: ci.length, workflow_runs: ci.map((id) => ({ id })) });
+          const list = pathname.match(/\/actions\/runs\/(\d+)\/jobs$/);
+          if (list) return jobs[list[1]] ? ok({ total_count: jobs[list[1]].length, jobs: jobs[list[1]] }) : refuse(404);
+          return undefined;
+        },
+      });
+    }
+    const asked = (api, part) => api.calls.filter((url) => new URL(url).pathname.endsWith(part)).length;
+    const jobLists = (api) => api.calls.filter((url) => /\/runs\/\d+\/jobs\?/.test(url));
+    const ONE = { a: [run(11, 'Test', 60, '09:05', '09:15')] };
+
+    it('puts the creation time of a CI job on its check run, read from the run it belongs to', async () => {
+      const api = stub({ commits: ONE, jobs: { 60: [job(11, 'Test', '09:04:58', '09:05:00')] } });
+      const { pulls } = await collectFrom(api);
+      expect(pulls[0].commits[0].checks[0].queue).toEqual({ state: 'read', createdAt: '2026-09-10T09:04:58Z' });
+      expect(jobLists(api)[0]).toContain('filter=all');
+
+      const model = buildModel({ pulls, now: NOW, requestedDays: 14, coveredSince: SINCE, repo: 'o/r' });
+      expect(model.pulls[0].rounds[0].queued).toEqual([{ name: 'Test', ms: 2000 }]);
+    });
+
+    it('reads the job list of a round whose checks come from a CI run and a review run once, for the CI run', async () => {
+      const api = stub({
+        commits: { a: [run(11, 'Test', 60, '09:05', '09:15'), run(12, 'claude-review', 61, '09:05', '09:20')] },
+        jobs: { 60: [job(11, 'Test', '09:04:58', '09:05:00')], 61: [job(12, 'claude-review', '09:04:00', '09:05:00')] },
+      });
+      const { pulls } = await collectFrom(api);
+      expect(jobLists(api).map((url) => new URL(url).pathname)).toEqual(['/repos/o/r/actions/runs/60/jobs']);
+      expect(pulls[0].commits[0].checks.map((check) => check.queue?.state)).toEqual(['read', undefined]);
+    });
+
+    it('reads the job list of two rounds on the same CI run once, a re-run included', async () => {
+      const api = stub({
+        commits: { a: [run(11, 'Test', 60, '09:05', '09:15', { conclusion: 'failure' }), run(21, 'Test', 60, '09:20', '09:30')] },
+        jobs: { 60: [job(11, 'Test', '09:04:58', '09:05:00'), job(21, 'Test', '09:19:50', '09:20:00')] },
+      });
+      const { pulls } = await collectFrom(api);
+      expect(jobLists(api)).toHaveLength(1);
+      expect(pulls[0].commits[0].checks.map((check) => check.queue?.createdAt)).toEqual(['2026-09-10T09:04:58Z', '2026-09-10T09:19:50Z']);
+    });
+
+    it('lists the CI runs once, whatever the number of pull requests and commits', async () => {
+      const api = stub({ commits: { a: [run(11, 'Test', 60, '09:05', '09:15')], b: [run(12, 'Test', 61, '09:25', '09:35')] }, ci: [60, 61], jobs: { 60: [job(11, 'Test', '09:05:00', '09:05:00')], 61: [job(12, 'Test', '09:25:00', '09:25:00')] } });
+      await collectFrom(api);
+      expect(asked(api, '/actions/workflows/ci.yml/runs')).toBe(1);
+      expect(jobLists(api)).toHaveLength(2);
+    });
+
+    it.each([
+      { situation: 'the job list answers 404', jobs: {}, ci: [60], why: 'unreadable' },
+      { situation: 'the job list lacks the job', jobs: { 60: [job(99, 'Other', '09:00:00', '09:00:01')] }, ci: [60], why: 'absent' },
+    ])('leaves queue not recorded on the round, keeping the pull request in the figures, where $situation', async ({ jobs, ci, why }) => {
+      const api = stub({ commits: ONE, ci, jobs });
+      const { pulls, failed } = await collectFrom(api);
+      expect(failed).toEqual([]);
+      expect(pulls[0].commits[0].checks[0].queue).toEqual({ state: 'not-recorded', why });
+
+      const model = buildModel({ pulls, now: NOW, requestedDays: 14, coveredSince: SINCE, repo: 'o/r' });
+      expect(model.pulls[0].rounds[0]).toMatchObject({ queued: [], queueNotRecorded: true, ms: 10 * 60_000 });
+      expect(model.windows[1]).toMatchObject({ pulls: { total: 1 }, queue: null });
+    });
+
+    it('leaves queue not recorded, rather than dropping the pull request, where the list of CI runs cannot be read', async () => {
+      const api = stub({ commits: ONE, listing: refuse(500) });
+      const { pulls, failed } = await collectFrom(api);
+      expect(failed).toEqual([]);
+      expect(pulls[0].commits[0].checks[0].queue).toEqual({ state: 'not-recorded', why: 'unreadable' });
+    });
+
+    it.each([
+      { situation: 'listing the CI runs', spendAt: '/actions/workflows/ci.yml/runs' },
+      { situation: 'listing the jobs of a run', spendAt: '/actions/runs/60/jobs' },
+    ])('still fails the run where $situation spends the rate limit', async ({ spendAt }) => {
+      const spent = refuse(403, { 'x-ratelimit-remaining': '0' });
+      const api = stub({ commits: ONE, jobs: { 60: [job(11, 'Test', '09:04:58', '09:05:00')] } });
+      const inner = api.fetchImpl;
+      await expect(collectFrom({ fetchImpl: async (url) => (new URL(url).pathname.endsWith(spendAt) ? spent : inner(url)) })).rejects.toMatchObject({ reason: 'rate-limit' });
+    });
+  });
 });

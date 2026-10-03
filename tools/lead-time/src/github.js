@@ -10,16 +10,22 @@
  * requests an hour, and a pull request costs one for its detail, one for its
  * commits and one per commit for its check runs (`filter=all`, so the earlier
  * attempts of a re-run check arrive in the same request rather than a second
- * one) — about 5 to 6 in all, roughly 800 for the 150 pulls `maxPulls` allows by
- * default (fourteen days of this repository's merges). The listing that
- * finds them is one request in a hundred pulls. A *failed* attempt costs more, and
- * a passing one nothing: one for its job (the failing step) and, for `Test` and
- * `E2E (F3)`, one artifact list per run and record name (shared by every failed
- * attempt of that run) and one download of the record. That is 1 for a check that
- * keeps no record and about 3 for one that does — roughly 150 more over fourteen
- * days, so about 950 in all. `maxPulls` is what keeps that
- * true if the merge rate climbs: it stops rather than spending the hour's
- * allowance, and the coverage it returns names the period it actually reached,
+ * one) — about 5 to 6 in all. The listing that finds the pulls is one request in
+ * a hundred. Two things read further:
+ *
+ * - **A failed attempt** costs one for its job (the failing step) and, for `Test`
+ *   and `E2E (F3)`, one artifact list per run and record name (shared by every
+ *   failed attempt of that run) and one download of the record: 1 for a check that
+ *   keeps no record, about 3 for one that does. A passing attempt costs nothing.
+ * - **Queue time** costs one request per CI run, its job list (shared by every
+ *   round, attempt and pull request on that run), plus one listing of the CI
+ *   workflow's runs per hundred, since a check run does not name its workflow and
+ *   a review run is skipped on that list instead of asked about. That is about 1.4
+ *   per pull request.
+ *
+ * Measured over fourteen days of this repository's merges, 103 pulls cost 767
+ * requests. `maxPulls` (150 by default) is what keeps the hour's allowance
+ * from being spent if the merge rate climbs: it stops rather than spending it, and the coverage it returns names the period it actually reached,
  * so the model reports that instead of the one it was asked for.
  */
 
@@ -29,6 +35,10 @@ import { classify, matchArtifact, recordArtifactOf } from './model.js';
 const API = 'https://api.github.com';
 const RECORD_FILE = 'record.json';
 const PER_PAGE = 100;
+/** The workflow whose jobs hold the required checks, and so the only one whose job lists are read. */
+const CI_WORKFLOW = 'ci.yml';
+const RUN_OF = /\/actions\/runs\/(\d+)\//;
+const DAY_MS = 86_400_000;
 
 /** Thrown for anything that means the picture would be incomplete. */
 export class GitHubError extends Error {
@@ -52,6 +62,10 @@ export class GitHubError extends Error {
  * @property {string|null} startedAt
  * @property {string|null} completedAt
  * @property {string|null} app the Actions app is the only one with a job to read
+ * @property {number|null} runId the workflow run it belongs to, read off its `details_url`
+ * @property {{ state: 'read', createdAt: string } | { state: 'not-recorded', why: string }} [queue]
+ *   on a job of the CI workflow only: when the job was created, which with its start is the time it
+ *   waited for a runner
  * @property {{ steps: string[], record: null | { state: 'read', value: object } | { state: 'not-recorded', why: string } }} [failure]
  *   on a failed attempt only: the steps that failed, and for `Test` and `E2E (F3)` the record it uploaded
  *
@@ -164,6 +178,7 @@ function normalizeCheck(raw) {
     startedAt: raw.started_at ?? null,
     completedAt: raw.completed_at ?? null,
     app: raw.app?.slug ?? null,
+    runId: Number(raw.details_url?.match(RUN_OF)?.[1]) || null,
   };
 }
 
@@ -288,6 +303,71 @@ async function readFailure({ repo, check, artifacts, ...ctx }) {
   }
 }
 
+/**
+ * When each job of the CI workflow was created, put on its check run as `queue`, so the
+ * model can say how long it waited for a runner. A check run does not name its workflow,
+ * so the CI runs are listed once, from the earliest check read: about one request per 100
+ * runs, against one per run to ask each. Then each distinct CI run's job list is read once,
+ * however many rounds, attempts or pulls share it (`filter=all`, so a re-run's attempts come
+ * together), and a job's id is its check run's id. A review or other workflow's run is not in
+ * that list and costs nothing.
+ *
+ * This is supplementary detail like `readFailure`: an error but a spent allowance (or the run
+ * already stopping) leaves the affected checks `not-recorded` and every pull request in place.
+ */
+async function readQueue({ repo, pulls, concurrency = 4, ...ctx }) {
+  const checks = pulls
+    .flatMap((pull) => pull.commits.flatMap((commit) => commit.checks))
+    .filter((check) => check.runId !== null && (check.app === null || check.app === 'github-actions'));
+  if (checks.length === 0) return;
+
+  const notRecorded = (list, why) => list.forEach((check) => (check.queue = { state: 'not-recorded', why }));
+  const rethrows = (error) => !(error instanceof GitHubError) || error.reason === 'rate-limit' || error.reason === 'stopped';
+
+  const earliest = Math.min(...checks.map((check) => Date.parse(check.startedAt ?? check.completedAt)).filter(Number.isFinite));
+  const from = new Date((Number.isFinite(earliest) ? earliest : Date.now()) - DAY_MS).toISOString().slice(0, 10);
+
+  let ci;
+  try {
+    const runs = await listAll(
+      `/repos/${repo}/actions/workflows/${CI_WORKFLOW}/runs?event=pull_request&exclude_pull_requests=true&created=${encodeURIComponent(`>=${from}`)}`,
+      'workflow_runs',
+      ctx,
+      { paged: (body, items) => items.length < (body.total_count ?? 0) },
+    );
+    ci = new Set(runs.map((run) => run.id));
+  } catch (error) {
+    if (rethrows(error)) throw error;
+    notRecorded(checks, 'unreadable');
+    return;
+  }
+
+  const ofCi = checks.filter((check) => ci.has(check.runId));
+  const ids = [...new Set(ofCi.map((check) => check.runId))];
+  const jobs = new Map();
+  await pool(
+    ids,
+    concurrency,
+    async (runId) => {
+      try {
+        const listed = await listAll(`/repos/${repo}/actions/runs/${runId}/jobs?filter=all`, 'jobs', ctx, { paged: (body, items) => items.length < (body.total_count ?? 0) });
+        jobs.set(runId, new Map(listed.map((job) => [job.id, job])));
+      } catch (error) {
+        if (rethrows(error)) throw error;
+        jobs.set(runId, null);
+      }
+    },
+    ctx.abort,
+  );
+
+  for (const check of ofCi) {
+    const run = jobs.get(check.runId);
+    const job = run?.get(check.id);
+    if (job?.created_at) check.queue = { state: 'read', createdAt: job.created_at };
+    else notRecorded([check], run ? 'absent' : 'unreadable');
+  }
+}
+
 /** One pull request: its detail, its commits and each commit's check runs. @returns {Promise<Pull>} */
 export async function readPull({ repo, number, commitConcurrency = 4, ...ctx }) {
   const [detail, rawCommits] = await Promise.all([
@@ -380,8 +460,11 @@ export async function collect({
     abort,
   );
 
+  const pulls = read.filter(Boolean);
+  await readQueue({ repo, pulls, ...ctx });
+
   return {
-    pulls: read.filter(Boolean),
+    pulls,
     failed: failed.sort((a, b) => a.number - b.number),
     coveredSince: listing.reachedWindowEdge && !listing.truncated ? since : (listing.oldestSeen ?? now),
     truncated: listing.truncated,

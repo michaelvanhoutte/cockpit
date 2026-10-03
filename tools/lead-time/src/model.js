@@ -202,6 +202,70 @@ function flukesOf(groups, sha) {
 }
 
 /**
+ * A re-run copies the jobs that passed, and a copy is created after the start it carries.
+ * Only known where the job list was read.
+ */
+const isCopy = (attempt) => {
+  if (attempt.queue?.state !== 'read') return false;
+  const created = time(attempt.queue.createdAt);
+  const started = time(attempt.startedAt);
+  return created !== null && started !== null && started < created;
+};
+
+/**
+ * How long a job waited for a runner: its creation to its start. A job that waits on `needs:`
+ * is created only when its dependency finishes, so that wait is never in it. `null` where
+ * there is nothing to say: no job list read, a copy, a skipped job, one that never started.
+ */
+function queuedMs(attempt) {
+  if (attempt.queue?.state !== 'read' || isCopy(attempt) || classify(attempt) === 'skipped') return null;
+  const created = time(attempt.queue.createdAt);
+  const started = time(attempt.startedAt);
+  return created === null || started === null ? null : started - created;
+}
+
+/** Runner time one attempt used, start to end; a copy, a skipped job and one that never started used none. */
+function runnerMs(attempt) {
+  const from = time(attempt.startedAt);
+  const to = time(attempt.completedAt);
+  if (isCopy(attempt) || classify(attempt) === 'skipped' || from === null || to === null) return 0;
+  return Math.max(0, to - from);
+}
+
+/**
+ * How long after a cancellation the next push may be seen and still have caused it. A push is
+ * the earliest moment a check on it was seen, and the run it starts cancels the old one as it
+ * is created: the cancelled job ends in the same second or a few before the new run's first
+ * job is stamped.
+ */
+export const SUPERSEDE_SLACK_MS = 5_000;
+
+/**
+ * The runner minutes of a pull request, and those thrown away by cancelling. A cancelled
+ * attempt is `superseded` when another push on the pull request arrived after its own and
+ * before it ended (within `SUPERSEDE_SLACK_MS` after it), which is what `cancel-in-progress` does; any other cancellation is `other`.
+ */
+function runnerOf(commits, rounds) {
+  const pushes = rounds.map((round) => time(round.pushedAt));
+  const cancelled = { superseded: { runs: 0, ms: 0 }, other: { runs: 0, ms: 0 } };
+  let total = 0;
+  for (const commit of commits) {
+    const own = pushTime(commit.checks);
+    for (const attempt of commit.checks) {
+      const ms = runnerMs(attempt);
+      total += ms;
+      if (classify(attempt) !== 'cancelled' || isCopy(attempt)) continue;
+      const ended = time(attempt.completedAt);
+      const from = own ?? time(attempt.startedAt);
+      const superseded = ended !== null && from !== null && pushes.some((push) => push > from && push <= ended + SUPERSEDE_SLACK_MS);
+      cancelled[superseded ? 'superseded' : 'other'].runs += 1;
+      cancelled[superseded ? 'superseded' : 'other'].ms += ms;
+    }
+  }
+  return { ms: total, cancelled };
+}
+
+/**
  * What each failed attempt of a round failed on: the step it stopped at and, for
  * `Test` and `E2E (F3)`, the files its own record marks failed. `outcome` is `red`
  * where the check never passed on the commit and `fluke` where a re-run did.
@@ -306,6 +370,10 @@ function buildRounds(commits, mergedAt) {
       last: held.length ? held[held.length - 1].name : null,
       flukes: flukesOf(push.groups, push.commit.sha),
       failures: failuresOf(verdicts),
+      // Per attempt that ran, how long it waited for a runner; `queueNotRecorded` where a CI
+      // job list could not be read, so the round's queue is missing rather than none.
+      queued: push.ran.flat().map((attempt) => ({ name: attempt.name, ms: queuedMs(attempt) })).filter((entry) => entry.ms !== null),
+      queueNotRecorded: push.ran.flat().some((attempt) => attempt.queue?.state === 'not-recorded'),
       commits: push.commits,
     };
   });
@@ -375,6 +443,7 @@ function readRecord(body, firstCommit) {
 export function pullModel(pull) {
   const mergedAt = time(pull.mergedAt);
   const rounds = buildRounds(pull.commits, mergedAt);
+  const runner = runnerOf(pull.commits, rounds);
 
   const firstCommit = pull.commits.map((commit) => time(commit.authoredAt)).filter((ms) => ms !== null).sort((a, b) => a - b)[0] ?? time(pull.createdAt) ?? mergedAt;
   const record = readRecord(pull.body, firstCommit);
@@ -438,6 +507,8 @@ export function pullModel(pull) {
     beforeFirstPushMs,
     balance,
     rounds,
+    runnerMs: runner.ms,
+    cancelled: runner.cancelled,
     fixingMs: fixing,
     awayMs: away,
     waitingToMergeMs: waitingToMerge,
@@ -501,6 +572,42 @@ function failuresOfWindow(inWindow) {
   };
 }
 
+/**
+ * Per check, the median and p95 of the time its jobs waited for a runner, with the rounds
+ * and pull requests behind it. `null` where no job list was read, which is not zero.
+ */
+function queueOfWindow(rounds) {
+  const byCheck = new Map();
+  for (const { pull, round } of rounds) {
+    for (const { name, ms } of round.queued) {
+      if (!byCheck.has(name)) byCheck.set(name, []);
+      byCheck.get(name).push({ pull, value: ms });
+    }
+  }
+  if (byCheck.size === 0) return null;
+  return Object.fromEntries([...byCheck].sort(([a], [b]) => a.localeCompare(b)).map(([name, entries]) => [name, figure(entries)]));
+}
+
+/**
+ * Runner minutes cancelled, split into those a newer push superseded and the rest, against
+ * every runner minute in the window. A share of runner time, not of round time: a round is
+ * wall clock and does not divide against minutes of several runners. `null` share where no
+ * runner time was recorded.
+ */
+function cancelledOfWindow(inWindow) {
+  const sumOf = (kind) => ({ runs: sum(inWindow.map((pull) => pull.cancelled[kind].runs)), ms: sum(inWindow.map((pull) => pull.cancelled[kind].ms)) });
+  const superseded = sumOf('superseded');
+  const other = sumOf('other');
+  const runnerMs = sum(inWindow.map((pull) => pull.runnerMs));
+  return {
+    superseded,
+    other,
+    runnerMs,
+    share: runnerMs > 0 ? (superseded.ms + other.ms) / runnerMs : null,
+    supersededShare: runnerMs > 0 ? superseded.ms / runnerMs : null,
+  };
+}
+
 /** One window's picture: the pull requests merged in it, and every part's median and p95. */
 function windowModel(pulls, { days, now, coveredSince }) {
   const since = now.getTime() - days * DAY_MS;
@@ -556,6 +663,7 @@ function windowModel(pulls, { days, now, coveredSince }) {
           red: rounds.filter((entry) => entry.round.red).length,
           ready: rounds.filter((entry) => entry.round.kind === 'ready').length,
           overTenMinutes: rounds.filter((entry) => entry.value > LONG_ROUND_MS).length,
+          queueNotRecorded: rounds.filter((entry) => entry.round.queueNotRecorded).length,
           // A pull request no check ever ran on has no round, so it is left out of
           // the rounds it took rather than counted as taking none.
           perPull: figure(inWindow.filter((pull) => pull.rounds.length > 0).map((pull) => ({ pull: pull.number, value: pull.rounds.length }))),
@@ -566,6 +674,8 @@ function windowModel(pulls, { days, now, coveredSince }) {
     // Null too where pull requests merged but no check ever ran on any of them: no
     // rounds is no data about what held them, not a harness that held nothing.
     harness: rounds.length ? harnessOf(rounds.map((entry) => entry.round)) : null,
+    queue: queueOfWindow(rounds),
+    cancelled: inWindow.length ? cancelledOfWindow(inWindow) : null,
     failures: failuresOfWindow(inWindow),
     flukes: rounds.length
       ? {

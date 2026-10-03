@@ -67,6 +67,16 @@ A pull request is one line, cut into parts:
   attempt whose record expired, was never uploaded, matches two artifacts or could not be read reads
   `not-recorded` with its `why`, never as failing nothing, and a package that wrote no report is named in
   `packagesNotRecorded`. An error reading a failed attempt never drops its pull request; only a spent rate limit fails the run.
+- **A round splits queued from running, per check.** A CI job's queue is its creation to its start,
+  from the run's job list (`filter=all`), read once per CI run; a job waiting on `needs:` is created
+  when its dependency finishes, so that wait is never queue. A re-run copies its passed jobs with a
+  start before their creation; a copy is neither queued nor run time. A round carries `queued`
+  (per check, in ms), and `queueNotRecorded` where a job list could not be read: the pull request
+  stays in every figure and only a spent rate limit fails the run. Only the CI workflow's runs are read.
+- **Cancelled runs count the runner minutes they used**, start to end, none if never started. A
+  pull request's `cancelled` splits them into `superseded` (a later push arrived before the run
+  ended, or within five seconds after, which is how soon a push is seen) and `other`; `runnerMs` is
+  every attempt that ran.
 - **Ready or draft**: a round in which the code review or the security review ran is `ready`,
   since a draft skips both.
 - **A conclusion it does not know is neither a pass nor a fail**, and is named in the round's
@@ -80,7 +90,9 @@ A pull request is one line, cut into parts:
   `pulls.withoutRecord` says how many pull requests the record-based figures left out. A pull
   request closed without merging is in no figure.
 
-Over each window the model gives the median and p95 of every part, the rounds per pull request,
+Over each window the model gives the median and p95 of every part, `queue` (per check, `null`
+where no job list was read), `cancelled` (superseded and other minutes, and `share`, cancelled
+runner minutes over all runner minutes, not over round time, `null` with none), the rounds per pull request,
 how many rounds ran past ten minutes, and what each kind of check held rounds up for (`harness`:
 minutes, runs, and rounds it finished last). Each pull request carries the same `harness` shape
 for its own rounds, so the page can plot one pull request the way it reads a window. `pulls` in

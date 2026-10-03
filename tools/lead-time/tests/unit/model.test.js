@@ -646,4 +646,98 @@ describe('Lead time', () => {
       expect(failures.steps.map((step) => [step.check, step.step, step.attempts])).toEqual([['Test', 'Run', 2], ['Checks', 'Lint', 1]]);
     });
   });
+
+  describe("a check's queue time is how long its job waited for a runner", () => {
+    const SEC = 1000;
+    const build = (pulls) =>
+      buildModel({ pulls, now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] });
+    const merged = (overrides) => pull({ createdAt: at(-10), mergedAt: at(120), ...overrides });
+    /** A job created `created` minutes past 09:00 whose check run ran `from` to `to`. */
+    const job = (name, created, from, to, conclusion = 'success') => check(name, from, to, conclusion, { queue: { state: 'read', createdAt: at(created) } });
+    const queuedOf = (checks) => pullModel(merged({ commits: [commit('a', 0, checks)] })).rounds[0].queued;
+
+    it.each([
+      { situation: 'a job created 2 seconds before it started', checks: [job('Test', 1, 1 + 2 / 60, 5)], queued: [{ name: 'Test', ms: 2 * SEC }] },
+      { situation: "a re-run's copied job, started before it was created", checks: [job('Test', 1, 1, 5), job('Checks', 20, 2, 4)], queued: [{ name: 'Test', ms: 0 }] },
+      { situation: 'a job created when its dependency finished, long after the push', checks: [job('Test', 0, 0.5, 5), job('Publish', 5, 5.5, 6)], queued: [{ name: 'Test', ms: 0.5 * MIN }, { name: 'Publish', ms: 0.5 * MIN }] },
+      { situation: 'a job whose list was not read', checks: [check('Test', 1, 5)], queued: [] },
+    ])('reads $situation', ({ checks, queued }) => {
+      expect(queuedOf(checks)).toEqual(queued);
+    });
+
+    it('says a round has no queue recorded where the list of a job could not be read, and keeps the pull request', () => {
+      const [round] = pullModel(merged({ commits: [commit('a', 0, [check('Test', 1, 5, 'success', { queue: { state: 'not-recorded', why: 'unreadable' } })])] })).rounds;
+      expect(round).toMatchObject({ queued: [], queueNotRecorded: true, ms: 4 * MIN });
+      expect(build([merged({ commits: [commit('a', 0, [check('Test', 1, 5, 'success', { queue: { state: 'not-recorded', why: 'unreadable' } })])] })]).windows[0]).toMatchObject({ pulls: { total: 1 }, queue: null, rounds: { queueNotRecorded: 1 } });
+    });
+
+    it('gives each check a median and p95 over the window, with the items and pull requests behind them', () => {
+      const round = (number, queueSec) => merged({ number, commits: [commit(`s${number}`, 0, [job('Test', 0, queueSec / 60, 5), job('E2E (F3)', 0, 1, 9)])] });
+      const { queue } = build([round(1, 2), round(2, 4), round(3, 60)]).windows[0];
+      expect(queue.Test).toEqual({ median: 4 * SEC, p95: 60 * SEC, count: 3, pulls: 3 });
+      expect(queue['E2E (F3)']).toMatchObject({ median: MIN, count: 3 });
+    });
+
+    it('reads a window with pull requests and no job list read as no queue figure, not zero', () => {
+      expect(build([merged({ commits: [commit('a', 0, [check('Test', 1, 5)])] })]).windows[0].queue).toBeNull();
+    });
+  });
+
+  describe('runner minutes thrown away by a cancelled run are counted, and a newer push is what tells why', () => {
+    const build = (pulls) =>
+      buildModel({ pulls, now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] });
+    const merged = (overrides) => pull({ createdAt: at(-10), mergedAt: at(120), ...overrides });
+
+    it.each([
+      {
+        situation: 'Test cancelled after 5 minutes with a newer push before it ended',
+        commits: [commit('a', 0, [check('Test', 1, 6, 'cancelled')]), commit('b', 5, [check('Test', 5, 12)])],
+        expected: { superseded: { runs: 1, ms: 5 * MIN }, other: { runs: 0, ms: 0 } },
+      },
+      {
+        situation: 'Test cancelled two seconds before the push that cancelled it was seen',
+        commits: [commit('a', 0, [check('Test', 1, 6, 'cancelled')]), commit('b', 5, [check('Test', 6 + 2 / 60, 12)])],
+        expected: { superseded: { runs: 1, ms: 5 * MIN }, other: { runs: 0, ms: 0 } },
+      },
+      {
+        situation: 'a job cancelled with no later push before it ended',
+        commits: [commit('a', 0, [check('Test', 1, 6, 'cancelled')]), commit('b', 30, [check('Test', 31, 36)])],
+        expected: { superseded: { runs: 0, ms: 0 }, other: { runs: 1, ms: 5 * MIN } },
+      },
+      {
+        situation: 'a job cancelled before it started',
+        commits: [commit('a', 0, [check('Test', 1, 6), check('E2E (F3)', 5, 5.5, 'cancelled', { startedAt: null })]), commit('b', 5, [check('Test', 4, 12)])],
+        expected: { superseded: { runs: 1, ms: 0 }, other: { runs: 0, ms: 0 } },
+      },
+    ])('counts $situation', ({ commits, expected }) => {
+      expect(pullModel(merged({ commits })).cancelled).toEqual(expected);
+    });
+
+    it('leaves a re-run copy out of the runner minutes, since it only repeats the original attempt', () => {
+      const original = check('Checks', 1, 5);
+      const copy = check('Checks', 1, 5, 'success', { queue: { state: 'read', createdAt: at(20) } });
+      expect(pullModel(merged({ commits: [commit('a', 0, [original, copy])] })).runnerMs).toBe(4 * MIN);
+    });
+  });
+
+  describe('the cancelled share is cancelled runner minutes over all runner minutes in the window', () => {
+    const build = (pulls) =>
+      buildModel({ pulls, now: NOW, requestedDays: 7, coveredSince: new Date(NOW.getTime() - 30 * 24 * 60 * MIN), repo: 'o/r', windows: [7] });
+    const merged = (overrides) => pull({ createdAt: at(-10), mergedAt: at(120), ...overrides });
+
+    it('reads 10 superseded minutes against 100 runner minutes as 10%, and the other kind apart', () => {
+      const [window] = build([
+        merged({ number: 1, commits: [commit('a', 0, [check('Test', 1, 11, 'cancelled')]), commit('b', 5, [check('Test', 5, 95)])] }),
+        merged({ number: 2, commits: [commit('c', 0, [check('Test', 1, 4, 'cancelled')]), commit('d', 60, [check('Test', 61, 61)])] }),
+      ]).windows;
+      expect(window.cancelled).toMatchObject({ superseded: { runs: 1, ms: 10 * MIN }, other: { runs: 1, ms: 3 * MIN }, runnerMs: 103 * MIN });
+      expect(window.cancelled.supersededShare).toBeCloseTo(10 / 103);
+      expect(window.cancelled.share).toBeCloseTo(13 / 103);
+    });
+
+    it('reads a window with no runner minutes as no share, not zero', () => {
+      const [window] = build([merged({ commits: [commit('a', 0, [check('Test', 1, null)])] })]).windows;
+      expect(window.cancelled.share).toBeNull();
+    });
+  });
 });
