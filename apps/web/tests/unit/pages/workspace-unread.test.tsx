@@ -116,7 +116,7 @@ vi.mock('../../../src/api/queries', () => ({
   useStartAgent: () => ({ mutateAsync: () => Promise.resolve() }),
   // Only read while a run of filings is in flight, which nothing here starts.
   useLatestSnapshot: () => () => Promise.resolve({ filings: [] }),
-  // Read by the Inbox heading's own "Smart refinements…" entry, closed here so nothing opens it.
+  // Read by the Inbox heading's own "Cockpit's suggestions…" entry, closed here so nothing opens it.
   rewriteHistoryForWorkspaceQuery: (workspaceId: string) => ({
     queryKey: ['rewriteHistory', 'workspace', workspaceId],
     queryFn: () => Promise.resolve({ entries: [] }),

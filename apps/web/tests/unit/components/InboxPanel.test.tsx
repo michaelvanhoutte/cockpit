@@ -64,7 +64,7 @@ vi.mock('../../../src/api/queries', () => ({
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),
   }),
-  // Read by the Inbox heading's own "Smart refinements…" entry: one
+  // Read by the Inbox heading's own "Cockpit's suggestions…" entry: one
   // refinement, saying which query it came from.
   rewriteHistoryForWorkspaceQuery: (workspaceId: string) => ({
     queryKey: ['rewriteHistory', 'workspace', workspaceId],
@@ -233,16 +233,16 @@ describe('Capture', () => {
   });
 });
 
-describe('Smart refinements', () => {
-  describe('the window is reached as "Smart refinements…" from the Inbox menu and from an item menu, and is titled Smart refinements', () => {
+describe("Cockpit's suggestions", () => {
+  describe("the window is reached as \"Cockpit's suggestions…\" from the Inbox menu and \"Cockpit's suggestions for this item…\" from an item menu, and is titled Cockpit's suggestions", () => {
     it("opens the Inbox's own refinements from the Inbox menu", async () => {
       const user = userEvent.setup();
       await showWorkspace([anItem('Buy milk')]);
 
       await user.click(screen.getByRole('button', { name: 'Actions for the Inbox' }));
-      await user.click(await screen.findByRole('menuitem', { name: 'Smart refinements…' }));
+      await user.click(await screen.findByRole('menuitem', { name: "Cockpit's suggestions…" }));
 
-      const dialog = await screen.findByRole('dialog', { name: 'Smart refinements' });
+      const dialog = await screen.findByRole('dialog', { name: "Cockpit's suggestions" });
       expect(await within(dialog).findByText('Read across ws-work')).toBeVisible();
       expect(within(dialog).getByRole('columnheader', { name: 'Item' })).toBeVisible();
     });

@@ -315,8 +315,8 @@
       ]
     },
     {
-      "key": "Smart refinements",
-      "label": "Smart refinements",
+      "key": "Cockpit's suggestions",
+      "label": "Cockpit's suggestions",
       "parent": "Capture",
       "sourcePatterns": [
         "apps/api/src/domain/rewrite-history.ts",

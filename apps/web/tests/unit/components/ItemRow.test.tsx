@@ -15,7 +15,7 @@ import { useCommand, useSendCommand } from '../../../src/api/queries';
 vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
   useSendCommand: vi.fn(),
-  // Read by the row's own "Smart refinements…" entry: one refinement, saying
+  // Read by the row's own "Cockpit's suggestions for this item…" entry: one refinement, saying
   // which query it came from.
   rewriteHistoryForWorkspaceQuery: (workspaceId: string) => ({
     queryKey: ['rewriteHistory', 'workspace', workspaceId],
@@ -104,6 +104,7 @@ function aRow({
   alsoIn,
   dock,
   agentsHere,
+  extra,
 }: {
   settles?: boolean;
   onMoveTo?: (from: HTMLElement | null) => void;
@@ -123,6 +124,8 @@ function aRow({
   alsoIn?: readonly string[];
   dock?: DockedItem;
   agentsHere?: React.ComponentProps<typeof ItemRow>['agentsHere'];
+  /** Any other prop the row takes, such as the Panel entries. */
+  extra?: Partial<React.ComponentProps<typeof ItemRow>>;
 } = {}) {
   const mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => {
     if (settles) options?.onSuccess?.();
@@ -145,10 +148,11 @@ function aRow({
         {...(onSettleNotADuplicate ? { onSettleNotADuplicate } : {})}
         {...(alsoIn ? { alsoIn } : {})}
         {...(agentsHere ? { agentsHere } : {})}
+        {...extra}
       />
     </UndoWhatJustHappened>
   );
-  // The query client is what the row's own Smart refinements window reads through.
+  // The query client is what the row's own suggestions window reads through.
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const withDock = (node: React.ReactNode) => (
     <QueryClientProvider client={queries}>
@@ -230,6 +234,29 @@ async function choose(user: ReturnType<typeof userEvent.setup>, option: string) 
   await user.click(await screen.findByText(option));
 }
 
+const STATES = ['To do', 'In progress', 'Done'];
+
+/**
+ * Picks a state from the menu already open, by keyboard: arrow-right opens
+ * Status, arrow-down walks to the state, Enter chooses it. A pointer moving
+ * from the Status row onto its submenu is not reproducible in jsdom, which has
+ * no layout for Radix's pointer-grace area to measure, so the tap is the
+ * browser pass's (tests/e2e/triage.test.ts).
+ */
+async function chooseStatusOpen(user: ReturnType<typeof userEvent.setup>, state: string) {
+  (await screen.findByRole('menuitem', { name: /^Status/ })).focus();
+  await user.keyboard('{ArrowRight}');
+  await screen.findAllByRole('menuitemradio');
+  for (let step = 0; step < STATES.indexOf(state); step += 1) await user.keyboard('{ArrowDown}');
+  await user.keyboard('{Enter}');
+}
+
+/** Opens the menu from the three dots and picks one of Status's states. */
+async function chooseStatus(user: ReturnType<typeof userEvent.setup>, state: string) {
+  await user.click(screen.getByLabelText('Item actions'));
+  await chooseStatusOpen(user, state);
+}
+
 /**
  * Hovers a label that is drawn in the width given.
  *
@@ -261,15 +288,27 @@ async function hoverLabel(
 
 describe('Triage', () => {
   describe("an item's menu offers only what the app does, for that row's own item", () => {
-    it.each([
-      { option: 'Mark done', name: 'set_done', field: 'done' },
-      { option: 'Dismiss', name: 'set_dismissed', field: 'dismissed' },
-      { option: 'Mark In progress', name: 'set_started', field: 'started' },
-    ])('$option', async ({ option, name, field }) => {
+    it('Dismiss', async () => {
       const user = userEvent.setup();
       const { mutate } = aRow();
 
-      await choose(user, option);
+      await choose(user, 'Dismiss');
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('set_dismissed');
+      expect(asked.payload.dismissed).toBe(true);
+      expect(asked.payload.itemId).toBe('item-1');
+    });
+
+    it.each([
+      { state: 'Done', name: 'set_done', field: 'done' },
+      { state: 'In progress', name: 'set_started', field: 'started' },
+    ])('choosing $state in the Status submenu sends $name', async ({ state, name, field }) => {
+      const user = userEvent.setup();
+      const { mutate } = aRow();
+
+      await chooseStatus(user, state);
 
       expect(mutate).toHaveBeenCalledTimes(1);
       const [asked] = mutate.mock.calls[0]!;
@@ -278,20 +317,65 @@ describe('Triage', () => {
       expect(asked.payload.itemId).toBe('item-1');
     });
 
-    it('sends Back to To do in place of Mark In progress once the item is started', async () => {
+    it('reads the status it is in, ticks it, and sends To do to clear the start once the item is started', async () => {
       const user = userEvent.setup();
       const { mutate } = aRow({ item: anItem({ startedAt: '2026-09-04T10:00:00.000Z' }) });
 
       await user.click(screen.getByRole('button', { name: 'Item actions' }));
-      expect(screen.queryByRole('menuitem', { name: 'Mark In progress' })).toBeNull();
+      const row = await screen.findByRole('menuitem', { name: /^Status/ });
+      expect(row).toHaveTextContent('In progress');
+      row.focus();
+      await user.keyboard('{ArrowRight}');
+      expect(await screen.findByRole('menuitemradio', { name: 'In progress' })).toBeChecked();
+      expect(screen.getByRole('menuitemradio', { name: 'To do' })).not.toBeChecked();
 
-      await user.click(await screen.findByText('Back to To do'));
+      await user.keyboard('{Enter}');
 
       expect(mutate).toHaveBeenCalledTimes(1);
       const [asked] = mutate.mock.calls[0]!;
       expect(asked.name).toBe('set_started');
       expect(asked.payload.started).toBe(false);
     });
+
+    it('reads To do for an item not started, and changes nothing on choosing the state it is already in', async () => {
+      const user = userEvent.setup();
+      const { mutate } = aRow();
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      expect(await screen.findByRole('menuitem', { name: /^Status/ })).toHaveTextContent('To do');
+      await chooseStatusOpen(user, 'To do');
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+
+    it('opens the three states by arrow-right and chooses one by arrows and Enter', async () => {
+      const user = userEvent.setup();
+      const { mutate } = aRow();
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      const row = await screen.findByRole('menuitem', { name: /^Status/ });
+      row.focus();
+      await user.keyboard('{ArrowRight}');
+      expect(await screen.findAllByRole('menuitemradio')).toHaveLength(3);
+      await user.keyboard('{ArrowDown}{Enter}');
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(mutate.mock.calls[0]![0].name).toBe('set_started');
+    });
+
+    it.each(['Mark In progress', 'Mark done', 'Back to To do'])(
+      'has no separate %s entry',
+      async (option) => {
+        const user = userEvent.setup();
+        aRow();
+
+        await user.click(screen.getByRole('button', { name: 'Item actions' }));
+
+        expect(await screen.findByRole('menuitem', { name: /^Status/ })).toBeVisible();
+        expect(screen.queryByRole('menuitem', { name: option })).toBeNull();
+      },
+    );
 
     // The four the app stopped having ("An item is either yours to deal with or
     // finished with", issue 154). Named rather than counted, so the rule says
@@ -306,7 +390,7 @@ describe('Triage', () => {
 
         // The menu is open - without this, an entry that is absent because
         // nothing opened would read the same as one that is gone on purpose.
-        expect(screen.getByRole('menuitem', { name: 'Mark done' })).toBeVisible();
+        expect(screen.getByRole('menuitem', { name: /^Status/ })).toBeVisible();
         expect(screen.queryByRole('menuitem', { name: option })).toBeNull();
       },
     );
@@ -508,7 +592,7 @@ describe('Triage', () => {
       const user = userEvent.setup();
       const { send } = aRow({ settles: true });
 
-      await choose(user, 'Mark done');
+      await chooseStatus(user, 'Done');
       expect(screen.getByRole('status')).toHaveTextContent(
         '“Make appointment with Novy” marked done',
       );
@@ -779,6 +863,126 @@ describe('Item editing', () => {
     });
   });
 
+  describe('the menu groups its entries by kind, with a divider only between groups that have entries', () => {
+    /** The open menu top to bottom: each entry's text, and a divider as '---'. */
+    const menuTopToBottom = async () => {
+      await screen.findAllByRole('menuitem');
+      const menu = screen.getByRole('menu');
+      return Array.from(menu.querySelectorAll('[role="menuitem"], [role="separator"]')).map((node) =>
+        node.getAttribute('role') === 'separator' ? '---' : (node.textContent ?? ''),
+      );
+    };
+
+    it('orders Open, Filing, Agent, Status, Suggestions and Dismiss, a divider between each', async () => {
+      const user = userEvent.setup();
+      aRow({
+        onOpen: () => {},
+        onMoveTo: () => {},
+        extra: { onAddTo: () => {}, onRemoveFromHere: () => {} },
+        agentsHere: { offered: [SCOPE_IT], run: undefined, start: vi.fn() },
+      });
+      await user.click(screen.getByLabelText('Item actions'));
+
+      expect(await menuTopToBottom()).toEqual([
+        'Open',
+        '---',
+        'Move to…',
+        'Also show on…',
+        'Remove from this panel',
+        '---',
+        'Scope it Agent',
+        '---',
+        expect.stringMatching(/^Status/),
+        '---',
+        "Cockpit's suggestions for this item…",
+        '---',
+        'Dismiss',
+      ]);
+    });
+
+    it('leaves the Agent group, and its divider, out where no agent is offered', async () => {
+      const user = userEvent.setup();
+      aRow({ onOpen: () => {}, onMoveTo: () => {} });
+      await user.click(screen.getByLabelText('Item actions'));
+
+      const menu = await menuTopToBottom();
+
+      expect(menu).toEqual([
+        'Open',
+        '---',
+        'Move to…',
+        '---',
+        expect.stringMatching(/^Status/),
+        '---',
+        "Cockpit's suggestions for this item…",
+        '---',
+        'Dismiss',
+      ]);
+    });
+
+    it('starts no menu and doubles no divider on a row with nothing to open or file', async () => {
+      const user = userEvent.setup();
+      aRow();
+      await user.click(screen.getByLabelText('Item actions'));
+
+      const menu = await menuTopToBottom();
+
+      expect(menu[0]).not.toBe('---');
+      expect(menu.join('|')).not.toContain('---|---');
+    });
+
+    it('keeps Dismiss last and red', async () => {
+      const user = userEvent.setup();
+      aRow({ onOpen: () => {} });
+      await user.click(screen.getByLabelText('Item actions'));
+      await screen.findAllByRole('menuitem');
+
+      const entries = screen.getAllByRole('menuitem');
+      const last = entries[entries.length - 1]!;
+
+      expect(last).toHaveTextContent('Dismiss');
+      expect(last.className).toContain('text-over');
+    });
+
+    it('puts Move to this workspace in Filing, above Move to…', async () => {
+      const user = userEvent.setup();
+      aRow({
+        item: anItem({ workspaceDecided: false }),
+        onMoveHere: () => {},
+        onMoveTo: () => {},
+      });
+      await user.click(screen.getByLabelText('Item actions'));
+
+      const menu = await menuTopToBottom();
+
+      expect(menu.slice(0, 2)).toEqual(['Move to this workspace', 'Move to…']);
+    });
+
+    it('puts Not a duplicate in Suggestions, after Cockpit’s suggestions', async () => {
+      const user = userEvent.setup();
+      aRow({ mayBeADuplicate: true, onSettleNotADuplicate: () => {} });
+      await user.click(screen.getByLabelText('Item actions'));
+
+      const menu = await menuTopToBottom();
+      const at = menu.indexOf("Cockpit's suggestions for this item…");
+
+      expect(menu.slice(at, at + 2)).toEqual(["Cockpit's suggestions for this item…", 'Not a duplicate']);
+      expect(menu[at - 1]).toBe('---');
+    });
+
+    it('calls Add to… “Also show on…”, and opens the same picker', async () => {
+      const user = userEvent.setup();
+      const onAddTo = vi.fn();
+      aRow({ extra: { onAddTo } });
+
+      await user.click(screen.getByLabelText('Item actions'));
+      expect(screen.queryByRole('menuitem', { name: 'Add to…' })).toBeNull();
+      await user.click(await screen.findByRole('menuitem', { name: 'Also show on…' }));
+
+      expect(onAddTo).toHaveBeenCalledOnce();
+    });
+  });
+
   describe('a right-click on a row opens the same menu as its three dots', () => {
     /** Every entry the open menu offers, in order. */
     const entriesOpen = async () =>
@@ -795,7 +999,7 @@ describe('Item editing', () => {
       fireEvent.contextMenu(screen.getByRole('listitem'));
 
       expect(await entriesOpen()).toEqual(fromTheDots);
-      expect(fromTheDots).toContain('Mark done');
+      expect(fromTheDots.join('|')).toContain('Status');
     });
 
     it('does what a chosen entry says', async () => {
@@ -817,7 +1021,7 @@ describe('Item editing', () => {
       await user.click(screen.getByLabelText('Item actions'));
       const before = (await screen.findAllByRole('menu')).length;
 
-      fireEvent.contextMenu(await screen.findByRole('menuitem', { name: 'Mark done' }));
+      fireEvent.contextMenu(await screen.findByRole('menuitem', { name: /^Status/ }));
 
       expect(screen.getAllByRole('menu')).toHaveLength(before);
     });
@@ -838,7 +1042,7 @@ describe('Item editing', () => {
         selecting: { ...held, revealed: false },
       });
       fireEvent.contextMenu(screen.getByRole('listitem'));
-      await screen.findByRole('menuitem', { name: 'Mark done' });
+      await screen.findByRole('menuitem', { name: /^Status/ });
 
       rerenderSelecting(held);
 
@@ -1111,7 +1315,7 @@ describe('Item editing', () => {
       aRow({ onOpen });
 
       await user.click(screen.getByLabelText('Item actions'));
-      fireEvent.doubleClick(await screen.findByRole('menuitem', { name: 'Mark done' }));
+      fireEvent.doubleClick(await screen.findByRole('menuitem', { name: /^Status/ }));
 
       expect(onOpen).not.toHaveBeenCalled();
     });
@@ -1786,7 +1990,7 @@ describe('Selection', () => {
       expect(trigger).toHaveAttribute('aria-disabled', 'true');
       expect(trigger).not.toBeDisabled();
       await user.click(trigger);
-      expect(screen.queryByRole('menuitem', { name: 'Mark done' })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: /^Status/ })).toBeNull();
     });
 
     it('leaves the menu trigger available and opening where nothing is selected', async () => {
@@ -1796,7 +2000,7 @@ describe('Selection', () => {
 
       expect(trigger).not.toHaveAttribute('aria-disabled');
       await user.click(trigger);
-      expect(await screen.findByRole('menuitem', { name: 'Mark done' })).toBeVisible();
+      expect(await screen.findByRole('menuitem', { name: /^Status/ })).toBeVisible();
     });
 
     it('closes a menu already open when a selection starts elsewhere', async () => {
@@ -1808,11 +2012,11 @@ describe('Selection', () => {
         selecting: { picked: false, revealed: false, onPick: vi.fn(), onEndSelection: vi.fn() },
       });
       await user.click(screen.getByLabelText('Item actions'));
-      expect(await screen.findByRole('menuitem', { name: 'Mark done' })).toBeVisible();
+      expect(await screen.findByRole('menuitem', { name: /^Status/ })).toBeVisible();
 
       rerenderSelecting({ picked: false, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() });
 
-      expect(screen.queryByRole('menuitem', { name: 'Mark done' })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: /^Status/ })).toBeNull();
     });
 
     it('stays closed once the selection that closed it ends, rather than reopening on its own', async () => {
@@ -1825,13 +2029,13 @@ describe('Selection', () => {
         selecting: { picked: false, revealed: false, onPick: vi.fn(), onEndSelection: vi.fn() },
       });
       await user.click(screen.getByLabelText('Item actions'));
-      expect(await screen.findByRole('menuitem', { name: 'Mark done' })).toBeVisible();
+      expect(await screen.findByRole('menuitem', { name: /^Status/ })).toBeVisible();
       rerenderSelecting({ picked: false, revealed: true, onPick: vi.fn(), onEndSelection: vi.fn() });
-      expect(screen.queryByRole('menuitem', { name: 'Mark done' })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: /^Status/ })).toBeNull();
 
       rerenderSelecting({ picked: false, revealed: false, onPick: vi.fn(), onEndSelection: vi.fn() });
 
-      expect(screen.queryByRole('menuitem', { name: 'Mark done' })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: /^Status/ })).toBeNull();
     });
 
     it('does not dismiss or file on a swipe while a selection is held', () => {
@@ -1879,6 +2083,32 @@ describe('Selection', () => {
   });
 });
 
+const SCOPE_IT: Agent = {
+  id: 'agent-scope',
+  tenantId: 'tenant',
+  name: 'Scope it',
+  color: '#6f62b5',
+  engine: 'claude-code',
+  message: '{title}',
+  asksForPrompt: false,
+  startsInProgress: true,
+  position: 0,
+  createdAt: '2026-09-28T10:00:00.000Z',
+};
+const ASKING: Agent = { ...SCOPE_IT, id: 'agent-ask', name: 'Ask about it', asksForPrompt: true };
+const aRun = (overrides: Partial<AgentRun> = {}): AgentRun => ({
+  id: '018f0000-0000-7000-8000-000000000071',
+  itemId: 'item-1',
+  agentId: SCOPE_IT.id,
+  agentName: SCOPE_IT.name,
+  status: 'working',
+  sessionUrl: 'https://claude.ai/code/session_01',
+  reason: null,
+  startedAt: new Date().toISOString(),
+  waiting: false,
+  ...overrides,
+});
+
 /**
  * F1: what the row draws of a run and what its own controls ask for ("Drop an
  * agent on an item to start a Claude Code session on it", issue 571). Whether
@@ -1887,32 +2117,6 @@ describe('Selection', () => {
  * each run are `agentRunChip.test.ts`'s. What is asked here is the wiring.
  */
 describe('Agents', () => {
-  const SCOPE_IT: Agent = {
-    id: 'agent-scope',
-    tenantId: 'tenant',
-    name: 'Scope it',
-    color: '#6f62b5',
-    engine: 'claude-code',
-    message: '{title}',
-    asksForPrompt: false,
-    startsInProgress: true,
-    position: 0,
-    createdAt: '2026-09-28T10:00:00.000Z',
-  };
-  const ASKING: Agent = { ...SCOPE_IT, id: 'agent-ask', name: 'Ask about it', asksForPrompt: true };
-  const aRun = (overrides: Partial<AgentRun> = {}): AgentRun => ({
-    id: '018f0000-0000-7000-8000-000000000071',
-    itemId: 'item-1',
-    agentId: SCOPE_IT.id,
-    agentName: SCOPE_IT.name,
-    status: 'working',
-    sessionUrl: 'https://claude.ai/code/session_01',
-    reason: null,
-    startedAt: new Date().toISOString(),
-    waiting: false,
-    ...overrides,
-  });
-
   /** An agent carried over the row and let go on it, the way the dock's own drag does. */
   function dropOnTheRow(agentId: string) {
     const row = screen.getByText('Make appointment with Novy').closest('li')!;
@@ -1973,10 +2177,42 @@ describe('Agents', () => {
       aRow({ agentsHere: { offered: [SCOPE_IT, ASKING], run: undefined, start } });
 
       await user.click(screen.getByLabelText('Item actions'));
-      expect(screen.getByRole('menuitem', { name: 'Start Ask about it…' })).toBeVisible();
-      await user.click(screen.getByRole('menuitem', { name: 'Start Scope it' }));
+      expect(screen.getByRole('menuitem', { name: 'Ask about it… Agent' })).toBeVisible();
+      await user.click(screen.getByRole('menuitem', { name: 'Scope it Agent' }));
 
       expect(start).toHaveBeenCalledWith(SCOPE_IT, undefined);
+    });
+
+    it('names an agent by its own name with an Agent tag, no Start prefix, and an ellipsis where it asks', async () => {
+      const user = userEvent.setup();
+      aRow({ agentsHere: { offered: [SCOPE_IT, ASKING], run: undefined, start: vi.fn() } });
+
+      await user.click(screen.getByLabelText('Item actions'));
+
+      const scope = await screen.findByRole('menuitem', { name: 'Scope it Agent' });
+      expect(scope).toHaveTextContent('Agent');
+      expect(screen.getByRole('menuitem', { name: 'Ask about it… Agent' })).toBeVisible();
+      expect(screen.queryByRole('menuitem', { name: /^Start/ })).toBeNull();
+    });
+
+    it('keeps the session link and both Agent finished entries in the Agent group while a run is open', async () => {
+      const user = userEvent.setup();
+      aRow({ onMoveTo: () => {}, agentsHere: { offered: [SCOPE_IT], run: aRun(), start: vi.fn() } });
+
+      await user.click(screen.getByLabelText('Item actions'));
+      await screen.findAllByRole('menuitem');
+      const menu = screen.getByRole('menu');
+      const order = Array.from(menu.querySelectorAll('[role="menuitem"], [role="separator"]')).map((node) =>
+        node.getAttribute('role') === 'separator' ? '---' : (node.textContent ?? ''),
+      );
+
+      expect(order.slice(order.indexOf('Move to…') + 1, order.indexOf('Move to…') + 6)).toEqual([
+        '---',
+        'Open the Claude session ↗',
+        'Agent finished: Done',
+        'Agent finished: Still to do',
+        '---',
+      ]);
     });
 
     it.each([
@@ -2137,16 +2373,16 @@ describe('Agents', () => {
   });
 });
 
-describe('Smart refinements', () => {
-  describe('the window is reached as "Smart refinements…" from the Inbox menu and from an item menu, and is titled Smart refinements', () => {
+describe("Cockpit's suggestions", () => {
+  describe("the window is reached as \"Cockpit's suggestions…\" from the Inbox menu and \"Cockpit's suggestions for this item…\" from an item menu, and is titled Cockpit's suggestions", () => {
     it("opens that item's own refinements from its menu", async () => {
       const user = userEvent.setup();
       aRow();
 
       await user.click(screen.getByRole('button', { name: 'Item actions' }));
-      await user.click(await screen.findByRole('menuitem', { name: 'Smart refinements…' }));
+      await user.click(await screen.findByRole('menuitem', { name: "Cockpit's suggestions for this item…" }));
 
-      const dialog = await screen.findByRole('dialog', { name: 'Smart refinements' });
+      const dialog = await screen.findByRole('dialog', { name: "Cockpit's suggestions" });
       expect(await within(dialog).findByText('Read item-1 alone')).toBeVisible();
       expect(within(dialog).queryByRole('columnheader', { name: 'Item' })).toBeNull();
     });
