@@ -203,6 +203,7 @@ describe('collect', () => {
           html_url: 'https://github.com/o/r/actions/runs/1/job/9',
           steps: [
             {
+              number: 1,
               name: 'Checkout',
               conclusion: 'success',
               started_at: '2026-09-01T12:00:00Z',
@@ -240,20 +241,21 @@ describe('collect', () => {
           html_url: 'https://github.com/o/r/actions/runs/1/job/9',
           steps: [
             {
+              number: 1,
               name: 'Checkout',
               conclusion: 'success',
               started_at: '2026-09-01T12:00:00Z',
               completed_at: '2026-09-01T12:00:05Z',
             },
-            { name: 'Deploy', conclusion: 'skipped' },
+            { number: 2, name: 'Deploy', conclusion: 'skipped' },
           ],
         },
       ],
     });
     const { jobs } = await collect({ repo: 'o/r', since: SINCE, fetchImpl });
     expect(jobs[0].steps).toEqual([
-      { name: 'Checkout', conclusion: 'success', startedAt: '2026-09-01T12:00:00Z', completedAt: '2026-09-01T12:00:05Z' },
-      { name: 'Deploy', conclusion: 'skipped', startedAt: null, completedAt: null },
+      { number: 1, name: 'Checkout', conclusion: 'success', startedAt: '2026-09-01T12:00:00Z', completedAt: '2026-09-01T12:00:05Z' },
+      { number: 2, name: 'Deploy', conclusion: 'skipped', startedAt: null, completedAt: null },
     ]);
   });
 });

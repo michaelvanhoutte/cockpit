@@ -86,22 +86,32 @@ function stepDurationMs(step) {
 }
 
 /**
- * Each step of a job, in the order the job ran them (first seen wins, so a step
- * added later follows the ones it was added after). Only finished jobs count, as
- * for the job's own durations: a cancelled job's steps are truncated. A step
- * nothing was counted for stays listed with `durations: null` — no data, not 0.
+ * Each step of a job, ordered by its number in the job (ties by name). A step is
+ * keyed by number and name, so a step renamed at the same number is a separate
+ * row, and two steps sharing a name stay apart, the later ones shown as
+ * "name (2)". Takes only the job's finished runs, as for the job's own
+ * durations: a cancelled job's steps are truncated, and a step seen only there
+ * has no row. A step nothing was counted for stays listed with `durations: null`
+ * — no data, not 0.
  */
-function stepDurations(jobRuns, outcomes) {
-  const byName = new Map();
-  jobRuns.forEach((jobRun, index) => {
-    const finished = outcomes[index] === 'pass' || outcomes[index] === 'fail';
+function stepDurations(finishedJobs) {
+  const rows = new Map();
+  for (const jobRun of finishedJobs) {
     for (const step of jobRun.steps ?? []) {
-      if (!byName.has(step.name)) byName.set(step.name, []);
-      const ms = finished ? stepDurationMs(step) : null;
-      if (ms !== null) byName.get(step.name).push(ms);
+      const key = `${step.number}\u0000${step.name}`;
+      if (!rows.has(key)) rows.set(key, { number: step.number, name: step.name, values: [] });
+      const ms = stepDurationMs(step);
+      if (ms !== null) rows.get(key).values.push(ms);
     }
-  });
-  return [...byName.entries()].map(([name, values]) => ({ name, durations: quantiles(values) }));
+  }
+  const seen = new Map();
+  return [...rows.values()]
+    .sort((x, y) => x.number - y.number || x.name.localeCompare(y.name))
+    .map(({ name, values }) => {
+      const nth = (seen.get(name) ?? 0) + 1;
+      seen.set(name, nth);
+      return { name: nth === 1 ? name : `${name} (${nth})`, durations: quantiles(values) };
+    });
 }
 
 const byCreatedAsc = (a, b) => new Date(a.createdAt) - new Date(b.createdAt);
@@ -199,16 +209,14 @@ function windowModel(runs, jobsByRun, { days, now, oldestRun, reachedWindowEdge,
         jobs: [...group(jobs, (job) => job.name).entries()]
           .map(([jobName, jobRuns]) => {
             const outcomes = jobRuns.map(classify);
+            const finished = jobRuns.filter((_, i) => outcomes[i] === 'pass' || outcomes[i] === 'fail');
             return {
               name: jobName,
               tally: tally(outcomes),
               durations: quantiles(
-                jobRuns
-                  .filter((_, index) => outcomes[index] === 'pass' || outcomes[index] === 'fail')
-                  .map(durationMs)
-                  .filter((ms) => ms !== null),
+                finished.map(durationMs).filter((ms) => ms !== null),
               ),
-              steps: stepDurations(jobRuns, outcomes),
+              steps: stepDurations(finished),
             };
           })
           .sort(byReliability),

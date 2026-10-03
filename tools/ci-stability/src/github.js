@@ -63,6 +63,7 @@ export class GitHubError extends Error {
 
 /**
  * @typedef {object} Step
+ * @property {number} number its position in the job
  * @property {string} name
  * @property {string|null} conclusion
  * @property {string|null} startedAt
@@ -148,12 +149,13 @@ function normalizeRun(raw) {
 /** @returns {Job} */
 function normalizeJob(raw) {
   const steps = (raw.steps ?? []).map((s) => ({
+    number: s.number,
     name: s.name,
     conclusion: s.conclusion ?? null,
     startedAt: s.started_at ?? null,
     completedAt: s.completed_at ?? null,
   }));
-  const failedStep = (raw.steps ?? []).find((s) => s.conclusion === 'failure');
+  const failedStep = steps.find((s) => s.conclusion === 'failure');
   return {
     runId: raw.run_id,
     name: raw.name,
