@@ -102,7 +102,16 @@ export default function ManageConnections({
   open,
   onClose,
   returnFocusTo,
+  only,
+  picker,
 }: {
+  /**
+   * One kind of connection only - Teams under Connections, Claude Code under
+   * Agent settings (Settings, `SettingsWindow.tsx`). Absent, both are shown.
+   */
+  only?: typeof TEAMS | typeof CLAUDE_CODE | undefined;
+  /** What picks the workspace, drawn under the intro. */
+  picker?: React.ReactNode;
   workspaceId: string;
   workspaceName: string;
   outcome?: 'connected' | 'refused' | undefined;
@@ -131,7 +140,7 @@ export default function ManageConnections({
   const command = useCommand();
   const testClaudeCode = useTestClaudeCodeConnection(workspaceId);
 
-  const connected = data?.sourceAccounts ?? [];
+  const connected = (data?.sourceAccounts ?? []).filter((account) => !only || account.connectorId === only);
   /**
    * Saying "nothing connected" is a claim about what this Workspace holds, so
    * it needs an answer to have arrived - the same lie `ManageTypes` records,
@@ -195,7 +204,13 @@ export default function ManageConnections({
       <p className="mt-2 text-sm text-ink-faint">
         The accounts this workspace is connected to. No other workspace sees them.
       </p>
+      {picker}
 
+      {outcome === 'connected' && (
+        <p role="status" className="pt-3 text-sm text-ink-soft">
+          Connected.
+        </p>
+      )}
       {outcome === 'refused' && (
         <p role="alert" className="pt-3 text-sm text-over">
           That did not connect. Nothing was stored. Try again.
@@ -316,7 +331,7 @@ export default function ManageConnections({
         Add a connection
       </h3>
       <div className="mt-2 flex flex-col gap-2">
-        {AVAILABLE_CONNECTORS.map((connectorId) => (
+        {AVAILABLE_CONNECTORS.filter((connectorId) => !only || connectorId === only).map((connectorId) => (
           <div
             key={connectorId}
             className="flex items-center gap-3 rounded-md border border-black/10 p-3"

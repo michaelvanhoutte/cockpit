@@ -333,6 +333,32 @@ export async function deleteWorkspace(page: Page, name: string, isMobile: boolea
 }
 
 /**
+ * Opens Settings from the profile menu on one of its sections, and returns the
+ * window. A desk's: a phone has no Settings, by decision, so a walk that needs
+ * it skips below `sm` or reaches the same thing another way.
+ *
+ * Connections and Agent settings start on the workspace that is open.
+ */
+export async function openSettings(
+  page: Page,
+  section: 'Types' | 'Connections' | 'Agent settings' | 'MCP',
+  isMobile: boolean,
+): Promise<Locator> {
+  await press(page.getByRole('button', { name: 'Profile' }), isMobile);
+  await press(page.getByRole('menuitem', { name: 'Settings…' }), isMobile);
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await press(settings.getByRole('button', { name: section, exact: true }), isMobile);
+  await expect(settings.getByRole('heading', { name: section, exact: true })).toBeVisible();
+  return settings;
+}
+
+/** Shuts Settings from its own control, which hands the focus back to the profile. */
+export async function closeSettings(page: Page, isMobile: boolean): Promise<void> {
+  await press(page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Close', exact: true }), isMobile);
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toHaveCount(0);
+}
+
+/**
  * One workspace's tab in the header, and all of them left to right - which is
  * the order the reordering is about ("Reorder workspaces", issue 31), and now
  * also what a workspace is changed on.
@@ -350,8 +376,8 @@ export function workspaceTab(page: Page, name: string): Locator {
 }
 
 /**
- * The open workspace's "…" at the right of the header, whose foot holds the
- * account's own entry (Manage types). Not there below
+ * The open workspace's "…" at the right of the header, which holds the
+ * workspace's own actions (Edit…, Delete). Not there below
  * `sm`, so a walk that needs it is the pointer's.
  */
 export function workspaceMenuButton(page: Page): Locator {

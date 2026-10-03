@@ -58,7 +58,7 @@ export function typesOffered(types: readonly ItemType[], items: readonly Item[])
  * refuse the same capture for the same reason, and it names the one window that
  * gets you out of it.
  */
-export const NO_TYPES = 'No types yet — make one in Settings → Manage types.';
+export const NO_TYPES = 'No types yet — make one in Settings → Types.';
 
 /** The type an item is, or undefined - which a row draws as having none. */
 export function typeOf(types: readonly ItemType[], item: Item): ItemType | undefined {

@@ -41,10 +41,6 @@ vi.mock('@tanstack/react-router', () => ({
     wentTo.calls.push(to);
   },
   useParams: () => ({ workspaceId: held.here }),
-  // Nothing here comes back from a trip out to Microsoft, so the address
-  // carries no outcome and the connections window stays shut ("Connect a
-  // Microsoft Teams source account", issue 485).
-  useSearch: () => ({}),
 }));
 
 vi.mock('../../../src/api/queries', async (importOriginal) => {
@@ -196,7 +192,6 @@ describe('Workspace management', () => {
 
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Edit…',
-        'Manage connections…',
         'Delete',
       ]);
     });
@@ -232,7 +227,6 @@ describe('Workspace management', () => {
 
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Edit…',
-        'Manage connections…',
         'Delete',
       ]);
     });
@@ -246,7 +240,6 @@ describe('Workspace management', () => {
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Items marked done…',
         'Edit…',
-        'Manage connections…',
         'Delete',
       ]);
       await user.keyboard('{Escape}');

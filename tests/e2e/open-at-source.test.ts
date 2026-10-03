@@ -3,7 +3,8 @@ import type { Page } from '@playwright/test';
 import { isLinkedWorktree, portsFor } from '../../scripts/lib/ports.mjs';
 import {
   chooseRowAction,
-  chooseTabAction,
+  closeSettings,
+  openSettings,
   inbox,
   deleteWorkspace,
   expect,
@@ -95,14 +96,21 @@ test.describe('Capture', () => {
       await makeWorkspace(page, workspace, isMobile);
       await switchTo(page, workspace, isMobile);
 
-      await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
-      await press(
-        page.getByRole('dialog').getByRole('button', { name: 'Connect Microsoft Teams' }),
-        isMobile,
-      );
-      await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
-      await expect(page.getByRole('dialog').getByText('michael@example.com')).toBeVisible();
-      await press(page.getByRole('button', { name: 'Done' }), isMobile);
+      if (isMobile) {
+        // Settings is the pointer's, by decision, so a phone starts the same
+        // trip the Connect button does: a whole-page navigation.
+        const workspaceId = (await workspaceTab(page, workspace).getAttribute('href'))!.split('/').at(-1)!;
+        await page.goto(`/v1/workspaces/${workspaceId}/connections/teams/connect`);
+        await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
+        await page.waitForURL((url) => url.pathname.startsWith(`/w/${workspaceId}/`));
+      } else {
+        const settings = await openSettings(page, 'Connections', isMobile);
+        await press(settings.getByRole('button', { name: 'Connect Microsoft Teams' }), isMobile);
+        await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
+        // Reopened by the return, on Connections, for this workspace.
+        await expect(page.getByRole('dialog', { name: 'Settings' }).getByText('michael@example.com')).toBeVisible();
+        await closeSettings(page, isMobile);
+      }
 
       // On a phone the Inbox is a tab of its own, reached from the workspace this
       // walk is already in - which is why this is not `openInbox`, that goes to
@@ -146,13 +154,15 @@ test.describe('Capture', () => {
       await expect(form).toBeVisible();
       await press(form.getByRole('button', { name: 'Cancel' }), isMobile);
 
-      await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
-      await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
-      await press(
-        page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }),
-        isMobile,
-      );
-      await press(page.getByRole('button', { name: 'Done' }), isMobile);
+      if (!isMobile) {
+        await openSettings(page, 'Connections', isMobile);
+        await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
+        await press(
+          page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }),
+          isMobile,
+        );
+        await closeSettings(page, isMobile);
+      }
       await deleteWorkspace(page, workspace, isMobile);
     });
   });

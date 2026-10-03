@@ -5,7 +5,6 @@ import { isLinkedWorktree, portsFor } from '../../scripts/lib/ports.mjs';
 import {
   capture,
   chooseRowAction,
-  chooseTabAction,
   dashboardBar,
   deleteWorkspace,
   expect,
@@ -14,6 +13,8 @@ import {
   itemRow,
   makeWorkspace,
   openFirstWorkspace,
+  openSettings,
+  closeSettings,
   press,
   switchTo,
   test,
@@ -184,13 +185,24 @@ test.describe('Agents', () => {
       await makeWorkspace(page, workspace, isMobile);
       await switchTo(page, workspace, isMobile);
 
-      await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
-      await press(page.getByRole('dialog').getByRole('button', { name: 'Connect Claude Code' }), isMobile);
-      await page.getByLabel('Routine trigger URL').fill(`${issuer}/v1/claude_code/routines/trig_e2e/fire`);
-      await page.getByLabel('Routine token').fill('e2e-token');
-      await press(page.getByRole('button', { name: 'Connect', exact: true }), isMobile);
-      await expect(page.getByRole('dialog').getByText(/last worked/)).toBeVisible();
-      await press(page.getByRole('button', { name: 'Done' }), isMobile);
+      const routine = { routineUrl: `${issuer}/v1/claude_code/routines/trig_e2e/fire`, token: 'e2e-token' };
+      if (isMobile) {
+        // Settings is the pointer's, by decision, so a phone connects the way
+        // the form does and walks everything after it.
+        const workspaceId = (await workspaceTab(page, workspace).getAttribute('href'))!.split('/').at(-1)!;
+        const connected = await page.request.post(`/v1/workspaces/${workspaceId}/connections/claude-code/connect`, {
+          data: routine,
+        });
+        expect(connected.status()).toBe(200);
+      } else {
+        const settings = await openSettings(page, 'Agent settings', isMobile);
+        await press(settings.getByRole('button', { name: 'Connect Claude Code' }), isMobile);
+        await page.getByLabel('Routine trigger URL').fill(routine.routineUrl);
+        await page.getByLabel('Routine token').fill(routine.token);
+        await press(page.getByRole('button', { name: 'Connect', exact: true }), isMobile);
+        await expect(settings.getByText(/last worked/)).toBeVisible();
+        await closeSettings(page, isMobile);
+      }
 
       const asked = uniqueTitle('Chase the invoice');
       // A phone's Inbox is a screen of its own, reached from this workspace.
@@ -310,34 +322,37 @@ test.describe('Agents', () => {
       // The session's hooks say it is waiting on you, then working again
       // ("See on the item when Claude is waiting on you", issue 572) - posted
       // exactly as the connection's form tells the repository to post them.
-      await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
-      await chooseRowAction(page, 'Claude Code', 'Edit…', isMobile);
-      const snippet = page.getByLabel('Hooks for .claude/settings.json');
-      await expect(page.getByText('No hook has arrived yet.')).toBeVisible();
-      const hook = JSON.parse((await snippet.textContent())!).hooks.Stop[0].hooks[0] as {
-        url: string;
-        headers: { Authorization: string };
-      };
-      await press(page.getByRole('button', { name: 'Cancel' }), isMobile);
-      await press(page.getByRole('button', { name: 'Done' }), isMobile);
-      const session = (await itemRow(page, asked).getByRole('link', { name: /Claude is working/ }).getAttribute('href'))!
-        .split('/')
-        .at(-1)!;
-      const report = async (hook_event_name: string) => {
-        const res = await fetch(hook.url, {
-          method: 'POST',
-          headers: { authorization: hook.headers.Authorization, 'content-type': 'application/json' },
-          body: JSON.stringify({ session_id: session, hook_event_name }),
-        });
-        expect(res.status).toBe(204);
-      };
-      await report('Stop');
-      await expect(itemRow(page, asked).getByRole('link', { name: `${asking} · Claude is waiting on you ↗` })).toBeVisible();
-      // The dock's total, not the tile's own count, which is read out the same way.
-      if (!isMobile) await expect(page.getByRole('toolbar', { name: 'Agents' }).getByRole('status')).toHaveText('1 waiting on you');
-      await report('UserPromptSubmit');
-      await expect(itemRow(page, asked).getByRole('link', { name: `${asking} · Claude is working ↗` })).toBeVisible();
-      await expect(page.getByText(/waiting on you/)).toHaveCount(0);
+      // The form is in Settings, which a phone does not have.
+      if (!isMobile) {
+        await openSettings(page, 'Agent settings', isMobile);
+        await chooseRowAction(page, 'Claude Code', 'Edit…', isMobile);
+        const snippet = page.getByLabel('Hooks for .claude/settings.json');
+        await expect(page.getByText('No hook has arrived yet.')).toBeVisible();
+        const hook = JSON.parse((await snippet.textContent())!).hooks.Stop[0].hooks[0] as {
+          url: string;
+          headers: { Authorization: string };
+        };
+        await press(page.getByRole('button', { name: 'Cancel' }), isMobile);
+        await closeSettings(page, isMobile);
+        const session = (await itemRow(page, asked).getByRole('link', { name: /Claude is working/ }).getAttribute('href'))!
+          .split('/')
+          .at(-1)!;
+        const report = async (hook_event_name: string) => {
+          const res = await fetch(hook.url, {
+            method: 'POST',
+            headers: { authorization: hook.headers.Authorization, 'content-type': 'application/json' },
+            body: JSON.stringify({ session_id: session, hook_event_name }),
+          });
+          expect(res.status).toBe(204);
+        };
+        await report('Stop');
+        await expect(itemRow(page, asked).getByRole('link', { name: `${asking} · Claude is waiting on you ↗` })).toBeVisible();
+        // The dock's total, not the tile's own count, which is read out the same way.
+        if (!isMobile) await expect(page.getByRole('toolbar', { name: 'Agents' }).getByRole('status')).toHaveText('1 waiting on you');
+        await report('UserPromptSubmit');
+        await expect(itemRow(page, asked).getByRole('link', { name: `${asking} · Claude is working ↗` })).toBeVisible();
+        await expect(page.getByText(/waiting on you/)).toHaveCount(0);
+      }
 
       // The dashboard filter's Agent running toggle shows this row, and lets it
       // go the moment the run is over, until × clears it.
@@ -370,14 +385,16 @@ test.describe('Agents', () => {
         },
       });
       expect(unmade.status()).toBe(200);
-      await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
-      // The form says when the hooks above last arrived.
-      await chooseRowAction(page, 'Claude Code', 'Edit…', isMobile);
-      await expect(page.getByText(/^A hook last arrived /)).toBeVisible();
-      await press(page.getByRole('button', { name: 'Cancel' }), isMobile);
-      await chooseRowAction(page, 'Claude Code', 'Disconnect', isMobile);
-      await press(page.getByRole('button', { name: 'Yes, disconnect Claude Code' }), isMobile);
-      await press(page.getByRole('button', { name: 'Done' }), isMobile);
+      if (!isMobile) {
+        await openSettings(page, 'Agent settings', isMobile);
+        // The form says when the hooks above last arrived.
+        await chooseRowAction(page, 'Claude Code', 'Edit…', isMobile);
+        await expect(page.getByText(/^A hook last arrived /)).toBeVisible();
+        await press(page.getByRole('button', { name: 'Cancel' }), isMobile);
+        await chooseRowAction(page, 'Claude Code', 'Disconnect', isMobile);
+        await press(page.getByRole('button', { name: 'Yes, disconnect Claude Code' }), isMobile);
+        await closeSettings(page, isMobile);
+      }
       await deleteWorkspace(page, workspace, isMobile);
     });
   });

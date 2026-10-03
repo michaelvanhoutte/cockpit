@@ -1,6 +1,7 @@
 import {
   chooseRowAction,
-  chooseTabAction,
+  closeSettings,
+  openSettings,
   deleteWorkspace,
   expect,
   makeWorkspace,
@@ -9,7 +10,6 @@ import {
   switchTo,
   test,
   uniqueTitle,
-  workspaceTab,
 } from './support/app';
 
 /**
@@ -43,14 +43,15 @@ test.describe('Connector management', () => {
       page,
       isMobile,
     }) => {
+      // Settings is the pointer's, by decision: a phone has no way to it.
+      test.skip(isMobile, 'a phone has no Settings');
       await openFirstWorkspace(page, isMobile);
       const workspace = uniqueTitle('Connected');
       await makeWorkspace(page, workspace, isMobile);
       await switchTo(page, workspace, isMobile);
 
-      await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
-      const window = page.getByRole('dialog');
-      await expect(window).toBeVisible();
+      const window = await openSettings(page, 'Connections', isMobile);
+      await expect(window.getByRole('combobox', { name: /Workspace/ })).toHaveValue(/.+/);
       await expect(window.getByText(/Nothing connected yet/)).toBeVisible();
 
       // Out to the issuer, choose an account there, and back - the whole page
@@ -59,8 +60,12 @@ test.describe('Connector management', () => {
       await press(window.getByRole('button', { name: 'Connect Microsoft Teams' }), isMobile);
       await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
 
-      const back = page.getByRole('dialog');
+      // Reopened by the return, on Connections, saying it connected.
+      const back = page.getByRole('dialog', { name: 'Settings' });
+      await expect(back.getByRole('heading', { name: 'Connections', exact: true })).toBeVisible();
+      await expect(back.getByText('Connected.')).toBeVisible();
       await expect(back.getByText('michael@example.com')).toBeVisible();
+      expect(new URL(page.url()).search).toBe('');
       await expect(back.getByText(/Nothing was stored/)).toHaveCount(0);
 
       // The same account again is the same row, not a second one - the rule the
@@ -78,25 +83,12 @@ test.describe('Connector management', () => {
 
       // Reopened from scratch, which is the claim the issue makes about this
       // window: what it shows is what is stored, never what the last press
-      // guessed. From the workspace's own visible "…" this time, rather than
-      // the tab's right-click - the same entries, from the same list ("Give
-      // the open workspace and dashboard their own "…", and split the
-      // header's menu into settings and you", issue 567).
-      //
-      // **Desktop only.** That button gives way below `sm` - a crowded phone
-      // strip had no room left for it once the header's own menu also split
-      // in two, and a touchscreen already has this menu a press away with no
-      // button at all (`WorkspaceTabs.tsx`) - so a phone keeps opening it the
-      // way it always has.
-      await press(page.getByRole('button', { name: 'Done' }), isMobile);
-      if (isMobile) {
-        await chooseTabAction(page, workspaceTab(page, workspace), 'Manage connections…', isMobile);
-      } else {
-        await chooseRowAction(page, workspace, 'Manage connections…', isMobile);
-      }
+      // guessed.
+      await closeSettings(page, isMobile);
+      await openSettings(page, 'Connections', isMobile);
       await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
 
-      await press(page.getByRole('button', { name: 'Done' }), isMobile);
+      await closeSettings(page, isMobile);
       await deleteWorkspace(page, workspace, isMobile);
     });
   });
