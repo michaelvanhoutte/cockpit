@@ -123,15 +123,20 @@ function makeIssueResolver(cwd) {
     const output = execFileSync(
       'gh',
       ['pr', 'list', '--state', 'all', '--limit', '2000', '--json', 'headRefName,closingIssuesReferences,body'],
-      { cwd, encoding: 'utf8' },
+      { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
     );
     for (const pr of JSON.parse(output)) {
       const issueNumber = pr.closingIssuesReferences?.[0]?.number;
       if (issueNumber && !byBranch.has(pr.headRefName)) byBranch.set(pr.headRefName, issueNumber);
-      if (!marksByBranch.has(pr.headRefName)) marksByBranch.set(pr.headRefName, marksFromBody(pr.body));
+      const marks = marksFromBody(pr.body);
+      if (marks !== null && !marksByBranch.has(pr.headRefName)) marksByBranch.set(pr.headRefName, marks);
     }
-  } catch {
-    // No gh, or no network - every branch not naming `github-issue-<n>` itself stands in as its own key.
+  } catch (error) {
+    // No gh, no network, or gh failing - every branch not naming `github-issue-<n>` itself stands in as its own key.
+    // Output that was cut off or unreadable is a loss the reader should hear about.
+    if (error?.code === 'ENOBUFS' || error instanceof SyntaxError) {
+      console.error(`warning: could not read the pull request list (${error.message}); pull requests are not resolved and phases are not split`);
+    }
   }
   return {
     resolveIssue: (branch) => (branch ? (byBranch.get(branch) ?? branch) : null),
@@ -170,7 +175,7 @@ function printTable(fullReport) {
     );
     if (issue.phases) {
       const shown = Object.entries(issue.phases).filter(([, p]) => p.costUSD > 0 || p.unpricedTokens > 0 || Object.values(p.tokens).some((n) => n > 0));
-      console.log(`  by phase:     ${shown.map(([name, p]) => `${name} $${p.costUSD.toFixed(4)}`).join(', ')}`);
+      console.log(`  by phase:     ${shown.map(([name, p]) => `${name} $${p.costUSD.toFixed(4)}${p.unpricedTokens ? ` (+${p.unpricedTokens} unpriced tokens)` : ''}`).join(', ')}`);
     } else {
       console.log(`  by phase:     unsplit (${issue.phasesNote})`);
     }

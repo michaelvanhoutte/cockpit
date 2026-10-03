@@ -161,39 +161,53 @@ export function activeMillis(sortedTimestampsMs) {
 export const COST_PHASES = ['outsideRun', 'scoping', 'building', 'localReview', 'afterPush', 'unrecorded'];
 
 /**
- * The marks a pull request body's session record carries, or `null` where there are none to read: no block, a block with no marks, or a body with one marker and not the other, which the record module refuses and so leaves the issue unsplit.
+ * The marks as a plain scan wants them: time-ordered `{ phase, kind, ms }`, with marks whose time does not parse left out, `null` where none are left.
+ */
+export function normaliseMarks(marks) {
+  const ordered = marks
+    .map(({ at, phase, kind }) => ({ phase, kind, ms: Date.parse(at) }))
+    .filter((mark) => !Number.isNaN(mark.ms))
+    .sort((a, b) => a.ms - b.ms);
+  return ordered.length === 0 ? null : ordered;
+}
+
+/**
+ * The marks a pull request body's session record carries, normalised, or `null` where there are none to read: no block, a block with no marks, or a body with one marker and not the other, which the record module refuses and so leaves the issue unsplit.
  */
 export function marksFromBody(body) {
   try {
-    const marks = readBlock(String(body ?? ''));
-    return marks.length === 0 ? null : marks;
+    return normaliseMarks(readBlock(String(body ?? '')));
   } catch {
     return null;
   }
 }
 
 /**
- * The phase a moment falls in, by the mark that last preceded it: before `start` is outside the run, `start` to `scoped` scoping, `scoped` onwards building, and after the first `pushed` after push. A moment inside a `review-start`..`review-end` window is local review whatever else holds, a window still open at the end of the record included. A mark exactly at the moment counts as preceding it.
+ * The phase a moment falls in, by the mark that last preceded it: before `start` is outside the run, `start` to `scoped` scoping, `scoped` onwards building, and after the first `pushed` after push. A moment inside any `review-start`..`review-end` window is local review whatever else holds, a window still open at the end of the record included; windows are tracked by kind, so a code review and a security review may overlap. A mark exactly at the moment counts as preceding it. `marks` come from `normaliseMarks`.
  */
 export function phaseAt(marks, momentMs) {
   let base = 'outsideRun';
   let pushed = false;
-  let inReview = false;
-  const ordered = marks
-    .map((mark) => ({ ...mark, ms: Date.parse(mark.at) }))
-    .filter((mark) => !Number.isNaN(mark.ms))
-    .sort((a, b) => a.ms - b.ms);
-  for (const mark of ordered) {
+  let codeOpen = false;
+  let securityOpen = false;
+  for (const mark of marks) {
     if (mark.ms > momentMs) break;
-    if (mark.phase === 'review-start') inReview = true;
-    else if (mark.phase === 'review-end') inReview = false;
-    else if (mark.phase === 'pushed') pushed = true;
+    if (mark.phase === 'review-start' || mark.phase === 'review-end') {
+      const open = mark.phase === 'review-start';
+      if (mark.kind === 'security-review') securityOpen = open;
+      else codeOpen = open;
+    } else if (mark.phase === 'pushed') pushed = true;
     else if (pushed) continue;
     else if (mark.phase === 'start') base = 'scoping';
     else if (mark.phase === 'scoped' || mark.phase === 'built') base = 'building';
   }
-  if (inReview) return 'localReview';
+  if (codeOpen || securityOpen) return 'localReview';
   return pushed ? 'afterPush' : base;
+}
+
+/** Every token kind at zero - the shape both the issue's totals and each phase's slice start from. */
+function zeroTokens() {
+  return { input: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, output: 0 };
 }
 
 /** A fresh, empty per-issue accumulator - one is created the first time an issue's key is seen. */
@@ -491,20 +505,22 @@ function sortByIssue(a, b) {
 export function summarize(stats) {
   const timestamps = [...stats.timestampsMs].sort((a, b) => a - b);
 
-  const tokens = { input: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, output: 0 };
+  const tokens = zeroTokens();
   const modelsByRequests = new Map();
   const modelsByCost = new Map();
   let costMain = 0;
   let costSubagent = 0;
   let unpricedTokens = 0;
+  let recorded = 0;
   const byPhase = Object.fromEntries(
-    COST_PHASES.map((name) => [name, { tokens: { input: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, output: 0 }, costUSD: 0, unpricedTokens: 0 }]),
+    COST_PHASES.map((name) => [name, { tokens: zeroTokens(), costUSD: 0, unpricedTokens: 0 }]),
   );
 
   function fold(entries, isSubagent) {
     for (const { model, speed, usage, phase } of entries) {
       const t = tokensOf(usage);
       const slice = byPhase[phase] ?? byPhase.unrecorded;
+      if (slice !== byPhase.unrecorded) recorded += 1;
       for (const kind of Object.keys(t)) slice.tokens[kind] += t[kind];
       tokens.input += t.input;
       tokens.cacheRead += t.cacheRead;
@@ -543,11 +559,18 @@ export function summarize(stats) {
   const subagentCost = round(costSubagent);
 
   // Unsplit where no request had a record to be placed by; otherwise every phase, `unrecorded` holding
-  // the requests of a branch with none, so the phases always add up to the totals above.
-  const split = [...stats.requests.main.values(), ...stats.requests.subagent.values()].some((entry) => entry.phase !== undefined && entry.phase !== 'unrecorded');
-  const phases = split
-    ? Object.fromEntries(COST_PHASES.map((name) => [name, { ...byPhase[name], costUSD: round(byPhase[name].costUSD) }]))
-    : null;
+  // the requests of a branch with none. Each phase is rounded to a cent-hundredth on its own, and
+  // whatever rounding left over against the total (the rounded sum of the two halves above) goes to
+  // the largest phase, so the phases always add up exactly to the total printed beside them.
+  let phases = null;
+  if (recorded > 0) {
+    const units = (dollars) => Math.round(dollars * 10000);
+    const rounded = COST_PHASES.map((name) => ({ name, units: units(byPhase[name].costUSD) }));
+    const remainder = units(mainCost) + units(subagentCost) - rounded.reduce((sum, phase) => sum + phase.units, 0);
+    const largest = rounded.reduce((best, phase) => (phase.units > best.units ? phase : best));
+    largest.units += remainder;
+    phases = Object.fromEntries(rounded.map(({ name, units: u }) => [name, { ...byPhase[name], costUSD: u / 10000 }]));
+  }
 
   return {
     issue: stats.issue,

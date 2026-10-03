@@ -7,6 +7,7 @@ import {
   dedupedFindings,
   emptyIssueStats,
   marksFromBody,
+  normaliseMarks,
   issueFromBranchName,
   phaseAt,
   projectDirsFor,
@@ -229,7 +230,7 @@ describe('dedupedFindings', () => {
 describe("An issue's cost by session phase", () => {
   const at = (minute) => new Date(Date.UTC(2026, 9, 3, 10, minute)).toISOString();
   const ms = (minute) => Date.parse(at(minute));
-  const marks = [
+  const marks = normaliseMarks([
     { at: at(10), phase: 'start' },
     { at: at(20), phase: 'scoped' },
     { at: at(30), phase: 'built' },
@@ -238,7 +239,7 @@ describe("An issue's cost by session phase", () => {
     { at: at(50), phase: 'pushed' },
     { at: at(60), phase: 'review-start', kind: 'code-review', level: 'low' },
     { at: at(65), phase: 'review-end', kind: 'code-review', level: 'low' },
-  ];
+  ]);
 
   describe('each line goes to the phase whose mark last preceded it', () => {
     for (const { situation, minute, phase } of [
@@ -259,7 +260,20 @@ describe("An issue's cost by session phase", () => {
   });
 
   it('counts a review window left open as review to the end of the record', () => {
-    assert.equal(phaseAt([{ at: at(1), phase: 'start' }, { at: at(2), phase: 'review-start' }], ms(30)), 'localReview');
+    assert.equal(phaseAt(normaliseMarks([{ at: at(1), phase: 'start' }, { at: at(2), phase: 'review-start' }]), ms(30)), 'localReview');
+  });
+
+  it('stays local review while any review window is open, overlapping ones included', () => {
+    const overlapping = normaliseMarks([
+      { at: at(10), phase: 'start' },
+      { at: at(40), phase: 'review-start', kind: 'code-review', level: 'high' },
+      { at: at(41), phase: 'review-start', kind: 'security-review', level: 'high' },
+      { at: at(45), phase: 'review-end', kind: 'code-review', level: 'high' },
+      { at: at(55), phase: 'review-end', kind: 'security-review', level: 'high' },
+      { at: at(58), phase: 'pushed' },
+    ]);
+    assert.equal(phaseAt(overlapping, ms(50)), 'localReview');
+    assert.equal(phaseAt(overlapping, ms(56)), 'scoping');
   });
 
   /** One request in `phase`, 1,000,000 input and 100,000 output tokens of Sonnet 5: $2.00 and $1.00 a request. */
@@ -287,10 +301,18 @@ describe("An issue's cost by session phase", () => {
     );
     const phases = Object.values(report.phases);
     const sum = (read) => phases.reduce((total, phase) => total + read(phase), 0);
-    assert.equal(sum((p) => p.costUSD), report.costUSD.total);
+    assert.equal(Math.round(sum((p) => p.costUSD) * 10000), Math.round(report.costUSD.total * 10000));
     for (const kind of Object.keys(report.tokens)) assert.equal(sum((p) => p.tokens[kind]), report.tokens[kind], kind);
     assert.equal(report.phases.building.costUSD, 6);
     assert.equal(report.phases.afterPush.tokens.output, 200_000);
+  });
+
+  it('fractional phase costs still add up exactly to the total once rounded', () => {
+    // Three phases at $0.00005 a request each round to 0.0001 apiece (0.0003) against a total of 0.00015 -> 0.0002.
+    const tiny = (phase) => ({ model: 'claude-sonnet-5', speed: 'standard', usage: { input_tokens: 25, cache_creation: {} }, phase });
+    const report = summarize(statsWith([tiny('scoping'), tiny('building'), tiny('afterPush')]));
+    const sum = Object.values(report.phases).reduce((total, p) => total + Math.round(p.costUSD * 10000), 0);
+    assert.equal(sum, Math.round(report.costUSD.total * 10000));
   });
 
   it('a request on a model with no price counts as unpriced in its phase, not as cost', () => {
@@ -332,8 +354,8 @@ describe("An issue's cost by session phase", () => {
   it('reads the marks of a body with a complete block', () => {
     const body = `## Summary\n\n${BLOCK_START}\n### Session record\n\n- ${at(1)} start\n- ${at(2)} pushed\n${BLOCK_END}`;
     assert.deepEqual(marksFromBody(body), [
-      { at: at(1), phase: 'start' },
-      { at: at(2), phase: 'pushed' },
+      { phase: 'start', kind: undefined, ms: ms(1) },
+      { phase: 'pushed', kind: undefined, ms: ms(2) },
     ]);
   });
 
