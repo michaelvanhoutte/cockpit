@@ -47,20 +47,11 @@ export function WorkspaceTabs({
   bar,
   /** The tab you are on, brought into view by the shell that knows when to. */
   bringIntoView,
-  /**
-   * An admin's entries, which end the open workspace's "…" under a separator
-   * and are on no tab's menu. The account's own settings are not among them:
-   * they are Settings, opened from the profile menu ("Open Settings from the
-   * profile menu", issue 693). The shell holds what these open, so they are its
-   * to give.
-   */
-  accountEntries,
   /** What the open workspace's menu, and its tab's, offers before its own actions: it is about what the workspace holds rather than about changing it. */
   openWorkspaceEntries = [],
 }: {
   children: React.ReactNode;
   bar: string;
-  accountEntries: MenuEntry[];
   openWorkspaceEntries?: MenuEntry[];
   bringIntoView: (tab: HTMLAnchorElement) => void;
 }) {
@@ -436,7 +427,6 @@ export function WorkspaceTabs({
             <RowMenu
               label={`Actions for ${openWorkspace.name}`}
               entries={entriesFor(openWorkspace)}
-              footer={accountEntries}
               onChrome
             />
           </div>

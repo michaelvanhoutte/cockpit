@@ -11,12 +11,11 @@ import { useServerEvents } from '../api/useServerEvents';
 // around itself in WorkspaceTabs.tsx - since the dock is not what the shell
 // has to paint first.
 const AgentDock = lazy(() => import('../components/AgentDock'));
-// Out of the initial bundle too: Settings and what it holds are fetched when it
-// is first opened, and each section when it is first shown
+// Out of the initial bundle too: Settings and Platform settings, and what they
+// hold, are fetched when first opened, and each section when it is first shown
 // (components/SettingsWindow.tsx).
 const SettingsWindow = lazy(() => import('../components/SettingsWindow'));
-const ManageUsers = lazy(() => import('../components/ManageUsers'));
-const UsageWindow = lazy(() => import('../components/UsageWindow'));
+const PlatformSettingsWindow = lazy(() => import('../components/PlatformSettingsWindow'));
 const MarkedDoneWindow = lazy(() => import('../components/MarkedDoneWindow'));
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
@@ -503,7 +502,7 @@ function TheShell() {
    * inside a workspace, and a page reached without one made it degrade into a
    * header wearing none of the workspace's colour, control or selected tab.
    */
-  const [managing, setManaging] = useState<'settings' | 'users' | 'usage' | 'done' | null>(null);
+  const [managing, setManaging] = useState<'settings' | 'platform' | 'done' | null>(null);
   const typesOpenedFrom = useRef<HTMLElement | null>(null);
   /** The section Settings opens on, and how a trip out to Microsoft ended where that is what opened it. */
   const [settingsOn, setSettingsOn] = useState<SettingsKey>('types');
@@ -528,46 +527,6 @@ function TheShell() {
    */
   const { data: me, error: sessionFailure } = useQuery(meQuery);
   const signedOut = sessionFailure instanceof NotSignedIn;
-
-  /**
-   * The account's own entries, at the foot of the open workspace's "…"
-   * (`WorkspaceTabs.tsx`).
-   *
-   * An entry rather than a link: a window over the workspace instead of
-   * replacing it, so managing them is a detour and not a journey. **The
-   * account's own settings are not here**: they are Settings, opened from the
-   * profile menu ("Open Settings from the profile menu", issue 693). **The
-   * workspaces are not here either**: a workspace is changed on its own tab
-   * ("Manage the types, and put them in the order you want", issue 156). The
-   * dock hides itself from its own control, and an agent is hidden from the
-   * dock's own "…".
-   */
-  const accountEntries: MenuEntry[] = [
-    // Under a separator of its own, since this changes who can sign in for
-    // everybody rather than what this session shows. Offered to
-    // an admin only, which is a courtesy rather than the guard: what refuses an
-    // ordinary user is the server (auth/admin.ts), and hiding the entry keeps a
-    // door in front of them that only ever says no.
-    ...(me?.user.role === ADMIN
-      ? [
-          {
-            label: 'Manage users',
-            separatorBefore: true,
-            onSelect: (from: HTMLElement | null) => {
-              typesOpenedFrom.current = from;
-              setManaging('users');
-            },
-          },
-          {
-            label: 'Usage',
-            onSelect: (from: HTMLElement | null) => {
-              typesOpenedFrom.current = from;
-              setManaging('usage');
-            },
-          },
-        ]
-      : []),
-  ];
 
   /**
    * What the open workspace's "…" offers first, ahead of its own actions: a
@@ -945,7 +904,6 @@ function TheShell() {
           <WorkspaceTabs
             bar={theme.bar}
             bringIntoView={bringIntoView}
-            accountEntries={accountEntries}
             openWorkspaceEntries={openWorkspaceEntries}
           >
             <AddWorkspace />
@@ -978,6 +936,12 @@ function TheShell() {
                 {roomForTheInbox && (
                   <DropdownMenu.Item onSelect={() => openSettings('types')} className={menuItemClass}>
                     Settings…
+                  </DropdownMenu.Item>
+                )}
+                {/* An admin only, which is a courtesy: the server is what refuses everybody else (auth/admin.ts). */}
+                {roomForTheInbox && me?.user.role === ADMIN && (
+                  <DropdownMenu.Item onSelect={() => setManaging('platform')} className={menuItemClass}>
+                    Platform settings…
                   </DropdownMenu.Item>
                 )}
                 <DropdownMenu.Item
@@ -1264,25 +1228,11 @@ function TheShell() {
         </Suspense>
       )}
 
-      {/* Who can sign in, over the workspace as the types are. Offered to an admin only. */}
-      {me?.user.role === ADMIN && (
+      {/* Platform settings - who can sign in and what the sign-ins came to - over
+          the workspace as Settings is. An admin only, and not on a phone. */}
+      {managing === 'platform' && roomForTheInbox && me?.user.role === ADMIN && (
         <Suspense fallback={null}>
-          <ManageUsers
-            open={managing === 'users'}
-            onClose={() => setManaging(null)}
-            returnFocusTo={typesOpenedFrom.current}
-          />
-        </Suspense>
-      )}
-
-      {/* What the sign-ins and guest sessions came to. Offered to an admin only, like the list of users. */}
-      {me?.user.role === ADMIN && (
-        <Suspense fallback={null}>
-          <UsageWindow
-            open={managing === 'usage'}
-            onClose={() => setManaging(null)}
-            returnFocusTo={typesOpenedFrom.current}
-          />
+          <PlatformSettingsWindow onClose={() => setManaging(null)} returnFocusTo={profileControl.current} />
         </Suspense>
       )}
 
