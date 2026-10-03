@@ -139,13 +139,40 @@ describe('the generator, end to end against a stubbed API', () => {
   });
 
   it('the model with --model equals the model from --json', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-03T12:00:00Z'));
+    try {
+      const run = rawRun({ created_at: new Date('2026-10-03T12:00:00Z').toISOString() });
+      const job = rawJob({ started_at: new Date('2026-10-03T12:00:00Z').toISOString(), completed_at: new Date('2026-10-03T12:00:15Z').toISOString() });
+      stubApi({ runs: [run], jobs: [job] });
+      const tmpDir = tmp();
+      const jsonOutput = path.join(tmpDir, 'a.json');
+      const modelOutput = path.join(tmpDir, 'b.json');
+
+      expect(await main(['--repo', 'o/r', '--json', '--out', jsonOutput])).toBe(0);
+      stubApi({ runs: [run], jobs: [job] });
+      expect(await main(['--repo', 'o/r', '--out', path.join(tmpDir, 'page.html'), '--model', modelOutput])).toBe(0);
+
+      const jsonContent = readFileSync(jsonOutput, 'utf8');
+      const modelContent = readFileSync(modelOutput, 'utf8');
+      expect(jsonContent).toBe(modelContent);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refuses when --model and --out resolve to the same path', async () => {
     stubApi({ runs: [rawRun()], jobs: [rawJob()] });
     const tmpDir = tmp();
-    const modelPath = path.join(tmpDir, 'model.json');
+    const samePath = path.join(tmpDir, 'model.json');
 
-    expect(await main(['--repo', 'o/r', '--model', modelPath])).toBe(0);
-
-    const model = JSON.parse(readFileSync(modelPath, 'utf8'));
-    expect(model).toMatchObject({ repo: 'o/r', windows: expect.any(Array) });
+    const write = process.stderr.write.bind(process.stderr);
+    process.stderr.write = () => true;
+    try {
+      expect(await main(['--repo', 'o/r', '--out', samePath, '--model', samePath])).toBe(2);
+    } finally {
+      process.stderr.write = write;
+    }
+    expect(existsSync(samePath)).toBe(false);
   });
 });

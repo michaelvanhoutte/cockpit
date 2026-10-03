@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { output, parseArgs } from '../../src/cli.js';
+import { main, output, parseArgs } from '../../src/cli.js';
 import { buildModel } from '../../src/model.js';
 
 describe('Lead time', () => {
@@ -29,6 +29,21 @@ describe('Lead time', () => {
 
     it('keeps the first unrecognised argument, not the value that follows it', () => {
       expect(parseArgs(['--max-pull', '50']).unknown).toBe('--max-pull');
+    });
+
+    it('takes a model path as given', () => {
+      const args = parseArgs(['--model', 'out/model.json']);
+      expect(args.model).toBe('out/model.json');
+    });
+
+    it('refuses a model path that would overwrite the page, before fetching anything', async () => {
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      try {
+        expect(await main(['--out', 'out/page.html', '--model', 'out/page.html'])).toBe(2);
+        expect(stderr.mock.calls.join('')).toContain('--model and --out cannot be the same path');
+      } finally {
+        stderr.mockRestore();
+      }
     });
   });
 

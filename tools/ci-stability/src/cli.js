@@ -122,7 +122,7 @@ export function parseArgs(argv) {
  */
 export function output(args, model) {
   return args.json
-    ? { file: 'model.json', content: JSON.stringify(model, null, 2) }
+    ? { file: 'model.json', content: modelJson(model) }
     : { file: 'index.html', content: renderHtml(model) };
 }
 
@@ -144,6 +144,16 @@ export async function main(argv) {
   if (args.help) {
     process.stdout.write(USAGE);
     return 0;
+  }
+
+  if (args.model) {
+    // Determine what the output path will be
+    const defaultFile = args.json ? 'model.json' : 'index.html';
+    const effectiveOut = args.out ?? path.join(here, '../out', defaultFile);
+    if (path.resolve(args.model) === path.resolve(effectiveOut)) {
+      process.stderr.write(`--model and --out cannot be the same path\n\n${USAGE}`);
+      return 2;
+    }
   }
 
   const repo = args.repo ?? process.env.GITHUB_REPOSITORY ?? repoFromGitRemote();
@@ -189,9 +199,7 @@ export async function main(argv) {
   });
 
   const { file, content } = output(args, model);
-  const out = path.resolve(
-    args.out ?? path.join(here, args.json ? '../out/model.json' : '../out/index.html'),
-  );
+  const out = path.resolve(args.out ?? path.join(here, '../out', file));
   mkdirSync(path.dirname(out), { recursive: true });
   writeFileSync(out, content, 'utf8');
   const writtenFiles = [out];

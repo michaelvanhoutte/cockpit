@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const ci = readFileSync(path.join(repo, '.github/workflows/ci.yml'), 'utf8');
+const nightly = readFileSync(path.join(repo, '.github/workflows/nightly.yml'), 'utf8');
 const publish = readFileSync(path.join(repo, '.github/workflows/publish.yml'), 'utf8');
 
 describe('the published site, as ci.yml and publish.yml assemble it', () => {
@@ -56,5 +57,17 @@ describe('the published site, as ci.yml and publish.yml assemble it', () => {
     const permissions = job.slice(job.indexOf('permissions:'), job.indexOf('continue-on-error'));
     expect(permissions).toContain('actions: read');
     expect(permissions).not.toContain('write');
+  });
+});
+
+describe('the nightly reports, as nightly.yml assembles them', () => {
+  it('writes lead-time to a file with both --out and --model', () => {
+    expect(nightly).toContain('--out tools/lead-time/out/index.html --model tools/lead-time/out/model.json');
+    expect(nightly).toContain('path: tools/lead-time/out/');
+  });
+
+  it('writes selection to a file with both --out and --model', () => {
+    expect(nightly).toContain('--out tools/selection/out/index.html --model tools/selection/out/model.json');
+    expect(nightly).toContain('path: tools/selection/out/');
   });
 });
