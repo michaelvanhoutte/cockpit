@@ -31,7 +31,18 @@ const job = (overrides = {}) => ({
   startedAt: '2026-09-06T12:00:00Z',
   completedAt: '2026-09-06T12:01:00Z',
   failedStep: null,
+  steps: [],
   url: 'https://github.com/o/r/actions/runs/1/job/1',
+  ...overrides,
+});
+
+/** A step that ran for `seconds`, as the job list would carry it. */
+const step = (number, name, seconds, overrides = {}) => ({
+  number,
+  name,
+  conclusion: 'success',
+  startedAt: '2026-09-06T12:00:00Z',
+  completedAt: new Date(Date.parse('2026-09-06T12:00:00Z') + seconds * 1000).toISOString(),
   ...overrides,
 });
 
@@ -360,5 +371,113 @@ describe('buildModel', () => {
     expect(model.coverage.oldestRun).toBeNull();
     expect(model.windows.every((w) => w.workflows.length === 0)).toBe(true);
     expect(model.redWindows).toEqual([]);
+  });
+});
+
+describe('Step durations', () => {
+  const stepsOf = (runs, jobs) => {
+    const model = build({ runs, jobs, windows: [30] });
+    return model.windows[0].workflows[0].jobs[0].steps;
+  };
+  const skipped = (n, name) => step(n, name, 0, { conclusion: 'skipped' });
+
+  describe("each step of a job reads its own median and p90, beside the job's", () => {
+    it('takes the median and p90 over the runs, and one run is both', () => {
+      const [a, b, c] = [run(), run(), run()];
+      const [install] = stepsOf(
+        [a, b],
+        [
+          job({ runId: a.id, steps: [step(1, 'Install', 60), step(2, 'Test', 10)] }),
+          job({ runId: b.id, steps: [step(1, 'Install', 120), step(2, 'Test', 20)] }),
+        ],
+      );
+      expect(install).toEqual({ name: 'Install', occurrence: 1, durations: { median: 90_000, p90: 120_000, count: 2 } });
+
+      const [only] = stepsOf([c], [job({ runId: c.id, steps: [step(1, 'Install', 45)] })]);
+      expect(only.durations).toEqual({ median: 45_000, p90: 45_000, count: 1 });
+    });
+
+    it('keeps the steps in the order the job ran them, even when an older run had one more', () => {
+      // Runs arrive newest first; the older run had a Build step in the middle.
+      const [newer, older] = [run(), run()];
+      const steps = stepsOf(
+        [newer, older],
+        [
+          job({ runId: newer.id, steps: [step(1, 'Checkout', 1), step(2, 'Test', 10)] }),
+          job({ runId: older.id, steps: [step(1, 'Checkout', 1), step(2, 'Build', 5), step(3, 'Test', 20)] }),
+        ],
+      );
+      expect(steps.map((s) => s.name)).toEqual(['Checkout', 'Build', 'Test']);
+      expect(steps[2].durations).toEqual({ median: 15_000, p90: 20_000, count: 2 });
+    });
+
+    it('keeps two steps sharing a name apart, one row each, by occurrence', () => {
+      const [a, b] = [run(), run()];
+      const steps = stepsOf(
+        [a, b],
+        [
+          job({ runId: a.id, steps: [step(1, 'Upload', 2), step(2, 'Upload', 10)] }),
+          job({ runId: b.id, steps: [step(1, 'Upload', 4), step(2, 'Upload', 20)] }),
+        ],
+      );
+      expect(steps.map((s) => [s.name, s.occurrence, s.durations.median, s.durations.count])).toEqual([
+        ['Upload', 1, 3000, 2],
+        ['Upload', 2, 15_000, 2],
+      ]);
+    });
+
+    it('leaves the later steps as one row each when a step is inserted, shifting their numbers', () => {
+      const [newer, older] = [run(), run()];
+      const steps = stepsOf(
+        [newer, older],
+        [
+          job({ runId: newer.id, steps: [step(1, 'Checkout', 1), step(2, 'Cache', 3), step(3, 'Install', 30), step(4, 'Test', 90)] }),
+          job({ runId: older.id, steps: [step(1, 'Checkout', 1), step(2, 'Install', 50), step(3, 'Test', 110)] }),
+        ],
+      );
+      expect(steps.map((s) => [s.name, s.durations.count])).toEqual([
+        ['Checkout', 2],
+        ['Cache', 1],
+        ['Install', 2],
+        ['Test', 2],
+      ]);
+    });
+  });
+
+  describe('a step that did not run or has no timings counts for nothing', () => {
+    it('leaves out skipped steps and steps with no start or end, never reading them as zero', () => {
+      const r = run();
+      const [skip, untimed, timed] = stepsOf(
+        [r],
+        [job({ runId: r.id, steps: [skipped(1, 'Skipped'), step(2, 'Untimed', 0, { startedAt: null }), step(3, 'Timed', 30)] })],
+      );
+      expect(skip.durations).toBeNull();
+      expect(untimed.durations).toBeNull();
+      expect(timed.durations.count).toBe(1);
+    });
+
+    it("leaves out the steps of a cancelled job, as it leaves out the job's own duration", () => {
+      const [done, cut] = [run(), run({ conclusion: 'cancelled' })];
+      const steps = stepsOf(
+        [done, cut],
+        [
+          job({ runId: done.id, steps: [step(1, 'Install', 60)] }),
+          job({ runId: cut.id, conclusion: 'cancelled', steps: [step(1, 'Install', 5), step(2, 'Only here', 5)] }),
+        ],
+      );
+      expect(steps.map((s) => s.name)).toEqual(['Install']);
+      expect(steps[0].durations).toEqual({ median: 60_000, p90: 60_000, count: 1 });
+    });
+  });
+
+  describe('a step with nothing counted reads no data, not zero', () => {
+    it('reads a step skipped in every run of the window as no data', () => {
+      const [a, b] = [run(), run()];
+      const [deploy] = stepsOf(
+        [a, b],
+        [job({ runId: a.id, steps: [skipped(1, 'Deploy')] }), job({ runId: b.id, steps: [skipped(1, 'Deploy')] })],
+      );
+      expect(deploy.durations).toBeNull();
+    });
   });
 });

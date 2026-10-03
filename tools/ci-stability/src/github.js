@@ -56,7 +56,18 @@ export class GitHubError extends Error {
  * @property {string|null} failedStep name of the first step that failed, or null when
  *   none is recorded — a job killed by a timeout or a cancellation has no failing step,
  *   and such a job is still listed among the failures rather than given an invented one.
+ * @property {Step[]} steps the job's steps in the order it ran them, from the job list
+ *   already fetched — no further request
  * @property {string} url
+ */
+
+/**
+ * @typedef {object} Step
+ * @property {number} number its position in the job
+ * @property {string} name
+ * @property {string|null} conclusion
+ * @property {string|null} startedAt
+ * @property {string|null} completedAt
  */
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -137,7 +148,14 @@ function normalizeRun(raw) {
 
 /** @returns {Job} */
 function normalizeJob(raw) {
-  const failedStep = (raw.steps ?? []).find((s) => s.conclusion === 'failure');
+  const steps = (raw.steps ?? []).map((s) => ({
+    number: s.number ?? null,
+    name: s.name ?? '',
+    conclusion: s.conclusion ?? null,
+    startedAt: s.started_at ?? null,
+    completedAt: s.completed_at ?? null,
+  }));
+  const failedStep = steps.find((s) => s.conclusion === 'failure');
   return {
     runId: raw.run_id,
     name: raw.name,
@@ -146,6 +164,7 @@ function normalizeJob(raw) {
     startedAt: raw.started_at ?? null,
     completedAt: raw.completed_at ?? null,
     failedStep: failedStep ? failedStep.name : null,
+    steps,
     url: raw.html_url,
   };
 }

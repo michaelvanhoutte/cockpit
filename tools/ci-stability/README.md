@@ -53,6 +53,13 @@ one the API allows 60 requests an hour, which is not enough for a full window.
   are one stretch; a cancelled run in between neither opens nor closes one.
 - **Durations exclude cancelled jobs**, which are truncated and would drag the median
   down. One run is reported as both its median and its p90, which is all one run can say.
+- **Each job's steps carry the same median and p90**, read from the job list already
+  fetched. A step is keyed by its name and its occurrence of that name in the job (the 1st
+  and 2nd "Upload"), because step numbers shift when a step is inserted; rows run in the
+  order of the step's median position across the runs that have it. Skipped and cancelled
+  steps, steps with no start or end, and every step of a job that did not pass or fail are
+  left out, so a step seen only in cancelled jobs has no row. A step with nothing counted
+  reads "no data", not 0. The model carries them; the page does not draw them yet.
 - **A conclusion the model does not recognise is counted as neither pass nor fail**, and
   named on the page. Silently reading a new conclusion as success is the one way this
   report could mislead in the reassuring direction.

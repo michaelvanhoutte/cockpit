@@ -79,6 +79,45 @@ function durationMs(job) {
   return Number.isFinite(ms) && ms >= 0 ? ms : null;
 }
 
+/** A step's duration, or null when it did not run to a finish with timings of its own. */
+function stepDurationMs(step) {
+  if (step.conclusion === 'skipped' || step.conclusion === 'cancelled') return null;
+  return durationMs(step);
+}
+
+/**
+ * Each step of a job, keyed by its name and its occurrence of that name within
+ * the job run (the 1st "Upload", the 2nd "Upload"). GitHub numbers steps 1..N
+ * without gaps, so a number shifts whenever a step is inserted and cannot be a
+ * key. Rows are ordered by the median of the step's position across the runs
+ * that have it, ties by name then occurrence, so a step since removed from the
+ * job still sits where it used to. Takes only the job's finished runs, as for
+ * the job's own durations: a cancelled job's steps are truncated, and a step
+ * seen only there has no row. A step nothing was counted for stays listed with
+ * `durations: null` — no data, not 0.
+ */
+function stepDurations(finishedJobs) {
+  const samples = [];
+  for (const jobRun of finishedJobs) {
+    const seen = new Map();
+    (jobRun.steps ?? []).forEach((step, position) => {
+      const name = step.name ?? '';
+      const occurrence = (seen.get(name) ?? 0) + 1;
+      seen.set(name, occurrence);
+      samples.push({ name, occurrence, position, ms: stepDurationMs(step) });
+    });
+  }
+  return [...group(samples, (x) => `${x.name}\u0000${x.occurrence}`).values()]
+    .map((rows) => ({
+      name: rows[0].name,
+      occurrence: rows[0].occurrence,
+      at: quantiles(rows.map((x) => x.position)).median,
+      durations: quantiles(rows.map((x) => x.ms).filter((ms) => ms !== null)),
+    }))
+    .sort((x, y) => x.at - y.at || x.name.localeCompare(y.name) || x.occurrence - y.occurrence)
+    .map(({ name, occurrence, durations }) => ({ name, occurrence, durations }));
+}
+
 const byCreatedAsc = (a, b) => new Date(a.createdAt) - new Date(b.createdAt);
 
 /**
@@ -174,15 +213,14 @@ function windowModel(runs, jobsByRun, { days, now, oldestRun, reachedWindowEdge,
         jobs: [...group(jobs, (job) => job.name).entries()]
           .map(([jobName, jobRuns]) => {
             const outcomes = jobRuns.map(classify);
+            const finished = jobRuns.filter((_, i) => outcomes[i] === 'pass' || outcomes[i] === 'fail');
             return {
               name: jobName,
               tally: tally(outcomes),
               durations: quantiles(
-                jobRuns
-                  .filter((_, index) => outcomes[index] === 'pass' || outcomes[index] === 'fail')
-                  .map(durationMs)
-                  .filter((ms) => ms !== null),
+                finished.map(durationMs).filter((ms) => ms !== null),
               ),
+              steps: stepDurations(finished),
             };
           })
           .sort(byReliability),
