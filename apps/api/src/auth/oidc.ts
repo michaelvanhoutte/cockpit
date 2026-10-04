@@ -38,6 +38,12 @@ export interface IssuerEndpoints {
   readonly authorizationEndpoint: string;
   readonly tokenEndpoint: string;
   readonly jwksUri: string;
+  /**
+   * Where a token is handed back (RFC 7009), where the issuer says - Google
+   * does, and a Gmail connection's sign-in is revoked there on disconnecting
+   * ("Connect a Gmail account to a workspace, and disconnect it", issue 724).
+   */
+  readonly revocationEndpoint?: string;
 }
 
 /**

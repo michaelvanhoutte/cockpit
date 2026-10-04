@@ -190,7 +190,10 @@
   // the secret store beside `MS_CLIENT_SECRET` and
   // `CONNECTOR_CREDENTIAL_KEY` until one exists, and moves here when it does
   // (docs/deployment.md, "An Entra application"). An environment holding none
-  // of the three refuses Connect and works in every other way.
+  // of the three refuses Connect and works in every other way. Gmail's own
+  // Google client, `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET`, sits in the
+  // secret store beside them for the same reason (docs/deployment.md, "A
+  // Google Cloud project for Gmail").
   //
   // `vars` is not inheritable, so staging repeats the other two below.
   "vars": {

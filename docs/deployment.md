@@ -450,6 +450,7 @@ wrangler secret put <NAME> --env staging
 | `BACKUP_TOKEN` | the only thing in front of the operator routes under `/v1/operator/`, which hand back every account's data. **You invent it** — nothing issues it — and put one in **both** environments, since they are not inheritable; an environment without one refuses those routes rather than opening them. **A deployed one has to be long and random** (`openssl rand -base64 32`): it is the whole of the authentication in front of every account's data, so how hard it is to guess is the only thing standing there. Anything will do locally, as long as it is the same string the commands send — see below for where they read it from. |
 | `ANTHROPIC_API_KEY` | what Cockpit reads a captured note with ("Clean up a captured note into a clear title and a fuller message", issue 296). Issued in the Anthropic Console; the application's own credential rather than anybody's, so it has no settings screen. **An environment without one works** — every capture succeeds and the Item keeps the title capture wrote — which is exactly why `/health` reports whether it is set: without that, a deployment nobody put a key in enriches nothing for months with every check green, the failure `CLAUDE_CODE_OAUTH_TOKEN` below already records. |
 | `MS_CLIENT_ID`, `MS_CLIENT_SECRET` | the Entra application a Workspace connects its Teams account through ("Connect a Microsoft Teams source account", issue 485) — see "An Entra application" below for what to register. **The client id is a secret here only for want of a registration**: nothing has been registered yet, so a placeholder in `wrangler.jsonc` would be configuration nobody chose; it moves beside `GOOGLE_CLIENT_ID` the day one exists. An environment with neither refuses Connect and works in every other way. |
+| `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` | the Google OAuth client a Workspace connects a Gmail account through ("Connect a Gmail account to a workspace, and disconnect it", issue 724) — see "A Google Cloud project for Gmail" below. **Its own client, never the sign-in one**, because it asks to change mail and is published unverified. An environment with neither refuses Connect on the Gmail card and works in every other way. |
 | `MS_BOT_APP_ID` | the Azure Bot resource whose calls this Cockpit believes — the audience of every Bot Framework token a saved Teams message arrives with ("Save a Teams message to Cockpit", issue 486), and see "An Azure Bot" below. An environment without it has no `/ingress/teams/` address at all, which is a 404 rather than a route that refuses everything. |
 | `CONNECTOR_CREDENTIAL_KEY` | what a connected source account's credential is sealed with — 32 random bytes, base64 (`openssl rand -base64 32`), one per environment, invented the way `BACKUP_TOKEN` is. An environment without one stores no credential at all rather than storing one in the clear, which is the point of it. **Losing or rotating it makes every stored credential unreadable**: nobody loses work, and everybody holding a connection disconnects and connects again. The links to an Item's files an agent is sent are sealed under a key derived from it, so rotating it also stops those, which last an hour anyway. |
 | `ANTHROPIC_WORKSPACE_ID` | which Anthropic workspace the key belongs to, sent as the `anthropic-workspace-id` header. **Needed when the key is scoped to the organisation rather than to one workspace**, which answers `400 invalid_request_error` without it — a failure that surfaces as a broken integration rather than as a credential's scope, and cost a round trip to diagnose once. Not a secret, and it is put in the secret store anyway rather than in `wrangler.jsonc`: it is half of a credential and means nothing without the other half, so the two are set by one command and read from one place. Leave it unset for a workspace-scoped key; the header is only sent when there is one. Beware the word collision — Anthropic's *workspace* is a billing grouping and has nothing to do with Cockpit's Workspaces. |
@@ -499,13 +500,13 @@ apart. Wrangler warns on a staging deploy that a top-level var is missing from
 `env.staging.vars`; here that is the configuration, not an oversight.
 
 **`OIDC_ISSUER` is deliberately unset on both**, which means Google for signing
-in and Microsoft for connecting a Teams account (`apps/api/src/auth/issuer.ts`
-picks a fallback per flow). Only local development and the browser suite set it,
-at the stub issuer they run (`scripts/lib/stub-issuer.mjs`), which stands in for
-both — one issuer to start, so they drive the same two flows without a bypass
-existing in the deployed application. Setting it on a deployed environment would
-point sign-in *and* connecting at whatever it named: treat it as a secret that
-happens not to be one.
+in and for connecting Gmail, and Microsoft for connecting a Teams account
+(`apps/api/src/auth/issuer.ts` picks a fallback per flow). Only local
+development and the browser suite set it, at the stub issuer they run
+(`scripts/lib/stub-issuer.mjs`), which stands in for all three — one issuer to
+start, so they drive the same flows without a bypass existing in the deployed
+application. Setting it on a deployed environment would point sign-in *and*
+connecting at whatever it named: treat it as a secret that happens not to be one.
 
 ### A Google OAuth client
 
@@ -633,6 +634,43 @@ wrangler secret put MS_BOT_APP_ID --env staging
 
 Saving a message needs no Graph scope and no consent prompt: what is saved
 arrives in the call itself.
+
+### A Google Cloud project for Gmail
+
+**A project and OAuth client of Gmail's own, per environment**, never the
+sign-in client: this one asks to change mail and is published unverified, which
+would tie signing in to Google's warning and its 100-user cap ("Connect a Gmail
+account to a workspace, and disconnect it", issue 724). In the Google Cloud
+console:
+
+1. **A new project**, with the **Gmail API** enabled.
+2. **The OAuth consent screen** (*Google Auth Platform*): audience *External*,
+   the app name `Cockpit`, and the one scope
+   `https://www.googleapis.com/auth/gmail.modify` beside `openid` and `email`.
+   Gmail offers nothing narrower that can take a label off, so touching only the
+   `Cockpit` label is Cockpit's own rule.
+3. **Publish it, unverified**: *Publishing status* to *In production*, without
+   submitting for verification. Anyone can then connect after clicking through
+   Google's warning once, the sign-in does not lapse weekly as it does in
+   *Testing*, and Google caps the app at 100 users ever; verification, an annual
+   paid assessment, is only needed past that.
+4. **An OAuth client**, type *Web application*, with one authorised redirect URI:
+   `<APP_ORIGIN>/v1/connections/gmail/callback`.
+5. **Its id and secret into the platform**, and `CONNECTOR_CREDENTIAL_KEY`
+   where the environment has none yet (the last step of "An Entra application"
+   above), since the sign-in is stored sealed under it:
+
+```bash
+wrangler secret put GMAIL_CLIENT_ID              # production
+wrangler secret put GMAIL_CLIENT_SECRET
+wrangler secret put GMAIL_CLIENT_ID --env staging
+wrangler secret put GMAIL_CLIENT_SECRET --env staging
+```
+
+**Nothing reads a mailbox until somebody connects one there.** Disconnecting
+forgets the sign-in and revokes it at Google, unless another Workspace of the
+account still holds the mailbox, since Google revokes the whole grant; a revoke
+Google does not answer is logged and never keeps the connection.
 
 **Once these are set, the shared guest account can connect a Teams account
 too** — every concurrent guest sees it and can disconnect it, the same as

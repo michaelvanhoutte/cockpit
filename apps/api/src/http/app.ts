@@ -29,6 +29,7 @@ import {
   setAccessSchema,
   signedInSchema,
   sourceAccountListSchema,
+  GMAIL,
   TEAMS,
   uuidv7,
   userAddedSchema,
@@ -64,6 +65,7 @@ import {
   resetGuestAccount,
   restoreAccount,
   restoreRegister,
+  type Account,
   type AccountBackup,
   type RegisterBackup,
 } from '../accounts/index.js';
@@ -106,13 +108,27 @@ import {
   RETIRED_PATHS,
   type GatedEnv,
 } from '../auth/gate.js';
-import { endpointsFor, exchangeCode, issuerFor, keysOf, teamsIssuerFor } from '../auth/issuer.js';
+import {
+  endpointsFor,
+  exchangeCode,
+  gmailIssuerFor,
+  issuerFor,
+  keysOf,
+  revokeToken,
+  teamsIssuerFor,
+} from '../auth/issuer.js';
 import { authorizationUrl, identityFrom, newAttempt, replyBelongsTo } from '../auth/oidc.js';
 import { returnPathFrom } from '../auth/return-path.js';
 import { connectedAppsOf, disconnectApp } from '../mcp/connected-apps.js';
 import { revokeAppsOf } from '../mcp/revoke.js';
-import { open, seal, sealingKey } from '../connectors/credential-crypto.js';
+import { open, seal, sealingKey, type Sealed } from '../connectors/credential-crypto.js';
 import { teamsAccountFrom } from '../connectors/teams.js';
+import {
+  gmailAccountFrom,
+  gmailAuthorizationUrl,
+  gmailCredentialFrom,
+  revocableIn,
+} from '../connectors/gmail.js';
 import { fireRoutine, testClaudeCodeConnection } from '../connectors/claude-code.js';
 import { countForGuest, countryOf, referrerHostOf } from '../auth/sign-in-history.js';
 import {
@@ -197,15 +213,22 @@ function connectCallbackUrl(c: Context): string {
   return new URL('/v1/connections/teams/callback', c.env.APP_ORIGIN).toString();
 }
 
+/** The same, for Gmail's own Google client ("Connect a Gmail account to a workspace, and disconnect it", issue 724). */
+function gmailCallbackUrl(c: Context): string {
+  return new URL('/v1/connections/gmail/callback', c.env.APP_ORIGIN).toString();
+}
+
 /**
  * Back to the Workspace, with the window that asked open over it and saying
  * how it went ("Connect a Microsoft Teams source account", issue 485).
  *
- * **Two values and no third**, which is the whole contract with the client
- * (`apps/web/src/components/ManageConnections.tsx`): it went through, or it
- * did not. Why it did not goes to the log, never here - each reason names
- * something an attacker got wrong or something only an operator can fix, and
- * the window offers the one thing that helps, which is Connect again.
+ * **It went through, or it did not**, which is the whole contract with the
+ * client (`apps/web/src/connections.ts`) - with Gmail's going through a value
+ * of its own, because what comes next differs ("Connect a Gmail account to a
+ * workspace, and disconnect it", issue 724). Why it did not goes to the log,
+ * never here - each reason names something an attacker got wrong or something
+ * only an operator can fix, and the window offers the one thing that helps,
+ * which is Connect again.
  *
  * A browser holding no attempt has no Workspace to be sent back to, so it
  * lands where the app decides - which is what a stray navigation to this
@@ -214,7 +237,7 @@ function connectCallbackUrl(c: Context): string {
 function backToConnections(
   c: Context,
   workspaceId: string | undefined,
-  outcome: 'connected' | 'refused',
+  outcome: 'connected' | 'gmail-connected' | 'refused',
 ) {
   if (!workspaceId) return c.redirect('/', 302);
   return c.redirect(
@@ -256,6 +279,71 @@ async function whatConnectingNeeds(
   if (!clientId || !clientSecret) return null;
   const key = await sealingKey(env.CONNECTOR_CREDENTIAL_KEY);
   return key ? { clientId, clientSecret, key } : null;
+}
+
+/** The same, for Gmail's own Google client (issue 724). */
+async function whatConnectingGmailNeeds(
+  env: Env,
+): Promise<{ clientId: string; clientSecret: string; key: CryptoKey } | null> {
+  const clientId = env.GMAIL_CLIENT_ID?.trim();
+  const clientSecret = env.GMAIL_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) return null;
+  const key = await sealingKey(env.CONNECTOR_CREDENTIAL_KEY);
+  return key ? { clientId, clientSecret, key } : null;
+}
+
+/**
+ * Revokes a Gmail connection's sign-in at Google, once the connection itself
+ * is already gone ("Connect a Gmail account to a workspace, and disconnect
+ * it", issue 724) - because a token that can change mail should not outlive
+ * it. **Never throws and never retries**: the row is gone whatever Google
+ * answers, and anything that went wrong is logged.
+ *
+ * **Not while another Workspace of this account holds the same mailbox**:
+ * Google revokes the whole grant, not one token, so revoking here would cut
+ * that connection off too. Another Cockpit account holding the same mailbox
+ * is in a store this one cannot read, and is not protected.
+ */
+async function revokeGmailSignIn(env: Env, account: Account, sealed: Sealed): Promise<void> {
+  try {
+    const key = await sealingKey(env.CONNECTOR_CREDENTIAL_KEY);
+    const opened = key ? await open(sealed, key) : null;
+    const held = opened ? revocableIn(opened) : null;
+    const mailboxKey = held?.mailboxKey;
+    if (mailboxKey) {
+      const stillHeld = await Promise.all(
+        (await account.workspaces()).map((workspace) => account.connectionUnder(workspace.id, GMAIL, mailboxKey)),
+      );
+      if (stillHeld.some(Boolean)) {
+        console.info(
+          JSON.stringify({
+            level: 'info',
+            message: 'a Gmail connection was disconnected, and not revoked: another workspace still holds the mailbox',
+          }),
+        );
+        return;
+      }
+    }
+    const token = held?.refreshToken;
+    if (!token) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: 'a Gmail connection was disconnected, but its sign-in could not be opened to revoke',
+        }),
+      );
+      return;
+    }
+    await revokeToken(await endpointsFor(gmailIssuerFor(env)), token);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: 'a Gmail connection was disconnected, but revoking its sign-in failed',
+        cause: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
 }
 
 /**
@@ -1764,9 +1852,24 @@ const routes = app
   // The other half of connecting is not a command endpoint at all: it is the
   // callback Microsoft returns to, further down this chain ("Connect a
   // Microsoft Teams source account", issue 485).
-  .openapi(commandRoute('disconnect_source_account'), async (c) =>
-    c.json(await change(c, 'disconnect_source_account', c.req.valid('json')), 200),
-  )
+  .openapi(commandRoute('disconnect_source_account'), async (c) => {
+    const cmd = c.req.valid('json');
+    // A Gmail sign-in is read before it is forgotten, so it can be revoked at
+    // Google once it has been ("Connect a Gmail account to a workspace, and
+    // disconnect it", issue 724). Only this Workspace's own row is read, and
+    // reading nothing is the same disconnect as before: the command below is
+    // what decides, and refuses, whether there is anything to disconnect.
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    const isGmail = (await account.sourceAccounts(cmd.workspaceId).catch(() => [])).some(
+      (held) => held.id === cmd.sourceAccountId && held.connectorId === GMAIL,
+    );
+    const sealed = isGmail ? await account.sealedCredential(cmd.sourceAccountId) : null;
+    const result = await account.applyChange('disconnect_source_account', cmd);
+    // After the row is gone and only then: a revoke that fails or hangs must
+    // never keep it.
+    if (sealed && result.applied) await revokeGmailSignIn(c.env, account, sealed);
+    return c.json(result, 200);
+  })
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c, 'delete_workspace', c.req.valid('json')), 200))
   .openapi(commandRoute('capture_item'), async (c) => {
@@ -2073,6 +2176,7 @@ const routes = app
         ...newAttempt(),
         workspaceId,
         accountName: c.get('visitor').accountName,
+        connectorId: TEAMS,
       };
       rememberConnectAttempt(c, attempt);
       // `needed.clientId`, never `c.env.MS_CLIENT_ID` again: the two have to be
@@ -2105,8 +2209,10 @@ const routes = app
    * there and visible, or nothing at all and a refusal in the window.
    */
   .get('/v1/connections/teams/callback', async (c) => {
-    const attempt = connectAttemptHeld(c);
+    const held = connectAttemptHeld(c);
     forgetConnectAttempt(c);
+    // An attempt started for another source did not begin here.
+    const attempt = held?.connectorId === TEAMS ? held : null;
     const reply = c.req.query();
 
     const wrong = replyBelongsTo(attempt, reply);
@@ -2229,6 +2335,106 @@ const routes = app
         'the connection could not be finished',
         error,
       );
+    }
+  })
+  /**
+   * Sends the browser to Google to connect a Gmail account, through Gmail's
+   * own client and asking for the permission to change mail ("Connect a Gmail
+   * account to a workspace, and disconnect it", issue 724). Teams' pair above
+   * in every other respect: behind the gate, the Workspace and account
+   * carried in the attempt cookie, refused before anybody leaves where the
+   * Workspace is gone or the environment cannot connect.
+   */
+  .get('/v1/workspaces/:workspaceId/connections/gmail/connect', async (c) => {
+    const workspaceId = c.req.param('workspaceId');
+    try {
+      const account = await openAccount(c.env, c.get('visitor').accountName);
+      if (!(await account.workspaces()).some((workspace) => workspace.id === workspaceId)) {
+        return refuseConnection(c, workspaceId, 'no such workspace');
+      }
+      const needed = await whatConnectingGmailNeeds(c.env);
+      if (!needed) {
+        return refuseConnection(c, workspaceId, 'this environment cannot connect Gmail');
+      }
+      const endpoints = await endpointsFor(gmailIssuerFor(c.env));
+      const attempt = {
+        ...newAttempt(),
+        workspaceId,
+        accountName: c.get('visitor').accountName,
+        connectorId: GMAIL,
+      };
+      rememberConnectAttempt(c, attempt);
+      return c.redirect(
+        await gmailAuthorizationUrl(endpoints, needed.clientId, gmailCallbackUrl(c), attempt),
+        302,
+      );
+    } catch (error) {
+      return refuseConnection(c, workspaceId, 'Google could not be reached', error);
+    }
+  })
+  /**
+   * Where Google sends the browser back. **One encrypted credential or
+   * nothing**: the attempt is spent before anything is acted on, so a reply
+   * delivered twice cannot write a second row, and nothing is stored until
+   * Google has said whose mailbox it is, handed over a refresh token, granted
+   * the permission to change mail and the result has been sealed. A token
+   * issued but not stored leaves nothing behind; the code being single-use,
+   * connecting again is the remedy.
+   */
+  .get('/v1/connections/gmail/callback', async (c) => {
+    const held = connectAttemptHeld(c);
+    forgetConnectAttempt(c);
+    const attempt = held?.connectorId === GMAIL ? held : null;
+    const reply = c.req.query();
+
+    const wrong = replyBelongsTo(attempt, reply);
+    if (wrong) return refuseConnection(c, attempt?.workspaceId, wrong);
+    // Whose store the row lands in is the session's to say, for the reason
+    // Teams' callback gives.
+    if (attempt!.accountName !== c.get('visitor').accountName) {
+      return refuseConnection(c, undefined, 'the connection was started by another account');
+    }
+
+    try {
+      const needed = await whatConnectingGmailNeeds(c.env);
+      if (!needed) {
+        return refuseConnection(c, attempt!.workspaceId, 'this environment cannot connect Gmail');
+      }
+      const endpoints = await endpointsFor(gmailIssuerFor(c.env));
+      const exchanged = await exchangeCode(
+        endpoints,
+        { clientId: needed.clientId, clientSecret: needed.clientSecret },
+        { code: reply.code!, codeVerifier: attempt!.codeVerifier, redirectUri: gmailCallbackUrl(c) },
+      );
+      if (!exchanged) return refuseConnection(c, attempt!.workspaceId, 'the exchange was refused');
+
+      const now = new Date();
+      const mailbox = await gmailAccountFrom(
+        exchanged.idToken,
+        keysOf(endpoints),
+        { issuer: endpoints.issuer, clientId: needed.clientId, nonce: attempt!.nonce },
+        now,
+      );
+      if (typeof mailbox === 'string') return refuseConnection(c, attempt!.workspaceId, mailbox);
+      const kept = gmailCredentialFrom(exchanged.asIssued, mailbox.key, now);
+      // Refused before anything is stored: a grant without a refresh token,
+      // or without the permission asked for, is one Cockpit never keeps.
+      if (typeof kept === 'string') return refuseConnection(c, attempt!.workspaceId, kept);
+
+      const connectedAt = now.toISOString();
+      await change(c, 'connect_source_account', {
+        commandId: uuidv7(),
+        issuedAt: connectedAt,
+        workspaceId: attempt!.workspaceId,
+        sourceAccountId: uuidv7(),
+        connectorId: GMAIL,
+        externalAccountKey: mailbox.key,
+        displayName: mailbox.address,
+        ...(await seal(kept.credential, needed.key)),
+      });
+      return backToConnections(c, attempt!.workspaceId, 'gmail-connected');
+    } catch (error) {
+      return refuseConnection(c, attempt!.workspaceId, 'the connection could not be finished', error);
     }
   })
   // --- signing in: two navigations, not two requests -------------------------

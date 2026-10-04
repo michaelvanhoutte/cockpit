@@ -31,7 +31,7 @@ before(async () => {
 after(() => issuer.close());
 
 /** Walks up to the point where a code has been issued, as a browser does. */
-async function codeFor(email, { verifier = 'a-verifier-of-some-length', scope, name } = {}) {
+async function codeFor(email, { verifier = 'a-verifier-of-some-length', scope, name, offline } = {}) {
   const ask = new URLSearchParams({
     client_id: 'cockpit-test',
     redirect_uri: REDIRECT,
@@ -42,6 +42,7 @@ async function codeFor(email, { verifier = 'a-verifier-of-some-length', scope, n
     as: email,
     ...(scope ? { scope } : {}),
     ...(name ? { name } : {}),
+    ...(offline ? { access_type: 'offline' } : {}),
   });
   const picked = await fetch(`${issuer.origin}/authorize/pick?${ask}`, { redirect: 'manual' });
   return new URL(picked.headers.get('location')).searchParams.get('code');
@@ -118,6 +119,26 @@ describe('the stub issuer signs people in the way Google does', () => {
 
     assert.equal((await claimsFor('openid email profile')).name, 'Rita Recruiter');
     assert.equal((await claimsFor('openid email')).name, undefined);
+  });
+
+  // What connecting Gmail is handed and hands back ("Connect a Gmail account
+  // to a workspace, and disconnect it", issue 724).
+  it('grants a refresh token and the scopes asked only where offline access was asked, and takes it back', async () => {
+    const grantFor = async (offline) =>
+      (await spend(await codeFor('michael@example.com', { scope: 'openid email gmail.modify', offline }))).json();
+
+    const offline = await grantFor(true);
+    assert.match(offline.refresh_token, /^stub-refresh-/);
+    assert.equal(offline.scope, 'openid email gmail.modify');
+    assert.equal((await grantFor(false)).refresh_token, undefined);
+
+    const revoked = await fetch(endpoints.revocation_endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token: offline.refresh_token }),
+    });
+    assert.equal(revoked.status, 200);
+    assert.deepEqual(await (await fetch(`${issuer.origin}/revoked`)).json(), [offline.refresh_token]);
   });
 
   it('refuses a code spent with the wrong verifier', async () => {

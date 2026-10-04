@@ -174,6 +174,12 @@ if (running.api) {
         'MS_CLIENT_ID:cockpit-local',
         '--var',
         'MS_CLIENT_SECRET:no-secret-is-needed-to-talk-to-the-stub',
+        // Gmail's own Google client, against the same stub ("Connect a Gmail
+        // account to a workspace, and disconnect it", issue 724).
+        '--var',
+        'GMAIL_CLIENT_ID:cockpit-local',
+        '--var',
+        'GMAIL_CLIENT_SECRET:no-secret-is-needed-to-talk-to-the-stub',
         '--var',
         'CONNECTOR_CREDENTIAL_KEY:Y29ja3BpdC1sb2NhbC1jb25uZWN0b3Ita2V5LTAwMDA=',
         // The bot a saved Teams message would be signed for, and where the
