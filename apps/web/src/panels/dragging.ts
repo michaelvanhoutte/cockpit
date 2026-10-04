@@ -1,5 +1,5 @@
 import type { LayoutRow } from '@cockpit/shared';
-import { movedBeside, movedToOwnRow } from './arrangement';
+import { movedBeside, movedRow, movedToOwnRow } from './arrangement';
 
 /**
  * Where a panel would land if the drag ended here, worked out from where the
@@ -202,4 +202,40 @@ export function arrangedWith(
   if (placement.under === null) return movedToOwnRow(rows, panelId, 0);
   const above = rows.findIndex((row) => row.cells.some((cell) => cell.panelId === placement.under));
   return above === -1 ? [...rows] : movedToOwnRow(rows, panelId, above + 1);
+}
+
+/**
+ * Where a row held by its grip goes: its place among the rows once it is moved.
+ *
+ * **It passes a row when the pointer passes that row's middle** - the place is
+ * the number of the *other* rows whose middle is above the pointer. Counting
+ * the others rather than comparing with the neighbour is what lets a held
+ * pointer come to rest: moving the row only shifts the others on the side it
+ * has crossed, and they stay on the side of the pointer they were already on.
+ *
+ * Null where the row in hand is not on the board - deleted in another tab.
+ */
+export function rowPlacementFor(
+  pointY: number,
+  rows: readonly DrawnRow[],
+  dragged: string,
+): number | null {
+  const holds = (row: DrawnRow) => row.cells.some((cell) => cell.panelId === dragged);
+  if (!rows.some(holds)) return null;
+  return rows.filter((row) => !holds(row) && (row.top + row.bottom) / 2 < pointY).length;
+}
+
+/**
+ * The arrangement with the row holding `panelId` moved to `place`. A row has
+ * no identity of its own, so it is named by a panel on it - which a row drag
+ * never moves, so it means the same row in the preview and in the arrangement
+ * the drag started from.
+ */
+export function arrangedWithRow(
+  rows: readonly LayoutRow[],
+  panelId: string,
+  place: number,
+): LayoutRow[] {
+  const from = rows.findIndex((row) => row.cells.some((cell) => cell.panelId === panelId));
+  return from === -1 ? [...rows] : movedRow(rows, from, place);
 }

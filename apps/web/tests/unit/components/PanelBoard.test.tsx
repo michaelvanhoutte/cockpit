@@ -2768,7 +2768,7 @@ describe('Dashboards', () => {
 
   describe('the panels left in a row share it in their proportions', () => {
     const SHARES_3_3_6: Layout = {
-      ...aLayout('wide', 1280, []),
+      ...aLayout('wide', []),
       rows: [
         {
           height: null,
@@ -2817,7 +2817,7 @@ describe('Dashboards', () => {
         panels: [aPanel('reading', 'To read'), aPanel('falcon', 'Project Falcon')],
         layouts: [
           {
-            ...aLayout('wide', 1280, []),
+            ...aLayout('wide', []),
             rows: [
               { height: null, cells: [{ panelId: 'reading', span: 12 }] },
               { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
@@ -3014,6 +3014,197 @@ describe('Panels', () => {
       }
       expect(within(screen.getByRole('region', { name: 'Project Falcon' })).getAllByRole('listitem')).toHaveLength(1);
       expect(within(screen.getByRole('region', { name: 'Notes' })).getByText('Some prose')).toBeVisible();
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('a whole row is moved by a grip at its left edge', () => {
+    const THREE_ROWS: Layout = {
+      ...aLayout('laptop', ['falcon']),
+      rows: [
+        { height: 300, cells: [{ panelId: 'falcon', span: 12 }] },
+        { height: null, cells: [{ panelId: 'notes', span: 4 }, { panelId: 'due', span: 8 }] },
+        { height: 150, cells: [{ panelId: 'reading', span: 12 }] },
+      ],
+    };
+    const board = (extra: Parameters<typeof showBoard>[0] = {}) =>
+      showBoard({
+        panels: [
+          aPanel('falcon', 'Project Falcon'),
+          aPanel('notes', 'Notes'),
+          aPanel('due', 'Due'),
+          aPanel('reading', 'To read'),
+        ],
+        layouts: [THREE_ROWS],
+        ...extra,
+      });
+    const grips = () => screen.queryAllByTestId('row-grip');
+    /** Takes the grip of row `at` the way a mouse does, then measures the collapsed board. */
+    const take = (at: number) => {
+      fireEvent.pointerDown(grips()[at]!, { button: 0, pointerId: 1, pointerType: 'mouse' });
+      layOut();
+    };
+    /** The middles of the rows `layOut` draws: 50, 172 and 294. */
+    const ROW_MIDDLE = [50, 172, 294];
+    const moveTo = (y: number) =>
+      fireEvent.pointerMove(boardEl(), { pointerId: 1, clientX: 300, clientY: y });
+
+    it('is offered on every row, and picks the row up as a Panel is picked up', () => {
+      board();
+      expect(grips()).toHaveLength(3);
+
+      take(2);
+
+      expect(screen.getByRole('region', { name: 'To read' }).className).toContain('opacity-40');
+      expect(screen.getByRole('region', { name: 'Project Falcon' }).className).not.toContain('opacity-40');
+    });
+
+    it('collapses every Panel to its header and every row to a header tall', () => {
+      board();
+      expect(document.querySelector<HTMLElement>('[data-panel-row]')!.style.height).toBe('300px');
+
+      take(0);
+
+      for (const row of document.querySelectorAll<HTMLElement>('[data-panel-row]')) {
+        expect(row.style.height).toBe('');
+        expect(row.style.minHeight).toBe('');
+      }
+      for (const name of ['Project Falcon', 'Notes', 'Due', 'To read']) {
+        const region = screen.getByRole('region', { name });
+        expect(within(region).queryByText(/Add an item/)).not.toBeVisible();
+      }
+    });
+
+    it('draws every Panel of the lifted row as lifted, and the others as they are', () => {
+      board();
+
+      take(1);
+
+      expect(screen.getByRole('region', { name: 'Notes' }).className).toContain('opacity-40');
+      expect(screen.getByRole('region', { name: 'Due' }).className).toContain('opacity-40');
+      expect(screen.getByRole('region', { name: 'Project Falcon' }).className).not.toContain('opacity-40');
+    });
+
+    it('moves the row between the others as the pointer passes their middles, keeping its Panels together', () => {
+      board();
+      take(0);
+
+      moveTo(ROW_MIDDLE[1]! - 10);
+      expect(drawnLines()).toEqual([['falcon'], ['notes', 'due'], ['reading']]);
+
+      moveTo(ROW_MIDDLE[1]! + 10);
+      expect(drawnLines()).toEqual([['notes', 'due'], ['falcon'], ['reading']]);
+
+      moveTo(ROW_MIDDLE[2]! + 10);
+      expect(drawnLines()).toEqual([['notes', 'due'], ['reading'], ['falcon']]);
+    });
+
+    it('sends one save naming the new order, heights and shares travelling with their rows', () => {
+      const { mutate } = board({ settles: false });
+      take(0);
+      moveTo(ROW_MIDDLE[1]! + 10);
+
+      fireEvent.pointerUp(boardEl(), { pointerId: 1, clientX: 300, clientY: ROW_MIDDLE[1]! + 10 });
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(sentRows(mutate)).toEqual([['notes', 'due'], ['falcon'], ['reading']]);
+      expect(sentHeights(mutate)).toEqual([null, 300, 150]);
+      expect(sentSpans(mutate)).toEqual([[4, 8], [12], [12]]);
+    });
+
+    it('sends one save, not two, for a release inside the board that reaches the window as well', () => {
+      const { mutate } = board({ settles: false });
+      take(2);
+      moveTo(10);
+
+      fireEvent.pointerUp(boardEl(), { pointerId: 1, clientX: 300, clientY: 10 });
+      fireEvent.pointerUp(window, { pointerId: 1, clientX: 300, clientY: 10 });
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(sentRows(mutate)).toEqual([['reading'], ['falcon'], ['notes', 'due']]);
+    });
+
+    it('sends nothing for a row dropped where it started', () => {
+      const { mutate } = board();
+      take(1);
+      moveTo(ROW_MIDDLE[2]! + 10);
+      moveTo(ROW_MIDDLE[1]!);
+
+      fireEvent.pointerUp(boardEl(), { pointerId: 1, clientX: 300, clientY: ROW_MIDDLE[1]! });
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { situation: 'Escape', end: () => fireEvent.keyDown(window, { key: 'Escape' }) },
+      { situation: 'the pointer cancelled', end: () => fireEvent.pointerCancel(window, { pointerId: 1 }) },
+    ])('sends nothing and puts the rows back on $situation', ({ end }) => {
+      const { mutate } = board();
+      take(0);
+      moveTo(ROW_MIDDLE[2]! + 10);
+      expect(drawnLines()[2]).toEqual(['falcon']);
+
+      end();
+
+      expect(drawnLines()).toEqual([['falcon'], ['notes', 'due'], ['reading']]);
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('is not dropped on a dashboard tab, which only a Panel can be', () => {
+      const { mutate } = board({ dashboards: [DASHBOARD, RESEARCH] });
+      aTabElement(RESEARCH.id, { left: 0, right: 100, top: -40, bottom: -10 });
+      take(0);
+
+      fireEvent.pointerUp(window, { pointerId: 1, clientX: 50, clientY: -20 });
+
+      expect(mutate.mock.calls.some(([asked]) => asked.name === 'move_panel_to_dashboard')).toBe(false);
+    });
+
+    it('offers no grip at phone width', () => {
+      screenIs(375);
+      board();
+
+      expect(grips()).toHaveLength(0);
+    });
+
+    it('offers no grip on a filtered dashboard', () => {
+      filterTheDashboard({ text: 'bart' });
+      board();
+
+      expect(grips()).toHaveLength(0);
+    });
+
+    it('offers no grip while a Panel is in the air, and gives it back once it lands', () => {
+      board();
+
+      fireEvent.pointerDown(handleOf('To read'), { button: 0, pointerId: 1, pointerType: 'mouse' });
+      expect(grips()).toHaveLength(0);
+
+      fireEvent.pointerUp(window, { pointerId: 1 });
+      expect(grips()).toHaveLength(3);
+    });
+
+    it('offers no grip while an Item is dragged to be filed, so no drop lands on it', () => {
+      board();
+
+      fireEvent.dragStart(window);
+      expect(grips()).toHaveLength(0);
+
+      fireEvent.dragEnd(window);
+      expect(grips()).toHaveLength(3);
+    });
+
+    it.each([
+      { situation: 'a touch', press: { button: 0, pointerType: 'touch' } },
+      { situation: 'a right-click', press: { button: 2, pointerType: 'mouse' } },
+    ])('picks nothing up on $situation', ({ press }) => {
+      board();
+
+      fireEvent.pointerDown(grips()[0]!, { pointerId: 1, ...press });
+
+      expect(screen.getByRole('region', { name: 'Project Falcon' }).className).not.toContain('opacity-40');
+      expect(grips()).toHaveLength(3);
     });
   });
 });

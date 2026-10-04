@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrangedWith, placementFor } from '../../../src/panels/dragging';
+import { arrangedWith, arrangedWithRow, placementFor, rowPlacementFor } from '../../../src/panels/dragging';
 import type { DrawnRow } from '../../../src/panels/dragging';
 import type { LayoutRow } from '@cockpit/shared';
 
@@ -308,5 +308,69 @@ describe('Panels', () => {
 
       expect(placementFor({ x: 300, y: 110 }, rows, 'a')).toBeNull();
     });
+  });
+});
+
+describe('Panels', () => {
+  describe('a row held by its grip goes between the other rows as the pointer passes their middles', () => {
+    // Three rows, 100 tall with 22 between: middles at 50, 172 and 294.
+    const rows = drawn([['a'], ['b', 'c'], ['d']]);
+    const MIDDLES = [50, 172, 294];
+
+    it.each([
+      { situation: 'the second of three, with the pointer above the first row’s middle', held: 'b', y: 40, place: 0 },
+      { situation: 'the first of three, with the pointer past the last row’s middle', held: 'a', y: 300, place: 2 },
+      { situation: 'the first of three, with the pointer short of the next row’s middle', held: 'a', y: 160, place: 0 },
+      { situation: 'the last of three, with the pointer short of the row above’s middle', held: 'd', y: 180, place: 2 },
+      { situation: 'the second of three, with the pointer on its own middle', held: 'b', y: MIDDLES[1]!, place: 1 },
+      { situation: 'a row held by its second panel, which is the same row', held: 'c', y: 40, place: 0 },
+    ])('puts $situation at $place', ({ held, y, place }) => {
+      expect(rowPlacementFor(y, rows, held)).toBe(place);
+    });
+
+    it('asks for nothing where the row in hand is not on the board', () => {
+      expect(rowPlacementFor(100, rows, 'gone')).toBeNull();
+      expect(rowPlacementFor(100, [], 'a')).toBeNull();
+    });
+
+    it('asks for the arrangement with the row moved, from the one the drag started from', () => {
+      const from = stored([['a'], ['b', 'c'], ['d']]);
+
+      expect(lines(arrangedWithRow(from, 'a', 2))).toEqual([['b', 'c'], ['d'], ['a']]);
+      expect(lines(arrangedWithRow(from, 'gone', 0))).toEqual(lines(from));
+    });
+
+    // The rule the Panel drag rests on, asked of a row in hand: held still, the
+    // board comes to rest rather than trading two arrangements for ever.
+    const boards = [
+      [['a']],
+      [['a'], ['b']],
+      [['a'], ['b', 'c']],
+      [['a'], ['b'], ['c']],
+      [['a', 'b'], ['c'], ['d', 'e']],
+    ];
+    it.each(boards.flatMap((board) => board.map((row) => ({ board, held: row[0]! }))))(
+      'settles anywhere on $board while the row of $held is in hand',
+      ({ board, held }) => {
+        const from = stored(board);
+        const spots: number[] = [];
+        for (let y = -20; y < board.length * 122 + 20; y += 7) spots.push(y);
+
+        for (const y of spots) {
+          let preview = from;
+          const seen: string[] = [];
+          for (let reading = 0; reading < 4; reading += 1) {
+            seen.push(JSON.stringify(lines(preview)));
+            const place = rowPlacementFor(y, drawn(lines(preview)), held);
+            if (place === null) break;
+            preview = arrangedWithRow(from, held, place);
+          }
+          expect(
+            seen[seen.length - 1],
+            `at y ${y} with the row of ${held} in hand, the board never came to rest: ${seen.join(' then ')}`,
+          ).toEqual(JSON.stringify(lines(preview)));
+        }
+      },
+    );
   });
 });
