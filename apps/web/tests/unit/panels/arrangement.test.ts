@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT } from '@cockpit/shared';
-import type { Layout, LayoutCell, LayoutRow, Panel, ScreenSize } from '@cockpit/shared';
+import type { Layout, LayoutCell, LayoutRow, Panel } from '@cockpit/shared';
 import {
   dividerMoved,
   drawnRows,
   layoutToDraw,
   movedBeside,
+  movedRow,
   movedToOwnRow,
   sharesOf,
   withRowHeight,
@@ -18,18 +19,8 @@ import {
  * can make, and it is proved in the browser by tests/e2e/panels.test.ts.
  */
 
-function aScreenSize(id: string, width: number, name = id): ScreenSize {
-  return { id, tenantId: 'tenant', name, width, createdAt: '2026-09-08T10:00:00.000Z' };
-}
-
-function aLayout(id: string, screenSizeId: string, rows: LayoutRow[] = []): Layout {
-  return {
-    id,
-    tenantId: 'tenant',
-    dashboardId: 'today',
-    screenSizeId,
-    rows,
-  };
+function aLayout(id: string, rows: LayoutRow[] = []): Layout {
+  return { id, tenantId: 'tenant', dashboardId: 'today', rows };
 }
 
 function cell(panelId: string, span: number): LayoutCell {
@@ -50,30 +41,24 @@ function aPanel(id: string): Panel {
 }
 
 describe('Layouts', () => {
-  describe('a dashboard is drawn with its widest layout from 480px up, and fitted to the screen below it', () => {
-    const sizes = [aScreenSize('sz-phone', 480), aScreenSize('sz-laptop', 1646), aScreenSize('sz-wide', 2560)];
-    const layouts = [aLayout('phone', 'sz-phone'), aLayout('laptop', 'sz-laptop'), aLayout('wide', 'sz-wide')];
+  describe('a dashboard is drawn with its one layout from 480px up, and fitted to the screen below it', () => {
+    // The snapshot carries no list of screen sizes, only each dashboard's own
+    // layout, with another dashboard's beside it.
+    const layouts = [{ ...aLayout('elsewhere'), dashboardId: 'research' }, aLayout('mine')];
 
-    it.each([480, 1300, 2560])('draws the widest on a screen %i px wide', (screenWidth) => {
-      expect(layoutToDraw(layouts, sizes, 'today', screenWidth)?.id).toBe('wide');
+    it.each([480, 1300, 2560])('draws its own on a screen %i px wide', (screenWidth) => {
+      expect(layoutToDraw(layouts, 'today', screenWidth)?.id).toBe('mine');
     });
 
     it.each([375, 479])('draws no layout at all on a phone %i px wide', (screenWidth) => {
-      expect(layoutToDraw(layouts, sizes, 'today', screenWidth)).toBeNull();
+      expect(layoutToDraw(layouts, 'today', screenWidth)).toBeNull();
     });
 
-    it('draws a dashboard that has no layouts at all with none', () => {
-      expect(layoutToDraw([], sizes, 'today', 1300)).toBeNull();
-    });
-
-    it('draws another dashboard’s layouts with nothing of this one', () => {
-      const elsewhere = { ...aLayout('elsewhere', 'sz-laptop'), dashboardId: 'research' };
-
-      expect(layoutToDraw([elsewhere], sizes, 'today', 1300)).toBeNull();
-    });
-
-    it('draws a layout made below 480px on a wide screen when it is the only one', () => {
-      expect(layoutToDraw([aLayout('only', 'sz-small')], [aScreenSize('sz-small', 320)], 'today', 2560)?.id).toBe('only');
+    it.each([
+      { situation: 'no layouts at all', list: [] },
+      { situation: 'only another dashboard’s', list: [layouts[0]!] },
+    ])('draws none for a dashboard where the workspace holds $situation', ({ list }) => {
+      expect(layoutToDraw(list, 'today', 1300)).toBeNull();
     });
   });
 
@@ -174,7 +159,7 @@ describe('Layouts', () => {
 
   describe('the dashboard draws every panel it has, and only the panels it has', () => {
     it('draws the layout’s own rows when they hold every panel', () => {
-      const layout = aLayout('laptop', 'sz-laptop', [
+      const layout = aLayout('laptop', [
         aRow([cell('falcon', 8), cell('anna', 4)], 300),
         aRow([cell('reading', 12)]),
       ]);
@@ -189,7 +174,7 @@ describe('Layouts', () => {
       // A panel added in another tab, against a layout saved before it existed.
       // Dropping it would hide something a person made; putting it beside
       // something would be a decision nobody took.
-      const layout = aLayout('phone', 'sz-phone', [aRow([cell('a', 12)])]);
+      const layout = aLayout('phone', [aRow([cell('a', 12)])]);
 
       expect(drawnRows(layout, [aPanel('a'), aPanel('new')], 480)).toEqual([
         { height: null, cells: [cell('a', 12)] },
@@ -198,7 +183,7 @@ describe('Layouts', () => {
     });
 
     it('leaves out a panel the layout still names but nothing has any more', () => {
-      const layout = aLayout('laptop', 'sz-laptop', [aRow([cell('a', 6), cell('gone', 6)])]);
+      const layout = aLayout('laptop', [aRow([cell('a', 6), cell('gone', 6)])]);
 
       expect(drawnRows(layout, [aPanel('a')], 1280)).toEqual([
         { height: null, cells: [cell('a', 6)] },
@@ -206,7 +191,7 @@ describe('Layouts', () => {
     });
 
     it('drops a row whose last panel is gone, rather than drawing a blank line', () => {
-      const layout = aLayout('laptop', 'sz-laptop', [
+      const layout = aLayout('laptop', [
         aRow([cell('a', 12)]),
         aRow([cell('gone', 12)], 300),
         aRow([cell('b', 12)]),
@@ -341,6 +326,35 @@ describe('Layouts', () => {
 
     it('changes nothing when it already has that line to itself', () => {
       expect(movedToOwnRow(three, 'b', 1)).toEqual(three);
+    });
+  });
+});
+
+describe('Layouts', () => {
+  describe('a whole row moves among the rows with everything it holds', () => {
+    const rows = [aRow([cell('a', 12)], 300), aRow([cell('b', 4), cell('c', 8)]), aRow([cell('d', 12)], 150)];
+
+    it('carries its height and its panels’ shares, and changes nothing about the others', () => {
+      const next = movedRow(rows, 0, 2);
+
+      expect(next).toEqual([rows[1], rows[2], rows[0]]);
+    });
+
+    it('moves up as well as down', () => {
+      expect(idsOf(movedRow(rows, 2, 0))).toEqual([['d'], ['a'], ['b', 'c']]);
+    });
+
+    it.each([
+      { situation: 'to where it is', from: 1, to: 1 },
+      { situation: 'to a place past the end, which is the end', from: 2, to: 9 },
+    ])('keeps the order when asked $situation', ({ from, to }) => {
+      expect(idsOf(movedRow(rows, from, to))).toEqual(
+        from === to ? idsOf(rows) : [['a'], ['b', 'c'], ['d']],
+      );
+    });
+
+    it('leaves the arrangement alone for a row that is not there', () => {
+      expect(movedRow(rows, 7, 0)).toEqual(rows);
     });
   });
 });

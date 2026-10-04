@@ -5,9 +5,8 @@ import {
   MAX_ROW_HEIGHT,
   MIN_ROW_HEIGHT,
   MOST_ACROSS,
-  widestLayout,
 } from '@cockpit/shared';
-import type { Layout, LayoutCell, LayoutRow, Panel, ScreenSize } from '@cockpit/shared';
+import type { Layout, LayoutCell, LayoutRow, Panel } from '@cockpit/shared';
 
 /**
  * How a dashboard is arranged, decided here and nowhere else - a list of rows,
@@ -58,25 +57,24 @@ export function panelsAcross(availableWidth: number): number {
 }
 
 /**
- * The layout a dashboard is drawn with: its widest, from 480px up, whatever
+ * The layout a dashboard is drawn with: its one, from 480px up, whatever
  * screen it is looked at on ("Draw a Dashboard on its one Layout, with nothing
- * to choose it by", issue 712). Nothing is picked and nothing follows the
- * screen, so the same Dashboard is drawn the same way on every device.
+ * to choose it by", issue 712), so the same Dashboard is drawn the same way on
+ * every device.
  *
  * **None at all on a phone** (`isPhoneWidth`): a Layout is an arrangement made
  * for a wider screen, and handing one to a phone is what drew panels too narrow
  * to read. The answer is the same null a Dashboard nobody has arranged gets, so
- * it is drawn fitted to the screen, one panel across. The Layouts are left
- * alone and are read again the moment the window is wide enough.
+ * it is drawn fitted to the screen, one panel across. The Layout is left alone
+ * and is read again the moment the window is wide enough.
  */
 export function layoutToDraw(
   layouts: readonly Layout[],
-  screenSizes: readonly ScreenSize[],
   dashboardId: string,
   screenWidth: number,
 ): Layout | null {
   if (isPhoneWidth(screenWidth)) return null;
-  return widestLayout(layouts, screenSizes, dashboardId);
+  return layouts.find((layout) => layout.dashboardId === dashboardId) ?? null;
 }
 
 /**
@@ -278,6 +276,22 @@ export function movedToOwnRow(
 
 function clamp(value: number, low: number, high: number): number {
   return Math.min(high, Math.max(low, Number.isFinite(value) ? value : low));
+}
+
+/**
+ * The arrangement with a whole row moved to another place among the rows.
+ *
+ * The row is carried as it is - its height, its panels and their shares - so
+ * moving it changes the order of the lines and nothing about any of them.
+ * `to` is the row's place in the arrangement that comes out, and is clamped
+ * to one that exists; a `from` that is no row leaves the arrangement alone.
+ */
+export function movedRow(rows: readonly LayoutRow[], from: number, to: number): LayoutRow[] {
+  const moving = rows[from];
+  if (!moving) return [...rows];
+  const next = rows.filter((_, at) => at !== from);
+  next.splice(clamp(to, 0, next.length), 0, moving);
+  return next;
 }
 
 /** Whether two arrangements say the same thing, so nothing is sent when nothing moved. */

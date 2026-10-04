@@ -58,15 +58,11 @@ import {
   ItemTypeOrderStaleError,
   LastDashboardError,
   LayoutNotFoundError,
-  LayoutSizeTakenError,
   PanelAlreadyOnDashboardError,
   PanelHoldsSomethingElseError,
   PanelNameTakenError,
   PanelNotFoundError,
   PanelOrderStaleError,
-  ScreenSizeNameTakenError,
-  ScreenSizeNotFoundError,
-  ScreenWidthTooNarrowError,
   SourceAccountNotFoundError,
   UnknownThemeError,
   WorkspaceNameTakenError,
@@ -102,7 +98,6 @@ import {
   listDuplicatesInWorkspace,
   listHiddenAgents,
   listItemTypes,
-  listScreenSizes,
   listDashboards,
   listLayoutsInWorkspace,
   listFilingsInWorkspace,
@@ -212,7 +207,6 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         associations: listAssociationsForWorkspace(db, accountName, workspaceId),
         attachments: listAttachmentsInWorkspace(db, accountName, workspaceId),
         itemTypes: listItemTypes(db, accountName),
-        screenSizes: listScreenSizes(db, accountName),
         itemFormPresentation: getItemFormPresentation(db, accountName),
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
         agents: listAgents(db, accountName),
@@ -1166,7 +1160,6 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof DashboardNotFoundError ||
         error instanceof PanelNotFoundError ||
         error instanceof LayoutNotFoundError ||
-        error instanceof ScreenSizeNotFoundError ||
         error instanceof SourceAccountNotFoundError
       ) {
         return { status: 'missing', what: error.message };
@@ -1175,8 +1168,6 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof WorkspaceNameTakenError ||
         error instanceof DashboardNameTakenError ||
         error instanceof PanelNameTakenError ||
-        error instanceof LayoutSizeTakenError ||
-        error instanceof ScreenSizeNameTakenError ||
         error instanceof AttachmentIdTakenError ||
         error instanceof AgentNameTakenError ||
         // Said to the person who dropped the agent, in the words it carries.
@@ -1207,10 +1198,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         error instanceof PanelHoldsSomethingElseError ||
         // Same reason: the panel and the dashboard are both exactly what the
         // request says, and what is wrong is that moving there is not a move.
-        error instanceof PanelAlreadyOnDashboardError ||
-        // Well formed, and the account may have no size to match: the floor
-        // (`MIN_SCREEN_WIDTH`) stops only the save that would have to make one.
-        error instanceof ScreenWidthTooNarrowError
+        error instanceof PanelAlreadyOnDashboardError
       ) {
         return { status: 'refused', what: error.message };
       }

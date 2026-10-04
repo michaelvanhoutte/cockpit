@@ -82,9 +82,11 @@ function perStack(name: string, url: string): string {
  * The first two went with the list of names ("Sign in with Google, and retire
  * the list of names", issue 196); the rest are the read and the five commands
  * behind the two learning settings screens ("Remove the two learning settings
- * screens, and the commands that write to them", issue 452). A retired address
- * is kept here until no browser can plausibly still be holding a build that
- * asks for it.
+ * screens, and the commands that write to them", issue 452); the last four are
+ * the commands that made and removed Screen sizes and Layouts ("Convert every
+ * Dashboard to its widest Layout and retire Screen sizes", issue 713). A
+ * retired address is kept here until no browser can plausibly still be holding
+ * a build that asks for it.
  */
 export const RETIRED_PATHS: readonly string[] = [
   '/v1/users',
@@ -95,6 +97,10 @@ export const RETIRED_PATHS: readonly string[] = [
   '/v1/commands/edit_pinned_example',
   '/v1/commands/delete_pinned_example',
   '/v1/commands/set_routing_summary_correction',
+  '/v1/commands/create_screen_size',
+  '/v1/commands/rename_screen_size',
+  '/v1/commands/delete_screen_size',
+  '/v1/commands/delete_layout',
 ];
 
 /**

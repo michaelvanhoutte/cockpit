@@ -30,7 +30,6 @@ import {
   panelItems,
   panelPlacements,
   panels,
-  screenSizes,
   textCorrections,
   workspaces,
 } from './schema.js';
@@ -45,7 +44,6 @@ import {
   getItemType,
   getLayout,
   getPanel,
-  getScreenSize,
   getSourceAccount,
   getWorkspace,
   isItemFiled,
@@ -62,10 +60,9 @@ import {
   listItemTypes,
   listLayoutIds,
   listLayoutRows,
-  listLayoutsOn,
+  layoutOfDashboard,
   listPanels,
   listPlacements,
-  listScreenSizes,
   listWorkspaces,
   settleDuplicate,
   textCorrectionExistsFor,
@@ -74,11 +71,7 @@ import { attachmentFromCommand } from '../domain/attachments.js';
 import { couldStillBeActedOn, pairOf } from '../domain/duplicates.js';
 import {
   ACCOUNT_WIDE,
-  DEFAULT_SCREEN_SIZE_NAME,
   isPaletteTheme,
-  isPhoneWidth,
-  MIN_SCREEN_WIDTH,
-  nearestScreenSize,
   panelFilterAsStored,
   panelSortAsStored,
   panelGathers,
@@ -123,7 +116,6 @@ import {
   ordersTypesExactly,
 } from '../domain/item-types.js';
 import { agentFromCommand, agentNamed } from '../domain/agents.js';
-import { defaultScreenSizeId, screenSizeNamed } from '../domain/screen-sizes.js';
 import { decisionHistoryEntryFor } from '../domain/decision-history.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
 import {
@@ -391,59 +383,6 @@ export class LayoutNotFoundError extends Error {
   constructor(layoutId: string) {
     super(`layout ${layoutId} is not on this dashboard`);
     this.name = 'LayoutNotFoundError';
-  }
-}
-
-/**
- * A dashboard may have at most one Layout at a given Screen size ("Draw a
- * dashboard against the screen sizes its account has", issue 263) - the
- * message names the size, since that is the thing actually in the way.
- */
-export class LayoutSizeTakenError extends Error {
-  constructor(screenSizeName: string) {
-    super(`a layout for ${screenSizeName} already arranges this dashboard`);
-    this.name = 'LayoutSizeTakenError';
-  }
-}
-
-/**
- * A screen size that is not the account's - gone, or never made ("Draw a
- * dashboard against the screen sizes its account has", issue 263). There is no
- * deleting-the-last refusal beside this one: unlike a Layout, an account
- * keeping none is a normal state, meaning every Dashboard is drawn fitted to
- * the screen it is on.
- */
-export class ScreenSizeNotFoundError extends Error {
-  constructor(screenSizeId: string) {
-    super(`screen size ${screenSizeId} not found`);
-    this.name = 'ScreenSizeNotFoundError';
-  }
-}
-
-/**
- * A save that would have to make the account's first screen size at a phone's
- * width. A refusal rather than a shape problem, because `screenWidth` is
- * legitimately any width when a size already exists to be matched; it is only
- * making one that the floor stops (`MIN_SCREEN_WIDTH`).
- */
-export class ScreenWidthTooNarrowError extends Error {
-  constructor(width: number) {
-    super(
-      `a layout cannot be made at ${width} px: a screen under ${MIN_SCREEN_WIDTH} px is a phone, which is never arranged`,
-    );
-    this.name = 'ScreenWidthTooNarrowError';
-  }
-}
-
-/**
- * Its own kind rather than the type one, for the reason every name-taken error
- * here has its own: the message is what a person reads, and it has to name the
- * list that is actually in the way.
- */
-export class ScreenSizeNameTakenError extends Error {
-  constructor(name: string) {
-    super(`a screen size called ${name} already exists`);
-    this.name = 'ScreenSizeNameTakenError';
   }
 }
 
@@ -1052,9 +991,8 @@ export function runCommand<N extends CommandName>(
       // Reading list.
       const alreadyCalledThat = panelNamed(listPanels(db, tenantId, dashboard.id), cmd.name);
       if (alreadyCalledThat) throw new PanelNameTakenError(alreadyCalledThat.name);
-      // Every layout of the dashboard gets the new panel, appended, so that
-      // adding one on a laptop does not leave it missing from the phone layout
-      // until somebody rearranges that too.
+      // The dashboard's layout, where it has one, gets the new panel appended
+      // in a row of its own, so it is drawn without anybody arranging it.
       const appended = appendedAcrossLayouts(db, tenantId, dashboard.id, cmd.panelId);
       db.transaction((tx) => {
         // Named at the primary key for the reason a workspace's insert is: a
@@ -1227,9 +1165,8 @@ export function runCommand<N extends CommandName>(
         throw new PanelAlreadyOnDashboardError(panel.name, target.name);
       }
       const name = panelNameForMove(listPanels(db, tenantId, target.id), panel.name);
-      // Every layout of the target gets it, appended - the same reason
-      // `add_panel` does: added on a laptop, it must not stay missing from
-      // the phone layout until somebody rearranges that too.
+      // The target's layout, where it has one, gets it appended - the same
+      // reason `add_panel` does.
       const appended = appendedAcrossLayouts(db, tenantId, target.id, cmd.panelId);
       db.transaction((tx) => {
         // Out of every layout of the dashboard it left, and any row that was
@@ -1254,94 +1191,22 @@ export function runCommand<N extends CommandName>(
       // another dashboard from one that never existed.
       const stranger = panelsNotOn(listPanels(db, tenantId, dashboard.id), cmd)[0];
       if (stranger) throw new PanelNotFoundError(stranger);
-      // An upsert: a layout id the dashboard already has changes that layout,
-      // and a fresh one creates it. Which of the two it is is no longer a
-      // question anybody is asked - you pick the layout you are on and every
-      // change goes into it.
+      // A layout of another dashboard is not this one's to arrange.
       const held = getLayout(db, tenantId, cmd.layoutId);
       if (held && held.dashboardId !== dashboard.id) throw new LayoutNotFoundError(cmd.layoutId);
-      // Resolved only where this save is the one creating the layout - see
-      // `saveLayoutSchema`'s `screenSizeId` for what each branch means. Left
-      // as the empty string where `held` is truthy: the insert below still
-      // names it, but `onConflictDoNothing` never lets an existing layout's
-      // row be touched by it.
-      let screenSizeId = '';
-      let screenSizeName = '';
-      let makingSize: { id: string; name: string; width: number } | null = null;
-      if (!held) {
-        if (cmd.screenSizeId) {
-          // Explicit - "Define a layout for X". A tab that raced a delete of
-          // this size past the menu offering it is refused naming the size,
-          // not left to the foreign key underneath.
-          const named = getScreenSize(db, tenantId, cmd.screenSizeId);
-          if (!named) throw new ScreenSizeNotFoundError(cmd.screenSizeId);
-          screenSizeId = named.id;
-          screenSizeName = named.name;
-        } else {
-          // Implicit - an ordinary arrangement gesture on a Dashboard with
-          // nothing defined. Kept in the nearest size the account has; where
-          // it has none at all, this is the one save in the product that
-          // still makes one, called `DEFAULT_SCREEN_SIZE_NAME`.
-          const sizes = listScreenSizes(db, tenantId);
-          const nearest = nearestScreenSize(sizes, cmd.screenWidth);
-          if (nearest) {
-            screenSizeId = nearest.id;
-            screenSizeName = nearest.name;
-          } else {
-            if (isPhoneWidth(cmd.screenWidth)) throw new ScreenWidthTooNarrowError(cmd.screenWidth);
-            makingSize = {
-              id: defaultScreenSizeId(tenantId),
-              name: DEFAULT_SCREEN_SIZE_NAME,
-              width: cmd.screenWidth,
-            };
-            screenSizeId = makingSize.id;
-            screenSizeName = makingSize.name;
-          }
-        }
-        // At most one Layout of a Dashboard per screen size, checked by the
-        // id itself: a screen size can be renamed at any time
-        // (`rename_screen_size`), and comparing anything it was ever called
-        // would let two Layouts at one size through around a rename landing
-        // between two saves.
-        const its = listLayoutsOn(db, tenantId, dashboard.id);
-        const alreadyThere = its.find((layout) => layout.screenSizeId === screenSizeId);
-        if (alreadyThere) throw new LayoutSizeTakenError(screenSizeName);
-      }
-      // Every screen size is the account's, offered in every Workspace it has -
-      // see `create_screen_size`. Only where this save makes one; an ordinary
-      // arrangement change stays scoped to the Workspace it was made in.
-      if (makingSize) everyWorkspaceSees(commandRow);
-      const arrangement = arrangementRows(tenantId, cmd.layoutId, cmd.rows);
+      // **The dashboard's own layout wherever it has one**, whatever id the
+      // save names: a dashboard has at most one, so a save is always about
+      // that one. A fresh id is the client making the first; any other is a
+      // tab that has not yet read the one another tab made, or one from
+      // before every dashboard kept a single layout, still naming a layout
+      // that went with its Screen size. Either way it means this dashboard.
+      const layoutId = layoutOfDashboard(db, tenantId, dashboard.id)?.id ?? cmd.layoutId;
+      const arrangement = arrangementRows(tenantId, layoutId, cmd.rows);
       db.transaction((tx) => {
-        if (makingSize) {
-          tx.insert(screenSizes)
-            .values({
-              id: makingSize.id,
-              tenantId,
-              name: makingSize.name,
-              foldedName: foldName(makingSize.name),
-              width: makingSize.width,
-              createdAt: cmd.issuedAt,
-            })
-            // Named at the primary key, like `create_screen_size`'s and for
-            // the same reason: the id is derived from the tenant's own rather
-            // than sent, so a retry under a fresh request id makes the same
-            // one, not a second `Default`.
-            .onConflictDoNothing({ target: screenSizes.id })
-            .run();
-        }
         tx.insert(layouts)
-          .values({
-            id: cmd.layoutId,
-            tenantId,
-            dashboardId: dashboard.id,
-            screenSizeId,
-            createdAt: cmd.issuedAt,
-          })
-          // `DoNothing` is what records the screen size once and once only,
-          // and it is the whole of that rule rather than a guard on a branch:
-          // a layout records the size it was *created* at, so changing an
-          // existing layout's arrangement leaves that alone.
+          .values({ id: layoutId, tenantId, dashboardId: dashboard.id, createdAt: cmd.issuedAt })
+          // A layout keeps the moment it was first made; changing its
+          // arrangement leaves its row alone.
           .onConflictDoNothing({ target: layouts.id })
           .run();
         // Replaced whole rather than merged: an arrangement is an answer to
@@ -1356,12 +1221,10 @@ export function runCommand<N extends CommandName>(
         // missing all the same is a state the screen survives (repo.ts,
         // `rowsOf`) rather than one this relies on being impossible.
         tx.delete(panelPlacements)
-          .where(
-            and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.layoutId, cmd.layoutId)),
-          )
+          .where(and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.layoutId, layoutId)))
           .run();
         tx.delete(layoutRows)
-          .where(and(eq(layoutRows.tenantId, tenantId), eq(layoutRows.layoutId, cmd.layoutId)))
+          .where(and(eq(layoutRows.tenantId, tenantId), eq(layoutRows.layoutId, layoutId)))
           .run();
         // Several inserts rather than one, and inside this transaction rather
         // than beside it - see `inBatchesOf`, which carries both reasons.
@@ -1371,166 +1234,6 @@ export function runCommand<N extends CommandName>(
         for (const batch of inBatchesOf(arrangement.placements, PLACEMENT_VALUES_PER_ROW)) {
           tx.insert(panelPlacements).values(batch).run();
         }
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
-    case 'delete_layout': {
-      const cmd = payload as CommandPayload<'delete_layout'>;
-      if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
-        throw new WorkspaceNotFoundError(cmd.workspaceId);
-      }
-      const held = getLayout(db, tenantId, cmd.layoutId);
-      // Deleted rather than tombstoned, so the same delete sent twice with a
-      // fresh request id finds nothing the second time.
-      if (!held) throw new LayoutNotFoundError(cmd.layoutId);
-      if (!getDashboard(db, tenantId, cmd.workspaceId, held.dashboardId)) {
-        throw new LayoutNotFoundError(cmd.layoutId);
-      }
-      // Deleting a Dashboard's last Layout is allowed: having none is a
-      // normal state now, meaning fitted to the screen, not one this refuses.
-      db.transaction((tx) => {
-        // Its placements first, which is what ON DELETE RESTRICT is for: what
-        // happens to the rows pointing at this one is said here rather than
-        // inherited from a cascade nobody wrote.
-        tx.delete(panelPlacements)
-          .where(
-            and(eq(panelPlacements.tenantId, tenantId), eq(panelPlacements.layoutId, cmd.layoutId)),
-          )
-          .run();
-        tx.delete(layoutRows)
-          .where(and(eq(layoutRows.tenantId, tenantId), eq(layoutRows.layoutId, cmd.layoutId)))
-          .run();
-        tx.delete(layouts)
-          .where(and(eq(layouts.tenantId, tenantId), eq(layouts.id, cmd.layoutId)))
-          .run();
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
-    case 'create_screen_size': {
-      const cmd = payload as CommandPayload<'create_screen_size'>;
-      // A screen size is the account's, offered in every Workspace it has, so
-      // every tab open on any of them needs telling - not only the one this
-      // change happened to be sent from. Unconditional, unlike the item
-      // commands above that call this only once a Workspace is decided: a
-      // screen size is never workspace-scoped in the first place.
-      everyWorkspaceSees(commandRow);
-      const already = listScreenSizes(db, tenantId);
-      // A name another size has is refused rather than reused, exactly as a
-      // Type's is - a screen size is only ever made deliberately (R5).
-      const alreadyCalledThat = screenSizeNamed(already, cmd.name);
-      if (alreadyCalledThat) throw new ScreenSizeNameTakenError(alreadyCalledThat.name);
-      db.transaction((tx) => {
-        tx.insert(screenSizes)
-          .values({
-            id: cmd.screenSizeId,
-            tenantId,
-            name: cmd.name,
-            foldedName: foldName(cmd.name),
-            width: cmd.width,
-            createdAt: cmd.issuedAt,
-          })
-          // Named at the primary key, like `create_workspace`'s and for the
-          // same reason: a screen size also carries a second unique index, the
-          // one on its folded name. A bare call would treat a race lost against
-          // the check above as proof the request had already been granted, and
-          // this client would go on to define a Layout against the id it sent
-          // rather than the id that actually won - a foreign key with nothing
-          // on the other end. Named at the id, a replayed create is the only
-          // conflict this quietly absorbs, and a genuine name collision still
-          // raises.
-          .onConflictDoNothing({ target: screenSizes.id })
-          .run();
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
-    case 'rename_screen_size': {
-      const cmd = payload as CommandPayload<'rename_screen_size'>;
-      everyWorkspaceSees(commandRow); // account-wide - see create_screen_size
-      const live = listScreenSizes(db, tenantId);
-      const size = live.find((candidate) => candidate.id === cmd.screenSizeId);
-      if (!size) throw new ScreenSizeNotFoundError(cmd.screenSizeId);
-      // Its own name back is a rename that changes nothing, not a collision.
-      const taken = screenSizeNamed(live, cmd.name, cmd.screenSizeId);
-      if (taken) throw new ScreenSizeNameTakenError(taken.name);
-      db.transaction((tx) => {
-        tx.update(screenSizes)
-          .set({ name: cmd.name, foldedName: foldName(cmd.name) })
-          .where(and(eq(screenSizes.tenantId, tenantId), eq(screenSizes.id, cmd.screenSizeId)))
-          .run();
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
-    case 'delete_screen_size': {
-      const cmd = payload as CommandPayload<'delete_screen_size'>;
-      everyWorkspaceSees(commandRow); // account-wide - see create_screen_size
-      // Deleted for real, so the same delete sent twice with a fresh request id
-      // finds nothing the second time.
-      if (!getScreenSize(db, tenantId, cmd.screenSizeId)) {
-        throw new ScreenSizeNotFoundError(cmd.screenSizeId);
-      }
-      db.transaction((tx) => {
-        // A join rather than the ids read out and bound in, for the reason
-        // `delete_panel`'s cascade above is: every Dashboard of every
-        // Workspace the account has may hold a Layout at this size - not only
-        // one Dashboard's, which is the whole difference from `delete_layout`
-        // - so that count is uncapped, and an `IN` list as long as it is a
-        // statement whose parameter count grows with the data (architecture,
-        // "No statement's parameter count grows with the data").
-        //
-        // Placements and rows before the layouts themselves, which is what
-        // the RESTRICT on both makes explicit rather than silent.
-        tx.delete(panelPlacements)
-          .where(
-            and(
-              eq(panelPlacements.tenantId, tenantId),
-              exists(
-                tx
-                  .select({ one: sql`1` })
-                  .from(layouts)
-                  .where(
-                    and(
-                      eq(layouts.tenantId, tenantId),
-                      eq(layouts.id, panelPlacements.layoutId),
-                      eq(layouts.screenSizeId, cmd.screenSizeId),
-                    ),
-                  ),
-              ),
-            ),
-          )
-          .run();
-        tx.delete(layoutRows)
-          .where(
-            and(
-              eq(layoutRows.tenantId, tenantId),
-              exists(
-                tx
-                  .select({ one: sql`1` })
-                  .from(layouts)
-                  .where(
-                    and(
-                      eq(layouts.tenantId, tenantId),
-                      eq(layouts.id, layoutRows.layoutId),
-                      eq(layouts.screenSizeId, cmd.screenSizeId),
-                    ),
-                  ),
-              ),
-            ),
-          )
-          .run();
-        tx.delete(layouts)
-          .where(and(eq(layouts.tenantId, tenantId), eq(layouts.screenSizeId, cmd.screenSizeId)))
-          .run();
-        // Items filed on the Panels those Layouts arranged are untouched:
-        // `panel_placements` is where a Panel sits in a Layout, and
-        // `panel_items` is what is filed on a Panel - two tables one word
-        // apart, holding two completely different things.
-        tx.delete(screenSizes)
-          .where(and(eq(screenSizes.tenantId, tenantId), eq(screenSizes.id, cmd.screenSizeId)))
-          .run();
         tx.insert(commands).values(commandRow).run();
       });
       break;

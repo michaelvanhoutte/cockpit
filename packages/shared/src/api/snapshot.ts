@@ -15,7 +15,6 @@ import {
 } from '../domain/item-form-presentation.js';
 import { itemTypeSchema } from '../domain/item-type.js';
 import { filingSchema, layoutSchema, panelSchema } from '../domain/panel.js';
-import { screenSizeSchema } from '../domain/screen-size.js';
 
 /**
  * The read model (architecture.md, "The read model: persisted snapshot,
@@ -30,8 +29,9 @@ export const workspaceSnapshotSchema = z.object({
   items: z.array(itemSchema),
   /** The workspace's dashboards, oldest first ("Add and switch dashboards", issue 32; architecture.md §4.4). */
   dashboards: z.array(dashboardSchema),
-  /** Every panel of every dashboard of this workspace, and every layout that arranges them ("Panels on a dashboard, with per-screen-size layouts", issue 33; architecture.md §4.4). */
+  /** Every panel of every dashboard of this workspace ("Panels on a dashboard, with per-screen-size layouts", issue 33; architecture.md §4.4). */
   panels: z.array(panelSchema),
+  /** Each of those dashboards' one Layout, for the ones that have been arranged - never more than one per dashboard ("Convert every Dashboard to its widest Layout and retire Screen sizes", issue 713). */
   layouts: z.array(layoutSchema),
   /** Which Items are filed on which of those Panels, and in what order ("Panels hold the items filed into them, and the Inbox holds the rest", issue 36; architecture.md §4.4). */
   filings: z.array(filingSchema),
@@ -39,20 +39,17 @@ export const workspaceSnapshotSchema = z.object({
   /**
    * Every file attached to an Item of this Workspace ("Attach a file to an
    * item", issue 441) - metadata only, never the bytes, which live in R2.
-   * Defaulted for the reason `screenSizes` below is: a stored copy taken
-   * before this field existed is an app with nothing attached, not a broken
-   * one.
+   * Defaulted because a stored copy taken before this field existed is an app
+   * with nothing attached, not a broken one.
    */
   attachments: z.array(attachmentSchema).default([]),
   /** Every live Type of the account, in the order they are offered in ("Capture a thought or an action, and see which it is", issue 155; architecture.md §4.4). */
   itemTypes: z.array(itemTypeSchema),
-  /** Every Screen size of the account, narrowest first ("Give the account a list of screen sizes, before anything reads it", issue 262; architecture.md §4.4). Empty until "Draw a dashboard against the screen sizes its account has" (issue 263). */
-  screenSizes: z.array(screenSizeSchema).default([]),
   /**
    * How the account has the Item's form drawn - centered, or docked to the
    * side ("Let the item's form dock to the side of the screen instead of
    * opening as a dialog", issue 481). Account-wide like `itemTypes` above,
-   * defaulted for the reason `screenSizes` above is: a stored copy taken
+   * defaulted for the reason `attachments` above is: a stored copy taken
    * before this field existed opens centered, the only presentation there
    * was.
    */
@@ -69,7 +66,7 @@ export const workspaceSnapshotSchema = z.object({
    * a filed Item is nothing's duplicate yet (`possibleDuplicatesOf`,
    * apps/web/src/duplicates.ts).
    *
-   * Defaulted for the reason `screenSizes` above is: a stored copy taken
+   * Defaulted for the reason `attachments` above is: a stored copy taken
    * before this field existed is an app with nothing flagged, not a broken one.
    */
   duplicates: z.array(possibleDuplicateSchema).default([]),

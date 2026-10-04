@@ -23,7 +23,6 @@ import type {
   LayoutRow,
   Panel,
   PanelSort,
-  ScreenSize,
 } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
@@ -48,7 +47,7 @@ import { dashboardTabAt } from '../panels/dashboardDrop';
 import type { TabRect } from '../panels/dashboardDrop';
 import { DeleteQuestion } from './DeleteQuestion';
 import { anchored } from '../panels/anchoring';
-import { arrangedWith, placementFor } from '../panels/dragging';
+import { arrangedWith, arrangedWithRow, placementFor, rowPlacementFor } from '../panels/dragging';
 import type { DrawnRow } from '../panels/dragging';
 import { MovePanelToDashboardPicker } from './MovePanelToDashboardPicker';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
@@ -104,7 +103,6 @@ export function PanelBoard({
   panels,
   panelsInWorkspace,
   layouts,
-  screenSizes,
   items,
   filings,
   itemTypes,
@@ -131,8 +129,6 @@ export function PanelBoard({
    */
   panelsInWorkspace: readonly Panel[];
   layouts: readonly Layout[];
-  /** Every screen size the account has, whether or not this dashboard has defined one at it. */
-  screenSizes: readonly ScreenSize[];
   /** Every open item of the workspace; each panel is handed the ones filed on it. */
   items: readonly Item[];
   filings: readonly Filing[];
@@ -151,8 +147,8 @@ export function PanelBoard({
   /**
    * How wide the panels actually are, which is not the screen: the Inbox takes
    * about a fifth of it wherever there is room ("Show the Inbox beside the
-   * dashboards instead of as a tab", issue 117). The screen's width is what a
-   * layout is *recorded* against; this is what decides how many fit across.
+   * dashboards instead of as a tab", issue 117). The screen's width decides
+   * whether this is a phone; this is what decides how many fit across.
    * Before anything has been measured the screen's width stands in, which is
    * the arrangement one paint early rather than every panel full width.
    */
@@ -221,6 +217,8 @@ export function PanelBoard({
    */
   const [dragging, setDragging] = useState<{
     id: string;
+    /** True where the whole row holding `id` is in hand, taken by its grip. */
+    row: boolean;
     from: LayoutRow[];
     preview: LayoutRow[];
   } | null>(null);
@@ -247,6 +245,8 @@ export function PanelBoard({
    * exactly the moves this ref exists to catch.
    */
   const draggingNow = useRef<string | null>(null);
+  /** Whether what is in hand is the whole row `draggingNow` is on, for the same reason `draggingNow` is a ref. */
+  const draggingRowNow = useRef(false);
   /**
    * **Every Panel is its header alone while one is in the air**, so the whole
    * arrangement is in view at once and a Panel can be taken to any row without
@@ -282,6 +282,25 @@ export function PanelBoard({
    */
   const [sizing, setSizing] = useState<LayoutRow[] | null>(null);
   /**
+   * **An Item is being dragged to be filed** (the browser's own drag, not a
+   * Panel's). The row grip lies over the left edge of a row's first Panel, so
+   * while an Item is in the air it is left out rather than becoming the thing
+   * under the pointer that no drop target answers.
+   */
+  const [itemInHand, setItemInHand] = useState(false);
+  useEffect(() => {
+    const begun = () => setItemInHand(true);
+    const over = () => setItemInHand(false);
+    window.addEventListener('dragstart', begun);
+    window.addEventListener('dragend', over);
+    window.addEventListener('drop', over);
+    return () => {
+      window.removeEventListener('dragstart', begun);
+      window.removeEventListener('dragend', over);
+      window.removeEventListener('drop', over);
+    };
+  }, []);
+  /**
    * What the size was when it was taken hold of, and what it is now.
    *
    * A ref beside the state for the reason `draggingNow` is one: the pointer
@@ -300,7 +319,7 @@ export function PanelBoard({
     latest: LayoutRow[];
   } | null>(null);
 
-  const drawnWith = layoutToDraw(layouts, screenSizes, dashboard.id, screenWidth);
+  const drawnWith = layoutToDraw(layouts, dashboard.id, screenWidth);
   const stored = drawnRows(drawnWith, panels, acrossWidth);
   // The preview while a drag is on, then a draft that has been sent and is
   // waiting for the store to agree, then what the store holds.
@@ -332,6 +351,43 @@ export function PanelBoard({
     filteringOn
       ? list.filter((item) => matchesDashboardFilter(dashboardFilter, item, withAttachments, today, withRun))
       : list;
+
+  /** What a Panel shows: its own Items, or what its Filter gathers, narrowed by the Dashboard filter. */
+  const itemsOf = (panel: Panel): Item[] =>
+    narrowed(
+      panelGathers(panel)
+        ? itemsMatchingFilter(
+            items,
+            filings,
+            panelsInWorkspace,
+            itemTypes,
+            panel.filter ?? NO_CONDITIONS,
+            today,
+            sortOf(panel) ?? DEFAULT_FILTER_SORT,
+          )
+        : inSortOrder(itemsOnPanel(items, filings, panel.id), sortOf(panel), itemTypes),
+    );
+  /**
+   * **While a Dashboard filter is on, a Panel with no matching Item is not
+   * drawn**, a Panel of text included, which has no Item to match. The cells
+   * keep the layout's own spans, so the Panels left share a row in their
+   * proportions; nothing is stored, so clearing the filter brings every Panel
+   * back.
+   */
+  const shows = new Map(panels.map((panel) => [panel.id, itemsOf(panel)]));
+  const hidden = filteringOn
+    ? new Set(panels.filter((panel) => shows.get(panel.id)!.length === 0).map((panel) => panel.id))
+    : null;
+  // Each row keeps the place it has in `shown`, which is what it is keyed by:
+  // a row hidden above would otherwise move every row under it to a new key
+  // and remount the panels on them.
+  const drawn = shown
+    .map((row, place) => ({
+      place,
+      row: hidden ? { ...row, cells: row.cells.filter((cell) => !hidden.has(cell.panelId)) } : row,
+    }))
+    .filter(({ row }) => !hidden || row.cells.length > 0);
+  const hiddenCount = hidden ? hidden.size : 0;
 
   /**
    * The filings that file, read once for the whole board rather than per panel:
@@ -380,11 +436,7 @@ export function PanelBoard({
     sent.current = null;
   };
 
-  const saveArrangement = (
-    layoutId: string,
-    screenWidthOfLayout: number,
-    rows: readonly LayoutRow[],
-  ) => {
+  const saveArrangement = (layoutId: string, rows: readonly LayoutRow[]) => {
     command.mutate(
       {
         name: 'save_layout',
@@ -394,7 +446,6 @@ export function PanelBoard({
           workspaceId,
           dashboardId: dashboard.id,
           layoutId,
-          screenWidth: screenWidthOfLayout,
           // Named field by field rather than sent as read, so a row that
           // arrived from a snapshot with something extra on it cannot carry
           // that back into a command the schema then refuses.
@@ -419,13 +470,8 @@ export function PanelBoard({
          * is the same "looks like it worked" failure the questions elsewhere in
          * the app are shaped to avoid.
          *
-         * **Reachable rather than theoretical.** Two tabs on a dashboard with
-         * no layout, both dragging: the first records one and the second is
-         * refused, because its own copy of the dashboard still has no layout
-         * for the size to be taken against. Dropping `sent` with the draft is what lets the same
-         * gesture be made again once the snapshot has caught up; `justMade` is
-         * deliberately kept, so the retry changes the layout this board made
-         * rather than defining a second one at the same width.
+         * Dropping `sent` with the draft is what lets the same gesture be made
+         * again once the snapshot has caught up.
          */
         onError: () => {
           setDraft(null);
@@ -440,14 +486,12 @@ export function PanelBoard({
    * The id of the layout this board made, kept until the snapshot has it.
    *
    * Two gestures can both find the dashboard with no layout: the first sends
-   * one and the second happens before the re-read lands. A fresh id each time
-   * would define a second layout for the same dashboard. Sending the same id
-   * makes the second gesture change the layout the first one made, which is
-   * what it meant, whatever the window was resized to between the two: a
-   * dashboard has one layout, so there is no other screen to make one for.
+   * one and the second happens before the re-read lands. Sending the same id
+   * keeps the second gesture plainly about the layout the first one made; the
+   * server would put a save naming any other id into that one anyway.
    */
   const justMade = useRef<string | null>(null);
-  const layoutForThisScreen = (): string => {
+  const firstLayoutId = (): string => {
     if (justMade.current) return justMade.current;
     justMade.current = uuidv7();
     return justMade.current;
@@ -466,7 +510,7 @@ export function PanelBoard({
   const propose = (next: LayoutRow[]) => {
     // A gesture already in the air when the window shrank past the phone line
     // has nothing to keep: a phone is never arranged, and sending it would
-    // make a layout at a screen that has none to make.
+    // replace the one Layout every wider screen draws.
     if (!arrangeable) return;
     // Against what has been *sent* - or the store, where nothing has - rather
     // than against what is drawn: a gesture that puts a panel back where the
@@ -476,18 +520,9 @@ export function PanelBoard({
     if (sameArrangement(next, sent.current ?? stored)) return;
     command.reset();
     setDraft(next);
-    if (drawnWith) {
-      // The screen's own width, not anything the layout stores: `screenWidth`
-      // is only ever read when a save creates a layout (`saveLayoutSchema`),
-      // and this one already exists.
-      saveArrangement(drawnWith.id, screenWidth, next);
-      return;
-    }
-    // Nothing defined asks nothing: the server keeps this in the nearest
-    // screen size the account has, or makes one called Default where it has
-    // none at all (`save_layout`, `screenSizeId`) - the same silent choice
-    // making a layout used to be, one layer further down.
-    saveArrangement(layoutForThisScreen(), screenWidth, next);
+    // A dashboard nobody has arranged gets its one layout from this first
+    // move, under an id made here (`save_layout`).
+    saveArrangement(drawnWith?.id ?? firstLayoutId(), next);
   };
 
   /**
@@ -663,7 +698,7 @@ export function PanelBoard({
    * the drag answered its first move and then went deaf. This element is the
    * one thing on screen that no rearrangement can unmount.
    */
-  const pickUp = (panelId: string, pointerId: number) => {
+  const pickUp = (panelId: string, pointerId: number, whole = false) => {
     anchorOn(panelId);
     command.reset();
     setRenaming(null);
@@ -671,7 +706,8 @@ export function PanelBoard({
     setMovingPanel(null);
     setFiltering(null);
     draggingNow.current = panelId;
-    setDragging({ id: panelId, from: shown, preview: shown });
+    draggingRowNow.current = whole;
+    setDragging({ id: panelId, row: whole, from: shown, preview: shown });
     // **After the drag has begun, and allowed to fail.** Capture is what keeps
     // the moves coming once the pointer has left the board - over the Inbox, or
     // off the window - and it is worth having. It is not worth the gesture: the
@@ -698,6 +734,17 @@ export function PanelBoard({
     const inHand = draggingNow.current;
     if (!inHand) return;
     pointerAt.current = point;
+    if (draggingRowNow.current) {
+      // A row is placed by the pointer's height alone, among the rows as drawn.
+      const place = rowPlacementFor(point.y, rowsOnScreen(), inHand);
+      if (place === null) return;
+      setDragging((held) => {
+        if (!held) return held;
+        const preview = arrangedWithRow(held.from, held.id, place);
+        return sameArrangement(preview, held.preview) ? held : { ...held, preview };
+      });
+      return;
+    }
     const placement = placementFor(point, rowsOnScreen(), inHand);
     if (!placement) return;
     setDragging((held) => {
@@ -734,7 +781,8 @@ export function PanelBoard({
     if (held) anchorOn(held.id);
     setDragging(null);
     if (!held) return;
-    const droppedOnDashboard = dashboardTabAt(point, tabsOnScreen(), dashboard.id);
+    // A row has no other dashboard to be sent to: only a Panel does.
+    const droppedOnDashboard = held.row ? null : dashboardTabAt(point, tabsOnScreen(), dashboard.id);
     if (droppedOnDashboard) {
       movePanelToDashboard(held.id, droppedOnDashboard);
       return;
@@ -999,10 +1047,11 @@ export function PanelBoard({
           and the tab is the one that says *which of several*, so the tab is
           the one that stays. */}
       <h2 className="sr-only">{dashboard.name}</h2>
-      <DashboardFilterBar dashboardId={dashboard.id} />
+      <DashboardFilterBar dashboardId={dashboard.id} panelsHidden={hiddenCount} />
       {filteringOn && (
         <p className="sr-only" role="status">
           This dashboard is filtered
+          {hiddenCount > 0 && `, ${hiddenCount === 1 ? '1 panel' : `${hiddenCount} panels`} hidden`}
         </p>
       )}
 
@@ -1041,7 +1090,7 @@ export function PanelBoard({
           style={room !== 0 ? { marginTop: room } : undefined}
           className="flex min-w-0 flex-col"
         >
-          {shown.map((row, rowIndex) => {
+          {drawn.map(({ row, place: rowIndex }) => {
             const shares = sharesOf(row);
             return (
               // Keyed by where the row is, not by what is on it. A row has no
@@ -1098,8 +1147,12 @@ export function PanelBoard({
                       .map((share) => `minmax(0, ${share}fr)`)
                       .join(` ${PANEL_GAP}px `),
                     gap: 0,
+                    position: 'relative',
                   }}
                 >
+                  {arrangeable && dragging === null && !itemInHand && row.cells[0] && (
+                    <RowGrip onPickUp={(pointerId) => pickUp(row.cells[0]!.panelId, pointerId, true)} />
+                  )}
                   {row.cells.map((cell, at) => {
                     const panel = panels.find((one) => one.id === cell.panelId);
                     if (!panel) return null;
@@ -1118,23 +1171,7 @@ export function PanelBoard({
                           panel={panel}
                           workspaceId={workspaceId}
                           dashboardFiltered={filteringOn}
-                          items={narrowed(
-                            panelGathers(panel)
-                              ? itemsMatchingFilter(
-                                  items,
-                                  filings,
-                                  panelsInWorkspace,
-                                  itemTypes,
-                                  panel.filter ?? NO_CONDITIONS,
-                                  today,
-                                  sortOf(panel) ?? DEFAULT_FILTER_SORT,
-                                )
-                              : inSortOrder(
-                                  itemsOnPanel(items, filings, panel.id),
-                                  sortOf(panel),
-                                  itemTypes,
-                                ),
-                          )}
+                          items={shows.get(panel.id) ?? []}
                           itemTypes={itemTypes}
                           panelsInWorkspace={panelsInWorkspace}
                           // What is filed anywhere, which a filing onto a
@@ -1196,7 +1233,11 @@ export function PanelBoard({
                             askedFrom.current = openedFrom;
                             setSorting(panel.id);
                           }}
-                          lifted={dragging?.id === panel.id}
+                          lifted={
+                            dragging?.row
+                              ? row.cells.some((one) => one.panelId === dragging.id)
+                              : dragging?.id === panel.id
+                          }
                           collapsed={collapsed}
                           onPickUp={arrangeable ? (pointerId) => pickUp(panel.id, pointerId) : null}
                           refusal={
@@ -1222,6 +1263,13 @@ export function PanelBoard({
               </Fragment>
             );
           })}
+          {filteringOn && drawn.length === 0 && (
+            <section className="well px-4 py-14 text-center">
+              <p className="mx-auto max-w-md text-sm text-ink-faint">
+                No panel has an item matching the filter.
+              </p>
+            </section>
+          )}
           {/* The gap under the last row, so a panel can be dropped below
               everything rather than only between two things - and, being under
               a row, the line that sets that row's height. */}
@@ -1441,6 +1489,34 @@ function RowSeam({
           <div className="absolute inset-x-0 bottom-0 h-[2px] rounded-full bg-accent opacity-0 transition-opacity group-hover:opacity-60 group-active:opacity-100" />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The strip at a row's left edge that takes the whole row by hand.
+ *
+ * **Drawn only while the pointer is on the strip itself**: a row that lit up
+ * under the pointer anywhere would be a highlight charged to every glance at
+ * the board, for a gesture used rarely. Mouse and primary button only, as a
+ * Panel's header is - a touch has no drag to start here, and a right-click is
+ * the menu's.
+ */
+function RowGrip({ onPickUp }: { onPickUp: (pointerId: number) => void }) {
+  return (
+    <div
+      data-testid="row-grip"
+      aria-hidden="true"
+      onPointerDown={(event) => {
+        if (event.button !== 0 || event.pointerType !== 'mouse') return;
+        // Otherwise the browser starts a text selection across whatever the
+        // drag passes over.
+        event.preventDefault();
+        onPickUp(event.pointerId);
+      }}
+      className="group absolute inset-y-0 left-0 z-10 w-3 cursor-grab touch-none active:cursor-grabbing"
+    >
+      <div className="absolute inset-y-1 left-0.5 w-1 rounded-full bg-accent opacity-0 transition-opacity group-hover:opacity-60 group-active:opacity-100" />
     </div>
   );
 }

@@ -24,7 +24,6 @@ import {
   refinementScopeSchema,
   type RewriteAttemptStatus,
   type SuggestedPanel,
-  type ScreenSize,
   type Source,
   type SourceAccount,
   type StoredPanelKind,
@@ -61,7 +60,6 @@ import {
   panelPlacements,
   panels,
   rewriteHistory,
-  screenSizes,
   textCorrections,
   workspaces,
 } from './schema.js';
@@ -392,21 +390,19 @@ export function getLayout(
   );
 }
 
-/**
- * One dashboard's layouts, oldest first - which screen sizes it has already
- * defined a layout at, for `save_layout`'s "at most one per screen size" check.
- */
-export function listLayoutsOn(
+/** A dashboard's one layout, or null where nobody has arranged it yet. */
+export function layoutOfDashboard(
   db: AccountDb,
   tenantId: string,
   dashboardId: string,
-): { id: string; screenSizeId: string }[] {
-  return db
-    .select({ id: layouts.id, screenSizeId: layouts.screenSizeId })
-    .from(layouts)
-    .where(and(eq(layouts.tenantId, tenantId), eq(layouts.dashboardId, dashboardId)))
-    .orderBy(layouts.createdAt)
-    .all();
+): { id: string } | null {
+  return (
+    db
+      .select({ id: layouts.id })
+      .from(layouts)
+      .where(and(eq(layouts.tenantId, tenantId), eq(layouts.dashboardId, dashboardId)))
+      .get() ?? null
+  );
 }
 
 /** The ids of one dashboard's layouts, which is all a new panel needs to reach every one of them. */
@@ -476,9 +472,8 @@ export function listPlacements(db: AccountDb, tenantId: string, layoutId: string
  * which is every workspace until somebody drags something - costs one query and
  * stops.
  *
- * Ordered by the screen size's own width, narrowest first - the same order
- * screen sizes are already offered in (`listScreenSizes`) - rather than by a
- * width `layouts` no longer carries.
+ * At most one per dashboard, so the order is only there to be stable: oldest
+ * first, the id breaking a tie.
  */
 export function listLayoutsInWorkspace(
   db: AccountDb,
@@ -490,11 +485,9 @@ export function listLayoutsInWorkspace(
       id: layouts.id,
       tenantId: layouts.tenantId,
       dashboardId: layouts.dashboardId,
-      screenSizeId: layouts.screenSizeId,
     })
     .from(layouts)
     .innerJoin(dashboards, eq(layouts.dashboardId, dashboards.id))
-    .innerJoin(screenSizes, eq(layouts.screenSizeId, screenSizes.id))
     .where(
       and(
         eq(layouts.tenantId, tenantId),
@@ -502,7 +495,7 @@ export function listLayoutsInWorkspace(
         isNull(dashboards.deletedAt),
       ),
     )
-    .orderBy(screenSizes.width)
+    .orderBy(layouts.createdAt, layouts.id)
     .all();
   if (found.length === 0) return [];
 
@@ -510,8 +503,8 @@ export function listLayoutsInWorkspace(
   // ids just found. Naming them bound one variable per layout, which SQLite
   // refuses past a limit - and it refused the *whole* workspace read, so a
   // workspace stopped painting entirely once it had accumulated enough layouts,
-  // which is a dashboard per screen size and nothing unusual. The join binds
-  // the workspace and nothing that grows.
+  // which is one per dashboard and nothing unusual. The join binds the
+  // workspace and nothing that grows.
   //
   // No filter on the panels being live, deliberately: deleting a panel takes
   // its placements with it in the same transaction (command-service.ts), so a
@@ -1649,43 +1642,6 @@ export function listItemTypes(db: AccountDb, tenantId: string): ItemType[] {
     .where(and(eq(itemTypes.tenantId, tenantId), isNull(itemTypes.deletedAt)))
     .orderBy(itemTypes.position, itemTypes.createdAt)
     .all();
-}
-
-/**
- * Every screen size of the account, narrowest first ("Give the account a list
- * of screen sizes, before anything reads it", issue 262).
- *
- * Narrowest first because that is the order they are offered in, and a size is
- * matched to a window by distance rather than by membership - so the list has
- * no order of its own to preserve and the one a person reads is the useful one.
- * `createdAt` breaks a tie, so two sizes at one width are still in a total
- * order.
- *
- * The account's, so it takes no workspace: it is read once per snapshot the way
- * `listItemTypes` is.
- */
-export function listScreenSizes(db: AccountDb, tenantId: string): ScreenSize[] {
-  return db
-    .select({
-      id: screenSizes.id,
-      tenantId: screenSizes.tenantId,
-      name: screenSizes.name,
-      width: screenSizes.width,
-      createdAt: screenSizes.createdAt,
-    })
-    .from(screenSizes)
-    .where(eq(screenSizes.tenantId, tenantId))
-    .orderBy(screenSizes.width, screenSizes.createdAt)
-    .all();
-}
-
-/** One live screen size, or null - what a command naming one is checked against. */
-export function getScreenSize(
-  db: AccountDb,
-  tenantId: string,
-  screenSizeId: string,
-): ScreenSize | null {
-  return listScreenSizes(db, tenantId).find((size) => size.id === screenSizeId) ?? null;
 }
 
 /**

@@ -560,7 +560,10 @@ export function DashboardBar({
                     if (filterBarOpen || openIsFiltered) {
                       setOpenFilter(NO_DASHBOARD_FILTER);
                       setFilterBarOpen(false);
-                    } else setFilterBarOpen(true);
+                    } else {
+                      setFilterBarOpen(true);
+                      scrollDashboardToTop();
+                    }
                   }}
                 />
               )}
@@ -595,7 +598,10 @@ export function DashboardBar({
                     if (allItemsBarOpen || allItemsFiltered) {
                       setAllItemsFilter(NO_DASHBOARD_FILTER);
                       setAllItemsBarOpen(false);
-                    } else setAllItemsBarOpen(true);
+                    } else {
+                      setAllItemsBarOpen(true);
+                      scrollDashboardToTop();
+                    }
                   }}
                 />
               )}
@@ -679,6 +685,15 @@ export function DashboardBar({
       )}
     </nav>
   );
+}
+
+/**
+ * Opening the filter bar starts from the first Panels with the bar above them,
+ * so the press is never out of sight. Only opening does this: clearing, and
+ * switching to a filtered tab, leave the scroll where it is.
+ */
+function scrollDashboardToTop() {
+  document.querySelector('[data-drag-scroll="dashboard"]')?.scrollTo({ top: 0 });
 }
 
 /**
