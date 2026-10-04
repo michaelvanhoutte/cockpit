@@ -1,6 +1,7 @@
 import { and, eq, exists, inArray, notExists, sql } from 'drizzle-orm';
 import {
   CLAUDE_CODE,
+  GMAIL,
   agentsShownOnDashboard,
   hookNamesSession,
   runBlocksAStart,
@@ -20,6 +21,7 @@ import {
   dashboards,
   DEAD_STATUS_VALUE,
   decisionHistory,
+  gmailChecks,
   hiddenDashboardAgents,
   items,
   itemTypes,
@@ -2250,7 +2252,10 @@ export function runCommand<N extends CommandName>(
             // Claude accepting a test session for Claude Code
             // ("Connect a workspace to Claude Code", issue 569) - so
             // `issuedAt` is as true a "last worked" as a dedicated test.
-            lastTestedAt: cmd.issuedAt,
+            // Not for Gmail, whose row says when its mailbox was last
+            // checked, which connecting does not do ("Bring in the
+            // conversations already labelled Cockpit as tasks", issue 725).
+            lastTestedAt: cmd.connectorId === GMAIL ? null : cmd.issuedAt,
           })
           // **Named at the account, not at the id, and that is the rule
           // rather than a detail**: connecting the same tenant+account again
@@ -2272,7 +2277,7 @@ export function runCommand<N extends CommandName>(
               encryptedCredential: cmd.sealedCredential,
               credentialNonce: cmd.credentialNonce,
               updatedAt: cmd.issuedAt,
-              lastTestedAt: cmd.issuedAt,
+              ...(cmd.connectorId === GMAIL ? {} : { lastTestedAt: cmd.issuedAt }),
             },
           })
           .run();
@@ -2298,6 +2303,29 @@ export function runCommand<N extends CommandName>(
             ),
           )
           .run();
+        // Connecting a mailbox again brings in everything labelled from the
+        // start, so a reconnect after a failing sign-in finds whatever it
+        // missed; what is already in is found again by its link (issue 725).
+        if (cmd.connectorId === GMAIL) {
+          tx.delete(gmailChecks)
+            .where(
+              inArray(
+                gmailChecks.sourceAccountId,
+                tx
+                  .select({ id: connectorAccounts.id })
+                  .from(connectorAccounts)
+                  .where(
+                    and(
+                      eq(connectorAccounts.tenantId, tenantId),
+                      eq(connectorAccounts.workspaceId, cmd.workspaceId),
+                      eq(connectorAccounts.connectorId, cmd.connectorId),
+                      eq(connectorAccounts.externalAccountKey, cmd.externalAccountKey),
+                    ),
+                  ),
+              ),
+            )
+            .run();
+        }
         tx.insert(commands).values(commandRow).run();
       });
       break;

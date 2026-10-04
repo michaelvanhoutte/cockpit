@@ -59,7 +59,9 @@ export function asStored(item: Item): StoredItem {
 }
 
 export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
-  const texts = textsFromCapture(cmd.message);
+  // A title the front door already has names the Item, and the message is its
+  // description whole - a mail's subject and text (issue 725).
+  const texts = cmd.title ? { title: cmd.title, description: cmd.message } : textsFromCapture(cmd.message);
   return {
     id: cmd.itemId,
     tenantId,

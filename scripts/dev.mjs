@@ -200,6 +200,13 @@ if (running.api) {
         // token; `refused` is answered as a revoked one.
         '--var',
         `CLAUDE_CODE_ROUTINES_ORIGIN:${issuer.origin}`,
+        // Gmail's API is the issuer's stand-in mailbox ("Bring in the
+        // conversations already labelled Cockpit as tasks", issue 725): three
+        // conversations labelled Cockpit for any address, and no such label for
+        // one starting `no-label` - connect as no-label@example.com to see a
+        // failing row.
+        '--var',
+        `GMAIL_API_ORIGIN:${issuer.origin}`,
         // Production sets this and staging deliberately does not, which is what
         // decides where "Continue as guest" works ("Sign in as a guest, without
         // a password", issue 354). Set here so the control can be driven

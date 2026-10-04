@@ -32,7 +32,7 @@ function fromDevVars(): Record<string, string> {
   }
   const found: Record<string, string> = {};
   for (const line of file.split(/\r?\n/)) {
-    const match = /^\s*((?:ANTHROPIC|CLOUDFLARE)_[A-Z_]+)\s*=\s*(.*)$/.exec(line);
+    const match = /^\s*((?:ANTHROPIC|CLOUDFLARE|GMAIL_CONTRACT)_[A-Z_]+)\s*=\s*(.*)$/.exec(line);
     if (match) found[match[1]!] = match[2]!.trim().replace(/^["']|["']$/g, '');
   }
   return found;
@@ -55,6 +55,13 @@ export default defineConfig({
       // binding and needs neither; this tier has no Worker to hold one.
       CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID ?? onDisk.CLOUDFLARE_ACCOUNT_ID ?? '',
       CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN ?? onDisk.CLOUDFLARE_API_TOKEN ?? '',
+      // A dedicated test mailbox's sign-in, for what Gmail answers ("Bring in
+      // the conversations already labelled Cockpit as tasks", issue 725):
+      // the Google client it was made through, and its refresh token. Without
+      // all three that suite skips (tests/contract/gmail.test.ts).
+      GMAIL_CONTRACT_CLIENT_ID: process.env.GMAIL_CONTRACT_CLIENT_ID ?? onDisk.GMAIL_CONTRACT_CLIENT_ID ?? '',
+      GMAIL_CONTRACT_CLIENT_SECRET: process.env.GMAIL_CONTRACT_CLIENT_SECRET ?? onDisk.GMAIL_CONTRACT_CLIENT_SECRET ?? '',
+      GMAIL_CONTRACT_REFRESH_TOKEN: process.env.GMAIL_CONTRACT_REFRESH_TOKEN ?? onDisk.GMAIL_CONTRACT_REFRESH_TOKEN ?? '',
     },
   },
 });

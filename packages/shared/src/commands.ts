@@ -355,6 +355,14 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
    */
   capturedFrom: capturedFromSchema.optional(),
   /**
+   * A title the front door already has, taken as the Item's title with the
+   * whole message as its description - a mail's subject beside its text
+   * ("Bring in the conversations already labelled Cockpit as tasks", issue
+   * 725). Left out, the title is cut from the message as it always was
+   * (`textsFromCapture`).
+   */
+  title: itemTitleSchema.min(1).optional(),
+  /**
    * What the Capture form's strip chose ("Set a priority and a due date while
    * capturing", issue 611): the same two values `set_priority` and
    * `set_due_date` change later. Left out by every other front door, which then

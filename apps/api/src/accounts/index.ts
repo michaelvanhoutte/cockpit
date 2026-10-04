@@ -14,6 +14,7 @@ import { GUEST_ACCOUNT_NAME, whoHoldsTheGuestAccount } from '../auth/register.js
 import {
   accountIsRegistered,
   accountOwnedBy,
+  registeredAccountNames,
   endSignInsOf,
   removeFromRegister,
   whoCanBeDeleted,
@@ -514,6 +515,32 @@ export async function resetGuestAccount(env: Env): Promise<'reset' | 'no guest a
   const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(GUEST_ACCOUNT_NAME));
   unwrap(await store.resetGuest());
   return 'reset';
+}
+
+/**
+ * Re-arms the Gmail check of every account holding a Gmail connection whose
+ * check is not armed ("Bring in the conversations already labelled Cockpit as
+ * tasks", issue 725) - the nightly guard against an alarm that was lost,
+ * which would otherwise stop the check without a word. Answers how many it
+ * armed; one account failing is logged and costs only itself.
+ */
+export async function keepEveryAccountCheckingGmail(env: Env): Promise<number> {
+  let armed = 0;
+  for (const accountName of await registeredAccountNames(env)) {
+    try {
+      const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName));
+      if (unwrap(await store.keepCheckingGmail(accountName)) === 'armed') armed += 1;
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: `account ${accountName}'s Gmail check was not looked at tonight`,
+          cause: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+  }
+  return armed;
 }
 
 /** Turns the store's answer back into a value or the error that belongs to it. */

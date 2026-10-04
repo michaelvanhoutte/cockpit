@@ -190,6 +190,8 @@ export async function startStubIssuer({ port, seedPath }) {
         .end('<!doctype html><meta charset="utf-8"><title>Claude Code session</title><h1>A stand-in Claude Code session</h1>');
     }
 
+    if (url.pathname.startsWith('/gmail/v1/users/me/')) return gmail(url, request, response);
+
     if (url.pathname === '/authorize') return authorize(url, response);
     if (url.pathname === '/authorize/pick') return pick(url, response);
     if (url.pathname === '/token') return token(request, response);
@@ -272,6 +274,7 @@ export async function startStubIssuer({ port, seedPath }) {
     request.on('data', (chunk) => (body += chunk));
     request.on('end', () => {
       const form = new URLSearchParams(body);
+      if (form.get('grant_type') === 'refresh_token') return refresh(form, response);
       const held = issued.get(form.get('code') ?? '');
       issued.delete(form.get('code') ?? '');
       if (!held) return json(response, { error: 'invalid_grant' }, 400);
@@ -287,14 +290,57 @@ export async function startStubIssuer({ port, seedPath }) {
         id_token: identityToken(held),
         ...(held.offline
           ? {
-              access_token: `stub-access-${randomUUID()}`,
+              access_token: tokenFor('access', held.email),
               expires_in: 3599,
-              refresh_token: `stub-refresh-${randomUUID()}`,
+              refresh_token: tokenFor('refresh', held.email),
               scope: held.scope,
             }
           : {}),
       });
     });
+  }
+
+  /**
+   * Refreshing a Gmail connection's access token ("Bring in the conversations
+   * already labelled Cockpit as tasks", issue 725): refused as Google refuses
+   * a revoked one, and otherwise a new access token for the same mailbox.
+   */
+  function refresh(form, response) {
+    const refreshToken = form.get('refresh_token') ?? '';
+    const email = mailboxOf(refreshToken, 'refresh');
+    if (!email || revoked.includes(refreshToken)) return json(response, { error: 'invalid_grant' }, 400);
+    json(response, { access_token: tokenFor('access', email), expires_in: 3599, token_type: 'Bearer' });
+  }
+
+  /**
+   * The stand-in mailbox at Gmail's own paths, read with an access token this
+   * stub issued, so the token says whose it is.
+   */
+  function gmail(url, request, response) {
+    const email = mailboxOf((request.headers.authorization ?? '').replace(/^Bearer /, ''), 'access');
+    if (!email) return json(response, { error: { code: 401, message: 'Invalid Credentials' } }, 401);
+    const path = url.pathname.slice('/gmail/v1/users/me/'.length);
+    const mailbox = stubMailbox(email);
+    if (path === 'labels') return json(response, { labels: mailbox.labels });
+    if (path === 'profile') {
+      return json(response, { emailAddress: email, messagesTotal: 3, threadsTotal: 3, historyId: '1000' });
+    }
+    if (path === 'threads') {
+      const labelled = mailbox.threads.filter((thread) =>
+        thread.messages.some((message) => message.labelIds.includes(url.searchParams.get('labelIds'))),
+      );
+      const from = Number(url.searchParams.get('pageToken') ?? 0);
+      const size = Number(url.searchParams.get('maxResults') ?? 100);
+      const page = labelled.slice(from, from + size);
+      return json(response, {
+        threads: page.map((thread) => ({ id: thread.id, snippet: '', historyId: '1000' })),
+        ...(from + size < labelled.length ? { nextPageToken: String(from + size) } : {}),
+        resultSizeEstimate: labelled.length,
+      });
+    }
+    const thread = mailbox.threads.find((one) => path === `threads/${one.id}`);
+    if (thread) return json(response, thread);
+    json(response, { error: { code: 404, message: 'Requested entity was not found.' } }, 404);
   }
 
   function identityToken(held) {
@@ -369,6 +415,107 @@ function whatWasAsked(url) {
       url.searchParams.get(name),
     ]),
   );
+}
+
+/**
+ * A token naming the mailbox it is for, so it outlives the stub: `pnpm dev`
+ * starts a new one every run, and a connection made under the last one has
+ * to go on being checked.
+ */
+function tokenFor(kind, email) {
+  return `stub-${kind}-${base64url(email)}-${randomUUID()}`;
+}
+
+/** The mailbox a token this stub issued is for, or null for one it did not. */
+function mailboxOf(token, kind) {
+  const match = new RegExp(`^stub-${kind}-([A-Za-z0-9_-]+)-[0-9a-f-]{36}$`).exec(token);
+  return match ? Buffer.from(match[1], 'base64url').toString('utf8') : null;
+}
+
+/** The stand-in Cockpit label's id, as Gmail names a label somebody made. */
+const COCKPIT_LABEL_ID = 'Label_1001';
+
+/**
+ * What every stand-in mailbox holds: three conversations labelled Cockpit,
+ * shaped as Gmail's `threads.get` answers - one plain text, one HTML only,
+ * and one with no subject whose labelled message is not its last. An address
+ * starting `no-label` has no label called Cockpit at all, which is the row's
+ * failing state.
+ */
+export function stubMailbox(email) {
+  const labels = [
+    { id: 'INBOX', name: 'INBOX', type: 'system' },
+    ...(email.startsWith('no-label') ? [] : [{ id: COCKPIT_LABEL_ID, name: 'Cockpit', type: 'user' }]),
+  ];
+  const labelled = ['INBOX', COCKPIT_LABEL_ID];
+  const message = (id, threadId, at, labelIds, headers, part) => ({
+    id,
+    threadId,
+    labelIds,
+    snippet: '',
+    internalDate: String(Date.parse(at)),
+    payload: { mimeType: part.mimeType, headers: Object.entries(headers).map(([name, value]) => ({ name, value })), body: part.body, parts: part.parts },
+  });
+  const text = (mimeType, words) => ({ mimeType, body: { size: words.length, data: base64url(words) } });
+  return {
+    labels,
+    threads: [
+      {
+        id: '18f0a1b2c3d4e5f1',
+        historyId: '1000',
+        messages: [
+          message(
+            '18f0a1b2c3d4e5f1',
+            '18f0a1b2c3d4e5f1',
+            '2026-10-01T08:30:00Z',
+            labelled,
+            { Subject: 'Quarterly figures for the board', From: 'Anna Peeters <anna@example.com>' },
+            text('text/plain', 'Can you send me the Q3 figures before Friday?\n\nThanks, Anna'),
+          ),
+        ],
+      },
+      {
+        id: '18f0a1b2c3d4e5f2',
+        historyId: '1000',
+        messages: [
+          message(
+            '18f0a1b2c3d4e5f2',
+            '18f0a1b2c3d4e5f2',
+            '2026-10-02T12:00:00Z',
+            labelled,
+            { Subject: 'Lunch on Thursday?', From: 'pieter@example.com' },
+            {
+              mimeType: 'multipart/alternative',
+              body: { size: 0 },
+              parts: [text('text/html', '<div>Shall we have <b>lunch</b> on Thursday?</div><div>Pieter</div>')],
+            },
+          ),
+        ],
+      },
+      {
+        id: '18f0a1b2c3d4e5f3',
+        historyId: '1000',
+        messages: [
+          message(
+            '18f0a1b2c3d4e5f3',
+            '18f0a1b2c3d4e5f3',
+            '2026-10-03T09:00:00Z',
+            labelled,
+            { Subject: '', From: '"Lotte Janssens" <lotte@example.com>' },
+            text('text/plain', 'The contract is signed - please file it.'),
+          ),
+          message(
+            '18f0a1b2c3d4e5f4',
+            '18f0a1b2c3d4e5f3',
+            '2026-10-03T10:00:00Z',
+            ['INBOX'],
+            { Subject: 'Re:', From: 'michael@example.com' },
+            text('text/plain', 'Thanks, will do.'),
+          ),
+        ],
+      },
+    ],
+  };
 }
 
 /** Text going into an attribute or a body, with what would end either taken out. */

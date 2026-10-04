@@ -10,7 +10,7 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import { CLAUDE_CODE, itemLabel, panelTakesItems } from '@cockpit/shared';
+import { CLAUDE_CODE, GMAIL, itemLabel, panelTakesItems } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';
@@ -31,6 +31,8 @@ import {
 } from './backup.js';
 import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
 import { admittedCalls } from '../connectors/claude-code-hooks.js';
+import { checkGmail } from '../connectors/gmail-check.js';
+import { gmailCheckHost, holdsGmailConnection } from './gmail.js';
 import { APP_CAPTURES_PER_MINUTE } from '../mcp/create-item.js';
 import {
   deleteAllRows,
@@ -747,13 +749,105 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     return this.#answer(accountName, (db) => collectInvalidations(db, accountName, since));
   }
 
-  /** Applies one change to the account, idempotently. */
-  applyChange<N extends CommandName>(
+  /**
+   * Applies one change to the account, idempotently - and keeps the Gmail
+   * check armed exactly while the account holds a Gmail connection: a
+   * connection checks at once, and the last one going takes the check with it
+   * ("Bring in the conversations already labelled Cockpit as tasks", issue
+   * 725).
+   */
+  async applyChange<N extends CommandName>(
     accountName: string,
     name: N,
     payload: CommandPayload<N>,
-  ): Answer<CommandResult> {
-    return this.#answer(accountName, (db) => runCommand(db, accountName, name, payload));
+  ): Promise<Answer<CommandResult>> {
+    const answer = this.#answer(accountName, (db) => runCommand(db, accountName, name, payload));
+    if (answer.status === 'ok' && GMAIL_LIFECYCLE.has(name)) {
+      const connectingGmail =
+        name === 'connect_source_account' &&
+        (payload as CommandPayload<'connect_source_account'>).connectorId === GMAIL;
+      await this.#keepCheckingGmail(accountName, connectingGmail);
+    }
+    return answer;
+  }
+
+  /**
+   * Arms the Gmail check where the account holds a Gmail connection and
+   * nothing has it armed - what the nightly run asks of every account, so an
+   * alarm that was lost is found within a day (issue 725).
+   */
+  async keepCheckingGmail(accountName: string): Promise<Answer<'armed' | 'already armed' | 'nothing to check'>> {
+    const holds = this.#answer(accountName, (db) => holdsGmailConnection(db, accountName));
+    if (holds.status !== 'ok') return holds;
+    if (!holds.value) return { status: 'ok', value: 'nothing to check' };
+    if ((await this.ctx.storage.getAlarm()) !== null) return { status: 'ok', value: 'already armed' };
+    await this.#keepCheckingGmail(accountName, true);
+    return { status: 'ok', value: 'armed' };
+  }
+
+  /**
+   * The Gmail check: every Gmail connection of the account, as far as one
+   * run's calls go, then the next run five minutes out - or ten seconds out
+   * while what is labelled has not all been brought in yet, so connecting a
+   * busy mailbox does not take hours (issue 725).
+   *
+   * **Always re-armed while a connection remains, whatever the run did**,
+   * since an alarm nobody sets again stops silently; and asked again after
+   * the run, so a disconnect made while it ran is not undone by it.
+   */
+  async alarm(): Promise<void> {
+    const accountName = this.ctx.storage.kv.get<string>(GMAIL_CHECK_ACCOUNT);
+    if (!accountName) return;
+    let moreToDo = false;
+    try {
+      this.#bringUpToDate(accountName);
+      if (!holdsGmailConnection(this.#database(), accountName)) return;
+      ({ moreToDo } = await checkGmail(this.env, gmailCheckHost(this.#database(), accountName), new Date()));
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: `the Gmail check of account ${accountName} failed, and runs again`,
+          cause: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+    if (this.#holdsGmailConnection(accountName)) {
+      // A connection made while this ran armed the check for now, and keeps
+      // it: this run read the connections before that one existed.
+      const next = Date.now() + (moreToDo ? GMAIL_CHECK_SOON_MS : GMAIL_CHECK_EVERY_MS);
+      const armedMeanwhile = await this.ctx.storage.getAlarm();
+      await this.ctx.storage.setAlarm(armedMeanwhile === null ? next : Math.min(armedMeanwhile, next));
+    }
+  }
+
+  /**
+   * Whether a Gmail connection is still held - answering yes where the store
+   * cannot be read just now, so a passing failure costs one run rather than
+   * the check.
+   */
+  #holdsGmailConnection(accountName: string): boolean {
+    try {
+      this.#bringUpToDate(accountName);
+      return holdsGmailConnection(this.#database(), accountName);
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Arms the check - at once where `now`, else only where nothing has it
+   * armed - while a Gmail connection is held, and clears it where none is.
+   * The account's name is kept beside the alarm, since an alarm arrives
+   * naming nothing.
+   */
+  async #keepCheckingGmail(accountName: string, now: boolean): Promise<void> {
+    if (!holdsGmailConnection(this.#database(), accountName)) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    this.ctx.storage.kv.put(GMAIL_CHECK_ACCOUNT, accountName);
+    if (now || (await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(Date.now());
   }
 
   /**
@@ -947,6 +1041,8 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
    * rather than creating them afresh.
    */
   async destroy(): Promise<void> {
+    // An alarm outlives `deleteAll`, and would wake an emptied store.
+    await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
     this.#db = null;
     this.#upToDate = false;
@@ -1172,6 +1268,26 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     );
   }
 }
+
+/**
+ * The changes that can add or take away a Gmail connection, after which the
+ * check is armed or cleared (issue 725): connecting, disconnecting, and a
+ * Workspace going with its connections.
+ */
+const GMAIL_LIFECYCLE: ReadonlySet<CommandName> = new Set<CommandName>([
+  'connect_source_account',
+  'disconnect_source_account',
+  'delete_workspace',
+]);
+
+/** Where the account a Gmail check is for is kept, in the object's key-value storage beside its alarm. */
+const GMAIL_CHECK_ACCOUNT = 'gmail-check-account';
+
+/** How often each account's Gmail connections are checked. */
+export const GMAIL_CHECK_EVERY_MS = 5 * 60_000;
+
+/** How soon the next run comes while a check has more to bring in than one run reached. */
+export const GMAIL_CHECK_SOON_MS = 10_000;
 
 /** Where one refresh's latest ask is kept - carrying the account's name for the reason every query filters on it (`rpc.ts`). */
 function refreshAskKey(accountName: string, refresh: string): string {

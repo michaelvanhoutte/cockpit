@@ -83,3 +83,18 @@ export function ordersTypesExactly(
 export function typeToCaptureAs(types: readonly ItemType[], noteTypeId: string): ItemType | undefined {
   return types.find((type) => type.id === noteTypeId) ?? types[0];
 }
+
+/**
+ * The Type a conversation labelled in Gmail is brought in as: the account's
+ * own Task, labelling being somebody saying it is theirs to do ("Bring in the
+ * conversations already labelled Cockpit as tasks", issue 725) - and, where
+ * the account no longer has its Task, whatever any other capture nobody chose
+ * a Type for takes.
+ */
+export function typeToBringInAs(
+  types: readonly ItemType[],
+  taskTypeId: string,
+  noteTypeId: string,
+): ItemType | undefined {
+  return types.find((type) => type.id === taskTypeId) ?? typeToCaptureAs(types, noteTypeId);
+}

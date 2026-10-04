@@ -141,6 +141,32 @@ describe('the stub issuer signs people in the way Google does', () => {
     assert.deepEqual(await (await fetch(`${issuer.origin}/revoked`)).json(), [offline.refresh_token]);
   });
 
+  // What checking a Gmail connection refreshes ("Bring in the conversations
+  // already labelled Cockpit as tasks", issue 725).
+  it('refreshes a sign-in it has not taken back, and refuses one it has', async () => {
+    const refresh = (token) =>
+      fetch(endpoints.token_endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: token, client_id: 'c', client_secret: 's' }),
+      });
+    const granted = await (
+      await spend(await codeFor('ada@example.com', { scope: 'openid email gmail.modify', offline: true }))
+    ).json();
+
+    const refreshed = await refresh(granted.refresh_token);
+    assert.equal(refreshed.status, 200);
+    assert.match((await refreshed.json()).access_token, /^stub-access-/);
+
+    await fetch(endpoints.revocation_endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token: granted.refresh_token }),
+    });
+    assert.equal((await refresh(granted.refresh_token)).status, 400);
+    assert.equal((await refresh('a-token-it-never-issued')).status, 400);
+  });
+
   it('refuses a code spent with the wrong verifier', async () => {
     const spent = await spend(await codeFor('michael@example.com'), { verifier: 'not-the-one' });
     assert.equal(spent.status, 400);
@@ -216,5 +242,41 @@ describe('the stub issuer stands in for a Claude Code routine the way Anthropic 
     const noLink = await fire('no-link');
     assert.equal(noLink.status, 200);
     assert.equal((await noLink.json()).claude_code_session_url, undefined);
+  });
+});
+
+describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', () => {
+  async function accessTokenFor(email) {
+    const granted = await (await spend(await codeFor(email, { scope: 'openid email gmail.modify', offline: true }))).json();
+    return granted.access_token;
+  }
+  const read = (token, path) =>
+    fetch(`${issuer.origin}/gmail/v1/users/me/${path}`, { headers: { authorization: `Bearer ${token}` } });
+
+  it('lists the conversations labelled Cockpit a page at a time, and reads each', async () => {
+    const token = await accessTokenFor('michael@example.com');
+    const { labels } = await (await read(token, 'labels')).json();
+    const cockpit = labels.find((label) => label.name === 'Cockpit');
+
+    const first = await (await read(token, `threads?labelIds=${cockpit.id}&maxResults=2`)).json();
+    const second = await (
+      await read(token, `threads?labelIds=${cockpit.id}&maxResults=2&pageToken=${first.nextPageToken}`)
+    ).json();
+    assert.equal(first.threads.length, 2);
+    assert.equal(second.threads.length, 1);
+    assert.equal(second.nextPageToken, undefined);
+
+    const thread = await (await read(token, `threads/${first.threads[0].id}`)).json();
+    assert.equal(
+      thread.messages[0].payload.headers.find((header) => header.name === 'Subject').value,
+      'Quarterly figures for the board',
+    );
+    assert.equal((await read(token, 'threads/no-such-thread')).status, 404);
+  });
+
+  it('has no label called Cockpit for an address starting no-label, and refuses a token it never issued', async () => {
+    const { labels } = await (await read(await accessTokenFor('no-label@example.com'), 'labels')).json();
+    assert.equal(labels.some((label) => label.name === 'Cockpit'), false);
+    assert.equal((await read('not-a-stub-token', 'labels')).status, 401);
   });
 });

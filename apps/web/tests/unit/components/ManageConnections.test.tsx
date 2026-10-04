@@ -264,7 +264,7 @@ describe('Connector management', () => {
 
     it('a connected Gmail account is a row named by its address, reading the label it follows', async () => {
       held.sourceAccounts = [
-        { ...ADA, id: 'account-anna', connectorId: 'gmail', displayName: 'anna@example.com', lastTestedAt: '2026-10-04T09:00:00.000Z' },
+        { ...ADA, id: 'account-anna', connectorId: 'gmail', displayName: 'anna@example.com', lastTestedAt: null },
       ];
 
       showWindow('gmail-connected');
@@ -273,6 +273,37 @@ describe('Connector management', () => {
       expect(screen.getByText('Gmail · label Cockpit')).toBeInTheDocument();
       await userEvent.click(screen.getByRole('button', { name: 'Actions for anna@example.com' }));
       expect(await screen.findByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
+    });
+  });
+
+  /** "Bring in the conversations already labelled Cockpit as tasks", issue 725. */
+  describe('a Gmail row shows when its mailbox was last checked, and why it is failing', () => {
+    const checkedAt = '2026-10-04T09:00:00.000Z';
+    it.each([
+      { situation: 'never checked yet', lastTestedAt: null, failingBecause: null, reads: 'Gmail · label Cockpit', failing: null },
+      {
+        situation: 'after a check',
+        lastTestedAt: checkedAt,
+        failingBecause: null,
+        reads: `Gmail · label Cockpit · last checked ${new Date(checkedAt).toLocaleString()}`,
+        failing: null,
+      },
+      {
+        situation: 'failing',
+        lastTestedAt: checkedAt,
+        failingBecause: 'there is no label called Cockpit in this account.',
+        reads: `Gmail · label Cockpit · last checked ${new Date(checkedAt).toLocaleString()}`,
+        failing: 'Failing: there is no label called Cockpit in this account.',
+      },
+    ])('$situation', async ({ lastTestedAt, failingBecause, reads, failing }) => {
+      held.sourceAccounts = [
+        { ...ADA, id: 'account-anna', connectorId: 'gmail', displayName: 'anna@example.com', lastTestedAt, failingBecause },
+      ];
+
+      showWindow();
+
+      expect(await screen.findByText(reads)).toBeInTheDocument();
+      expect(screen.queryByText(/^Failing:/)?.textContent ?? null).toBe(failing);
     });
   });
 

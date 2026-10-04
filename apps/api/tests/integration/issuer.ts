@@ -115,6 +115,7 @@ export async function issuerIsReachable(): Promise<void> {
 
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+    if (url.origin === GMAIL_API) return gmailAnswer(url, init);
     if (url.origin !== ISSUER) {
       throw new Error(`nothing in a test may reach ${url.origin}`);
     }
@@ -143,7 +144,9 @@ export async function issuerIsReachable(): Promise<void> {
         waiting.count += 1;
         await waiting.opened;
       }
-      const code = new URLSearchParams(init?.body as URLSearchParams).get('code') ?? '';
+      const form = new URLSearchParams(init?.body as URLSearchParams);
+      if (form.get('grant_type') === 'refresh_token') return refreshAnswer(form);
+      const code = form.get('code') ?? '';
       const asked = answers.get(code);
       // Spent once, as a real code is: what a second exchange of the same code
       // gets is the refusal, not another identity.
@@ -197,6 +200,7 @@ export function issuerAnswersTogether(expected: number): {
 /** Puts the issuer back out of reach, and forgets what it was going to say. */
 export function issuerIsForgotten(): void {
   vi.unstubAllGlobals();
+  gmailIsEmpty();
   answers.clear();
   gate = null;
   revoking = 'answers';
@@ -228,4 +232,104 @@ export async function identityToken({
     .setIssuedAt()
     .setExpirationTime('5m')
     .sign(privateKey);
+}
+
+/**
+ * Gmail's API, on the same faked network ("Bring in the conversations already
+ * labelled Cockpit as tasks", issue 725): one mailbox, answering the calls the
+ * connector reads in the shapes Gmail answers them (../gmail-payloads.ts), and
+ * Google's token endpoint refreshing an access token beside it.
+ */
+export const GMAIL_API = 'https://gmail.googleapis.com';
+
+interface Mailbox {
+  labels: unknown;
+  historyId: string;
+  /** Every conversation's `threads.get` answer, in the order `threads.list` lists them. */
+  threads: { id: string; labelled: boolean; answer: unknown }[];
+}
+
+let mailbox: Mailbox = { labels: { labels: [] }, historyId: '1', threads: [] };
+
+/** Every call Gmail was asked, as its path and query below `users/me/`, oldest first. */
+export const gmailCalls: string[] = [];
+
+/** Every refresh Google was asked for, oldest first, by the refresh token it named. */
+export const refreshes: string[] = [];
+
+/** How Google answers a refresh: as it does, refusing the sign-in, or not answering usefully. */
+let refreshing: 'answers' | 'refuses' | 'fails' = 'answers';
+
+/** Gmail answering one kind of call with a status, once or every time, in place of its answer. */
+let gmailFailing: { when: (call: string) => boolean; status: number; once: boolean } | null = null;
+
+/** Forgets the mailbox and everything Gmail and Google were asked - each case starts from nothing. */
+export function gmailIsEmpty(): void {
+  mailbox = { labels: { labels: [] }, historyId: '1', threads: [] };
+  gmailCalls.length = 0;
+  refreshes.length = 0;
+  refreshing = 'answers';
+  gmailFailing = null;
+}
+
+/** What the mailbox holds: its labels, and its conversations with whether each carries the label. */
+export function gmailHolds(held: Partial<Mailbox>): void {
+  mailbox = { ...mailbox, ...held };
+}
+
+/** Gmail answering calls matching `when` with `status` instead - once, or until told otherwise. */
+export function gmailAnswersWith(status: number, when: (call: string) => boolean, { once = true } = {}): void {
+  gmailFailing = { when, status, once };
+}
+
+/** Google answering every refresh from now on by refusing the sign-in, or with a 503. */
+export function googleRefreshes(how: 'answers' | 'refuses' | 'fails'): void {
+  refreshing = how;
+}
+
+function refreshAnswer(form: URLSearchParams): Response {
+  const refreshToken = form.get('refresh_token') ?? '';
+  refreshes.push(refreshToken);
+  if (refreshing === 'refuses') return Response.json({ error: 'invalid_grant' }, { status: 400 });
+  if (refreshing === 'fails') return Response.json({ error: 'backend_error' }, { status: 503 });
+  return Response.json({
+    access_token: `refreshed-${refreshes.length}-for-${refreshToken}`,
+    expires_in: 3599,
+    scope: 'https://www.googleapis.com/auth/gmail.modify',
+    token_type: 'Bearer',
+  });
+}
+
+function gmailAnswer(url: URL, init?: RequestInit): Response {
+  const call = `${url.pathname.replace(/^\/gmail\/v1\/users\/me\//, '')}${url.search}`;
+  gmailCalls.push(call);
+  const token = new Headers(init?.headers).get('authorization') ?? '';
+  if (!token.startsWith('Bearer ') || token.length <= 'Bearer '.length) {
+    return Response.json({ error: { code: 401, message: 'Invalid Credentials' } }, { status: 401 });
+  }
+  if (gmailFailing?.when(call)) {
+    const { status } = gmailFailing;
+    if (gmailFailing.once) gmailFailing = null;
+    return Response.json({ error: { code: status, message: 'Gmail did not answer this time' } }, { status });
+  }
+
+  const path = url.pathname.replace(/^\/gmail\/v1\/users\/me\//, '');
+  if (path === 'labels') return Response.json(mailbox.labels);
+  if (path === 'profile') {
+    return Response.json({ emailAddress: 'anna@example.com', messagesTotal: 10, threadsTotal: 10, historyId: mailbox.historyId });
+  }
+  if (path === 'threads') {
+    const labelled = mailbox.threads.filter((thread) => thread.labelled);
+    const from = Number(url.searchParams.get('pageToken') ?? 0);
+    const size = Number(url.searchParams.get('maxResults') ?? 100);
+    const page = labelled.slice(from, from + size);
+    return Response.json({
+      threads: page.map((thread) => ({ id: thread.id, snippet: '', historyId: mailbox.historyId })),
+      ...(from + size < labelled.length ? { nextPageToken: String(from + size) } : {}),
+      resultSizeEstimate: labelled.length,
+    });
+  }
+  const thread = mailbox.threads.find((one) => path === `threads/${one.id}`);
+  if (thread) return Response.json(thread.answer);
+  return Response.json({ error: { code: 404, message: 'Requested entity was not found.' } }, { status: 404 });
 }
