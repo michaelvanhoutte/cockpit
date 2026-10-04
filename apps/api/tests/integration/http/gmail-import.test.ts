@@ -22,10 +22,12 @@ import {
   issuerIsReachable,
   issuerWillIdentify,
   refreshes,
+  whileGmailIsAsked,
   type Grant,
 } from '../issuer.js';
 import { labelsAnswer, plainThread } from '../../gmail-payloads.js';
 import { NO_LABEL, SIGN_IN_REFUSED } from '../../../src/connectors/gmail-check.js';
+import { derivedUuid } from '../../../src/connectors/push-host.js';
 import { handleScheduled } from '../../../src/jobs/index.js';
 
 /**
@@ -153,6 +155,35 @@ async function rowOf(workspaceId = WORKSPACE_ID): Promise<{ lastTestedAt: string
   return sourceAccounts[0]!;
 }
 
+/** Disconnects the Workspace's Gmail connection, as its row's Disconnect does. */
+async function disconnect(workspaceId: string, commandId: string): Promise<void> {
+  const listed = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/connections`);
+  const [held] = ((await listed.json()) as { sourceAccounts: { id: string }[] }).sourceAccounts;
+  const res = await asUser('http://cockpit.test/v1/commands/disconnect_source_account', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ commandId, issuedAt: new Date().toISOString(), workspaceId, sourceAccountId: held!.id }),
+  });
+  expect(res.status).toBe(200);
+}
+
+/** The Items whose clean-up has been asked for, by id. */
+function cleanUpsAskedFor(): Promise<string[]> {
+  return inTheStore((sql) => [...sql.exec<{ item_id: string }>('SELECT item_id FROM rewrite_history')].map((row) => row.item_id));
+}
+
+/**
+ * Waits until `count` Items have had their clean-up asked for - the last thing
+ * a run does, for a run that arms nothing after it.
+ */
+async function cleanUpsReach(count: number): Promise<void> {
+  for (let waited = 0; waited < 10_000; waited += 25) {
+    if ((await cleanUpsAskedFor()).length >= count) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`fewer than ${count} clean-ups were ever asked for`);
+}
+
 function sealedCredential(): Promise<string> {
   return inTheStore(
     (sql) =>
@@ -242,6 +273,36 @@ describe('Capture', () => {
       expect(new Set(items.map((item) => item.sourceId)).size).toBe(80);
     });
 
+    it('one made just before a check stopped is not made again, and is cleaned up like the rest', async () => {
+      mailboxWith(2);
+      // The Item a stopped check made, without the record of which
+      // conversation it came from that the check would have written next.
+      whileGmailIsAsked(
+        (call) => call.startsWith('threads?'),
+        async () => {
+          const named = `gmail:${WORKSPACE_ID}:${ANNA.subject}:thread-000`;
+          const answer = await storeNamed(ACCOUNT_NAME).applyChange(ACCOUNT_NAME, 'capture_item', {
+            commandId: await derivedUuid(`capture:${named}`),
+            issuedAt: new Date().toISOString(),
+            workspaceId: WORKSPACE_ID,
+            itemId: await derivedUuid(`item:${named}`),
+            title: 'Subject 0',
+            message: 'Text 0',
+            typeId: TASK_TYPE_ID,
+            capturedFrom: { source: 'mail', sourceId: 'thread-000', sourceLink: 'https://mail.google.com/mail/#all/thread-000' },
+          });
+          expect(answer.status).toBe('ok');
+        },
+      );
+      await connect();
+
+      await checksSettle();
+
+      const items = await inboxOf();
+      expect(items).toHaveLength(2);
+      expect((await cleanUpsAskedFor()).sort()).toEqual(items.map((item) => item.id).sort());
+    });
+
     it('the same mailbox connected to two Workspaces gives each its own Item', async () => {
       mailboxWith(2);
       await connect(granted('anna-in-work'));
@@ -275,19 +336,6 @@ describe('Connector management', () => {
       expect(next).toBeLessThanOrEqual(5 * 60_000);
 
       await connect(granted('anna-in-atlas'), OTHER_WORKSPACE_ID);
-      const connections = async (workspaceId: string) =>
-        ((await (await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/connections`)).json()) as {
-          sourceAccounts: { id: string }[];
-        }).sourceAccounts;
-      const disconnect = async (workspaceId: string, commandId: string) => {
-        const [held] = await connections(workspaceId);
-        const res = await asUser('http://cockpit.test/v1/commands/disconnect_source_account', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ commandId, issuedAt: new Date().toISOString(), workspaceId, sourceAccountId: held!.id }),
-        });
-        expect(res.status).toBe(200);
-      };
 
       await disconnect(WORKSPACE_ID, '018f0000-0000-7000-8000-0000000725a1');
       expect(await nextCheck()).not.toBeNull();
@@ -307,6 +355,42 @@ describe('Connector management', () => {
       expect(
         await runInDurableObject(storeNamed('tenant-ada'), (_instance, state) => state.storage.getAlarm()),
       ).toBeNull();
+    });
+  });
+
+  describe('a check part-way through gives way to what the person does to the connection meanwhile', () => {
+    it('disconnecting stops it bringing anything more in, and what it brought in stays', async () => {
+      mailboxWith(5);
+      whileGmailIsAsked(
+        (call) => call.startsWith('threads/thread-002'),
+        () => disconnect(WORKSPACE_ID, '018f0000-0000-7000-8000-0000000725b1'),
+      );
+      await connect();
+
+      await cleanUpsReach(2);
+
+      expect((await inboxOf()).map((item) => item.sourceId).sort()).toEqual(['thread-000', 'thread-001']);
+      expect(gmailCalls).not.toContain('threads/thread-003?format=full');
+      expect(await nextCheck()).toBeNull();
+    });
+
+    it('connecting again keeps the new sign-in, not the old one the check refreshed meanwhile', async () => {
+      mailboxWith(3);
+      let connectedAgain = '';
+      whileGmailIsAsked(
+        (call) => call === 'refresh',
+        async () => {
+          await connect(granted('anna-refresh-again'));
+          connectedAgain = await sealedCredential();
+        },
+      );
+      await connect(granted('anna-refresh', 30));
+
+      await checksSettle();
+
+      expect(connectedAgain).not.toBe('');
+      expect(await sealedCredential()).toBe(connectedAgain);
+      expect(await inboxOf()).toHaveLength(3);
     });
   });
 

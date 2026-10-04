@@ -83,15 +83,23 @@ export interface GmailCheckHost {
   pageListed(sourceAccountId: string, nextPageToken: string | null, at: string): void;
   /** Which of these conversations this mailbox has already brought into this Workspace. */
   alreadyBroughtIn(workspaceId: string, mailboxKey: string, threadIds: readonly string[]): Set<string>;
-  /** Makes the conversation's Item and links them; answers whether an Item was written. */
+  /**
+   * Makes the conversation's Item and links them - unless the connection has
+   * gone since the run read it. Answers whether the link was written now,
+   * which is what owes the Item its clean-up.
+   */
   bringIn(
     connection: GmailConnectionToCheck,
     conversation: GmailConversation,
     ids: { itemId: string; commandId: string },
     at: string,
-  ): boolean;
-  /** The connection's credential, sealed again around a refreshed access token. */
-  reseal(sourceAccountId: string, sealed: Sealed): void;
+  ): 'linked' | 'already linked' | 'disconnected';
+  /**
+   * The connection's credential, sealed again around a refreshed access token
+   * - only where it still holds `was`, so a reconnect made meanwhile keeps its
+   * own. Answers whether it did.
+   */
+  reseal(sourceAccountId: string, was: Sealed, sealed: Sealed): boolean;
   /** The connection was checked: it reads "last checked" and nothing says it is failing. */
   checked(sourceAccountId: string, at: string): void;
   /** The connection cannot be checked, and why. */
@@ -104,6 +112,8 @@ class SignInRefused extends Error {}
 class NotAnswering extends Error {}
 /** The run's calls are spent; what is left is the next run's. */
 class OutOfCalls extends Error {}
+/** The connection was disconnected or connected again while the run was reading it; the next run reads it afresh. */
+class ConnectionChanged extends Error {}
 
 /**
  * Checks every Gmail connection the account holds, as far as one run's calls
@@ -135,9 +145,12 @@ export async function checkGmail(env: Env, host: GmailCheckHost, now: Date): Pro
       const opened = await open(connection.sealed, key);
       const credential = opened === null ? null : gmailCredentialIn(opened);
       if (!credential) throw new SignInRefused('the sign-in could not be read');
-      const mailbox = new Mailbox(env, { clientId, clientSecret }, credential, now, calls, async (refreshed) =>
-        host.reseal(connection.id, await seal(JSON.stringify(refreshed), key)),
-      );
+      let held = connection.sealed;
+      const mailbox = new Mailbox(env, { clientId, clientSecret }, credential, now, calls, async (refreshed) => {
+        const sealed = await seal(JSON.stringify(refreshed), key);
+        if (!host.reseal(connection.id, held, sealed)) throw new ConnectionChanged('the sign-in was replaced');
+        held = sealed;
+      });
       const reached = await bringInLabelled(host, connection, mailbox, at, broughtIn);
       if (reached === 'no label') {
         host.failing(connection.id, NO_LABEL, at);
@@ -151,6 +164,9 @@ export async function checkGmail(env: Env, host: GmailCheckHost, now: Date): Pro
       } else if (error instanceof OutOfCalls) {
         moreToDo = true;
         host.checked(connection.id, at);
+      } else if (error instanceof ConnectionChanged) {
+        // Disconnected, or connected again - which arms a check of its own.
+        continue;
       } else {
         // Nothing is changed and nothing said: the next run tries again.
         logged('warn', 'a Gmail connection could not be checked this time', {
@@ -206,10 +222,15 @@ async function bringInLabelled(
       if (!conversation) continue;
       const named = `gmail:${connection.workspaceId}:${connection.mailboxKey}:${threadId}`;
       const ids = { itemId: await derivedUuid(`item:${named}`), commandId: await derivedUuid(`capture:${named}`) };
-      if (host.bringIn(connection, conversation, ids, at)) broughtIn.push(ids.itemId);
+      const linked = host.bringIn(connection, conversation, ids, at);
+      if (linked === 'disconnected') throw new ConnectionChanged('the connection was disconnected');
+      if (linked === 'linked') broughtIn.push(ids.itemId);
     }
     host.pageListed(connection.id, page.nextPageToken, at);
-    progress = host.progress(connection.id)!;
+    const next = host.progress(connection.id);
+    // Gone: connected again meanwhile, which starts the listing over.
+    if (!next) throw new ConnectionChanged('the listing was started again');
+    progress = next;
   }
   return 'done';
 }

@@ -263,6 +263,9 @@ let refreshing: 'answers' | 'refuses' | 'fails' = 'answers';
 /** Gmail answering one kind of call with a status, once or every time, in place of its answer. */
 let gmailFailing: { when: (call: string) => boolean; status: number; once: boolean } | null = null;
 
+/** Something the person does while Gmail or Google is being asked one call, before it is answered. */
+let meanwhile: { when: (call: string) => boolean; action: () => Promise<void> } | null = null;
+
 /** Forgets the mailbox and everything Gmail and Google were asked - each case starts from nothing. */
 export function gmailIsEmpty(): void {
   mailbox = { labels: { labels: [] }, historyId: '1', threads: [] };
@@ -270,6 +273,23 @@ export function gmailIsEmpty(): void {
   refreshes.length = 0;
   refreshing = 'answers';
   gmailFailing = null;
+  meanwhile = null;
+}
+
+/**
+ * Runs `action` once, while the first call matching `when` waits for its
+ * answer - a Gmail call as `gmailCalls` names it, or `refresh` for Google
+ * refreshing a sign-in - so a case can act while a check is part-way through.
+ */
+export function whileGmailIsAsked(when: (call: string) => boolean, action: () => Promise<void>): void {
+  meanwhile = { when, action };
+}
+
+async function actMeanwhile(call: string): Promise<void> {
+  if (!meanwhile?.when(call)) return;
+  const { action } = meanwhile;
+  meanwhile = null;
+  await action();
 }
 
 /** What the mailbox holds: its labels, and its conversations with whether each carries the label. */
@@ -287,7 +307,8 @@ export function googleRefreshes(how: 'answers' | 'refuses' | 'fails'): void {
   refreshing = how;
 }
 
-function refreshAnswer(form: URLSearchParams): Response {
+async function refreshAnswer(form: URLSearchParams): Promise<Response> {
+  await actMeanwhile('refresh');
   const refreshToken = form.get('refresh_token') ?? '';
   refreshes.push(refreshToken);
   if (refreshing === 'refuses') return Response.json({ error: 'invalid_grant' }, { status: 400 });
@@ -300,9 +321,10 @@ function refreshAnswer(form: URLSearchParams): Response {
   });
 }
 
-function gmailAnswer(url: URL, init?: RequestInit): Response {
+async function gmailAnswer(url: URL, init?: RequestInit): Promise<Response> {
   const call = `${url.pathname.replace(/^\/gmail\/v1\/users\/me\//, '')}${url.search}`;
   gmailCalls.push(call);
+  await actMeanwhile(call);
   const token = new Headers(init?.headers).get('authorization') ?? '';
   if (!token.startsWith('Bearer ') || token.length <= 'Bearer '.length) {
     return Response.json({ error: { code: 401, message: 'Invalid Credentials' } }, { status: 401 });

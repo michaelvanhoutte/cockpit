@@ -88,13 +88,21 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
     },
 
     bringIn: (connection, conversation, ids, at) => {
+      // Asked in the same synchronous step as the write: the run awaited
+      // Gmail since it read the connections, and a disconnect may have landed.
+      const stillConnected = db
+        .select({ id: connectorAccounts.id })
+        .from(connectorAccounts)
+        .where(and(eq(connectorAccounts.tenantId, accountName), eq(connectorAccounts.id, connection.id)))
+        .get();
+      if (!stillConnected) return 'disconnected';
       const type = typeToBringInAs(listItemTypes(db, accountName), taskTypeId(accountName), noteTypeId(accountName));
       if (!type) throw new Error(`account ${accountName} has no type to bring a conversation in as`);
       // Through `capture_item`, the one command every front door captures
       // through, under ids named by the conversation: a run that stopped
       // between the capture and the link below captures again as a replay
       // the store ignores, rather than as a second Item.
-      const { applied } = runCommand(db, accountName, 'capture_item', {
+      runCommand(db, accountName, 'capture_item', {
         commandId: ids.commandId,
         issuedAt: at,
         workspaceId: connection.workspaceId,
@@ -110,7 +118,11 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
           ...(conversation.sentAt ? { sourceTimestamp: conversation.sentAt } : {}),
         },
       });
-      db.insert(gmailConversations)
+      // The link, not the capture, says whether the Item is new to this run: a
+      // capture replayed after a stop before its link still owes the Item its
+      // clean-up, which the stopped run never queued.
+      const linked = db
+        .insert(gmailConversations)
         .values({
           tenantId: accountName,
           workspaceId: connection.workspaceId,
@@ -121,16 +133,25 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
           linkedAt: at,
         })
         .onConflictDoNothing()
-        .run();
-      return applied;
+        .returning({ itemId: gmailConversations.itemId })
+        .all();
+      return linked.length > 0 ? 'linked' : 'already linked';
     },
 
-    reseal: (sourceAccountId, sealed) => {
-      db.update(connectorAccounts)
+    reseal: (sourceAccountId, was, sealed) =>
+      db
+        .update(connectorAccounts)
         .set({ encryptedCredential: sealed.sealedCredential, credentialNonce: sealed.credentialNonce })
-        .where(and(eq(connectorAccounts.tenantId, accountName), eq(connectorAccounts.id, sourceAccountId)))
-        .run();
-    },
+        .where(
+          and(
+            eq(connectorAccounts.tenantId, accountName),
+            eq(connectorAccounts.id, sourceAccountId),
+            eq(connectorAccounts.encryptedCredential, was.sealedCredential),
+            eq(connectorAccounts.credentialNonce, was.credentialNonce),
+          ),
+        )
+        .returning({ id: connectorAccounts.id })
+        .all().length > 0,
 
     checked: (sourceAccountId, at) => {
       db.transaction((tx) => {

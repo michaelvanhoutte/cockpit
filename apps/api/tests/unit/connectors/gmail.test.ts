@@ -174,6 +174,15 @@ describe('Capture', () => {
         thread: threadAnswer('t-empty', [message('t-empty', { id: 'm1', sentAt: '2026-10-01T08:30:00Z', subject: 'Only a subject', plain: '' })]),
         becomes: { title: 'Only a subject', text: 'Only a subject' },
       },
+      {
+        situation: 'text that cannot be read',
+        thread: threadAnswer('t-garbled', [
+          ((sent) => ({ ...sent, payload: { ...sent.payload, body: { size: 3, data: '%%%' } } }))(
+            message('t-garbled', { id: 'm1', sentAt: '2026-10-01T08:30:00Z', subject: 'Garbled', plain: 'unused' }),
+          ),
+        ]),
+        becomes: { title: 'Garbled', text: 'Garbled' },
+      },
     ])('$situation', ({ thread, becomes }) => {
       const conversation = conversationFrom(thread, COCKPIT_LABEL_ID, address);
 

@@ -347,11 +347,19 @@ function firstPart(part: GmailPart | null | undefined, mimeType: string): string
   return null;
 }
 
-/** A body as Gmail sends it: UTF-8, base64 in its URL-safe alphabet. */
+/**
+ * A body as Gmail sends it: UTF-8, base64 in its URL-safe alphabet - or
+ * nothing where it cannot be read, so one malformed message is brought in
+ * under its subject rather than stopping every conversation after it.
+ */
 function decodedBody(data: string): string {
   const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
-  const binary = atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4));
-  return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
+  try {
+    const binary = atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4));
+    return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
+  } catch {
+    return '';
+  }
 }
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
