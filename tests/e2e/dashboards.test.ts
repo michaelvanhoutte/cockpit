@@ -356,21 +356,43 @@ test.describe('Dashboards', () => {
       };
       const funnel = (name: string) =>
         dashboardTab(page, 'Dashboard 1').getByRole('button', { name });
-      // Panels to scroll through: a short window alone does not hold a Dashboard
-      // taller than it once the bar closes and takes its own height back.
-      const fill = async (extra: number) => {
-        for (let at = 0; at < extra; at += 1) {
-          const name = uniqueTitle(`Panel ${at}`);
-          await press(page.getByRole('button', { name: '+ Panel' }), isMobile);
-          await page.getByLabel('Name of the new panel').fill(name);
-          await page.getByLabel('Name of the new panel').press('Enter');
-          await expect(page.getByRole('region', { name })).toBeVisible();
-        }
+      // **Setup is not the behaviour**, so it goes through the API in one go and
+      // the page is read once: Panels to scroll through (a short window alone
+      // does not hold a Dashboard taller than it once the bar closes and takes
+      // its own height back), a second Dashboard with its own, and enough items
+      // that All items is taller than the window.
+      await openDashboard(page, 'Dashboard 1', isMobile);
+      await chooseRowAction(page, 'Dashboard 1', 'Show all items', isMobile);
+      const [, , workspaceId, , dashboardId] = new URL(page.url()).pathname.split('/');
+      const known = await page.request.get('/v1/item-types');
+      const [aType] = ((await known.json()) as { itemTypes: { id: string }[] }).itemTypes;
+      const send = async (command: string, data: Record<string, unknown>) => {
+        const sent = await page.request.post(`/v1/commands/${command}`, {
+          data: { commandId: randomUUID(), issuedAt: new Date().toISOString(), workspaceId, ...data },
+        });
+        expect(sent.ok(), `${command} from outside failed: ${sent.status()} ${await sent.text()}`).toBe(true);
       };
+      const other = uniqueTitle('Elsewhere');
+      const otherId = randomUUID();
+      await send('add_dashboard', { dashboardId: otherId, panelId: randomUUID(), name: other });
+      await Promise.all([
+        ...[0, 1, 2].map((at) =>
+          send('add_panel', { dashboardId: dashboardId!, panelId: randomUUID(), name: `Extra ${at}` }),
+        ),
+        ...[0, 1].map((at) =>
+          send('add_panel', { dashboardId: otherId, panelId: randomUUID(), name: `Other ${at}` }),
+        ),
+        ...Array.from({ length: 12 }, (_, at) =>
+          send('capture_item', {
+            itemId: randomUUID(),
+            message: uniqueTitle(`Entry ${at}`),
+            typeId: aType!.id,
+          }),
+        ),
+      ]);
+      await page.reload();
 
       // **A Dashboard.**
-      await openDashboard(page, 'Dashboard 1', isMobile);
-      await fill(3);
       await expect.poll(reach).toBeGreaterThan(150);
       await scrollDown('bottom');
       await press(funnel('Filter this dashboard'), isMobile);
@@ -394,12 +416,8 @@ test.describe('Dashboards', () => {
       // to it without taking it to the top.
       await press(funnel('Filter this dashboard'), isMobile);
       await press(bar.getByRole('button', { name: 'High' }), isMobile);
-      const other = uniqueTitle('Elsewhere');
-      await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
-      await page.getByLabel('Name of the new dashboard').fill(other);
-      await page.getByLabel('Name of the new dashboard').press('Enter');
+      await press(dashboardTab(page, other), isMobile);
       await expect(page.getByRole('heading', { name: other, level: 2 })).toBeVisible();
-      await fill(3);
       await expect.poll(reach).toBeGreaterThan(150);
       await scrollDown(100);
       await press(
@@ -411,25 +429,7 @@ test.describe('Dashboards', () => {
       expect(await scrollTop(), 'a switch does not scroll').toBeGreaterThan(0);
       await press(funnel('Clear the filter and close it'), isMobile);
 
-      // **All items**, with enough items that its table is taller than the window.
-      await chooseRowAction(page, 'Dashboard 1', 'Show all items', isMobile);
-      const workspaceId = new URL(page.url()).pathname.split('/')[2]!;
-      const known = await page.request.get('/v1/item-types');
-      const [aType] = ((await known.json()) as { itemTypes: { id: string }[] }).itemTypes;
-      for (let at = 0; at < 12; at += 1) {
-        const sent = await page.request.post('/v1/commands/capture_item', {
-          data: {
-            commandId: randomUUID(),
-            issuedAt: new Date().toISOString(),
-            workspaceId,
-            itemId: randomUUID(),
-            message: uniqueTitle(`Entry ${at}`),
-            typeId: aType!.id,
-          },
-        });
-        expect(sent.ok(), `capturing from outside failed: ${sent.status()}`).toBe(true);
-      }
-      await page.reload();
+      // **All items.**
       const tab = dashboardBar(page).getByRole('link', { name: 'All items' });
       await press(tab, isMobile);
       await expect(page).toHaveURL(/\/items$/);
