@@ -85,12 +85,45 @@ export function placementFor(
     const row = rows[index]!;
     if (point.y < row.top) return inTheGapUnder(rows[index - 1], dragged);
     if (point.y <= row.bottom) {
+      // On its own row a panel swaps once the pointer is where the swap would
+      // draw it; on any other, which half of a panel the pointer is on decides.
+      if (row.cells.some((cell) => cell.panelId === dragged)) {
+        return withinItsOwnRow(point.x, row, dragged);
+      }
       const placement = alongTheRow(point.x, row);
       if (!placement) return null;
       return placement.panelId === dragged ? null : placement;
     }
   }
   return inTheGapUnder(rows[rows.length - 1], dragged);
+}
+
+/**
+ * Where the pointer asks the dragged panel to go on the row it is already on.
+ *
+ * **A swap happens when the pointer is where the swap would draw the panel**,
+ * not at the neighbour's middle: moving past a neighbour puts the panel's far
+ * edge where the neighbour's was, so the pointer is under the panel again once
+ * it is at least a panel's width in from that edge. Two equal panels therefore
+ * swap on entry, and a narrow one passing a wide one waits until it would land
+ * under the pointer rather than back over the neighbour, where it would flip
+ * straight back. The farthest neighbour the pointer has passed wins.
+ *
+ * Null while the pointer is over the dragged panel itself, for the reason
+ * `placementFor` gives.
+ */
+function withinItsOwnRow(x: number, row: DrawnRow, dragged: string): Placement | null {
+  const own = row.cells.find((cell) => cell.panelId === dragged);
+  if (!own || (x >= own.left && x <= own.right)) return null;
+  const width = own.right - own.left;
+  if (x > own.right) {
+    const passed = row.cells.filter((cell) => cell.left >= own.right && x >= cell.right - width);
+    const farthest = passed[passed.length - 1];
+    return farthest ? { on: 'beside', panelId: farthest.panelId, side: 'after' } : null;
+  }
+  const passed = row.cells.filter((cell) => cell.right <= own.left && x <= cell.left + width);
+  const farthest = passed[0];
+  return farthest ? { on: 'beside', panelId: farthest.panelId, side: 'before' } : null;
 }
 
 /**

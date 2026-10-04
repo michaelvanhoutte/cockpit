@@ -13,28 +13,36 @@ import type { LayoutRow } from '@cockpit/shared';
  * 22-pixel seam between each while a drag is on, and the panels across a row
  * splitting 0-600 evenly.
  */
-function drawn(rows: string[][]): DrawnRow[] {
+function drawn(rows: string[][], spans: Spans = {}): DrawnRow[] {
   return rows.map((panelIds, index) => {
     const top = index * 122;
-    const width = 600 / panelIds.length;
+    const total = panelIds.reduce((sum, id) => sum + (spans[id] ?? 1), 0);
+    let left = 0;
     return {
       top,
       bottom: top + 100,
-      cells: panelIds.map((panelId, at) => ({
-        panelId,
-        left: at * width,
-        right: (at + 1) * width,
-      })),
+      cells: panelIds.map((panelId) => {
+        const right = left + (600 * (spans[panelId] ?? 1)) / total;
+        const cell = { panelId, left, right };
+        left = right;
+        return cell;
+      }),
     };
   });
 }
 
+/** How much of a row a panel takes, where it is not an equal share. */
+type Spans = Record<string, number>;
+
 /** The same arrangement as the rows the layout stores. */
-function stored(rows: string[][]): LayoutRow[] {
-  return rows.map((panelIds) => ({
-    height: null,
-    cells: panelIds.map((panelId) => ({ panelId, span: 12 / panelIds.length })),
-  }));
+function stored(rows: string[][], spans: Spans = {}): LayoutRow[] {
+  return rows.map((panelIds) => {
+    const total = panelIds.reduce((sum, id) => sum + (spans[id] ?? 1), 0);
+    return {
+      height: null,
+      cells: panelIds.map((panelId) => ({ panelId, span: (12 * (spans[panelId] ?? 1)) / total })),
+    };
+  });
 }
 
 /** The arrangement as the panels on each line, which is what these cases are about. */
@@ -116,6 +124,39 @@ describe('Panels', () => {
     });
   });
 
+  describe('within its own row a panel swaps once the pointer is where the swap would draw it', () => {
+    /** One row of cells with the given [id, left, right], a four-pixel gap between neighbours. */
+    const row = (...cells: [string, number, number][]): DrawnRow[] => [
+      { top: 0, bottom: 100, cells: cells.map(([panelId, left, right]) => ({ panelId, left, right })) },
+    ];
+    const equal = row(['a', 0, 298], ['b', 302, 600]);
+    const narrowThenWide = row(['n', 0, 100], ['w', 104, 600]);
+    const wideThenNarrow = row(['w', 0, 496], ['n', 500, 600]);
+
+    it.each([
+      { situation: 'an equal neighbour to the right, the pointer just past its left edge', rows: equal, dragged: 'a', x: 303, is: { on: 'beside', panelId: 'b', side: 'after' } },
+      { situation: 'an equal neighbour to the left, the pointer just inside its right edge', rows: equal, dragged: 'b', x: 297, is: { on: 'beside', panelId: 'a', side: 'before' } },
+      { situation: 'a narrow panel, a wide neighbour and the pointer just inside the neighbour', rows: narrowThenWide, dragged: 'n', x: 110, is: null },
+      { situation: 'the same, the pointer far enough in that the panel would land under it', rows: narrowThenWide, dragged: 'n', x: 510, is: { on: 'beside', panelId: 'w', side: 'after' } },
+      { situation: 'a wide panel passing a narrow neighbour to its right', rows: wideThenNarrow, dragged: 'w', x: 520, is: { on: 'beside', panelId: 'n', side: 'after' } },
+      { situation: 'the pointer still over the dragged panel', rows: equal, dragged: 'a', x: 290, is: null },
+    ])('$situation', ({ rows, dragged, x, is }) => {
+      expect(placementFor({ x, y: 50 }, rows, dragged)).toEqual(is);
+    });
+
+    it('goes after the farther of two neighbours the pointer is past', () => {
+      const three = row(['a', 0, 196], ['b', 200, 396], ['c', 400, 600]);
+      expect(placementFor({ x: 590, y: 50 }, three, 'a')).toEqual({ on: 'beside', panelId: 'c', side: 'after' });
+      expect(placementFor({ x: 10, y: 50 }, three, 'c')).toEqual({ on: 'beside', panelId: 'a', side: 'before' });
+    });
+
+    it('still goes by halves over a panel on a different row', () => {
+      const rows = drawn([['a', 'b'], ['c']]);
+      expect(placementFor({ x: 10, y: 50 }, rows, 'c')).toEqual({ on: 'beside', panelId: 'a', side: 'before' });
+      expect(placementFor({ x: 290, y: 50 }, rows, 'c')).toEqual({ on: 'beside', panelId: 'b', side: 'before' });
+    });
+  });
+
   describe('a pointer held still settles the arrangement rather than flipping it', () => {
     /**
      * The rule the whole gesture rests on, and the one four separate bugs broke
@@ -138,11 +179,17 @@ describe('Panels', () => {
      * Each of those four bugs was found in review, one case at a time, each fix
      * narrower than the last. This asks the rule instead.
      */
-    const boards = [
-      [['a'], ['b'], ['c']],
-      [['a', 'b'], ['c']],
-      [['a'], ['b', 'c']],
-      [['a', 'b', 'c']],
+    const boards: { board: string[][]; spans: Spans }[] = [
+      { board: [['a'], ['b'], ['c']], spans: {} },
+      { board: [['a', 'b'], ['c']], spans: {} },
+      { board: [['a'], ['b', 'c']], spans: {} },
+      { board: [['a', 'b', 'c']], spans: {} },
+      // Unequal widths, where a swap on entry has to be far enough in not to
+      // put the panel back over the neighbour it just passed.
+      { board: [['a', 'b']], spans: { a: 1, b: 3 } },
+      { board: [['a', 'b']], spans: { a: 3, b: 1 } },
+      { board: [['a', 'b', 'c']], spans: { a: 1, b: 4, c: 2 } },
+      { board: [['a', 'b', 'c'], ['d']], spans: { a: 2, b: 1, c: 5 } },
     ];
 
     /** Every place on the board a pointer can be: along each row, and in each seam. */
@@ -160,12 +207,12 @@ describe('Panels', () => {
       return spots;
     }
 
-    it.each(boards.flatMap((board) => board.flat().map((dragged) => ({ board, dragged }))))(
-      'settles anywhere on $board while $dragged is in hand',
-      ({ board, dragged }) => {
-        const from = stored(board);
+    it.each(boards.flatMap(({ board, spans }) => board.flat().map((dragged) => ({ board, spans, dragged }))))(
+      'settles anywhere on $board, widths $spans, while $dragged is in hand',
+      ({ board, spans, dragged }) => {
+        const from = stored(board, spans);
 
-        for (const spot of everywhere(drawn(board))) {
+        for (const spot of everywhere(drawn(board, spans))) {
           let preview = from;
           const seen: string[] = [];
           // Four readings is generous: a move takes one, and the step the moved
@@ -173,7 +220,7 @@ describe('Panels', () => {
           // that is never going to stop.
           for (let reading = 0; reading < 4; reading += 1) {
             seen.push(JSON.stringify(lines(preview)));
-            const placement = placementFor(spot, drawn(lines(preview)), dragged);
+            const placement = placementFor(spot, drawn(lines(preview), spans), dragged);
             if (!placement) break;
             preview = arrangedWith(from, dragged, placement);
           }
