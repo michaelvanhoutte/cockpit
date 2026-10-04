@@ -113,14 +113,16 @@ test.describe('Panels', () => {
       // Scrolled part-way through the dashboard's panels, its name is still at
       // the top of the list. Other dashboards from the account may come first,
       // so it is this one's section that is scrolled into.
+      // What is pinned is the heading's row, which carries its + beside it.
       await heading.evaluate((h) => {
         const scroller = h.closest('div.overflow-y-auto')!;
-        const into = h.parentElement!.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+        const into = h.closest('section')!.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
         scroller.scrollTop += into + 100;
       });
+      const pinned = heading.locator('..');
       const listTop = (await picker.locator('div.overflow-y-auto').boundingBox())!.y;
       await expect
-        .poll(async () => Math.abs((await heading.boundingBox())!.y - listTop))
+        .poll(async () => Math.abs((await pinned.boundingBox())!.y - listTop))
         .toBeLessThan(2);
 
       // A search that leaves one match moves neither the dialog nor Cancel.
