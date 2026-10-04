@@ -607,9 +607,7 @@ export function PanelCard({
             // dragged to a new place in it.
             sorted={(sortedAs !== null || dashboardFiltered) && filter === null}
             emptyMessage={
-              dashboardFiltered
-                ? 'Nothing here matches the dashboard filter.'
-                : filter
+              filter
                 ? filter.conditions.length === 0
                   ? NOTHING_CHOSEN_TO_SHOW
                   : NOTHING_MATCHES_YET
