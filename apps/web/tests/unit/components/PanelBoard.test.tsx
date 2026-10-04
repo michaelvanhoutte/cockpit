@@ -2791,9 +2791,9 @@ describe('Panels', () => {
 
       for (const region of regions()) {
         expect(within(region).queryAllByRole('listitem')).toHaveLength(0);
-        expect(within(region).queryByText(/Add an item/)).toBeNull();
-        expect(within(region).queryByText(NOTHING_FILED_HERE)).toBeNull();
-        expect(within(region).queryByText('Some prose')).toBeNull();
+        notShown(within(region).queryByText(/Add an item/));
+        notShown(within(region).queryByText(NOTHING_FILED_HERE));
+        notShown(within(region).queryByText('Some prose'));
         expect(within(region).queryByRole('textbox')).toBeNull();
         expect(within(region).getByRole('heading', { level: 3 })).toBeVisible();
       }
@@ -2804,6 +2804,23 @@ describe('Panels', () => {
       }
     });
 
+    // Hidden rather than unmounted: absent from the page, still held by it.
+    const notShown = (element: HTMLElement | null) => {
+      if (element) expect(element).not.toBeVisible();
+    };
+
+    it('keeps a half-typed item on a panel through a drag, hidden while it is in the air', () => {
+      board();
+      fireEvent.click(within(screen.getByRole('region', { name: 'Project Falcon' })).getByRole('button', { name: '+ Add an item' }));
+      fireEvent.change(screen.getByRole('textbox', { name: 'Capture a note or to-do' }), { target: { value: 'Call Bart' } });
+
+      pickUp('To read');
+      expect(screen.queryByRole('textbox', { name: 'Capture a note or to-do' })).toBeNull();
+      fireEvent.keyDown(window, { key: 'Escape' });
+
+      expect(screen.getByRole('textbox', { name: 'Capture a note or to-do' })).toHaveValue('Call Bart');
+    });
+
     it('hides the empty-panel how-to too, where nothing has been filed anywhere', () => {
       showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
       const falcon = () => screen.getByRole('region', { name: 'Project Falcon' });
@@ -2811,7 +2828,7 @@ describe('Panels', () => {
 
       pickUp('To read');
 
-      expect(within(falcon()).queryByText(NOTHING_FILED_HERE_YET_AND_HOW)).toBeNull();
+      notShown(within(falcon()).queryByText(NOTHING_FILED_HERE_YET_AND_HOW));
     });
 
     it.each([
