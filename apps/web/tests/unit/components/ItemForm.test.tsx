@@ -1530,6 +1530,15 @@ describe('Item editing', () => {
       expect(opener).toHaveAttribute('target', '_blank');
     });
 
+    /** "Connect a Gmail account to a workspace, and disconnect it", issue 724. */
+    it('names an item from Gmail "Gmail", never the stored "mail"', async () => {
+      await theForm(anItem({ source: 'mail', sender: 'Anna', sourceLink: 'https://mail.google.com/mail/#all/1' }));
+
+      expect(screen.getByText(/From Gmail - Anna/)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open in Gmail' })).toBeInTheDocument();
+      expect(screen.queryByText(/\bmail\b/)).toBeNull();
+    });
+
     it('names the app that captured it, and not the protocol it came through', async () => {
       await theForm(anItem({ source: 'mcp', sender: 'Claude' }));
 

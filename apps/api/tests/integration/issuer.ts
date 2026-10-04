@@ -53,7 +53,26 @@ let keys: CryptoKeyPair | null = null;
  * sign-ins in flight at once each get their own - which is what a case about
  * two first sign-ins racing needs.
  */
-const answers = new Map<string, Claims | 'refuses'>();
+const answers = new Map<string, { claims: Claims; grant: Grant } | 'refuses'>();
+
+/**
+ * What the issuer hands over beside the identity, the way Google does for a
+ * Gmail connection asked for offline access ("Connect a Gmail account to a
+ * workspace, and disconnect it", issue 724): field names as Google spells
+ * them, put into the answer as they are.
+ */
+export interface Grant {
+  refresh_token?: string;
+  access_token?: string;
+  expires_in?: number;
+  scope?: string;
+}
+
+/** Every token handed back to be revoked, oldest first. */
+export const revoked: string[] = [];
+
+/** How the issuer answers a revoke: as Google does, with a refusal, or never. */
+let revoking: 'answers' | 'refuses' | 'times out' = 'answers';
 
 /**
  * Exchanges held back until a number of them have arrived, then answered at
@@ -89,6 +108,8 @@ async function signingKeys(): Promise<CryptoKeyPair> {
 export async function issuerIsReachable(): Promise<void> {
   // A hold a failed case left armed would stall every exchange after it.
   gate = null;
+  revoking = 'answers';
+  revoked.length = 0;
   const { publicKey } = await signingKeys();
   const jwks = { keys: [{ ...(await exportJWK(publicKey)), alg: 'RS256', use: 'sig' }] };
 
@@ -104,9 +125,18 @@ export async function issuerIsReachable(): Promise<void> {
         authorization_endpoint: `${ISSUER}/authorize`,
         token_endpoint: `${ISSUER}/token`,
         jwks_uri: `${ISSUER}/jwks`,
+        revocation_endpoint: `${ISSUER}/revoke`,
       });
     }
     if (url.pathname === '/jwks') return Response.json(jwks);
+    if (url.pathname === '/revoke') {
+      revoked.push(new URLSearchParams(init?.body as URLSearchParams).get('token') ?? '');
+      // What `AbortSignal.timeout` rejects with, without waiting it out.
+      if (revoking === 'times out') throw new DOMException('The operation timed out.', 'TimeoutError');
+      return revoking === 'refuses'
+        ? Response.json({ error: 'invalid_token' }, { status: 400 })
+        : new Response(null, { status: 200 });
+    }
     if (url.pathname === '/token') {
       if (gate) {
         const waiting = gate;
@@ -119,15 +149,23 @@ export async function issuerIsReachable(): Promise<void> {
       // gets is the refusal, not another identity.
       answers.delete(code);
       if (!asked || asked === 'refuses') return Response.json({ error: 'invalid_grant' }, { status: 400 });
-      return Response.json({ token_type: 'Bearer', id_token: await identityToken(asked) });
+      return Response.json({ token_type: 'Bearer', ...asked.grant, id_token: await identityToken(asked.claims) });
     }
     throw new Error(`the issuer has no ${url.pathname}`);
   });
 }
 
-/** Who the issuer will say somebody is, when the code they came back with is spent. */
-export function issuerWillIdentify(claims: Claims, code = 'a-code'): void {
-  answers.set(code, claims);
+/**
+ * Who the issuer will say somebody is, when the code they came back with is
+ * spent - and what else it hands over beside that, where a case asks.
+ */
+export function issuerWillIdentify(claims: Claims, code = 'a-code', grant: Grant = {}): void {
+  answers.set(code, { claims, grant });
+}
+
+/** The issuer refusing every revoke from now on, or never answering one. */
+export function issuerRevokes(how: 'refuses' | 'times out'): void {
+  revoking = how;
 }
 
 /** The issuer refusing to exchange a code, which is what a spent one gets. */
@@ -161,6 +199,8 @@ export function issuerIsForgotten(): void {
   vi.unstubAllGlobals();
   answers.clear();
   gate = null;
+  revoking = 'answers';
+  revoked.length = 0;
 }
 
 export async function identityToken({

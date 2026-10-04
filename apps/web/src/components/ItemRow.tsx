@@ -5,6 +5,7 @@ import {
   itemHasOpenReadings,
   itemLabel,
   itemStatus,
+  connectorNamed,
   panelPlace,
   runBlocksAStart,
   STARTING_GIVES_UP_AFTER_MS,
@@ -1223,7 +1224,10 @@ export function ItemRow({
               ))}
             <span className="truncate">
               {itemType ? '· ' : ''}
-              {capturingApp(item) ?? (item.source === 'internal' ? 'Own' : item.source)}
+              {/* The source by the name the form gives it - "Gmail", never the
+                  stored `mail` ("Connect a Gmail account to a workspace, and
+                  disconnect it", issue 724). */}
+              {capturingApp(item) ?? (item.source === 'internal' ? 'Own' : connectorNamed(item.source))}
               {item.sender && !capturingApp(item) ? ` · ${item.sender}` : ''}
             </span>
             {/* The way back to the original, where the source gave one ("Open an

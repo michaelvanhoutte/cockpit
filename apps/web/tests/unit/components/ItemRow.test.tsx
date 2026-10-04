@@ -605,7 +605,9 @@ describe('Triage', () => {
     it.each([
       { situation: 'an app captured', item: { source: 'mcp', sender: 'Claude' }, shows: 'Claude' },
       { situation: 'was written here', item: { source: 'internal' }, shows: 'Own' },
-      { situation: 'came from Teams', item: { source: 'teams', sender: 'Ada' }, shows: 'teams · Ada' },
+      // Named as the form names it, never by the stored source (issue 724).
+      { situation: 'came from Teams', item: { source: 'teams', sender: 'Ada' }, shows: 'Microsoft Teams · Ada' },
+      { situation: 'came from Gmail', item: { source: 'mail', sender: 'Anna' }, shows: 'Gmail · Anna' },
     ] as const)('an item that $situation says $shows where the source goes', ({ item, shows }) => {
       mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
       render(<ItemRow item={anItem({ ...item })} workspaceId="ws-work" />);

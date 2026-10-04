@@ -13,6 +13,13 @@ import { z } from 'zod';
 export const TEAMS = 'teams';
 
 /**
+ * A Gmail mailbox, whose conversations labelled `Cockpit` become tasks
+ * ("Connect a Gmail account to a workspace, and disconnect it", issue 724).
+ * Its Items carry the source `mail`, which reads "Gmail" too.
+ */
+export const GMAIL = 'gmail';
+
+/**
  * A workspace's routine trigger - one Claude Code session started and
  * reported back, rather than an account signed in to (issue 569). It still
  * fills the same row a source account does: the store keys on `connectorId`
@@ -23,6 +30,9 @@ export const CLAUDE_CODE = 'claude-code';
 /** What a connector is called on screen; its id is what the store keys on. */
 export function connectorNamed(connectorId: string): string {
   if (connectorId === TEAMS) return 'Microsoft Teams';
+  // An Item's source is `mail`, the connection's connector `gmail`: both are
+  // Gmail to whoever reads them (issue 724).
+  if (connectorId === GMAIL || connectorId === 'mail') return 'Gmail';
   if (connectorId === CLAUDE_CODE) return 'Claude Code';
   return connectorId;
 }

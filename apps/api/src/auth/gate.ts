@@ -360,6 +360,12 @@ const CONNECT_COOKIE = 'cockpit_connect';
 export interface ConnectAttempt extends Attempt {
   readonly workspaceId: string;
   readonly accountName: string;
+  /**
+   * Which source it was started for, so each callback refuses an attempt
+   * started for another ("Connect a Gmail account to a workspace, and
+   * disconnect it", issue 724). A cookie from before this field was Teams'.
+   */
+  readonly connectorId: string;
 }
 
 function attemptCookieName(url: string): string {
@@ -433,7 +439,7 @@ export function attemptHeld(c: Context): SignInAttempt | null {
 export function connectAttemptHeld(c: Context): ConnectAttempt | null {
   const held = readAttempt(getCookie(c, connectCookieName(c.req.url)));
   if (!held) return null;
-  const { workspaceId, accountName } = held.also;
+  const { workspaceId, accountName, connectorId } = held.also;
   if (typeof workspaceId !== 'string' || !workspaceId) return null;
   if (typeof accountName !== 'string' || !accountName) return null;
   return {
@@ -442,6 +448,7 @@ export function connectAttemptHeld(c: Context): ConnectAttempt | null {
     codeVerifier: held.codeVerifier,
     workspaceId,
     accountName,
+    connectorId: typeof connectorId === 'string' && connectorId ? connectorId : 'teams',
   };
 }
 
