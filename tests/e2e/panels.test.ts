@@ -219,10 +219,15 @@ function layoutControl(page: Page) {
  */
 async function dragBefore(page: Page, panel: string, before: string): Promise<void> {
   const answered = answerTo(page, 'save_layout');
-  const target = (await page.getByRole('region', { name: before }).boundingBox())!;
   await page.mouse.move(...(await centreOf(page.getByRole('region', { name: panel }).locator('header'))));
   await page.mouse.down();
-  await page.mouse.move(target.x + 4, target.y + target.height / 2, { steps: 8 });
+  // Measured once the pick-up has collapsed the board to headers, which moves
+  // every panel the pointer is aimed at.
+  await expect
+    .poll(async () => (await page.getByRole('region', { name: before }).boundingBox())!.height)
+    .toBeLessThan(100);
+  const collapsed = (await page.getByRole('region', { name: before }).boundingBox())!;
+  await page.mouse.move(collapsed.x + 4, collapsed.y + collapsed.height / 2, { steps: 8 });
   await page.mouse.up();
   expect((await answered).status()).toBe(200);
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
