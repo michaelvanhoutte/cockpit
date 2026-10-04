@@ -44,7 +44,7 @@ export const MAX_ATTACHMENT_SIZE = 25 * 1024 * 1024;
  * A single line, the same predicate `workspaceNameSchema` takes
  * (`domain/item.ts`'s `isSingleLine`) - refused rather than cleaned up if it
  * holds a tab or a line break. Its own schema rather than an alias, unlike
- * `panelNameSchema`/`itemTypeNameSchema`/`screenSizeNameSchema`, because a
+ * `panelNameSchema`/`itemTypeNameSchema`, because a
  * filename's cap is 255, not 60.
  */
 export const attachmentFilenameSchema = z

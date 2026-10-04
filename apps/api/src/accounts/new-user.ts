@@ -38,8 +38,8 @@ import { normaliseAddress } from '../auth/oidc.js';
 
 /**
  * The one guest account's ids ("Sign in as a guest, without a password", issue
- * 354) - fixed rather than looked up, the convention `ACCOUNT_WIDE` and
- * `DEFAULT_SCREEN_SIZE_NAME` already follow.
+ * 354) - fixed rather than looked up, the convention `ACCOUNT_WIDE` already
+ * follows.
  *
  * **Kept beside the derivation because they are ids it would otherwise hand
  * out**: they are exactly what "Guest" derives, and a person holding them locks

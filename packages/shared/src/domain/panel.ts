@@ -6,12 +6,24 @@ import { prioritySchema, workspaceNameSchema } from './item.js';
  * per-screen-size layouts", issue 33).
  *
  * A Panel is a movable, resizable, titled box on a Dashboard
- * (functional-definition.md, "Container hierarchy"). A Layout is one
- * arrangement of that Dashboard's Panels at one screen size.
+ * (functional-definition.md, "Container hierarchy"). A Layout is that
+ * Dashboard's one arrangement of its Panels.
  */
 
 /** The grid every Dashboard is drawn on (architecture.md §4.4, "packages/shared: schema and command rationale", for why twelve). */
 export const GRID_COLUMNS = 12;
+
+/**
+ * Where a phone ends. A window narrower than this is drawn one Panel across,
+ * whatever the Dashboard's Layout says, and offers no arranging at all. It is
+ * the width the repo's own phone viewport sits under (`playwright.config.ts`).
+ */
+export const PHONE_WIDTH_BELOW = 480;
+
+/** Whether a window is a phone's: too narrow for a Layout to be read or made on it. */
+export function isPhoneWidth(width: number): boolean {
+  return width < PHONE_WIDTH_BELOW;
+}
 
 /** The tallest and shortest a row may be set to, in pixels (architecture.md §4.4). */
 export const MIN_ROW_HEIGHT = 160;
@@ -437,13 +449,15 @@ export const layoutRowSchema = z.object({
 });
 export type LayoutRow = z.infer<typeof layoutRowSchema>;
 
-/** One arrangement of a Dashboard's Panels, at one Screen size ("Draw a dashboard against the screen sizes its account has", issue 263; "Take the width and the name off a layout, now that its size carries them", issue 264; architecture.md §4.4). */
+/**
+ * A Dashboard's one arrangement of its Panels ("Convert every Dashboard to its
+ * widest Layout and retire Screen sizes", issue 713; architecture.md §4.4). At
+ * most one per Dashboard, and none until the Dashboard is first arranged.
+ */
 export const layoutSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
   dashboardId: z.string(),
-  /** The Screen size this Layout arranges the Dashboard for. */
-  screenSizeId: z.string(),
   /** The rows, top to bottom, each holding its Panels left to right. */
   rows: z.array(layoutRowSchema).default([]),
 });

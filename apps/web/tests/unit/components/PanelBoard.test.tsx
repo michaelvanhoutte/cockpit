@@ -15,7 +15,6 @@ import type {
   Layout,
   Panel,
   PanelSort,
-  ScreenSize,
 } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
 import {
@@ -137,42 +136,16 @@ function aType(id: string, name: string): ItemType {
 }
 
 /**
- * The width `aLayout` intended for the matching screen size `screenSizeOf`
- * derives - kept here rather than on the Layout itself, which no longer
- * carries a width of its own, keyed by the deterministic id the two share.
- */
-const widthByScreenSizeId = new Map<string, number>();
-
-/**
  * A layout of one row holding every panel, side by side - which is what the
- * flat arrangement these cases were written against drew at this width, so a
- * panel still has somewhere to move left to.
- *
- * Defined at a screen size of its own, one per layout, so the automatic
- * choice (`arrangement.ts`, `layoutToDraw`) has something to find it by -
- * `showBoard` derives the matching `screenSizes` list from these unless a
- * case hands it its own.
+ * flat arrangement these cases were written against drew, so a panel still has
+ * somewhere to move left to.
  */
-function aLayout(id: string, screenWidth: number, panelIds: string[]): Layout {
-  const screenSizeId = `sz-${id}`;
-  widthByScreenSizeId.set(screenSizeId, screenWidth);
+function aLayout(id: string, panelIds: string[]): Layout {
   return {
     id,
     tenantId: 'tenant',
     dashboardId: 'today',
-    screenSizeId,
     rows: [{ height: null, cells: panelIds.map((panelId) => ({ panelId, span: 12 })) }],
-  };
-}
-
-/** The screen size a layout made by `aLayout` is drawn for. */
-function screenSizeOf(layout: Layout): ScreenSize {
-  return {
-    id: layout.screenSizeId,
-    tenantId: 'tenant',
-    name: layout.id,
-    width: widthByScreenSizeId.get(layout.screenSizeId) ?? 1280,
-    createdAt: '2026-09-08T10:00:00.000Z',
   };
 }
 
@@ -229,11 +202,6 @@ function showBoard({
   // off the dashboard.
   dashboards = [DASHBOARD] as Dashboard[],
   layouts = [] as Layout[],
-  // Derived from the layouts unless a case wants its own - most cases here
-  // are about drag-and-drop mechanics, not about which screen sizes an
-  // account has, and every layout `aLayout` makes needs its own size for the
-  // board to draw it automatically at all.
-  screenSizes = layouts.map(screenSizeOf) as ScreenSize[],
   items = [] as Item[],
   attachments = [] as Attachment[],
   agentRuns = [] as AgentRun[],
@@ -255,7 +223,6 @@ function showBoard({
   panelsInWorkspace?: Panel[];
   dashboards?: Dashboard[];
   layouts?: Layout[];
-  screenSizes?: ScreenSize[];
   items?: Item[];
   attachments?: Attachment[];
   agentRuns?: AgentRun[];
@@ -296,7 +263,6 @@ function showBoard({
         panels={drawing}
         panelsInWorkspace={panelsInWorkspace}
         layouts={layouts}
-        screenSizes={screenSizes}
         items={drawnItems}
         attachments={drawnAttachments}
         agentRuns={drawnRuns}
@@ -663,7 +629,7 @@ describe('Panels', () => {
       // close, and starve `SurfaceMenu`'s long press of the touch it needs to
       // open at all. `pointerType` is the whole of what tells the two apart,
       // the same guard `tabDrag.ts` carries for the same reason.
-      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
       const lifted = () => screen.getByRole('region', { name: 'To read' }).className;
 
       fireEvent.pointerDown(handleOf('To read'), {
@@ -969,52 +935,40 @@ describe('Panels', () => {
   });
 
   describe('changing the arrangement changes the layout you are on, and asks nothing', () => {
-    it.each([
-      {
-        situation: 'the layout is the one this screen was measured at',
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
-      },
-      {
-        // The case that used to stop and ask which layout to keep the change
-        // in. You picked the layout you are on, so the gesture means what it
-        // says and goes into it.
-        situation: 'the layout was made for a screen four times as wide',
-        layouts: [aLayout('wide', 2560, ['falcon', 'reading'])],
-      },
-    ])('changes the layout on screen when $situation', async ({ layouts }) => {
+    it('draws the dashboard from its one layout, with no list of screen sizes to read', () => {
+      // Another dashboard's layout beside it, as the workspace's snapshot
+      // carries every dashboard's.
+      showBoard({
+        layouts: [
+          { ...aLayout('elsewhere', ['falcon', 'reading']), dashboardId: 'research' },
+          {
+            ...aLayout('mine', []),
+            rows: [
+              { height: null, cells: [{ panelId: 'reading', span: 12 }] },
+              { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
+            ],
+          },
+        ],
+      });
+
+      expect(drawnLines()).toEqual([['reading'], ['falcon']]);
+    });
+
+    it('changes the layout on screen, asking nothing', async () => {
+      const layouts = [aLayout('mine', ['falcon', 'reading'])];
       const { mutate } = showBoard({ layouts });
 
       dragTo('To read', slotBefore('falcon'));
 
       expect(screen.queryByRole('alertdialog')).toBeNull();
       const [asked] = mutate.mock.calls[0]!;
-      expect(asked.payload.layoutId).toBe(layouts[0]!.id);
+      expect(asked.payload.layoutId).toBe('mine');
       expect(sentOrder(mutate)).toEqual(['reading', 'falcon']);
     });
 
-    it('keeps a move in the widest layout, leaves the other untouched, and ignores a remembered pick of another', async () => {
-      // A pick left in the browser by an earlier version, naming the narrower one.
-      localStorage.setItem(
-        'cockpit.layoutPick',
-        JSON.stringify({ screenSizeId: 'sz-laptop', whileNearestIs: 'sz-laptop' }),
-      );
-      screenIs(1300);
-      const layouts = [aLayout('laptop', 1646, ['falcon', 'reading']), aLayout('wide', 2560, ['falcon', 'reading'])];
-      const { mutate } = showBoard({ layouts });
-
-      dragTo('To read', slotBefore('falcon'));
-
-      expect(mutate).toHaveBeenCalledTimes(1);
-      const [asked] = mutate.mock.calls[0]!;
-      expect(asked.name).toBe('save_layout');
-      expect(asked.payload.layoutId).toBe('wide');
-    });
-
-    it('makes an arrangement with nothing defined without naming a screen size, and leaves the server to resolve one', async () => {
+    it('makes the first arrangement of a dashboard nobody has arranged without naming a screen size or a width', async () => {
       // There is nothing to change and nothing worth interrupting a drag to
-      // ask - the server keeps it in the nearest size the account has, or
-      // makes one called Default where it has none at all (`save_layout`,
-      // `screenSizeId`). The board asks nothing about either.
+      // ask: the first move makes the dashboard's one layout (`save_layout`).
       screenIs(1280);
       const { mutate } = showBoard();
 
@@ -1022,14 +976,13 @@ describe('Panels', () => {
 
       const [asked] = mutate.mock.calls[0]!;
       expect(asked.name).toBe('save_layout');
-      expect(asked.payload.screenSizeId).toBeUndefined();
-      expect(asked.payload.screenWidth).toBe(1280);
+      expect(asked.payload).not.toHaveProperty('screenSizeId');
+      expect(asked.payload).not.toHaveProperty('screenWidth');
     });
 
-    it('changes the layout it just made rather than defining a second one at the same width', async () => {
+    it('changes the layout it just made rather than naming a second one', async () => {
       // Two gestures before the first has been re-read both find a dashboard
-      // with no layout. A fresh id each time would leave the layout menu
-      // listing the same width twice with nothing to tell the two apart.
+      // with no layout, and the second is about the one the first made.
       // Left in flight, which is the state two quick gestures happen in: the
       // first is sent and not yet re-read, so the second still finds a
       // dashboard with no layout.
@@ -1050,7 +1003,7 @@ describe('Panels', () => {
       // have yet. Measured against the snapshot it would look like no change at
       // all, and the move would be silently dropped.
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
         settles: false,
       });
 
@@ -1065,7 +1018,7 @@ describe('Panels', () => {
       // Dropped back where it already is - before the panel it is already
       // before. A gesture happened, and what it asks for is what the layout
       // already holds; sending it would make every abandoned drag a write.
-      const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      const { mutate } = showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
 
       dragTo('Project Falcon', slotBefore('reading'));
 
@@ -1075,7 +1028,7 @@ describe('Panels', () => {
     it('puts a panel on a line of its own when it is let go in the gap', async () => {
       // The seam between two rows is the gesture that makes a row, and it is
       // the one thing the wrapping grid had no way to express.
-      const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      const { mutate } = showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
 
       dragTo('To read', gapAbove(0));
 
@@ -1091,7 +1044,7 @@ describe('Panels', () => {
       showBoard({
         layouts: [
           {
-            ...aLayout('laptop', 1280, ['falcon']),
+            ...aLayout('laptop', ['falcon']),
             rows: [
               { height: 248, cells: [{ panelId: 'falcon', span: 12 }] },
               { height: null, cells: [{ panelId: 'reading', span: 12 }] },
@@ -1112,7 +1065,7 @@ describe('Panels', () => {
     it('closes the gaps again when a panel is picked up and let go nowhere', async () => {
       // The seams open to be aimed at, so they have to close when there is no
       // longer anything to aim.
-      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
       const handle = handleOf('To read');
 
       fireEvent.pointerDown(handle, { button: 0, pointerId: 1, pointerType: 'mouse' });
@@ -1130,7 +1083,7 @@ describe('Panels', () => {
       // side it would land on - so the only way to find out what a drag meant
       // was to finish it.
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
 
       dragTo('To read', gapAbove(0), false);
@@ -1142,7 +1095,7 @@ describe('Panels', () => {
     it('marks the panel that is in the air, and unmarks it once it lands', async () => {
       // A gesture with no sign that it has begun is one you find out about
       // afterwards: the panel picked up used to be drawn exactly as it was.
-      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
       const lifted = () => screen.getByRole('region', { name: 'To read' }).className;
       const handle = handleOf('To read');
 
@@ -1159,7 +1112,7 @@ describe('Panels', () => {
       // have already moved on screen by then, so leaving them there would be
       // a change nobody asked for and nobody sent.
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
       const handle = handleOf('To read');
 
@@ -1184,7 +1137,7 @@ describe('Panels', () => {
       // long since left. The board holds the pointer now, and it outlives every
       // rearrangement.
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
       const handle = handleOf('To read');
 
@@ -1209,7 +1162,7 @@ describe('Panels', () => {
       // app, and a drag in progress had nothing to abandon: the only way out
       // was to drop the panel somewhere and move it back.
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
       const handle = handleOf('To read');
 
@@ -1229,7 +1182,7 @@ describe('Panels', () => {
       // lands - unless the browser refused the capture, which it is allowed to
       // do. The board would then sit lifted around a drag that was over.
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
       const handle = handleOf('To read');
 
@@ -1254,7 +1207,7 @@ describe('Panels', () => {
       const { mutate } = showBoard({
         layouts: [
           {
-            ...aLayout('laptop', 1280, ['falcon']),
+            ...aLayout('laptop', ['falcon']),
             rows: [
               { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
               { height: null, cells: [{ panelId: 'reading', span: 12 }] },
@@ -1298,7 +1251,7 @@ describe('Panels', () => {
         });
       try {
         const { mutate } = showBoard({
-          layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+          layouts: [aLayout('laptop', ['falcon', 'reading'])],
         });
         const handle = handleOf('To read');
 
@@ -1319,7 +1272,7 @@ describe('Panels', () => {
       // Every wander that comes home is one of these, and sending it would
       // make a change out of a gesture that changed nothing.
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
 
       dragTo('To read', slotBefore('reading'));
@@ -1335,7 +1288,7 @@ describe('Panels', () => {
     it('sends the same move the picker would, rather than an arrangement', async () => {
       const { mutate } = showBoard({
         dashboards: [DASHBOARD, RESEARCH],
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
       aTabElement('research', { left: 0, right: 80, top: -420, bottom: -380 });
 
@@ -1355,7 +1308,7 @@ describe('Panels', () => {
       // never left.
       const { mutate } = showBoard({
         dashboards: [DASHBOARD, RESEARCH],
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
       const point = slotBefore('falcon');
       aTabElement('today', {
@@ -1380,7 +1333,7 @@ describe('Panels', () => {
       // keep. Sending as the pointer moved would be a change per pixel.
       const { mutate } = showBoard({
         ...oneRow,
-        layouts: [aLayout('laptop', 1280, ['falcon'])],
+        layouts: [aLayout('laptop', ['falcon'])],
       });
 
       dragRowLine(0, 200, false);
@@ -1393,7 +1346,7 @@ describe('Panels', () => {
 
     it('gives one panel what the other gives up, and leaves the row adding up to a whole', () => {
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
 
       dragColumnLine(0, ONE_COLUMN);
@@ -1408,7 +1361,7 @@ describe('Panels', () => {
         ...oneRow,
         layouts: [
           {
-            ...aLayout('laptop', 1280, ['falcon']),
+            ...aLayout('laptop', ['falcon']),
             rows: [{ height: 400, cells: [{ panelId: 'falcon', span: 12 }] }],
           },
         ],
@@ -1424,7 +1377,7 @@ describe('Panels', () => {
       { situation: 'a line moved less than a whole column', act: () => dragColumnLine(0, 4) },
     ])('sends nothing for $situation', ({ act }) => {
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
 
       act();
@@ -1438,7 +1391,7 @@ describe('Panels', () => {
       // under every mouse move until some later click ended it.
       const { mutate } = showBoard({
         ...oneRow,
-        layouts: [aLayout('laptop', 1280, ['falcon'])],
+        layouts: [aLayout('laptop', ['falcon'])],
       });
 
       layOut();
@@ -1454,7 +1407,7 @@ describe('Panels', () => {
       const { mutate } = showBoard({
         layouts: [
           {
-            ...aLayout('laptop', 1280, ['falcon']),
+            ...aLayout('laptop', ['falcon']),
             rows: [
               { height: 240, cells: [{ panelId: 'falcon', span: 12 }] },
               { height: null, cells: [{ panelId: 'reading', span: 12 }] },
@@ -1484,7 +1437,7 @@ describe('Panels', () => {
     ])('puts the row back and sends nothing when $situation', ({ end }) => {
       const { mutate } = showBoard({
         panels: [aPanel('falcon', 'Project Falcon')],
-        layouts: [aLayout('laptop', 1280, ['falcon'])],
+        layouts: [aLayout('laptop', ['falcon'])],
       });
 
       dragRowLine(0, 200, false);
@@ -1501,7 +1454,7 @@ describe('Panels', () => {
     it('takes the lines away for the length of a drag and gives them back when it lands', () => {
       // The seam a panel is dropped into and the line that sizes a row are the
       // same four pixels, so only one of them can mean anything at a time.
-      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
       const handle = handleOf('To read');
       expect(screen.queryAllByTestId('row-line')).not.toHaveLength(0);
 
@@ -1525,7 +1478,7 @@ describe('Panels', () => {
         lines: 2,
       },
     ])('gives a dashboard with $situation $lines of them', ({ panels, lines }) => {
-      showBoard({ panels, layouts: [aLayout('laptop', 1280, ['falcon'])] });
+      showBoard({ panels, layouts: [aLayout('laptop', ['falcon'])] });
 
       expect(screen.queryAllByTestId('row-line')).toHaveLength(lines);
     });
@@ -1536,14 +1489,14 @@ describe('Panels', () => {
 
     it('ignores the layout made for a wider screen, however near it is', () => {
       screenIs(375);
-      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
 
       expect(rowsDrawn()).toBe(2);
     });
 
     it('takes away every line and the grab that rearranging is done with', () => {
       screenIs(375);
-      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
 
       expect(screen.queryAllByTestId('row-line')).toHaveLength(0);
       expect(screen.queryAllByTestId('column-line')).toHaveLength(0);
@@ -1554,7 +1507,7 @@ describe('Panels', () => {
     });
 
     it('keeps nothing of a drag the window was shrunk to a phone in the middle of', () => {
-      const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      const { mutate } = showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
       const point = slotBefore('falcon');
       dragTo('To read', point, false);
 
@@ -1569,7 +1522,7 @@ describe('Panels', () => {
 
     it('switches between the layout and one panel across as the window crosses the line, without a reload', () => {
       screenIs(1280);
-      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
       expect(rowsDrawn()).toBe(1);
       expect(screen.queryAllByTestId('column-line')).toHaveLength(1);
 
@@ -1648,7 +1601,7 @@ describe('Panels', () => {
       // Nothing asked for the arrangement in a box that could hold the answer -
       // it came from a drag - so the board itself says it.
       showBoard({
-        layouts: [aLayout('wide', 2560, ['falcon', 'reading'])],
+        layouts: [aLayout('wide', ['falcon', 'reading'])],
         error: new CommandRefused(404, 'panel reading is not on this dashboard'),
         variables: { name: 'save_layout', payload: {} },
       });
@@ -2735,7 +2688,7 @@ describe('Dashboards', () => {
   });
 
   describe('while filtered, nothing about the arrangement can change', () => {
-    const SIDE_BY_SIDE = [aLayout('wide', 1280, ['falcon', 'reading'])];
+    const SIDE_BY_SIDE = [aLayout('wide', ['falcon', 'reading'])];
     const TWO = [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read')];
 
     it('offers a line between two panels where the board is not filtered', async () => {

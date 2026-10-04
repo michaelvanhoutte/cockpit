@@ -106,11 +106,12 @@ const rowsFor: {
   once?: { column: string; sql: string; params: (name: string) => string[] };
   /**
    * The other direction of `once`: used in place of `sql` once the table has
-   * *stopped* having this column, for an update that drops one rather than
-   * adding one. Checked before `once`, since a store that has reached this
-   * point has necessarily passed through `once`'s already.
+   * *stopped* having every one of these columns, for an update that drops one
+   * rather than adding one. Checked before `once`, since a store that has
+   * reached this point has necessarily passed through `once`'s already; the
+   * first that matches is used, so the latest shape goes first.
    */
-  final?: { missingColumn: string; sql: string; params: (name: string) => string[] };
+  final?: { missingColumns: string[]; sql: string; params: (name: string) => string[] }[];
 }[] = [
   // In foreign-key order, which is why this is a list and not a lookup.
   {
@@ -155,31 +156,44 @@ const rowsFor: {
     params: (name) => [name, AT, name, AT],
   },
   {
-    // Nothing writes a screen size until `0019-screen-sizes`, so this row is
-    // here for the reason the file exists rather than for the reason the
-    // feature does: whatever update comes after it should meet a table with
-    // something in it - and, from `0020-drop-layout-name-and-width` on, the
-    // layouts below have to point somewhere real.
+    // Screen sizes exist from `0019-screen-sizes` until
+    // `0053-one-layout-per-dashboard` drops them, so these rows are here for
+    // the reason the file exists rather than for the reason the feature did:
+    // whatever update comes after should meet a table with something in it -
+    // and, from `0020-drop-layout-name-and-width` on, the layouts below have
+    // to point somewhere real. Two widths, so the conversion that keeps each
+    // Dashboard's widest Layout has a narrower one to discard.
     table: 'screen_sizes',
     sql: `INSERT INTO screen_sizes (id, tenant_id, name, folded_name, width, created_at)
-          VALUES ('sz-before', ?, 'Before', 'before', 1280, ?)`,
-    params: (name) => [name, AT],
+          VALUES ('sz-before', ?, 'Before', 'before', 1280, ?),
+                 ('sz-wide', ?, 'Wide', 'wide', 2560, ?)`,
+    params: (name) => [name, AT, name, AT],
   },
   {
     table: 'layouts',
     sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_width, created_at)
           VALUES ('ly-before', ?, 'db-before', 1280, ?)`,
     params: (name) => [name, AT],
-    // `0020-drop-layout-name-and-width` rebuilds the table without
-    // `screen_width` and with `screen_size_id` required - a layout from here
-    // on points at the screen size above rather than recording a width of its
-    // own.
-    final: {
-      missingColumn: 'screen_width',
-      sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_size_id, created_at)
-            VALUES ('ly-before', ?, 'db-before', 'sz-before', ?)`,
-      params: (name) => [name, AT],
-    },
+    final: [
+      // `0053-one-layout-per-dashboard` leaves a Layout no size at all, and
+      // one per Dashboard: this one is that one from there on.
+      {
+        missingColumns: ['screen_width', 'screen_size_id'],
+        sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, created_at)
+              VALUES ('ly-before', ?, 'db-before', ?)`,
+        params: (name) => [name, AT],
+      },
+      // `0020-drop-layout-name-and-width` rebuilds the table without
+      // `screen_width` and with `screen_size_id` required - a layout from
+      // there on points at the screen size above rather than recording a
+      // width of its own.
+      {
+        missingColumns: ['screen_width'],
+        sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_size_id, created_at)
+              VALUES ('ly-before', ?, 'db-before', 'sz-before', ?)`,
+        params: (name) => [name, AT],
+      },
+    ],
   },
   {
     // A second one of the same dashboard at the same width, which nothing ever
@@ -202,17 +216,48 @@ const rowsFor: {
             VALUES ('ly-twin', ?, 'db-before', 1280, ?, '1280 px (2)', '1280 px (2)')`,
       params: (name) => [name, AT],
     },
-    // Past `0020-drop-layout-name-and-width`, `folded_name` is gone along with
-    // `screen_width` - nothing about the account-wide name collision this row
-    // exists to prove survives past that release, so it becomes an ordinary
-    // second layout at the same screen size, which the index that guarded
-    // names no longer restricts.
-    final: {
-      missingColumn: 'screen_width',
-      sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_size_id, created_at)
-            VALUES ('ly-twin', ?, 'db-before', 'sz-before', ?)`,
+    final: [
+      // Past `0053-one-layout-per-dashboard` a Dashboard holds one Layout, and
+      // `ly-before` is it, so there is no twin to write.
+      { missingColumns: ['screen_width', 'screen_size_id'], sql: 'SELECT 1', params: () => [] },
+      // Past `0020-drop-layout-name-and-width`, `folded_name` is gone along
+      // with `screen_width` - nothing about the account-wide name collision
+      // this row exists to prove survives past that release, so it becomes an
+      // ordinary second layout at the same screen size, which the index that
+      // guarded names no longer restricts.
+      {
+        missingColumns: ['screen_width'],
+        sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_size_id, created_at)
+              VALUES ('ly-twin', ?, 'db-before', 'sz-before', ?)`,
+        params: (name) => [name, AT],
+      },
+    ],
+  },
+  {
+    // The same Dashboard arranged again for the wider screen, with rows and
+    // placements of its own - what `0053-one-layout-per-dashboard` keeps over
+    // the two above. Only once Layouts name a screen size; before that there
+    // is nothing for it to stand for.
+    table: 'layouts',
+    sql: 'SELECT 1',
+    params: () => [],
+    once: {
+      column: 'screen_size_id',
+      // Named apart from the two above, whose `folded_name` the index on it
+      // still guards at this point.
+      sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_width, created_at, name, folded_name, screen_size_id)
+            VALUES ('ly-wide', ?, 'db-before', 2560, ?, '2560 px', '2560 px', 'sz-wide')`,
       params: (name) => [name, AT],
     },
+    final: [
+      { missingColumns: ['screen_width', 'screen_size_id'], sql: 'SELECT 1', params: () => [] },
+      {
+        missingColumns: ['screen_width'],
+        sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_size_id, created_at)
+              VALUES ('ly-wide', ?, 'db-before', 'sz-wide', ?)`,
+        params: (name) => [name, AT],
+      },
+    ],
   },
   {
     table: 'panel_placements',
@@ -242,6 +287,28 @@ const rowsFor: {
     sql: `INSERT INTO layout_rows (tenant_id, layout_id, row_index, height)
           VALUES (?, 'ly-before', 0, 248), (?, 'ly-before', 1, 164)`,
     params: (name) => [name, name],
+  },
+  {
+    // `ly-wide`'s own arrangement - both Panels on one row - wherever that
+    // Layout was written above. Rows and spans exist before Layouts name a
+    // screen size, so the guard on the Layout is all this needs.
+    table: 'panel_placements',
+    sql: 'SELECT 1',
+    params: () => [],
+    once: {
+      column: 'span',
+      sql: `INSERT INTO panel_placements (tenant_id, layout_id, panel_id, row_index, position, span)
+            SELECT ?, 'ly-wide', 'pn-before', 0, 0, 7 WHERE EXISTS (SELECT 1 FROM layouts WHERE id = 'ly-wide')
+            UNION ALL
+            SELECT ?, 'ly-wide', 'pn-wrapped', 0, 1, 5 WHERE EXISTS (SELECT 1 FROM layouts WHERE id = 'ly-wide')`,
+      params: (name) => [name, name],
+    },
+  },
+  {
+    table: 'layout_rows',
+    sql: `INSERT INTO layout_rows (tenant_id, layout_id, row_index, height)
+          SELECT ?, 'ly-wide', 0, 300 WHERE EXISTS (SELECT 1 FROM layouts WHERE id = 'ly-wide')`,
+    params: (name) => [name],
   },
   {
     table: 'items',
@@ -370,6 +437,11 @@ const rowsFor: {
  *   placement each - goes with them.
  * - `0050-drop-workspace-routing-summary`: the whole table ("Drop the
  *   workspace_routing_summary table", issue 401), which `rowsFor` gives one row.
+ * - `0053-one-layout-per-dashboard`: every Layout of `db-before` but the
+ *   widest ("Convert every Dashboard to its widest Layout and retire Screen
+ *   sizes", issue 713) - `ly-before` and `ly-twin` at 1280 px, with
+ *   `ly-before`'s two rows and two placements, `ly-wide` surviving - and both
+ *   Screen sizes with their table.
  */
 const DECLARED_LOSSES: Record<string, Record<string, number>> = {
   '0020-drop-layout-name-and-width': {
@@ -379,6 +451,12 @@ const DECLARED_LOSSES: Record<string, Record<string, number>> = {
   },
   '0050-drop-workspace-routing-summary': {
     workspace_routing_summary: 1,
+  },
+  '0053-one-layout-per-dashboard': {
+    layouts: 2,
+    panel_placements: 2,
+    layout_rows: 2,
+    screen_sizes: 2,
   },
 };
 
@@ -417,12 +495,10 @@ async function fillWithWhatIsAlreadyThere(name: string): Promise<void> {
     for (const row of rowsFor) {
       if (!tables.has(row.table)) continue;
       const columns = columnsOf(sql, row.table);
-      const write =
-        row.final && !columns.includes(row.final.missingColumn)
-          ? row.final
-          : row.once && columns.includes(row.once.column)
-            ? row.once
-            : row;
+      const final = row.final?.find((shape) =>
+        shape.missingColumns.every((column) => !columns.includes(column)),
+      );
+      const write = final ?? (row.once && columns.includes(row.once.column) ? row.once : row);
       sql.exec(write.sql, ...write.params(name));
     }
   });
@@ -550,15 +626,11 @@ describe('Accounts', () => {
      * the runner prints is the statement list, and a migration's own name is
      * the mechanism, not a sentence about the product.
      *
-     * **Bounded by what one shared fixture can show.** `rowsFor` gives
-     * `0020-drop-layout-name-and-width` only Layouts the new rule rejects, so
-     * this proves the change drops *something* and no more than it declares,
-     * not that it keeps a Layout that already names a real screen size - that
-     * precision is "keeps a Layout that already names a real screen size..."
-     * below, against a Layout this fixture does not carry. And this compares
-     * counts, not row identities, so a change that lost N rows of a table
-     * while inserting N different ones in the same breath would net to zero
-     * here - no update does that today.
+     * **Bounded by what one shared fixture can show.** This compares counts,
+     * not row identities, so a change that lost N rows of a table while
+     * inserting N different ones in the same breath would net to zero here -
+     * no update does that today. Which rows a dropping change keeps is asked
+     * by its own cases below.
      */
     const everyUpdate = updates
       .map((update, index) => ({ changeName: update.name, index, position: index + 1, total: updates.length }))
@@ -1150,12 +1222,16 @@ describe('Layouts', () => {
   });
 
   describe('the columns and rule a layout no longer needs are gone, and everything else survives it', () => {
+    // Both applied on their own rather than through a full open, which would
+    // carry the store on to `0053-one-layout-per-dashboard` - that change
+    // takes `screen_size_id` away again and keeps one Layout per Dashboard.
+    // What is under test is this one change's own conversion.
     it('reaches the shape the code expects: no name, no folded name, no width, and a screen size required', async () => {
       const name = 'aged-store-drop-layout-name-and-width-shape';
       await agedTo(name, justBefore('0020-drop-layout-name-and-width'));
       await fillWithWhatIsAlreadyThere(name);
 
-      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      await applyChange(name, '0020-drop-layout-name-and-width');
 
       const columns = await inStoreAsItIs(name, (sql) =>
         sql.exec<{ name: string; notnull: number }>('PRAGMA table_info(layouts)').toArray(),
@@ -1173,36 +1249,16 @@ describe('Layouts', () => {
     it('keeps a Layout that already names a real screen size, with its rows and placements, and drops only the ones that predate them', async () => {
       const name = 'aged-store-drop-layout-name-and-width-survivors';
       await agedTo(name, justBefore('0020-drop-layout-name-and-width'));
+      // `ly-wide`, from `rowsFor`, already names a real screen size - what
+      // every Layout "Draw a dashboard against the screen sizes its account
+      // has" (issue 263) writes - with a row and placements of its own.
+      // `ly-before` and `ly-twin` are the rows the new rule rejects: they
+      // carry no `screen_size_id` at this point.
       await fillWithWhatIsAlreadyThere(name);
-      // A Layout that already names a real screen size - what every Layout
-      // "Draw a dashboard against the screen sizes its account has" (issue
-      // 263) writes - with a row and a placement of its own, so there is
-      // something this change has to carry across rather than only rows to
-      // drop. `ly-before` and `ly-twin`, from `rowsFor`, are the rows the new
-      // rule rejects: they carry no `screen_size_id` at this point.
+      // A filing, so there is one to prove survives - nothing in `rowsFor`
+      // makes one, since no update before this file existed needed to meet a
+      // full `panel_items` table.
       await inStoreAsItIs(name, (sql) => {
-        // Named apart from `ly-before`'s own empty `folded_name`, since the
-        // unique index guarding it is still live at this point.
-        sql.exec(
-          `INSERT INTO layouts
-             (id, tenant_id, dashboard_id, name, folded_name, screen_width, screen_size_id, created_at)
-           VALUES ('ly-sized', ?, 'db-before', 'Sized', 'sized', 1280, 'sz-before', ?)`,
-          name,
-          AT,
-        );
-        sql.exec(
-          `INSERT INTO layout_rows (tenant_id, layout_id, row_index, height)
-           VALUES (?, 'ly-sized', 0, 200)`,
-          name,
-        );
-        sql.exec(
-          `INSERT INTO panel_placements (tenant_id, layout_id, panel_id, row_index, position, span)
-           VALUES (?, 'ly-sized', 'pn-before', 0, 0, 12)`,
-          name,
-        );
-        // A filing, so there is one to prove survives - nothing in `rowsFor`
-        // makes one, since no update before this file existed needed to meet
-        // a full `panel_items` table.
         sql.exec(
           `INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at)
            VALUES (?, 'pn-before', 'it-before', 0, ?)`,
@@ -1211,23 +1267,26 @@ describe('Layouts', () => {
         );
       });
 
-      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      await applyChange(name, '0020-drop-layout-name-and-width');
 
       expect(
         await inStoreAsItIs(name, (sql) =>
           sql.exec<{ id: string }>('SELECT id FROM layouts ORDER BY id').toArray(),
         ),
-      ).toEqual([{ id: 'ly-sized' }]);
+      ).toEqual([{ id: 'ly-wide' }]);
       expect(
         await inStoreAsItIs(name, (sql) =>
           sql.exec('SELECT layout_id, row_index, height FROM layout_rows').toArray(),
         ),
-      ).toEqual([{ layout_id: 'ly-sized', row_index: 0, height: 200 }]);
+      ).toEqual([{ layout_id: 'ly-wide', row_index: 0, height: 300 }]);
       expect(
         await inStoreAsItIs(name, (sql) =>
-          sql.exec('SELECT layout_id, panel_id, span FROM panel_placements').toArray(),
+          sql.exec('SELECT layout_id, panel_id, span FROM panel_placements ORDER BY position').toArray(),
         ),
-      ).toEqual([{ layout_id: 'ly-sized', panel_id: 'pn-before', span: 12 }]);
+      ).toEqual([
+        { layout_id: 'ly-wide', panel_id: 'pn-before', span: 7 },
+        { layout_id: 'ly-wide', panel_id: 'pn-wrapped', span: 5 },
+      ]);
       // Everything else this fixture wrote is untouched.
       expect(
         await inStoreAsItIs(name, (sql) => sql.exec('SELECT id FROM panels ORDER BY id').toArray()),
@@ -1240,6 +1299,232 @@ describe('Layouts', () => {
           sql.exec('SELECT panel_id, item_id FROM panel_items').toArray(),
         ),
       ).toEqual([{ panel_id: 'pn-before', item_id: 'it-before' }]);
+    });
+  });
+
+  describe('every dashboard keeps the one layout made for its widest screen, exactly as it was, and no screen size is left', () => {
+    /**
+     * The situations "Draw a Dashboard on its one Layout, with nothing to
+     * choose it by" (issue 712) proved the board drew, at L1, with the
+     * ordering this change replaced: widest screen size, ties to the size
+     * made earliest, then the lowest size id, then the lowest Layout id. Asked
+     * again here of the SQL that keeps one, so what a Dashboard showed before
+     * the conversion is what it shows after.
+     *
+     * Each Layout is given a row and placements of its own, so the one kept
+     * is seen to keep exactly what it had and every other is seen to go.
+     */
+    const situations: {
+      situation: string;
+      sizes: [id: string, width: number, madeAt: string][];
+      layouts: [id: string, sizeId: string][];
+      kept: string | null;
+    }[] = [
+      {
+        situation: 'the 2560 px one over the 1646 px one, the wider made last',
+        sizes: [['sz-laptop', 1646, AT], ['sz-wide', 2560, AT]],
+        layouts: [['ly-laptop', 'sz-laptop'], ['ly-wide', 'sz-wide']],
+        kept: 'ly-wide',
+      },
+      {
+        situation: 'the 2560 px one over the 1646 px one, the wider made first',
+        sizes: [['sz-wide', 2560, AT], ['sz-laptop', 1646, AT]],
+        layouts: [['ly-wide', 'sz-wide'], ['ly-laptop', 'sz-laptop']],
+        kept: 'ly-wide',
+      },
+      {
+        situation: 'the widest of three',
+        sizes: [['sz-laptop', 1280, AT], ['sz-wide', 2560, AT], ['sz-desk', 1920, AT]],
+        layouts: [['ly-laptop', 'sz-laptop'], ['ly-wide', 'sz-wide'], ['ly-desk', 'sz-desk']],
+        kept: 'ly-wide',
+      },
+      {
+        situation: 'the one whose screen size was made earlier, at one width',
+        sizes: [['sz-b', 1280, AT], ['sz-a', 1280, LATER]],
+        layouts: [['ly-on-a', 'sz-a'], ['ly-on-b', 'sz-b']],
+        kept: 'ly-on-b',
+      },
+      {
+        situation: 'the one whose screen size has the lower id, at one width made at one moment',
+        sizes: [['sz-b', 1280, AT], ['sz-a', 1280, AT]],
+        layouts: [['ly-on-b', 'sz-b'], ['ly-on-a', 'sz-a']],
+        kept: 'ly-on-a',
+      },
+      {
+        situation: 'the one with the lower id, at one screen size',
+        sizes: [['sz-one', 1280, AT]],
+        layouts: [['ly-b', 'sz-one'], ['ly-a', 'sz-one']],
+        kept: 'ly-a',
+      },
+      {
+        situation: 'its only one, made below 480 px',
+        sizes: [['sz-small', 320, AT]],
+        layouts: [['ly-only', 'sz-small']],
+        kept: 'ly-only',
+      },
+      {
+        situation: 'none, where it had none',
+        sizes: [['sz-wide', 2560, AT]],
+        layouts: [],
+        kept: null,
+      },
+    ];
+
+    it.each(situations.map((one, index) => ({ ...one, index })))(
+      'keeps $situation',
+      async ({ index, sizes, layouts, kept }) => {
+        const name = `aged-store-widest-${index}`;
+        await agedTo(name, justBefore('0053-one-layout-per-dashboard'));
+        await inStoreAsItIs(name, (sql) => {
+          // On the Workspace every account nobody has used starts with.
+          sql.exec(
+            `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)
+             VALUES ('db-arranged', ?, 'ws-1', 'Arranged', 'arranged', ?)`,
+            name,
+            AT,
+          );
+          sql.exec(
+            `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, created_at)
+             VALUES ('pn-a', ?, 'db-arranged', 'A', 'a', ?), ('pn-b', ?, 'db-arranged', 'B', 'b', ?)`,
+            name,
+            AT,
+            name,
+            AT,
+          );
+          for (const [id, width, madeAt] of sizes) {
+            sql.exec(
+              `INSERT INTO screen_sizes (id, tenant_id, name, folded_name, width, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+              id,
+              name,
+              id,
+              id,
+              width,
+              madeAt,
+            );
+          }
+          layouts.forEach(([id, sizeId], at) => {
+            sql.exec(
+              `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_size_id, created_at)
+               VALUES (?, ?, 'db-arranged', ?, ?)`,
+              id,
+              name,
+              sizeId,
+              AT,
+            );
+            sql.exec(
+              'INSERT INTO layout_rows (tenant_id, layout_id, row_index, height) VALUES (?, ?, 0, ?)',
+              name,
+              id,
+              200 + at * 10,
+            );
+            sql.exec(
+              `INSERT INTO panel_placements (tenant_id, layout_id, panel_id, row_index, position, span)
+               VALUES (?, ?, 'pn-a', 0, 0, ?), (?, ?, 'pn-b', 0, 1, ?)`,
+              name,
+              id,
+              at + 1,
+              name,
+              id,
+              12 - at,
+            );
+          });
+        });
+        const arrangementOf = (sql: SqlStorage, layoutId: string | null) => ({
+          rows: sql
+            .exec('SELECT row_index, height FROM layout_rows WHERE layout_id = ?', layoutId)
+            .toArray(),
+          cells: sql
+            .exec(
+              'SELECT panel_id, row_index, position, span FROM panel_placements WHERE layout_id = ? ORDER BY position',
+              layoutId,
+            )
+            .toArray(),
+        });
+        const before = await inStoreAsItIs(name, (sql) => arrangementOf(sql, kept));
+
+        // Opened the way the first request after a deploy opens it.
+        expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+        const after = await inStoreAsItIs(name, (sql) => ({
+          layouts: sql.exec<{ id: string }>('SELECT id FROM layouts').toArray().map((row) => row.id),
+          kept: arrangementOf(sql, kept),
+          rowsLeft: sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM layout_rows').toArray()[0]!.n,
+          cellsLeft: sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM panel_placements').toArray()[0]!.n,
+          tables: sql
+            .exec<{ name: string }>(
+              "SELECT name FROM sqlite_master WHERE type = 'table' AND (name = 'screen_sizes' OR name LIKE '%scratch' OR name = 'layouts_new')",
+            )
+            .toArray(),
+          columns: columnsOf(sql, 'layouts'),
+        }));
+        expect(after.layouts).toEqual(kept ? [kept] : []);
+        expect(after.kept).toEqual(before);
+        // Nothing of the others is left behind, and nothing of the rebuild.
+        expect(after.rowsLeft).toBe(kept ? 1 : 0);
+        expect(after.cellsLeft).toBe(kept ? 2 : 0);
+        expect(after.tables).toEqual([]);
+        expect(after.columns).toEqual(['id', 'tenant_id', 'dashboard_id', 'created_at']);
+      },
+    );
+  });
+
+  describe('keeping one layout per dashboard touches nothing else an account holds', () => {
+    /** Every row of the tables a person's own work is in, read whole. */
+    const everythingElse = (sql: SqlStorage) =>
+      Object.fromEntries(
+        ['workspaces', 'dashboards', 'panels', 'panel_items', 'items', 'associations', 'item_types'].map(
+          (table) => [table, sql.exec(`SELECT * FROM ${table} ORDER BY rowid`).toArray()],
+        ),
+      );
+
+    it('leaves Dashboards, Panels, filings and Items exactly as they were', async () => {
+      const name = 'aged-store-one-layout-leaves-the-rest';
+      await agedTo(name, justBefore('0053-one-layout-per-dashboard'));
+      await fillWithWhatIsAlreadyThere(name);
+      await inStoreAsItIs(name, (sql) => {
+        sql.exec(
+          `INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at)
+           VALUES (?, 'pn-before', 'it-before', 0, ?), (?, 'pn-wrapped', 'it-done-before', 0, ?)`,
+          name,
+          AT,
+          name,
+          AT,
+        );
+      });
+      const before = await inStoreAsItIs(name, everythingElse);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(await inStoreAsItIs(name, everythingElse)).toEqual(before);
+    });
+
+    it('leaves the account as it was when it fails partway, and converts it on the next open', async () => {
+      // Failed at the rebuild itself - after the arrangements were copied out
+      // and emptied - by a table already holding the name it builds under,
+      // which is the one way to stop it partway from outside.
+      const name = 'aged-store-one-layout-fails-partway';
+      await agedTo(name, justBefore('0053-one-layout-per-dashboard'));
+      await fillWithWhatIsAlreadyThere(name);
+      await inStoreAsItIs(name, (sql) => {
+        sql.exec('CREATE TABLE layouts_new (in_the_way text)');
+      });
+      const before = await inStoreAsItIs(name, rowCountsOf);
+
+      const failed = await storeNamed(name).workspaces(name);
+
+      expect(failed).toMatchObject({ status: 'not-up-to-date' });
+      expect(JSON.stringify(failed)).toContain('0053-one-layout-per-dashboard');
+      expect(await inStoreAsItIs(name, rowCountsOf)).toEqual(before);
+
+      await inStoreAsItIs(name, (sql) => {
+        sql.exec('DROP TABLE layouts_new');
+      });
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(
+        await inStoreAsItIs(name, (sql) => sql.exec('SELECT id FROM layouts').toArray()),
+      ).toEqual([{ id: 'ly-wide' }]);
     });
   });
 });
