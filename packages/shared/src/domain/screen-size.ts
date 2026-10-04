@@ -64,3 +64,33 @@ export function nearestScreenSize(
     return closest;
   }, null);
 }
+
+/**
+ * The Layout a Dashboard is drawn with: the one made for the widest Screen
+ * size, ties to the earliest made, then the lowest id ("Draw a Dashboard on
+ * its one Layout, with nothing to choose it by", issue 712).
+ *
+ * **Shared, and one function**, so the conversion that keeps one Layout per
+ * Dashboard keeps the one the client has been drawing. It reads the sizes'
+ * own widths and creation times and nothing about the order the list arrives
+ * in, so the same answer comes back however the snapshot lists them. A Layout
+ * whose size is not in the list is skipped rather than crashing.
+ */
+export function widestLayout<L extends { id: string; dashboardId: string; screenSizeId: string }>(
+  layouts: readonly L[],
+  sizes: readonly ScreenSize[],
+  dashboardId: string,
+): L | null {
+  const sizeOf = new Map(sizes.map((size) => [size.id, size]));
+  const ranked = layouts
+    .filter((layout) => layout.dashboardId === dashboardId && sizeOf.has(layout.screenSizeId))
+    .map((layout) => ({ layout, size: sizeOf.get(layout.screenSizeId)! }));
+  ranked.sort(
+    (a, b) =>
+      b.size.width - a.size.width ||
+      (a.size.createdAt < b.size.createdAt ? -1 : a.size.createdAt > b.size.createdAt ? 1 : 0) ||
+      (a.size.id < b.size.id ? -1 : a.size.id > b.size.id ? 1 : 0) ||
+      (a.layout.id < b.layout.id ? -1 : a.layout.id > b.layout.id ? 1 : 0),
+  );
+  return ranked[0]?.layout ?? null;
+}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { isPhoneWidth, uuidv7, type Dashboard, type PanelKind, type WorkspaceSnapshot } from '@cockpit/shared';
+import { uuidv7, type Dashboard, type PanelKind, type WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { refusalFrom, snapshotQuery, useCommand, useSendCommand } from '../api/queries';
 import {
@@ -18,11 +18,8 @@ import { useRoomForTheInbox } from '../roomForTheInbox';
 import { keepingTheOpenItem } from '../itemForm';
 import { useTabDrag } from '../tabDrag';
 import { dashboardToSwitchTo } from '../switchWhileDragging';
-import { layoutsOf } from '../panels/arrangement';
-import { useScreenWidth } from '../panels/useScreenWidth';
 import { FunnelGlyph } from './DashboardFilterBar';
 import { DeleteQuestion } from './DeleteQuestion';
-import { LayoutPicker } from './LayoutPicker';
 import { RowMenu, SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
 import { NameQuestion } from './NameQuestion';
 import { RowForm } from './RowForm';
@@ -74,8 +71,6 @@ export function DashboardBar({
   const dashboards = data?.dashboards ?? [];
   const allItemsOn = useAllItemsTab(workspaceId);
   const roomForTheInbox = useRoomForTheInbox();
-  /** A phone has no Layouts to pick or make (`isPhoneWidth`), so the control for them is not drawn. */
-  const onAPhone = isPhoneWidth(useScreenWidth());
   const navigate = useNavigate();
   const filteredIds = useFilteredDashboardIds(
     browserStore(),
@@ -610,23 +605,10 @@ export function DashboardBar({
       )}
       <AddDashboard workspaceId={workspaceId} />
 
-      {/* The open dashboard's own controls, at the right of its own bar: which
-          arrangement you are looking at, and the way to put another panel on it
-          ("Pick the layout you are on, by name").
-
-          **Here rather than under the board**, which is where both used to be.
-          Adding a panel was a hairline strip at the foot of the sheet, so on a
-          dashboard whose panels did not fill the screen it was a rule across
-          the middle of an empty page with a link at one end of it; the layouts
-          menu sat beside it, which is the last place anybody looked for the
-          thing that decides what the whole board is. This bar is the one strip
-          on screen that is about *this dashboard*, and the tab whose
-          arrangement these name is an inch to the left.
-
-          **Only where a dashboard is open.** The bar is drawn on the Inbox as
-          well, where there is neither a layout to pick nor a dashboard to put a
-          panel on - which is exactly why these were kept off it before, and it
-          is answered by mounting them rather than by moving them. */}
+      {/* The open dashboard's own controls, at the right of its own bar: the
+          way to put another panel on it, and its actions. Only where a
+          dashboard is open, since the bar is drawn on the Inbox as well, where
+          there is no dashboard to put a panel on. */}
       {allItemsOpen && allItemsOn && (
         <div className="ml-auto flex shrink-0 items-end gap-1 pl-2">
           <RowMenu
@@ -638,22 +620,6 @@ export function DashboardBar({
       )}
       {openDashboardId && (
         <div className="ml-auto flex shrink-0 items-end gap-1 pl-2">
-          {!onAPhone && (
-            <LayoutPicker
-              // Keyed by the dashboard, for the reason the board is keyed by it
-              // (DashboardPage): the half-typed layout name and the open
-              // question belong to the dashboard being left. This bar is the
-              // shell's and stays mounted across a switch, so nothing else drops
-              // them.
-              key={openDashboardId}
-              workspaceId={workspaceId}
-              dashboardId={openDashboardId}
-              layouts={layoutsOf(data?.layouts ?? [], openDashboardId)}
-              screenSizes={data?.screenSizes ?? []}
-              panels={(data?.panels ?? []).filter((p) => p.dashboardId === openDashboardId)}
-              locked={openIsFiltered}
-            />
-          )}
           <AddPanel
             workspaceId={workspaceId}
             dashboardId={openDashboardId}

@@ -992,6 +992,24 @@ describe('Panels', () => {
       expect(sentOrder(mutate)).toEqual(['reading', 'falcon']);
     });
 
+    it('keeps a move in the widest layout, leaves the other untouched, and ignores a remembered pick of another', async () => {
+      // A pick left in the browser by an earlier version, naming the narrower one.
+      localStorage.setItem(
+        'cockpit.layoutPick',
+        JSON.stringify({ screenSizeId: 'sz-laptop', whileNearestIs: 'sz-laptop' }),
+      );
+      screenIs(1300);
+      const layouts = [aLayout('laptop', 1646, ['falcon', 'reading']), aLayout('wide', 2560, ['falcon', 'reading'])];
+      const { mutate } = showBoard({ layouts });
+
+      dragTo('To read', slotBefore('falcon'));
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('save_layout');
+      expect(asked.payload.layoutId).toBe('wide');
+    });
+
     it('makes an arrangement with nothing defined without naming a screen size, and leaves the server to resolve one', async () => {
       // There is nothing to change and nothing worth interrupting a drag to
       // ask - the server keeps it in the nearest size the account has, or
