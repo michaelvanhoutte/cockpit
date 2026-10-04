@@ -125,11 +125,12 @@ describe('Triage', () => {
         },
       ];
 
-      // Asked five times, because a model that names the corrected panel on
-      // one pass in three reads as passing on a single dispatch and fails the
-      // night it does not.
+      // Asked five times, because a model that only sometimes names the
+      // corrected panel passes a single dispatch and fails the night it does
+      // not. One after another, so a rate limit cannot pass for drift.
       const item = anItem('sign-off needed before we can close this out, who owns it');
-      const chosen = await Promise.all(Array.from({ length: 5 }, () => choose(item, panels, history)));
+      const chosen = [];
+      for (let pass = 0; pass < 5; pass += 1) chosen.push(await choose(item, panels, history));
 
       expect(chosen.map((panel) => panel?.panelId)).toEqual(Array(5).fill(panels[1]!.id));
     });

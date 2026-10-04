@@ -606,10 +606,11 @@ describe('Capture', () => {
         },
       ];
 
-      // Asked five times, because a model that names the corrected panel on
-      // one pass in three reads as passing on a single dispatch and fails the
-      // night it does not.
-      const proposals = await Promise.all(Array.from({ length: 5 }, () => read(LAURENS_SHAPED_NOTE, panels, history)));
+      // Asked five times, because a model that only sometimes names the
+      // corrected panel passes a single dispatch and fails the night it does
+      // not. One after another, so a rate limit cannot pass for drift.
+      const proposals = [];
+      for (let pass = 0; pass < 5; pass += 1) proposals.push(await read(LAURENS_SHAPED_NOTE, panels, history));
 
       expect(proposals.map((proposal) => proposal.panel?.panelId)).toEqual(Array(5).fill(panels[1]!.id));
     });
