@@ -37,6 +37,7 @@ import {
   MenuContent,
   MenuTrigger,
   destructiveItemClass,
+  menuButtonClassName,
   menuItemClass,
   menuItemSplitClass,
 } from './Menu';
@@ -1299,6 +1300,30 @@ export function ItemRow({
           <span className="shrink-0 text-xs tabular-nums text-ink-faint" title={`Waiting ${waited}`}>
             {waited}
           </span>
+        )}
+
+        {/* Mark done in one click ("Mark an item done with a ✓ that appears on
+            hover", issue 716): the menu's Status ▸ Done, sent the same way, so
+            the Undo bar offers it back identically. Shown only under a fine
+            pointer hovering the row, so never on touch, which keeps the menu and
+            the long press, and never while a selection is held, like every other
+            single-row action. Invisible rather than absent at rest, so the row
+            keeps its width and its title does not re-truncate under the pointer. */}
+        {!selecting?.revealed && (
+          <button
+            type="button"
+            aria-label="Mark done"
+            title="Mark done"
+            onClick={(event) => {
+              event.stopPropagation();
+              markDone();
+            }}
+            className={menuButtonClassName(false, 'invisible pointer-coarse:hidden pointer-fine:group-hover:visible')}
+          >
+            <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 8.5l3.2 3.2L13 4.8" />
+            </svg>
+          </button>
         )}
 
         <DropdownMenu.Root
