@@ -11,4 +11,13 @@ import { lazy } from 'react';
  */
 export const loadCaptureNote = () => import('./components/CaptureNote');
 
+/**
+ * The Car view of the same page ("Capture by voice in the car", issue 730),
+ * fetched the same way and for the same reason; the route asks for it before
+ * the page is drawn, so switching to Car finds it already here.
+ */
+export const loadCarCapture = () => import('./components/CarCapture');
+
+export const CarCapture = lazy(() => loadCarCapture().then((view) => ({ default: view.CarCapture })));
+
 export const CaptureNote = lazy(() => loadCaptureNote().then((form) => ({ default: form.CaptureNote })));

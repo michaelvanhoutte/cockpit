@@ -71,7 +71,10 @@ async function installSpeechEngine(page: Page): Promise<void> {
       start() {
         holder.__speech.current = this;
       }
-      stop() {}
+      // Asked to stop, the real engine ends: what the Car view's second tap waits on.
+      stop() {
+        (this as { onend?: () => void }).onend?.();
+      }
       abort() {}
     }
     // Both names: Chromium has a standard one of its own, which the app prefers.
@@ -93,6 +96,10 @@ async function engineHears(page: Page, phrase: string): Promise<void> {
     engine.onstart!();
     engine.onresult!({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: said } }] });
   }, phrase);
+  // The next session is a new one: a walk that dictates twice waits for the second.
+  await page.evaluate(() => {
+    (window as never as { __speech: { current: unknown } }).__speech.current = null;
+  });
 }
 
 test.describe('Capture', () => {
@@ -138,6 +145,24 @@ test.describe('Capture', () => {
       await expect(inbox(page).getByText(thought)).toBeVisible();
       await expect(itemRow(page, spoken)).toBeVisible();
       await expectNoSidewaysScroll(page);
+
+      // The Car view of the same page: one round button, tapped to listen and
+      // tapped again to capture, with nothing to read in between. Reached by the
+      // address, because at a desk the Capture tab opens a window with no switch,
+      // and only a browser proves what it captures reaches the Inbox.
+      await page.goto('/capture');
+      await press(page.getByRole('link', { name: 'Car' }), isMobile);
+      const drive = page.getByRole('button', { name: 'Speak a note' });
+      await expect(drive).toBeInViewport();
+      await expectNoSidewaysScroll(page);
+      await press(drive, isMobile);
+      const driven = uniqueTitle('Book the car service');
+      await engineHears(page, driven);
+      await expect(page.getByText('Listening — tap to capture')).toBeVisible();
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
+      await expect(page.getByText('Captured', { exact: true })).toBeVisible();
+      await openInbox(page, isMobile);
+      await expect(itemRow(page, driven)).toBeVisible();
     });
   });
 
