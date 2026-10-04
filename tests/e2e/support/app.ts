@@ -345,7 +345,7 @@ export async function openSettings(
   isMobile: boolean,
 ): Promise<Locator> {
   await press(page.getByRole('button', { name: 'Profile' }), isMobile);
-  await press(page.getByRole('menuitem', { name: 'Settings…' }), isMobile);
+  await press(page.getByRole('menuitem', { name: 'Settings…', exact: true }), isMobile);
   const settings = page.getByRole('dialog', { name: 'Settings' });
   await press(settings.getByRole('button', { name: section, exact: true }), isMobile);
   await expect(settings.getByRole('heading', { name: section, exact: true })).toBeVisible();
