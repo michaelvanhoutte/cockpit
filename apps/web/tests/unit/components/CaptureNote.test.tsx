@@ -24,6 +24,14 @@ import {
 } from '../../../src/captureOutboxSender';
 import { NO_TYPES } from '../../../src/itemTypes';
 import { forgetEverything } from '../../../src/session/forget';
+import {
+  DICTATION_BLOCKED,
+  DICTATION_NO_MICROPHONE,
+  DICTATION_OFFLINE,
+  type EngineFactory,
+  type RecognitionEngine,
+  type RecognitionResultEvent,
+} from '../../../src/dictation';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
@@ -143,6 +151,8 @@ async function thePage({
   startsIn = null,
   heldMutation = false,
   store = browserOutboxStore(),
+  dictating,
+  language,
 }: {
   /**
    * Null for an account that has not answered what types it has, and
@@ -161,6 +171,10 @@ async function thePage({
   heldMutation?: boolean;
   /** Where the outbox is kept: the fake IndexedDB, unless a case says storage is unavailable. */
   store?: OutboxStore;
+  /** What the browser offers to dictate with, and where the language is kept; none, as in a browser without speech recognition. */
+  dictating?: { engine?: EngineFactory | null; store?: Storage | undefined };
+  /** The language stored on this device before the page opens. */
+  language?: string;
 } = {}) {
   held.types = types;
   held.items = items;
@@ -170,6 +184,7 @@ async function thePage({
   held.settle = () => {};
   localStorage.clear();
   localStorage.setItem('cockpit.last-visited.workspace', cameFrom);
+  if (language) localStorage.setItem('cockpit.dictation-language', language);
 
   // The real mutation calls back: `onSuccess` is what lists what was captured,
   // and `onError` is what puts the note back and says why.
@@ -200,7 +215,7 @@ async function thePage({
   const page = render(
     <QueryClientProvider client={client}>
       <OutboxProvider value={outbox}>
-        <CaptureNote startsIn={startsIn} />
+        <CaptureNote startsIn={startsIn} dictating={dictating} />
       </OutboxProvider>
     </QueryClientProvider>,
   );
@@ -227,6 +242,69 @@ async function reloaded(page: { unmount: () => void }, options: Parameters<typeo
   page.unmount();
   return thePage(options);
 }
+
+/**
+ * The browser's speech engine, which is a third party and has no working
+ * implementation in jsdom or in Playwright's Chromium: this one does what it is
+ * told. `start()` only records the ask - the `start` event is `begins()`, the
+ * way the real one reports it a moment later.
+ */
+class FakeEngine implements RecognitionEngine {
+  lang = '';
+  continuous = false;
+  interimResults = false;
+  onstart: (() => void) | null = null;
+  onend: (() => void) | null = null;
+  onerror: ((event: { error: string }) => void) | null = null;
+  onresult: ((event: RecognitionResultEvent) => void) | null = null;
+  asked = false;
+  aborted = false;
+  /** Everything said so far this session, as the engine reports it: cumulative. */
+  private heard: { isFinal: boolean; 0: { transcript: string } }[] = [];
+  start() {
+    this.asked = true;
+  }
+  stop() {}
+  abort() {
+    this.aborted = true;
+  }
+  begins() {
+    act(() => this.onstart?.());
+  }
+  /** One phrase heard: provisional until `isFinal`, and replacing the last one while it still is. */
+  says(transcript: string, isFinal = true, replacing = false) {
+    if (replacing) this.heard.pop();
+    this.heard.push({ isFinal, 0: { transcript } });
+    const resultIndex = this.heard.length - 1;
+    act(() => this.onresult?.({ resultIndex, results: this.heard }));
+  }
+  endsOnItsOwn() {
+    act(() => this.onend?.());
+  }
+  fails(error: string) {
+    act(() => this.onerror?.({ error }));
+  }
+}
+
+/** A browser with an engine, and every engine it has made. */
+function anEngine() {
+  const made: FakeEngine[] = [];
+  const engine: EngineFactory = () => {
+    const one = new FakeEngine();
+    made.push(one);
+    return one;
+  };
+  return {
+    engine,
+    /** Sessions the engine was asked to start, newest last. */
+    sessions: () => made.filter((one) => one.asked),
+    /** The session listening now. */
+    current: () => made.filter((one) => one.asked).at(-1)!,
+  };
+}
+
+const mic = () => screen.getByRole('button', { name: 'Dictate' });
+const tag = () => screen.getByRole('button', { name: /^Dictation language/ });
 
 const box = () => screen.getByLabelText('What is on your mind?');
 const chip = (name: string) => screen.getByRole('button', { name });
@@ -1231,6 +1309,294 @@ describe('Capture', () => {
       expect(box()).toHaveValue('Send the invoice');
       expect(chip('Low priority')).toHaveAttribute('aria-pressed', 'true');
       expect(chip('Fri')).toHaveAttribute('aria-pressed', 'true');
+    });
+  });
+
+  describe('dictation is offered only where the browser can recognise speech', () => {
+    it('draws the mic and its language tag where there is an engine, and neither where there is none', async () => {
+      const { engine } = anEngine();
+      const withOne = await thePage({ dictating: { engine } });
+      expect(mic()).toBeInTheDocument();
+      expect(tag()).toHaveTextContent('EN');
+      withOne.unmount();
+
+      await thePage({ dictating: { engine: null } });
+      expect(screen.queryByRole('button', { name: 'Dictate' })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^Dictation language/ })).toBeNull();
+      // The strip is otherwise as it was.
+      expect(chip('Normal priority')).toBeInTheDocument();
+      expect(chip('Pick a due date')).toBeInTheDocument();
+    });
+  });
+
+  describe('what is said is added to the note, stays editable, and is kept only when Capture is pressed', () => {
+    it.each([
+      ['an empty note', '', 'buy oat milk', 'buy oat milk'],
+      ['typed text', 'Remember to', 'buy oat milk', 'Remember to buy oat milk'],
+    ])('adds a phrase to %s', async (_situation, typed, said, expected) => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      if (typed) await user.type(box(), typed);
+      await user.click(mic());
+      current().begins();
+
+      current().says(said);
+
+      expect(box()).toHaveValue(expected);
+    });
+
+    it('adds each phrase across pauses in order, none lost and none repeated', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      current().begins();
+
+      current().says('first thing');
+      current().says('second thing');
+      // A pause and a restart, after which the engine counts from the start again.
+      current().endsOnItsOwn();
+      current().begins();
+      current().says('third thing');
+
+      expect(box()).toHaveValue('first thing second thing third thing');
+    });
+
+    it('shows a phrase still being recognised, then replaces it with its final reading', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      current().begins();
+
+      current().says('send the inv', false);
+      expect(box()).toHaveValue('send the inv');
+      current().says('send the invoice', false, true);
+      expect(box()).toHaveValue('send the invoice');
+      current().says('Send the invoice.', true, true);
+
+      expect(box()).toHaveValue('Send the invoice.');
+    });
+
+    it('captures the note as edited after it was dictated', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      current().begins();
+      current().says('send the invoice to Ada');
+      await user.click(mic());
+
+      await user.clear(box());
+      await user.type(box(), 'Send the invoice to Bea');
+      await user.click(chip('Capture'));
+
+      expect((await captured()).payload.message).toBe('Send the invoice to Bea');
+    });
+
+    it('captures nothing when it is dictated, stopped, and closed without pressing Capture', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      current().begins();
+      current().says('this is never captured');
+      await user.click(mic());
+
+      user.unmount();
+      await settled();
+
+      expect(everythingAsked()).not.toContain('capture_item');
+    });
+
+    it('keeps what was still being recognised when Capture is pressed', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      current().begins();
+      current().says('almost finished', false);
+
+      await user.click(chip('Capture'));
+
+      expect((await captured()).payload.message).toBe('almost finished');
+    });
+  });
+
+  describe('the mic shows as listening only once the engine has started, and keeps going until it is tapped off', () => {
+    it('is not listening until the engine reports it started, and then is', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+
+      await user.click(mic());
+      expect(current().asked).toBe(true);
+      expect(mic()).toHaveAttribute('aria-pressed', 'false');
+
+      current().begins();
+      expect(mic()).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('starts a new session when the engine ends on its own, and still shows as listening', async () => {
+      const { engine, current, sessions } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      current().begins();
+
+      current().endsOnItsOwn();
+      expect(sessions()).toHaveLength(2);
+      current().begins();
+
+      expect(mic()).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('stops when the mic is tapped, and starts no new session', async () => {
+      const { engine, current, sessions } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      const listening = current();
+      listening.begins();
+
+      await user.click(mic());
+      listening.endsOnItsOwn();
+
+      expect(mic()).toHaveAttribute('aria-pressed', 'false');
+      expect(listening.aborted).toBe(true);
+      expect(sessions()).toHaveLength(1);
+    });
+
+    it('stops listening when Capture is pressed', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      const listening = current();
+      listening.begins();
+      listening.says('buy oat milk');
+
+      await user.click(chip('Capture'));
+
+      expect(listening.aborted).toBe(true);
+      expect(mic()).toHaveAttribute('aria-pressed', 'false');
+      expect((await captured()).payload.message).toBe('buy oat milk');
+    });
+
+    it('stops the engine when Capture is closed while listening', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      const listening = current();
+      listening.begins();
+
+      user.unmount();
+
+      expect(listening.aborted).toBe(true);
+    });
+  });
+
+  describe('dictation is in one language at a time, English to start with, and remembers the last choice on this device', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it.each(['nl', 'nl-BE', 'fr-FR'])('starts on English when the browser is set to %s', async (browser) => {
+      vi.spyOn(navigator, 'language', 'get').mockReturnValue(browser);
+      const { engine } = anEngine();
+      await thePage({ dictating: { engine } });
+
+      expect(tag()).toHaveTextContent('EN');
+    });
+
+    it('starts on Dutch where Dutch was chosen before', async () => {
+      const { engine } = anEngine();
+      await thePage({ dictating: { engine }, language: 'nl' });
+
+      expect(tag()).toHaveTextContent('NL');
+    });
+
+    it('switches with the tag, listens in the new language next, and remembers it', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+
+      await user.click(tag());
+      expect(tag()).toHaveTextContent('NL');
+      await user.click(mic());
+
+      expect(current().lang).toBe('nl-NL');
+      expect(localStorage.getItem('cockpit.dictation-language')).toBe('nl');
+    });
+
+    it('listens in English until the tag is pressed', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+
+      expect(current().lang).toBe('en-US');
+    });
+
+    it('starts on English without an error where storage is unavailable', async () => {
+      const { engine } = anEngine();
+      const refusing = {
+        getItem: () => {
+          throw new Error('refused');
+        },
+        setItem: () => {
+          throw new Error('refused');
+        },
+      } as unknown as Storage;
+      const user = await thePage({ dictating: { engine, store: refusing } });
+
+      expect(tag()).toHaveTextContent('EN');
+      await user.click(tag());
+      expect(tag()).toHaveTextContent('NL');
+    });
+
+    it('cannot be switched while listening', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      current().begins();
+
+      expect(tag()).toBeDisabled();
+      await user.click(mic());
+      expect(tag()).toBeEnabled();
+    });
+  });
+
+  describe('when dictation cannot run, one line under the strip says why and the mic goes back to off', () => {
+    it.each([
+      ['the microphone is blocked', 'not-allowed', DICTATION_BLOCKED],
+      ['there is no microphone', 'audio-capture', DICTATION_NO_MICROPHONE],
+      ['there is no connection', 'network', DICTATION_OFFLINE],
+    ])('says so when %s', async (_situation, code, line) => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+
+      current().fails(code);
+
+      expect(screen.getByRole('alert')).toHaveTextContent(line);
+      expect(mic()).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('keeps the words dictated before an error and does not start again', async () => {
+      const { engine, current, sessions } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      const listening = current();
+      listening.begins();
+      listening.says('already said');
+
+      listening.fails('network');
+      listening.endsOnItsOwn();
+
+      expect(box()).toHaveValue('already said');
+      expect(sessions()).toHaveLength(1);
+      expect(mic()).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('clears the line once the next start succeeds', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      current().fails('network');
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+
+      await user.click(mic());
+      current().begins();
+
+      expect(screen.queryByRole('alert')).toBeNull();
     });
   });
 

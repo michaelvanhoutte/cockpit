@@ -13,6 +13,13 @@ import { NO_TYPES, typesOffered } from '../itemTypes';
 import { dueDateLabel } from '../dueDate';
 import { DUE_DATE_SHORTCUTS } from '../dueDateShortcuts';
 import { PRIORITY_LABELS } from '../priority';
+import {
+  DICTATION_LANGUAGES,
+  appendPhrase,
+  useDictation,
+  type Dictation,
+  type EngineFactory,
+} from '../dictation';
 
 /**
  * The Capture form itself: the note, the types as chips, where it goes as one
@@ -38,7 +45,14 @@ import { PRIORITY_LABELS } from '../priority';
  * holds for as long as this is mounted: the window unmounts it on closing, so
  * reopening starts on the current workspace again.
  */
-export function CaptureNote({ startsIn }: { startsIn: string | null }) {
+export function CaptureNote({
+  startsIn,
+  dictating,
+}: {
+  startsIn: string | null;
+  /** Where speech comes from and where the language is kept: the browser's own, unless a test hands in a fake. */
+  dictating?: { engine?: EngineFactory | null; store?: Storage | undefined } | undefined;
+}) {
   const { data: list } = useQuery(workspacesQuery);
   const workspaces = list?.workspaces ?? [];
   /**
@@ -82,6 +96,21 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
   const answered = snapshot.data?.itemTypes !== undefined;
 
   const [message, setMessage] = useState('');
+  /**
+   * What the engine is still working out, shown after the note and replaced by
+   * its final reading ("Dictate a note in Capture", issue 714). Kept apart from
+   * `message` so it can be replaced rather than added to; it joins the note when
+   * the engine settles on it, or when dictation stops with it still unsettled.
+   */
+  const [provisional, setProvisional] = useState('');
+  const dictation = useDictation({
+    ...dictating,
+    onPhrase: (text, final) => {
+      if (final) setMessage((was) => appendPhrase(was, text));
+      else setProvisional(text);
+    },
+  });
+  const shown = appendPhrase(message, provisional);
   /**
    * The type pressed, by id, or the empty string for *not yet pressed one* -
    * which is not an answer, only the absence of one. What that resolves to is
@@ -293,7 +322,10 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = message.trim();
+    // Listening stops with the press, and what was still being recognised stays
+    // in the note: `shown` already holds it, and so does the box once it empties.
+    const trimmed = shown.trim();
+    dictation.stop();
     // Nothing written is nothing to say anything about.
     if (!trimmed) return;
 
@@ -489,8 +521,12 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
           strip reads as inside the note rather than under it. */}
       <div className="order-1 mt-2.5 flex w-full flex-col rounded-md border border-black/10 bg-white shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40 sm:order-none sm:mt-4 sm:min-h-56">
         <textarea
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          value={shown}
+          onChange={(e) => {
+            // Typing over what is still provisional makes it part of the note.
+            setProvisional('');
+            setMessage(e.target.value);
+          }}
           placeholder="What is on your mind?"
           aria-label="What is on your mind?"
           autoFocus
@@ -503,6 +539,7 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
           due={due}
           onDue={setDue}
           disabled={busy}
+          dictation={dictation}
         />
       </div>
 
@@ -752,6 +789,8 @@ const STRIP_BUTTON =
 const QUIET_BUTTON =
   'border-black/10 bg-white text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink';
 const LIT_BUTTON = 'border-accent bg-accent-tint font-medium text-accent-deep';
+/** The mic while listening: filled, where a lit chip is only tinted, so it cannot be mistaken for a choice made. */
+const LIT_BUTTON_SOLID = 'border-accent bg-accent text-white';
 
 /**
  * The strip along the bottom of the note: three priority flags, then **Due**
@@ -768,12 +807,14 @@ function PriorityAndDue({
   due,
   onDue,
   disabled,
+  dictation,
 }: {
   priority: Priority | null;
   onPriority: (priority: Priority | null) => void;
   due: Due | null;
   onDue: (due: Due | null) => void;
   disabled: boolean;
+  dictation: Dictation;
 }) {
   const picker = useRef<HTMLInputElement>(null);
   const custom = due !== null && due.via === null ? due : null;
@@ -791,6 +832,7 @@ function PriorityAndDue({
   };
 
   return (
+    <>
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 pb-2 sm:px-4">
       <div role="group" aria-label="Priority" className="flex items-center gap-1.5">
         {prioritySchema.options.map((level) => {
@@ -879,6 +921,69 @@ function PriorityAndDue({
           />
         </span>
       </div>
+
+      {dictation.available && <Dictate dictation={dictation} />}
+    </div>
+    {dictation.error && (
+      <p role="alert" className="px-3 pb-2 text-sm text-over sm:px-4">
+        {dictation.error}
+      </p>
+    )}
+    </>
+  );
+}
+
+/**
+ * The mic and the language it listens in, at the right end of the strip, drawn
+ * only where the browser can recognise speech. The mic is the size of a flag;
+ * it is filled and pulsing only once the engine has actually started
+ * (`dictation.ts`), and the tag beside it is switched off while it listens.
+ */
+function Dictate({ dictation }: { dictation: Dictation }) {
+  const { listening, language } = dictation;
+  const { tag, name } = DICTATION_LANGUAGES[language];
+  return (
+    <div role="group" aria-label="Dictation" className="ml-auto flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={dictation.toggle}
+        aria-pressed={listening}
+        aria-label="Dictate"
+        title={listening ? 'Stop dictating' : 'Dictate the note'}
+        className={`${STRIP_BUTTON} w-9 sm:w-7 ${
+          listening ? `${LIT_BUTTON_SOLID} motion-safe:animate-pulse` : QUIET_BUTTON
+        }`}
+      >
+        <svg viewBox="0 0 16 16" className="size-4" aria-hidden="true">
+          <rect
+            x="5.5"
+            y="1.5"
+            width="5"
+            height="8"
+            rx="2.5"
+            fill={listening ? 'currentColor' : 'none'}
+            stroke="currentColor"
+            strokeWidth="1.4"
+          />
+          <path
+            d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+          />
+        </svg>
+      </button>
+      <button
+        type="button"
+        onClick={dictation.toggleLanguage}
+        disabled={listening}
+        aria-label={`Dictation language: ${name}`}
+        title={listening ? `Dictating in ${name}` : `Dictating in ${name}. Press to switch.`}
+        className={`${STRIP_BUTTON} ${QUIET_BUTTON} font-medium tracking-[0.05em]`}
+      >
+        {tag}
+      </button>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import {
   captureBox,
   closeCapture,
@@ -50,12 +51,57 @@ import {
  * whether a note is genuinely read as ambiguous - is the contract tier's
  * question, above.
  */
+/**
+ * A speech engine the walk can drive, installed before the app loads: the
+ * browser's own has no working implementation in Playwright's Chromium, and is
+ * a third party besides. `start()` only registers the session; the walk says
+ * when it has started and what it heard, the way the engine does.
+ */
+async function installSpeechEngine(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    type Session = {
+      onstart: (() => void) | null;
+      onresult: ((event: unknown) => void) | null;
+    };
+    const holder = window as unknown as { __speech: { current: Session | null } };
+    holder.__speech = { current: null };
+    class FakeSpeechRecognition {
+      onstart: (() => void) | null = null;
+      onresult: ((event: unknown) => void) | null = null;
+      start() {
+        holder.__speech.current = this;
+      }
+      stop() {}
+      abort() {}
+    }
+    // Both names: Chromium has a standard one of its own, which the app prefers.
+    Object.assign(window, {
+      SpeechRecognition: FakeSpeechRecognition,
+      webkitSpeechRecognition: FakeSpeechRecognition,
+    });
+  });
+}
+
+/** The engine, as the walk's fake has it: listening once started, then hearing a phrase. */
+async function engineHears(page: Page, phrase: string): Promise<void> {
+  await expect
+    .poll(() => page.evaluate(() => (window as never as { __speech: { current: unknown } }).__speech.current !== null))
+    .toBe(true);
+  await page.evaluate((said) => {
+    const engine = (window as never as { __speech: { current: Record<string, (event?: unknown) => void> } })
+      .__speech.current;
+    engine.onstart!();
+    engine.onresult!({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: said } }] });
+  }, phrase);
+}
+
 test.describe('Capture', () => {
   test.describe('a captured thought appears in the inbox, on a phone screen as on a desktop', () => {
     test('lists the thought to process, reachable without scrolling sideways', async ({
       page,
       isMobile,
     }) => {
+      await installSpeechEngine(page);
       await openInbox(page, isMobile);
       await expectNoSidewaysScroll(page);
       // No note box in the Inbox: the header's Capture tab is the only way in
@@ -72,10 +118,25 @@ test.describe('Capture', () => {
       await captureBox(page).fill(thought);
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);
       await expect(page.getByRole('region', { name: 'Just captured' }).getByText(thought)).toBeVisible();
+
+      // The same box, spoken into: the mic sits in the strip under the note,
+      // reachable on this screen, and what is heard lands in the note and is
+      // captured like anything typed. Only a browser proves it reaches an Item.
+      const mic = page.getByRole('button', { name: 'Dictate' });
+      await expect(mic).toBeInViewport();
+      await expectNoSidewaysScroll(page);
+      await press(mic, isMobile);
+      const spoken = uniqueTitle('Water the plants');
+      await engineHears(page, spoken);
+      await expect(mic).toHaveAttribute('aria-pressed', 'true');
+      await expect(captureBox(page)).toHaveValue(spoken);
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(spoken)).toBeVisible();
       await closeCapture(page, isMobile);
 
       await expect(itemRow(page, thought)).toBeVisible();
       await expect(inbox(page).getByText(thought)).toBeVisible();
+      await expect(itemRow(page, spoken)).toBeVisible();
       await expectNoSidewaysScroll(page);
     });
   });
