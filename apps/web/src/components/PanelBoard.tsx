@@ -34,7 +34,6 @@ import { browserStore } from '../lastVisited';
 import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, matchesDashboardFilter, useDashboardFilter } from '../dashboardFilter';
 import { DashboardFilterBar } from './DashboardFilterBar';
 import { DEFAULT_FILTER_SORT, inSortOrder, sortOf } from '../sorting';
-import { useChosenLayout } from '../panels/chosenLayout';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import {
   dividerMoved,
@@ -44,7 +43,6 @@ import {
   sameArrangement,
   sharesOf,
   withRowHeight,
-  SAME_SCREEN_TOLERANCE,
 } from '../panels/arrangement';
 import { dashboardTabAt } from '../panels/dashboardDrop';
 import type { TabRect } from '../panels/dashboardDrop';
@@ -176,13 +174,6 @@ export function PanelBoard({
   const queryClient = useQueryClient();
 
   /**
-   * Which layout is being drawn, shared with the control in the bar that names
-   * it (panels/chosenLayout.ts). The two are in different halves of the app -
-   * this is the page, that is the shell - so what they share is a store rather
-   * than a prop one would have to be handed through the router.
-   */
-  const [pick, choose] = useChosenLayout(browserStore());
-  /**
    * An arrangement that has been made but not yet stored. It is what the board
    * draws while it exists, so the panel really does move under the hand that
    * moved it, and it is dropped once the store has been re-read and agrees.
@@ -287,7 +278,7 @@ export function PanelBoard({
     latest: LayoutRow[];
   } | null>(null);
 
-  const drawnWith = layoutToDraw(layouts, screenSizes, dashboard.id, screenWidth, pick);
+  const drawnWith = layoutToDraw(layouts, screenSizes, dashboard.id, screenWidth);
   const stored = drawnRows(drawnWith, panels, acrossWidth);
   // The preview while a drag is on, then a draft that has been sent and is
   // waiting for the store to agree, then what the store holds.
@@ -393,10 +384,6 @@ export function PanelBoard({
       },
       {
         onSuccess: () => {
-          // The pick needs no help here: a pick naming a size this dashboard
-          // no longer has, or whose account-nearest answer has moved on, is
-          // already inert or expired on its own (arrangement.ts,
-          // `layoutToDraw`) - nothing has to notice either case and clear it.
           void settle();
         },
         /**
@@ -411,10 +398,9 @@ export function PanelBoard({
          * the app are shaped to avoid.
          *
          * **Reachable rather than theoretical.** Two tabs on a dashboard with
-         * no layout, both on a screen of the same size, both dragging: the
-         * first records *Wide* and the second is refused for the name, because
-         * its own copy of the dashboard still has no layout to make the name
-         * free against. Dropping `sent` with the draft is what lets the same
+         * no layout, both dragging: the first records one and the second is
+         * refused, because its own copy of the dashboard still has no layout
+         * for the size to be taken against. Dropping `sent` with the draft is what lets the same
          * gesture be made again once the snapshot has caught up; `justMade` is
          * deliberately kept, so the retry changes the layout this board made
          * rather than defining a second one at the same width.
@@ -429,37 +415,28 @@ export function PanelBoard({
   };
 
   /**
-   * The id of the layout this board made for this screen, kept until the
-   * snapshot has it.
+   * The id of the layout this board made, kept until the snapshot has it.
    *
    * Two gestures can both find the dashboard with no layout: the first sends
    * one and the second happens before the re-read lands. A fresh id each time
-   * would define a second layout at the same width, and the layout menu would
-   * list "Made for 1280 px" twice with nothing to tell them apart. Sending the
-   * same id makes the second gesture change the layout the first one made,
-   * which is what it meant.
-   *
-   * Kept per width, because a window resized between the two really is a
-   * different screen asking for a layout of its own.
+   * would define a second layout for the same dashboard. Sending the same id
+   * makes the second gesture change the layout the first one made, which is
+   * what it meant, whatever the window was resized to between the two: a
+   * dashboard has one layout, so there is no other screen to make one for.
    */
-  const justMade = useRef<{ id: string; screenWidth: number } | null>(null);
+  const justMade = useRef<string | null>(null);
   const layoutForThisScreen = (): string => {
-    const held = justMade.current;
-    if (held && Math.abs(held.screenWidth - screenWidth) <= SAME_SCREEN_TOLERANCE) return held.id;
-    const id = uuidv7();
-    justMade.current = { id, screenWidth };
-    return id;
+    if (justMade.current) return justMade.current;
+    justMade.current = uuidv7();
+    return justMade.current;
   };
 
   /**
    * What every gesture that changes the arrangement ends in: keep it, in the
    * layout on screen.
    *
-   * **It asks nothing, and that is the change** ("Pick the layout you are on,
-   * by name"). Dragging on a screen the drawn layout was not made for used to
-   * stop and ask whether to change that layout or make a new one, because
-   * nothing in the gesture said which and the layout had been picked *for* you.
-   * You pick it now, by name, so the gesture means what it says.
+   * **It asks nothing**: the layout drawn is the Dashboard's one, so there is
+   * nothing to choose between (`layoutToDraw`).
    *
    * A layout is still made silently when the dashboard has none, because there
    * is nothing to change and nothing worth interrupting a drag to ask.

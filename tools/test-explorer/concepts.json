@@ -183,7 +183,7 @@
     {
       "key": "Panels",
       "label": "Panels",
-      "browserWalks": 15,
+      "browserWalks": 14,
       "parent": "Dashboards",
       "sourcePatterns": [
         "apps/api/src/domain/panels.ts",
@@ -195,7 +195,6 @@
         "packages/shared/src/commands.ts",
         "packages/shared/src/domain/panel.ts",
         "apps/web/src/panels/arrangement.ts",
-        "apps/web/src/panels/chosenLayout.ts",
         "apps/web/src/panels/useScreenWidth.ts",
         "apps/web/src/panels/dashboardDrop.ts",
         "apps/web/src/components/PanelBoard.tsx",
@@ -226,8 +225,6 @@
       "label": "Layouts",
       "parent": "Dashboards",
       "sourcePatterns": [
-        "apps/web/src/components/LayoutPicker.tsx",
-        "apps/web/src/panels/chosenLayout.ts",
         "apps/web/src/panels/arrangement.ts",
         "apps/web/src/panels/useScreenWidth.ts",
         "apps/web/src/components/DashboardBar.tsx",
