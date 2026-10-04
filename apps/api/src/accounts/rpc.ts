@@ -336,6 +336,13 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * and only after the register has named whose account this is.
    */
   destroy(): Awaitable<void>;
+  /**
+   * Arms the account's Gmail check where it holds a Gmail connection and
+   * nothing has the check armed ("Bring in the conversations already
+   * labelled Cockpit as tasks", issue 725) - what the nightly run asks of
+   * every account.
+   */
+  keepCheckingGmail(accountName: string): Awaitable<Answer<'armed' | 'already armed' | 'nothing to check'>>;
 }
 
 type Awaitable<T> = T | Promise<T>;

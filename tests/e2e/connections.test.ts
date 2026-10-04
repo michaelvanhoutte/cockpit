@@ -104,7 +104,20 @@ test.describe('Connector management', () => {
       await expect(
         backFromGoogle.getByText('Connected. Conversations labelled Cockpit arrive in this workspace’s Inbox within a minute.'),
       ).toBeVisible();
-      await expect(backFromGoogle.getByText('Gmail · label Cockpit')).toBeVisible();
+      await expect(backFromGoogle.getByText(/^Gmail · label Cockpit/)).toBeVisible();
+
+      // The check connecting started brings the conversations labelled Cockpit
+      // in the stack's stand-in mailbox into this workspace's Inbox ("Bring in
+      // the conversations already labelled Cockpit as tasks", issue 725): Tasks
+      // from Gmail, openable there - and the row then says when it checked.
+      await closeSettings(page, isMobile);
+      await expect(page.getByText('Quarterly figures for the board')).toBeVisible();
+      await expect(page.getByText('Lunch on Thursday?')).toBeVisible();
+      await expect(page.getByText(/Gmail · Anna Peeters/)).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Open in Gmail' }).first()).toBeVisible();
+      const checked = await openSettings(page, 'Connections', isMobile);
+      await expect(checked.getByText(/^Gmail · label Cockpit · last checked /)).toBeVisible();
+
       await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
       await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
       await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();

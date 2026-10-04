@@ -50,3 +50,11 @@ jobs:
           ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # A dedicated test mailbox for what Gmail answers ("Bring in the
+          # conversations already labelled Cockpit as tasks", issue 725). Unlike
+          # the model suites, Gmail's skips without these rather than failing:
+          # until somebody provisions the mailbox, a skip is the honest answer
+          # (docs/deployment.md, "A Google Cloud project for Gmail").
+          GMAIL_CONTRACT_CLIENT_ID: ${{ secrets.GMAIL_CONTRACT_CLIENT_ID }}
+          GMAIL_CONTRACT_CLIENT_SECRET: ${{ secrets.GMAIL_CONTRACT_CLIENT_SECRET }}
+          GMAIL_CONTRACT_REFRESH_TOKEN: ${{ secrets.GMAIL_CONTRACT_REFRESH_TOKEN }}

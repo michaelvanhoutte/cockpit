@@ -125,6 +125,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     REWRITE_HISTORY_LOOKS_AT,
     REWRITE_HISTORY_PANEL_BEFORE,
     ONE_LAYOUT_PER_DASHBOARD,
+    GMAIL_CONVERSATIONS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -277,6 +278,68 @@ const REWRITE_HISTORY_PANEL_BEFORE: Change = {
     {
       // The action spelled out, for the reason `0019-screen-sizes` gives.
       sql: 'ALTER TABLE `rewrite_history` ADD COLUMN `panel_before_id` text REFERENCES `panels`(`id`) ON UPDATE no action ON DELETE restrict',
+    },
+  ],
+};
+
+/**
+ * Which Item each Gmail conversation became, and where bringing in each
+ * connection's labelled conversations has got to ("Bring in the conversations
+ * already labelled Cockpit as tasks", issue 725) - see `schema.ts` for what
+ * each column carries and why the second table has no foreign key.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): `CREATE` statements only, and none that writes to a row.
+ *   No existing row is rewritten, and no Item is linked but by the Gmail
+ *   connector bringing it in.
+ * - **If it stops halfway:** it cannot leave a half-built table behind, for
+ *   the reason `0044-agents` gives.
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** there can be none - both tables
+ *   are new and start empty.
+ * - **Rolled back after it has run:** an older release never names either
+ *   table and arms no check, so nothing is brought in until the release goes
+ *   forward again; the Items already brought in stay, as ordinary Items from
+ *   Gmail. An alarm a newer release armed fires into the older one's object,
+ *   which has no `alarm` and so does nothing.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const GMAIL_CONVERSATIONS: Change = {
+  name: '0054-gmail-conversations',
+  statements: [
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`gmail_conversations\` (
+	\`tenant_id\` text NOT NULL,
+	\`workspace_id\` text NOT NULL,
+	\`mailbox_key\` text NOT NULL,
+	\`thread_id\` text NOT NULL,
+	\`item_id\` text NOT NULL,
+	\`label_wanted\` integer,
+	\`linked_at\` text NOT NULL,
+	PRIMARY KEY(\`workspace_id\`, \`mailbox_key\`, \`thread_id\`),
+	FOREIGN KEY (\`workspace_id\`) REFERENCES \`workspaces\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "gmail_conversations_label_wanted_is_flag" CHECK(label_wanted IS NULL OR label_wanted IN (0, 1)),
+	CONSTRAINT "gmail_conversations_linked_at_is_timestamp" CHECK(linked_at IS NULL OR (datetime(linked_at) IS NOT NULL AND substr(linked_at, 11, 1) = 'T' AND substr(linked_at, -1) = 'Z' AND length(linked_at) >= 20 AND date(linked_at) = substr(linked_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE UNIQUE INDEX IF NOT EXISTS `gmail_conversations_one_per_item` ON `gmail_conversations` (`item_id`)',
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`gmail_checks\` (
+	\`source_account_id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`history_id\` text NOT NULL,
+	\`page_token\` text,
+	\`started_at\` text NOT NULL,
+	\`listed_at\` text,
+	CONSTRAINT "gmail_checks_started_at_is_timestamp" CHECK(started_at IS NULL OR (datetime(started_at) IS NOT NULL AND substr(started_at, 11, 1) = 'T' AND substr(started_at, -1) = 'Z' AND length(started_at) >= 20 AND date(started_at) = substr(started_at, 1, 10))),
+	CONSTRAINT "gmail_checks_listed_at_is_timestamp" CHECK(listed_at IS NULL OR (datetime(listed_at) IS NOT NULL AND substr(listed_at, 11, 1) = 'T' AND substr(listed_at, -1) = 'Z' AND length(listed_at) >= 20 AND date(listed_at) = substr(listed_at, 1, 10)))
+) STRICT`,
     },
   ],
 };

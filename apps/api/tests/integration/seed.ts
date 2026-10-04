@@ -150,7 +150,12 @@ export async function startFromEmpty(): Promise<void> {
     GUEST_ACCOUNT_NAME,
     ...ADDABLE_ACCOUNTS,
   ]) {
-    await runInDurableObject(storeNamed(name), (_instance, state) => state.storage.deleteAll());
+    // The alarm first, which `deleteAll` leaves: a Gmail check one case armed
+    // would otherwise wake in the next.
+    await runInDurableObject(storeNamed(name), async (_instance, state) => {
+      await state.storage.deleteAlarm();
+      await state.storage.deleteAll();
+    });
   }
   await abortAllDurableObjects();
   // Children before parents: `sessions` points at `users` and

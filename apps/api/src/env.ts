@@ -149,6 +149,17 @@ export interface Env {
   GMAIL_CLIENT_ID?: string;
   GMAIL_CLIENT_SECRET?: string;
   /**
+   * Where Gmail's API is reached, in place of `https://gmail.googleapis.com`.
+   * Unset everywhere but local development and the browser suite, which point
+   * it at the stub issuer's stand-in mailbox (scripts/lib/stub-issuer.mjs), so
+   * bringing in labelled conversations can be driven without a real mailbox
+   * ("Bring in the conversations already labelled Cockpit as tasks", issue
+   * 725). Absent from every environment block for the reason
+   * `CLAUDE_CODE_ROUTINES_ORIGIN` below is: a deployment that set it would
+   * send its access tokens wherever it pointed.
+   */
+  GMAIL_API_ORIGIN?: string;
+  /**
    * What a connected source account's credential is sealed with: 32 random
    * bytes, base64 (`src/connectors/credential-crypto.ts`).
    *

@@ -85,8 +85,14 @@ const CARD_TEXT: Record<(typeof AVAILABLE_CONNECTORS)[number], string> = {
 /** What a connected row says under its name, beside the source. */
 function rowDetail(account: SourceAccount): string {
   // The label is fixed, and the row says so ("Connect a Gmail account to a
-  // workspace, and disconnect it", issue 724).
-  if (account.connectorId === GMAIL) return 'Gmail · label Cockpit';
+  // workspace, and disconnect it", issue 724) - and when the mailbox was last
+  // checked, once it has been ("Bring in the conversations already labelled
+  // Cockpit as tasks", issue 725).
+  if (account.connectorId === GMAIL) {
+    return account.lastTestedAt
+      ? `Gmail · label Cockpit · last checked ${new Date(account.lastTestedAt).toLocaleString()}`
+      : 'Gmail · label Cockpit';
+  }
   return account.lastTestedAt
     ? `${connectorNamed(account.connectorId)} · last worked ${new Date(account.lastTestedAt).toLocaleString()}`
     : connectorNamed(account.connectorId);

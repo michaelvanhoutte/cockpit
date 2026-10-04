@@ -672,6 +672,32 @@ forgets the sign-in and revokes it at Google, unless another Workspace of the
 account still holds the mailbox, since Google revokes the whole grant; a revoke
 Google does not answer is logged and never keeps the connection.
 
+**Each account holding a Gmail connection checks it on its own alarm**, every
+five minutes and ten seconds apart while a newly connected mailbox is still
+being brought in ("Bring in the conversations already labelled Cockpit as
+tasks", issue 725): about 288 Durable Object requests per account a day, and at
+most 40 outbound calls per run against the free plan's 50. Nothing needs
+configuring; the nightly cron re-arms any check that was lost.
+
+**The scheduled contract test needs a mailbox of its own**, never anybody's
+real one (`apps/api/tests/contract/gmail.test.ts`; it skips without these):
+
+1. A Google account for testing, with a label called `Cockpit` and at least
+   one conversation carrying it that has a subject and some text.
+2. An OAuth client allowed `gmail.modify` - production's Gmail client will do,
+   with `https://developers.google.com/oauthplayground` added as a redirect URI,
+   or a *Desktop app* client in the same project.
+3. One sign-in as that account, asking `gmail.modify` with offline access (the
+   OAuth Playground, set to use your own client, is the quickest), and its
+   refresh token kept.
+4. The three as repository secrets for `.github/workflows/contract.yml`:
+
+```bash
+gh secret set GMAIL_CONTRACT_CLIENT_ID
+gh secret set GMAIL_CONTRACT_CLIENT_SECRET
+gh secret set GMAIL_CONTRACT_REFRESH_TOKEN
+```
+
 **Once these are set, the shared guest account can connect a Teams account
 too** — every concurrent guest sees it and can disconnect it, the same as
 anything else the guest account holds (`docs/product/glossary.md`, "Guest").

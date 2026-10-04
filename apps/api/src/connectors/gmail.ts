@@ -1,4 +1,5 @@
 import type { JWTVerifyGetKey } from 'jose';
+import { TITLE_LENGTH, cutTo } from '@cockpit/shared';
 import { authorizationUrl, claimsFrom, normaliseAddress, type Attempt, type IssuerEndpoints } from '../auth/oidc.js';
 
 /**
@@ -123,6 +124,272 @@ export function gmailCredentialFrom(
         accessToken && expiresIn !== null ? new Date(now.getTime() + expiresIn * 1000).toISOString() : null,
     }),
   };
+}
+
+/** What a sealed Gmail credential holds, once opened. */
+export interface GmailCredential {
+  readonly mailboxKey: string | null;
+  readonly refreshToken: string;
+  readonly accessToken: string | null;
+  readonly accessTokenExpiresAt: string | null;
+}
+
+/** An opened Gmail credential read back, or null for one holding no refresh token. */
+export function gmailCredentialIn(credential: string): GmailCredential | null {
+  try {
+    const parsed: unknown = JSON.parse(credential);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const held = parsed as Record<string, unknown>;
+    if (typeof held.refreshToken !== 'string' || !held.refreshToken) return null;
+    const text = (value: unknown) => (typeof value === 'string' && value ? value : null);
+    return {
+      mailboxKey: text(held.mailboxKey),
+      refreshToken: held.refreshToken,
+      accessToken: text(held.accessToken),
+      accessTokenExpiresAt: text(held.accessTokenExpiresAt),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How long before it lapses an access token is no longer used: a check that
+ * starts on a token with seconds left would have it refused halfway.
+ */
+const ACCESS_TOKEN_MARGIN_MS = 60_000;
+
+/** The cached access token where it will last the check, or null where it has to be refreshed first. */
+export function usableAccessToken(credential: GmailCredential, now: Date): string | null {
+  if (!credential.accessToken || !credential.accessTokenExpiresAt) return null;
+  const lapses = Date.parse(credential.accessTokenExpiresAt);
+  return Number.isFinite(lapses) && lapses - ACCESS_TOKEN_MARGIN_MS > now.getTime() ? credential.accessToken : null;
+}
+
+/**
+ * The credential after Google answered a refresh: the new access token and
+ * when it lapses, beside the refresh token it was refreshed with - Google
+ * does not rotate it, and keeps it where the answer carries none. Null for an
+ * answer holding no access token.
+ */
+export function credentialRefreshed(
+  credential: GmailCredential,
+  answer: unknown,
+  now: Date,
+): GmailCredential | null {
+  if (!answer || typeof answer !== 'object') return null;
+  const { access_token: accessToken, expires_in: expiresIn, refresh_token: refreshToken } = answer as Record<
+    string,
+    unknown
+  >;
+  if (typeof accessToken !== 'string' || !accessToken) return null;
+  const lasts = typeof expiresIn === 'number' && expiresIn > 0 ? expiresIn : 3600;
+  return {
+    mailboxKey: credential.mailboxKey,
+    refreshToken: typeof refreshToken === 'string' && refreshToken ? refreshToken : credential.refreshToken,
+    accessToken,
+    accessTokenExpiresAt: new Date(now.getTime() + lasts * 1000).toISOString(),
+  };
+}
+
+/** The label a conversation has to carry to become an Item. Fixed, by decision (issue 722). */
+export const COCKPIT_LABEL = 'Cockpit';
+
+/**
+ * The id of the mailbox's label called Cockpit, from Gmail's list of labels -
+ * or null where there is none. Gmail keeps label names unique whatever their
+ * case, so `cockpit` is the same label.
+ */
+export function cockpitLabelIn(answer: unknown): string | null {
+  const labels = (answer as { labels?: unknown } | null)?.labels;
+  if (!Array.isArray(labels)) return null;
+  for (const label of labels as unknown[]) {
+    const { id, name } = (label ?? {}) as Record<string, unknown>;
+    if (typeof id === 'string' && typeof name === 'string' && name.toLowerCase() === COCKPIT_LABEL.toLowerCase()) {
+      return id;
+    }
+  }
+  return null;
+}
+
+/** One page of Gmail's labelled conversations: their ids, and where the next page starts. */
+export function conversationPage(answer: unknown): { threadIds: string[]; nextPageToken: string | null } {
+  const { threads, nextPageToken } = (answer ?? {}) as Record<string, unknown>;
+  const threadIds = Array.isArray(threads)
+    ? (threads as unknown[])
+        .map((thread) => (thread as { id?: unknown } | null)?.id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    : [];
+  return { threadIds, nextPageToken: typeof nextPageToken === 'string' && nextPageToken ? nextPageToken : null };
+}
+
+/** What a conversation brings in as its Item. */
+export interface GmailConversation {
+  readonly threadId: string;
+  /** The subject, or what says there is none. */
+  readonly title: string;
+  /** The plain text of the most recent labelled message - never empty, the subject standing in where it is. */
+  readonly text: string;
+  /** Who sent that message: the name in its From, or the address where it gives none. */
+  readonly sender: string | null;
+  /** Where Gmail shows the conversation, in the connected mailbox. */
+  readonly link: string;
+  /** When that message arrived. */
+  readonly sentAt: string | null;
+}
+
+/** What an Item from a conversation with no subject is called - Gmail's own words for it. */
+export const NO_SUBJECT = '(no subject)';
+
+/** How long a description may be, as `itemDescriptionSchema` caps it. */
+const DESCRIPTION_LENGTH = 60_000;
+
+/** How long a title or a sender may be. */
+const LINE_LENGTH = TITLE_LENGTH;
+
+interface GmailPart {
+  mimeType?: unknown;
+  headers?: unknown;
+  body?: { data?: unknown } | null;
+  parts?: unknown;
+}
+
+interface GmailMessage {
+  labelIds?: unknown;
+  internalDate?: unknown;
+  payload?: GmailPart | null;
+}
+
+/**
+ * A conversation as Gmail's `threads.get` answers it, made into what its Item
+ * says ("Bring in the conversations already labelled Cockpit as tasks", issue
+ * 725) - or null for an answer with no message in it.
+ *
+ * **The most recent message carrying the label** is the one read, since
+ * labelling a conversation labels the messages it holds then, and a reply
+ * after it does not carry the label; the last message stands in where none
+ * does. Its text is the plain-text part, or the HTML one with the tags taken
+ * out where that is all there is.
+ */
+export function conversationFrom(
+  answer: unknown,
+  labelId: string,
+  mailboxAddress: string,
+): GmailConversation | null {
+  const { id, messages } = (answer ?? {}) as { id?: unknown; messages?: unknown };
+  if (typeof id !== 'string' || !id || !Array.isArray(messages) || messages.length === 0) return null;
+  const all = messages as GmailMessage[];
+  const labelled = all.filter((message) => Array.isArray(message?.labelIds) && message.labelIds.includes(labelId));
+  const message = (labelled.length > 0 ? labelled : all).reduce((latest, one) =>
+    sentAt(one) >= sentAt(latest) ? one : latest,
+  );
+
+  const subject = oneLine(headerOf(message.payload, 'Subject') ?? '');
+  const title = cutTo(subject, LINE_LENGTH) || NO_SUBJECT;
+  const text = cutTo(textOf(message.payload).trim(), DESCRIPTION_LENGTH) || title;
+  const at = sentAt(message);
+  return {
+    threadId: id,
+    title,
+    text,
+    sender: senderIn(headerOf(message.payload, 'From')),
+    link: `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailboxAddress)}#all/${encodeURIComponent(id)}`,
+    sentAt: at > 0 ? new Date(at).toISOString() : null,
+  };
+}
+
+function sentAt(message: GmailMessage): number {
+  const at = Number(message?.internalDate);
+  return Number.isFinite(at) ? at : 0;
+}
+
+function headerOf(part: GmailPart | null | undefined, name: string): string | null {
+  if (!Array.isArray(part?.headers)) return null;
+  for (const header of part.headers as unknown[]) {
+    const { name: called, value } = (header ?? {}) as Record<string, unknown>;
+    if (typeof called === 'string' && called.toLowerCase() === name.toLowerCase() && typeof value === 'string') {
+      return value;
+    }
+  }
+  return null;
+}
+
+/**
+ * Who a From header names: `Anna Peeters <anna@example.com>` is Anna Peeters,
+ * a bare address is itself, and quotes around a name are not part of it.
+ */
+export function senderIn(from: string | null): string | null {
+  if (!from) return null;
+  const named = /^\s*(.*?)\s*<([^>]*)>\s*$/.exec(from);
+  const name = named ? named[1]!.replace(/^"(.*)"$/, '$1').trim() : '';
+  const who = oneLine(name || (named ? named[2]! : from));
+  return who ? cutTo(who, LINE_LENGTH) : null;
+}
+
+/** The message's text: its first plain-text part, else its first HTML part with the tags taken out. */
+function textOf(payload: GmailPart | null | undefined): string {
+  const plain = firstPart(payload, 'text/plain');
+  if (plain !== null) return plain.replace(/\r\n?/g, '\n');
+  const html = firstPart(payload, 'text/html');
+  return html === null ? '' : plainTextOf(html);
+}
+
+function firstPart(part: GmailPart | null | undefined, mimeType: string): string | null {
+  if (!part) return null;
+  if (typeof part.mimeType === 'string' && part.mimeType.toLowerCase() === mimeType && typeof part.body?.data === 'string') {
+    return decodedBody(part.body.data);
+  }
+  if (!Array.isArray(part.parts)) return null;
+  for (const child of part.parts as GmailPart[]) {
+    const found = firstPart(child, mimeType);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
+/**
+ * A body as Gmail sends it: UTF-8, base64 in its URL-safe alphabet - or
+ * nothing where it cannot be read, so one malformed message is brought in
+ * under its subject rather than stopping every conversation after it.
+ */
+function decodedBody(data: string): string {
+  const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+  try {
+    const binary = atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4));
+    return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
+  } catch {
+    return '';
+  }
+}
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+
+/**
+ * HTML as the words it shows: what is not shown (styles, scripts, comments)
+ * goes, the breaks between blocks become line breaks, every other tag goes,
+ * and the commonest entities are read back into what they stand for.
+ */
+export function plainTextOf(html: string): string {
+  return html
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<(style|script|head)\b[\s\S]*?<\/\1\s*>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|tr|h[1-6]|blockquote)\s*>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (whole, entity: string) => {
+      if (entity[0] === '#') {
+        const code = entity[1] === 'x' || entity[1] === 'X' ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10);
+        return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+      }
+      return ENTITIES[entity.toLowerCase()] ?? whole;
+    })
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function oneLine(text: string): string {
+  return text.replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, ' ').trim();
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { Message, MessageBatch, ScheduledController } from '@cloudflare/workers-types';
 import type { Env } from '../env.js';
-import { resetGuestAccount } from '../accounts/index.js';
+import { keepEveryAccountCheckingGmail, resetGuestAccount } from '../accounts/index.js';
 import { purgeOldSignIns } from '../auth/sign-in-history.js';
 import {
   cleanUpACapturedNote,
@@ -43,16 +43,37 @@ export type { BatchRead } from './backfill-meanings.js';
  * watchdog (architecture, "Observability") dispatch from here too, added as
  * their own issues build them.
  *
- * **One job, where there were two.** Cron Triggers were wired for the nightly
- * filing summary and that summary is gone ("Drop the nightly filing summary,
- * keep the sentence you wrote", issue 392); the guest reset ("Reset the guest
- * account to its seeded state", issue 356) is what keeps the schedule. So
- * this tick now queues nothing at all, and is idempotent by doing less.
+ * **It queues nothing.** The nightly filing summary that once did is gone
+ * ("Drop the nightly filing summary, keep the sentence you wrote", issue 392);
+ * what runs is the guest reset, the sign-in history purge, and re-arming any
+ * Gmail check that was lost - each idempotent, so a tick run twice changes
+ * nothing the first did not.
  */
 export async function handleScheduled(controller: ScheduledController, env: Env): Promise<void> {
   void controller;
   await resetTheGuestAccount(env);
   await purgeTheOldSignIns(env);
+  await keepCheckingGmail(env);
+}
+
+/**
+ * Every account holding a Gmail connection has its check armed again where it
+ * was lost ("Bring in the conversations already labelled Cockpit as tasks",
+ * issue 725) - one account failing is logged inside, and the rest go on.
+ */
+async function keepCheckingGmail(env: Env): Promise<void> {
+  try {
+    await keepEveryAccountCheckingGmail(env);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `Gmail checks were not looked at tonight: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      }),
+    );
+  }
 }
 
 /**

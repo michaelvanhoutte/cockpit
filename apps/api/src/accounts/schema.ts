@@ -1729,6 +1729,70 @@ export const claudeCodeHookArrivals = sqliteTable(
 );
 
 /**
+ * Which Item a Gmail conversation became ("Bring in the conversations already
+ * labelled Cockpit as tasks", issue 725) - one row per conversation per
+ * mailbox per Workspace, and so one Item ever.
+ *
+ * **Keyed on the mailbox, not on the connection**, so disconnecting and
+ * connecting the same mailbox again finds its conversations already brought
+ * in rather than bringing them in twice; and on the Workspace, so the same
+ * mailbox connected to two Workspaces gives each its own Item.
+ *
+ * **Never deleted**: a disconnect leaves the Items, and the link with them.
+ * `label_wanted` is the room "Take the Cockpit label off in Gmail when its
+ * task is done in Cockpit" (issue 728) fills - null while Cockpit wants
+ * nothing of Gmail.
+ */
+export const gmailConversations = sqliteTable(
+  'gmail_conversations',
+  {
+    tenantId: text('tenant_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    mailboxKey: text('mailbox_key').notNull(),
+    threadId: text('thread_id').notNull(),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    labelWanted: integer('label_wanted', { mode: 'boolean' }),
+    linkedAt: text('linked_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.mailboxKey, t.threadId] }),
+    uniqueIndex('gmail_conversations_one_per_item').on(t.itemId),
+    check('gmail_conversations_label_wanted_is_flag', sql.raw('label_wanted IS NULL OR label_wanted IN (0, 1)')),
+    check('gmail_conversations_linked_at_is_timestamp', isTimestamp('linked_at')),
+  ],
+);
+
+/**
+ * Where bringing in one Gmail connection's labelled conversations has got to
+ * (issue 725): the history position recorded before the listing started, the
+ * page it resumes at, and when the listing finished - null while it is still
+ * going. One row per connection; a reconnect starts it again.
+ *
+ * **No foreign key**, for the reason `connectionFailures` gives: a disconnect
+ * deletes its connection for real, and a row here naming one that has gone is
+ * never read.
+ */
+export const gmailChecks = sqliteTable(
+  'gmail_checks',
+  {
+    sourceAccountId: text('source_account_id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    historyId: text('history_id').notNull(),
+    pageToken: text('page_token'),
+    startedAt: text('started_at').notNull(),
+    listedAt: text('listed_at'),
+  },
+  (t) => [
+    check('gmail_checks_started_at_is_timestamp', isTimestamp('started_at')),
+    check('gmail_checks_listed_at_is_timestamp', isTimestamp('listed_at')),
+  ],
+);
+
+/**
  * The command log (architecture, "Mutations are commands, not object PUTs"):
  * idempotency check for retries and the audit trail. command_id is the
  * client-generated ID; a replayed command is a no-op.
