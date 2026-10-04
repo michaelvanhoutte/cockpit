@@ -154,7 +154,7 @@
     {
       "key": "Dashboards",
       "label": "Dashboards",
-      "browserWalks": 4,
+      "browserWalks": 5,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/api/src/domain/dashboards.ts",

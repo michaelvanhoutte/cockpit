@@ -314,4 +314,132 @@ test.describe('Dashboards', () => {
       await expect.poll(() => rows.count()).toBe(62);
     });
   });
+
+  test.describe('an open filter bar stays in view, and opening it starts from the top', () => {
+    /**
+     * F3, because a pinned bar and a scroll position exist only where something
+     * is laid out and scrolled, which jsdom does neither of. The window is made
+     * short rather than the Dashboard long, so a Dashboard of one Panel is already taller than
+     * it. A Dashboard and All items share the scrolling element, the bar and the
+     * funnel's press handler, so one walk covers both rather than one each.
+     */
+    test('pins the bar under the dashboard bar, scrolls to the top only when it opens, and leaves a switch where it was', async ({
+      page,
+      isMobile,
+    }) => {
+      const workspace = uniqueTitle('Bookkeeping');
+      await openFirstWorkspace(page, isMobile);
+      await makeWorkspace(page, workspace, isMobile);
+      await switchTo(page, workspace, isMobile);
+      await page.setViewportSize({ width: page.viewportSize()!.width, height: 280 });
+
+      const scroller = page.locator('[data-drag-scroll="dashboard"]');
+      const bar = page.getByRole('search', { name: 'Dashboard filter' });
+      const scrollTop = () => scroller.evaluate((el) => el.scrollTop);
+      const reach = () => scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
+      const scrollDown = async (to: 'bottom' | number) => {
+        await scroller.evaluate((el, at) => {
+          el.scrollTop = at === 'bottom' ? el.scrollHeight : at;
+        }, to);
+        await expect.poll(scrollTop).toBeGreaterThan(0);
+      };
+      // Directly under the dashboard bar: flush with the top of the element that
+      // scrolls, and wholly inside the window.
+      const expectPinned = async () => {
+        await expect(bar).toBeVisible();
+        const barBox = (await bar.boundingBox())!;
+        const scrollerBox = (await scroller.boundingBox())!;
+        expect(Math.abs(barBox.y - scrollerBox.y), 'the bar sits at the top of the scroller').toBeLessThanOrEqual(8);
+        expect(barBox.y + barBox.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+        const barOfDashboards = (await dashboardBar(page).boundingBox())!;
+        expect(barBox.y).toBeGreaterThanOrEqual(barOfDashboards.y + barOfDashboards.height - 1);
+      };
+      const funnel = (name: string) =>
+        dashboardTab(page, 'Dashboard 1').getByRole('button', { name });
+      // Panels to scroll through: a short window alone does not hold a Dashboard
+      // taller than it once the bar closes and takes its own height back.
+      const fill = async (extra: number) => {
+        for (let at = 0; at < extra; at += 1) {
+          const name = uniqueTitle(`Panel ${at}`);
+          await press(page.getByRole('button', { name: '+ Panel' }), isMobile);
+          await page.getByLabel('Name of the new panel').fill(name);
+          await page.getByLabel('Name of the new panel').press('Enter');
+          await expect(page.getByRole('region', { name })).toBeVisible();
+        }
+      };
+
+      // **A Dashboard.**
+      await openDashboard(page, 'Dashboard 1', isMobile);
+      await fill(3);
+      await expect.poll(reach).toBeGreaterThan(150);
+      await scrollDown('bottom');
+      await press(funnel('Filter this dashboard'), isMobile);
+      await expect(bar).toBeVisible();
+      await expect.poll(scrollTop, 'opening the bar goes to the top').toBe(0);
+
+      await scrollDown('bottom');
+      await expectPinned();
+
+      // Filtered and scrolled: clearing closes the bar and goes nowhere.
+      await press(bar.getByRole('button', { name: 'High' }), isMobile);
+      await scrollDown(200);
+      await press(funnel('Clear the filter and close it'), isMobile);
+      await expect(bar).toHaveCount(0);
+      // Not zero: the bar's own height leaves with it and the Panels follow, but
+      // nothing takes the Dashboard to its top.
+      expect(await scrollTop(), 'closing does not scroll to the top').toBeGreaterThan(0);
+
+      // **A switch to a filtered Dashboard.** The first is filtered again and
+      // left; a second is scrolled down; the first's filled funnel comes back
+      // to it without taking it to the top.
+      await press(funnel('Filter this dashboard'), isMobile);
+      await press(bar.getByRole('button', { name: 'High' }), isMobile);
+      const other = uniqueTitle('Elsewhere');
+      await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
+      await page.getByLabel('Name of the new dashboard').fill(other);
+      await page.getByLabel('Name of the new dashboard').press('Enter');
+      await expect(page.getByRole('heading', { name: other, level: 2 })).toBeVisible();
+      await fill(3);
+      await expect.poll(reach).toBeGreaterThan(150);
+      await scrollDown(100);
+      await press(
+        dashboardTab(page, 'Dashboard 1').getByRole('img', { name: 'This dashboard is filtered' }),
+        isMobile,
+      );
+      await expect(page.getByRole('heading', { name: 'Dashboard 1', level: 2 })).toBeVisible();
+      await expect(bar).toBeVisible();
+      expect(await scrollTop(), 'a switch does not scroll').toBeGreaterThan(0);
+      await press(funnel('Clear the filter and close it'), isMobile);
+
+      // **All items**, with enough items that its table is taller than the window.
+      await chooseRowAction(page, 'Dashboard 1', 'Show all items', isMobile);
+      const workspaceId = new URL(page.url()).pathname.split('/')[2]!;
+      const known = await page.request.get('/v1/item-types');
+      const [aType] = ((await known.json()) as { itemTypes: { id: string }[] }).itemTypes;
+      for (let at = 0; at < 12; at += 1) {
+        const sent = await page.request.post('/v1/commands/capture_item', {
+          data: {
+            commandId: randomUUID(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            itemId: randomUUID(),
+            message: uniqueTitle(`Entry ${at}`),
+            typeId: aType!.id,
+          },
+        });
+        expect(sent.ok(), `capturing from outside failed: ${sent.status()}`).toBe(true);
+      }
+      await page.reload();
+      const tab = dashboardBar(page).getByRole('link', { name: 'All items' });
+      await press(tab, isMobile);
+      await expect(page).toHaveURL(/\/items$/);
+      await expect.poll(reach).toBeGreaterThan(150);
+      await scrollDown('bottom');
+      await press(tab.getByRole('button', { name: 'Filter All items' }), isMobile);
+      await expect(bar).toBeVisible();
+      await expect.poll(scrollTop, 'opening the bar goes to the top').toBe(0);
+      await scrollDown('bottom');
+      await expectPinned();
+    });
+  });
 });

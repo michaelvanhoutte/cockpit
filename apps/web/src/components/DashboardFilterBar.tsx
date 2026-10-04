@@ -82,163 +82,169 @@ export function DashboardFilterBar({
     }`;
 
   return (
-    <div
-      role="search"
-      aria-label="Dashboard filter"
-      className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-sm"
-    >
-      <span className="flex items-center gap-1.5 text-ink-soft">
-        <FunnelGlyph filled={filtering} />
-        <span className="font-medium">Filter</span>
-      </span>
+    // Pinned to the top of the scrolling Dashboard, directly under the dashboard
+    // bar (which sits outside it), so a filter is in view however far the Panels
+    // have scrolled. The wrapper paints the ground so Panels do not show through
+    // the bar's own translucent fill.
+    <div className="sticky top-0 z-20 bg-[var(--ground,var(--color-ground))] pb-2">
+      <div
+        role="search"
+        aria-label="Dashboard filter"
+        className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-sm"
+      >
+        <span className="flex items-center gap-1.5 text-ink-soft">
+          <FunnelGlyph filled={filtering} />
+          <span className="font-medium">Filter</span>
+        </span>
 
-      <fieldset className={group}>
-        <legend className="sr-only">Status</legend>
-        {STATUSES.filter(({ value }) => withDone || value !== 'done').map(({ value, label }) => {
-          const on = filter.statuses.includes(value);
-          return (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={on}
-              className={segment(on)}
-              onClick={() =>
-                setFilter({
-                  ...filter,
-                  statuses: on
-                    ? filter.statuses.filter((s) => s !== value)
-                    : [...filter.statuses, value],
-                })
-              }
-            >
-              {label}
-            </button>
-          );
-        })}
-      </fieldset>
+        <fieldset className={group}>
+          <legend className="sr-only">Status</legend>
+          {STATUSES.filter(({ value }) => withDone || value !== 'done').map(({ value, label }) => {
+            const on = filter.statuses.includes(value);
+            return (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={on}
+                className={segment(on)}
+                onClick={() =>
+                  setFilter({
+                    ...filter,
+                    statuses: on
+                      ? filter.statuses.filter((s) => s !== value)
+                      : [...filter.statuses, value],
+                  })
+                }
+              >
+                {label}
+              </button>
+            );
+          })}
+        </fieldset>
 
-      <fieldset className={group}>
-        <legend className="sr-only">Priority</legend>
-        {PRIORITIES.map(({ value, label }) => {
-          const on = filter.priorities.includes(value);
-          return (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={on}
-              className={segment(on)}
-              onClick={() =>
-                setFilter({
-                  ...filter,
-                  priorities: on
-                    ? filter.priorities.filter((p) => p !== value)
-                    : [...filter.priorities, value],
-                })
-              }
-            >
-              {label}
-            </button>
-          );
-        })}
-      </fieldset>
+        <fieldset className={group}>
+          <legend className="sr-only">Priority</legend>
+          {PRIORITIES.map(({ value, label }) => {
+            const on = filter.priorities.includes(value);
+            return (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={on}
+                className={segment(on)}
+                onClick={() =>
+                  setFilter({
+                    ...filter,
+                    priorities: on
+                      ? filter.priorities.filter((p) => p !== value)
+                      : [...filter.priorities, value],
+                  })
+                }
+              >
+                {label}
+              </button>
+            );
+          })}
+        </fieldset>
 
-      <div className="flex items-center gap-1.5">
-        <label className="flex items-center gap-1.5">
-          <span className="text-ink-soft">Due</span>
-          <select
-            className="rounded border border-black/15 bg-transparent px-1 py-0.5 text-xs"
-            value={filter.due?.window ?? ''}
-            onChange={(event) =>
-              setFilter({
-                ...filter,
-                due: event.target.value
-                  ? {
-                      window: event.target.value as DueWindow,
-                      orOverdue: filter.due?.orOverdue ?? true,
-                    }
-                  : null,
-              })
-            }
-          >
-            <option value="">Any time</option>
-            {DUE_WINDOWS.map((window) => (
-              <option key={window} value={window}>
-                {WINDOW_LABELS[window]}
-              </option>
-            ))}
-          </select>
-        </label>
-        {filter.due && isAPeriod(filter.due.window) && (
-          <label className="flex items-center gap-1 text-xs text-ink-soft">
-            <input
-              type="checkbox"
-              checked={filter.due.orOverdue}
+        <div className="flex items-center gap-1.5">
+          <label className="flex items-center gap-1.5">
+            <span className="text-ink-soft">Due</span>
+            <select
+              className="rounded border border-black/15 bg-transparent px-1 py-0.5 text-xs"
+              value={filter.due?.window ?? ''}
               onChange={(event) =>
-                filter.due &&
-                setFilter({ ...filter, due: { ...filter.due, orOverdue: event.target.checked } })
+                setFilter({
+                  ...filter,
+                  due: event.target.value
+                    ? {
+                        window: event.target.value as DueWindow,
+                        orOverdue: filter.due?.orOverdue ?? true,
+                      }
+                    : null,
+                })
               }
-            />
-            or overdue
-          </label>
-        )}
-      </div>
-
-      <label className="flex min-w-40 flex-1 items-center gap-1.5">
-        <span className="sr-only">Containing</span>
-        <input
-          type="search"
-          placeholder="Containing…"
-          className="w-full rounded border border-black/15 bg-transparent px-2 py-0.5 text-xs"
-          value={filter.text}
-          onChange={(event) => setFilter({ ...filter, text: event.target.value })}
-        />
-      </label>
-
-      <fieldset className="flex items-center gap-1.5">
-        <legend className="sr-only">Attachments</legend>
-        <span className="text-ink-soft" aria-hidden="true">
-          Attachments
-        </span>
-        <span className={group}>
-          {ATTACHMENTS.map(({ value, label }) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={filter.attachments === value}
-              className={segment(filter.attachments === value)}
-              onClick={() => setFilter({ ...filter, attachments: value })}
             >
-              {label}
-            </button>
-          ))}
-        </span>
-      </fieldset>
+              <option value="">Any time</option>
+              {DUE_WINDOWS.map((window) => (
+                <option key={window} value={window}>
+                  {WINDOW_LABELS[window]}
+                </option>
+              ))}
+            </select>
+          </label>
+          {filter.due && isAPeriod(filter.due.window) && (
+            <label className="flex items-center gap-1 text-xs text-ink-soft">
+              <input
+                type="checkbox"
+                checked={filter.due.orOverdue}
+                onChange={(event) =>
+                  filter.due &&
+                  setFilter({ ...filter, due: { ...filter.due, orOverdue: event.target.checked } })
+                }
+              />
+              or overdue
+            </label>
+          )}
+        </div>
 
-      <button
-        type="button"
-        aria-pressed={filter.agentRunning}
-        title="Only Items with an agent started on them, a refused start included"
-        className={chip(filter.agentRunning)}
-        onClick={() => setFilter({ ...filter, agentRunning: !filter.agentRunning })}
-      >
-        Agent running
-      </button>
+        <label className="flex min-w-40 flex-1 items-center gap-1.5">
+          <span className="sr-only">Containing</span>
+          <input
+            type="search"
+            placeholder="Containing…"
+            className="w-full rounded border border-black/15 bg-transparent px-2 py-0.5 text-xs"
+            value={filter.text}
+            onChange={(event) => setFilter({ ...filter, text: event.target.value })}
+          />
+        </label>
 
-      <button
-        type="button"
-        aria-label="Clear the filter"
-        title="Clear the filter"
-        className="ml-auto rounded px-1.5 py-0.5 text-ink-soft hover:bg-black/5 disabled:opacity-40"
-        disabled={!filtering}
-        onClick={() => {
-          // Kept open even where it was up only because it was filtered, as
-          // after a reload: starting over is not leaving.
-          setOpen(true);
-          setFilter(NO_DASHBOARD_FILTER);
-        }}
-      >
-        ×
-      </button>
+        <fieldset className="flex items-center gap-1.5">
+          <legend className="sr-only">Attachments</legend>
+          <span className="text-ink-soft" aria-hidden="true">
+            Attachments
+          </span>
+          <span className={group}>
+            {ATTACHMENTS.map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={filter.attachments === value}
+                className={segment(filter.attachments === value)}
+                onClick={() => setFilter({ ...filter, attachments: value })}
+              >
+                {label}
+              </button>
+            ))}
+          </span>
+        </fieldset>
+
+        <button
+          type="button"
+          aria-pressed={filter.agentRunning}
+          title="Only Items with an agent started on them, a refused start included"
+          className={chip(filter.agentRunning)}
+          onClick={() => setFilter({ ...filter, agentRunning: !filter.agentRunning })}
+        >
+          Agent running
+        </button>
+
+        <button
+          type="button"
+          aria-label="Clear the filter"
+          title="Clear the filter"
+          className="ml-auto rounded px-1.5 py-0.5 text-ink-soft hover:bg-black/5 disabled:opacity-40"
+          disabled={!filtering}
+          onClick={() => {
+            // Kept open even where it was up only because it was filtered, as
+            // after a reload: starting over is not leaving.
+            setOpen(true);
+            setFilter(NO_DASHBOARD_FILTER);
+          }}
+        >
+          ×
+        </button>
+      </div>
     </div>
   );
 }
