@@ -596,7 +596,9 @@ describe('Triage', () => {
         const user = userEvent.setup();
         const { mutate, send } = aRow({ settles: true, item, extra });
 
-        await user.click(screen.getByRole('button', { name: 'Mark done' }));
+        const mark = screen.getByRole('button', { name: 'Mark done' });
+        expect(mark).toHaveAttribute('title', 'Mark done');
+        await user.click(mark);
 
         expect(mutate).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -615,11 +617,6 @@ describe('Triage', () => {
             payload: expect.objectContaining({ itemId: 'item-1', done: false }),
           }),
         );
-      });
-
-      it('names itself Mark done on hover', () => {
-        aRow();
-        expect(screen.getByRole('button', { name: 'Mark done' })).toHaveAttribute('title', 'Mark done');
       });
     });
 
