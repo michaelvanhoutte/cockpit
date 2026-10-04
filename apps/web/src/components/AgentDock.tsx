@@ -272,6 +272,7 @@ export function AgentDock({
               autoFocus={focusHideControl}
               onClick={onHide}
               aria-label="Hide the agents’ dock"
+              data-shortcut-tip="dock"
               title="Hide the agents’ dock (A)"
               className="-mr-1 shrink-0 rounded-md px-1.5 py-1 text-sm text-chrome-ink-faint hover:bg-white/10 hover:text-chrome-ink"
             >

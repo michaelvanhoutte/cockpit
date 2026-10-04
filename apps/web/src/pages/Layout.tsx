@@ -29,6 +29,7 @@ import { OpensItemForms } from '../itemForm';
 import { litForChrome } from '../chrome';
 import { Logo } from '../components/Logo';
 import { opensCapture } from '../captureShortcut';
+import { ShortcutTip, useShortcutTip } from '../shortcutTip';
 import { captureStateFor } from './CapturePage';
 import { browserStore } from '../lastVisited';
 import { clampInboxWidth, readInboxWidth, writeInboxWidth } from '../inboxWidth';
@@ -151,6 +152,7 @@ function TheShell() {
   });
   useScrollWhileDraggingAnItem();
   const roomForTheInbox = useRoomForTheInbox();
+  const shortcutTip = useShortcutTip(roomForTheInbox);
 
   /**
    * Whether Capture is open as a window over the screen ("Capture over the
@@ -695,6 +697,10 @@ function TheShell() {
   return (
     <div
       className="flex h-dvh flex-col"
+      // A click anywhere in the shell, asked whether it landed on a control
+      // that has a key (`shortcutTip.tsx`); capture phase, so a control that
+      // unmounts on the press is still there to be asked.
+      onClickCapture={shortcutTip.clicked}
       // `--ground` and `--tint` beside the fill, because two things drawn far
       // below here are mixed from them rather than given them: the wells sunk
       // into the sheet (styles.css) and the lit tint a dot wears on the chrome.
@@ -820,6 +826,7 @@ function TheShell() {
                 // (pages/CapturePage.tsx). At a desk it is the window's own.
                 state={captureStateFor(params.workspaceId)}
                 title="Capture (C)"
+                data-shortcut-tip="capture"
                 onClick={(event) => {
                   // A plain press opens the window at a desk; a modified one
                   // (a new tab, a new window) and a phone keep the link.
@@ -1145,6 +1152,7 @@ function TheShell() {
             hideAgentDock(false);
           }}
           aria-label="Show the agents’ dock"
+          data-shortcut-tip="dock"
           title="Show the agents’ dock (A)"
           className="graphite flex shrink-0 items-center gap-2 py-2 text-xs font-semibold uppercase tracking-[0.11em] text-chrome-ink-faint hover:text-chrome-ink"
           style={{ paddingInline: 'calc(0.75rem + var(--edge-left)) 1rem' }}
@@ -1224,6 +1232,7 @@ function TheShell() {
           opened by that same address (`itemForm.tsx`). Here rather than in the
           lists, because there is one form open at a time. */}
       <ItemForm />
+      <ShortcutTip tip={shortcutTip.tip} onDismiss={shortcutTip.dismiss} />
     </div>
   );
 }

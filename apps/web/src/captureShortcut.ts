@@ -9,8 +9,11 @@ import { isTypedInto, somethingIsOpenOverThePage } from './inboxCollapsed';
  * chord - Ctrl+C still copies. Decided here, from the event and the document
  * alone, so the shell only has to act on the answer.
  */
+/** The key that opens Capture, named in its tab's tooltip and in the tip a click on it shows. */
+export const CAPTURE_KEY = 'c';
+
 export function opensCapture(event: KeyboardEvent, doc: Document = document): boolean {
-  if (event.key !== 'c' && event.key !== 'C') return false;
+  if (event.key.toLowerCase() !== CAPTURE_KEY) return false;
   if (event.ctrlKey || event.altKey || event.metaKey) return false;
   // Already taken by whoever handled it first, and a key held down is not a
   // second press.
