@@ -35,6 +35,10 @@ describe('levelForTestFile', () => {
     expect(levelForTestFile('packages/connectors/gmail/tests/contract/x.test.ts')).toBe('Contract');
   });
 
+  it("maps the API's contract test to Contract", () => {
+    expect(levelForTestFile('apps/api/tests/contract/choose-a-panel.test.ts')).toBe('Contract');
+  });
+
   it('maps a connector package unit test to L1, not null — packages/connectors/<name>/ nests one level deeper than packages/<name>/', () => {
     expect(levelForTestFile('packages/connectors/gmail/tests/unit/client.test.ts')).toBe('L1');
   });

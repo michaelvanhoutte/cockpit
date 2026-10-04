@@ -149,7 +149,7 @@ const widthByScreenSizeId = new Map<string, number>();
  * panel still has somewhere to move left to.
  *
  * Defined at a screen size of its own, one per layout, so the automatic
- * choice (`arrangement.ts`, `nearestLayout`) has something to find it by -
+ * choice (`arrangement.ts`, `layoutToDraw`) has something to find it by -
  * `showBoard` derives the matching `screenSizes` list from these unless a
  * case hands it its own.
  */
@@ -990,6 +990,24 @@ describe('Panels', () => {
       const [asked] = mutate.mock.calls[0]!;
       expect(asked.payload.layoutId).toBe(layouts[0]!.id);
       expect(sentOrder(mutate)).toEqual(['reading', 'falcon']);
+    });
+
+    it('keeps a move in the widest layout, leaves the other untouched, and ignores a remembered pick of another', async () => {
+      // A pick left in the browser by an earlier version, naming the narrower one.
+      localStorage.setItem(
+        'cockpit.layoutPick',
+        JSON.stringify({ screenSizeId: 'sz-laptop', whileNearestIs: 'sz-laptop' }),
+      );
+      screenIs(1300);
+      const layouts = [aLayout('laptop', 1646, ['falcon', 'reading']), aLayout('wide', 2560, ['falcon', 'reading'])];
+      const { mutate } = showBoard({ layouts });
+
+      dragTo('To read', slotBefore('falcon'));
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      const [asked] = mutate.mock.calls[0]!;
+      expect(asked.name).toBe('save_layout');
+      expect(asked.payload.layoutId).toBe('wide');
     });
 
     it('makes an arrangement with nothing defined without naming a screen size, and leaves the server to resolve one', async () => {

@@ -4,11 +4,9 @@ import type { Layout, LayoutCell, LayoutRow, Panel, ScreenSize } from '@cockpit/
 import {
   dividerMoved,
   drawnRows,
-  layoutLabel,
   layoutToDraw,
   movedBeside,
   movedToOwnRow,
-  nearestLayout,
   sharesOf,
   withRowHeight,
 } from '../../../src/panels/arrangement';
@@ -52,122 +50,30 @@ function aPanel(id: string): Panel {
 }
 
 describe('Layouts', () => {
-  describe('a dashboard is drawn with a layout it has defined, and never with a size it has not', () => {
-    const szPhone = aScreenSize('sz-phone', 480, 'Phone');
-    const szLaptop = aScreenSize('sz-laptop', 1280, 'Laptop');
-    const szWide = aScreenSize('sz-wide', 2560, 'Wide');
-    const sizes = [szPhone, szLaptop, szWide];
-    const phone = aLayout('phone', 'sz-phone');
-    const laptop = aLayout('laptop', 'sz-laptop');
-    const wide = aLayout('wide', 'sz-wide');
+  describe('a dashboard is drawn with its widest layout from 480px up, and fitted to the screen below it', () => {
+    const sizes = [aScreenSize('sz-phone', 480), aScreenSize('sz-laptop', 1646), aScreenSize('sz-wide', 2560)];
+    const layouts = [aLayout('phone', 'sz-phone'), aLayout('laptop', 'sz-laptop'), aLayout('wide', 'sz-wide')];
 
-    /** Picking `screenSizeId` on a screen the account's nearest size is `whileNearestIs`. */
-    const picked = (screenSizeId: string, whileNearestIs: string) => ({ screenSizeId, whileNearestIs });
-
-    it.each([
-      { situation: 'a phone', screenWidth: 480, pick: null, drawn: 'phone' },
-      { situation: 'a laptop', screenWidth: 1440, pick: null, drawn: 'laptop' },
-      { situation: 'a 4K screen', screenWidth: 2400, pick: null, drawn: 'wide' },
-      // Nothing was made at this width, and the nearest is what it gets rather
-      // than nothing at all.
-      { situation: 'a tablet nothing was made for', screenWidth: 900, pick: null, drawn: 'laptop' },
-      {
-        situation: 'a size picked by hand, on the screen it was picked on',
-        screenWidth: 480,
-        pick: picked('sz-wide', 'sz-phone'),
-        drawn: 'wide',
-      },
-      // The window moved and the screen did not: a pick scoped to a width would
-      // be thrown away here, and there is nothing about resizing a window that
-      // means "put me back on the other layout".
-      {
-        situation: 'a window resized without the account’s nearest size changing',
-        screenWidth: 560,
-        pick: picked('sz-wide', 'sz-phone'),
-        drawn: 'wide',
-      },
-      // The screen really did change, which is the whole feature: the pick was
-      // made on the phone and this is the laptop, so the laptop's own layout is
-      // what the dashboard goes back to.
-      {
-        situation: 'moving to a screen with a size of its own',
-        screenWidth: 1280,
-        pick: picked('sz-wide', 'sz-phone'),
-        drawn: 'laptop',
-      },
-      // Pressing the size the screen was already going to draw is still a
-      // pick, and it still expires: this is the 4K screen picked on the 4K
-      // screen, read back from the laptop.
-      {
-        situation: 'a pick of the size that was nearest anyway, read on another screen',
-        screenWidth: 1280,
-        pick: picked('sz-wide', 'sz-wide'),
-        drawn: 'laptop',
-      },
-      // A deleted layout arrives by the only route it can: the pick still names
-      // its size and there is no layout at it any more.
-      {
-        situation: 'a picked size whose layout another device has since removed',
-        screenWidth: 480,
-        pick: picked('gone', 'sz-phone'),
-        drawn: 'phone',
-      },
-      // The other half of that, and it expires the pick rather than falling
-      // through it: what the pick was overriding is no longer an answer anybody
-      // can give.
-      {
-        situation: 'a picked size whose overridden answer has been deleted',
-        screenWidth: 480,
-        pick: picked('sz-wide', 'gone'),
-        drawn: 'phone',
-      },
-    ])('$situation', ({ screenWidth, pick, drawn }) => {
-      expect(layoutToDraw([phone, laptop, wide], sizes, 'today', screenWidth, pick)?.id).toBe(drawn);
+    it.each([480, 1300, 2560])('draws the widest on a screen %i px wide', (screenWidth) => {
+      expect(layoutToDraw(layouts, sizes, 'today', screenWidth)?.id).toBe('wide');
     });
 
-    // A layout is made for a wider screen, and the nearest one is no better a
-    // fit on a phone than any other: it is what drew unreadable panels.
-    it.each([
-      { situation: 'a phone', screenWidth: 375, pick: null },
-      { situation: 'a phone, even with a size picked by hand', screenWidth: 375, pick: picked('sz-wide', 'sz-phone') },
-      { situation: 'the widest a phone gets', screenWidth: 479, pick: null },
-    ])('draws no layout at all on $situation', ({ screenWidth, pick }) => {
-      expect(layoutToDraw([phone, laptop, wide], sizes, 'today', screenWidth, pick)).toBeNull();
+    it.each([375, 479])('draws no layout at all on a phone %i px wide', (screenWidth) => {
+      expect(layoutToDraw(layouts, sizes, 'today', screenWidth)).toBeNull();
     });
 
-    it('goes back to the layouts the moment the screen is as wide as a phone stops being', () => {
-      expect(layoutToDraw([phone, laptop, wide], sizes, 'today', 479, null)).toBeNull();
-      expect(layoutToDraw([phone, laptop, wide], sizes, 'today', 480, null)?.id).toBe('phone');
-    });
-
-    it('goes to the narrower one when two are equally close, so two screens agree', () => {
-      expect(layoutToDraw([phone, laptop], sizes, 'today', 880, null)?.id).toBe('phone');
+    it('draws a dashboard that has no layouts at all with none', () => {
+      expect(layoutToDraw([], sizes, 'today', 1300)).toBeNull();
     });
 
     it('draws another dashboard’s layouts with nothing of this one', () => {
       const elsewhere = { ...aLayout('elsewhere', 'sz-laptop'), dashboardId: 'research' };
 
-      expect(layoutToDraw([elsewhere], sizes, 'today', 1280, null)).toBeNull();
+      expect(layoutToDraw([elsewhere], sizes, 'today', 1300)).toBeNull();
     });
 
-    it('draws a dashboard that has no layouts at all with none', () => {
-      expect(layoutToDraw([], sizes, 'today', 1280, null)).toBeNull();
-    });
-
-    it('is never drawn at a size the account has but this dashboard has not defined', () => {
-      // Only the phone is this dashboard's; the laptop and the wide sizes are
-      // the account's, offered but not chosen automatically.
-      expect(layoutToDraw([phone], sizes, 'today', 2400, null)?.id).toBe('phone');
-    });
-
-    it('draws fitted to the screen rather than a layout whose screen size is not in the account’s list', () => {
-      // Reachable only by something written straight into the store, since the
-      // app cascades a layout's own deletion with its size's - but a total
-      // function still needs an answer for it.
-      const orphaned = aLayout('orphaned', 'gone');
-
-      expect(layoutToDraw([orphaned], sizes, 'today', 480, null)).toBeNull();
-      expect(nearestLayout([orphaned], sizes, 'today', 480)).toBeNull();
+    it('draws a layout made below 480px on a wide screen when it is the only one', () => {
+      expect(layoutToDraw([aLayout('only', 'sz-small')], [aScreenSize('sz-small', 320)], 'today', 2560)?.id).toBe('only');
     });
   });
 
@@ -319,6 +225,12 @@ describe('Layouts', () => {
         panels: ['a', 'b', 'c', 'd'],
         rows: [['a', 'b', 'c'], ['d']],
       },
+      {
+        situation: 'a screen wider than a laptop, four across',
+        screenWidth: 2560,
+        panels: ['a', 'b', 'c', 'd', 'e'],
+        rows: [['a', 'b', 'c', 'd'], ['e']],
+      },
       { situation: 'a phone, one across', screenWidth: 480, panels: ['a', 'b'], rows: [['a'], ['b']] },
       { situation: 'a dashboard with nothing on it', screenWidth: 1280, panels: [], rows: [] },
     ])('arranges a dashboard with no layout for the screen it is on: $situation', ({
@@ -429,30 +341,6 @@ describe('Layouts', () => {
 
     it('changes nothing when it already has that line to itself', () => {
       expect(movedToOwnRow(three, 'b', 1)).toEqual(three);
-    });
-  });
-
-  describe('a layout is known by the screen size it is drawn for', () => {
-    it('is known by its screen size’s current name', () => {
-      const wide = aScreenSize('sz-wide', 1440, 'Wide');
-      const layout = aLayout('l', 'sz-wide');
-
-      expect(layoutLabel(layout, [wide])).toBe('Wide');
-    });
-
-    it('follows a rename of its screen size', () => {
-      const layout = aLayout('l', 'sz-wide');
-
-      expect(layoutLabel(layout, [aScreenSize('sz-wide', 1440, 'The big one')])).toBe('The big one');
-    });
-
-    it('falls back to the empty string for a layout whose screen size is not in the list', () => {
-      // Reachable only by something written straight into the store, since
-      // the app cascades a layout's own deletion with its size's - but a
-      // total function still needs an answer for it.
-      const layout = aLayout('l', 'gone');
-
-      expect(layoutLabel(layout, [aScreenSize('sz-wide', 1440, 'Wide')])).toBe('');
     });
   });
 });

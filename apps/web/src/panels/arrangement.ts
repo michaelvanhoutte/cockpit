@@ -5,7 +5,7 @@ import {
   MAX_ROW_HEIGHT,
   MIN_ROW_HEIGHT,
   MOST_ACROSS,
-  nearestScreenSize,
+  widestLayout,
 } from '@cockpit/shared';
 import type { Layout, LayoutCell, LayoutRow, Panel, ScreenSize } from '@cockpit/shared';
 
@@ -58,140 +58,10 @@ export function panelsAcross(availableWidth: number): number {
 }
 
 /**
- * How near a screen has to be to a layout's own width to count as the screen it
- * was made for.
- *
- * Exact equality would be unusable: a scrollbar appearing takes about fifteen
- * pixels off the width, and a window nudged by a few would count as a different
- * screen. Forty is under a tenth of the narrowest screen the app is drawn on,
- * so nothing that is really a different size can hide inside it.
- *
- * Its one reader is the board, deciding whether two quick gestures on a
- * dashboard with no layout are making the same one (PanelBoard,
- * `layoutForThisScreen`). It used to answer a second question - whether a
- * change had to stop and ask which layout to keep it in - and that question is
- * gone: you pick the layout you are on and every change goes into it ("Pick the
- * layout you are on, by name").
- */
-export const SAME_SCREEN_TOLERANCE = 40;
-
-/**
- * What to call a layout on screen: the name of the screen size it is drawn
- * for. A layout carries no name of its own to go stale, so this always
- * resolves through the account's current list.
- *
- * **The empty string is the fallback, not a crash.** A layout whose size is
- * not in this list at all - reachable only by something written straight into
- * the store, never through the app - draws as a blank rather than throwing;
- * the caller, not this function, decides what a Layout with nothing drawn
- * should read as (`LayoutPicker`, `drawnLabel`).
- */
-export function layoutLabel(layout: Layout, screenSizes: readonly ScreenSize[]): string {
-  const size = screenSizes.find((one) => one.id === layout.screenSizeId);
-  return size?.name.trim() ?? '';
-}
-
-/**
- * One dashboard's layouts, in the order the snapshot already holds them - which
- * is by its screen size's own width, narrowest first (repo.ts,
- * `listLayoutsInWorkspace`). This filters and does not sort.
- */
-export function layoutsOf(layouts: readonly Layout[], dashboardId: string): Layout[] {
-  return layouts.filter((layout) => layout.dashboardId === dashboardId);
-}
-
-/**
- * A screen size picked by hand from the menu, and the screen that pick belongs
- * to ("Draw a dashboard against the screen sizes its account has", issue 263).
- *
- * **One thing for the whole app, not one per Dashboard**: which screen you are
- * looking at is about you, not about which Dashboard happens to be open, so
- * switching Dashboards on the same screen carries the pick with you rather
- * than losing it. It is inert on a Dashboard that has not defined the picked
- * size - it is not cleared there, so it revives the moment you reach one that
- * has (`layoutToDraw`).
- *
- * **The screen is named by the size the width rule was landing on, not by a
- * number**, and that is the whole of why picking one is not a mode you get
- * stuck in. A width would have to carry a tolerance, and any tolerance is
- * wrong in both directions at once: opening the devtools takes a few hundred
- * pixels off a window without changing which screen you are at, while two
- * monitors can sit close enough together to fall inside the same band. What
- * actually matters is whether the app would now answer a different size - so
- * that is what is recorded, and the pick lasts exactly as long as the answer
- * it was overriding.
- */
-export type ScreenSizePick = {
-  /** The screen size you asked for. */
-  screenSizeId: string;
-  /** What `nearestScreenSize` was answering when you asked for it. */
-  whileNearestIs: string;
-};
-
-/**
- * The layout of this Dashboard whose screen size is nearest this window, among
- * the sizes it has actually defined - never one it has not.
- *
- * **Compared by the size's own width, not anything the Layout itself
- * carries.** A size can be renamed to a different width from the menu's own
- * *Rename*, and the Layouts drawn from it have to answer to that immediately
- * rather than to a number frozen at creation.
- *
- * **A Layout whose size is not in the list is skipped rather than crashing.**
- * Every Layout is defined at a size the account has, but a snapshot read
- * before another tab's delete of that size lands could still name one this
- * list has already lost.
- *
- * Ties go to the narrower Layout. Any tie-break would do; having one is what
- * stops the same Dashboard being drawn two ways on two devices of the same
- * width.
- */
-export function nearestLayout(
-  layouts: readonly Layout[],
-  screenSizes: readonly ScreenSize[],
-  dashboardId: string,
-  screenWidth: number,
-): Layout | null {
-  const widthOf = new Map(screenSizes.map((size) => [size.id, size.width]));
-  const defined = layoutsOf(layouts, dashboardId).filter((layout) => widthOf.has(layout.screenSizeId));
-  return defined.reduce<Layout | null>((closest, layout) => {
-    if (!closest) return layout;
-    const width = widthOf.get(layout.screenSizeId)!;
-    const closestWidth = widthOf.get(closest.screenSizeId)!;
-    const near = Math.abs(width - screenWidth);
-    const nearest = Math.abs(closestWidth - screenWidth);
-    if (near < nearest) return layout;
-    if (near === nearest && width < closestWidth) return layout;
-    return closest;
-  }, null);
-}
-
-/**
- * The layout a dashboard is drawn with: the one nearest this screen among the
- * sizes it has defined, unless you picked a size and the account's nearest has
- * not changed since ("Layouts follow the screen you are on").
- *
- * **Following the screen is what a layout does, rather than a mode you can be
- * in.** There used to be an *Automatic* entry above the layouts in the menu,
- * and the trouble with it was that everything put you off it - making a layout
- * most of all, which is the one gesture you make on the screen you want a
- * layout for. Two screens, two layouts, and the dashboard would go on drawing
- * whichever you made last.
- *
- * So a pick is scoped to the screen it was made on and expires by itself. It
- * holds while the *account's* nearest size still gives the answer it was
- * overriding, which covers resizing a window, opening the devtools and
- * unmaximizing, and it is gone the moment that answer changes - which is what
- * moving to the other monitor does. Anchored to the account's list rather than
- * to this Dashboard's, because a size made on this screen is what the width
- * rule then answers everywhere, so the pick made with it has to expire against
- * the same list or it would never expire at all.
- *
- * **Inert rather than cleared where this Dashboard has not defined the picked
- * size**: falling through to the nearest one it has *is* the Dashboard
- * following the screen, and the pick survives to be honoured on a Dashboard
- * that has defined it. A picked Layout that has been deleted falls through the
- * same way - nothing has to notice either case and clear the pick.
+ * The layout a dashboard is drawn with: its widest, from 480px up, whatever
+ * screen it is looked at on ("Draw a Dashboard on its one Layout, with nothing
+ * to choose it by", issue 712). Nothing is picked and nothing follows the
+ * screen, so the same Dashboard is drawn the same way on every device.
  *
  * **None at all on a phone** (`isPhoneWidth`): a Layout is an arrangement made
  * for a wider screen, and handing one to a phone is what drew panels too narrow
@@ -204,19 +74,10 @@ export function layoutToDraw(
   screenSizes: readonly ScreenSize[],
   dashboardId: string,
   screenWidth: number,
-  pick: ScreenSizePick | null,
 ): Layout | null {
   if (isPhoneWidth(screenWidth)) return null;
-  const nearest = nearestLayout(layouts, screenSizes, dashboardId, screenWidth);
-  if (!pick) return nearest;
-  const accountNearest = nearestScreenSize(screenSizes, screenWidth);
-  if (accountNearest?.id !== pick.whileNearestIs) return nearest;
-  const atPick = layoutsOf(layouts, dashboardId).find(
-    (layout) => layout.screenSizeId === pick.screenSizeId,
-  );
-  return atPick ?? nearest;
+  return widestLayout(layouts, screenSizes, dashboardId);
 }
-
 
 /**
  * The share of its row each cell takes, as a fraction of one.

@@ -96,8 +96,8 @@ the reason:
 - **Seven columns, not three.** The table was collapsing L1+L2 and F1+F2 and dropping
   L3 entirely. `levelForTestFile` now maps a test file to one of L1/L2/L3/F1/F2/F3/
   Contract. **L3 is n/a everywhere today**, not zero, derived from real workspace data
-  (more than one package with a `wrangler` config) rather than hardcoded — the same
-  pattern Contract already used.
+  (more than one package with a `wrangler` config) rather than hardcoded. Contract is
+  `n/a` only for an area no contract suite names.
 - **A node's counts are its own only**; a parent does not sum its children. The tree
   structure shows the relationship.
 
@@ -273,7 +273,7 @@ The seven columns are `model.js`'s `LEVELS`, in testing-strategy's own order:
 | F1 | `apps/web/tests/unit/` | count |
 | F2 | `apps/web/tests/service/` | count |
 | F3 | `tests/e2e/` at the repo root | count (Playwright spells the same structure `test.describe`; see "Rule extraction", §6.2) |
-| Contract | `packages/connectors/*/tests/contract/` | count, or `n/a` for any area with no connector package |
+| Contract | `apps/api/tests/contract/`, `packages/connectors/*/tests/contract/` | count, or `n/a` for any area no contract suite names |
 | Files nothing runs | — | source files matching this area's patterns that no test file imports directly — a real limitation for HTTP-driven integration tests, see "A convention change that landed mid-build", §2a |
 | Branches nothing takes | — | merged branch coverage (§6.3) restricted to this area's files |
 
