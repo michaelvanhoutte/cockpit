@@ -51,6 +51,25 @@ export function useUndo(): (change: Undoable) => void {
 
 const noteNothing = () => {};
 
+const Offering = createContext(false);
+
+/**
+ * Whether the bar is offering an undo now. The shortcut tip (`shortcutTip.tsx`)
+ * stands aside while it is, since both are drawn in the same place and the way
+ * back matters more than a hint.
+ */
+export function useAnUndoIsOffered(): boolean {
+  return useContext(Offering);
+}
+
+/**
+ * The strip along the bottom of the window that the bar is centred in, shared
+ * with the shortcut tip so the two clear the same things. Why each part is
+ * there is said where the bar uses it, below.
+ */
+export const BOTTOM_CENTRE_STRIP =
+  'pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right)_+_var(--docked-form-w,0px))] pb-[calc(1rem_+_var(--edge-bottom)_+_var(--dock-h,0px))] pl-[calc(1rem_+_var(--edge-left))]';
+
 /**
  * The mounted bar's way of emptying itself, so signing out can reach it.
  *
@@ -161,7 +180,7 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
 
   return (
     <Remembering.Provider value={remember}>
-      {children}
+      <Offering.Provider value={held !== null}>{children}</Offering.Provider>
       {held && (
         <div
           // `status` rather than `alert`: it reports something that has already
@@ -195,7 +214,7 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
           // same way it clears a docked form's own width - the two sit at the
           // same edge, and the bar covering a dock tile is not only a swallowed
           // press but the tile going invisible under it.
-          className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right)_+_var(--docked-form-w,0px))] pb-[calc(1rem_+_var(--edge-bottom)_+_var(--dock-h,0px))] pl-[calc(1rem_+_var(--edge-left))]"
+          className={BOTTOM_CENTRE_STRIP}
         >
           <div className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
             <span className="min-w-0 flex-1 truncate">{failure ?? held.what}</span>
