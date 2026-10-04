@@ -193,7 +193,7 @@ export const rewriteHistoryForWorkspaceQuery = (workspaceId: string) =>
     staleTime: 0,
   });
 
-/** One item's rewrite history, most recent first - the table opened from that item's own menu (issue 444). */
+/** One item's rewrite history, most recent first - what its form's What Cockpit changed tab and the note under its tabs read (issue 690). */
 export const rewriteHistoryForItemQuery = (itemId: string) =>
   queryOptions({
     queryKey: ['rewriteHistory', 'item', itemId],

@@ -1,15 +1,16 @@
 import { z } from 'zod';
 
 /**
- * One smart refinement: an attempt Cockpit made to refine a captured item's
- * title, description and suggested Panel, from the moment it was queued
- * through to its outcome ("See the history of what Cockpit proposed for the
- * Inbox's items", issue 444; "Rename Rewrite history to Smart refinements,
- * and show each field's change", issue 614).
+ * One attempt Cockpit made to refine a captured item's title, description and
+ * suggested Panel, from the moment it was queued through to its outcome ("See
+ * the history of what Cockpit proposed for the Inbox's items", issue 444;
+ * "Rename Rewrite history to Smart refinements, and show each field's
+ * change", issue 614). The person reads these as *what Cockpit changed*
+ * (issue 690).
  *
  * The wire shape both the account-wide table (opened from the Inbox's own
- * menu) and an item's own table (opened from its row menu) read - the same
- * query either way, only the item filter differs. The table, route and type
+ * menu) and an item's own tab (on its form) read - the same query either way,
+ * only the item filter differs. The table, route and type
  * names keep "rewrite history": renaming them buys the person nothing.
  */
 export const rewriteAttemptStatusSchema = z.enum(['pending', 'rewritten', 'left-as-is', 'failed']);

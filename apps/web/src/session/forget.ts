@@ -8,6 +8,7 @@ import { forgetInboxCollapsed } from '../inboxCollapsed';
 import { forgetEveryDashboardFilter } from '../dashboardFilter';
 import { forgetEveryAllItemsTab } from '../allItemsTab';
 import { forgetAgentDockHidden } from '../agentDockHidden';
+import { forgetEverySeenChange } from '../cockpitChanges';
 import { forgetWhatJustHappened } from '../undo';
 import { forgetWelcomed } from '../welcoming';
 import { persister } from '../persistence';
@@ -31,9 +32,10 @@ import { persister } from '../persistence';
  *   the size a drag last left the item form at, the width a drag last left it
  *   docked to, the size a drag last left the Inbox column at, whether the
  *   question a new account opens on has been answered, and whether the
- *   agents' dock is hidden, which dashboards are filtered, and which
- *   workspaces show their All items tab, all nine in localStorage - the last
- *   eight of them
+ *   agents' dock is hidden, which dashboards are filtered, which
+ *   workspaces show their All items tab, and which of what Cockpit changed on
+ *   an item has been seen, all ten in localStorage - the last
+ *   nine of them
  *   because leaving one behind gives the first person's answer to the second;
  * - what the undo bar is still offering, which is a title of theirs drawn over
  *   whatever screen comes next.
@@ -66,6 +68,7 @@ export async function forgetEverything(queryClient: QueryClient): Promise<void> 
   forgetEveryDashboardFilter(browserStore());
   forgetAgentDockHidden(browserStore());
   forgetEveryAllItemsTab(browserStore());
+  forgetEverySeenChange(browserStore());
   forgetWelcomed(browserStore());
   forgetWhatJustHappened();
 }

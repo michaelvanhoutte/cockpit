@@ -319,8 +319,8 @@
       ]
     },
     {
-      "key": "Cockpit's suggestions",
-      "label": "Cockpit's suggestions",
+      "key": "What Cockpit changed",
+      "label": "What Cockpit changed",
       "parent": "Capture",
       "sourcePatterns": [
         "apps/api/src/domain/rewrite-history.ts",
@@ -334,6 +334,9 @@
         "apps/api/src/http/app.ts",
         "apps/api/src/jobs/enrichment.ts",
         "apps/web/src/components/SmartRefinementsWindow.tsx",
+        "apps/web/src/components/WhatCockpitChangedList.tsx",
+        "apps/web/src/cockpitChanges.ts",
+        "apps/web/src/useCockpitChanges.ts",
         "apps/web/src/components/InboxPanel.tsx",
         "apps/web/src/components/ItemRow.tsx",
         "apps/web/src/components/ItemForm.tsx",

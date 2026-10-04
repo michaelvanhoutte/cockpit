@@ -15,35 +15,6 @@ import { useCommand, useSendCommand } from '../../../src/api/queries';
 vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
   useSendCommand: vi.fn(),
-  // Read by the row's own "Cockpit's suggestions for this item…" entry: one refinement, saying
-  // which query it came from.
-  rewriteHistoryForWorkspaceQuery: (workspaceId: string) => ({
-    queryKey: ['rewriteHistory', 'workspace', workspaceId],
-    queryFn: () => Promise.resolve({ entries: [] }),
-  }),
-  rewriteHistoryForItemQuery: (itemId: string) => ({
-    queryKey: ['rewriteHistory', 'item', itemId],
-    queryFn: () =>
-      Promise.resolve({
-        entries: [
-          {
-            id: 'refinement-1',
-            itemId,
-            titleBefore: 'call ann',
-            titleAfter: null,
-            descriptionBefore: null,
-            descriptionAfter: null,
-            proposedPanelName: null,
-            status: 'left-as-is',
-            message: `read ${itemId} alone`,
-            attemptedAt: '2026-10-01T09:00:00.000Z',
-            looksAt: 'texts-and-panel',
-            suggestedPanelBefore: null,
-            suggestedPanelAfter: null,
-          },
-        ],
-      }),
-  }),
 }));
 
 const mockUseCommand = vi.mocked(useCommand);
@@ -873,7 +844,7 @@ describe('Item editing', () => {
       );
     };
 
-    it('orders Open, Filing, Agent, Status, Suggestions and Dismiss, a divider between each', async () => {
+    it('orders Open, Filing, Agent, Status and Dismiss, a divider between each', async () => {
       const user = userEvent.setup();
       aRow({
         onOpen: () => {},
@@ -894,8 +865,6 @@ describe('Item editing', () => {
         '---',
         expect.stringMatching(/^Status/),
         '---',
-        "Cockpit's suggestions for this item…",
-        '---',
         'Dismiss',
       ]);
     });
@@ -913,8 +882,6 @@ describe('Item editing', () => {
         'Move to…',
         '---',
         expect.stringMatching(/^Status/),
-        '---',
-        "Cockpit's suggestions for this item…",
         '---',
         'Dismiss',
       ]);
@@ -958,16 +925,15 @@ describe('Item editing', () => {
       expect(menu.slice(0, 2)).toEqual(['Move to this workspace', 'Move to…']);
     });
 
-    it('puts Not a duplicate in Suggestions, after Cockpit’s suggestions', async () => {
+    it('puts Not a duplicate in a group of its own, between Status and Dismiss', async () => {
       const user = userEvent.setup();
       aRow({ mayBeADuplicate: true, onSettleNotADuplicate: () => {} });
       await user.click(screen.getByLabelText('Item actions'));
 
       const menu = await menuTopToBottom();
-      const at = menu.indexOf("Cockpit's suggestions for this item…");
+      const at = menu.indexOf('Not a duplicate');
 
-      expect(menu.slice(at, at + 2)).toEqual(["Cockpit's suggestions for this item…", 'Not a duplicate']);
-      expect(menu[at - 1]).toBe('---');
+      expect(menu.slice(at - 2, at + 3)).toEqual([expect.stringMatching(/^Status/), '---', 'Not a duplicate', '---', 'Dismiss']);
     });
 
     it('calls Add to… “Also show on…”, and opens the same picker', async () => {
@@ -2373,18 +2339,18 @@ describe('Agents', () => {
   });
 });
 
-describe("Cockpit's suggestions", () => {
-  describe("the window is reached as \"Cockpit's suggestions…\" from the Inbox menu and \"Cockpit's suggestions for this item…\" from an item menu, and is titled Cockpit's suggestions", () => {
-    it("opens that item's own refinements from its menu", async () => {
+describe('What Cockpit changed', () => {
+  describe('is named for what it is wherever a person meets it, and an item row has no entry for it', () => {
+    it("offers nothing for the item's history in its menu", async () => {
       const user = userEvent.setup();
-      aRow();
+      aRow({ mayBeADuplicate: true, onSettleNotADuplicate: () => {} });
 
       await user.click(screen.getByRole('button', { name: 'Item actions' }));
-      await user.click(await screen.findByRole('menuitem', { name: "Cockpit's suggestions for this item…" }));
+      await screen.findAllByRole('menuitem');
 
-      const dialog = await screen.findByRole('dialog', { name: "Cockpit's suggestions" });
-      expect(await within(dialog).findByText('Read item-1 alone')).toBeVisible();
-      expect(within(dialog).queryByRole('columnheader', { name: 'Item' })).toBeNull();
+      for (const entry of screen.getAllByRole('menuitem')) {
+        expect(entry.textContent).not.toMatch(/Cockpit|refinement|suggestions|history/i);
+      }
     });
   });
 });

@@ -664,7 +664,7 @@ describe('Triage', () => {
  * directly, as "filing several items in quick succession" above is, so the
  * refresh is the only thing that ever asks the model or writes a row here.
  */
-describe("Cockpit's suggestions", () => {
+describe('What Cockpit changed', () => {
   /**
    * One refresh over an item in every situation it can end in. The one it
    * cannot is the item going between the read and the write: items are only

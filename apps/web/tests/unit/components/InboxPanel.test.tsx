@@ -64,7 +64,7 @@ vi.mock('../../../src/api/queries', () => ({
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),
   }),
-  // Read by the Inbox heading's own "Cockpit's suggestions…" entry: one
+  // Read by the Inbox heading's own "What Cockpit changed…" entry: one
   // refinement, saying which query it came from.
   rewriteHistoryForWorkspaceQuery: (workspaceId: string) => ({
     queryKey: ['rewriteHistory', 'workspace', workspaceId],
@@ -88,10 +88,6 @@ vi.mock('../../../src/api/queries', () => ({
           },
         ],
       }),
-  }),
-  rewriteHistoryForItemQuery: (itemId: string) => ({
-    queryKey: ['rewriteHistory', 'item', itemId],
-    queryFn: () => Promise.resolve({ entries: [] }),
   }),
 }));
 
@@ -233,16 +229,16 @@ describe('Capture', () => {
   });
 });
 
-describe("Cockpit's suggestions", () => {
-  describe("the window is reached as \"Cockpit's suggestions…\" from the Inbox menu and \"Cockpit's suggestions for this item…\" from an item menu, and is titled Cockpit's suggestions", () => {
-    it("opens the Inbox's own refinements from the Inbox menu", async () => {
+describe('What Cockpit changed', () => {
+  describe('is named for what it is wherever a person meets it, and an item row has no entry for it', () => {
+    it("opens the Inbox's own changes from the Inbox menu, in a window of the same name", async () => {
       const user = userEvent.setup();
       await showWorkspace([anItem('Buy milk')]);
 
       await user.click(screen.getByRole('button', { name: 'Actions for the Inbox' }));
-      await user.click(await screen.findByRole('menuitem', { name: "Cockpit's suggestions…" }));
+      await user.click(await screen.findByRole('menuitem', { name: 'What Cockpit changed…' }));
 
-      const dialog = await screen.findByRole('dialog', { name: "Cockpit's suggestions" });
+      const dialog = await screen.findByRole('dialog', { name: 'What Cockpit changed' });
       expect(await within(dialog).findByText('Read across ws-work')).toBeVisible();
       expect(within(dialog).getByRole('columnheader', { name: 'Item' })).toBeVisible();
     });

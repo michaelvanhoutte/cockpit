@@ -284,7 +284,7 @@ export async function fetchRewriteHistoryForWorkspace(workspaceId: string): Prom
   return rewriteHistoryResponseSchema.parse(await res.json());
 }
 
-/** Every rewrite attempt for one item, most recent first - the table opened from that item's own menu (issue 444). */
+/** Every rewrite attempt for one item, most recent first - what its form's What Cockpit changed tab reads (issue 690). */
 export async function fetchRewriteHistoryForItem(itemId: string): Promise<RewriteHistoryResponse> {
   const res = await api.v1.items[':itemId']['rewrite-history'].$get({
     param: { itemId },
