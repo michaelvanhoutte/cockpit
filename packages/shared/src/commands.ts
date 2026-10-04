@@ -260,9 +260,11 @@ export const setPanelSortSchema = commandEnvelopeSchema.extend({
 export type SetPanelSortCommand = z.infer<typeof setPanelSortSchema>;
 
 /**
- * save_layout — a dashboard's one arrangement, whole (architecture.md §4.4).
- * `layoutId` is the dashboard's Layout, or a fresh client-generated id where it
- * has none yet; a save naming any other id still arranges the dashboard's own.
+ * save_layout — a dashboard's one arrangement, whole (architecture.md,
+ * "`packages/shared`: schema and command rationale"). `layoutId` is the
+ * dashboard's Layout, or a fresh client-generated id where it has none yet; a
+ * save naming any other id still arranges the dashboard's own, unless that id
+ * is another dashboard's Layout, which is refused as not found.
  * A tab from before Screen sizes were retired still sends `screenWidth` and
  * `screenSizeId`, which are dropped unread.
  */

@@ -409,7 +409,7 @@ export function PanelBoard({
    * server would put a save naming any other id into that one anyway.
    */
   const justMade = useRef<string | null>(null);
-  const layoutForThisScreen = (): string => {
+  const firstLayoutId = (): string => {
     if (justMade.current) return justMade.current;
     justMade.current = uuidv7();
     return justMade.current;
@@ -440,7 +440,7 @@ export function PanelBoard({
     setDraft(next);
     // A dashboard nobody has arranged gets its one layout from this first
     // move, under an id made here (`save_layout`).
-    saveArrangement(drawnWith?.id ?? layoutForThisScreen(), next);
+    saveArrangement(drawnWith?.id ?? firstLayoutId(), next);
   };
 
   /**

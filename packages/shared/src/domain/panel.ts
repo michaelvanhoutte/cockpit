@@ -451,8 +451,9 @@ export type LayoutRow = z.infer<typeof layoutRowSchema>;
 
 /**
  * A Dashboard's one arrangement of its Panels ("Convert every Dashboard to its
- * widest Layout and retire Screen sizes", issue 713; architecture.md §4.4). At
- * most one per Dashboard, and none until the Dashboard is first arranged.
+ * widest Layout and retire Screen sizes", issue 713; architecture.md,
+ * "`packages/shared`: schema and command rationale"). At most one per
+ * Dashboard, and none until the Dashboard is first arranged.
  */
 export const layoutSchema = z.object({
   id: z.string(),

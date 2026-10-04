@@ -1467,6 +1467,53 @@ describe('Layouts', () => {
         expect(after.columns).toEqual(['id', 'tenant_id', 'dashboard_id', 'created_at']);
       },
     );
+
+    it('keeps the widest of each dashboard, not the widest of the account', async () => {
+      const name = 'aged-store-widest-per-dashboard';
+      await agedTo(name, justBefore('0053-one-layout-per-dashboard'));
+      await inStoreAsItIs(name, (sql) => {
+        sql.exec(
+          `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)
+           VALUES ('db-one', ?, 'ws-1', 'One', 'one', ?), ('db-two', ?, 'ws-1', 'Two', 'two', ?)`,
+          name,
+          AT,
+          name,
+          AT,
+        );
+        sql.exec(
+          `INSERT INTO screen_sizes (id, tenant_id, name, folded_name, width, created_at)
+           VALUES ('sz-laptop', ?, 'Laptop', 'laptop', 1280, ?), ('sz-wide', ?, 'Wide', 'wide', 2560, ?)`,
+          name,
+          AT,
+          name,
+          AT,
+        );
+        // `db-two` was never arranged for the wide screen, so its laptop
+        // Layout is its widest even though `db-one` has a wider one.
+        sql.exec(
+          `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_size_id, created_at)
+           VALUES ('ly-one-laptop', ?, 'db-one', 'sz-laptop', ?),
+                  ('ly-one-wide', ?, 'db-one', 'sz-wide', ?),
+                  ('ly-two-laptop', ?, 'db-two', 'sz-laptop', ?)`,
+          name,
+          AT,
+          name,
+          AT,
+          name,
+          AT,
+        );
+      });
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const kept = await inStoreAsItIs(name, (sql) =>
+        sql.exec('SELECT id, dashboard_id FROM layouts ORDER BY id').toArray(),
+      );
+      expect(kept).toEqual([
+        { id: 'ly-one-wide', dashboard_id: 'db-one' },
+        { id: 'ly-two-laptop', dashboard_id: 'db-two' },
+      ]);
+    });
   });
 
   describe('keeping one layout per dashboard touches nothing else an account holds', () => {

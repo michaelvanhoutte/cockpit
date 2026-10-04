@@ -31,7 +31,7 @@ export const workspaceSnapshotSchema = z.object({
   dashboards: z.array(dashboardSchema),
   /** Every panel of every dashboard of this workspace ("Panels on a dashboard, with per-screen-size layouts", issue 33; architecture.md §4.4). */
   panels: z.array(panelSchema),
-  /** Each of those dashboards' one Layout, for the ones that have been arranged - never more than one per dashboard (issue 713). */
+  /** Each of those dashboards' one Layout, for the ones that have been arranged - never more than one per dashboard ("Convert every Dashboard to its widest Layout and retire Screen sizes", issue 713). */
   layouts: z.array(layoutSchema),
   /** Which Items are filed on which of those Panels, and in what order ("Panels hold the items filed into them, and the Inbox holds the rest", issue 36; architecture.md §4.4). */
   filings: z.array(filingSchema),

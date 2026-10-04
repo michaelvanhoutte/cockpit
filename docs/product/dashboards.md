@@ -71,7 +71,7 @@ Status, Priority and Attachments are each drawn as one joined group of buttons i
 
 A Dashboard has one arrangement, its Layout, and **nothing on screen offers a choice of one**: no control on the Dashboard bar, and no screen sizes anywhere in the account. The bar holds **+ Panel** and the Dashboard's **…** menu, both drawn only where a Dashboard is open, since the bar is also the Inbox's.
 
-**From 480 px up a Dashboard is drawn with its Layout, whatever the screen**, so a laptop and a 4K screen show the same arrangement. A Dashboard that held several Layouts before Screen sizes were retired kept the one made for its widest screen, ties to the earliest made, then the lowest id — the one it was already drawn with — and the rest were discarded.
+**From 480 px up a Dashboard is drawn with its Layout, whatever the screen**, so a laptop and a 4K screen show the same arrangement.
 
 **Below 480 px, a phone, no Layout is read**: the Dashboard is drawn one Panel across, and every gesture that rearranges (drag, row and divider sizing) is absent. The Layout is kept for a wider screen.
 
