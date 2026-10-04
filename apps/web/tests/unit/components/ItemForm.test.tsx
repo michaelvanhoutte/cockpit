@@ -613,8 +613,8 @@ describe('Item editing', () => {
   /**
    * "Give the item's form more room, and put clutter out of the way" (issue
    * 480): one-click alongside typing one directly. What each shortcut
-   * actually computes - tomorrow, seven days out -
-   * is tests/unit/dueDateShortcuts.test.ts's own claim; what is asked here is
+   * actually computes is tests/unit/dueDateShortcuts.test.ts's own claim;
+   * what is asked here is
    * that pressing one fills the field with it, overriding whatever was
    * already there, and that typing afterwards still wins.
    */

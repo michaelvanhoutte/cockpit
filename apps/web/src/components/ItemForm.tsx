@@ -1770,8 +1770,9 @@ function TheForm({
                             />
                           </label>
                           {/* One-click alongside typing one directly (issue
-                            480): today, tomorrow and seven days out, each measured from the
-                            moment the button is pressed and each overriding
+                            480): today, tomorrow and seven days out, each
+                            measured from the moment the button is pressed
+                            and each overriding
                             whatever the field already holds, the same as
                             typing over it would. */}
                           <div className="mt-1.5 flex gap-1">

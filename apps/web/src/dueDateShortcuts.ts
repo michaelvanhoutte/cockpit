@@ -12,7 +12,7 @@ export function dueToday(now: Date): Day {
   return dayOf(now);
 }
 
-/** The day after today on the viewer's own calendar, so the last day of a month tomorrow is the first of the next. */
+/** The day after today on the viewer's own calendar, crossing into the next month or year as the calendar does. */
 export function dueTomorrow(now: Date): Day {
   return daysAfter(dayOf(now), 1);
 }
