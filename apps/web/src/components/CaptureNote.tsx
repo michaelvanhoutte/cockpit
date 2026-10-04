@@ -104,12 +104,11 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
    * a deadline belongs to the one note it was set for. A refused capture puts
    * both back with the note.
    *
-   * The due date remembers which shortcut chose it (`via`) as well as the day,
-   * because on a Friday *Today* and *Fri* are the same day and the lit one has
-   * to be the one pressed.
+   * The due date is the day alone: the shortcuts are always three different
+   * days, so the lit one is read off the day however it was reached.
    */
   const [priority, setPriority] = useState<Priority | null>(null);
-  const [due, setDue] = useState<Due | null>(null);
+  const [due, setDue] = useState<string | null>(null);
   /**
    * What landed while this form was open. The outbox forgets a capture once it
    * has landed, so this is what keeps its row - with its time - until the form
@@ -212,7 +211,7 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
       setWhere(entry.decided ? entry.workspaceId : null);
       // Back with the note they were set for, unless something has been chosen since.
       if (entry.priority) setPriority((was) => was ?? entry.priority ?? null);
-      if (entry.dueDate) setDue((was) => was ?? dueFromDay(entry.dueDate!));
+      if (entry.dueDate) setDue((was) => was ?? entry.dueDate!);
     }
     const files = back.files.map(fileOf);
     setQueued((was) => [...was, ...files.map(toQueued)]);
@@ -342,7 +341,7 @@ export function CaptureNote({ startsIn }: { startsIn: string | null }) {
       workspaceId: targetWorkspace,
       decided: belongsTo !== null,
       ...(priorityAtSubmit ? { priority: priorityAtSubmit } : {}),
-      ...(dueAtSubmit ? { dueDate: dueAtSubmit.date } : {}),
+      ...(dueAtSubmit ? { dueDate: dueAtSubmit } : {}),
     };
     // Empties the box of what was captured and nothing typed or dropped since.
     const emptied = () => {
@@ -728,18 +727,6 @@ export function pasteKeyFor(userAgent: string): string {
 
 const PASTE_KEY = isAMac() ? '⌘V' : 'Ctrl V';
 
-/** A due date as chosen: the day, and the shortcut that chose it where one did. */
-interface Due {
-  date: string;
-  via: string | null;
-}
-
-/** A day as a due date: a day that is also a shortcut's lights that shortcut, so one day has one answer however it was reached. */
-function dueFromDay(date: string): Due {
-  const via = DUE_DATE_SHORTCUTS.find((s) => s.dueDate(new Date()) === date)?.label ?? null;
-  return { date, via };
-}
-
 /** The flag's colour at each level, the same as an Inbox row's flag (`ItemRow.tsx`). */
 const FLAG_COLOURS: Record<Priority, { lit: string; unlit: string }> = {
   low: { lit: 'border-priority-low bg-priority-low text-white', unlit: 'text-priority-low' },
@@ -771,12 +758,14 @@ function PriorityAndDue({
 }: {
   priority: Priority | null;
   onPriority: (priority: Priority | null) => void;
-  due: Due | null;
-  onDue: (due: Due | null) => void;
+  due: string | null;
+  onDue: (due: string | null) => void;
   disabled: boolean;
 }) {
   const picker = useRef<HTMLInputElement>(null);
-  const custom = due !== null && due.via === null ? due : null;
+  const today = new Date();
+  const custom =
+    due !== null && !DUE_DATE_SHORTCUTS.some((s) => s.dueDate(today) === due) ? due : null;
 
   const openPicker = () => {
     const input = picker.current;
@@ -822,14 +811,14 @@ function PriorityAndDue({
           Due
         </span>
         {DUE_DATE_SHORTCUTS.map(({ label, dueDate }) => {
-          const lit = due?.via === label;
+          const lit = due === dueDate(today);
           return (
             <button
               key={label}
               type="button"
               disabled={disabled}
               aria-pressed={lit}
-              onClick={() => onDue(lit ? null : { date: dueDate(new Date()), via: label })}
+              onClick={() => onDue(lit ? null : dueDate(new Date()))}
               className={`${STRIP_BUTTON} ${lit ? LIT_BUTTON : QUIET_BUTTON}`}
             >
               {label}
@@ -841,12 +830,12 @@ function PriorityAndDue({
             type="button"
             disabled={disabled}
             title="Pick a date"
-            aria-label={custom ? `Due ${dueDateLabel(custom.date)}` : 'Pick a due date'}
+            aria-label={custom ? `Due ${dueDateLabel(custom)}` : 'Pick a due date'}
             onClick={openPicker}
             className={`${STRIP_BUTTON} gap-1 ${custom ? LIT_BUTTON : QUIET_BUTTON}`}
           >
             <span aria-hidden="true">📅</span>
-            {custom && <span>{dueDateLabel(custom.date)}</span>}
+            {custom && <span>{dueDateLabel(custom)}</span>}
           </button>
           {custom && (
             <button
@@ -870,10 +859,10 @@ function PriorityAndDue({
             tabIndex={-1}
             aria-hidden="true"
             aria-label="Due date"
-            value={due?.date ?? ''}
+            value={due ?? ''}
             onChange={(e) => {
               const picked = e.target.value;
-              onDue(picked ? dueFromDay(picked) : null);
+              onDue(picked || null);
             }}
             className="pointer-events-none absolute inset-0 w-full opacity-0"
           />

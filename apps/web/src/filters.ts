@@ -69,9 +69,7 @@ export function daysAfter(day: Day, days: number): Day {
  * local day already read off the clock is never shifted by the hour a
  * `Date` constructed straight from it would carry.
  *
- * Exported for the due date field's own one-click shortcuts
- * (`dueDateShortcuts.ts`), which need the coming Friday the same way `week`
- * below needs the day the current week started on.
+ * Read by `week` below for the day the current week started on.
  */
 export function weekdayOf(day: Day): number {
   return new Date(`${day}T00:00:00.000Z`).getUTCDay();
