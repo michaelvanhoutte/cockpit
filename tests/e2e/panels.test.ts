@@ -638,11 +638,14 @@ test.describe('Panels', () => {
       // pointer ends up is what decides the slot, so the left edge of the
       // first panel rather than its middle.
       const onto = page.getByRole('region', { name: first });
-      const box = (await onto.boundingBox())!;
       await page.mouse.move(
         ...(await centreOf(page.getByRole('region', { name: third }).locator('header'))),
       );
       await page.mouse.down();
+      // Measured after the pick-up, which collapses every panel to its header
+      // and so moves the one aimed at.
+      await expect.poll(async () => (await onto.boundingBox())!.height).toBeLessThan(100);
+      const box = (await onto.boundingBox())!;
 
       // **One aim, held.** The panels move as the drag does, so the target
       // moves too: a walk that steps to one panel's middle and then measures
@@ -712,6 +715,81 @@ test.describe('Panels', () => {
       await press(dashboardBar(page).getByRole('link', { name: here }), isMobile);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
+    });
+  });
+
+  test.describe('every panel is its header alone while one is in the air, and the one you hold stays under the pointer', () => {
+    test.skip(({ isMobile }) => !!isMobile, 'dragging a panel is a pointer gesture');
+
+    test('keeps the grabbed header where it was taken when the board collapses, changes nothing on the first move, and keeps the dropped one where it was let go when the board opens', async ({
+      page,
+      isMobile,
+    }) => {
+      // Tall enough that three sized rows overflow it and the first one is
+      // reachable to drag the lines of, and short enough that they do overflow.
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await ownDashboard(page, isMobile);
+      const names = ['Falcon', 'Reading', 'People', 'Plans', 'Ideas'].map((label) => uniqueTitle(label));
+      for (const name of names) await addPanel(page, name, isMobile);
+      const [one, two, three, four, five] = names as [string, string, string, string, string];
+      const arranged = [[one, two], [three, four], [five]];
+      await expect.poll(() => rowsOnScreen(page)).toEqual(arranged);
+
+      // Every row sized tall by its own line, bottom up: a line pulled only
+      // moves what is below it, so the lines above keep the place they were
+      // found at.
+      for (const at of [2, 1, 0]) {
+        const saved = answerTo(page, 'save_layout');
+        const [lineX, lineY] = await centreOf(page.getByTestId('row-line').nth(at));
+        await page.mouse.move(lineX, lineY);
+        await page.mouse.down();
+        await page.mouse.move(lineX, lineY + 200, { steps: 8 });
+        await page.mouse.up();
+        expect((await saved).status()).toBe(200);
+      }
+
+      // Scrolled to the foot, where the panel taken is low on the screen.
+      const dashboard = page.locator('[data-drag-scroll="dashboard"]');
+      await dashboard.evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+      const headerOf = (name: string) => page.getByRole('region', { name }).locator('header');
+      const headerTop = async (name: string) => (await headerOf(name).boundingBox())!.y;
+      const grabbedAt = await headerTop(five);
+      const [grabX, grabY] = await centreOf(headerOf(five));
+
+      await page.mouse.move(grabX, grabY);
+      await page.mouse.down();
+
+      // Collapsed to headers, and the one in hand has not moved off the pointer.
+      await expect(page.getByRole('region', { name: one }).getByRole('listitem')).toHaveCount(0);
+      await expect
+        .poll(async () => (await page.getByRole('region', { name: one }).boundingBox())!.height)
+        .toBeLessThan(100);
+      await expect.poll(async () => Math.abs((await headerTop(five)) - grabbedAt) <= 1).toBe(true);
+
+      // **The first move with the pointer still on the header changes nothing**:
+      // had the board collapsed out from under it, the pointer would be in a
+      // gap or over another panel and the move would rearrange.
+      await page.mouse.move(grabX + 2, grabY + 1);
+      await page.evaluate(
+        () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+      );
+      expect(await rowsOnScreen(page)).toEqual(arranged);
+
+      // Two rows up, into the gap above everything.
+      await page.mouse.move(...(await centreOf(page.getByTestId('row-seam').first())), { steps: 6 });
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[five], [one, two], [three, four]]);
+      const letGoAt = await headerTop(five);
+
+      await page.mouse.up();
+
+      // Open again, and the panel dropped is where it was let go.
+      await expect(page.getByRole('region', { name: one }).getByRole('listitem')).toHaveCount(0);
+      await expect
+        .poll(async () => (await page.getByRole('region', { name: one }).boundingBox())!.height)
+        .toBeGreaterThan(300);
+      await expect.poll(async () => Math.abs((await headerTop(five)) - letGoAt) <= 1).toBe(true);
     });
   });
 

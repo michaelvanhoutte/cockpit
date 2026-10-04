@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -49,6 +49,7 @@ import {
 import { dashboardTabAt } from '../panels/dashboardDrop';
 import type { TabRect } from '../panels/dashboardDrop';
 import { DeleteQuestion } from './DeleteQuestion';
+import { anchored } from '../panels/anchoring';
 import { arrangedWith, placementFor } from '../panels/dragging';
 import type { DrawnRow } from '../panels/dragging';
 import { MovePanelToDashboardPicker } from './MovePanelToDashboardPicker';
@@ -255,6 +256,27 @@ export function PanelBoard({
    * exactly the moves this ref exists to catch.
    */
   const draggingNow = useRef<string | null>(null);
+  /**
+   * **Every Panel is its header alone while one is in the air**, so the whole
+   * arrangement is in view at once and a Panel can be taken to any row without
+   * riding the edge-scroll past screens of Items. Only a Panel drag does it: a
+   * size is set against what is in the Panels, so a line being dragged
+   * collapses nothing.
+   */
+  const collapsed = dragging !== null;
+  /**
+   * The header that must stay where it is while the board changes shape: the
+   * Panel and where its top was the moment before - grabbed when the board
+   * collapses, dropped when it opens.
+   */
+  const anchor = useRef<{ panelId: string; top: number } | null>(null);
+  /**
+   * What the Dashboard could not scroll to keep the anchor: room above the
+   * board where positive, the board pulled up where negative. It outlives the
+   * drag, since taking it away on the drop would move the dropped Panel; the
+   * next anchoring takes back what scrolling can now hold.
+   */
+  const [room, setRoom] = useState(0);
   /** Where the pointer last was during a panel drag, for the scroll that moves the page under a still hand. */
   const pointerAt = useRef<{ x: number; y: number } | null>(null);
   /** The control a question was opened from, so the focus can go back to it. */
@@ -616,6 +638,45 @@ export function PanelBoard({
     propose(withRowHeight(shown, rowIndex, null));
   };
 
+  /** Where a Panel's header is on the page, or null where it is not drawn. */
+  const headerTop = (panelId: string): number | null => {
+    const header = rowsRef.current?.querySelector(`[data-panel-cell="${panelId}"] header`);
+    return header ? header.getBoundingClientRect().top : null;
+  };
+
+  /** Notes where the header is now, for the board about to change shape around it. */
+  const anchorOn = (panelId: string) => {
+    const top = headerTop(panelId);
+    anchor.current = top === null ? null : { panelId, top };
+  };
+
+  /**
+   * Puts the anchored header back under the pointer once the board has
+   * collapsed or opened: the Dashboard scrolls by the difference, and what it
+   * cannot scroll becomes room above the board or the board pulled up
+   * (`panels/anchoring.ts`). A header that has gone (deleted in another tab)
+   * leaves everything as it fell.
+   */
+  useLayoutEffect(() => {
+    const held = anchor.current;
+    anchor.current = null;
+    if (!held) return;
+    const now = headerTop(held.panelId);
+    if (now === null) return;
+    const scroller = rowsRef.current?.closest<HTMLElement>('[data-drag-scroll="dashboard"]');
+    const next = anchored({
+      wanted: held.top,
+      now,
+      scrollTop: scroller?.scrollTop ?? 0,
+      maxScrollTop: scroller ? scroller.scrollHeight - scroller.clientHeight : 0,
+    });
+    if (scroller) scroller.scrollTop = next.scrollTop;
+    // Added to what is already there, and so taken back where a header that
+    // had to be held down by room can now be held by scrolling.
+    setRoom((room) => (Math.abs(room + next.shift) < 0.5 ? 0 : room + next.shift));
+    // Once per collapse and once per opening, which is what `collapsed` changes with.
+  }, [collapsed]);
+
   /**
    * Picks a panel up. Nothing is sent; the board just starts drawing it moved.
    *
@@ -626,6 +687,7 @@ export function PanelBoard({
    * one thing on screen that no rearrangement can unmount.
    */
   const pickUp = (panelId: string, pointerId: number) => {
+    anchorOn(panelId);
     command.reset();
     setRenaming(null);
     setDeleting(null);
@@ -692,6 +754,7 @@ export function PanelBoard({
     if (!draggingNow.current) return;
     draggingNow.current = null;
     const held = dragging;
+    if (held) anchorOn(held.id);
     setDragging(null);
     if (!held) return;
     const droppedOnDashboard = dashboardTabAt(point, tabsOnScreen(), dashboard.id);
@@ -705,6 +768,7 @@ export function PanelBoard({
 
   /** A drag abandoned rather than dropped: the panels go back and nothing is sent. */
   const abandon = () => {
+    if (draggingNow.current) anchorOn(draggingNow.current);
     draggingNow.current = null;
     setDragging(null);
   };
@@ -997,6 +1061,7 @@ export function PanelBoard({
           // The browser taking it back - a touch that became a scroll, the
           // window losing focus. The panels go back where they were.
           onPointerCancel={abandon}
+          style={room !== 0 ? { marginTop: room } : undefined}
           className="flex min-w-0 flex-col"
         >
           {shown.map((row, rowIndex) => {
@@ -1044,8 +1109,8 @@ export function PanelBoard({
                   // it header - and filing an item into it stopped working
                   // where there was nothing left to aim at.
                   style={{
-                    height: filteringOn ? undefined : (row.height ?? undefined),
-                    minHeight: filteringOn ? undefined : MIN_ROW_HEIGHT,
+                    height: filteringOn || collapsed ? undefined : (row.height ?? undefined),
+                    minHeight: filteringOn || collapsed ? undefined : MIN_ROW_HEIGHT,
                     display: 'grid',
                     // The gap between two panels is a track of its own rather
                     // than a `gap`, so it is an element a hand can take hold
@@ -1155,6 +1220,7 @@ export function PanelBoard({
                             setSorting(panel.id);
                           }}
                           lifted={dragging?.id === panel.id}
+                          collapsed={collapsed}
                           onPickUp={arrangeable ? (pointerId) => pickUp(panel.id, pointerId) : null}
                           refusal={
                             refusalFor('rename_panel', panel.id) ??
@@ -1367,7 +1433,10 @@ function RowSeam({
       // gap saying something can go in it.
       data-testid="row-seam"
       style={{ height: dragging ? 22 : PANEL_GAP, position: 'relative' }}
-      className="shrink-0 transition-[height] duration-100"
+      // No transition on the height: the board anchors the grabbed header the
+      // moment it collapses (`anchored`), and a seam still growing then would
+      // carry it away from the pointer by the growth after it was placed.
+      className="shrink-0"
     >
       {/* Four pixels is the seam and four pixels is not a target, so the line
           reaches past it - **upwards only**. Reaching down would put it over

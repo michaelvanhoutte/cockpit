@@ -1044,12 +1044,12 @@ describe('Panels', () => {
     });
 
     it('sends nothing when the gesture leaves the arrangement where it already was', async () => {
-      // Dropped back where it already is - before the panel it is already
-      // before. A gesture happened, and what it asks for is what the layout
-      // already holds; sending it would make every abandoned drag a write.
+      // Dropped back where it already is - on its own slot. A gesture
+      // happened, and what it asks for is what the layout already holds;
+      // sending it would make every abandoned drag a write.
       const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
 
-      dragTo('Project Falcon', slotBefore('reading'));
+      dragTo('Project Falcon', slotBefore('falcon'));
 
       expect(mutate).not.toHaveBeenCalled();
     });
@@ -2749,6 +2749,123 @@ describe('Dashboards', () => {
           name: 'Move to another dashboard: Clear the dashboard filter to move a panel',
         }),
       ).toHaveAttribute('aria-disabled', 'true');
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('while a panel is in the air every panel is its header alone and every row a header tall', () => {
+    const BART = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
+    const TALL = {
+      ...aLayout('laptop', 1280, ['falcon']),
+      rows: [
+        { height: 600, cells: [{ panelId: 'falcon', span: 6 }, { panelId: 'notes', span: 6 }] },
+        { height: null, cells: [{ panelId: 'due', span: 6 }, { panelId: 'reading', span: 6 }] },
+      ],
+    };
+    const board = (extra: Parameters<typeof showBoard>[0] = {}) =>
+      showBoard({
+        panels: [
+          aPanel('falcon', 'Project Falcon'),
+          aPanelOfText('notes', 'Notes', { body: 'Some prose' }),
+          aFilter('due', 'Due today', [DUE_TODAY]),
+          aPanel('reading', 'To read'),
+        ],
+        layouts: [TALL],
+        items: [BART],
+        filings: [{ panelId: 'falcon', itemId: BART.id, position: 0 }],
+        ...extra,
+      });
+    const regions = () => screen.getAllByRole('region');
+    const rowStyles = () =>
+      [...document.querySelectorAll<HTMLElement>('[data-panel-row]')].map((row) => row.style);
+    const pickUp = (name: string) =>
+      fireEvent.pointerDown(handleOf(name), { button: 0, pointerId: 1, pointerType: 'mouse' });
+
+    it('draws each kind of panel as its header alone, the one in hand too, and the rows as tall as a header', () => {
+      board();
+      expect(within(screen.getByRole('region', { name: 'Project Falcon' })).getAllByRole('listitem')).toHaveLength(1);
+      expect(rowStyles()[0]!.height).toBe('600px');
+
+      pickUp('To read');
+
+      for (const region of regions()) {
+        expect(within(region).queryAllByRole('listitem')).toHaveLength(0);
+        expect(within(region).queryByText(/Add an item/)).toBeNull();
+        expect(within(region).queryByText(NOTHING_FILED_HERE)).toBeNull();
+        expect(within(region).queryByText('Some prose')).toBeNull();
+        expect(within(region).queryByRole('textbox')).toBeNull();
+        expect(within(region).getByRole('heading', { level: 3 })).toBeVisible();
+      }
+      expect(screen.getByRole('region', { name: 'To read' }).className).toContain('opacity-40');
+      for (const style of rowStyles()) {
+        expect(style.height).toBe('');
+        expect(style.minHeight).toBe('');
+      }
+    });
+
+    it('hides the empty-panel how-to too, where nothing has been filed anywhere', () => {
+      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      const falcon = () => screen.getByRole('region', { name: 'Project Falcon' });
+      expect(within(falcon()).getByText(NOTHING_FILED_HERE_YET_AND_HOW)).toBeVisible();
+
+      pickUp('To read');
+
+      expect(within(falcon()).queryByText(NOTHING_FILED_HERE_YET_AND_HOW)).toBeNull();
+    });
+
+    it.each([
+      { situation: 'dropped on the board', end: () => fireEvent.pointerUp(window, { pointerId: 1 }) },
+      { situation: 'abandoned with Escape', end: () => fireEvent.keyDown(window, { key: 'Escape' }) },
+      { situation: 'taken back by the browser', end: () => fireEvent.pointerCancel(window, { pointerId: 1 }) },
+    ])('opens everything again when it is $situation', ({ end }) => {
+      board();
+      pickUp('To read');
+      expect(within(screen.getByRole('region', { name: 'Project Falcon' })).queryAllByRole('listitem')).toHaveLength(0);
+
+      end();
+
+      expect(within(screen.getByRole('region', { name: 'Project Falcon' })).getAllByRole('listitem')).toHaveLength(1);
+      expect(within(screen.getByRole('region', { name: 'Notes' })).getByText('Some prose')).toBeVisible();
+      expect(rowStyles()[0]!.height).toBe('600px');
+      expect(rowStyles()[1]!.minHeight).toBe(`${MIN_ROW_HEIGHT}px`);
+    });
+
+    it('opens the board it left when the panel is dropped on another dashboard’s tab', () => {
+      board({ dashboards: [DASHBOARD, RESEARCH] });
+      aTabElement(RESEARCH.id, { left: 0, right: 100, top: 0, bottom: 30 });
+      pickUp('To read');
+      layOut();
+
+      fireEvent.pointerUp(window, { pointerId: 1, clientX: 50, clientY: 15 });
+
+      expect(within(screen.getByRole('region', { name: 'Project Falcon' })).getAllByRole('listitem')).toHaveLength(1);
+      expect(rowStyles()[0]!.height).toBe('600px');
+    });
+
+    it('opens without a fuss when the panel in hand was deleted in another tab', () => {
+      const { redrawnWith } = board();
+      pickUp('To read');
+      redrawnWith([aPanel('falcon', 'Project Falcon')]);
+
+      expect(() => fireEvent.keyDown(window, { key: 'Escape' })).not.toThrow();
+
+      expect(within(screen.getByRole('region', { name: 'Project Falcon' })).getAllByRole('listitem')).toHaveLength(1);
+    });
+
+    it.each([
+      { situation: 'the line under a row', take: () => dragRowLine(0, 100, false) },
+      { situation: 'the line between two panels', take: () => dragColumnLine(0, ONE_COLUMN) },
+    ])('collapses nothing while $situation is taken and moved', ({ take }) => {
+      board();
+      // A column drag ends on its own pointer-up; the row line is left in hand.
+      take();
+
+      for (const name of ['Project Falcon', 'Notes', 'To read']) {
+        expect(screen.getByRole('region', { name })).toBeVisible();
+      }
+      expect(within(screen.getByRole('region', { name: 'Project Falcon' })).getAllByRole('listitem')).toHaveLength(1);
+      expect(within(screen.getByRole('region', { name: 'Notes' })).getByText('Some prose')).toBeVisible();
     });
   });
 });
