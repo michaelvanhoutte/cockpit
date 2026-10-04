@@ -86,7 +86,7 @@ The item arrives as the note that was captured, followed by the title and descri
 Panels:
 ${panelList}
 
-You are also given this account's own decision history: its most recent settled filings, oldest first, with what was proposed and what they actually chose. It is the only place learning happens here - there is no separate training step. Recent entries say what is live right now; older ones still say how this person files in general, and both matter, but where they disagree favor the recent one - a project can go quiet for a while and an older habit can still hold. Where an entry shows one panel was proposed and they filed it on another, that correction outweighs an entry where they simply accepted what was proposed - it names a wrong answer as well as a right one, so read it as the stronger signal.
+You are also given this account's own decision history: its most recent settled filings, oldest first, with what was proposed and what they actually chose. It is the only place learning happens here - there is no separate training step. Recent entries say what is live right now; older ones still say how this person files in general, and both matter, but where they disagree favor the recent one - a project can go quiet for a while and an older habit can still hold. Where an entry shows one panel was proposed and they filed it on another, that correction outweighs an entry where they simply accepted what was proposed - it names a wrong answer as well as a right one, so read it as the stronger signal. Where such a correction concerns an item of the same kind as this one, it is the confidence asked for above: name the panel they filed that one on, rather than none, even where this item never says which panel it is for.
 
 ${renderHistory(history)}
 
