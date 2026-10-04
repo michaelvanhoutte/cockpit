@@ -1,6 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { panelTakesItems, type Dashboard, type Panel, type Workspace } from '@cockpit/shared';
+import { refusalFrom } from '../api/queries';
 
 /**
  * Where an item can be moved: onto a panel, or into a workspace's Inbox.
@@ -65,7 +66,19 @@ function MoveToPicker({
   busy = false,
   returnFocusTo,
   alreadyOn,
+  onAddPanel,
+  filteredDashboardIds,
 }: {
+  /**
+   * Makes a panel of items on a dashboard, answering its id - or rejecting with
+   * the refusal ("Add a panel from the Move to picker", issue 709). Absent where
+   * the picker may not make one, which draws no + at all. The filing that
+   * follows is the ordinary `onPick`, so a panel made and then refused its
+   * filing stays.
+   */
+  onAddPanel?: (dashboardId: string, name: string) => Promise<string>;
+  /** The dashboards filtered in this browser, which + Panel is locked on and so is the + here. */
+  filteredDashboardIds?: ReadonlySet<string>;
   /**
    * The panels the one item being moved is on now, left out where picking one
    * would change nothing: every one of them when adding, and the only one when
@@ -127,9 +140,58 @@ function MoveToPicker({
   returnFocusTo?: HTMLElement | null;
 }) {
   const [query, setQuery] = useState('');
+  /** The dashboard a new panel is being named under, and the name so far. One at a time. */
+  const [naming, setNaming] = useState<{ dashboardId: string; name: string } | null>(null);
+  /** Why the panel could not be made, said under the field and gone once the name is edited. */
+  const [namingRefusal, setNamingRefusal] = useState<string | null>(null);
+  /** That the panel is being made, so Add cannot send it twice. A ref as well, which a second press in the same tick reads. */
+  const [making, setMaking] = useState(false);
+  const makingNow = useRef(false);
+  const fieldRef = useRef<HTMLFormElement>(null);
+  const addButtons = useRef(new Map<string, HTMLButtonElement>());
   useEffect(() => {
-    if (open) setQuery('');
+    if (open) {
+      setQuery('');
+      setNaming(null);
+      setNamingRefusal(null);
+    }
   }, [open]);
+
+  const closeField = () => {
+    const was = naming;
+    setNaming(null);
+    setNamingRefusal(null);
+    // Back on the control that opened it, so Escape does not drop the focus on the page behind.
+    if (was) addButtons.current.get(was.dashboardId)?.focus();
+  };
+
+  /**
+   * Makes the panel, then files into it: the two commands in sequence, so a
+   * filing that is refused leaves the panel standing. The panel's id is handed
+   * to the pick, whose own wording names it - the caller knows the name because
+   * it made the panel (ItemList), which is what the POC's toast got wrong.
+   */
+  const addAndPick = async () => {
+    if (!naming || !onAddPanel || makingNow.current) return;
+    const name = naming.name.trim();
+    if (!name) return;
+    makingNow.current = true;
+    setMaking(true);
+    setNamingRefusal(null);
+    let panelId: string;
+    try {
+      panelId = await onAddPanel(naming.dashboardId, name);
+    } catch (error) {
+      setNamingRefusal(refusalFrom({ error }));
+      makingNow.current = false;
+      setMaking(false);
+      return;
+    }
+    makingNow.current = false;
+    setMaking(false);
+    setNaming(null);
+    onPick({ panel: panelId });
+  };
   const what =
     'title' in moving
       ? `“${moving.title}”`
@@ -145,6 +207,9 @@ function MoveToPicker({
   const offerable = takesItems.filter((panel) => !pointless.has(panel.id));
   const needle = query.trim().toLowerCase();
   const matches = (text: string) => needle === '' || text.toLowerCase().includes(needle);
+  /** Where a panel can be made from here: not on a dashboard filtered in this browser, where + Panel is locked. */
+  const canAddTo = (dashboard: Dashboard) =>
+    onAddPanel !== undefined && !filteredDashboardIds?.has(dashboard.id);
   const groups = dashboardsInOrder(dashboards, openDashboardId)
     .map((dashboard) => ({
       dashboard,
@@ -154,9 +219,15 @@ function MoveToPicker({
           panel.dashboardId === dashboard.id && (matches(dashboard.name) || matches(panel.name)),
       ),
     }))
-    // A heading with nothing under it stays only to say the dashboard has no
-    // panels at all, not for one whose panels are all left out or unmatched.
-    .filter((group) => group.panels.length > 0 || (group.hasNone && matches(group.dashboard.name)));
+    // A heading with nothing under it stays to say the dashboard has no panels
+    // at all, and - where a panel can be made on it - for one whose panels are
+    // all left out, so the way to make one is still there. Not for panels
+    // merely unmatched by a search.
+    .filter(
+      (group) =>
+        group.panels.length > 0 ||
+        ((group.hasNone || canAddTo(group.dashboard)) && matches(group.dashboard.name)),
+    );
   const recentPanels =
     needle === ''
       ? recent
@@ -170,8 +241,12 @@ function MoveToPicker({
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // Only the places an item can go. The + that makes a panel, and the buttons of
+  // its field, are not among them: Enter and the arrows from the search must
+  // never make anything.
   const targets = () => [
-    ...(listRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []),
+    ...(listRef.current?.querySelectorAll<HTMLButtonElement>('button[data-target]:not(:disabled)') ??
+      []),
   ];
   const [openedHeight, setOpenedHeight] = useState<number | null>(null);
   const contentRef = useCallback((node: HTMLDivElement | null) => {
@@ -185,11 +260,24 @@ function MoveToPicker({
     // and no way back is offered. Escape and a press outside come through here
     // as well as the button, which is why the guard is on the root rather than
     // only on the control.
-    <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(nowOpen) => !nowOpen && !busy && !making && onCancel()}
+    >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/30" />
         <Dialog.Content
           ref={contentRef}
+          // Escape in the name field closes the field and leaves the picker.
+          // Radix listens on the document before the field's own handler could
+          // stop it, so it is told here not to dismiss. Nothing closes while the
+          // panel is being made, since the filing would follow it regardless.
+          onEscapeKeyDown={(event) => {
+            if (naming && fieldRef.current?.contains(event.target as Node | null)) {
+              event.preventDefault();
+              if (!makingNow.current) closeField();
+            }
+          }}
           style={openedHeight ? { minHeight: openedHeight } : undefined}
           aria-describedby={undefined}
           onCloseAutoFocus={(event) => {
@@ -293,14 +381,79 @@ function MoveToPicker({
               </Group>
             )}
 
-            {groups.map(({ dashboard, panels: onIt }) => (
+            {groups.map(({ dashboard, panels: onIt, hasNone }) => (
               <DashboardHeading
                 key={dashboard.id}
                 name={dashboard.name}
                 current={dashboard.id === openDashboardId}
+                add={
+                  canAddTo(dashboard)
+                    ? {
+                        open: naming?.dashboardId === dashboard.id,
+                        disabled: busy || making,
+                        buttonRef: (node) => {
+                          if (node) addButtons.current.set(dashboard.id, node);
+                          else addButtons.current.delete(dashboard.id);
+                        },
+                        onToggle: () => {
+                          if (naming?.dashboardId === dashboard.id) closeField();
+                          else {
+                            setNamingRefusal(null);
+                            setNaming({ dashboardId: dashboard.id, name: '' });
+                          }
+                        },
+                      }
+                    : undefined
+                }
               >
+                {naming?.dashboardId === dashboard.id && (
+                  <form
+                    ref={fieldRef}
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void addAndPick();
+                    }}
+                    className="pb-1 pl-7 pr-2"
+                  >
+                    <div className="flex gap-2">
+                      <input
+                        value={naming.name}
+                        onChange={(event) => {
+                          setNaming({ dashboardId: dashboard.id, name: event.target.value });
+                          // A refusal is about the name it was given, so editing it ends the refusal.
+                          setNamingRefusal(null);
+                        }}
+                        aria-label={`Name of the new panel on ${dashboard.name}`}
+                        placeholder="Name of the new panel"
+                        maxLength={60}
+                        autoFocus
+                        // Told to every password manager that has its own way of
+                        // being told: 1Password offered to fill this in.
+                        autoComplete="off"
+                        data-1p-ignore
+                        data-lpignore="true"
+                        data-bwignore
+                        className="min-w-0 flex-1 rounded-md border border-black/15 bg-white px-2 py-1 text-sm placeholder:text-ink-faint focus:border-accent focus:outline-none"
+                      />
+                      <button
+                        type="submit"
+                        disabled={naming.name.trim() === '' || busy || making}
+                        className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+                      >
+                        {adding ? 'Add & show' : 'Add & move'}
+                      </button>
+                    </div>
+                    {namingRefusal && (
+                      <p role="alert" className="pt-1 text-sm text-over">
+                        {namingRefusal}
+                      </p>
+                    )}
+                  </form>
+                )}
                 {onIt.length === 0 ? (
-                  <p className="py-1.5 pl-7 pr-2 text-sm text-ink-faint">No panels yet.</p>
+                  <p className="py-1.5 pl-7 pr-2 text-sm text-ink-faint">
+                    {hasNone ? 'No panels yet.' : 'Nowhere else on this dashboard.'}
+                  </p>
                 ) : (
                   onIt.map((panel) => (
                     <Target
@@ -354,10 +507,20 @@ function nameOfDashboard(dashboards: readonly Dashboard[], dashboardId: string):
 function DashboardHeading({
   name,
   current,
+  add,
   children,
 }: {
   name: string;
   current: boolean;
+  /** The + that makes a panel on this dashboard; absent where one cannot be made. */
+  add:
+    | {
+        open: boolean;
+        disabled: boolean;
+        buttonRef: (node: HTMLButtonElement | null) => void;
+        onToggle: () => void;
+      }
+    | undefined;
   children: React.ReactNode;
 }) {
   const square = (x: number, y: number) => (
@@ -365,16 +528,35 @@ function DashboardHeading({
   );
   return (
     <section className="mt-3 border-t border-black/10">
-      <h3 className="sticky top-0 z-10 flex items-center gap-2 bg-surface px-2 pb-1 pt-3 text-sm font-semibold text-ink">
-        <svg aria-hidden viewBox="0 0 16 16" className="size-3.5 shrink-0 text-ink-soft">
-          {square(1.5, 1.5)}
-          {square(9, 1.5)}
-          {square(1.5, 9)}
-          {square(9, 9)}
-        </svg>
-        <span className="min-w-0 flex-1 truncate">{name}</span>
-        {current && <span className="shrink-0 text-xs font-normal text-ink-faint">this dashboard</span>}
-      </h3>
+      {/* The + sits beside the heading rather than in it, so it is not part of
+          the heading's name. */}
+      <div className="sticky top-0 z-10 flex items-center gap-2 bg-surface px-2 pb-1 pt-3">
+        <h3 className="flex min-w-0 flex-1 items-center gap-2 text-sm font-semibold text-ink">
+          <svg aria-hidden viewBox="0 0 16 16" className="size-3.5 shrink-0 text-ink-soft">
+            {square(1.5, 1.5)}
+            {square(9, 1.5)}
+            {square(1.5, 9)}
+            {square(9, 9)}
+          </svg>
+          <span className="min-w-0 flex-1 truncate">{name}</span>
+          {current && (
+            <span className="shrink-0 text-xs font-normal text-ink-faint">this dashboard</span>
+          )}
+        </h3>
+        {add && (
+          <button
+            type="button"
+            ref={add.buttonRef}
+            disabled={add.disabled}
+            onClick={add.onToggle}
+            aria-expanded={add.open}
+            aria-label={add.open ? `Do not add a panel to ${name}` : `Add a panel to ${name}`}
+            className="flex size-6 shrink-0 items-center justify-center rounded text-base leading-none text-ink-soft hover:bg-accent-tint hover:text-accent-deep focus-visible:bg-accent-tint focus-visible:outline-none disabled:opacity-50"
+          >
+            {add.open ? '×' : '+'}
+          </button>
+        )}
+      </div>
       {children}
     </section>
   );
@@ -416,6 +598,7 @@ function Target({
   return (
     <button
       type="button"
+      data-target
       disabled={busy}
       onClick={onPick}
       className={`flex w-full items-baseline gap-2 rounded py-1.5 pr-2 text-left text-sm text-ink hover:bg-accent-tint hover:text-accent-deep focus-visible:bg-accent-tint focus-visible:text-accent-deep focus-visible:outline-none disabled:opacity-50 ${indent ? 'pl-7' : 'pl-2'}`}

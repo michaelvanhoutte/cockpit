@@ -30,6 +30,7 @@ import {
   orderWithItemAt,
 } from '../filing';
 import { alsoShownOn, dayOf, panelAndFilterIdsByItem } from '../filters';
+import { useFilteredDashboardIds } from '../dashboardFilter';
 import { useOpenItem } from '../itemForm';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
@@ -929,9 +930,49 @@ export function ItemList({
     move(moving, panelId, gap);
   };
 
-  /** What a target is called, for the sentence the undo bar says. */
+  /** The names of the panels the picker made, by id. */
+  const madeHere = useRef(new Map<string, string>());
+  /**
+   * What a target is called, for the sentence the undo bar says.
+   *
+   * A panel the picker has just made is not in `data` yet - the re-read after
+   * it has not come back by the time the filing's sentence is written - so its
+   * name is the one remembered from making it, never "a panel".
+   */
   const nameOf = (panelId: string | null) =>
-    panelId ? (data?.panels.find((panel) => panel.id === panelId)?.name ?? 'a panel') : 'the Inbox';
+    panelId
+      ? (data?.panels.find((panel) => panel.id === panelId)?.name ??
+        madeHere.current.get(panelId) ??
+        'a panel')
+      : 'the Inbox';
+
+  const filteredDashboardIds = useFilteredDashboardIds(
+    browserStore(),
+    (data?.dashboards ?? []).map((dashboard) => dashboard.id),
+  );
+  /**
+   * Makes a panel of items for the picker, with the command + Panel sends, and
+   * answers its id for the filing that follows ("Add a panel from the Move to
+   * picker", issue 709). Rejects with the refusal, which the picker shows under
+   * the name.
+   */
+  const addPanelFor = async (dashboardId: string, name: string): Promise<string> => {
+    const panelId = uuidv7();
+    await send({
+      name: 'add_panel',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        dashboardId,
+        panelId,
+        name,
+        kind: 'items',
+      },
+    });
+    madeHere.current.set(panelId, name);
+    return panelId;
+  };
 
   // Only this list's own refusal, and only for the item still being moved: one
   // `useCommand` is shared by every row here, so without the second half a
@@ -1118,6 +1159,8 @@ export function ItemList({
         <FetchedPicker
           onFailure={() => setFilingSeveral(false)}
           moving={{ several: picked.length }}
+          onAddPanel={addPanelFor}
+          filteredDashboardIds={filteredDashboardIds}
           dashboards={data?.dashboards ?? []}
           panels={data?.panels ?? []}
           openDashboardId={openDashboardId}
@@ -1165,6 +1208,8 @@ export function ItemList({
           onFailure={() => setAdding(null)}
           moving={{ title: itemLabel(adding) }}
           adding
+          onAddPanel={addPanelFor}
+          filteredDashboardIds={filteredDashboardIds}
           dashboards={data?.dashboards ?? []}
           panels={data?.panels ?? []}
           openDashboardId={openDashboardId}
@@ -1189,6 +1234,8 @@ export function ItemList({
         <FetchedPicker
           onFailure={() => setMoving(null)}
           moving={{ title: itemLabel(moving) }}
+          onAddPanel={addPanelFor}
+          filteredDashboardIds={filteredDashboardIds}
           dashboards={data?.dashboards ?? []}
           panels={data?.panels ?? []}
           workspaceId={workspaceId}
