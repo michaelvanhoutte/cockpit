@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dueComingFriday, dueSevenDaysOut, dueToday } from '../../src/dueDateShortcuts';
+import { dueSevenDaysOut, dueToday, dueTomorrow } from '../../src/dueDateShortcuts';
 
 /**
  * F1: pure calendar arithmetic, measured from a fixed clock - nothing here
@@ -17,19 +17,12 @@ describe('Item editing', () => {
       expect(dueSevenDaysOut(new Date('2026-09-18T09:00:00.000Z'))).toBe('2026-09-25');
     });
 
-    describe('Fri sets the coming Friday, never a past one', () => {
+    describe('Tmrw sets the day after today, measured when it is pressed', () => {
       it.each([
-        { situation: 'Monday', now: '2026-09-14T09:00:00.000Z', expected: '2026-09-18' },
-        { situation: 'Tuesday', now: '2026-09-15T09:00:00.000Z', expected: '2026-09-18' },
-        { situation: 'Wednesday', now: '2026-09-16T09:00:00.000Z', expected: '2026-09-18' },
-        { situation: 'Thursday', now: '2026-09-17T09:00:00.000Z', expected: '2026-09-18' },
-        // Friday itself is not a past Friday - it sets today.
-        { situation: 'Friday', now: '2026-09-18T09:00:00.000Z', expected: '2026-09-18' },
-        // The weekend jumps to next week's Friday rather than the one just gone.
-        { situation: 'Saturday', now: '2026-09-19T09:00:00.000Z', expected: '2026-09-25' },
-        { situation: 'Sunday', now: '2026-09-20T09:00:00.000Z', expected: '2026-09-25' },
-      ])('a $situation sets $expected', ({ now, expected }) => {
-        expect(dueComingFriday(new Date(now))).toBe(expected);
+        { situation: 'a midweek day', now: '2026-09-16T09:00:00.000Z', expected: '2026-09-17' },
+        { situation: 'the last day of a month', now: '2026-09-30T09:00:00.000Z', expected: '2026-10-01' },
+      ])('$situation sets $expected', ({ now, expected }) => {
+        expect(dueTomorrow(new Date(now))).toBe(expected);
       });
     });
   });

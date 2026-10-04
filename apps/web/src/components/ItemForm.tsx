@@ -1770,8 +1770,7 @@ function TheForm({
                             />
                           </label>
                           {/* One-click alongside typing one directly (issue
-                            480): today, the coming Friday - never a past one
-                            - and seven days out, each measured from the
+                            480): today, tomorrow and seven days out, each measured from the
                             moment the button is pressed and each overriding
                             whatever the field already holds, the same as
                             typing over it would. */}
