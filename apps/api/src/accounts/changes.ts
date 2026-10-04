@@ -124,6 +124,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     DROP_WORKSPACE_ROUTING_SUMMARY,
     REWRITE_HISTORY_LOOKS_AT,
     REWRITE_HISTORY_PANEL_BEFORE,
+    ONE_LAYOUT_PER_DASHBOARD,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -134,6 +135,109 @@ export function accountChanges(accountId: string): readonly Change[] {
     guestDemoSeed(accountId),
   ];
 }
+
+/**
+ * Every Dashboard keeps the one Layout made for its widest Screen size, and
+ * Screen sizes go ("Convert every Dashboard to its widest Layout and retire
+ * Screen sizes", issue 713). `layouts` is rebuilt without `screen_size_id` and
+ * unique on its Dashboard, and `screen_sizes` is dropped.
+ *
+ * **The survivor is the Layout the client was already drawing**: widest size,
+ * ties to the size made earliest, then the lowest size id, then the lowest
+ * Layout id - the ordering `widestLayout` held in `@cockpit/shared` until this
+ * change ("Draw a Dashboard on its one Layout, with nothing to choose it by",
+ * issue 712), so what a Dashboard showed before is what it shows after.
+ * SQLite compares text by bytes and JavaScript by UTF-16 units; both agree on
+ * the ASCII ids and ISO timestamps these columns hold.
+ *
+ * **Rebuilt with the arrangement copied out first**, as
+ * `0020-drop-layout-name-and-width` is and for its reason: a Durable Object's
+ * SQLite refuses to drop a table rows still point at under RESTRICT. The refill
+ * leaves out only the rows and placements of a Layout that was not kept.
+ *
+ * **One release with the code that stops reading Screen sizes**, against
+ * deployment.md's "Migrations and rollback", on the engineer's decision ("Give
+ * a Dashboard one arrangement, and retire Layouts and Screen sizes as things
+ * you choose", issue 706): the rollback floor is this release.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **It discards real rows, on purpose.** Every Layout but each Dashboard's
+ *   widest, with its rows and placements, and every Screen size. Panels,
+ *   filings and Items are untouched. How many Dashboards hold more than one
+ *   Layout, and how many have as their only one a Layout made below 480 px, is
+ *   counted over a production `pnpm backup:export` before promoting.
+ * - **If it stops halfway:** it cannot. A change's statements and the record
+ *   that they ran commit in one `transactionSync` (store.ts).
+ * - **The second time it runs:** only an unfinished change re-runs, and an
+ *   unfinished one left no scratch table, so none uses `IF NOT EXISTS`.
+ * - **Rows that already break the new rule:** a Dashboard with several Layouts
+ *   keeps one; the survivor cannot break "one per Dashboard" by construction.
+ * - **What is in each environment:** real rows in staging and production,
+ *   converted in place on first open; nothing is wiped or re-seeded.
+ * - **Rolled back after it has run:** every Workspace read of an earlier
+ *   release names `screen_sizes` and fails, so only a restore goes back past
+ *   this release.
+ * - **A backup taken before it:** restored intact - `restore.ts` replays the
+ *   changes the backup recorded, so the old shape comes back, and the store
+ *   converts on the restore's own bring-up-to-date.
+ */
+const ONE_LAYOUT_PER_DASHBOARD: Change = {
+  name: '0053-one-layout-per-dashboard',
+  statements: [
+    { sql: 'CREATE TABLE `panel_placements_scratch` AS SELECT * FROM `panel_placements`' },
+    { sql: 'CREATE TABLE `layout_rows_scratch` AS SELECT * FROM `layout_rows`' },
+    // Emptied, which is what lets `layouts` be dropped under RESTRICT.
+    { sql: 'DELETE FROM `panel_placements`' },
+    { sql: 'DELETE FROM `layout_rows`' },
+    {
+      sql: `CREATE TABLE \`layouts_new\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`dashboard_id\` text NOT NULL,
+	\`created_at\` text NOT NULL,
+	FOREIGN KEY (\`dashboard_id\`) REFERENCES \`dashboards\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "layouts_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      // Each Dashboard's widest - see the ordering above.
+      sql: `INSERT INTO layouts_new (id, tenant_id, dashboard_id, created_at)
+            SELECT id, tenant_id, dashboard_id, created_at
+            FROM (
+              SELECT l.id, l.tenant_id, l.dashboard_id, l.created_at,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY l.dashboard_id
+                       ORDER BY s.width DESC, s.created_at, s.id, l.id
+                     ) AS place
+              FROM layouts AS l
+              JOIN screen_sizes AS s ON s.id = l.screen_size_id
+            )
+            WHERE place = 1`,
+    },
+    { sql: 'DROP TABLE `layouts`' },
+    { sql: 'ALTER TABLE `layouts_new` RENAME TO `layouts`' },
+    {
+      // Unique, which is the rule: a Dashboard has at most one Layout. Leads
+      // with `tenant_id` so it also serves every read of a Dashboard's Layout.
+      sql: 'CREATE UNIQUE INDEX `layouts_one_per_dashboard` ON `layouts` (`tenant_id`,`dashboard_id`)',
+    },
+    {
+      sql: `INSERT INTO panel_placements
+            SELECT * FROM panel_placements_scratch
+            WHERE layout_id IN (SELECT id FROM layouts)`,
+    },
+    {
+      sql: `INSERT INTO layout_rows
+            SELECT * FROM layout_rows_scratch
+            WHERE layout_id IN (SELECT id FROM layouts)`,
+    },
+    { sql: 'DROP TABLE `panel_placements_scratch`' },
+    { sql: 'DROP TABLE `layout_rows_scratch`' },
+    // Last, once nothing points at it.
+    { sql: 'DROP TABLE `screen_sizes`' },
+  ],
+};
 
 /*
  * What a smart refinement looked at, and the suggested Panel it started from
@@ -3191,22 +3295,11 @@ function firstWorkspace(accountId: string): Change {
 }
 
 /**
- * The screen size the seeded Layouts below are arranged at. **Not
- * `DEFAULT_SCREEN_SIZE_NAME`**, which `save_layout` creates by itself the first
- * time somebody arranges a Dashboard (command-service.ts): a guest may have
- * done exactly that before this change ever runs, and `screen_sizes` is unique
- * on the folded name with no tombstone to fall back on.
- */
-const DEMO_SCREEN_SIZE_ID = 'guest-screen-desktop';
-const DEMO_SCREEN_SIZE_NAME = 'Desktop';
-const DEMO_SCREEN_WIDTH = 1440;
-
-/**
  * The ids the demonstration's Layouts, Panels, Items and Associations carry.
  *
  * **Real uuids rather than readable strings**, for the reason `FIRST_PANEL_ID`
- * above is one: `save_layout` and `delete_layout` take a `layoutId` as
- * `z.uuid()`, five Panel commands and every Item and Association command take
+ * above is one: `save_layout` takes a `layoutId` as `z.uuid()`, five Panel
+ * commands and every Item and Association command take
  * theirs the same way, so a seeded row with a readable id would be a row nobody
  * could rearrange, rename, file or delete. Workspaces and Dashboards are named
  * in no such schema, so those keep ids you can read in a query.
@@ -3367,10 +3460,8 @@ function demoAssociations(
  * live folded name. That Workspace is then skipped, and because its Dashboards,
  * Panels and Items are all guarded on it existing, its whole subtree is skipped
  * with it rather than failing a foreign key and taking the transaction - and
- * the rest of the demonstration still lands. `screen_sizes` is the other table
- * a collision is possible in, which is why the size is called `Desktop` and
- * every Layout resolves its id by a subquery rather than naming the literal:
- * a Layout hangs off whichever row is actually there.
+ * the rest of the demonstration still lands. A Layout is guarded on its
+ * Dashboard having none yet as well, since a Dashboard holds at most one.
  *
  * **Nothing already in the account is touched.** The `Workspace 1` that
  * `0015-first-workspace` hands every account keeps its row and its position
@@ -3445,26 +3536,9 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
   const hoursBefore = (hours: number) => new Date(midnight - hours * 60 * 60 * 1000).toISOString();
   // The Workspaces, Dashboards and Panels predate every Item on them.
   const at = hoursBefore(60 * 24);
-  const folded = foldName(DEMO_SCREEN_SIZE_NAME);
   const taskType = taskTypeId(accountId);
   const noteType = noteTypeId(accountId);
-  const statements: Statement[] = [
-    {
-      sql: `INSERT INTO screen_sizes (id, tenant_id, name, folded_name, width, created_at)
-              SELECT ?, ?, ?, ?, ?, ?
-              WHERE NOT EXISTS (SELECT 1 FROM screen_sizes WHERE tenant_id = ? AND folded_name = ?)`,
-      params: [
-        DEMO_SCREEN_SIZE_ID,
-        accountId,
-        DEMO_SCREEN_SIZE_NAME,
-        folded,
-        DEMO_SCREEN_WIDTH,
-        at,
-        accountId,
-        folded,
-      ],
-    },
-  ];
+  const statements: Statement[] = [];
 
   let layoutsSoFar = 0;
   let panelsSoFar = 0;
@@ -3528,12 +3602,11 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
         ],
       });
       statements.push({
-        sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_size_id, created_at)
-                SELECT ?, ?, ?,
-                       (SELECT id FROM screen_sizes WHERE tenant_id = ? AND folded_name = ? LIMIT 1), ?
+        sql: `INSERT INTO layouts (id, tenant_id, dashboard_id, created_at)
+                SELECT ?, ?, ?, ?
                 WHERE EXISTS (SELECT 1 FROM dashboards WHERE id = ? AND tenant_id = ?)
-                  AND NOT EXISTS (SELECT 1 FROM layouts WHERE id = ?)`,
-        params: [layoutId, accountId, dashboardId, accountId, folded, at, dashboardId, accountId, layoutId],
+                  AND NOT EXISTS (SELECT 1 FROM layouts WHERE id = ? OR dashboard_id = ?)`,
+        params: [layoutId, accountId, dashboardId, at, dashboardId, accountId, layoutId, dashboardId],
       });
 
       dashboard.rows.forEach((row, rowIndex) => {

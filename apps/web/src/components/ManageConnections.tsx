@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { queryOptions, useQuery } from '@tanstack/react-query';
 import {
   CLAUDE_CODE,
+  GMAIL,
   TEAMS,
   connectorNamed,
   sourceAccountListSchema,
@@ -11,7 +12,9 @@ import {
 } from '@cockpit/shared';
 import { api, refusal } from '../api/client';
 import { refusalFrom, useCommand, useConnectClaudeCode, useTestClaudeCodeConnection } from '../api/queries';
+import type { ConnectOutcome } from '../connections';
 import { ConnectClaudeCode } from './ConnectClaudeCode';
+import { ConnectGmail } from './ConnectGmail';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
@@ -66,10 +69,28 @@ function connectTeamsPath(workspaceId: string): string {
  * The connectors a workspace can add ("Connect a workspace to Claude Code",
  * issue 569): what the Add-a-connection list offers, whether or not anything
  * of that kind is connected yet. A plain constant, the same way the Teams
- * card was hardcoded here before it - adding a third means adding it here,
+ * card was hardcoded here before it - adding another means adding it here,
  * nowhere else.
  */
-const AVAILABLE_CONNECTORS = [TEAMS, CLAUDE_CODE] as const;
+const AVAILABLE_CONNECTORS = [GMAIL, TEAMS, CLAUDE_CODE] as const;
+
+/** What each card says it does - for Gmail, that the label and the task stay in step (issue 724). */
+const CARD_TEXT: Record<(typeof AVAILABLE_CONNECTORS)[number], string> = {
+  [GMAIL]:
+    'Label a conversation Cockpit in Gmail and it becomes a task here. Finishing the task takes the label off. Cockpit reads labelled mail only.',
+  [TEAMS]: 'Sign in with Microsoft. Cockpit reads who you are and nothing else.',
+  [CLAUDE_CODE]: 'A routine that starts a Claude Code session on this workspace’s items.',
+};
+
+/** What a connected row says under its name, beside the source. */
+function rowDetail(account: SourceAccount): string {
+  // The label is fixed, and the row says so ("Connect a Gmail account to a
+  // workspace, and disconnect it", issue 724).
+  if (account.connectorId === GMAIL) return 'Gmail · label Cockpit';
+  return account.lastTestedAt
+    ? `${connectorNamed(account.connectorId)} · last worked ${new Date(account.lastTestedAt).toLocaleString()}`
+    : connectorNamed(account.connectorId);
+}
 
 /**
  * Where a Workspace's source accounts are managed ("Connect a Microsoft Teams
@@ -106,15 +127,16 @@ export default function ManageConnections({
   picker,
 }: {
   /**
-   * One kind of connection only - Teams under Connections, Claude Code under
-   * Agent settings (Settings, `SettingsWindow.tsx`). Absent, both are shown.
+   * These kinds of connection only - Gmail and Teams under Connections,
+   * Claude Code under Agent settings (Settings, `SettingsWindow.tsx`).
+   * Absent, every kind is shown.
    */
-  only?: typeof TEAMS | typeof CLAUDE_CODE | undefined;
+  only?: readonly string[] | undefined;
   /** What picks the workspace, drawn under the intro. */
   picker?: React.ReactNode;
   workspaceId: string;
   workspaceName: string;
-  outcome?: 'connected' | 'refused' | undefined;
+  outcome?: ConnectOutcome | undefined;
   open: boolean;
   onClose: () => void;
   returnFocusTo?: HTMLElement | null | undefined;
@@ -130,6 +152,8 @@ export default function ManageConnections({
   const [claudeCodeForm, setClaudeCodeForm] = useState(false);
   const [claudeCodeFormPending, setClaudeCodeFormPending] = useState(false);
   const [claudeCodeMessage, setClaudeCodeMessage] = useState<string | null>(null);
+  const [gmailSteps, setGmailSteps] = useState(false);
+  const gmailOpenedFrom = useRef<HTMLElement | null>(null);
   const askedFrom = useRef<HTMLElement | null>(null);
   const claudeCodeOpenedFrom = useRef<HTMLElement | null>(null);
   /**
@@ -140,7 +164,7 @@ export default function ManageConnections({
   const command = useCommand();
   const testClaudeCode = useTestClaudeCodeConnection(workspaceId);
 
-  const connected = (data?.sourceAccounts ?? []).filter((account) => !only || account.connectorId === only);
+  const connected = (data?.sourceAccounts ?? []).filter((account) => !only || only.includes(account.connectorId));
   /**
    * Saying "nothing connected" is a claim about what this Workspace holds, so
    * it needs an answer to have arrived - the same lie `ManageTypes` records,
@@ -176,6 +200,7 @@ export default function ManageConnections({
   const close = () => {
     stopAsking();
     setClaudeCodeForm(false);
+    setGmailSteps(false);
     onClose();
   };
 
@@ -211,6 +236,13 @@ export default function ManageConnections({
           Connected.
         </p>
       )}
+      {/* No count: the conversations are brought in after this, not before
+          (issue 724). */}
+      {outcome === 'gmail-connected' && (
+        <p role="status" className="pt-3 text-sm text-ink-soft">
+          Connected. Conversations labelled Cockpit arrive in this workspace’s Inbox within a minute.
+        </p>
+      )}
       {outcome === 'refused' && (
         <p role="alert" className="pt-3 text-sm text-over">
           That did not connect. Nothing was stored. Try again.
@@ -227,11 +259,7 @@ export default function ManageConnections({
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm">{account.displayName}</p>
-                  <p className="text-sm text-ink-faint">
-                    {account.lastTestedAt
-                      ? `${connectorNamed(account.connectorId)} · last worked ${new Date(account.lastTestedAt).toLocaleString()}`
-                      : connectorNamed(account.connectorId)}
-                  </p>
+                  <p className="text-sm text-ink-faint">{rowDetail(account)}</p>
                   {/* Why Claude last refused to start a session through it,
                       until one starts again ("Drop an agent on an item to
                       start a Claude Code session on it", issue 571). */}
@@ -331,18 +359,14 @@ export default function ManageConnections({
         Add a connection
       </h3>
       <div className="mt-2 flex flex-col gap-2">
-        {AVAILABLE_CONNECTORS.filter((connectorId) => !only || connectorId === only).map((connectorId) => (
+        {AVAILABLE_CONNECTORS.filter((connectorId) => !only || only.includes(connectorId)).map((connectorId) => (
           <div
             key={connectorId}
             className="flex items-center gap-3 rounded-md border border-black/10 p-3"
           >
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium">{connectorNamed(connectorId)}</p>
-              <p className="text-sm text-ink-faint">
-                {connectorId === TEAMS
-                  ? 'Sign in with Microsoft. Cockpit reads who you are and nothing else.'
-                  : 'A routine that starts a Claude Code session on this workspace’s items.'}
-              </p>
+              <p className="text-sm text-ink-faint">{CARD_TEXT[connectorId]}</p>
             </div>
             {connectorId === CLAUDE_CODE && claudeCodeConnected ? (
               <span className="shrink-0 text-sm text-ink-faint">Connected - one per workspace</span>
@@ -352,9 +376,13 @@ export default function ManageConnections({
                 // Two rows both reading "Connect" need two names for anyone
                 // not reading them side by side - a screen reader, or a test.
                 aria-label={`Connect ${connectorNamed(connectorId)}`}
-                onClick={(event) =>
-                  connectorId === TEAMS ? connectTeams() : openClaudeCodeForm(event.currentTarget)
-                }
+                onClick={(event) => {
+                  if (connectorId === TEAMS) connectTeams();
+                  else if (connectorId === GMAIL) {
+                    gmailOpenedFrom.current = event.currentTarget;
+                    setGmailSteps(true);
+                  } else openClaudeCodeForm(event.currentTarget);
+                }}
                 disabled={command.isPending || testClaudeCode.isPending || claudeCodeFormPending}
                 className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
               >
@@ -372,6 +400,14 @@ export default function ManageConnections({
         returnFocusTo={claudeCodeOpenedFrom.current}
         onClose={() => setClaudeCodeForm(false)}
         onPendingChange={setClaudeCodeFormPending}
+      />
+
+      <ConnectGmail
+        open={gmailSteps}
+        workspaceId={workspaceId}
+        workspaceName={workspaceName}
+        returnFocusTo={gmailOpenedFrom.current}
+        onClose={() => setGmailSteps(false)}
       />
 
       <CloseWindow disabled={command.isPending || testClaudeCode.isPending || claudeCodeFormPending} />

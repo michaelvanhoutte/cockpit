@@ -55,7 +55,6 @@ export function DashboardPage() {
           // the dashboard being drawn (`panelsInWorkspace`, PanelBoard.tsx).
           panelsInWorkspace={data.panels ?? []}
           layouts={data.layouts ?? []}
-          screenSizes={data.screenSizes ?? []}
           items={data.items}
           filings={data.filings ?? []}
           itemTypes={data.itemTypes}

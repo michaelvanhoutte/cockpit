@@ -1,7 +1,8 @@
 import { lazy, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CLAUDE_CODE, TEAMS } from '@cockpit/shared';
+import { CLAUDE_CODE, GMAIL, TEAMS } from '@cockpit/shared';
 import { workspacesQuery } from '../api/queries';
+import type { ConnectOutcome } from '../connections';
 import { SettingsModal } from './SettingsModal';
 
 // One chunk each, fetched when its section is first shown: only the modal is
@@ -13,14 +14,18 @@ const ManageConnectedApps = lazy(() => import('./ManageConnectedApps'));
 /** The sections of Settings, in the order they are listed. */
 export type SettingsKey = 'types' | 'connections' | 'agents' | 'mcp';
 
-/** How a trip out to Microsoft ended, and the workspace it was made from. */
+/** How a trip out to Microsoft or Google ended, and the workspace it was made from. */
 export interface ConnectOutcomeFor {
   workspaceId: string;
-  outcome: 'connected' | 'refused';
+  outcome: ConnectOutcome;
 }
 
+/** The sources Connections offers, beside the Claude Code connection Agent settings holds. */
+const SOURCES = [GMAIL, TEAMS] as const;
+const AGENTS = [CLAUDE_CODE] as const;
+
 /**
- * Settings: the account's types, its Teams connection, the Claude Code
+ * Settings: the account's types, its Gmail and Teams connections, the Claude Code
  * connection and the MCP apps, each the content of the window it used to have
  * ("Open Settings from the profile menu, with types, connections, agent
  * settings and MCP as its sections", issue 693).
@@ -52,12 +57,12 @@ export default function SettingsWindow({
         {
           key: 'connections',
           label: 'Connections',
-          content: <ConnectionsOf connector={TEAMS} startsIn={startsIn} outcome={outcome} onClose={onClose} />,
+          content: <ConnectionsOf connectors={SOURCES} startsIn={startsIn} outcome={outcome} onClose={onClose} />,
         },
         {
           key: 'agents',
           label: 'Agent settings',
-          content: <ConnectionsOf connector={CLAUDE_CODE} startsIn={startsIn} onClose={onClose} />,
+          content: <ConnectionsOf connectors={AGENTS} startsIn={startsIn} onClose={onClose} />,
         },
         { key: 'mcp', label: 'MCP', content: <ManageConnectedApps open onClose={onClose} /> },
       ]}
@@ -66,18 +71,18 @@ export default function SettingsWindow({
 }
 
 /**
- * One kind of connection, for one workspace at a time: a connection belongs to
- * the workspace that made it, so the section asks which, starting on the one
- * that is open. The picker is there even for an account with one workspace, so
+ * The kinds of connection one section holds, for one workspace at a time: a
+ * connection belongs to the workspace that made it, so the section asks which,
+ * starting on the one that is open. The picker is there even for an account with one workspace, so
  * it always says whose connections these are.
  */
 function ConnectionsOf({
-  connector,
+  connectors,
   startsIn,
   outcome,
   onClose,
 }: {
-  connector: typeof TEAMS | typeof CLAUDE_CODE;
+  connectors: readonly string[];
   startsIn: string | undefined;
   outcome?: ConnectOutcomeFor | undefined;
   onClose: () => void;
@@ -92,7 +97,7 @@ function ConnectionsOf({
       // Remounted per workspace, so one's half-answered question is not still
       // open over the next.
       key={chosen.id}
-      only={connector}
+      only={connectors}
       workspaceId={chosen.id}
       workspaceName={chosen.name}
       outcome={outcome?.workspaceId === chosen.id ? outcome.outcome : undefined}

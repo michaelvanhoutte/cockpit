@@ -169,7 +169,11 @@ describe('Across the app', () => {
   describe('Connections and Agent settings are about one workspace at a time, starting with the open one', () => {
     it('lists each kind under its own section and only for the workspace picked', async () => {
       held.accounts = {
-        'ws-alpha': [account('a1', 'teams', 'Ada Teams'), account('a2', 'claude-code', 'Alpha Claude')],
+        'ws-alpha': [
+          account('a1', 'teams', 'Ada Teams'),
+          account('a2', 'claude-code', 'Alpha Claude'),
+          account('a3', 'gmail', 'ada@example.com'),
+        ],
         'ws-beta': [account('b1', 'teams', 'Bea Teams')],
       };
       const user = userEvent.setup();
@@ -178,6 +182,8 @@ describe('Across the app', () => {
       const picker = await screen.findByRole('combobox', { name: /Workspace/ });
       expect(picker).toHaveValue('ws-alpha');
       expect(await screen.findByText('Ada Teams')).toBeVisible();
+      // Gmail sits beside Teams under Connections (issue 724).
+      expect(screen.getByText('ada@example.com')).toBeVisible();
       expect(screen.queryByText('Alpha Claude')).toBeNull();
 
       await user.selectOptions(picker, 'ws-beta');
@@ -188,6 +194,7 @@ describe('Across the app', () => {
       expect(await screen.findByRole('combobox', { name: /Workspace/ })).toHaveValue('ws-alpha');
       expect(await screen.findByText('Alpha Claude')).toBeVisible();
       expect(screen.queryByText('Ada Teams')).toBeNull();
+      expect(screen.queryByText('ada@example.com')).toBeNull();
     });
 
     it('still names the workspace when the account has only one', async () => {

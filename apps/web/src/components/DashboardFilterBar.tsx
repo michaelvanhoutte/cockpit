@@ -58,7 +58,10 @@ export function FunnelGlyph({ filled = false }: { filled?: boolean }) {
 export function DashboardFilterBar({
   dashboardId,
   withDone = false,
+  panelsHidden = 0,
 }: {
+  /** How many Panels the filter hid, said beside the clear control; nothing at 0. */
+  panelsHidden?: number;
   dashboardId: string;
   /** Whether to offer *Done*: a dashboard does not, since a finished item is on no dashboard. */
   withDone?: boolean;
@@ -224,11 +227,17 @@ export function DashboardFilterBar({
         Agent running
       </button>
 
+      {panelsHidden > 0 && (
+        <span className="ml-auto text-xs text-ink-soft">
+          {panelsHidden === 1 ? '1 panel hidden' : `${panelsHidden} panels hidden`}
+        </span>
+      )}
+
       <button
         type="button"
         aria-label="Clear the filter"
         title="Clear the filter"
-        className="ml-auto rounded px-1.5 py-0.5 text-ink-soft hover:bg-black/5 disabled:opacity-40"
+        className={`${panelsHidden > 0 ? "" : "ml-auto "}rounded px-1.5 py-0.5 text-ink-soft hover:bg-black/5 disabled:opacity-40`}
         disabled={!filtering}
         onClick={() => {
           // Kept open even where it was up only because it was filtered, as

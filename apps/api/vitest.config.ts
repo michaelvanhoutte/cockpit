@@ -182,6 +182,13 @@ export default defineConfig({
            * no bot behind it takes it off `env` for itself.
            */
           MS_BOT_APP_ID: '11111111-2222-3333-4444-555555555555',
+          /**
+           * Gmail's own Google client ("Connect a Gmail account to a
+           * workspace, and disconnect it", issue 724), against the same
+           * faked issuer and so the same one audience as the pair above.
+           */
+          GMAIL_CLIENT_ID: 'cockpit-test',
+          GMAIL_CLIENT_SECRET: 'a-secret-that-proves-nothing-here',
           CONNECTOR_CREDENTIAL_KEY: 'Y29ja3BpdC10ZXN0LWNvbm5lY3Rvci1rZXktMDAwMDA=',
         },
       },

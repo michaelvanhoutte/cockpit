@@ -134,6 +134,21 @@ export interface Env {
    */
   MS_BOT_APP_ID?: string;
   /**
+   * The Google OAuth client a Workspace connects a Gmail account through
+   * ("Connect a Gmail account to a workspace, and disconnect it", issue 724),
+   * and its secret.
+   *
+   * **Its own client, never `GOOGLE_CLIENT_ID`'s**: this one asks for the
+   * permission to change mail and is published unverified, so Google warns on
+   * it and caps it at 100 users; the sign-in client asks for neither and must
+   * stay clear of both. Optional for the reason the Microsoft pair is: an
+   * environment without them refuses Connect and works in every other way.
+   * Both are secrets per environment (docs/deployment.md, "A Google Cloud
+   * project for Gmail").
+   */
+  GMAIL_CLIENT_ID?: string;
+  GMAIL_CLIENT_SECRET?: string;
+  /**
    * What a connected source account's credential is sealed with: 32 random
    * bytes, base64 (`src/connectors/credential-crypto.ts`).
    *
@@ -155,7 +170,8 @@ export interface Env {
   /**
    * Who to believe about who somebody is. Unset everywhere but local
    * development and the browser suite, which point it at the stub issuer so
-   * they run the same flow a deployment runs (src/auth/issuer.ts).
+   * they run the same flow a deployment runs (src/auth/issuer.ts) - for
+   * signing in, connecting Teams and connecting Gmail alike.
    */
   OIDC_ISSUER?: string;
   /**

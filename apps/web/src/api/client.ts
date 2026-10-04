@@ -393,14 +393,6 @@ const commandSenders = {
   set_panel_sort: (p: CommandPayload<'set_panel_sort'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_panel_sort.$post({ json: p }, o),
   save_layout: (p: CommandPayload<'save_layout'>, o?: ClientRequestOptions) => api.v1.commands.save_layout.$post({ json: p }, o),
-  delete_layout: (p: CommandPayload<'delete_layout'>, o?: ClientRequestOptions) =>
-    api.v1.commands.delete_layout.$post({ json: p }, o),
-  create_screen_size: (p: CommandPayload<'create_screen_size'>, o?: ClientRequestOptions) =>
-    api.v1.commands.create_screen_size.$post({ json: p }, o),
-  rename_screen_size: (p: CommandPayload<'rename_screen_size'>, o?: ClientRequestOptions) =>
-    api.v1.commands.rename_screen_size.$post({ json: p }, o),
-  delete_screen_size: (p: CommandPayload<'delete_screen_size'>, o?: ClientRequestOptions) =>
-    api.v1.commands.delete_screen_size.$post({ json: p }, o),
   capture_item: (p: CommandPayload<'capture_item'>, o?: ClientRequestOptions) => api.v1.commands.capture_item.$post({ json: p }, o),
   move_item_to_panel: (p: CommandPayload<'move_item_to_panel'>, o?: ClientRequestOptions) =>
     api.v1.commands.move_item_to_panel.$post({ json: p }, o),

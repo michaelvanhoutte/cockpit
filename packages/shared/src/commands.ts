@@ -32,7 +32,6 @@ import {
   panelTextSchema,
   rowInputSchema,
 } from './domain/panel.js';
-import { MAX_SCREEN_WIDTH, MIN_SCREEN_WIDTH, screenSizeNameSchema } from './domain/screen-size.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
 /**
@@ -261,22 +260,17 @@ export const setPanelSortSchema = commandEnvelopeSchema.extend({
 export type SetPanelSortCommand = z.infer<typeof setPanelSortSchema>;
 
 /**
- * save_layout — one arrangement of a dashboard's panels, whole (architecture.md
- * §4.4). Still an upsert: a `layoutId` the dashboard already has updates that
- * layout, a fresh client-generated one creates it.
+ * save_layout — a dashboard's one arrangement, whole (architecture.md,
+ * "`packages/shared`: schema and command rationale"). `layoutId` is the
+ * dashboard's Layout, or a fresh client-generated id where it has none yet; a
+ * save naming any other id still arranges the dashboard's own, unless that id
+ * is another dashboard's Layout, which is refused as not found.
+ * A tab from before Screen sizes were retired still sends `screenWidth` and
+ * `screenSizeId`, which are dropped unread.
  */
 export const saveLayoutSchema = commandEnvelopeSchema.extend({
   dashboardId: z.string(),
   layoutId: z.uuid(),
-  /** Bounded so a layout can never record a width no screen has (architecture.md §4.4). */
-  screenWidth: z.number().int().min(1).max(100_000),
-  /**
-   * Which screen size this save defines a Layout for. Optional: left out, the
-   * size is resolved on the way in to the account's nearest size, or one
-   * called *Default* at `screenWidth` where the account has none at all —
-   * sent explicitly, it means *Define a layout for X* (architecture.md §4.4).
-   */
-  screenSizeId: z.string().min(1).optional(),
   /** The rows, top to bottom. An arrangement is the whole list. */
   rows: z
     .array(rowInputSchema)
@@ -290,39 +284,6 @@ export const saveLayoutSchema = commandEnvelopeSchema.extend({
     ),
 });
 export type SaveLayoutCommand = z.infer<typeof saveLayoutSchema>;
-
-/** delete_layout — which layout; the panels stay where they are (architecture.md §4.4). */
-export const deleteLayoutSchema = commandEnvelopeSchema.extend({
-  layoutId: z.uuid(),
-});
-export type DeleteLayoutCommand = z.infer<typeof deleteLayoutSchema>;
-
-/** create_screen_size — name and width, both typed by hand (architecture.md §4.4). */
-export const createScreenSizeSchema = commandEnvelopeSchema.extend({
-  screenSizeId: z.uuid(),
-  name: screenSizeNameSchema,
-  width: z
-    .number()
-    .int()
-    .min(MIN_SCREEN_WIDTH, {
-      error: `a screen size is at least ${MIN_SCREEN_WIDTH} px wide: anything narrower is a phone, which is never arranged`,
-    })
-    .max(MAX_SCREEN_WIDTH),
-});
-export type CreateScreenSizeCommand = z.infer<typeof createScreenSizeSchema>;
-
-/** rename_screen_size (architecture.md §4.4). */
-export const renameScreenSizeSchema = commandEnvelopeSchema.extend({
-  screenSizeId: z.string().min(1),
-  name: screenSizeNameSchema,
-});
-export type RenameScreenSizeCommand = z.infer<typeof renameScreenSizeSchema>;
-
-/** delete_screen_size — every layout at that size goes with it, account-wide (architecture.md §4.4). */
-export const deleteScreenSizeSchema = commandEnvelopeSchema.extend({
-  screenSizeId: z.string().min(1),
-});
-export type DeleteScreenSizeCommand = z.infer<typeof deleteScreenSizeSchema>;
 
 /**
  * capture_item — the one command with many front doors (architecture.md,
@@ -714,9 +675,10 @@ export const proposeItemPanelSchema = commandEnvelopeSchema
 export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
 
 /**
- * connect_source_account — a Workspace's Teams sign-in, once Microsoft has
- * said who it was and the credential has been sealed ("Connect a Microsoft
- * Teams source account", issue 485).
+ * connect_source_account — a Workspace's Teams or Gmail sign-in, once the
+ * source has said who it was and the credential has been sealed ("Connect a
+ * Microsoft Teams source account", issue 485; "Connect a Gmail account to a
+ * workspace, and disconnect it", issue 724).
  *
  * **Written by the callback route, never posted as JSON by a client** - the
  * same standing `add_attachment` above has, and for a sharper reason: the
@@ -812,10 +774,6 @@ export const commandSchemas = {
   set_panel_filter: setPanelFilterSchema,
   set_panel_sort: setPanelSortSchema,
   save_layout: saveLayoutSchema,
-  delete_layout: deleteLayoutSchema,
-  create_screen_size: createScreenSizeSchema,
-  rename_screen_size: renameScreenSizeSchema,
-  delete_screen_size: deleteScreenSizeSchema,
   capture_item: captureItemSchema,
   create_item_type: createItemTypeSchema,
   rename_item_type: renameItemTypeSchema,

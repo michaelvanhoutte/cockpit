@@ -834,7 +834,7 @@ test.describe('Item editing', () => {
       expect(await left(priorityGroup(page)), 'Priority under Type').toBe(await left(form(page).getByLabel('Type')));
       expect(await left(dueDateBox(page)), 'Due date under Status').toBe(await left(form(page).getByLabel('Status')));
       const shortcutTops = await Promise.all(
-        ['Today', 'Fri', '+7d'].map(async (name) =>
+        ['Today', 'Tmrw', '+7d'].map(async (name) =>
           Math.round((await form(page).getByRole('button', { name, exact: true }).boundingBox())!.y),
         ),
       );

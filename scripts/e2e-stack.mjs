@@ -221,6 +221,11 @@ const api = start(
     'MS_CLIENT_ID:cockpit-e2e',
     '--var',
     'MS_CLIENT_SECRET:no-secret-is-needed-to-talk-to-the-stub',
+    // Gmail's own Google client, against the same stub (issue 724).
+    '--var',
+    'GMAIL_CLIENT_ID:cockpit-e2e',
+    '--var',
+    'GMAIL_CLIENT_SECRET:no-secret-is-needed-to-talk-to-the-stub',
     '--var',
     'CONNECTOR_CREDENTIAL_KEY:Y29ja3BpdC1lMmUtY29ubmVjdG9yLWtleS0wMDAwMDA=',
     // The bot a saved Teams message is signed for, and the stub's own keys to

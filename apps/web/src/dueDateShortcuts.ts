@@ -1,4 +1,4 @@
-import { dayOf, daysAfter, weekdayOf, type Day } from './filters';
+import { dayOf, daysAfter, type Day } from './filters';
 
 /**
  * The three one-click ways to set a due date, beside typing one directly
@@ -12,18 +12,9 @@ export function dueToday(now: Date): Day {
   return dayOf(now);
 }
 
-/**
- * The coming Friday, never a past one: a weekday before Friday lands on this
- * week's, and Friday itself lands on today - both already in the future or
- * the present. Saturday or Sunday jumps to next week's Friday instead of one
- * already gone. `(5 - dow + 7) % 7` is the distance forward to Friday
- * (`5`) from today's weekday (`dow`) on the same Monday-to-Sunday week
- * `spanOf` (`filters.ts`) reads the calendar by, wrapped forward rather than
- * left to go negative.
- */
-export function dueComingFriday(now: Date): Day {
-  const today = dayOf(now);
-  return daysAfter(today, (5 - weekdayOf(today) + 7) % 7);
+/** The day after today on the viewer's own calendar, crossing into the next month or year as the calendar does. */
+export function dueTomorrow(now: Date): Day {
+  return daysAfter(dayOf(now), 1);
 }
 
 export function dueSevenDaysOut(now: Date): Day {
@@ -33,6 +24,6 @@ export function dueSevenDaysOut(now: Date): Day {
 /** The shortcuts in the order they are offered, by the label on the button - one list for the item form and the Capture form's strip. */
 export const DUE_DATE_SHORTCUTS: { label: string; dueDate: (now: Date) => Day }[] = [
   { label: 'Today', dueDate: dueToday },
-  { label: 'Fri', dueDate: dueComingFriday },
+  { label: 'Tmrw', dueDate: dueTomorrow },
   { label: '+7d', dueDate: dueSevenDaysOut },
 ];

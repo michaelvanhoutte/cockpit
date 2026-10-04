@@ -531,23 +531,23 @@ function TheShell() {
   const signedOut = sessionFailure instanceof NotSignedIn;
 
   /**
-   * Coming back from Microsoft after connecting Teams reopens Settings on
+   * Coming back from Microsoft or Google after connecting reopens Settings on
    * Connections, for the workspace it was started from, saying how it went.
    * The redirect keeps its address (`/w/<workspace>?connections=...`,
    * `connections.ts`); this reads it once and clears it, so Back does not
    * open Settings again. Settings is not offered on a phone, and a workspace
    * this person cannot see gets no window - the parameter is cleared either way.
    */
-  const { outcome: backFromMicrosoft, forget: forgetTheTrip } = useConnections();
+  const { outcome: backFromTheSource, forget: forgetTheTrip } = useConnections();
   useEffect(() => {
-    if (!backFromMicrosoft || !data) return;
+    if (!backFromTheSource || !data) return;
     const workspaceId = params.workspaceId;
     if (roomForTheInbox && workspaceId && data.workspaces.some((ws) => ws.id === workspaceId)) {
-      openSettings('connections', { workspaceId, outcome: backFromMicrosoft });
+      openSettings('connections', { workspaceId, outcome: backFromTheSource });
     }
     forgetTheTrip();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backFromMicrosoft, data, params.workspaceId, roomForTheInbox]);
+  }, [backFromTheSource, data, params.workspaceId, roomForTheInbox]);
 
   /**
    * The capture outbox is sent for as long as somebody is signed in, and its

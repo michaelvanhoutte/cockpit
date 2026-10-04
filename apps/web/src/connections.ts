@@ -11,11 +11,15 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
  * reopened by whatever comes back - and what comes back is a redirect from
  * the Worker, which has only the address to say anything in.
  *
- * **Two values and no third**, which is the whole contract with the callback
- * route (`apps/api/src/http/app.ts`, `backToConnections`): it went through, or
- * it did not. Why it did not is in the Worker's log and never here.
+ * **It went through, or it did not**, which is the whole contract with the
+ * callback routes (`apps/api/src/http/app.ts`, `backToConnections`) - Gmail's
+ * going through having a value of its own, since what it says next differs
+ * ("Connect a Gmail account to a workspace, and disconnect it", issue 724).
+ * Why it did not is in the Worker's log and never here.
  */
-export type ConnectOutcome = 'connected' | 'refused';
+export type ConnectOutcome = 'connected' | 'gmail-connected' | 'refused';
+
+const OUTCOMES: readonly unknown[] = ['connected', 'gmail-connected', 'refused'] satisfies ConnectOutcome[];
 
 export interface ConnectionsSearch {
   connections?: ConnectOutcome;
@@ -30,9 +34,7 @@ export interface ConnectionsSearch {
  * where a search parameter can be declared at all.
  */
 export function connectionsSearch(search: Record<string, unknown>): ConnectionsSearch {
-  return search.connections === 'connected' || search.connections === 'refused'
-    ? { connections: search.connections }
-    : {};
+  return OUTCOMES.includes(search.connections) ? { connections: search.connections as ConnectOutcome } : {};
 }
 
 /**

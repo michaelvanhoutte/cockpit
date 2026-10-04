@@ -109,7 +109,7 @@ async function emptyTheStore(name: string): Promise<void> {
       .toArray()
       .map((row) => row.name);
     // Children before parents, the same order a restore drops in.
-    for (const table of ['panel_placements', 'panel_items', 'associations', 'commands', 'rewrite_history', 'items', 'layouts', 'panels', 'dashboards', 'item_types', 'workspaces', 'account_changes']) {
+    for (const table of ['panel_placements', 'layout_rows', 'panel_items', 'associations', 'commands', 'rewrite_history', 'items', 'layouts', 'screen_sizes', 'panels', 'dashboards', 'item_types', 'workspaces', 'account_changes']) {
       if (tables.includes(table)) sql.exec(`DROP TABLE IF EXISTS "${table}"`);
     }
     for (const table of tables) sql.exec(`DROP TABLE IF EXISTS "${table}"`);
@@ -487,9 +487,9 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0042-item-started-at` adds it; `0041-item-meanings-read-at` adds only
-    // an index, no column.
-    items: ['started_at'],
+    // None: `0053-one-layout-per-dashboard` takes `screen_size_id` off
+    // `layouts` rather than adding a column, and this backup holds no Layout;
+    // the guest's demonstration adds rows only, and only to the guest.
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */
@@ -535,6 +535,76 @@ describe('Backup', () => {
       const now = await backUp(ACCOUNT_NAME);
       expect(now.changesApplied.sort()).toEqual([...everything].sort());
       expect(messagesIn(now)).toContain('written under an older shape');
+    });
+
+    /**
+     * The backup is the only way back past "Convert every Dashboard to its
+     * widest Layout and retire Screen sizes" (issue 713), so one taken before
+     * it has to come back whole and then convert like any other account.
+     * Taken from a store aged to just before that change, since no request
+     * can make a Screen size any more.
+     */
+    it('puts back a backup from before a dashboard kept one layout, then keeps its widest', async () => {
+      const changes = accountChanges(ACCOUNT_NAME);
+      const before = changes.findIndex((change) => change.name === '0053-one-layout-per-dashboard');
+      expect(before).toBeGreaterThan(-1);
+      await inStoreAsItIs(ACCOUNT_NAME, (sql) => {
+        sql.exec(
+          'CREATE TABLE IF NOT EXISTS account_changes (name text PRIMARY KEY NOT NULL, applied_at text NOT NULL) STRICT',
+        );
+        for (const change of changes.slice(0, before)) {
+          for (const statement of change.statements) sql.exec(statement.sql, ...(statement.params ?? []));
+          sql.exec('INSERT INTO account_changes (name, applied_at) VALUES (?, ?)', change.name, AT);
+        }
+        sql.exec(
+          `INSERT INTO screen_sizes (id, tenant_id, name, folded_name, width, created_at)
+           VALUES ('sz-laptop', ?, 'Laptop', 'laptop', 1646, ?), ('sz-wide', ?, 'Wide', 'wide', 2560, ?)`,
+          ACCOUNT_NAME,
+          AT,
+          ACCOUNT_NAME,
+          AT,
+        );
+        sql.exec(
+          `INSERT INTO layouts (id, tenant_id, dashboard_id, screen_size_id, created_at)
+           VALUES ('ly-laptop', ?, 'ws-1-dashboard-1', 'sz-laptop', ?),
+                  ('ly-wide', ?, 'ws-1-dashboard-1', 'sz-wide', ?)`,
+          ACCOUNT_NAME,
+          AT,
+          ACCOUNT_NAME,
+          AT,
+        );
+        sql.exec(
+          `INSERT INTO layout_rows (tenant_id, layout_id, row_index, height)
+           VALUES (?, 'ly-laptop', 0, 200), (?, 'ly-wide', 0, 320)`,
+          ACCOUNT_NAME,
+          ACCOUNT_NAME,
+        );
+        sql.exec(
+          `INSERT INTO panel_placements (tenant_id, layout_id, panel_id, row_index, position, span)
+           SELECT ?, 'ly-laptop', id, 0, 0, 12 FROM panels
+           UNION ALL
+           SELECT ?, 'ly-wide', id, 0, 0, 6 FROM panels`,
+          ACCOUNT_NAME,
+          ACCOUNT_NAME,
+        );
+      });
+      const taken = await backUp(ACCOUNT_NAME);
+      expect(taken.tables.screen_sizes).toHaveLength(2);
+      expect(taken.tables.layouts).toHaveLength(2);
+      await emptyTheStore(ACCOUNT_NAME);
+
+      expect((await restore(ACCOUNT_NAME, taken)).status).toBe(200);
+
+      const now = await backUp(ACCOUNT_NAME);
+      expect(now.changesApplied).toContain('0053-one-layout-per-dashboard');
+      expect(now.tables.screen_sizes).toBeUndefined();
+      expect(now.tables.layouts).toEqual([
+        { id: 'ly-wide', tenant_id: ACCOUNT_NAME, dashboard_id: 'ws-1-dashboard-1', created_at: AT },
+      ]);
+      expect(now.tables.layout_rows).toEqual([
+        { tenant_id: ACCOUNT_NAME, layout_id: 'ly-wide', row_index: 0, height: 320 },
+      ]);
+      expect(now.tables.panel_placements!.map((cell) => [cell.layout_id, cell.span])).toEqual([['ly-wide', 6]]);
     });
   });
 
