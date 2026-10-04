@@ -50,6 +50,7 @@ export function InboxChip({
       type="button"
       className={className}
       title={`Open the Inbox (${INBOX_KEY.toUpperCase()})`}
+      data-shortcut-tip="inbox"
       onClick={onOpen}
       onDragOver={(event) => {
         if (!event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
@@ -120,6 +121,7 @@ export function InboxHeading({
             onClick={onCollapse}
             title={`Collapse the Inbox (${INBOX_KEY.toUpperCase()})`}
             aria-label="Collapse the Inbox"
+            data-shortcut-tip="inbox"
             className="-ml-1 rounded px-1 text-xs text-ink-faint hover:text-ink"
           >
             «
