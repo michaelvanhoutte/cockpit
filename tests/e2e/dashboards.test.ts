@@ -318,10 +318,10 @@ test.describe('Dashboards', () => {
   test.describe('an open filter bar stays in view, and opening it starts from the top', () => {
     /**
      * F3, because a pinned bar and a scroll position exist only where something
-     * is laid out and scrolled, which jsdom does neither of. The window is made
-     * short rather than the Dashboard long, so a Dashboard of one Panel is already taller than
-     * it. A Dashboard and All items share the scrolling element, the bar and the
-     * funnel's press handler, so one walk covers both rather than one each.
+     * is laid out and scrolled, which jsdom does neither of. A short window keeps
+     * the Panels needed to scroll it few. A Dashboard and All items share the
+     * scrolling element, the bar and the funnel's press handler, so one walk
+     * covers both rather than one each.
      */
     test('pins the bar under the dashboard bar, scrolls to the top only when it opens, and leaves a switch where it was', async ({
       page,
