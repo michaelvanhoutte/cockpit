@@ -45,7 +45,7 @@ export const LEVELS = [
   { id: 'F1', label: 'F1', name: 'Frontend unit', description: 'No real dependencies — component and view-model logic.' },
   { id: 'F2', label: 'F2', name: 'Service-frontend', description: "The frontend plus only its own service's backend." },
   { id: 'F3', label: 'F3', name: 'End-to-end', description: 'Everything real, a real browser. The one level mandatory per capability.' },
-  { id: 'Contract', label: 'Contract', name: 'Contract', description: 'Scheduled live checks against a third party. n/a for an area with no connector.' },
+  { id: 'Contract', label: 'Contract', name: 'Contract', description: 'Scheduled live checks against a third party. n/a for an area no contract suite names.' },
 ];
 
 export const LEVEL_IDS = LEVELS.map((l) => l.id);
@@ -95,7 +95,7 @@ export const INFRASTRUCTURE_LABEL = 'Infrastructure';
  * @property {string} key
  * @property {string} label
  * @property {Record<string, number|null>} counts   Keyed by LEVEL_IDS. null means genuinely n/a for
- *                                                    this node (Contract with no connector; any level
+ *                                                    this node (Contract with no contract suite naming it; any level
  *                                                    when the whole repo doesn't have it yet — see
  *                                                    Model.availableLevels), never a stand-in for zero.
  *                                                    Own rules only — a parent's children carry their

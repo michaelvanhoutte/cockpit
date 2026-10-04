@@ -167,10 +167,10 @@ export function analyze(repo) {
     for (const id of LEVEL_IDS) {
       if (!availableLevels[id]) {
         counts[id] = null;
-      } else if (id === 'Contract' && !hasConnector(concept, packages)) {
-        counts[id] = null;
       } else {
-        counts[id] = rules.filter((r) => r.level === id).length;
+        const count = rules.filter((r) => r.level === id).length;
+        // Contract is a scheduled tier few areas have a suite in: n/a (not 0) for one no contract suite names.
+        counts[id] = id === 'Contract' && count === 0 ? null : count;
       }
     }
 
@@ -221,22 +221,6 @@ export function analyze(repo) {
 /** A wrangler config marks a package as a deployable Worker/service, the discriminator used for L3 availability. */
 function isBackendService(repo, rel) {
   return ['wrangler.jsonc', 'wrangler.toml', 'wrangler.json'].some((f) => existsSync(path.join(repo, rel, f)));
-}
-
-/**
- * No connector packages exist yet, so this is `false` for every concept today
- * regardless of registry content — but derived from real workspace data
- * (`packages`, already walked via pnpm-workspace.yaml's globs, which include
- * `packages/connectors/*`) rather than hardcoded, so a concept whose registry
- * entry names a real connector package picks it up automatically once one
- * exists, with no code change required here.
- *
- * @param {{ connectors?: string[] }} concept
- * @param {string[]} packages repo-relative workspace package directories
- */
-function hasConnector(concept, packages) {
-  const names = concept.connectors ?? [];
-  return names.some((name) => packages.includes(`packages/connectors/${name}`));
 }
 
 /** True when a test file imports `cloudflare:test`'s `SELF` — the marker for an HTTP-driven integration test. */
