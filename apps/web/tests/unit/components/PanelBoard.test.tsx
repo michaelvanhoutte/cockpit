@@ -3072,6 +3072,16 @@ describe('Panels', () => {
       expect(grips()).toHaveLength(3);
     });
 
+    it('offers no grip while an Item is dragged to be filed, so no drop lands on it', () => {
+      board();
+
+      fireEvent.dragStart(window);
+      expect(grips()).toHaveLength(0);
+
+      fireEvent.dragEnd(window);
+      expect(grips()).toHaveLength(3);
+    });
+
     it.each([
       { situation: 'a touch', press: { button: 0, pointerType: 'touch' } },
       { situation: 'a right-click', press: { button: 2, pointerType: 'mouse' } },

@@ -286,6 +286,25 @@ export function PanelBoard({
    */
   const [sizing, setSizing] = useState<LayoutRow[] | null>(null);
   /**
+   * **An Item is being dragged to be filed** (the browser's own drag, not a
+   * Panel's). The row grip lies over the left edge of a row's first Panel, so
+   * while an Item is in the air it is left out rather than becoming the thing
+   * under the pointer that no drop target answers.
+   */
+  const [itemInHand, setItemInHand] = useState(false);
+  useEffect(() => {
+    const begun = () => setItemInHand(true);
+    const over = () => setItemInHand(false);
+    window.addEventListener('dragstart', begun);
+    window.addEventListener('dragend', over);
+    window.addEventListener('drop', over);
+    return () => {
+      window.removeEventListener('dragstart', begun);
+      window.removeEventListener('dragend', over);
+      window.removeEventListener('drop', over);
+    };
+  }, []);
+  /**
    * What the size was when it was taken hold of, and what it is now.
    *
    * A ref beside the state for the reason `draggingNow` is one: the pointer
@@ -1118,7 +1137,7 @@ export function PanelBoard({
                     position: 'relative',
                   }}
                 >
-                  {arrangeable && dragging === null && row.cells[0] && (
+                  {arrangeable && dragging === null && !itemInHand && row.cells[0] && (
                     <RowGrip onPickUp={(pointerId) => pickUp(row.cells[0]!.panelId, pointerId, true)} />
                   )}
                   {row.cells.map((cell, at) => {
