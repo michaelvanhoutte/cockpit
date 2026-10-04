@@ -577,6 +577,52 @@ describe('Triage', () => {
       );
     });
 
+    describe('the row’s own ✓ marks it done the way the menu’s Done does, and offers it back', () => {
+      const situations = [
+        { situation: 'an Inbox row', item: anItem(), extra: {} },
+        {
+          situation: 'a row on a panel',
+          item: anItem(),
+          extra: { alsoIn: ['Today'] },
+        },
+        {
+          situation: 'an item that was started',
+          item: anItem({ startedAt: '2026-08-12T11:00:00.000Z' }),
+          extra: {},
+        },
+      ];
+
+      it.each(situations)('$situation', async ({ item, extra }) => {
+        const user = userEvent.setup();
+        const { mutate, send } = aRow({ settles: true, item, extra });
+
+        await user.click(screen.getByRole('button', { name: 'Mark done' }));
+
+        expect(mutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: 'set_done',
+            payload: expect.objectContaining({ itemId: 'item-1', done: true }),
+          }),
+          expect.anything(),
+        );
+        expect(screen.getByRole('status')).toHaveTextContent(
+          '“Make appointment with Novy” marked done',
+        );
+        await user.click(screen.getByRole('button', { name: 'Undo' }));
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: 'set_done',
+            payload: expect.objectContaining({ itemId: 'item-1', done: false }),
+          }),
+        );
+      });
+
+      it('names itself Mark done on hover', () => {
+        aRow();
+        expect(screen.getByRole('button', { name: 'Mark done' })).toHaveAttribute('title', 'Mark done');
+      });
+    });
+
     it('offers nothing back while the dismissal is still in flight', async () => {
       const user = userEvent.setup();
       aRow({ settles: false });
@@ -1957,6 +2003,16 @@ describe('Selection', () => {
       expect(trigger).not.toBeDisabled();
       await user.click(trigger);
       expect(screen.queryByRole('menuitem', { name: /^Status/ })).toBeNull();
+    });
+
+    it.each([
+      { situation: 'a selection held on another row', picked: false, revealed: true, shown: false },
+      { situation: 'the row itself picked', picked: true, revealed: true, shown: false },
+      { situation: 'no selection', picked: false, revealed: false, shown: true },
+    ])('steps the ✓ aside for $situation', ({ picked, revealed, shown }) => {
+      aRow({ selecting: { picked, revealed, onPick: vi.fn(), onEndSelection: vi.fn() } });
+
+      expect(screen.queryByRole('button', { name: 'Mark done' }) !== null).toBe(shown);
     });
 
     it('leaves the menu trigger available and opening where nothing is selected', async () => {

@@ -1301,6 +1301,29 @@ export function ItemRow({
           </span>
         )}
 
+        {/* Mark done in one click ("Mark an item done with a ✓ that appears on
+            hover", issue 716): the menu's Status ▸ Done, sent the same way, so
+            the Undo bar offers it back identically. Shown only under a fine
+            pointer hovering the row, so never on touch, which keeps the menu and
+            the long press, and never while a selection is held, like every other
+            single-row action. */}
+        {!selecting?.revealed && (
+          <button
+            type="button"
+            aria-label="Mark done"
+            title="Mark done"
+            onClick={(event) => {
+              event.stopPropagation();
+              markDone();
+            }}
+            className="hidden size-9 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-accent-tint hover:text-accent-deep focus-visible:outline-2 focus-visible:outline-accent pointer-fine:group-hover:inline-flex"
+          >
+            <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 8.5l3.2 3.2L13 4.8" />
+            </svg>
+          </button>
+        )}
+
         <DropdownMenu.Root
           // Closed outright while a selection is held, whether or not it was
           // already open - the trigger's own `disabled` only refuses a new
