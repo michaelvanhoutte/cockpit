@@ -80,6 +80,9 @@ vi.mock('../../../src/api/queries', async () => {
     },
     useSendCommand: () => held.send,
     useStartAgent: () => ({ mutateAsync: held.startAgent }),
+    refusalFrom: (
+      await vi.importActual<typeof import('../../../src/api/queries')>('../../../src/api/queries')
+    ).refusalFrom,
     workspacesQuery: {
       queryKey: ['workspaces'],
       queryFn: () => Promise.resolve({ workspaces: held.workspaces }),

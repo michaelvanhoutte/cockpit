@@ -1,7 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { panelTakesItems, type Dashboard, type Panel, type Workspace } from '@cockpit/shared';
-import { CommandRefused } from '../api/client';
+import { refusalFrom } from '../api/queries';
 
 /**
  * Where an item can be moved: onto a panel, or into a workspace's Inbox.
@@ -182,9 +182,7 @@ function MoveToPicker({
     try {
       panelId = await onAddPanel(naming.dashboardId, name);
     } catch (error) {
-      setNamingRefusal(
-        error instanceof CommandRefused ? error.message : 'That did not reach the server. Try again.',
-      );
+      setNamingRefusal(refusalFrom({ error }));
       makingNow.current = false;
       setMaking(false);
       return;
@@ -272,11 +270,12 @@ function MoveToPicker({
           ref={contentRef}
           // Escape in the name field closes the field and leaves the picker.
           // Radix listens on the document before the field's own handler could
-          // stop it, so it is told here not to dismiss.
+          // stop it, so it is told here not to dismiss. Nothing closes while the
+          // panel is being made, since the filing would follow it regardless.
           onEscapeKeyDown={(event) => {
             if (naming && fieldRef.current?.contains(event.target as Node | null)) {
               event.preventDefault();
-              closeField();
+              if (!makingNow.current) closeField();
             }
           }}
           style={openedHeight ? { minHeight: openedHeight } : undefined}
