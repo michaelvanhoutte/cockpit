@@ -606,9 +606,12 @@ describe('Capture', () => {
         },
       ];
 
-      const proposal = await read(LAURENS_SHAPED_NOTE, panels, history);
+      // Asked five times, because a model that names the corrected panel on
+      // one pass in three reads as passing on a single dispatch and fails the
+      // night it does not.
+      const proposals = await Promise.all(Array.from({ length: 5 }, () => read(LAURENS_SHAPED_NOTE, panels, history)));
 
-      expect(proposal.panel?.panelId).toBe(panels[1]!.id);
+      expect(proposals.map((proposal) => proposal.panel?.panelId)).toEqual(Array(5).fill(panels[1]!.id));
     });
   });
 

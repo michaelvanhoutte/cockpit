@@ -125,9 +125,13 @@ describe('Triage', () => {
         },
       ];
 
-      const panel = await choose(anItem('sign-off needed before we can close this out, who owns it'), panels, history);
+      // Asked five times, because a model that names the corrected panel on
+      // one pass in three reads as passing on a single dispatch and fails the
+      // night it does not.
+      const item = anItem('sign-off needed before we can close this out, who owns it');
+      const chosen = await Promise.all(Array.from({ length: 5 }, () => choose(item, panels, history)));
 
-      expect(panel?.panelId).toBe(panels[1]!.id);
+      expect(chosen.map((panel) => panel?.panelId)).toEqual(Array(5).fill(panels[1]!.id));
     });
   });
 });
