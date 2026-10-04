@@ -27,5 +27,12 @@ export const manifest: Partial<ManifestOptions> = {
       url: '/capture',
       icons: [icon],
     },
+    {
+      name: 'Car capture',
+      short_name: 'Car capture',
+      description: 'Capture a note by voice, hands free',
+      url: '/capture/car',
+      icons: [icon],
+    },
   ],
 };

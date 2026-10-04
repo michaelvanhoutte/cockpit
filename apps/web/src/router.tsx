@@ -9,7 +9,7 @@ import { NotSignedIn } from './api/client';
 import { snapshotQuery, workspacesQuery } from './api/queries';
 import { setAllItemsTab } from './allItemsTab';
 import { connectionsSearch } from './connections';
-import { loadCaptureNote } from './captureForm';
+import { loadCaptureNote, loadCarCapture } from './captureForm';
 import { itemFormSearch } from './itemForm';
 import {
   INBOX,
@@ -359,10 +359,9 @@ export const allItemsRoute = createRoute({
  * answered because a workspace can be deleted while you sit there
  * (pages/CapturePage.tsx).
  */
-const captureRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/capture',
-  beforeLoad: async ({ context }) => {
+const capturing =
+  (loadView: () => Promise<unknown>) =>
+  async ({ context }: { context: { queryClient: QueryClient } }) => {
     const { workspaces } = await orTheLogonPage(
       context.queryClient.ensureQueryData(workspacesQuery),
     );
@@ -370,9 +369,27 @@ const captureRoute = createRoute({
     // No workspace to capture from is an account with none, since every other
     // answer falls back to the first one there is (`lastVisited.ts`).
     if (!from) throw redirect({ to: '/start' });
-    // The form too, which is fetched behind the shell (`captureForm.ts`).
-    await Promise.all([snapshotOf(context.queryClient, from), loadCaptureNote()]);
-  },
+    // The view too, which is fetched behind the shell (`captureForm.ts`).
+    await Promise.all([snapshotOf(context.queryClient, from), loadView()]);
+  };
+
+const captureRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/capture',
+  beforeLoad: capturing(loadCaptureNote),
+  component: CapturePage,
+});
+
+/**
+ * The Car view of the same page ("Capture by voice in the car", issue 730):
+ * the same screen with one round button where the form is, which the Write |
+ * Car switch and the installed app's *Car capture* shortcut open. /capture
+ * always opens on Write.
+ */
+const captureCarRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/capture/car',
+  beforeLoad: capturing(loadCarCapture),
   component: CapturePage,
 });
 
@@ -383,6 +400,7 @@ const routeTree = rootRoute.addChildren([
   appRoute.addChildren([
     indexRoute,
     captureRoute,
+    captureCarRoute,
     workspaceRoute,
     inboxRoute,
     dashboardRoute,

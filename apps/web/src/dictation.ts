@@ -11,8 +11,8 @@ import { browserStore } from './lastVisited';
  * `useDictation` and the same language choice rather than a second copy of any
  * of it.
  *
- * Imported only by the Capture form, which is fetched behind the shell
- * (`captureForm.ts`), so none of it is in the first bundle.
+ * Imported only by the Capture form and the Car view, which are fetched behind
+ * the shell (`captureForm.ts`), so none of it is in the first bundle.
  *
  * Three parts, each small: the **language** choice remembered on this device,
  * the **engine** wrapped as `DictationSession` (what to do on each event the
@@ -154,6 +154,8 @@ export class DictationSession {
   private wanted = false;
   private started = false;
   private interim = '';
+  /** Set while `finish` waits for the engine's last words; calling it ends the wait. */
+  private finishing: (() => void) | null = null;
 
   constructor(
     private readonly make: EngineFactory,
@@ -180,6 +182,38 @@ export class DictationSession {
     else this.interim = '';
     this.release();
     if (wasAsked) this.on.onListening(false);
+  }
+
+  /**
+   * Ends listening **and waits for the engine's last reading**, which `stop`
+   * does not: a phrase still provisional is delivered final by the engine when
+   * it is asked to stop, and that reading is the better one. Resolves once the
+   * engine has ended, or after `boundMs` where it never does - whatever was
+   * heard by then is kept as `stop` keeps it. Never restarts.
+   */
+  finish(boundMs: number): Promise<void> {
+    const engine = this.engine;
+    if (!this.wanted || !engine || !this.started) {
+      this.stop();
+      return Promise.resolve();
+    }
+    this.wanted = false;
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        this.finishing = null;
+        this.stop();
+        this.on.onListening(false);
+        resolve();
+      };
+      const timer = setTimeout(done, boundMs);
+      this.finishing = done;
+      try {
+        engine.stop();
+      } catch {
+        done();
+      }
+    });
   }
 
   /**
@@ -226,6 +260,10 @@ export class DictationSession {
     engine.onend = () => {
       if (this.engine !== engine) return;
       this.settle();
+      if (this.finishing) {
+        this.finishing();
+        return;
+      }
       if (this.wanted && this.started) {
         this.release();
         this.begin();
@@ -269,6 +307,8 @@ export class DictationSession {
   }
 
   private release(): void {
+    // Whoever waits on the engine's last words is not left waiting on a released one.
+    this.finishing?.();
     const engine = this.engine;
     this.engine = null;
     if (!engine) return;
@@ -294,6 +334,8 @@ export interface Dictation {
   toggle(): void;
   /** Stops listening, keeping what was said. */
   stop(): void;
+  /** Stops listening and waits for the engine's last reading of what it was still working out, for at most `withinMs`. */
+  finish(withinMs: number): Promise<void>;
   /** Forgets the phrase still being recognised, which the view has taken into the note itself. */
   forgetPhrase(): void;
 }
@@ -308,10 +350,13 @@ export interface Dictation {
  */
 export function useDictation({
   onPhrase,
+  onFailure,
   engine = browserEngine,
   store = browserStore(),
 }: {
   onPhrase: (text: string, final: boolean) => void;
+  /** Told each time dictation stops on an error, after what was still provisional has been delivered as final - including an error worded as the last one was, which `error` alone cannot show. */
+  onFailure?: (message: string) => void;
   engine?: EngineFactory | null;
   store?: Storage | undefined;
 }): Dictation {
@@ -323,6 +368,8 @@ export function useDictation({
 
   const phrase = useRef(onPhrase);
   phrase.current = onPhrase;
+  const failure = useRef(onFailure);
+  failure.current = onFailure;
   const languageNow = useRef(language);
   languageNow.current = language;
 
@@ -331,7 +378,10 @@ export function useDictation({
     session.current = new DictationSession(factory, () => languageNow.current, {
       onListening: setListening,
       onPhrase: (text, final) => phrase.current(text, final),
-      onError: setError,
+      onError: (message) => {
+        setError(message);
+        if (message) failure.current?.(message);
+      },
     });
   }
   useEffect(() => {
@@ -357,6 +407,7 @@ export function useDictation({
       else own.start();
     },
     stop: () => session.current?.stop(),
+    finish: (withinMs) => session.current?.finish(withinMs) ?? Promise.resolve(),
     forgetPhrase: () => session.current?.forgetPhrase(),
   };
 }

@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
-import { useRouterState } from '@tanstack/react-router';
-import { CaptureNote } from '../captureForm';
+import { Link, useRouterState } from '@tanstack/react-router';
+import { CarCapture, CaptureNote } from '../captureForm';
 
 /**
  * What the header's tab and `C` put in the navigation's state to say which
@@ -32,11 +32,19 @@ export const captureStateFor = (workspaceId: string | undefined): never =>
  * somebody says where it goes. Where starts on the workspace you came from
  * where the tab said so, and on *Any workspace* otherwise ("Capture over the
  * screen you are on, and open it with C", issue 536).
+ *
+ * **Write | Car** in the header switches between the form and the Car view
+ * (components/CarCapture.tsx, "Capture by voice in the car", issue 730) and
+ * keeps the workspace you came from; `/capture` opens on Write and
+ * `/capture/car` on Car.
  */
 export function CapturePage() {
   const startsIn = useRouterState({
     select: (state) => (state.location.state as CaptureState).captureFrom ?? null,
   });
+  const inCar = useRouterState({ select: (state) => state.location.pathname === '/capture/car' });
+  // Carried over the switch, so Where still starts on the workspace you came from.
+  const carried = captureStateFor(startsIn ?? undefined);
 
   return (
     /* The sheet's own hollow, the same one a panel's list sits in ("Cockpit
@@ -52,10 +60,39 @@ export function CapturePage() {
         <span className="hidden text-[13px] text-ink-faint sm:inline">
           Write it down now, decide where it belongs later.
         </span>
+        <div
+          role="group"
+          aria-label="Capture view"
+          className="ml-auto flex overflow-hidden rounded-md border border-black/10 bg-white text-sm"
+        >
+          <Link
+            to="/capture"
+            state={carried}
+            aria-current={inCar ? undefined : 'page'}
+            className={viewClass(!inCar)}
+          >
+            Write
+          </Link>
+          <Link
+            to="/capture/car"
+            state={carried}
+            aria-current={inCar ? 'page' : undefined}
+            className={viewClass(inCar)}
+          >
+            Car
+          </Link>
+        </div>
       </div>
       <Suspense fallback={null}>
-        <CaptureNote startsIn={startsIn} />
+        {inCar ? <CarCapture /> : <CaptureNote startsIn={startsIn} />}
       </Suspense>
     </section>
   );
 }
+
+/** One side of the Write | Car switch: the lit one is the view shown. */
+const viewClass = (lit: boolean) =>
+  `inline-flex min-h-9 items-center px-3.5 font-medium ${
+    lit ? 'bg-accent-tint text-accent-deep' : 'text-ink-faint hover:bg-accent-tint hover:text-ink'
+  }`;
+
