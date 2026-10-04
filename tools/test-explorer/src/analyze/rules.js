@@ -44,9 +44,10 @@ export function levelForTestFile(relPath) {
 
   if (relPath.startsWith('tests/e2e/')) return 'F3';
 
-  if (/^packages\/connectors\/[^/]+\/tests\/contract\//.test(relPath)) return 'Contract';
+  // A live contract suite is Contract wherever it lives: the API's own, or a connector's.
+  if (/^(?:apps\/api|packages\/connectors\/[^/]+)\/tests\/contract\//.test(relPath)) return 'Contract';
 
-  // apps/api/tests/** and packages/*/tests/** (excluding the connector-contract
+  // apps/api/tests/** and packages/*/tests/** (excluding the contract
   // case above): apps/api is the one backend service today, and
   // packages/shared/packages/connectors/* unit/integration tests are
   // backend-shaped code with no frontend equivalent. packages/connectors/<name>/

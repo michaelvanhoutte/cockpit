@@ -207,23 +207,25 @@ function answerTo(page: Page, command: CommandName): Promise<Response> {
   );
 }
 
-/** The control at the right of the dashboard bar, which names the layout in use. */
+/** The control that used to pick a layout, which nothing draws any more ("Draw a Dashboard on its one Layout, with nothing to choose it by", issue 712). */
 function layoutControl(page: Page) {
-  return page.getByRole('button', { name: 'Layout for this dashboard' });
+  return page.getByRole('button', { name: /Layout for this dashboard/ });
 }
 
 /**
- * Opens the layout menu, waits for one entry per layout, and closes it again -
- * which is also how these walks wait for a layout to have landed, since the
- * menu is the only place the dashboard says how many it has.
+ * Drags one panel by its header onto the left edge of another, and waits for
+ * the server's answer to the arrangement it sent - which is also how these
+ * walks wait for the arrangement to have landed before the next change.
  */
-async function expectLayouts(page: Page, made: number, isMobile: boolean): Promise<void> {
-  await press(layoutControl(page), isMobile);
-  // One entry per layout and nothing else: the menu lists layouts, there being
-  // no mode to be in ("Layouts follow the screen you are on").
-  await expect(page.getByRole('menuitemradio')).toHaveCount(made);
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('menuitemradio')).toHaveCount(0);
+async function dragBefore(page: Page, panel: string, before: string): Promise<void> {
+  const answered = answerTo(page, 'save_layout');
+  const target = (await page.getByRole('region', { name: before }).boundingBox())!;
+  await page.mouse.move(...(await centreOf(page.getByRole('region', { name: panel }).locator('header'))));
+  await page.mouse.down();
+  await page.mouse.move(target.x + 4, target.y + target.height / 2, { steps: 8 });
+  await page.mouse.up();
+  expect((await answered).status()).toBe(200);
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
 }
 
 test.describe('Panels', () => {
@@ -286,14 +288,12 @@ test.describe('Panels', () => {
     });
   });
 
-  test.describe('a dashboard is drawn to fit the screen it is on, whatever it was arranged for', () => {
-    test('never scrolls sideways, and keeps a change in the layout it is drawn with', async ({
+  test.describe('a dashboard is drawn with its one arrangement on every screen from 480px up, and one panel across below it', () => {
+    test('never scrolls sideways, keeps every change in that one arrangement across a reload, and offers no layout to choose', async ({
       page,
       isMobile,
     }) => {
-      // Desktop only: arranging a dashboard is a pointer gesture, and this
-      // walk needs a real change in the arrangement to prove a layout is
-      // per-screen rather than shared - there is no other way to make one.
+      // Desktop only: arranging a dashboard is a pointer gesture.
       test.skip(isMobile, 'arranging a dashboard is a pointer gesture');
       await ownDashboard(page, isMobile);
       const first = uniqueTitle('Project Falcon');
@@ -302,56 +302,27 @@ test.describe('Panels', () => {
       await addPanel(page, first, isMobile);
       await addPanel(page, second, isMobile);
       await addPanel(page, third, isMobile);
+      await expect(layoutControl(page)).toHaveCount(0);
 
-      // Arranged on the screen it is on now, which stores the dashboard's
-      // first layout and names it for that screen. Nothing is asked.
-      const moved = answerTo(page, 'save_layout');
-      const firstBox = (await page.getByRole('region', { name: first }).boundingBox())!;
-      await page.mouse.move(
-        ...(await centreOf(page.getByRole('region', { name: second }).locator('header'))),
-      );
-      await page.mouse.down();
-      await page.mouse.move(firstBox.x + 4, firstBox.y + firstBox.height / 2, { steps: 8 });
-      await page.mouse.up();
-      expect((await moved).status()).toBe(200);
-      await expect(page.getByRole('alertdialog')).toHaveCount(0);
-      // Waited for by name rather than by a pause: the layout is what the next
-      // half of this walk changes *from*, and pressing again before it landed
-      // would be a change made against a dashboard that still had no layout -
-      // which is a different rule, and not the one under test here.
-      await expectLayouts(page, 1, isMobile);
+      // Arranged on the screen it is on now, which records the dashboard's
+      // arrangement. Nothing is asked.
+      await dragBefore(page, second, first);
+      await expect(layoutControl(page)).toHaveCount(0);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
 
-      // A different screen. The layout stored a moment ago was made for the
-      // other one, so it is squeezed to fit rather than cut off - which is what
-      // the sideways-scroll check is really asserting, and which is why the
-      // panels are in the same order on both: the rows are the arrangement, and
-      // a narrower screen draws the same rows narrower rather than re-wrapping
-      // them.
+      // A different screen draws the same rows, narrower rather than re-wrapped,
+      // so the panels are in the same order on both.
       const arranged = await panelsOnScreen(page);
-      // Kept so the walk can come back to it at the end, which is where the
-      // dashboard has to follow it.
       const firstScreen = page.viewportSize()!.width;
-      const firstLayout = (await layoutControl(page).textContent())!.trim();
       await page.setViewportSize({ width: firstScreen > 700 ? 520 : 1100, height: 800 });
       await expect.poll(() => panelsOnScreen(page)).toEqual(arranged);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
 
-      // A screen size named by hand, with a layout defined at it from what is
-      // drawn - rather than the answer to a question about a drag. It is
-      // picked as it is made, so what is drawn afterwards is the new one.
-      await press(layoutControl(page), isMobile);
-      await press(page.getByRole('menuitem', { name: 'New screen size…' }), isMobile);
-      const named = uniqueTitle('Narrow');
-      await page.getByLabel('Name of the new screen size').fill(named);
-      await page.getByLabel('Name of the new screen size').press('Enter');
-      await expect(layoutControl(page)).toHaveText(new RegExp(named));
-
-      // Two layouts now, one per screen, and a change made here goes into the
-      // one on screen without asking - moving the third panel onto a line of
-      // its own ahead of the other two.
+      // A change made on that other screen goes into the same arrangement and
+      // asks nothing - moving the third panel onto a line of its own ahead of
+      // the other two.
       const movedAgain = answerTo(page, 'save_layout');
       const topSeam = page.locator('main [data-testid="row-seam"]').first();
       await page.mouse.move(
@@ -366,15 +337,16 @@ test.describe('Panels', () => {
       await page.mouse.up();
       expect((await movedAgain).status()).toBe(200);
       await expect(page.getByRole('alertdialog')).toHaveCount(0);
-      await expectLayouts(page, 2, isMobile);
+      await expect(layoutControl(page)).toHaveCount(0);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
+      const rearranged = await panelsOnScreen(page);
+      const rows = (await rowsOnScreen(page)).map((row) => row.length);
 
-      // A phone is never arranged: under 480px both layouts are left unread
-      // and the dashboard is one panel to a line with nothing to rearrange
-      // it by. Nothing is deleted - the layouts are drawn again below.
+      // A phone is never arranged: under 480px the arrangement is left unread
+      // and the dashboard is one panel to a line with nothing to rearrange it
+      // by. Nothing is deleted - it is drawn again below.
       await page.setViewportSize({ width: 420, height: 800 });
-      await expect(layoutControl(page)).toHaveCount(0);
       await expect
         .poll(async () => (await rowsOnScreen(page)).map((row) => row.length))
         .toEqual([1, 1, 1]);
@@ -382,83 +354,17 @@ test.describe('Panels', () => {
       await expect(page.getByTestId('column-line')).toHaveCount(0);
       await expectNoSidewaysScroll(page);
 
-      // Back to the screen the first layout was made for, and the dashboard
-      // goes back with it ("Layouts follow the screen you are on"). This is the
-      // whole feature and it is only true in a browser: the width has to
-      // actually change for the window to say so.
-      //
-      // Making the second layout puts you on it, which used to be a pick that
-      // outlived the screen it was made on - so this walk would have found the
-      // narrow arrangement still drawn on the wide screen, and every one of the
-      // two layouts pointless.
+      // Back on the first screen it is the arrangement just made, and it is
+      // still there after a reload.
       await page.setViewportSize({ width: firstScreen, height: 800 });
-      await expect(layoutControl(page)).toHaveText(firstLayout);
+      await expect.poll(() => panelsOnScreen(page)).toEqual(rearranged);
+      await expect.poll(async () => (await rowsOnScreen(page)).map((row) => row.length)).toEqual(rows);
+      await page.reload();
+      await expect.poll(() => panelsOnScreen(page)).toEqual(rearranged);
+      await expect.poll(async () => (await rowsOnScreen(page)).map((row) => row.length)).toEqual(rows);
+      await expect(layoutControl(page)).toHaveCount(0);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
-    });
-  });
-
-  test.describe('a screen size can be defined for later, removed from one dashboard, or deleted for every dashboard', () => {
-    test('defines a layout at a size another dashboard made, removes it here, then deletes it everywhere', async ({
-      page,
-      isMobile,
-    }) => {
-      const here = await ownDashboard(page, isMobile);
-      const alpha = uniqueTitle('Alpha');
-      const beta = uniqueTitle('Beta');
-
-      // Alpha, made and defined here the ordinary way.
-      await press(layoutControl(page), isMobile);
-      await press(page.getByRole('menuitem', { name: 'New screen size…' }), isMobile);
-      await page.getByLabel('Name of the new screen size').fill(alpha);
-      await page.getByLabel('Name of the new screen size').press('Enter');
-      await expect(layoutControl(page)).toHaveText(new RegExp(alpha));
-
-      // Beta, made from a dashboard of its own - the account's, not this
-      // dashboard's, so it shows up here as something to define rather than
-      // something drawn.
-      await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
-      const elsewhere = uniqueTitle('Elsewhere');
-      await page.getByLabel('Name of the new dashboard').fill(elsewhere);
-      await page.getByLabel('Name of the new dashboard').press('Enter');
-      // Waited for by name, the way switching workspace is waited for
-      // (support/app.ts) - the control is keyed by the dashboard and remounts
-      // on the switch, and pressing it before that has settled presses
-      // whichever copy is mid-remount.
-      await expect(page.getByRole('heading', { name: elsewhere, level: 2 })).toBeVisible();
-      await expect(layoutControl(page)).toHaveText('No layout');
-      await press(layoutControl(page), isMobile);
-      await press(page.getByRole('menuitem', { name: 'New screen size…' }), isMobile);
-      await page.getByLabel('Name of the new screen size').fill(beta);
-      await page.getByLabel('Name of the new screen size').press('Enter');
-      await expect(layoutControl(page)).toHaveText(new RegExp(beta));
-      await press(dashboardBar(page).getByRole('link', { name: here }), isMobile);
-      await expect(layoutControl(page)).toHaveText(new RegExp(alpha));
-
-      // Defining a layout for Beta here, from what Alpha already draws.
-      await press(layoutControl(page), isMobile);
-      await press(page.getByRole('menuitem', { name: new RegExp(`^${beta}`) }), isMobile);
-      await expect(page.getByRole('alertdialog')).toHaveText(
-        new RegExp(`Give this dashboard its own layout for ${beta}\\? It starts as a copy of ${alpha}\\.`),
-      );
-      await press(page.getByRole('button', { name: `Yes, define ${beta}` }), isMobile);
-      await expect(layoutControl(page)).toHaveText(new RegExp(beta));
-      await expectLayouts(page, 2, isMobile);
-
-      // Removed from this dashboard alone, which falls back to Alpha - its
-      // only Layout left.
-      await press(layoutControl(page), isMobile);
-      await press(page.getByRole('menuitem', { name: `Remove this dashboard's ${beta} layout` }), isMobile);
-      await expect(layoutControl(page)).toHaveText(new RegExp(alpha));
-      await expectLayouts(page, 1, isMobile);
-
-      // Deleted everywhere: gone from the account's list, and this dashboard
-      // is drawn fitted to the screen, having nothing left defined.
-      await press(layoutControl(page), isMobile);
-      await press(page.getByRole('menuitem', { name: `Delete ${alpha} everywhere` }), isMobile);
-      await expect(page.getByRole('alertdialog')).toHaveText(/every workspace/);
-      await press(page.getByRole('button', { name: `Yes, delete ${alpha} everywhere` }), isMobile);
-      await expect(layoutControl(page)).toHaveText('No layout');
     });
   });
 
@@ -486,16 +392,10 @@ test.describe('Panels', () => {
       const count = panel.getByText('0', { exact: true });
       await expect(count).toBeVisible();
 
-      // Recorded as this screen's layout, so narrowing squeezes it rather than
-      // arranging the panels afresh for the screen they are now on - which is
-      // how a panel ends up narrower than any screen would have made it. Named
-      // by hand rather than arranged, since nothing here cares what the layout
-      // holds - only that one exists for this screen.
-      await press(layoutControl(page), isMobile);
-      await press(page.getByRole('menuitem', { name: 'New screen size…' }), isMobile);
-      await page.getByLabel('Name of the new screen size').fill(uniqueTitle('Wide'));
-      await page.getByLabel('Name of the new screen size').press('Enter');
-      await expectLayouts(page, 1, isMobile);
+      // Recorded as the dashboard's arrangement, so narrowing squeezes it rather
+      // than arranging the panels afresh for the screen they are now on - which
+      // is how a panel ends up narrower than any screen would have made it.
+      await dragBefore(page, reading, falcon);
 
       await page.setViewportSize({ width: 500, height: 800 });
       await expect.poll(async () => (await panel.boundingBox())!.width).toBeLessThan(200);
