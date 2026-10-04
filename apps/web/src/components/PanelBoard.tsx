@@ -311,6 +311,38 @@ export function PanelBoard({
       ? list.filter((item) => matchesDashboardFilter(dashboardFilter, item, withAttachments, today, withRun))
       : list;
 
+  /** What a Panel shows: its own Items, or what its Filter gathers, narrowed by the Dashboard filter. */
+  const itemsOf = (panel: Panel): Item[] =>
+    narrowed(
+      panelGathers(panel)
+        ? itemsMatchingFilter(
+            items,
+            filings,
+            panelsInWorkspace,
+            itemTypes,
+            panel.filter ?? NO_CONDITIONS,
+            today,
+            sortOf(panel) ?? DEFAULT_FILTER_SORT,
+          )
+        : inSortOrder(itemsOnPanel(items, filings, panel.id), sortOf(panel), itemTypes),
+    );
+  /**
+   * **While a Dashboard filter is on, a Panel with no matching Item is not
+   * drawn**, a Panel of text included, which has no Item to match. The cells
+   * keep the layout's own spans, so the Panels left share a row in their
+   * proportions; nothing is stored, so clearing the filter brings every Panel
+   * back.
+   */
+  const hidden = filteringOn
+    ? new Set(panels.filter((panel) => itemsOf(panel).length === 0).map((panel) => panel.id))
+    : null;
+  const drawn = hidden
+    ? shown
+        .map((row) => ({ ...row, cells: row.cells.filter((cell) => !hidden.has(cell.panelId)) }))
+        .filter((row) => row.cells.length > 0)
+    : shown;
+  const hiddenCount = hidden ? hidden.size : 0;
+
   /**
    * The filings that file, read once for the whole board rather than per panel:
    * every panel below asks it, and a Filter asks it again for each of its rows.
@@ -935,7 +967,7 @@ export function PanelBoard({
           and the tab is the one that says *which of several*, so the tab is
           the one that stays. */}
       <h2 className="sr-only">{dashboard.name}</h2>
-      <DashboardFilterBar dashboardId={dashboard.id} />
+      <DashboardFilterBar dashboardId={dashboard.id} panelsHidden={hiddenCount} />
       {filteringOn && (
         <p className="sr-only" role="status">
           This dashboard is filtered
@@ -976,7 +1008,7 @@ export function PanelBoard({
           onPointerCancel={abandon}
           className="flex min-w-0 flex-col"
         >
-          {shown.map((row, rowIndex) => {
+          {drawn.map((row, rowIndex) => {
             const shares = sharesOf(row);
             return (
               // Keyed by where the row is, not by what is on it. A row has no
@@ -1053,23 +1085,7 @@ export function PanelBoard({
                           panel={panel}
                           workspaceId={workspaceId}
                           dashboardFiltered={filteringOn}
-                          items={narrowed(
-                            panelGathers(panel)
-                              ? itemsMatchingFilter(
-                                  items,
-                                  filings,
-                                  panelsInWorkspace,
-                                  itemTypes,
-                                  panel.filter ?? NO_CONDITIONS,
-                                  today,
-                                  sortOf(panel) ?? DEFAULT_FILTER_SORT,
-                                )
-                              : inSortOrder(
-                                  itemsOnPanel(items, filings, panel.id),
-                                  sortOf(panel),
-                                  itemTypes,
-                                ),
-                          )}
+                          items={itemsOf(panel)}
                           itemTypes={itemTypes}
                           panelsInWorkspace={panelsInWorkspace}
                           // What is filed anywhere, which a filing onto a
@@ -1156,6 +1172,13 @@ export function PanelBoard({
               </Fragment>
             );
           })}
+          {filteringOn && drawn.length === 0 && (
+            <section className="well px-4 py-14 text-center">
+              <p className="mx-auto max-w-md text-sm text-ink-faint">
+                No panel has an item matching the filter.
+              </p>
+            </section>
+          )}
           {/* The gap under the last row, so a panel can be dropped below
               everything rather than only between two things - and, being under
               a row, the line that sets that row's height. */}

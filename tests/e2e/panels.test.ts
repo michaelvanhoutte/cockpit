@@ -821,7 +821,8 @@ test.describe('Panels', () => {
       // nothing.** The row above is as tall as a drag made it and the busy
       // panel holds eight items - narrowed to one, the row has to shrink to
       // it, below the floor a drag can reach, which only a layout engine can
-      // say. What is shown for which condition is
+      // say. The bare panel has nothing matching, so it goes while the filter
+      // is on. What is shown for which condition is
       // apps/web/tests/unit/components/PanelBoard.test.tsx's.
       const storedHeight = (await row.boundingBox())!.height;
       const storedShare = await shareOfTheRow(page, first, second);
@@ -841,28 +842,33 @@ test.describe('Panels', () => {
         .poll(async () => (await row.boundingBox())!.height)
         .toBeLessThan(MIN_ROW_HEIGHT);
 
-      // No line to take hold of, so nothing to drag or double-click - and the
-      // two panels keep their widths, the divider's track being kept rather
-      // than dropped with the divider.
+      // No line to take hold of, so nothing to drag or double-click. The
+      // panel with nothing matching is not drawn, the bar says so, and the one
+      // left fills the row it shared.
       await expect(page.getByTestId('row-line')).toHaveCount(0);
       await expect(page.getByTestId('column-line')).toHaveCount(0);
-      expect(await shareOfTheRow(page, first, second)).toBeCloseTo(storedShare, 1);
+      await expect(page.getByRole('region', { name: second })).toHaveCount(0);
+      await expect(page.getByText('1 panel hidden')).toBeVisible();
+      const rowWidth = (await row.boundingBox())!.width;
+      expect((await page.getByRole('region', { name: first }).boundingBox())!.width).toBeCloseTo(rowWidth, 0);
 
       // A panel dragged by its header goes nowhere.
       const header = page.getByRole('region', { name: first }).locator('header');
       const [headerX, headerY] = await centreOf(header);
-      const secondBox = (await page.getByRole('region', { name: second }).boundingBox())!;
       await page.mouse.move(headerX, headerY);
       await page.mouse.down();
-      await page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + 20, { steps: 8 });
+      await page.mouse.move(headerX + 200, headerY + 120, { steps: 8 });
       await page.mouse.up();
-      await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second]]);
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[first]]);
 
       // Cleared from the tab's own funnel: the stored height is back, because
       // nothing was written in between.
       await page.getByRole('button', { name: 'Clear the filter and close it' }).click();
       await expect.poll(async () => (await row.boundingBox())!.height).toBe(storedHeight);
       await expect.poll(() => itemsOn(page, first)).toEqual(items);
+      // Both panels back in the row, at the widths they were stored with.
+      await expect(page.getByText(/panels? hidden/)).toHaveCount(0);
+      await expect.poll(() => shareOfTheRow(page, first, second)).toBeCloseTo(storedShare, 1);
       expect(layoutsSent, 'a filtered board must not write a layout').toBe(0);
 
       // **And a person can narrow the dashboard to what is in progress.** One

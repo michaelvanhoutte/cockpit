@@ -2608,23 +2608,26 @@ describe('Dashboards', () => {
     { panelId: 'falcon', itemId: ID(3), position: 2 },
   ];
 
-  /** A board with a panel of items, a Filter panel, a panel of text and a panel nothing is filed on. */
+  const ITEMS = [vatHigh, vatLow, rentHigh];
+  /** A panel of items, a Filter panel, a panel of text and a panel nothing is filed on. */
+  const ALL_PANELS = [
+    aPanel('falcon', 'Project Falcon'),
+    aFilter('highs', 'The highs', [PRIORITY_HIGH]),
+    aPanelOfText('notes', 'Notes', { body: 'Remember the VAT deadline' }),
+    aPanel('reading', 'To read'),
+  ];
+
   function aFilteredBoard(more: Parameters<typeof showBoard>[0] = {}) {
     return showBoard({
-      panels: [
-        aPanel('falcon', 'Project Falcon'),
-        aFilter('highs', 'The highs', [PRIORITY_HIGH]),
-        aPanelOfText('notes', 'Notes', { body: 'Remember the VAT deadline' }),
-        aPanel('reading', 'To read'),
-      ],
-      items: [vatHigh, vatLow, rentHigh],
+      panels: ALL_PANELS,
+      items: ITEMS,
       filings: FILED,
       ...more,
     });
   }
 
   describe('a Dashboard filter shows, on every panel of items and Filter panel, only the Items meeting its conditions', () => {
-    it('narrows a panel of items, a Filter panel and each header count, and leaves a panel of text alone', async () => {
+    it('narrows a panel of items, a Filter panel and each header count', async () => {
       filterTheDashboard({ text: 'vat' });
       aFilteredBoard();
 
@@ -2637,24 +2640,41 @@ describe('Dashboards', () => {
       expect(rowsOf('The highs')).toEqual([expect.stringContaining('VAT return')]);
       expect(within(handleOf('Project Falcon')).getByText('2')).toBeVisible();
       expect(within(handleOf('The highs')).getByText('1')).toBeVisible();
-      expect(screen.getByText('Remember the VAT deadline')).toBeVisible();
     });
 
-    it('keeps a panel with nothing matching in place, saying so', async () => {
+    it.each([
+      { situation: 'a panel of items with nothing matching', hidden: 'Elsewhere' },
+      { situation: 'a panel of items that held nothing before the filter', hidden: 'To read' },
+      { situation: 'a panel of text, though its words match', hidden: 'Notes' },
+    ])('does not draw $situation', async ({ hidden }) => {
       filterTheDashboard({ text: 'vat' });
-      aFilteredBoard();
+      aFilteredBoard({
+        panels: [...ALL_PANELS, aPanel('elsewhere', 'Elsewhere')],
+        items: [...ITEMS, anItem(ID(4), 'Water bill')],
+        filings: [...FILED, { panelId: 'elsewhere', itemId: ID(4), position: 0 }],
+      });
 
-      const reading = await screen.findByRole('region', { name: 'To read' });
-      expect(within(reading).getByText('Nothing here matches the dashboard filter.')).toBeVisible();
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(screen.queryByRole('region', { name: hidden })).toBeNull();
     });
 
-    it('draws every panel exactly as unfiltered where no condition is set', async () => {
+    it('draws a Filter panel only where its own conditions and the Dashboard filter have Items in common', async () => {
+      filterTheDashboard({ priorities: ['low'] });
+      aFilteredBoard({ panels: [aPanel('falcon', 'Project Falcon'), aFilter('highs', 'The highs', [PRIORITY_HIGH])] });
+
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(screen.queryByRole('region', { name: 'The highs' })).toBeNull();
+    });
+
+    it('draws every panel exactly as unfiltered where no condition is set, with no count', async () => {
       aFilteredBoard();
 
       await screen.findByRole('region', { name: 'Project Falcon' });
       expect(rowsOf('Project Falcon')).toHaveLength(3);
       expect(rowsOf('The highs')).toHaveLength(2);
-      expect(screen.queryByText('Nothing here matches the dashboard filter.')).toBeNull();
+      expect(screen.getByRole('region', { name: 'Notes' })).toBeVisible();
+      expect(screen.getByRole('region', { name: 'To read' })).toBeVisible();
+      expect(screen.queryByText(/hidden/)).toBeNull();
     });
 
     it('reads attachments off the Items, and shows Items that hold one', async () => {
@@ -2684,14 +2704,12 @@ describe('Dashboards', () => {
       expect(within(handleOf('The highs')).getByText('1')).toBeVisible();
     });
 
-    it('says nothing matches on every panel where nothing has a run', async () => {
+    it('draws no panel where nothing has a run', async () => {
       filterTheDashboard({ agentRunning: true });
       aFilteredBoard();
 
-      const falcon = await screen.findByRole('region', { name: 'Project Falcon' });
-      expect(within(falcon).getByText('Nothing here matches the dashboard filter.')).toBeVisible();
-      const highs = screen.getByRole('region', { name: 'The highs' });
-      expect(within(highs).getByText('Nothing here matches the dashboard filter.')).toBeVisible();
+      expect(await screen.findByText('No panel has an item matching the filter.')).toBeVisible();
+      expect(screen.queryAllByRole('region')).toEqual([]);
     });
 
     it('follows a run as it starts and finishes', async () => {
@@ -2704,7 +2722,7 @@ describe('Dashboards', () => {
       expect(rowsOf('Project Falcon')).toHaveLength(2);
 
       redrawnWithRuns([]);
-      expect(rowsOf('Project Falcon')).toEqual([]);
+      expect(screen.queryByRole('region', { name: 'Project Falcon' })).toBeNull();
     });
   });
 
@@ -2722,21 +2740,135 @@ describe('Dashboards', () => {
       ]);
     });
 
-    it('shows an Item that comes to hold an attachment', async () => {
+    it('shows an Item that comes to hold an attachment, and the panel it is on with it', async () => {
       filterTheDashboard({ attachments: 'with' });
       const { redrawnWithItems } = aFilteredBoard();
-      await screen.findByRole('region', { name: 'Project Falcon' });
-      expect(rowsOf('Project Falcon')).toEqual([]);
+      await screen.findByText('No panel has an item matching the filter.');
 
       redrawnWithItems([vatHigh, vatLow, rentHigh], [{ itemId: ID(2) } as Attachment]);
 
       expect(rowsOf('Project Falcon')).toEqual([expect.stringContaining('VAT refund')]);
+    });
+
+    it('takes a panel away when its only matching Item stops matching, and counts it', async () => {
+      filterTheDashboard({ text: 'refund' });
+      const { redrawnWithItems } = aFilteredBoard();
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(screen.getByText('3 panels hidden')).toBeVisible();
+
+      redrawnWithItems([vatHigh, { ...vatLow, title: 'VAT rebate' }, rentHigh]);
+
+      expect(screen.queryByRole('region', { name: 'Project Falcon' })).toBeNull();
+      expect(screen.getByText('No panel has an item matching the filter.')).toBeVisible();
+    });
+
+    it('brings a panel back when an Item on it comes to match, and the count goes down', async () => {
+      filterTheDashboard({ text: 'rebate' });
+      const { redrawnWithItems } = aFilteredBoard();
+      await screen.findByText('No panel has an item matching the filter.');
+      expect(screen.getByText('4 panels hidden')).toBeVisible();
+
+      redrawnWithItems([vatHigh, { ...vatLow, title: 'VAT rebate' }, rentHigh]);
+
+      expect(rowsOf('Project Falcon')).toEqual([expect.stringContaining('VAT rebate')]);
+      expect(screen.getByText('3 panels hidden')).toBeVisible();
+    });
+  });
+
+  describe('the bar says how many panels the filter hid', () => {
+    it('says nothing where no panel is hidden', async () => {
+      filterTheDashboard({ text: 'vat' });
+      aFilteredBoard({ panels: [aPanel('falcon', 'Project Falcon')] });
+
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(screen.queryByText(/hidden/)).toBeNull();
+    });
+
+    it.each([
+      { situation: 'one panel', panels: [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read')], said: '1 panel hidden' },
+      { situation: 'a panel of items and a panel of text', panels: ALL_PANELS.filter((p) => p.id !== 'highs'), said: '2 panels hidden' },
+    ])('says $said where the filter hid $situation', async ({ panels, said }) => {
+      filterTheDashboard({ text: 'vat' });
+      aFilteredBoard({ panels });
+
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(screen.getByText(said)).toBeVisible();
+    });
+
+    it('says so on the board, with the count, where the filter hid every panel', async () => {
+      filterTheDashboard({ text: 'zzz' });
+      aFilteredBoard();
+
+      expect(await screen.findByText('No panel has an item matching the filter.')).toBeVisible();
+      expect(screen.getByText('4 panels hidden')).toBeVisible();
+    });
+
+    it('keeps the invitation, and says no count, on a dashboard with no panels', async () => {
+      filterTheDashboard({ text: 'vat' });
+      showBoard({ panels: [] });
+
+      expect(await screen.findByText(/This one has none yet/)).toBeVisible();
+      expect(screen.queryByText(/hidden/)).toBeNull();
+      expect(screen.queryByText('No panel has an item matching the filter.')).toBeNull();
+    });
+  });
+
+  describe('the panels left in a row share it in their proportions', () => {
+    const SHARES_3_3_6: Layout = {
+      ...aLayout('wide', 1280, []),
+      rows: [
+        {
+          height: null,
+          cells: [
+            { panelId: 'falcon', span: 3 },
+            { panelId: 'reading', span: 3 },
+            { panelId: 'highs', span: 6 },
+          ],
+        },
+        { height: null, cells: [{ panelId: 'notes', span: 12 }] },
+      ],
+    };
+
+    it('draws 1 : 2 where the first of 3 : 3 : 6 is hidden, and no row for panels all hidden', async () => {
+      filterTheDashboard({ priorities: ['high'] });
+      showBoard({
+        panels: [
+          aPanel('falcon', 'Project Falcon'),
+          aPanel('reading', 'To read'),
+          aFilter('highs', 'The highs', [PRIORITY_HIGH]),
+          aPanelOfText('notes', 'Notes'),
+        ],
+        layouts: [SHARES_3_3_6],
+        items: [vatHigh, rentHigh, vatLow],
+        filings: [
+          { panelId: 'falcon', itemId: ID(2), position: 0 },
+          { panelId: 'reading', itemId: ID(1), position: 0 },
+        ],
+      });
+
+      await screen.findByRole('region', { name: 'To read' });
+      expect(screen.queryByRole('region', { name: 'Project Falcon' })).toBeNull();
+      expect(screen.queryByRole('region', { name: 'Notes' })).toBeNull();
+      const rows = [...document.querySelectorAll<HTMLElement>('[data-panel-row]')];
+      expect(rows).toHaveLength(1);
+      const shares = [...rows[0]!.style.gridTemplateColumns.matchAll(/minmax\(0, ([\d.]+)fr\)/g)].map((m) =>
+        Number(m[1]),
+      );
+      expect(shares).toHaveLength(2);
+      expect(shares[1]! / shares[0]!).toBeCloseTo(2);
     });
   });
 
   describe('while filtered, nothing about the arrangement can change', () => {
     const SIDE_BY_SIDE = [aLayout('wide', 1280, ['falcon', 'reading'])];
     const TWO = [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read')];
+    const BOTH_MATCHING = {
+      items: [vatHigh, vatLow],
+      filings: [
+        { panelId: 'falcon', itemId: ID(1), position: 0 },
+        { panelId: 'reading', itemId: ID(2), position: 0 },
+      ],
+    };
 
     it('offers a line between two panels where the board is not filtered', async () => {
       showBoard({ panels: TWO, layouts: SIDE_BY_SIDE });
@@ -2746,7 +2878,7 @@ describe('Dashboards', () => {
 
     it('offers no line between two panels, and a header drag sends nothing', async () => {
       filterTheDashboard({ text: 'vat' });
-      const { mutate } = showBoard({ panels: TWO, layouts: SIDE_BY_SIDE });
+      const { mutate } = showBoard({ panels: TWO, layouts: SIDE_BY_SIDE, ...BOTH_MATCHING });
       await screen.findByRole('region', { name: 'Project Falcon' });
 
       expect(screen.queryAllByTestId('column-line')).toHaveLength(0);
@@ -2757,7 +2889,7 @@ describe('Dashboards', () => {
 
     it('says to clear the dashboard filter where a panel is moved to another dashboard', async () => {
       filterTheDashboard({ text: 'vat' });
-      showBoard({ dashboards: [DASHBOARD, RESEARCH] });
+      showBoard({ dashboards: [DASHBOARD, RESEARCH], items: [vatHigh], filings: [{ panelId: 'falcon', itemId: ID(1), position: 0 }] });
       await screen.findByRole('region', { name: 'Project Falcon' });
 
       openMenu('Project Falcon');
