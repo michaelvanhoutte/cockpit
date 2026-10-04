@@ -470,9 +470,12 @@ export function SurfaceMenu({
           event.preventDefault();
         }}
       >
-        {entries.map((entry) => (
+        {entries.map((entry, at) => (
+          <Fragment key={entry.label}>
+            {entry.separatorBefore && at > 0 && (
+              <ContextMenu.Separator className="my-1 h-px bg-black/10" />
+            )}
             <ContextMenu.Item
-              key={entry.label}
               {...(entry.unavailable
                 ? { 'aria-disabled': true, 'aria-label': `${entry.label}: ${entry.unavailable}` }
                 : {})}
@@ -495,7 +498,8 @@ export function SurfaceMenu({
               {entry.label}
               {entry.unavailable && <span className="block text-xs">{entry.unavailable}</span>}
             </ContextMenu.Item>
-          ))}
+          </Fragment>
+        ))}
       </ContextMenuContent>
     </ContextMenu.Root>
   );

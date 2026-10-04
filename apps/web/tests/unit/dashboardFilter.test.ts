@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentRun, Item } from '@cockpit/shared';
+import { allItemsFilterId } from '../../src/allItemsTab';
 import {
   NO_DASHBOARD_FILTER,
   forgetEveryDashboardFilter,
@@ -217,6 +218,18 @@ describe('Dashboards', () => {
       store.setItem('cockpit.inbox-width', '300');
       forgetEveryDashboardFilter(store);
       expect(store.length).toBe(1);
+    });
+
+    it('keeps the All items filter apart from every Dashboard’s, and forgets it at sign-out', () => {
+      const store = aStore();
+      const all = allItemsFilterId('ws-work');
+      writeDashboardFilter(store, all, filterOf({ statuses: ['done'] }));
+      writeDashboardFilter(store, 'a', filterOf({ text: 'vat' }));
+      expect(readDashboardFilter(store, all)).toEqual(filterOf({ statuses: ['done'] }));
+      expect(readDashboardFilter(store, 'a')).toEqual(filterOf({ text: 'vat' }));
+      expect(readDashboardFilter(store, allItemsFilterId('ws-home'))).toEqual(NO_DASHBOARD_FILTER);
+      forgetEveryDashboardFilter(store);
+      expect(store.length).toBe(0);
     });
 
     it.each([

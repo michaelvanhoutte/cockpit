@@ -11,7 +11,7 @@ import {
   useFilterBarOpen,
   useFilteredDashboardIds,
 } from '../dashboardFilter';
-import { setAllItemsTab, useAllItemsTab } from '../allItemsTab';
+import { allItemsFilterId, setAllItemsTab, useAllItemsTab } from '../allItemsTab';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { browserStore } from '../lastVisited';
 import { useRoomForTheInbox } from '../roomForTheInbox';
@@ -83,6 +83,10 @@ export function DashboardBar({
   );
   const [filterBarOpen, setFilterBarOpen] = useFilterBarOpen(openDashboardId);
   const [openFilter, setOpenFilter] = useDashboardFilter(browserStore(), openDashboardId);
+  // All items has a filter of its own, kept under an id no dashboard can have.
+  const [allItemsFilter, setAllItemsFilter] = useDashboardFilter(browserStore(), allItemsFilterId(workspaceId));
+  const [allItemsBarOpen, setAllItemsBarOpen] = useFilterBarOpen(allItemsFilterId(workspaceId));
+  const allItemsFiltered = isFiltering(allItemsFilter);
   // Read off the filter itself rather than the list of tabs, which waits on the
   // snapshot: the controls below are locked from the first paint.
   const openIsFiltered = isFiltering(openFilter);
@@ -583,7 +587,24 @@ export function DashboardBar({
             onClick={opensOnPress(allItemsOpen)}
             className={tabClass}
           >
-            All items
+            <span className="inline-flex items-center gap-1.5">
+              All items
+              {(allItemsOpen || allItemsFiltered) && (
+                <FilterFunnel
+                  subject="All items"
+                  filtered={allItemsFiltered}
+                  pressable={allItemsOpen}
+                  barOpen={allItemsBarOpen}
+                  onPress={() => {
+                    // As a dashboard's: open clears and closes, closed opens.
+                    if (allItemsBarOpen || allItemsFiltered) {
+                      setAllItemsFilter(NO_DASHBOARD_FILTER);
+                      setAllItemsBarOpen(false);
+                    } else setAllItemsBarOpen(true);
+                  }}
+                />
+              )}
+            </span>
           </Link>
         </SurfaceMenu>
       )}
@@ -714,11 +735,14 @@ export function DashboardBar({
  * filter and closes it.
  */
 function FilterFunnel({
+  subject = 'dashboard',
   filtered,
   pressable,
   barOpen,
   onPress,
 }: {
+  /** What is filtered: a dashboard, or the *All items* table. */
+  subject?: 'dashboard' | 'All items';
   filtered: boolean;
   pressable: boolean;
   barOpen: boolean;
@@ -727,8 +751,8 @@ function FilterFunnel({
   const label = pressable
     ? barOpen || filtered
       ? 'Clear the filter and close it'
-      : 'Filter this dashboard'
-    : 'This dashboard is filtered';
+      : `Filter ${subject === 'dashboard' ? 'this dashboard' : subject}`
+    : `${subject === 'dashboard' ? 'This dashboard' : subject} is filtered`;
   return (
     <span
       role={pressable ? 'button' : 'img'}

@@ -47,12 +47,9 @@ export function WorkspaceTabs({
   bar,
   /** The tab you are on, brought into view by the shell that knows when to. */
   bringIntoView,
-  /** What the open workspace's menu, and its tab's, offers before its own actions: it is about what the workspace holds rather than about changing it. */
-  openWorkspaceEntries = [],
 }: {
   children: React.ReactNode;
   bar: string;
-  openWorkspaceEntries?: MenuEntry[];
   bringIntoView: (tab: HTMLAnchorElement) => void;
 }) {
   const { data } = useQuery(workspacesQuery);
@@ -332,12 +329,12 @@ export function WorkspaceTabs({
 
   /** What can be done to this workspace. */
   const entriesFor = (ws: Workspace): MenuEntry[] => [
-    ...(ws.id === params.workspaceId ? openWorkspaceEntries : []),
     // One entry for changing a workspace rather than a Rename beside it: the
     // form is what renames, and two ways to reach the same box is one more
     // thing to choose between.
     { label: 'Edit…', onSelect: (from) => startEditing(ws, from) },
-    { label: 'Delete', destructive: true, onSelect: (from) => startDeleting(ws, from) },
+    // Apart from the way in, since it is the one that cannot be put back.
+    { label: 'Delete', destructive: true, separatorBefore: true, onSelect: (from) => startDeleting(ws, from) },
   ];
 
   return (

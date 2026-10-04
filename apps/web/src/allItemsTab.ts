@@ -13,6 +13,15 @@ import { browserStore } from './lastVisited';
 const PREFIX = 'cockpit.all-items-tab.';
 const key = (workspaceId: string) => `${PREFIX}${workspaceId}`;
 
+/**
+ * The id the table's filter is stored under, standing where a dashboard's id
+ * stands in `dashboardFilter.ts`. A dashboard's id is a uuid, so this can never
+ * be one, and the clean-up that forgets every filter at sign-out covers it.
+ * Here rather than with the table, which is loaded when first opened while the
+ * tab that carries its funnel is not.
+ */
+export const allItemsFilterId = (workspaceId: string): string => `all-items:${workspaceId}`;
+
 /** On only where the stored value says so; anything else is off. */
 export function readAllItemsTab(store: Storage | undefined, workspaceId: string): boolean {
   try {
