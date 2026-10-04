@@ -96,7 +96,7 @@ analyze(repo)  →  Model  →  renderHtml(Model)  →  out/index.html
 2. **`analyze/rules.js`** statically parses each test file's AST — never runs the suite —
    to find every `describe`/`it`, mapping the folder to one of the seven columns
    (`apps/api/tests/unit` → L1, `apps/web/tests/service` → F2, `tests/e2e` → F3, a
-   connector's `tests/contract` → Contract).
+   connector's or `apps/api`'s `tests/contract` → Contract).
 3. **`analyze/concepts.js`** loads `concepts.json`, matches every source file to the
    area(s) whose patterns cover it — a file can match more than one, which is expected —
    and builds the tree from each entry's `parent`.
@@ -139,9 +139,11 @@ step needs no provider-awareness.
   they can appear as false positives. The report warns by name when it detects the
   pattern rather than guessing which files an HTTP call reached.
 - **`` it.each`template`(...) `` is not recognized**; the array form is. Neither is used here today.
-- **L3 and Contract read `n/a` everywhere.** L3 needs a second backend service to mean
-  anything and Contract needs a real connector package. Both are derived from real
-  workspace data, so they light up on their own.
+- **L3 reads `n/a` everywhere.** It needs a second backend service to mean anything, and
+  is derived from real workspace data, so it lights up on its own.
+- **Contract reads `n/a` for an area no contract suite names**, not 0. Every live contract
+  suite counts, in `apps/api/tests/contract/` or a connector's `tests/contract/`, under the
+  area its outer `describe` names.
 
 ## Tests
 

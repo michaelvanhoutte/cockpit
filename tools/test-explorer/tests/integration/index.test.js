@@ -109,12 +109,57 @@ describe('analyze (end to end against a fixture repo)', () => {
     expect(model.unregisteredAreas).toEqual(['Trige']);
   });
 
-  it('leaves every Contract count null when no connector package exists in the workspace', () => {
+  it('leaves every Contract count null when no contract suite exists anywhere', () => {
     repo = writeFixtureRepo();
     const model = analyze(repo);
     for (const node of walkTree(model.tree)) {
       expect(node.counts.Contract).toBeNull();
     }
+  });
+
+  describe('Contract column', () => {
+    function writeContractSuite(dir, area) {
+      mkdirSync(path.join(repo, dir), { recursive: true });
+      writeFileSync(
+        path.join(repo, dir, 'live.test.ts'),
+        [
+          "import { describe, it } from 'vitest';",
+          `describe('${area}', () => {`,
+          "  describe('the live answer still has the shape we rely on', () => {",
+          "    it('holds', () => {});",
+          '  });',
+          '});',
+        ].join('\n'),
+      );
+    }
+
+    it("counts the API's contract suite under the area it names, rolls it up to the parent, and reads n/a for an area none names", () => {
+      repo = writeFixtureRepo();
+      writeFileSync(path.join(repo, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n  - apps/*\n');
+      mkdirSync(path.join(repo, 'apps/api'), { recursive: true });
+      writeFileSync(path.join(repo, 'apps/api/package.json'), JSON.stringify({ name: '@demo/api' }));
+      writeContractSuite('apps/api/tests/contract', 'Triage');
+
+      const model = analyze(repo);
+      expect(findNode(model.tree, 'Triage').counts.Contract).toBe(1);
+      const parent = findNode(model.tree, 'Inbox');
+      expect(parent.counts.Contract).toBeNull();
+      expect(parent.subtree.counts.Contract).toBe(1);
+      expect(findNode(model.tree, 'Capture').counts.Contract).toBeNull();
+      expect(findNode(model.tree, 'Capture').counts.L1).toBe(1);
+    });
+
+    it("counts a connector's contract suite under the area it names, with no connectors entry in the registry", () => {
+      repo = writeFixtureRepo();
+      writeFileSync(path.join(repo, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n  - packages/connectors/*\n');
+      mkdirSync(path.join(repo, 'packages/connectors/demo'), { recursive: true });
+      writeFileSync(path.join(repo, 'packages/connectors/demo/package.json'), JSON.stringify({ name: '@demo/connector' }));
+      writeContractSuite('packages/connectors/demo/tests/contract', 'Capture');
+
+      const model = analyze(repo);
+      expect(findNode(model.tree, 'Capture').counts.Contract).toBe(1);
+      expect(findNode(model.tree, 'Triage').counts.Contract).toBeNull();
+    });
   });
 
   it('leaves every L3 count null when the workspace has no second backend service', () => {
