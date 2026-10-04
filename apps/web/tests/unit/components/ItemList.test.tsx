@@ -80,6 +80,9 @@ vi.mock('../../../src/api/queries', async () => {
     },
     useSendCommand: () => held.send,
     useStartAgent: () => ({ mutateAsync: held.startAgent }),
+    refusalFrom: (
+      await vi.importActual<typeof import('../../../src/api/queries')>('../../../src/api/queries')
+    ).refusalFrom,
     workspacesQuery: {
       queryKey: ['workspaces'],
       queryFn: () => Promise.resolve({ workspaces: held.workspaces }),
@@ -316,10 +319,11 @@ async function openThePicker(user: ReturnType<typeof userEvent.setup>) {
   return screen.findByRole('dialog');
 }
 
-/** What the picker offers, top to bottom. */
+/** What the picker offers to put the item, top to bottom - not the + that makes a panel. */
 function offered(dialog: HTMLElement): string[] {
   return within(dialog)
     .getAllByRole('button')
+    .filter((button) => !/^Add a panel to /.test(button.getAttribute('aria-label') ?? ''))
     .map((button) => button.textContent ?? '')
     .filter((label) => label !== 'Cancel');
 }
@@ -2146,6 +2150,154 @@ describe('Panels', () => {
           }),
         }),
       );
+    });
+  });
+});
+
+describe('Panels', () => {
+  /**
+   * A panel made from the picker: the add-panel change and then the filing,
+   * sent in turn from the list. That the picker draws the + and the field is
+   * MoveToPicker.test.tsx's; what is asked here is what the list sends, and
+   * what the person reads afterwards.
+   */
+  describe('a panel made from the picker is filed into straight away, and named for what it is', () => {
+    const sentNames = () =>
+      (held.send.mock.calls as unknown as [{ name: string }][]).map(([args]) => args.name);
+    const madePanel = () =>
+      (
+        held.send.mock.calls as unknown as [
+          { name: string; payload: { panelId: string; dashboardId: string; name: string; kind: string } },
+        ][]
+      )
+        .map(([args]) => args)
+        .find((args) => args.name === 'add_panel')!.payload;
+
+    /** A send that makes the panel and files, as the server would. */
+    function sendThatMakesAndFiles() {
+      sendThatFiles();
+      const files = held.send;
+      held.send = vi.fn((args: unknown) =>
+        (args as { name: string }).name === 'add_panel' ? Promise.resolve() : files(args),
+      );
+    }
+
+    async function nameOneUnder(
+      user: ReturnType<typeof userEvent.setup>,
+      dialog: HTMLElement,
+      dashboard: string,
+      name: string,
+      button = 'Add & move',
+    ) {
+      await user.click(within(dialog).getByRole('button', { name: `Add a panel to ${dashboard}` }));
+      await user.type(within(dialog).getByRole('textbox', { name: /^Name of the new panel/ }), name);
+      await user.click(within(dialog).getByRole('button', { name: button }));
+    }
+
+    it('makes a panel of items on that dashboard, then moves the item into it, and the way back names it', async () => {
+      held.mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => options?.onSuccess?.());
+      const user = await showList({ openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+      await nameOneUnder(user, dialog, 'Research', '  Waiting on  ');
+
+      await waitFor(() => expect(held.mutate).toHaveBeenCalled());
+      const made = madePanel();
+      expect(made).toEqual(
+        expect.objectContaining({ dashboardId: 'd-research', name: 'Waiting on', kind: 'items' }),
+      );
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'move_item_to_panel',
+          payload: expect.objectContaining({ itemId: BART.id, panelId: made.panelId, order: [BART.id] }),
+        }),
+        expect.anything(),
+      );
+      // The snapshot this file serves does not hold the new panel - which is
+      // the moment the sentence is written, and what the POC got wrong.
+      expect(await screen.findByRole('status')).toHaveTextContent('“Reply to Bart” moved to Waiting on');
+    });
+
+    it('adds the item instead of moving it when the picker was opened by Also show on…', async () => {
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+      held.mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => options?.onSuccess?.());
+      const user = await showList({ items: [BART], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Also show on…' }));
+      const dialog = await screen.findByRole('dialog');
+
+      await nameOneUnder(user, dialog, 'Research', 'Waiting on', 'Add & show');
+
+      await waitFor(() =>
+        expect(held.mutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: 'add_item_to_panel',
+            payload: expect.objectContaining({ panelId: madePanel().panelId }),
+          }),
+          expect.anything(),
+        ),
+      );
+      expect(await screen.findByRole('status')).toHaveTextContent('“Reply to Bart” added to Waiting on');
+    });
+
+    it('files every picked row into it, and the way back names it', async () => {
+      held.items = THREE;
+      sendThatMakesAndFiles();
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+
+      await tick(user, BART);
+      await tick(user, CHASE);
+      await user.click(screen.getByRole('button', { name: 'Move to…' }));
+      await nameOneUnder(user, await screen.findByRole('dialog'), 'Today', 'Waiting on');
+
+      await waitFor(() => expect(filingsSent()).toHaveLength(2));
+      expect(filingsSent().map((filing) => filing.itemId)).toEqual([BART.id, CHASE.id]);
+      expect(filingsSent().every((filing) => filing.panelId === madePanel().panelId)).toBe(true);
+      expect(await screen.findByRole('status')).toHaveTextContent('2 items moved to Waiting on');
+    });
+
+    it('sends nothing at all for a name the server refuses, and says why under the field', async () => {
+      held.send = vi.fn(() =>
+        Promise.reject(new CommandRefused(409, 'A panel with that name is already on this dashboard.')),
+      );
+      const user = await showList({ openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+      await nameOneUnder(user, dialog, 'Today', 'Falcon');
+
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        'A panel with that name is already on this dashboard.',
+      );
+      expect(held.mutate).not.toHaveBeenCalled();
+      expect(screen.getByRole('dialog')).toBeVisible();
+    });
+
+    it('leaves the panel standing and the picker open on the filing’s refusal when the filing is refused', async () => {
+      held.refuses = new CommandRefused(409, 'The order sent is not the order of that panel any more');
+      const user = await showList({ openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+      await nameOneUnder(user, dialog, 'Today', 'Waiting on');
+
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        'The order sent is not the order of that panel any more',
+      );
+      expect(sentNames()).toEqual(['add_panel']);
+      expect(within(dialog).queryByRole('textbox', { name: /^Name of the new panel/ })).toBeNull();
+    });
+
+    it('offers no + on a dashboard filtered in this browser, though its panels are still offered', async () => {
+      localStorage.setItem(
+        `cockpit.dashboard-filter.${RESEARCH.id}`,
+        JSON.stringify({ statuses: [], priorities: ['high'], due: null, text: '', attachments: 'any' }),
+      );
+      const user = await showList({ openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+
+      expect(within(dialog).getByRole('button', { name: 'Add a panel to Today' })).toBeVisible();
+      expect(within(dialog).queryByRole('button', { name: 'Add a panel to Research' })).toBeNull();
+      expect(within(dialog).getByRole('button', { name: 'To read' })).toBeVisible();
     });
   });
 });

@@ -32,4 +32,4 @@ Workspace: "Work"
 
 The landing dashboard is the desk landing: a bare `/` opens the first Workspace's dashboard at a desk, and the Capture page on a phone (see `docs/product/inbox.md`).
 
-Connecting a source to a Workspace is designed, not built — no connector exists yet, for Gmail, Slack, Notion or anything else. See "Sources to connect" in `docs/ideas.md`.
+A Workspace connects its sources in Settings › Connections: a Microsoft Teams account, whose saved messages land in its Inbox, and Gmail accounts, which nothing reads from yet ("Follow up on Gmail conversations you label Cockpit", issue 722, brings the rest). Slack, Notion and the rest are not built; see "Sources to connect" in `docs/ideas.md`.

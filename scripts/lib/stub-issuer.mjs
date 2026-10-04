@@ -72,6 +72,8 @@ export async function startStubIssuer({ port, seedPath }) {
   const issued = new Map();
   /** Every routine fire answered, newest last - what `/claude-code/fired` lists, for a walk to read back what was sent. */
   const fired = [];
+  /** Every token handed back at `/revoke`, newest last. */
+  const revoked = [];
 
   /**
    * Answers a routine fire the way Anthropic's API does: the error envelope
@@ -111,8 +113,23 @@ export async function startStubIssuer({ port, seedPath }) {
         authorization_endpoint: `${issuer}/authorize`,
         token_endpoint: `${issuer}/token`,
         jwks_uri: `${issuer}/jwks`,
+        revocation_endpoint: `${issuer}/revoke`,
       });
     }
+
+    // Handing a Gmail connection's sign-in back on disconnecting ("Connect a
+    // Gmail account to a workspace, and disconnect it", issue 724): answered as
+    // Google answers, and listed at `/revoked` for a walk to read back.
+    if (url.pathname === '/revoke' && request.method === 'POST') {
+      let body = '';
+      request.on('data', (chunk) => (body += chunk));
+      request.on('end', () => {
+        revoked.push(new URLSearchParams(body).get('token') ?? '');
+        response.writeHead(200).end();
+      });
+      return;
+    }
+    if (url.pathname === '/revoked') return json(response, revoked);
 
     if (url.pathname === '/jwks') {
       // Exported off the key itself: `createPublicKey` takes key *material* or a
@@ -227,6 +244,11 @@ export async function startStubIssuer({ port, seedPath }) {
       // what fails there.
       name: (ask.scope ?? '').split(' ').includes('profile') ? ask.name || undefined : undefined,
       nonce: ask.nonce,
+      // What Google grants a Gmail connection (issue 724): a refresh token
+      // only where offline access was asked for, and every scope asked
+      // granted, as if nothing on the consent screen was unticked.
+      scope: ask.scope ?? '',
+      offline: ask.access_type === 'offline',
       challenge: ask.code_challenge,
       clientId: ask.client_id,
       redirectUri: ask.redirect_uri,
@@ -260,7 +282,18 @@ export async function startStubIssuer({ port, seedPath }) {
       if (form.get('redirect_uri') !== held.redirectUri) {
         return json(response, { error: 'invalid_grant' }, 400);
       }
-      json(response, { token_type: 'Bearer', id_token: identityToken(held) });
+      json(response, {
+        token_type: 'Bearer',
+        id_token: identityToken(held),
+        ...(held.offline
+          ? {
+              access_token: `stub-access-${randomUUID()}`,
+              expires_in: 3599,
+              refresh_token: `stub-refresh-${randomUUID()}`,
+              scope: held.scope,
+            }
+          : {}),
+      });
     });
   }
 
@@ -324,6 +357,7 @@ const OF_THE_FLOW = [
   'code_challenge',
   'code_challenge_method',
   'prompt',
+  'access_type',
   'as',
   'name',
 ];

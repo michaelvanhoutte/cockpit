@@ -85,7 +85,28 @@ test.describe('Connector management', () => {
       // window: what it shows is what is stored, never what the last press
       // guessed.
       await closeSettings(page, isMobile);
-      await openSettings(page, 'Connections', isMobile);
+      const again = await openSettings(page, 'Connections', isMobile);
+      await expect(again.getByText(/Nothing connected yet/)).toBeVisible();
+
+      // Gmail, beside it ("Connect a Gmail account to a workspace, and
+      // disconnect it", issue 724): a step before Google, which Cancel leaves
+      // without going anywhere, and then the same trip out and back.
+      await press(again.getByRole('button', { name: 'Connect Gmail' }), isMobile);
+      const steps = page.getByRole('dialog', { name: /^Connect Gmail to / });
+      await expect(steps.getByText(/Create a label called Cockpit in Gmail/)).toBeVisible();
+      await press(steps.getByRole('button', { name: 'Cancel' }), isMobile);
+      await expect(steps).toHaveCount(0);
+      await press(again.getByRole('button', { name: 'Connect Gmail' }), isMobile);
+      await press(page.getByRole('button', { name: 'Sign in with Google' }), isMobile);
+      await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
+
+      const backFromGoogle = page.getByRole('dialog', { name: 'Settings' });
+      await expect(
+        backFromGoogle.getByText('Connected. Conversations labelled Cockpit arrive in this workspace’s Inbox within a minute.'),
+      ).toBeVisible();
+      await expect(backFromGoogle.getByText('Gmail · label Cockpit')).toBeVisible();
+      await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
+      await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
       await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
 
       await closeSettings(page, isMobile);

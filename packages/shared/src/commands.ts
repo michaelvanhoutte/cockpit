@@ -675,9 +675,10 @@ export const proposeItemPanelSchema = commandEnvelopeSchema
 export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
 
 /**
- * connect_source_account — a Workspace's Teams sign-in, once Microsoft has
- * said who it was and the credential has been sealed ("Connect a Microsoft
- * Teams source account", issue 485).
+ * connect_source_account — a Workspace's Teams or Gmail sign-in, once the
+ * source has said who it was and the credential has been sealed ("Connect a
+ * Microsoft Teams source account", issue 485; "Connect a Gmail account to a
+ * workspace, and disconnect it", issue 724).
  *
  * **Written by the callback route, never posted as JSON by a client** - the
  * same standing `add_attachment` above has, and for a sharper reason: the

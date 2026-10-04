@@ -53,6 +53,15 @@ export function teamsIssuerFor(env: Env): string {
 }
 
 /**
+ * Who says whose Gmail account a Workspace is connecting ("Connect a Gmail
+ * account to a workspace, and disconnect it", issue 724): Google, as for
+ * signing in, but asked through Gmail's own client (`GMAIL_CLIENT_ID`).
+ */
+export function gmailIssuerFor(env: Env): string {
+  return whoToBelieve(env, GOOGLE);
+}
+
+/**
  * Where an issuer says it answers, from its own discovery document.
  *
  * Asked rather than written down, because an issuer is entitled to move its own
@@ -84,6 +93,11 @@ async function discover(issuer: string): Promise<IssuerEndpoints> {
     authorizationEndpoint: asUrl(document.authorization_endpoint, 'authorization_endpoint'),
     tokenEndpoint: asUrl(document.token_endpoint, 'token_endpoint'),
     jwksUri: asUrl(document.jwks_uri, 'jwks_uri'),
+    // Optional, unlike the four above: only disconnecting Gmail uses it, and
+    // an issuer without one must still sign people in.
+    ...(typeof document.revocation_endpoint === 'string' && URL.canParse(document.revocation_endpoint)
+      ? { revocationEndpoint: document.revocation_endpoint }
+      : {}),
   };
   // An issuer that names somebody else as itself is the one thing here worth
   // refusing outright: every later check is made against this name.
@@ -201,4 +215,36 @@ export async function exchangeCode(
     return null;
   }
   return typeof idToken === 'string' && idToken ? { idToken, asIssued } : null;
+}
+
+/** How long a revoke may take before disconnecting stops waiting for it. */
+const REVOKE_TIMEOUT_MS = 5_000;
+
+/**
+ * Hands a token back to the issuer that granted it (RFC 7009), and says
+ * whether it took - `false` for a refusal, an issuer with nowhere to revoke,
+ * a network failure or a timeout alike, each logged here with why.
+ *
+ * **Never throws and is never retried**: the caller has already forgotten
+ * the token, so a failure is a fact for the log rather than something to
+ * hold anything for ("Connect a Gmail account to a workspace, and
+ * disconnect it", issue 724).
+ */
+export async function revokeToken(endpoints: IssuerEndpoints, token: string): Promise<boolean> {
+  const failed = (why: string) => {
+    console.error(JSON.stringify({ level: 'error', message: `the issuer did not revoke a token: ${why}` }));
+    return false;
+  };
+  if (!endpoints.revocationEndpoint) return failed('it names nowhere to revoke one');
+  try {
+    const response = await fetch(endpoints.revocationEndpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token }),
+      signal: AbortSignal.timeout(REVOKE_TIMEOUT_MS),
+    });
+    return response.ok || failed(`it answered ${response.status}`);
+  } catch (error) {
+    return failed(error instanceof Error ? error.message : String(error));
+  }
 }

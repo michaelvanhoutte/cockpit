@@ -1084,7 +1084,7 @@ describe('Capture', () => {
 
   /**
    * "Set a priority and a due date while capturing" (issue 611). The clock is
-   * a Wednesday so *Today*, *Fri* and *+7d* are three different days.
+   * a Wednesday, the last day of September, so *Tmrw* crosses into October.
    */
   describe('one click sets a priority or a due date, and pressing the lit one again clears it', () => {
     beforeEach(() => {
@@ -1132,23 +1132,33 @@ describe('Capture', () => {
     it('lights one due shortcut at a time, sending the day it names', async () => {
       const user = await thePage();
 
-      await user.click(chip('Fri'));
-      expect(pressed('Fri')).toBe(true);
+      await user.click(chip('Tmrw'));
+      expect(pressed('Tmrw')).toBe(true);
       await user.click(chip('Today'));
-      expect([pressed('Today'), pressed('Fri')]).toEqual([true, false]);
-      await user.click(chip('Fri'));
+      expect([pressed('Today'), pressed('Tmrw')]).toEqual([true, false]);
+      await user.click(chip('Tmrw'));
       await captureANote(user);
 
-      expect((await captured()).payload.dueDate).toBe('2026-10-02');
+      expect((await captured()).payload.dueDate).toBe('2026-10-01');
+    });
+
+    it('offers exactly Today, Tmrw and +7d, in that order', async () => {
+      await thePage();
+
+      const offered = within(screen.getByRole('group', { name: 'Due' }))
+        .getAllByRole('button', { name: /^(Today|Tmrw|Fri|\+7d)$/ })
+        .map((button) => button.textContent);
+
+      expect(offered).toEqual(['Today', 'Tmrw', '+7d']);
     });
 
     it('clears a due shortcut pressed while lit, and captures no due date', async () => {
       const user = await thePage();
 
-      await user.click(chip('Fri'));
-      await user.click(chip('Fri'));
+      await user.click(chip('Tmrw'));
+      await user.click(chip('Tmrw'));
 
-      expect(pressed('Fri')).toBe(false);
+      expect(pressed('Tmrw')).toBe(false);
       await captureANote(user);
       expect((await captured()).payload).not.toHaveProperty('dueDate');
     });
@@ -1156,10 +1166,11 @@ describe('Capture', () => {
     it('shows a picked day that is no shortcut on the date button with a ✕, and the ✕ clears it', async () => {
       const user = await thePage();
 
-      aDate('2026-10-20');
+      // The coming Friday, which *Fri* used to light.
+      aDate('2026-10-02');
 
-      expect(chip(`Due ${dueDateLabel('2026-10-20')}`)).toBeVisible();
-      expect([pressed('Today'), pressed('Fri'), pressed('+7d')]).toEqual([false, false, false]);
+      expect(chip(`Due ${dueDateLabel('2026-10-02')}`)).toBeVisible();
+      expect([pressed('Today'), pressed('Tmrw'), pressed('+7d')]).toEqual([false, false, false]);
       await user.click(chip('Clear the due date'));
       expect(chip('Pick a due date')).toBeVisible();
       await captureANote(user);
@@ -1172,6 +1183,14 @@ describe('Capture', () => {
       aDate('2026-10-07');
 
       expect(pressed('+7d')).toBe(true);
+    });
+
+    it('lights Tmrw when tomorrow is picked in the date picker', async () => {
+      await thePage();
+
+      aDate('2026-10-01');
+
+      expect(pressed('Tmrw')).toBe(true);
     });
   });
 
@@ -1219,18 +1238,18 @@ describe('Capture', () => {
       vi.mocked(sendCommand).mockRejectedValue(new CommandRefused(404, 'workspace ws-home not found'));
       const user = await thePage();
       await user.click(chip('Low priority'));
-      await user.click(chip('Fri'));
+      await user.click(chip('Tmrw'));
       await user.type(box(), 'Send the invoice');
       await user.click(chip('Capture'));
 
-      expect((await captured()).payload).toMatchObject({ priority: 'low', dueDate: '2026-10-02' });
+      expect((await captured()).payload).toMatchObject({ priority: 'low', dueDate: '2026-10-01' });
       await screen.findByText(/^Not sent:/);
       expect(chip('Low priority')).toHaveAttribute('aria-pressed', 'false');
       await user.click(rowOf('Send the invoice').getByRole('button', { name: 'Put back' }));
 
       expect(box()).toHaveValue('Send the invoice');
       expect(chip('Low priority')).toHaveAttribute('aria-pressed', 'true');
-      expect(chip('Fri')).toHaveAttribute('aria-pressed', 'true');
+      expect(chip('Tmrw')).toHaveAttribute('aria-pressed', 'true');
     });
   });
 

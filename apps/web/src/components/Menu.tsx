@@ -84,7 +84,7 @@ export function MenuTrigger({
  * `SurfaceMenuButton` (a plain button that fires a `SurfaceMenu` instead) -
  * one component could not wrap both, Radix requiring its own trigger
  * primitive for each, but the class string is the whole of what makes the two
- * read as one control.
+ * read as one control. An Item row's ✓ wears it too, sitting beside the dots.
  *
  * **The open highlight reads two different elements' state.** `MenuTrigger`
  * is itself the thing Radix marks `data-state="open"` on. `SurfaceMenuButton`
@@ -104,7 +104,7 @@ export function MenuTrigger({
  * matching CSS rule. The four-branch, fully-literal form costs repetition;
  * the alternative costs a highlight nobody sees.
  */
-function menuButtonClassName(
+export function menuButtonClassName(
   onChrome: boolean,
   className?: string,
   ownState: 'self' | 'ancestor' = 'self',
