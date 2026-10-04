@@ -53,7 +53,6 @@ const SUBMENU_WIDTH_PX = 144;
 // Out of the initial bundle, the same boundary AgentDock and ManageConnections
 // draw around themselves: two windows a row mounts only once asked for.
 const AgentPromptBox = lazy(() => import('./AgentPromptBox'));
-const SmartRefinementsWindow = lazy(() => import('./SmartRefinementsWindow'));
 
 /**
  * The flag's label at each level ("Show and edit an item's priority", issue
@@ -242,8 +241,6 @@ export function ItemRow({
   const [contextOpen, setContextOpen] = useState(false);
   /** True while the entry just chosen is opening something that wants the focus. */
   const opening = useRef(false);
-  /** This item's own smart refinements, opened from its own menu ("Rename Rewrite history to Smart refinements, and show each field's change", issue 614). */
-  const [historyOpen, setHistoryOpen] = useState(false);
   /**
    * Whether this row's own menu is open, controlled rather than left to Radix
    * ("Pick a row by ctrl/shift-click instead of aiming for a checkbox, and
@@ -818,18 +815,8 @@ export function ItemRow({
           </M.Portal>
         </M.Sub>,
       ],
-      // Suggestions.
+      // Suggestions - what Cockpit changed is on the item's own form, not here.
       [
-        <M.Item
-          key="suggestions"
-          className={menuItemClass}
-          onSelect={() => {
-            opening.current = true;
-            setHistoryOpen(true);
-          }}
-        >
-          Cockpit's suggestions for this item…
-        </M.Item>,
         mayBeADuplicate && onSettleNotADuplicate && (
           <M.Item key="not-a-duplicate" className={menuItemClass} onSelect={onSettleNotADuplicate}>
             Not a duplicate
@@ -1355,17 +1342,6 @@ export function ItemRow({
             setStartRefusal(null);
           }}
           onSend={(prompt) => void sendToClaude(asking, prompt)}
-        />
-        </Suspense>
-      )}
-      {historyOpen && (
-        <Suspense fallback={null}>
-        <SmartRefinementsWindow
-          open={historyOpen}
-          onClose={() => setHistoryOpen(false)}
-          returnFocusTo={trigger.current}
-          workspaceId={workspaceId}
-          itemId={item.id}
         />
         </Suspense>
       )}

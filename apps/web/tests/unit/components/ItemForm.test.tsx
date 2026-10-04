@@ -10,6 +10,7 @@ import type {
   ItemType,
   Panel,
   PossibleDuplicate,
+  RewriteHistoryEntry,
   WorkspaceSnapshot,
 } from '@cockpit/shared';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../../../src/api/client';
@@ -48,6 +49,10 @@ const held = vi.hoisted(() => ({
   gate: undefined as Promise<void> | undefined,
   settleQuiet: vi.fn(),
   openItemId: 'item-1' as string | undefined,
+  /** What the item's history reads back, how long a read of it takes, and whether it fails. */
+  history: [] as RewriteHistoryEntry[],
+  historyGate: undefined as Promise<void> | undefined,
+  historyFails: false,
 }));
 
 vi.mock('@tanstack/react-router', () => ({
@@ -137,6 +142,17 @@ vi.mock('../../../src/description/RichDescription', () => ({
 
 vi.mock('../../../src/api/queries', () => ({
   useSendCommand: () => held.send,
+  // Keyed on the item alone, and answering what `held` holds when it is asked,
+  // so a re-read is the form's own doing and not a new key's.
+  rewriteHistoryForItemQuery: (itemId: string) => ({
+    queryKey: ['rewriteHistory', 'item', itemId],
+    queryFn: async () => {
+      await held.historyGate;
+      if (held.historyFails) throw new Error('rewrite history failed: 503');
+      return { entries: held.history };
+    },
+    staleTime: 0,
+  }),
   snapshotQuery: (workspaceId: string) => ({
     queryKey: [
       'snapshot',
@@ -292,6 +308,9 @@ beforeEach(() => {
   held.attachments = [];
   held.itemFormPresentation = 'centered';
   held.openItemId = 'item-1';
+  held.history = [];
+  held.historyGate = undefined;
+  held.historyFails = false;
   vi.mocked(uploadAttachment).mockClear();
   vi.mocked(uploadAttachment).mockResolvedValue({ ok: true as const, applied: true });
 });
@@ -2500,6 +2519,301 @@ describe('Item editing', () => {
         expect(await screen.findByRole('alert')).toHaveTextContent(said);
         expect(screen.queryByText('Undo')).toBeNull();
       });
+    });
+  });
+});
+
+/**
+ * "Show what Cockpit changed on the item itself, and name it for what it is"
+ * (issue 690): a third tab on an item's form, and a note under the tabs. What
+ * decides the note from the history and what has been seen is
+ * tests/unit/cockpitChanges.test.ts; what is asked here is what the form draws
+ * and when it reads.
+ */
+describe('What Cockpit changed', () => {
+  let nextAttempt = 0;
+
+  /** An attempt that changed nothing, unless told otherwise. */
+  function anAttempt(over: Partial<RewriteHistoryEntry> = {}): RewriteHistoryEntry {
+    nextAttempt += 1;
+    return {
+      id: `attempt-${nextAttempt}`,
+      itemId: 'item-1',
+      titleBefore: 'call ann re q3 numbers',
+      titleAfter: null,
+      descriptionBefore: 'call ann re q3 numbers',
+      descriptionAfter: null,
+      proposedPanelName: null,
+      status: 'rewritten',
+      message: null,
+      attemptedAt: '2026-10-01T09:00:00.000Z',
+      looksAt: 'texts-and-panel',
+      suggestedPanelBefore: null,
+      suggestedPanelAfter: null,
+      ...over,
+    };
+  }
+
+  const titleChange = (over: Partial<RewriteHistoryEntry> = {}) =>
+    anAttempt({ titleAfter: 'Call Ann about the Q3 numbers', ...over });
+  const bothChanged = (over: Partial<RewriteHistoryEntry> = {}) =>
+    anAttempt({ titleAfter: 'Call Ann', descriptionAfter: 'Call Ann about the Q3 numbers.', ...over });
+
+  const changesTab = () => screen.getByRole('tab', { name: 'What Cockpit changed' });
+  const note = () => screen.queryByText(/^Cockpit changed the /);
+  /** The note arrives behind the form, so it is waited for. */
+  const theNote = () => screen.findByText(/^Cockpit changed the /);
+  const seeWhatChanged = () => screen.getByRole('button', { name: 'See what changed' });
+  /** The History's read has settled once the note, or its absence, can be told from "not yet". */
+  const theHistoryHasBeenRead = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+  describe('an item’s form always has a What Cockpit changed tab, listing exactly the times Cockpit changed something, newest first', () => {
+    it.each([
+      { situation: 'Cockpit never touched the item', history: [] },
+      { situation: 'Cockpit looked and left it as it was', history: [anAttempt({ status: 'left-as-is', message: 'nothing to act on' })] },
+      { situation: 'an attempt still working', history: [anAttempt({ status: 'pending' })] },
+      { situation: 'an attempt that failed', history: [anAttempt({ status: 'failed', message: '429 rate_limit_error' })] },
+      { situation: 'a rewrite that came back identical', history: [anAttempt({ titleAfter: 'call ann re q3 numbers' })] },
+    ])('says Cockpit has not changed anything where $situation', async ({ history }) => {
+      held.history = history;
+      const user = await theForm();
+
+      await user.click(changesTab());
+
+      expect(await screen.findByText('Cockpit has not changed anything on this item.')).toBeVisible();
+      expect(screen.queryByRole('button', { name: /Changed|Failed|Working|Nothing/ })).toBeNull();
+    });
+
+    it('lists one change as a row saying what changed, why and when', async () => {
+      const change = titleChange({ looksAt: 'texts-and-panel' });
+      held.history = [change];
+      const user = await theForm();
+
+      await user.click(changesTab());
+
+      const row = await screen.findByRole('button', { name: /Changed the title/ });
+      expect(row).toHaveTextContent('When you captured it');
+      expect(row).toHaveTextContent(new Date(change.attemptedAt).toLocaleString());
+    });
+
+    it('lists two changes, the newer first, each saying why', async () => {
+      held.history = [
+        titleChange({ looksAt: 'texts-and-panel', attemptedAt: '2026-10-01T09:00:00.000Z' }),
+        anAttempt({
+          looksAt: 'panel',
+          suggestedPanelAfter: { id: 'p-1', name: 'Compliance', dashboardName: 'Day to day' },
+          attemptedAt: '2026-10-02T09:00:00.000Z',
+        }),
+      ];
+      const user = await theForm();
+
+      await user.click(changesTab());
+
+      const rows = await screen.findAllByRole('button', { name: /^Changed the / });
+      expect(rows.map((row) => row.textContent)).toEqual([
+        expect.stringContaining('Changed the suggested panel'),
+        expect.stringContaining('Changed the title'),
+      ]);
+      expect(rows[0]).toHaveTextContent('After you filed another item');
+      expect(rows[1]).toHaveTextContent('When you captured it');
+    });
+
+    it('opens a row to what the title was and what it became', async () => {
+      held.history = [titleChange()];
+      const user = await theForm();
+      await user.click(changesTab());
+
+      await user.click(await screen.findByRole('button', { name: /Changed the title/ }));
+
+      expect(screen.getByRole('deletion')).toHaveTextContent('call ann re q3 numbers');
+      expect(screen.getByRole('insertion')).toHaveTextContent('Call Ann about the Q3 numbers');
+    });
+  });
+
+  describe('the note under the tabs says Cockpit changed the title or description until the person has seen or edited it', () => {
+    it.each([
+      { situation: 'the title only', history: () => [titleChange()], says: 'Cockpit changed the title' },
+      {
+        situation: 'the description only',
+        history: () => [anAttempt({ descriptionAfter: 'Call Ann about the Q3 numbers.' })],
+        says: 'Cockpit changed the description',
+      },
+      { situation: 'both', history: () => [bothChanged()], says: 'Cockpit changed the title and description' },
+    ])('names $situation', async ({ history, says }) => {
+      held.history = history();
+      await theForm();
+
+      expect(await theNote()).toHaveTextContent(`${says} · See what changed`);
+    });
+
+    it.each([
+      { situation: 'only the suggested panel', history: () => [anAttempt({ looksAt: 'panel', suggestedPanelAfter: { id: 'p-1', name: 'Compliance', dashboardName: 'Day to day' } })] },
+      { situation: 'nothing', history: () => [] as RewriteHistoryEntry[] },
+    ])('is not there for $situation', async ({ history }) => {
+      held.history = history();
+      const user = await theForm();
+      await theHistoryHasBeenRead();
+
+      expect(note()).toBeNull();
+      // A change to the suggested panel is still in the tab.
+      await user.click(changesTab());
+      if (history().length > 0) expect(await screen.findByRole('button', { name: /suggested panel/ })).toBeVisible();
+    });
+
+    it('opens the What Cockpit changed tab from See what changed', async () => {
+      held.history = [titleChange()];
+      const user = await theForm();
+      await theNote();
+
+      await user.click(seeWhatChanged());
+
+      expect(changesTab()).toHaveAttribute('aria-selected', 'true');
+      expect(await screen.findByRole('button', { name: /Changed the title/ })).toBeVisible();
+    });
+
+    it('is gone once the tab has been opened by its own button, and stays gone when the form is opened again', async () => {
+      held.history = [titleChange()];
+      const user = await theForm();
+      await theNote();
+
+      await user.click(changesTab());
+      await user.click(screen.getByRole('tab', { name: 'Item' }));
+      expect(note()).toBeNull();
+
+      cleanup();
+      await theForm();
+      await theHistoryHasBeenRead();
+
+      expect(note()).toBeNull();
+    });
+
+    it.each([
+      {
+        situation: 'a different title is saved',
+        change: bothChanged,
+        edit: async (user: ReturnType<typeof userEvent.setup>) => user.type(titleBox(), ' now'),
+        goes: true,
+      },
+      {
+        situation: 'only the description is saved, where both were changed',
+        change: bothChanged,
+        edit: async (user: ReturnType<typeof userEvent.setup>) => user.type(descriptionBox(), 'Notes'),
+        goes: true,
+      },
+      {
+        situation: 'a different priority is saved',
+        change: titleChange,
+        edit: async (user: ReturnType<typeof userEvent.setup>) => user.click(priorityFlag('High')),
+        goes: false,
+      },
+    ])('after $situation', async ({ change, edit, goes }) => {
+      held.history = [change()];
+      const user = await theForm();
+      await theNote();
+      await edit(user);
+
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+      if (goes) await waitFor(() => expect(note()).toBeNull());
+      else expect(note()).not.toBeNull();
+    });
+
+    it('is gone for a docked form once a field is finished, as it is for Save', async () => {
+      held.itemFormPresentation = 'docked';
+      held.history = [titleChange()];
+      const user = await theForm();
+      await theNote();
+
+      await user.type(titleBox(), ' now');
+      await user.tab();
+
+      await waitFor(() => expect(note()).toBeNull());
+    });
+
+    it('returns, for the new change, when Cockpit changes it again after the first was seen', async () => {
+      held.history = [titleChange({ attemptedAt: '2026-10-01T09:00:00.000Z' })];
+      const user = await theForm();
+      await theNote();
+      await user.click(changesTab());
+      await user.click(screen.getByRole('tab', { name: 'Item' }));
+      expect(note()).toBeNull();
+      cleanup();
+
+      held.history = [
+        anAttempt({ descriptionAfter: 'Call Ann.', attemptedAt: '2026-10-02T09:00:00.000Z' }),
+        ...held.history,
+      ];
+      await theForm();
+
+      expect(await theNote()).toHaveTextContent('Cockpit changed the description');
+    });
+  });
+
+  describe('the form opens at once, and what Cockpit changed arrives behind it', () => {
+    it('draws the form and its tab with no note while the history is slow, then adds the note', async () => {
+      held.history = [titleChange()];
+      let arrive: () => void = () => {};
+      held.historyGate = new Promise<void>((resolve) => {
+        arrive = resolve;
+      });
+
+      await theForm();
+
+      expect(titleBox()).toBeVisible();
+      expect(changesTab()).toBeVisible();
+      expect(note()).toBeNull();
+
+      await act(async () => arrive());
+
+      expect(await theNote()).toBeVisible();
+    });
+
+    it('says the history could not be read in the tab, with a retry, while the rest of the form works', async () => {
+      held.history = [titleChange()];
+      held.historyFails = true;
+      const user = await theForm();
+      await user.click(changesTab());
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Cockpit is having trouble');
+      expect(note()).toBeNull();
+      await user.click(screen.getByRole('tab', { name: 'Item' }));
+      await user.type(titleBox(), ' now');
+      expect(titleBox()).toHaveValue('Part 11 now');
+
+      held.historyFails = false;
+      await user.click(changesTab());
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
+
+      expect(await screen.findByRole('button', { name: /Changed the title/ })).toBeVisible();
+    });
+  });
+
+  describe('the tab and the note follow the item as it changes', () => {
+    it('shows the note and lists the new row when a rewrite lands while the form is open', async () => {
+      held.items = [anItem({ title: 'call ann re q3 numbers' })];
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const shell = () => (
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(shell());
+      await screen.findByLabelText('Title');
+      await theHistoryHasBeenRead();
+      expect(note()).toBeNull();
+
+      // The rewrite settles: the history gains a row and the item its new
+      // title, which reaches the open form as a changed snapshot.
+      held.history = [titleChange()];
+      held.items = [
+        anItem({ title: 'Call Ann about the Q3 numbers', updatedAt: '2026-10-01T09:00:01.000Z' }),
+      ];
+      rerender(shell());
+
+      expect(await theNote()).toHaveTextContent('Cockpit changed the title');
+      await userEvent.setup().click(changesTab());
+      expect(await screen.findByRole('button', { name: /Changed the title/ })).toBeVisible();
     });
   });
 });

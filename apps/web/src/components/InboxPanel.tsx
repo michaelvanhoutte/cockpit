@@ -107,7 +107,7 @@ export function InboxHeading({
 }) {
   const count = useInboxCount(workspaceId);
 
-  /** The Inbox's smart refinements, opened from this heading's own menu ("Rename Rewrite history to Smart refinements, and show each field's change", issue 614). */
+  /** What Cockpit changed across the Inbox, opened from this heading's own menu ("Show what Cockpit changed on the item itself", issue 690). */
   const [historyOpen, setHistoryOpen] = useState(false);
   const opener = useRef<HTMLElement | null>(null);
 
@@ -141,7 +141,7 @@ export function InboxHeading({
             label="Actions for the Inbox"
             entries={[
               {
-                label: "Cockpit's suggestions…",
+                label: 'What Cockpit changed…',
                 onSelect: (openedFrom) => {
                   opener.current = openedFrom;
                   setHistoryOpen(true);

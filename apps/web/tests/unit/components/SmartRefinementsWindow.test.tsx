@@ -6,22 +6,19 @@ import type { RewriteHistoryEntry } from '@cockpit/shared';
 import { SmartRefinementsWindow } from '../../../src/components/SmartRefinementsWindow';
 
 /**
- * F1: what the Cockpit's suggestions window draws from the rows it is handed
+ * F1: what the What Cockpit changed window draws from the rows it is handed
  * ("Rename Rewrite history to Smart refinements, and show each field's
- * change", issue 614). Which rows a refinement records, and what it records
- * in them, is apps/api/tests/integration/http/rewrite-history.test.ts against
- * a real store; that the window is reached from both menus is
- * tests/unit/components/InboxPanel.test.tsx and ItemRow.test.tsx.
+ * change", issue 614; "Show what Cockpit changed on the item itself, and name
+ * it for what it is", issue 690). Which rows a refinement records, and what it
+ * records in them, is apps/api/tests/integration/http/rewrite-history.test.ts
+ * against a real store; that the window is reached from the Inbox's menu is
+ * tests/unit/components/InboxPanel.test.tsx.
  */
 const held = vi.hoisted(() => ({ entries: [] as RewriteHistoryEntry[] }));
 
 vi.mock('../../../src/api/queries', () => ({
   rewriteHistoryForWorkspaceQuery: (workspaceId: string) => ({
     queryKey: ['rewriteHistory', 'workspace', workspaceId],
-    queryFn: () => Promise.resolve({ entries: held.entries }),
-  }),
-  rewriteHistoryForItemQuery: (itemId: string) => ({
-    queryKey: ['rewriteHistory', 'item', itemId],
     queryFn: () => Promise.resolve({ entries: held.entries }),
   }),
 }));
@@ -53,20 +50,15 @@ function aRefinement(overrides: Partial<RewriteHistoryEntry> = {}): RewriteHisto
   };
 }
 
-/** The window as a person opens it - from an item's menu where `fromAnItem`, else from the Inbox's. */
-async function openWith(entries: RewriteHistoryEntry[], { fromAnItem = true } = {}) {
+/** The window as a person opens it, from the Inbox's menu. */
+async function openWith(entries: RewriteHistoryEntry[]) {
   held.entries = entries;
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <SmartRefinementsWindow
-        open
-        onClose={() => {}}
-        workspaceId="ws-work"
-        {...(fromAnItem ? { itemId: ITEM_ID } : {})}
-      />
+      <SmartRefinementsWindow open onClose={() => {}} workspaceId="ws-work" />
     </QueryClientProvider>,
   );
-  const dialog = await screen.findByRole('dialog', { name: "Cockpit's suggestions" });
+  const dialog = await screen.findByRole('dialog', { name: 'What Cockpit changed' });
   if (entries.length > 0) await within(dialog).findByRole('table');
   return dialog;
 }
@@ -85,7 +77,7 @@ async function openTheRow(dialog: HTMLElement) {
     .map((term) => ({ field: term.textContent, says: term.nextElementSibling as HTMLElement }));
 }
 
-describe("Cockpit's suggestions", () => {
+describe('What Cockpit changed', () => {
   describe('closed, a row says when, why and what happened in one sentence, and only a row that changed something opens', () => {
     it.each([
       {
@@ -157,21 +149,18 @@ describe("Cockpit's suggestions", () => {
       expect(within(theRow(dialog)).getByText(why)).toBeVisible();
     });
 
-    it.each([
-      { situation: 'opened from the Inbox', fromAnItem: false, itemColumn: true, says: 'How Cockpit refined the items in this Inbox, and when.' },
-      { situation: 'opened from an item', fromAnItem: true, itemColumn: false, says: 'How Cockpit refined this item, and when.' },
-    ])('$situation', async ({ fromAnItem, itemColumn, says }) => {
-      const dialog = await openWith([aRefinement()], { fromAnItem });
+    it('names each row’s item, since the window spans the Inbox', async () => {
+      const dialog = await openWith([aRefinement()]);
 
-      expect(within(dialog).getByText(says)).toBeVisible();
-      expect(within(dialog).queryByRole('columnheader', { name: 'Item' }) !== null).toBe(itemColumn);
-      expect(within(dialog).queryByText(ITEM_ID) !== null).toBe(itemColumn);
+      expect(within(dialog).getByText('How Cockpit refined the items in this Inbox, and when.')).toBeVisible();
+      expect(within(dialog).getByRole('columnheader', { name: 'Item' })).toBeVisible();
+      expect(within(dialog).getByText(ITEM_ID)).toBeVisible();
     });
 
     it('says nothing has been refined where nothing has', async () => {
       const dialog = await openWith([]);
 
-      expect(await within(dialog).findByText('Nothing refined for this item yet.')).toBeVisible();
+      expect(await within(dialog).findByText('Nothing refined in this Inbox yet.')).toBeVisible();
     });
   });
 

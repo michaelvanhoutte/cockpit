@@ -1,4 +1,6 @@
 import {
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useId,
@@ -63,8 +65,20 @@ import {
 } from '../itemFormDockedWidth';
 import { useScreenWidth } from '../panels/useScreenWidth';
 import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
+import { useCockpitChanges } from '../useCockpitChanges';
+
+/** The tab's list and its before-and-after, loaded the first time the tab is opened; only the note's check is in the form's own code (issue 690). */
+const WhatCockpitChangedList = lazy(() => import('./WhatCockpitChangedList'));
 
 const DESCRIPTION_LIMIT = 60_000;
+
+/** The form's tabs, left to right; the last is always there, whether or not Cockpit has changed anything. */
+const TABS = ['item', 'details', 'changes'] as const;
+const TAB_NAMES: Record<(typeof TABS)[number], string> = {
+  item: 'Item',
+  details: 'Details',
+  changes: 'What Cockpit changed',
+};
 
 /**
  * How long a typed due date sits still before it is committed, docked. A date
@@ -260,6 +274,11 @@ function TheForm({
     if (item || !isFetching) setArriving(false);
   }, [item, isFetching]);
   const atSource = item ? openableAtSource(item) : null;
+  /** What Cockpit changed on this item: read behind the paint, so the form is drawn without it. */
+  const cockpit = useCockpitChanges(itemId, item);
+  /** Read at the moment a save lands rather than when its function was made, which may be a render ago. */
+  const markSeen = useRef(cockpit.markSeen);
+  markSeen.current = cockpit.markSeen;
 
   /**
    * Centered or docked to the side ("Let the item's form dock to the side of
@@ -840,8 +859,13 @@ function TheForm({
    * item's form more room, and put clutter out of the way", issue 480).
    * Starts on the form each time it opens.
    */
-  const [tab, setTab] = useState<'item' | 'details'>('item');
+  const [tab, setTab] = useState<(typeof TABS)[number]>('item');
   const formId = useId();
+  /** Opening the tab is seeing what Cockpit changed, so the note under the tabs goes, and stays gone for that change. */
+  const seeChanges = cockpit.markSeen;
+  useEffect(() => {
+    if (tab === 'changes') seeChanges();
+  }, [tab, seeChanges]);
 
   /**
    * The boxes start from the Item and are then the person's own, and what they
@@ -939,6 +963,8 @@ function TheForm({
       }
       held = write.held;
     }
+    // A title or description the person has now set is one Cockpit's change to it no longer needs pointing out.
+    if (field === 'title' || field === 'description') markSeen.current();
     return { failure: null, held };
   };
 
@@ -1445,11 +1471,12 @@ function TheForm({
                   </p>
                 )}
 
-                {/* Two tabs, the form and its technical record ("Give the
+                {/* Three tabs, the form, its technical record ("Give the
                     item's form more room, and put clutter out of the way",
-                    issue 480). The form's panel stays mounted while the record
-                    shows, only hidden, so the editor and whatever is half
-                    typed are still there when the person comes back. */}
+                    issue 480) and what Cockpit changed on it (issue 690). The
+                    form's panel stays mounted while another shows, only
+                    hidden, so the editor and whatever is half typed are still
+                    there when the person comes back. */}
                 <div
                   role="tablist"
                   aria-label="Item"
@@ -1457,12 +1484,13 @@ function TheForm({
                   onKeyDown={(e) => {
                     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
                     e.preventDefault();
-                    const next = tab === 'item' ? 'details' : 'item';
+                    const at = TABS.indexOf(tab);
+                    const next = TABS[(at + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length]!;
                     setTab(next);
                     document.getElementById(`${formId}-${next}-tab`)?.focus();
                   }}
                 >
-                  {(['item', 'details'] as const).map((which) => (
+                  {TABS.map((which) => (
                     <button
                       key={which}
                       id={`${formId}-${which}-tab`}
@@ -1478,7 +1506,7 @@ function TheForm({
                           : 'border-transparent text-ink-faint hover:text-ink'
                       }`}
                     >
-                      {which === 'item' ? 'Item' : 'Details'}
+                      {TAB_NAMES[which]}
                     </button>
                   ))}
                 </div>
@@ -1489,6 +1517,22 @@ function TheForm({
                   aria-labelledby={`${formId}-item-tab`}
                   className={tab === 'item' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
                 >
+                  {/* Said once, where the surprise is, and only where Cockpit
+                      changed the title or description: the rest is in the
+                      third tab ("Show what Cockpit changed on the item
+                      itself", issue 690). */}
+                  {cockpit.note && (
+                    <p className="mt-2 shrink-0 text-xs text-ink-faint">
+                      {cockpit.note.words} ·{' '}
+                      <button
+                        type="button"
+                        onClick={() => setTab('changes')}
+                        className="text-accent-deep underline"
+                      >
+                        See what changed
+                      </button>
+                    </p>
+                  )}
                   {/* Readings and duplicates both need a decision, so both sit
                     in one banner directly under the title rather than being
                     buried below attachments ("Give the item's form more
@@ -1983,6 +2027,24 @@ function TheForm({
                         </dd>
                       </div>
                     </dl>
+                  </div>
+                )}
+
+                {tab === 'changes' && (
+                  <div
+                    role="tabpanel"
+                    id={`${formId}-changes`}
+                    aria-labelledby={`${formId}-changes-tab`}
+                    className="mt-4 min-h-0 flex-1 overflow-y-auto text-sm"
+                  >
+                    <Suspense fallback={null}>
+                      <WhatCockpitChangedList
+                        changes={cockpit.changes}
+                        error={cockpit.error}
+                        loading={cockpit.loading}
+                        onRetry={cockpit.retry}
+                      />
+                    </Suspense>
                   </div>
                 )}
               </div>

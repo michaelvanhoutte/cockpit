@@ -1312,7 +1312,7 @@ describe('Panels', () => {
   });
 });
 
-describe("Cockpit's suggestions", () => {
+describe('What Cockpit changed', () => {
   describe('a refinement recorded before this shipped is still read back, saying what it lacks', () => {
     /**
      * `0051-rewrite-history-looks-at` and `0052-rewrite-history-panel-before`
