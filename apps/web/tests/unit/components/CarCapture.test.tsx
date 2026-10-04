@@ -381,6 +381,24 @@ describe('Capture', () => {
       expect(card()).not.toHaveTextContent('call the dentist');
     });
 
+    it('shows no tick and does not vibrate while the note is still being written', async () => {
+      const vibrate = vi.fn();
+      const { engine, current } = anEngine();
+      const writing: OutboxStore = {
+        all: () => Promise.resolve([]),
+        put: () => new Promise(() => {}),
+        remove: () => Promise.resolve(),
+      };
+      const user = await theCar({ dictating: { engine }, vibrate, store: writing });
+      await listeningTo(user, current, 'call the dentist');
+
+      await user.click(theButton());
+      await settled();
+
+      expect(theStatus()).toHaveTextContent('Capturing…');
+      expect(vibrate).not.toHaveBeenCalled();
+    });
+
     it('lists the notes captured from here at the bottom, newest first', async () => {
       const { engine, current } = anEngine();
       const user = await theCar({ dictating: { engine } });

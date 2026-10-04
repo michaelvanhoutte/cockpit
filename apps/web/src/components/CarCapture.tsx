@@ -199,7 +199,8 @@ function Driving({
   /**
    * Keeps what was heard, or says there was nothing. **Never waits on the
    * network**: the button reads ✓ and the phone vibrates once the note is
-   * written to the outbox, which sends it behind.
+   * written to the outbox, which sends it behind - not before, since a ✓ for a
+   * note still being written is lost to a reload.
    */
   const keep = (heard: string, stoppedBecause: string | null) => {
     const message = heard.trim();
@@ -218,20 +219,26 @@ function Driving({
     }
     const id = uuidv7();
     const what = { message, typeId: type.id, workspaceId, decided: false };
-    setRecent((was) => [{ id, message }, ...was]);
-    setWhy(stoppedBecause);
-    setPhase('captured');
-    vibrate(200);
-    resetSoon();
-    // Where the outbox cannot be written (a private window), sent at once instead.
-    void outbox.add({ ...what, id, files: [] }).catch(() =>
+    const captured = () => {
+      setRecent((was) => [{ id, message }, ...was]);
+      setWhy(stoppedBecause);
+      setPhase('captured');
+      vibrate(200);
+      resetSoon();
+    };
+    setPhase('capturing');
+    // ✓ only once the note is kept, so leaving at the vibration loses nothing;
+    // the write is local and quick. Where the outbox cannot be written (a
+    // private window), it is sent at once instead.
+    void outbox.add({ ...what, id, files: [] }).then(captured, () => {
+      captured();
       ask(what, {
         refused: (reason) => {
           setRecent((was) => was.filter((one) => one.id !== id));
           setWhy(reason);
         },
-      }),
-    );
+      });
+    });
   };
 
   keepNow.current = keep;
