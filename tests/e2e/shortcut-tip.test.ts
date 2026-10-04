@@ -23,10 +23,11 @@ test.describe('Shortcuts', () => {
       // By text: the open Capture window hides the rest of the page from the
       // accessibility tree, the tip included.
       await expect(tip).toBeVisible();
-      await page.keyboard.press('Escape');
-      await expect(captureBox(page)).toBeHidden();
-      await page.getByRole('button', { name: 'Dismiss the tip' }).click();
+      // ✕ takes the tip and leaves Capture open: a press on the tip is not one
+      // outside the window.
+      await page.locator('[aria-label="Dismiss the tip"]').click();
       await expect(tip).toHaveCount(0);
+      await expect(captureBox(page)).toBeVisible();
     });
   });
 });

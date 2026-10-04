@@ -72,7 +72,12 @@ export function ShortcutTip({ tip, onDismiss }: { tip: string | null; onDismiss:
       role="status"
       className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right)_+_var(--docked-form-w,0px))] pb-[calc(1rem_+_var(--edge-bottom)_+_var(--dock-h,0px))] pl-[calc(1rem_+_var(--edge-left))]"
     >
-      <div className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
+      <div
+        // Kept from the document, where an open window (Capture, opened by the
+        // very click that showed this) would read a press here as one outside
+        // it and close: the tip must never get in the way.
+        onPointerDown={(event) => event.stopPropagation()}
+        className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
         <span className="min-w-0 flex-1">{tip}</span>
         <button
           type="button"
