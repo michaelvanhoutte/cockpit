@@ -171,6 +171,54 @@ test.describe('Panels', () => {
     });
 
   });
+
+  /**
+   * Which headings carry the + and what the field sends is
+   * apps/web/tests/unit/components/MoveToPicker.test.tsx's; that the two changes
+   * run in turn against a live snapshot, and read as an ordinary filing after,
+   * is only true here - which is where the first build of this toasted "moved
+   * to a panel".
+   */
+  test.describe('a panel made from the Move to picker reads as an ordinary filing afterwards', () => {
+    test('files the item into it, names it in the offer, keeps it when undone and lists it first among the recent', async ({
+      page,
+      isMobile,
+    }) => {
+      const { dashboard } = await ownDashboardWithAPanel(page, isMobile);
+      const title = uniqueTitle('Reply to Bart');
+      const made = uniqueTitle('Waiting on');
+
+      await goToTheInbox(page, isMobile);
+      await capture(page, title, isMobile);
+      await press(itemRow(page, title).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Move to…' }), isMobile);
+      const picker = page.getByRole('dialog');
+
+      await press(picker.getByRole('button', { name: `Add a panel to ${dashboard}` }), isMobile);
+      await picker.getByRole('textbox', { name: /^Name of the new panel/ }).fill(made);
+      const filed = answerTo(page, 'move_item_to_panel');
+      await press(picker.getByRole('button', { name: 'Add & move' }), isMobile);
+      await filed;
+
+      await expect(picker).toHaveCount(0);
+      await expect(inbox(page).getByText(title)).toHaveCount(0);
+      const offer = page.getByRole('status');
+      await expect(offer).toContainText(`moved to ${made}`);
+      await goToTheDashboard(page, dashboard, isMobile);
+      await expect(page.getByRole('region', { name: made }).getByText(title)).toBeVisible();
+
+      await press(offer.getByRole('button', { name: 'Undo' }), isMobile);
+
+      // The item is back, and the panel it was filed into is still there, empty.
+      await expect(page.getByRole('region', { name: made }).getByText(title)).toHaveCount(0);
+      await goToTheInbox(page, isMobile);
+      await expect(inbox(page).getByText(title)).toBeVisible();
+      await press(itemRow(page, title).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Move to…' }), isMobile);
+      const recent = page.getByRole('dialog').getByRole('heading', { name: 'Recently used' });
+      await expect(recent.locator('..').getByRole('button').first()).toContainText(made);
+    });
+  });
 });
 
 /**
