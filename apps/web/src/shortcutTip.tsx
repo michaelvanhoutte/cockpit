@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AGENT_DOCK_KEY } from './agentDockHidden';
 import { CAPTURE_KEY } from './captureShortcut';
 import { INBOX_KEY } from './inboxCollapsed';
+import { BOTTOM_CENTRE_STRIP, useAnUndoIsOffered } from './undo';
 
 /**
  * "Tell a mouse user the key when they click what a key also does" (issue
@@ -64,14 +65,15 @@ export function useShortcutTip(room: boolean) {
   return { tip, clicked, dismiss };
 }
 
-/** The toast, at the bottom centre and clear of the agents' dock like the undo offer. */
+/**
+ * The toast, where the undo offer is drawn. It stands aside while an undo is
+ * offered rather than covering it: the way back matters more than a hint.
+ */
 export function ShortcutTip({ tip, onDismiss }: { tip: string | null; onDismiss: () => void }) {
-  if (tip === null) return null;
+  const undoOffered = useAnUndoIsOffered();
+  if (tip === null || undoOffered) return null;
   return (
-    <div
-      role="status"
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right)_+_var(--docked-form-w,0px))] pb-[calc(1rem_+_var(--edge-bottom)_+_var(--dock-h,0px))] pl-[calc(1rem_+_var(--edge-left))]"
-    >
+    <div role="status" className={BOTTOM_CENTRE_STRIP}>
       <div
         // Kept from the document, where an open window (Capture, opened by the
         // very click that showed this) would read a press here as one outside

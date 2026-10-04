@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
-import { TIP_ATTRIBUTE, TIP_MS, tipForClick, useShortcutTip } from '../../src/shortcutTip';
+import { act, render, renderHook, screen } from '@testing-library/react';
+import { ShortcutTip, TIP_ATTRIBUTE, TIP_MS, tipForClick, useShortcutTip } from '../../src/shortcutTip';
 import { opensCapture } from '../../src/captureShortcut';
+import { somethingIsOpenOverThePage, togglesTheInbox } from '../../src/inboxCollapsed';
+import { togglesTheAgentDock } from '../../src/agentDockHidden';
+import { UndoWhatJustHappened, useUndo } from '../../src/undo';
 
 /**
  * F1: which control gets which tip, and how a tip comes and goes, are
  * view-model logic. That the shell really shows it, and still opens Capture,
- * is the browser walk in tests/e2e/capture.test.ts.
+ * is the browser walk in tests/e2e/shortcut-tip.test.ts.
  */
 const control = (tip?: string) => {
   const el = document.createElement('button');
@@ -74,13 +77,41 @@ describe('Shortcuts', () => {
     });
 
     it('leaves C, I and A working while it shows', () => {
-      const { result } = renderHook(() => useShortcutTip(true));
-      click(result, 'capture');
-      expect(result.current.tip).not.toBeNull();
+      const { unmount } = render(<ShortcutTip tip="Tip: press C to capture from anywhere" onDismiss={() => {}} />);
+      expect(screen.getByText('Tip: press C to capture from anywhere')).toBeTruthy();
       // The tip is no menu or window, so the keys' own guard finds nothing open.
-      for (const key of ['c', 'C']) {
-        expect(opensCapture(new KeyboardEvent('keydown', { key }))).toBe(true);
-      }
+      const covered = somethingIsOpenOverThePage();
+      const press = (key: string) => ({
+        key,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        repeat: false,
+        defaultPrevented: false,
+        typing: false,
+      });
+      expect(opensCapture(new KeyboardEvent('keydown', { key: 'c' }))).toBe(true);
+      expect(togglesTheInbox(press('i'), covered)).toBe(true);
+      expect(togglesTheAgentDock(press('a'), covered)).toBe(true);
+      unmount();
+    });
+
+    it('stands aside while an undo is offered, where both are drawn', () => {
+      let offer: ReturnType<typeof useUndo> = () => {};
+      const Offers = () => {
+        offer = useUndo();
+        return null;
+      };
+      render(
+        <UndoWhatJustHappened>
+          <Offers />
+          <ShortcutTip tip="Tip: press C to capture from anywhere" onDismiss={() => {}} />
+        </UndoWhatJustHappened>,
+      );
+      expect(screen.queryByText('Tip: press C to capture from anywhere')).not.toBeNull();
+      act(() => offer({ what: 'Reply to Bart dismissed', undo: async () => {} }));
+      expect(screen.queryByText('Tip: press C to capture from anywhere')).toBeNull();
+      expect(screen.getByText('Reply to Bart dismissed')).toBeTruthy();
     });
   });
 
