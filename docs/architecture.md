@@ -29,9 +29,7 @@ cockpit/
 │   ├── shared/        # Item/Association domain types, Zod schemas, API contract
 │   ├── connector-sdk/ # the connector SPI: what a connector is and what the host offers it (§6.2)
 │   ├── connectors/
-│   │   ├── gmail/     # each connector is its own package, depending ONLY on connector-sdk
-│   │   ├── slack/
-│   │   └── notion/
+│   │   └── teams/     # each connector is its own package, depending ONLY on connector-sdk; Gmail is not one yet, and lives in apps/api/src/connectors
 │   └── config/        # shared tsconfig, prettier
 ├── docs/             # this document and its siblings
 ├── poc/              # proofs of concept (kept; they are part of the showcase)
@@ -333,6 +331,7 @@ The dependency rule is one-directional: `domain` imports nothing from the other 
 - **A connector provides:** an id and manifest (display name, auth needed, push support); an OAuth descriptor the host runs generically; `sync(host)`; optionally `handleWebhook(request, host)`; and normalization from raw payloads to the source-agnostic shapes in `packages/shared`.
 - **The host provides, and a connector may use nothing else:** a persisted private state store (an opaque blob per connector+account), decrypted credentials, scheduling hints, an `emit()` for normalized items and source-state changes, structured logging, and rate-limit helpers.
 - **And, for a push, the step that says whose it is.** One inbound address serves every connected account of a source at once, and nothing in a delivery names the stored connection it belongs to — so `handleWebhook` is handed a host that knows no account yet, whose `forAccount(externalAccountKey)` answers with the account-scoped half or with nothing ("Save a Teams message to Cockpit", issue 486). The connector proves the call genuine and reads the identity out of it; the host matches that identity against the register's own index of connections and confirms it against the account's store. **Nothing account-scoped exists before that answer**, which is what keeps a push matching nothing from reaching a stored credential. Generic by the test above: a shared address that has to be attributed is a property of being pushed to, not of Teams.
+- **The Worker opens stored credentials, and an account's store does not**, since the key (`CONNECTOR_CREDENTIAL_KEY`) is the Worker's and a store able to open its rows would make them worth the secrets in them. **The one exception is the Gmail check** ("Bring in the conversations already labelled Cockpit as tasks", issue 725): it runs in the account's own alarm, so the store must open the credential to refresh its access token and seal it again. The opened token never leaves that alarm, and no store call returns it (`apps/api/src/connectors/gmail-check.ts`).
 
 **Quirks stay inside the connector, verbatim.** The Slack POC established that saved messages need full-list-and-diff sync while DMs and mentions use a high-water mark, that mentions arrive as `<@U123|Name>` markup, and that bot and self messages must be filtered. All of that lives inside `packages/connectors/slack`, expressed against the opaque state store. The test for any interface change: *would this method exist if this particular source didn't?* An earlier draft had the core interface "supporting two sync strategies" — exactly the leak this rule forbids, kept here as the example.
 

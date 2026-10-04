@@ -84,7 +84,10 @@ function connectedHost(
      * The credential of this one connection, opened here rather than in the
      * store: the key belongs to the Worker (`CONNECTOR_CREDENTIAL_KEY`), and a
      * store able to open what it holds would make its rows worth as much as
-     * the secrets in them.
+     * the secrets in them. The Gmail check is the one exception, opening a
+     * credential inside the account's own alarm to refresh it, and never
+     * handing the opened token out (docs/architecture.md, "Connectors:
+     * plugin-shaped, host-blind").
      */
     async getCredentials(): Promise<Record<string, string>> {
       const key = await sealingKey(around.env.CONNECTOR_CREDENTIAL_KEY);
