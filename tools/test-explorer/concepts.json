@@ -107,6 +107,7 @@
         "apps/web/src/components/CaptureNote.tsx",
         "apps/web/src/components/CaptureWindow.tsx",
         "apps/web/src/captureForm.ts",
+        "apps/web/src/dictation.ts",
         "apps/web/src/captureShortcut.ts",
         "apps/web/src/pages/CapturePage.tsx",
         "apps/web/src/capture.ts",
