@@ -23,7 +23,6 @@ import type {
   LayoutRow,
   Panel,
   PanelSort,
-  ScreenSize,
 } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
@@ -104,7 +103,6 @@ export function PanelBoard({
   panels,
   panelsInWorkspace,
   layouts,
-  screenSizes,
   items,
   filings,
   itemTypes,
@@ -131,8 +129,6 @@ export function PanelBoard({
    */
   panelsInWorkspace: readonly Panel[];
   layouts: readonly Layout[];
-  /** Every screen size the account has, whether or not this dashboard has defined one at it. */
-  screenSizes: readonly ScreenSize[];
   /** Every open item of the workspace; each panel is handed the ones filed on it. */
   items: readonly Item[];
   filings: readonly Filing[];
@@ -151,8 +147,8 @@ export function PanelBoard({
   /**
    * How wide the panels actually are, which is not the screen: the Inbox takes
    * about a fifth of it wherever there is room ("Show the Inbox beside the
-   * dashboards instead of as a tab", issue 117). The screen's width is what a
-   * layout is *recorded* against; this is what decides how many fit across.
+   * dashboards instead of as a tab", issue 117). The screen's width decides
+   * whether this is a phone; this is what decides how many fit across.
    * Before anything has been measured the screen's width stands in, which is
    * the arrangement one paint early rather than every panel full width.
    */
@@ -300,7 +296,7 @@ export function PanelBoard({
     latest: LayoutRow[];
   } | null>(null);
 
-  const drawnWith = layoutToDraw(layouts, screenSizes, dashboard.id, screenWidth);
+  const drawnWith = layoutToDraw(layouts, dashboard.id, screenWidth);
   const stored = drawnRows(drawnWith, panels, acrossWidth);
   // The preview while a drag is on, then a draft that has been sent and is
   // waiting for the store to agree, then what the store holds.
@@ -417,11 +413,7 @@ export function PanelBoard({
     sent.current = null;
   };
 
-  const saveArrangement = (
-    layoutId: string,
-    screenWidthOfLayout: number,
-    rows: readonly LayoutRow[],
-  ) => {
+  const saveArrangement = (layoutId: string, rows: readonly LayoutRow[]) => {
     command.mutate(
       {
         name: 'save_layout',
@@ -431,7 +423,6 @@ export function PanelBoard({
           workspaceId,
           dashboardId: dashboard.id,
           layoutId,
-          screenWidth: screenWidthOfLayout,
           // Named field by field rather than sent as read, so a row that
           // arrived from a snapshot with something extra on it cannot carry
           // that back into a command the schema then refuses.
@@ -456,13 +447,8 @@ export function PanelBoard({
          * is the same "looks like it worked" failure the questions elsewhere in
          * the app are shaped to avoid.
          *
-         * **Reachable rather than theoretical.** Two tabs on a dashboard with
-         * no layout, both dragging: the first records one and the second is
-         * refused, because its own copy of the dashboard still has no layout
-         * for the size to be taken against. Dropping `sent` with the draft is what lets the same
-         * gesture be made again once the snapshot has caught up; `justMade` is
-         * deliberately kept, so the retry changes the layout this board made
-         * rather than defining a second one at the same width.
+         * Dropping `sent` with the draft is what lets the same gesture be made
+         * again once the snapshot has caught up.
          */
         onError: () => {
           setDraft(null);
@@ -477,14 +463,12 @@ export function PanelBoard({
    * The id of the layout this board made, kept until the snapshot has it.
    *
    * Two gestures can both find the dashboard with no layout: the first sends
-   * one and the second happens before the re-read lands. A fresh id each time
-   * would define a second layout for the same dashboard. Sending the same id
-   * makes the second gesture change the layout the first one made, which is
-   * what it meant, whatever the window was resized to between the two: a
-   * dashboard has one layout, so there is no other screen to make one for.
+   * one and the second happens before the re-read lands. Sending the same id
+   * keeps the second gesture plainly about the layout the first one made; the
+   * server would put a save naming any other id into that one anyway.
    */
   const justMade = useRef<string | null>(null);
-  const layoutForThisScreen = (): string => {
+  const firstLayoutId = (): string => {
     if (justMade.current) return justMade.current;
     justMade.current = uuidv7();
     return justMade.current;
@@ -503,7 +487,7 @@ export function PanelBoard({
   const propose = (next: LayoutRow[]) => {
     // A gesture already in the air when the window shrank past the phone line
     // has nothing to keep: a phone is never arranged, and sending it would
-    // make a layout at a screen that has none to make.
+    // replace the one Layout every wider screen draws.
     if (!arrangeable) return;
     // Against what has been *sent* - or the store, where nothing has - rather
     // than against what is drawn: a gesture that puts a panel back where the
@@ -513,18 +497,9 @@ export function PanelBoard({
     if (sameArrangement(next, sent.current ?? stored)) return;
     command.reset();
     setDraft(next);
-    if (drawnWith) {
-      // The screen's own width, not anything the layout stores: `screenWidth`
-      // is only ever read when a save creates a layout (`saveLayoutSchema`),
-      // and this one already exists.
-      saveArrangement(drawnWith.id, screenWidth, next);
-      return;
-    }
-    // Nothing defined asks nothing: the server keeps this in the nearest
-    // screen size the account has, or makes one called Default where it has
-    // none at all (`save_layout`, `screenSizeId`) - the same silent choice
-    // making a layout used to be, one layer further down.
-    saveArrangement(layoutForThisScreen(), screenWidth, next);
+    // A dashboard nobody has arranged gets its one layout from this first
+    // move, under an id made here (`save_layout`).
+    saveArrangement(drawnWith?.id ?? firstLayoutId(), next);
   };
 
   /**

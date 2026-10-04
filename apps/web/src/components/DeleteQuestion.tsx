@@ -2,9 +2,7 @@ import * as AlertDialog from '@radix-ui/react-alert-dialog';
 
 /**
  * The question asked before anything is deleted ("Ask before deleting in a
- * dialog, from the row's own menu", issue 116) - and, since "Draw a dashboard
- * against the screen sizes its account has" (issue 263), before defining a
- * Layout at a screen size, which is not a deletion at all.
+ * dialog, from the row's own menu", issue 116).
  *
  * **The row it was asked from does not change.** Before this, asking rewrote
  * the row in place: the name was replaced by the question, the destructive

@@ -52,7 +52,6 @@ vi.mock('../../../src/api/queries', () => ({
         associations: [],
         attachments: [],
         itemTypes: [],
-    screenSizes: [],
     itemFormPresentation: 'centered',
     duplicates: [],
         filings: held.filings,

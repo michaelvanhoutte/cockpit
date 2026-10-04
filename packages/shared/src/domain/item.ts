@@ -245,8 +245,7 @@ export type Association = z.infer<typeof associationSchema>;
 /**
  * Names are compared trimmed and case-insensitively; the cap is a product
  * decision, not a storage one (architecture.md §4.4). Shared by
- * `dashboardNameSchema`, `panelNameSchema`, `itemTypeNameSchema` and
- * `screenSizeNameSchema` — only where uniqueness is scoped differs between them.
+ * `dashboardNameSchema`, `panelNameSchema` and `itemTypeNameSchema` — only where uniqueness is scoped differs between them.
  */
 export const NAME_MAX_LENGTH = 60;
 

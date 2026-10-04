@@ -1836,19 +1836,7 @@ const routes = app
   .openapi(commandRoute('set_panel_format'), async (c) => c.json(await change(c, 'set_panel_format', c.req.valid('json')), 200))
   .openapi(commandRoute('set_panel_filter'), async (c) => c.json(await change(c, 'set_panel_filter', c.req.valid('json')), 200))
   .openapi(commandRoute('set_panel_sort'), async (c) => c.json(await change(c, 'set_panel_sort', c.req.valid('json')), 200))
-  .openapi(commandRoute('save_layout', { conflict: 'The dashboard already has a layout at that screen size' }), async (c) => c.json(await change(c, 'save_layout', c.req.valid('json')), 200))
-  .openapi(commandRoute('delete_layout'), async (c) => c.json(await change(c, 'delete_layout', c.req.valid('json')), 200))
-  .openapi(
-    commandRoute('create_screen_size', { conflict: 'The account already has a screen size by that name' }),
-    async (c) => c.json(await change(c, 'create_screen_size', c.req.valid('json')), 200),
-  )
-  .openapi(
-    commandRoute('rename_screen_size', { conflict: 'The account already has a screen size by that name' }),
-    async (c) => c.json(await change(c, 'rename_screen_size', c.req.valid('json')), 200),
-  )
-  .openapi(commandRoute('delete_screen_size'), async (c) =>
-    c.json(await change(c, 'delete_screen_size', c.req.valid('json')), 200),
-  )
+  .openapi(commandRoute('save_layout'), async (c) => c.json(await change(c, 'save_layout', c.req.valid('json')), 200))
   // The other half of connecting is not a command endpoint at all: it is the
   // callback Microsoft returns to, further down this chain ("Connect a
   // Microsoft Teams source account", issue 485).

@@ -120,6 +120,26 @@ describe('Accounts', () => {
       ]);
     });
 
+    it('arranges every dashboard it seeds with one layout, and keeps no list of screen sizes', async () => {
+      const cookie = await continueAsGuest();
+      const seeded = (await workspacesOf(cookie)).filter((one) => one.name !== FIRST_WORKSPACE_NAME);
+
+      for (const workspace of seeded) {
+        const snapshot = await snapshotOf(cookie, workspace.id);
+        expect(snapshot).not.toHaveProperty('screenSizes');
+        for (const dashboard of snapshot.dashboards) {
+          expect(
+            snapshot.layouts.filter((one) => one.dashboardId === dashboard.id),
+            `${workspace.name} / ${dashboard.name}`,
+          ).toHaveLength(1);
+        }
+      }
+      const tables = await inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) =>
+        sql.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'screen_sizes'").toArray(),
+      );
+      expect(tables).toEqual([]);
+    });
+
     /**
      * The point of the whole change, and the one claim a list of statements
      * cannot make: the app opens on the first workspace it is handed
@@ -162,7 +182,6 @@ describe('Accounts', () => {
         workspaceId: halcyon.workspace.id,
         dashboardId: migration.id,
         layoutId: layout.id,
-        screenWidth: 1440,
         rows: swapped,
       });
 
