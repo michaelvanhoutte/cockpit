@@ -577,6 +577,49 @@ describe('Triage', () => {
       );
     });
 
+    describe('the row’s own ✓ marks it done the way the menu’s Done does, and offers it back', () => {
+      const situations = [
+        { situation: 'an Inbox row', item: anItem(), extra: {} },
+        {
+          situation: 'a row on a panel',
+          item: anItem(),
+          extra: { alsoIn: ['Today'] },
+        },
+        {
+          situation: 'an item that was started',
+          item: anItem({ startedAt: '2026-08-12T11:00:00.000Z' }),
+          extra: {},
+        },
+      ];
+
+      it.each(situations)('$situation', async ({ item, extra }) => {
+        const user = userEvent.setup();
+        const { mutate, send } = aRow({ settles: true, item, extra });
+
+        const mark = screen.getByRole('button', { name: 'Mark done' });
+        expect(mark).toHaveAttribute('title', 'Mark done');
+        await user.click(mark);
+
+        expect(mutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: 'set_done',
+            payload: expect.objectContaining({ itemId: 'item-1', done: true }),
+          }),
+          expect.anything(),
+        );
+        expect(screen.getByRole('status')).toHaveTextContent(
+          '“Make appointment with Novy” marked done',
+        );
+        await user.click(screen.getByRole('button', { name: 'Undo' }));
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: 'set_done',
+            payload: expect.objectContaining({ itemId: 'item-1', done: false }),
+          }),
+        );
+      });
+    });
+
     it('offers nothing back while the dismissal is still in flight', async () => {
       const user = userEvent.setup();
       aRow({ settles: false });
@@ -605,7 +648,9 @@ describe('Triage', () => {
     it.each([
       { situation: 'an app captured', item: { source: 'mcp', sender: 'Claude' }, shows: 'Claude' },
       { situation: 'was written here', item: { source: 'internal' }, shows: 'Own' },
-      { situation: 'came from Teams', item: { source: 'teams', sender: 'Ada' }, shows: 'teams · Ada' },
+      // Named as the form names it, never by the stored source (issue 724).
+      { situation: 'came from Teams', item: { source: 'teams', sender: 'Ada' }, shows: 'Microsoft Teams · Ada' },
+      { situation: 'came from Gmail', item: { source: 'mail', sender: 'Anna' }, shows: 'Gmail · Anna' },
     ] as const)('an item that $situation says $shows where the source goes', ({ item, shows }) => {
       mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
       render(<ItemRow item={anItem({ ...item })} workspaceId="ws-work" />);
@@ -1957,6 +2002,16 @@ describe('Selection', () => {
       expect(trigger).not.toBeDisabled();
       await user.click(trigger);
       expect(screen.queryByRole('menuitem', { name: /^Status/ })).toBeNull();
+    });
+
+    it.each([
+      { situation: 'a selection held on another row', picked: false, revealed: true, shown: false },
+      { situation: 'the row itself picked', picked: true, revealed: true, shown: false },
+      { situation: 'no selection', picked: false, revealed: false, shown: true },
+    ])('steps the ✓ aside for $situation', ({ picked, revealed, shown }) => {
+      aRow({ selecting: { picked, revealed, onPick: vi.fn(), onEndSelection: vi.fn() } });
+
+      expect(screen.queryByRole('button', { name: 'Mark done' }) !== null).toBe(shown);
     });
 
     it('leaves the menu trigger available and opening where nothing is selected', async () => {

@@ -219,10 +219,15 @@ function layoutControl(page: Page) {
  */
 async function dragBefore(page: Page, panel: string, before: string): Promise<void> {
   const answered = answerTo(page, 'save_layout');
-  const target = (await page.getByRole('region', { name: before }).boundingBox())!;
   await page.mouse.move(...(await centreOf(page.getByRole('region', { name: panel }).locator('header'))));
   await page.mouse.down();
-  await page.mouse.move(target.x + 4, target.y + target.height / 2, { steps: 8 });
+  // Measured once the pick-up has collapsed the board to headers, which moves
+  // every panel the pointer is aimed at.
+  await expect
+    .poll(async () => (await page.getByRole('region', { name: before }).boundingBox())!.height)
+    .toBeLessThan(100);
+  const collapsed = (await page.getByRole('region', { name: before }).boundingBox())!;
+  await page.mouse.move(collapsed.x + 4, collapsed.y + collapsed.height / 2, { steps: 8 });
   await page.mouse.up();
   expect((await answered).status()).toBe(200);
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
@@ -538,11 +543,14 @@ test.describe('Panels', () => {
       // pointer ends up is what decides the slot, so the left edge of the
       // first panel rather than its middle.
       const onto = page.getByRole('region', { name: first });
-      const box = (await onto.boundingBox())!;
       await page.mouse.move(
         ...(await centreOf(page.getByRole('region', { name: third }).locator('header'))),
       );
       await page.mouse.down();
+      // Measured after the pick-up, which collapses every panel to its header
+      // and so moves the one aimed at.
+      await expect.poll(async () => (await onto.boundingBox())!.height).toBeLessThan(100);
+      const box = (await onto.boundingBox())!;
 
       // **One aim, held.** The panels move as the drag does, so the target
       // moves too: a walk that steps to one panel's middle and then measures
@@ -612,6 +620,81 @@ test.describe('Panels', () => {
       await press(dashboardBar(page).getByRole('link', { name: here }), isMobile);
       await expectNoSidewaysScroll(page);
       await expectTheDashboardFits(page);
+    });
+  });
+
+  test.describe('every panel is its header alone while one is in the air, and the one you hold stays under the pointer', () => {
+    test.skip(({ isMobile }) => !!isMobile, 'dragging a panel is a pointer gesture');
+
+    test('keeps the grabbed header where it was taken when the board collapses, changes nothing on the first move, and keeps the dropped one where it was let go when the board opens', async ({
+      page,
+      isMobile,
+    }) => {
+      // Tall enough that three sized rows overflow it and the first one is
+      // reachable to drag the lines of, and short enough that they do overflow.
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await ownDashboard(page, isMobile);
+      const names = ['Falcon', 'Reading', 'People', 'Plans', 'Ideas'].map((label) => uniqueTitle(label));
+      for (const name of names) await addPanel(page, name, isMobile);
+      const [one, two, three, four, five] = names as [string, string, string, string, string];
+      const arranged = [[one, two], [three, four], [five]];
+      await expect.poll(() => rowsOnScreen(page)).toEqual(arranged);
+
+      // Every row sized tall by its own line, bottom up: a line pulled only
+      // moves what is below it, so the lines above keep the place they were
+      // found at.
+      for (const at of [2, 1, 0]) {
+        const saved = answerTo(page, 'save_layout');
+        const [lineX, lineY] = await centreOf(page.getByTestId('row-line').nth(at));
+        await page.mouse.move(lineX, lineY);
+        await page.mouse.down();
+        await page.mouse.move(lineX, lineY + 200, { steps: 8 });
+        await page.mouse.up();
+        expect((await saved).status()).toBe(200);
+      }
+
+      // Scrolled to the foot, where the panel taken is low on the screen.
+      const dashboard = page.locator('[data-drag-scroll="dashboard"]');
+      await dashboard.evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+      const headerOf = (name: string) => page.getByRole('region', { name }).locator('header');
+      const headerTop = async (name: string) => (await headerOf(name).boundingBox())!.y;
+      const grabbedAt = await headerTop(five);
+      const [grabX, grabY] = await centreOf(headerOf(five));
+
+      await page.mouse.move(grabX, grabY);
+      await page.mouse.down();
+
+      // Collapsed to headers, and the one in hand has not moved off the pointer.
+      await expect(page.getByRole('region', { name: one }).getByRole('listitem')).toHaveCount(0);
+      await expect
+        .poll(async () => (await page.getByRole('region', { name: one }).boundingBox())!.height)
+        .toBeLessThan(100);
+      await expect.poll(async () => Math.abs((await headerTop(five)) - grabbedAt) <= 1).toBe(true);
+
+      // **The first move with the pointer still on the header changes nothing**:
+      // had the board collapsed out from under it, the pointer would be in a
+      // gap or over another panel and the move would rearrange.
+      await page.mouse.move(grabX + 2, grabY + 1);
+      await page.evaluate(
+        () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+      );
+      expect(await rowsOnScreen(page)).toEqual(arranged);
+
+      // Two rows up, into the gap above everything.
+      await page.mouse.move(...(await centreOf(page.getByTestId('row-seam').first())), { steps: 6 });
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[five], [one, two], [three, four]]);
+      const letGoAt = await headerTop(five);
+
+      await page.mouse.up();
+
+      // Open again, and the panel dropped is where it was let go.
+      await expect(page.getByRole('region', { name: one }).getByRole('listitem')).toHaveCount(0);
+      await expect
+        .poll(async () => (await page.getByRole('region', { name: one }).boundingBox())!.height)
+        .toBeGreaterThan(300);
+      await expect.poll(async () => Math.abs((await headerTop(five)) - letGoAt) <= 1).toBe(true);
     });
   });
 
@@ -821,7 +904,8 @@ test.describe('Panels', () => {
       // nothing.** The row above is as tall as a drag made it and the busy
       // panel holds eight items - narrowed to one, the row has to shrink to
       // it, below the floor a drag can reach, which only a layout engine can
-      // say. What is shown for which condition is
+      // say. The bare panel has nothing matching, so it goes while the filter
+      // is on. What is shown for which condition is
       // apps/web/tests/unit/components/PanelBoard.test.tsx's.
       const storedHeight = (await row.boundingBox())!.height;
       const storedShare = await shareOfTheRow(page, first, second);
@@ -841,28 +925,33 @@ test.describe('Panels', () => {
         .poll(async () => (await row.boundingBox())!.height)
         .toBeLessThan(MIN_ROW_HEIGHT);
 
-      // No line to take hold of, so nothing to drag or double-click - and the
-      // two panels keep their widths, the divider's track being kept rather
-      // than dropped with the divider.
+      // No line to take hold of, so nothing to drag or double-click. The
+      // panel with nothing matching is not drawn, the bar says so, and the one
+      // left fills the row it shared.
       await expect(page.getByTestId('row-line')).toHaveCount(0);
       await expect(page.getByTestId('column-line')).toHaveCount(0);
-      expect(await shareOfTheRow(page, first, second)).toBeCloseTo(storedShare, 1);
+      await expect(page.getByRole('region', { name: second })).toHaveCount(0);
+      await expect(page.getByText('1 panel hidden', { exact: true })).toBeVisible();
+      const rowWidth = (await row.boundingBox())!.width;
+      expect((await page.getByRole('region', { name: first }).boundingBox())!.width).toBeCloseTo(rowWidth, 0);
 
       // A panel dragged by its header goes nowhere.
       const header = page.getByRole('region', { name: first }).locator('header');
       const [headerX, headerY] = await centreOf(header);
-      const secondBox = (await page.getByRole('region', { name: second }).boundingBox())!;
       await page.mouse.move(headerX, headerY);
       await page.mouse.down();
-      await page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + 20, { steps: 8 });
+      await page.mouse.move(headerX + 200, headerY + 120, { steps: 8 });
       await page.mouse.up();
-      await expect.poll(() => rowsOnScreen(page)).toEqual([[first, second]]);
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[first]]);
 
       // Cleared from the tab's own funnel: the stored height is back, because
       // nothing was written in between.
       await page.getByRole('button', { name: 'Clear the filter and close it' }).click();
       await expect.poll(async () => (await row.boundingBox())!.height).toBe(storedHeight);
       await expect.poll(() => itemsOn(page, first)).toEqual(items);
+      // Both panels back in the row, at the widths they were stored with.
+      await expect(page.getByText(/panels? hidden/)).toHaveCount(0);
+      await expect.poll(() => shareOfTheRow(page, first, second)).toBeCloseTo(storedShare, 1);
       expect(layoutsSent, 'a filtered board must not write a layout').toBe(0);
 
       // **And a person can narrow the dashboard to what is in progress.** One

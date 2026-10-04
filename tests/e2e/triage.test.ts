@@ -68,6 +68,21 @@ test.describe('Triage', () => {
       await press(page.getByRole('menuitemradio', { name: 'To do' }), isMobile);
 
       await expect(itemRow(page, thought).getByText('In progress')).toHaveCount(0);
+
+      // The same row then ends with the ✓ ("Mark an item done with a ✓ that
+      // appears on hover", issue 716), which is a hover and so a thing jsdom
+      // cannot show. A phone has no hover and keeps the menu, so there the ✓
+      // must never show.
+      const mark = itemRow(page, thought).getByRole('button', { name: 'Mark done' });
+      await expect(mark).toBeHidden();
+      if (isMobile) return;
+      await itemRow(page, thought).hover();
+      await expect(mark).toBeVisible();
+
+      await mark.click();
+
+      await expect(itemRow(page, thought)).toHaveCount(0);
+      await expect(page.getByRole('status')).toContainText('marked done');
     });
   });
 });

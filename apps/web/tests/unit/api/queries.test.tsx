@@ -93,7 +93,6 @@ const snapshot: WorkspaceSnapshot = {
   associations: [],
   attachments: [],
   itemTypes: [],
-    screenSizes: [],
     itemFormPresentation: 'centered',
     duplicates: [],
   filings: [],

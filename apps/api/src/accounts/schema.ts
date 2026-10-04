@@ -18,7 +18,6 @@ import {
   ITEM_FORM_PRESENTATIONS,
   ITEM_TYPE_COLORS,
   MAX_ROW_HEIGHT,
-  MAX_SCREEN_WIDTH,
   MIN_ROW_HEIGHT,
   PANEL_FORMATS,
   STORED_PANEL_KINDS,
@@ -70,8 +69,8 @@ export const DEAD_STATUS_VALUE = 'to_process';
 
 /**
  * The tables inside one account's store (architecture, "One store per account,
- * and `tenant_id` stays"): its workspaces, dashboards, panels, screen sizes,
- * layouts, items, associations and change log.
+ * and `tenant_id` stays"): its workspaces, dashboards, panels, layouts, items,
+ * associations and change log.
  * They live in the account's own Durable Object, never in D1, which holds only
  * the register of which accounts exist (src/db/schema.ts).
  *
@@ -312,8 +311,8 @@ export const workspaces = sqliteTable(
 /**
  * A dashboard: a named view inside a workspace, switched between like tabs
  * (functional definition, "Container hierarchy"). It holds panels, arranged by
- * one layout per screen size ("Panels on a dashboard, with per-screen-size
- * layouts", issue 33); both hang off this table rather than off the workspace,
+ * at most one layout ("Convert every Dashboard to its widest Layout and retire
+ * Screen sizes", issue 713); both hang off this table rather than off the workspace,
  * because a panel belongs to the view it was put on.
  *
  * The Inbox is not here and never will be. It is a fixture of the screen - a
@@ -499,72 +498,12 @@ export const panels = sqliteTable(
 );
 
 /**
- * A screen size: one of the screens this account works on, and the width to
- * match a window against ("Give the account a list of screen sizes, before
- * anything reads it", issue 262).
+ * A layout: a dashboard's one arrangement of its panels ("Convert every
+ * Dashboard to its widest Layout and retire Screen sizes", issue 713).
  *
- * **The account's, not a dashboard's**, which is the point: a layout carried
- * its own name and width, so every dashboard re-declared the same screens and
- * renaming one was a rename per dashboard. It hangs off nothing but
- * `tenant_id`, the way `item_types` does.
- *
- * **Nothing writes one in this release.** The table, `layouts.screen_size_id`
- * and the snapshot field land together so that "Draw a dashboard against the
- * screen sizes its account has" (issue 263) changes behaviour rather than
- * shape.
- *
- * **Deleted for real, not tombstoned**, for the reason a layout is: a size
- * records nothing that happened, only which screens somebody said they use.
- * Every layout at it goes first, which the RESTRICT below makes explicit
- * rather than silent.
- */
-export const screenSizes = sqliteTable(
-  'screen_sizes',
-  {
-    id: text('id').primaryKey(),
-    tenantId: text('tenant_id').notNull(),
-    name: text('name').notNull(),
-    foldedName: text('folded_name').notNull(),
-    width: integer('width').notNull(),
-    createdAt: text('created_at').notNull(),
-  },
-  (t) => [
-    /**
-     * Unique within the *account*, the way a type's name is - not within a
-     * workspace or a dashboard, because one list of screens is the whole idea.
-     * Not partial on a tombstone, because a size is deleted for real.
-     */
-    uniqueIndex('screen_sizes_folded_name').on(t.tenantId, t.foldedName),
-    // Bounded, because a window is matched to the size closest to it: one
-    // absurd width would win that comparison everywhere or never. True by
-    // definition rather than a number the product tunes, so the database holds
-    // it (architecture, "The database is the second lock").
-    //
-    // **Starts at 1, not at `MIN_SCREEN_WIDTH`**: sizes made below that floor
-    // before it rose are real rows and stay, and tightening this would mean
-    // rebuilding the table over them. The floor is held by the commands that
-    // make a size (`create_screen_size`, `save_layout`).
-    check(
-      'screen_sizes_width_is_a_width',
-      sql.raw(`width BETWEEN 1 AND ${MAX_SCREEN_WIDTH}`),
-    ),
-    check('screen_sizes_created_at_is_timestamp', isTimestamp('created_at')),
-  ],
-);
-
-/**
- * A layout: one arrangement of a dashboard's panels, at one screen size.
- *
- * **What it is called is the screen size's own name**, not anything stored
- * here - a Layout used to carry `name`, `folded_name` and `screen_width` of its
- * own, from before "Draw a dashboard against the screen sizes its account has"
- * (issue 263) gave every Layout a `screen_size_id` to hang off instead. "Take
- * the width and the name off a layout, now that its size carries them" (issue
- * 264) is the release that drops them, once nothing reads them any more.
- *
- * **`screen_size_id` is NOT NULL**, which is what makes this the final shape:
- * every Layout from here on is defined at a size the account has, and there is
- * no longer a legacy row with none to fall back for.
+ * **At most one per dashboard**, which the unique index below holds: a
+ * dashboard nobody has arranged has none and is drawn fitted to the screen,
+ * and its first arrangement makes the one it keeps.
  *
  * **Deleted for real, not tombstoned**, which is the one place this store
  * departs from "tombstones, not deletes" and is deliberate. A tombstone exists
@@ -583,18 +522,10 @@ export const layouts = sqliteTable(
     dashboardId: text('dashboard_id')
       .notNull()
       .references(() => dashboards.id, { onDelete: 'restrict' }),
-    /**
-     * Which screen size this layout arranges the dashboard for. RESTRICT, like
-     * everything else here: deleting a size has to say what happens to the
-     * layouts at it rather than taking them silently.
-     */
-    screenSizeId: text('screen_size_id')
-      .notNull()
-      .references(() => screenSizes.id, { onDelete: 'restrict' }),
     createdAt: text('created_at').notNull(),
   },
   (t) => [
-    index('layouts_tenant_dashboard').on(t.tenantId, t.dashboardId),
+    uniqueIndex('layouts_one_per_dashboard').on(t.tenantId, t.dashboardId),
     check('layouts_created_at_is_timestamp', isTimestamp('created_at')),
   ],
 );

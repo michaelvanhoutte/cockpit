@@ -48,7 +48,6 @@ vi.mock('../../../src/api/queries', () => ({
         layouts: [],
         associations: [],
         itemTypes: held.itemTypes,
-        screenSizes: [],
         duplicates: [],
         filings: held.filings,
         generatedAt: '2026-08-31T09:00:00.000Z',

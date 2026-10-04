@@ -167,47 +167,20 @@ type Cell = { panelId: string; span: number };
 async function saveLayout(
   dashboardId: string,
   layoutId: string,
-  screenWidth: number,
   cells: Cell[],
-  screenSizeId?: string,
+  /** Whatever else the change carries, for the case about a tab on an older version. */
+  extra: Record<string, unknown> = {},
 ) {
-  return saveRows(
-    dashboardId,
-    layoutId,
-    screenWidth,
-    cells.length ? [{ height: null, cells }] : [],
-    screenSizeId,
-  );
+  return saveRows(dashboardId, layoutId, cells.length ? [{ height: null, cells }] : [], extra);
 }
 
 async function saveRows(
   dashboardId: string,
   layoutId: string,
-  screenWidth: number,
   rows: { height: number | null; cells: Cell[] }[],
-  screenSizeId?: string,
+  extra: Record<string, unknown> = {},
 ) {
-  return send('save_layout', {
-    workspaceId: WORKSPACE_ID,
-    dashboardId,
-    layoutId,
-    screenWidth,
-    rows,
-    ...(screenSizeId ? { screenSizeId } : {}),
-  });
-}
-
-/** A screen size the account did not have before, for the cases that need to name one. */
-async function aScreenSize(name: string, width: number): Promise<string> {
-  const screenSizeId = nextId();
-  const made = await send('create_screen_size', {
-    workspaceId: WORKSPACE_ID,
-    screenSizeId,
-    name,
-    width,
-  });
-  expect(made.status).toBe(200);
-  return screenSizeId;
+  return send('save_layout', { workspaceId: WORKSPACE_ID, dashboardId, layoutId, rows, ...extra });
 }
 
 /** The cells of a layout's rows, flattened - what most cases assert against. */
@@ -412,7 +385,7 @@ describe('Panels', () => {
           const elsewhere = await aDashboard();
           const stranger = nextId();
           await addPanel(elsewhere, 'Somewhere else', { panelId: stranger });
-          return saveLayout(ctx.dashboardId, nextId(), 1280, [
+          return saveLayout(ctx.dashboardId, nextId(), [
             { panelId: stranger, span: 4 },
           ]);
         },
@@ -422,21 +395,8 @@ describe('Panels', () => {
         change: async (ctx: Context) => {
           const elsewhere = await aDashboard();
           const layoutId = nextId();
-          await saveLayout(elsewhere, layoutId, 1280, []);
-          return saveLayout(ctx.dashboardId, layoutId, 1280, []);
-        },
-      },
-      {
-        situation: 'a layout deleted a second time',
-        change: async (ctx: Context) => {
-          const layoutId = nextId();
-          await saveLayout(ctx.dashboardId, layoutId, 1280, []);
-          // A second one, so the first delete is not the one the dashboard
-          // keeps ("a dashboard keeps at least one layout") - that refusal is a
-          // 409 and would hide the 404 this case is about.
-          await saveLayout(ctx.dashboardId, nextId(), 480, []);
-          await send('delete_layout', { workspaceId: WORKSPACE_ID, layoutId });
-          return send('delete_layout', { workspaceId: WORKSPACE_ID, layoutId });
+          await saveLayout(elsewhere, layoutId, []);
+          return saveLayout(ctx.dashboardId, layoutId, []);
         },
       },
     ])('$situation', async ({ change }) => {
@@ -458,7 +418,7 @@ describe('Panels', () => {
       const panelId = nextId();
       await addPanel(dashboardId, aName(), { panelId });
 
-      const refused = await saveLayout(dashboardId, nextId(), 1280, [{ panelId, span }]);
+      const refused = await saveLayout(dashboardId, nextId(), [{ panelId, span }]);
 
       expect(refused.status).toBe(400);
       expect(await layoutsOf(dashboardId)).toEqual([]);
@@ -469,7 +429,7 @@ describe('Panels', () => {
       const panelId = nextId();
       await addPanel(dashboardId, aName(), { panelId });
 
-      const refused = await saveLayout(dashboardId, nextId(), 1280, [
+      const refused = await saveLayout(dashboardId, nextId(), [
         { panelId, span: 4 },
         { panelId, span: 8 },
       ]);
@@ -493,7 +453,7 @@ describe('Panels', () => {
     });
   });
 
-  describe('a dashboard remembers an arrangement per layout, and arranging it again replaces what it held', () => {
+  describe('a dashboard remembers its arrangement, and arranging it again replaces what it held', () => {
     it('stores the panels in the order given, at the sizes given', async () => {
       const dashboardId = await aDashboard();
       const falcon = nextId();
@@ -501,7 +461,7 @@ describe('Panels', () => {
       await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
       await addPanel(dashboardId, 'To read', { panelId: reading });
 
-      await saveLayout(dashboardId, nextId(), 1280, [
+      await saveLayout(dashboardId, nextId(), [
         { panelId: reading, span: 8 },
         { panelId: falcon, span: 4 },
       ]);
@@ -528,136 +488,76 @@ describe('Panels', () => {
       await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
       await addPanel(dashboardId, 'To read', { panelId: reading });
       const layoutId = nextId();
-      await saveLayout(dashboardId, layoutId, 1280, [
+      await saveLayout(dashboardId, layoutId, [
         { panelId: falcon, span: 4 },
         { panelId: reading, span: 4 },
       ]);
 
-      await saveLayout(dashboardId, layoutId, 1280, [{ panelId: falcon, span: 12 }]);
+      await saveLayout(dashboardId, layoutId, [{ panelId: falcon, span: 12 }]);
 
       expect(cellsOf((await layoutsOf(dashboardId))[0])).toEqual([
         { panelId: falcon, span: 12 },
       ]);
     });
 
-    it('keeps the screen size a layout was made at, even when it is changed from another screen', async () => {
-      // The whole point of asking which layout to change: changing the wide
-      // one from a laptop must not quietly turn it into the laptop's.
-      const dashboardId = await aDashboard();
-      const falcon = nextId();
-      await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
-      const wide = await aScreenSize('Wide', 2560);
-      const layoutId = nextId();
-      await saveLayout(dashboardId, layoutId, 2560, [{ panelId: falcon, span: 3 }], wide);
-
-      await saveLayout(dashboardId, layoutId, 480, [{ panelId: falcon, span: 6 }]);
-
-      expect((await layoutsOf(dashboardId))[0]).toMatchObject({ screenSizeId: wide });
-    });
-
-    it('keeps one layout per screen size side by side', async () => {
-      const dashboardId = await aDashboard();
-      const falcon = nextId();
-      await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
-      const wide = await aScreenSize('Wide', 2560);
-      const phone = await aScreenSize('Phone', 480);
-
-      await saveLayout(dashboardId, nextId(), 2560, [{ panelId: falcon, span: 3 }], wide);
-      await saveLayout(dashboardId, nextId(), 480, [{ panelId: falcon, span: 12 }], phone);
-
-      expect((await layoutsOf(dashboardId)).map((layout) => layout.screenSizeId)).toEqual([
-        phone,
-        wide,
-      ]);
-    });
-
     // Given longer than the file's other cases, and it is the arrangement that
-    // needs it: a hundred and twenty layouts are a hundred and twenty changes,
-    // and they are made the way a person makes them rather than written into
-    // the store, so that what is under test is a workspace somebody could
-    // actually have. About four seconds here and slower on a shared runner,
-    // where the default five would be a coin toss.
+    // needs it: a hundred and twenty layouts are a hundred and twenty
+    // dashboards arranged, made the way a person makes them rather than
+    // written into the store, so that what is under test is a workspace
+    // somebody could actually have. Slower on a shared runner, where the
+    // default five seconds would be a coin toss.
     it('still reads the workspace when it holds more layouts than a statement can name', { timeout: 60_000 }, async () => {
-      // A workspace accumulates a layout per dashboard per screen, and the read
-      // that paints it once named every one of them in a single statement -
-      // which SQLite refuses past a limit, failing the *whole* workspace read
-      // rather than a part of it. So the workspace stopped painting at all, and
-      // did so at a size a person reaches by using the product normally.
-      const dashboardId = await aDashboard();
-      const falcon = nextId();
-      await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
-      // Comfortably past the limit rather than exactly on it, so the case goes
-      // on being about the limit if the limit ever moves. A hundred and twenty
-      // screen sizes this dashboard defines a layout at each of, made the way
-      // a person makes them - through `create_screen_size` - for the same
-      // reason the layouts below are: what is under test is a workspace
-      // somebody could actually have.
+      // A workspace accumulates a layout per dashboard, and the read that
+      // paints it once named every one of them in a single statement - which
+      // SQLite refuses past a limit, failing the *whole* workspace read rather
+      // than a part of it. Comfortably past the limit rather than exactly on
+      // it, so the case goes on being about the limit if the limit ever moves.
       //
-      // Sent together rather than one after another: the store serialises
-      // them anyway, and a hundred and twenty round trips in a row is the
-      // difference between a case that runs in a moment and one that outlasts
-      // the runner's patience.
-      const widths = Array.from({ length: 120 }, (_, at) => 480 + at);
-      const screenSizeIds = widths.map(() => nextId());
-      expect(
-        (
-          await Promise.all(
-            widths.map((width, at) =>
-              send('create_screen_size', {
-                workspaceId: WORKSPACE_ID,
-                screenSizeId: screenSizeIds[at],
-                name: `Size ${at}`,
-                width,
-              }),
-            ),
-          )
-        ).every((res) => res.status === 200),
-      ).toBe(true);
-      const saved = await Promise.all(
-        widths.map((screenWidth, at) =>
-          saveLayout(
-            dashboardId,
-            nextId(),
-            screenWidth,
-            [{ panelId: falcon, span: 3 }],
-            screenSizeIds[at],
-          ),
+      // Each dashboard keeps the panel it arrives with, which is what gets
+      // arranged. Sent together rather than one after another: the store
+      // serialises them anyway, and two hundred and forty round trips in a row
+      // is the difference between a case that runs in a moment and one that
+      // outlasts the runner's patience.
+      const made = Array.from({ length: 120 }, (_, at) => ({
+        dashboardId: nextId(),
+        panelId: nextId(),
+        name: `Arranged ${at}`,
+      }));
+      const added = await Promise.all(
+        made.map(({ dashboardId, panelId, name }) =>
+          send('add_dashboard', { workspaceId: WORKSPACE_ID, dashboardId, panelId, name }),
         ),
+      );
+      expect(added.every((res) => res.status === 200)).toBe(true);
+      const saved = await Promise.all(
+        made.map(({ dashboardId, panelId }) => saveLayout(dashboardId, nextId(), [{ panelId, span: 3 }])),
       );
       expect(saved.every((res) => res.status === 200)).toBe(true);
 
-      const its = await layoutsOf(dashboardId);
+      const ids = new Set(made.map((one) => one.dashboardId));
+      const its = (await snapshot()).layouts.filter((layout) => ids.has(layout.dashboardId));
 
-      expect(its).toHaveLength(widths.length);
+      expect(its).toHaveLength(made.length);
       // Every one of them arrives with its arrangement, rather than the read
       // coming back short or empty.
       expect(its.every((layout) => cellsOf(layout).length === 1)).toBe(true);
     });
   });
 
-  describe('a panel added later joins every layout, and a deleted one leaves them all', () => {
-    it('gives it a row of its own under each of them, rather than a place beside something', async () => {
+  describe('a panel added later joins the arrangement in a row of its own, and a deleted one leaves it', () => {
+    it('gives it a row of its own under everything there, rather than a place beside something', async () => {
       // A row is a decision about what belongs side by side, and adding a panel
       // says nothing about which panels it belongs beside - so it gets a line,
-      // full width, in every layout of the dashboard. Adding one on a laptop
-      // must not leave it missing from the phone layout until somebody
-      // rearranges that too.
+      // full width, under the rest.
       const dashboardId = await aDashboard();
       const falcon = nextId();
       await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
-      const wide = await aScreenSize('Wide', 2560);
-      const phone = await aScreenSize('Phone', 480);
-      await saveLayout(dashboardId, nextId(), 2560, [{ panelId: falcon, span: 3 }], wide);
-      await saveLayout(dashboardId, nextId(), 480, [{ panelId: falcon, span: 12 }], phone);
+      await saveLayout(dashboardId, nextId(), [{ panelId: falcon, span: 3 }]);
 
       const reading = nextId();
       await addPanel(dashboardId, 'To read', { panelId: reading });
 
       expect((await layoutsOf(dashboardId)).map((layout) => layout.rows)).toEqual([
-        [
-          { height: null, cells: [{ panelId: falcon, span: 12 }] },
-          { height: null, cells: [{ panelId: reading, span: 12 }] },
-        ],
         [
           { height: null, cells: [{ panelId: falcon, span: 3 }] },
           { height: null, cells: [{ panelId: reading, span: 12 }] },
@@ -665,41 +565,20 @@ describe('Panels', () => {
       ]);
     });
 
-    it('leaves every layout when the panel is deleted', async () => {
+    it('leaves the arrangement when the panel is deleted', async () => {
       const dashboardId = await aDashboard();
       const falcon = nextId();
       const doomed = nextId();
       await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
       await addPanel(dashboardId, 'Gone by lunchtime', { panelId: doomed });
-      const wide = await aScreenSize('Wide', 2560);
-      const phone = await aScreenSize('Phone', 480);
-      await saveLayout(
-        dashboardId,
-        nextId(),
-        2560,
-        [
-          { panelId: falcon, span: 3 },
-          { panelId: doomed, span: 3 },
-        ],
-        wide,
-      );
-      await saveLayout(
-        dashboardId,
-        nextId(),
-        480,
-        [
-          { panelId: doomed, span: 12 },
-          { panelId: falcon, span: 12 },
-        ],
-        phone,
-      );
+      await saveLayout(dashboardId, nextId(), [
+        { panelId: falcon, span: 3 },
+        { panelId: doomed, span: 3 },
+      ]);
 
       await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId: doomed });
 
-      expect((await layoutsOf(dashboardId)).map(cellsOf)).toEqual([
-        [{ panelId: falcon, span: 12 }],
-        [{ panelId: falcon, span: 3 }],
-      ]);
+      expect((await layoutsOf(dashboardId)).map(cellsOf)).toEqual([[{ panelId: falcon, span: 3 }]]);
     });
   });
 
@@ -734,7 +613,7 @@ describe('Panels', () => {
   });
 
   describe('a moved panel takes its placement with it', () => {
-    it('leaves every layout it came from and joins every layout it lands on, in a row of its own', async () => {
+    it('leaves the arrangement it came from and joins the one it lands on, in a row of its own', async () => {
       const from = await aDashboard();
       const to = await aDashboard();
       const moving = nextId();
@@ -743,18 +622,11 @@ describe('Panels', () => {
       await addPanel(from, 'Moving', { panelId: moving });
       await addPanel(from, 'Stayed behind', { panelId: stayed });
       await addPanel(to, 'Already there', { panelId: alreadyThere });
-      const wide = await aScreenSize('Wide', 2560);
-      await saveLayout(
-        from,
-        nextId(),
-        2560,
-        [
-          { panelId: moving, span: 6 },
-          { panelId: stayed, span: 6 },
-        ],
-        wide,
-      );
-      await saveLayout(to, nextId(), 2560, [{ panelId: alreadyThere, span: 12 }], wide);
+      await saveLayout(from, nextId(), [
+        { panelId: moving, span: 6 },
+        { panelId: stayed, span: 6 },
+      ]);
+      await saveLayout(to, nextId(), [{ panelId: alreadyThere, span: 12 }]);
 
       await move(moving, to);
 
@@ -772,7 +644,7 @@ describe('Panels', () => {
       const other = nextId();
       await addPanel(from, 'Alone on its line', { panelId: alone });
       await addPanel(from, 'Elsewhere', { panelId: other });
-      await saveRows(from, nextId(), 1280, [
+      await saveRows(from, nextId(), [
         { height: null, cells: [{ panelId: other, span: 12 }] },
         { height: null, cells: [{ panelId: alone, span: 12 }] },
       ]);
@@ -910,8 +782,7 @@ describe('Panels', () => {
       const to = await aDashboard();
       const panelId = nextId();
       await addPanel(from, 'Project Falcon', { panelId });
-      const wide = await aScreenSize('Wide', 2560);
-      await saveLayout(from, nextId(), 2560, [{ panelId, span: 12 }], wide);
+      await saveLayout(from, nextId(), [{ panelId, span: 12 }]);
       await send('delete_dashboard', { workspaceId: WORKSPACE_ID, dashboardId: to });
 
       const refused = await move(panelId, to);
@@ -919,30 +790,6 @@ describe('Panels', () => {
       expect(refused.status).toBe(404);
       expect((await panelNow(panelId)).dashboardId).toBe(from);
       expect(cellsOf((await layoutsOf(from))[0])).toEqual([{ panelId, span: 12 }]);
-    });
-  });
-
-  describe('deleting a layout takes only itself', () => {
-    it('leaves the panels and the other layouts exactly as they were', async () => {
-      const dashboardId = await aDashboard();
-      const falcon = nextId();
-      await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
-      const wide = await aScreenSize('Wide', 2560);
-      const phone = await aScreenSize('Phone', 480);
-      const doomed = nextId();
-      await saveLayout(dashboardId, doomed, 2560, [{ panelId: falcon, span: 3 }], wide);
-      await saveLayout(dashboardId, nextId(), 480, [{ panelId: falcon, span: 12 }], phone);
-
-      const gone = await send('delete_layout', { workspaceId: WORKSPACE_ID, layoutId: doomed });
-
-      expect(gone.status).toBe(200);
-      expect(await layoutsOf(dashboardId)).toEqual([
-        expect.objectContaining({
-          screenSizeId: phone,
-          rows: [{ height: null, cells: [{ panelId: falcon, span: 12 }] }],
-        }),
-      ]);
-      expect((await panelsOn(dashboardId)).map((panel) => panel.name)).toEqual(['Project Falcon']);
     });
   });
 
@@ -1305,7 +1152,7 @@ describe('Panels', () => {
         wanted.push({ panelId, span: (n % 12) + 1 });
       }
 
-      const saved = await saveLayout(dashboardId, nextId(), 1280, wanted);
+      const saved = await saveLayout(dashboardId, nextId(), wanted);
 
       expect(saved.status).toBe(200);
       expect(cellsOf((await layoutsOf(dashboardId))[0])).toEqual(wanted);
@@ -1318,252 +1165,106 @@ describe('Panels', () => {
 });
 
 describe('Layouts', () => {
-  /**
-   * A dashboard with one panel and one layout defined at a screen size of its
-   * own, which is what most rules below need.
-   */
-  async function arranged(name: string, screenWidth = 1280) {
+  /** A dashboard with one panel on it, nobody having arranged it yet. */
+  async function unarranged() {
     const dashboardId = await aDashboard();
     const panelId = nextId();
     expect((await addPanel(dashboardId, aName(), { panelId })).status).toBe(200);
-    const screenSizeId = await aScreenSize(name, screenWidth);
-    const layoutId = nextId();
-    const saved = await saveLayout(
-      dashboardId,
-      layoutId,
-      screenWidth,
-      [{ panelId, span: 4 }],
-      screenSizeId,
-    );
-    expect(saved.status).toBe(200);
-    return { dashboardId, panelId, layoutId, screenSizeId };
+    return { dashboardId, panelId };
   }
 
-  describe('a dashboard has at most one layout per screen size, and never one at a size it has not defined', () => {
-    it('defines the layout at the size asked for', async () => {
-      const { dashboardId, screenSizeId } = await arranged('Wide');
+  describe('a dashboard’s first arrangement makes its one layout, and every later one changes that layout', () => {
+    it('makes one the first time a dashboard is arranged, and the account keeps no list of screen sizes', async () => {
+      const { dashboardId, panelId } = await unarranged();
+      const layoutId = nextId();
 
-      expect((await layoutsOf(dashboardId))[0]!.screenSizeId).toBe(screenSizeId);
+      const saved = await saveLayout(dashboardId, layoutId, [{ panelId, span: 4 }]);
+
+      expect(saved.status).toBe(200);
+      const now = await snapshot();
+      expect(now.layouts.filter((layout) => layout.dashboardId === dashboardId)).toEqual([
+        {
+          id: layoutId,
+          tenantId: 'tenant-default',
+          dashboardId,
+          rows: [{ height: null, cells: [{ panelId, span: 4 }] }],
+        },
+      ]);
+      expect(now).not.toHaveProperty('screenSizes');
     });
 
-    it('refuses a second layout at a size this dashboard already has', async () => {
-      const { dashboardId, panelId, screenSizeId } = await arranged('Wide');
+    it.each([
+      { situation: 'the layout it has', again: (first: string) => first },
+      // Two tabs that both found the dashboard unarranged, or one that has not
+      // read the layout another made yet.
+      { situation: 'a layout of its own it has never seen', again: () => nextId() },
+    ])('arranges the same layout again when the change names $situation, and makes no second', async ({ again }) => {
+      const { dashboardId, panelId } = await unarranged();
+      const first = nextId();
+      await saveLayout(dashboardId, first, [{ panelId, span: 4 }]);
 
-      const again = await saveLayout(
-        dashboardId,
-        nextId(),
-        2560,
-        [{ panelId, span: 12 }],
-        screenSizeId,
-      );
+      const saved = await saveLayout(dashboardId, again(first), [{ panelId, span: 12 }]);
 
-      expect(again.status).toBe(409);
-      expect(await again.json()).toMatchObject({
-        error: 'a layout for Wide already arranges this dashboard',
+      expect(saved.status).toBe(200);
+      expect(await layoutsOf(dashboardId)).toEqual([
+        expect.objectContaining({ id: first, rows: [{ height: null, cells: [{ panelId, span: 12 }] }] }),
+      ]);
+    });
+
+    it('arranges the dashboard from a tab on the version that still named a screen size, and ignores the size', async () => {
+      const { dashboardId, panelId } = await unarranged();
+
+      const saved = await saveLayout(dashboardId, nextId(), [{ panelId, span: 6 }], {
+        screenWidth: 1280,
+        screenSizeId: '018f0000-0000-7000-8000-999999999999',
       });
-      expect(await layoutsOf(dashboardId)).toHaveLength(1);
-    });
-
-    it('still refuses a second layout at a size renamed since the first was made', async () => {
-      // The check compares the size's own id rather than anything it was
-      // ever called, so a rename landing between two saves cannot let a
-      // second layout at the same size through.
-      const { dashboardId, panelId, screenSizeId } = await arranged('Wide');
-      expect(
-        (await send('rename_screen_size', { workspaceId: WORKSPACE_ID, screenSizeId, name: 'Big' }))
-          .status,
-      ).toBe(200);
-
-      const again = await saveLayout(
-        dashboardId,
-        nextId(),
-        2560,
-        [{ panelId, span: 12 }],
-        screenSizeId,
-      );
-
-      expect(again.status).toBe(409);
-      expect(await layoutsOf(dashboardId)).toHaveLength(1);
-    });
-
-    it('lets another dashboard have a layout at the same size', async () => {
-      // One level further down than a dashboard's own name: the scope is the
-      // dashboard, the way a panel's title is.
-      const wide = await aScreenSize('Wide', 1280);
-      const first = await aDashboard();
-      const firstPanel = nextId();
-      expect((await addPanel(first, aName(), { panelId: firstPanel })).status).toBe(200);
-      expect(
-        (await saveLayout(first, nextId(), 1280, [{ panelId: firstPanel, span: 4 }], wide)).status,
-      ).toBe(200);
-      const second = await aDashboard();
-      const secondPanel = nextId();
-      expect((await addPanel(second, aName(), { panelId: secondPanel })).status).toBe(200);
-
-      const saved = await saveLayout(
-        second,
-        nextId(),
-        1280,
-        [{ panelId: secondPanel, span: 4 }],
-        wide,
-      );
 
       expect(saved.status).toBe(200);
-      expect((await layoutsOf(second))[0]!.screenSizeId).toBe(wide);
-    });
-
-    it('refuses defining a layout for a screen size that is not there', async () => {
-      const dashboardId = await aDashboard();
-      const panelId = nextId();
-      expect((await addPanel(dashboardId, aName(), { panelId })).status).toBe(200);
-
-      const saved = await saveLayout(
-        dashboardId,
-        nextId(),
-        1280,
-        [{ panelId, span: 4 }],
-        '018f0000-0000-7000-8000-999999999999',
-      );
-
-      expect(saved.status).toBe(404);
-    });
-
-    it('leaves the size alone when an arrangement is saved onto a layout that exists', async () => {
-      const { dashboardId, panelId, layoutId, screenSizeId } = await arranged('Wide');
-      expect(
-        (await send('rename_screen_size', { workspaceId: WORKSPACE_ID, screenSizeId, name: 'The big one' }))
-          .status,
-      ).toBe(200);
-
-      const saved = await saveLayout(dashboardId, layoutId, 1280, [{ panelId, span: 6 }]);
-
-      expect(saved.status).toBe(200);
-      const [layout] = await layoutsOf(dashboardId);
-      expect(layout!.screenSizeId).toBe(screenSizeId);
-      expect(cellsOf(layout)).toEqual([{ panelId, span: 6 }]);
-    });
-
-    it('makes an arrangement with nothing defined and no screen size at all a size called Default, seen by every workspace', async () => {
-      await alsoWorkspaces();
-      const dashboardId = await aDashboard();
-      const panelId = nextId();
-      expect((await addPanel(dashboardId, aName(), { panelId })).status).toBe(200);
-
-      const saved = await saveLayout(dashboardId, nextId(), 1280, [{ panelId, span: 4 }]);
-
-      expect(saved.status).toBe(200);
-      const [defaultSize] = (await snapshot()).screenSizes;
-      expect(defaultSize!.name).toBe('Default');
-      expect((await layoutsOf(dashboardId))[0]!.screenSizeId).toBe(defaultSize!.id);
-      // Every screen size is the account's, not the Workspace this happened
-      // to be made in - see `create_screen_size`.
-      expect((await snapshot('ws-atlas')).screenSizes.map((size) => size.name)).toEqual(['Default']);
-    });
-
-    it('lets Default be renamed and deleted like any other size', async () => {
-      // Its id is derived from the account's own rather than being a uuid
-      // (`defaultScreenSizeId`) - so every command naming an existing screen
-      // size has to take the envelope's plain string, or Default could be
-      // made but never touched again.
-      const dashboardId = await aDashboard();
-      const panelId = nextId();
-      expect((await addPanel(dashboardId, aName(), { panelId })).status).toBe(200);
-      await saveLayout(dashboardId, nextId(), 1280, [{ panelId, span: 4 }]);
-      const [defaultSize] = (await snapshot()).screenSizes;
-
-      const renamed = await send('rename_screen_size', {
-        workspaceId: WORKSPACE_ID,
-        screenSizeId: defaultSize!.id,
-        name: 'Wide',
-      });
-      expect(renamed.status).toBe(200);
-      expect((await snapshot()).screenSizes.map((size) => size.name)).toEqual(['Wide']);
-
-      const deleted = await send('delete_screen_size', {
-        workspaceId: WORKSPACE_ID,
-        screenSizeId: defaultSize!.id,
-      });
-      expect(deleted.status).toBe(200);
-      expect(await snapshot()).toMatchObject({ screenSizes: [] });
-      expect(await layoutsOf(dashboardId)).toHaveLength(0);
-    });
-
-    it('keeps an arrangement with nothing defined in the nearest size the account already has', async () => {
-      const dashboardId = await aDashboard();
-      const panelId = nextId();
-      expect((await addPanel(dashboardId, aName(), { panelId })).status).toBe(200);
-      await aScreenSize('Tablet', 600);
-      const wide = await aScreenSize('Wide', 1280);
-
-      const saved = await saveLayout(dashboardId, nextId(), 1200, [{ panelId, span: 4 }]);
-
-      expect(saved.status).toBe(200);
-      const [layout] = await layoutsOf(dashboardId);
-      expect(layout!.screenSizeId).toBe(wide);
+      expect((await layoutsOf(dashboardId)).map(cellsOf)).toEqual([[{ panelId, span: 6 }]]);
     });
   });
 
-  describe('renaming a screen size changes nothing about the layouts already drawn from it', () => {
-    // What a person reads as "this layout's name" is `layoutLabel` resolving
-    // the size's current name (apps/web/tests/unit/panels/arrangement.test.ts,
-    // "follows a rename of its screen size") - a Layout carries no name of its
-    // own to go stale, which is what this proves from the row outward.
-    it('leaves the arrangement and the screen size it is defined at alone', async () => {
-      const { dashboardId, panelId, screenSizeId } = await arranged('Wide', 2560);
+  describe('what used to define screen sizes or remove a layout is no longer taken, and says it is retired', () => {
+    /**
+     * `410` rather than `404` or `400`, so a tab still on the previous version
+     * is told it is behind and fetches the new one (`auth/gate.ts`,
+     * `RETIRED_PATHS`), rather than landing on a refusal it can do nothing
+     * about.
+     */
+    it.each([
+      { situation: 'defining a screen size', command: 'create_screen_size', body: { name: 'Wide', width: 2560 } },
+      { situation: 'renaming a screen size', command: 'rename_screen_size', body: { name: 'Big' } },
+      { situation: 'removing a screen size', command: 'delete_screen_size', body: {} },
+      { situation: 'removing a layout', command: 'delete_layout', body: {} },
+    ])('refuses $situation and leaves the arrangement alone', async ({ command, body }) => {
+      const { dashboardId, panelId } = await unarranged();
+      const layoutId = nextId();
+      await saveLayout(dashboardId, layoutId, [{ panelId, span: 4 }]);
 
-      const renamed = await send('rename_screen_size', {
+      const refused = await send(command, {
         workspaceId: WORKSPACE_ID,
-        screenSizeId,
-        name: '  The big one  ',
+        screenSizeId: nextId(),
+        layoutId,
+        ...body,
       });
 
-      expect(renamed.status).toBe(200);
-      expect((await layoutsOf(dashboardId))[0]).toMatchObject({
-        screenSizeId,
-        rows: [{ height: null, cells: [{ panelId, span: 4 }] }],
-      });
+      expect(refused.status).toBe(410);
+      expect((await layoutsOf(dashboardId)).map(cellsOf)).toEqual([[{ panelId, span: 4 }]]);
     });
 
     it('has no route left for the retired rename_layout, rather than a 500', async () => {
-      // "Take the width and the name off a layout, now that its size carries
-      // them" (issue 264) retires the command: a Layout has nothing left to
-      // rename, since what a person reads is the screen size's own name. Every
-      // command is its own static route ("one POST endpoint per change",
-      // app.ts) - retiring one takes the route with it, so the app never
-      // reaches command-service.ts for it at all.
-      const { layoutId } = await arranged('Wide');
+      // Retired before Screen sizes were ("Take the width and the name off a
+      // layout, now that its size carries them", issue 264), and never added
+      // to the addresses that answer as retired: every command is its own
+      // static route ("one POST endpoint per change", app.ts), so retiring one
+      // takes the route with it and the app never reaches command-service.ts.
+      const { dashboardId, panelId } = await unarranged();
+      const layoutId = nextId();
+      await saveLayout(dashboardId, layoutId, [{ panelId, span: 4 }]);
 
-      const renamed = await send('rename_layout', {
-        workspaceId: WORKSPACE_ID,
-        layoutId,
-        name: 'Mine now',
-      });
+      const renamed = await send('rename_layout', { workspaceId: WORKSPACE_ID, layoutId, name: 'Mine now' });
 
       expect(renamed.status).toBe(404);
-    });
-  });
-
-  describe('deleting a dashboard’s last layout is allowed', () => {
-    it('takes it, and the dashboard is drawn fitted to the screen', async () => {
-      const { dashboardId, layoutId } = await arranged('Wide');
-
-      const gone = await send('delete_layout', { workspaceId: WORKSPACE_ID, layoutId });
-
-      expect(gone.status).toBe(200);
-      expect(await layoutsOf(dashboardId)).toHaveLength(0);
-    });
-
-    it('deletes one of two, leaving the other to fall back to', async () => {
-      const { dashboardId, panelId, layoutId } = await arranged('Wide');
-      const phone = await aScreenSize('Phone', 480);
-      expect(
-        (await saveLayout(dashboardId, nextId(), 480, [{ panelId, span: 12 }], phone)).status,
-      ).toBe(200);
-
-      const gone = await send('delete_layout', { workspaceId: WORKSPACE_ID, layoutId });
-
-      expect(gone.status).toBe(200);
-      expect((await layoutsOf(dashboardId)).map((l) => l.screenSizeId)).toEqual([phone]);
     });
   });
 });
@@ -1581,7 +1282,7 @@ describe('Layouts', () => {
       await addPanel(dashboardId, 'Anna', { panelId: anna });
       await addPanel(dashboardId, 'To read', { panelId: reading });
 
-      const saved = await saveRows(dashboardId, nextId(), 1280, [
+      const saved = await saveRows(dashboardId, nextId(), [
         { height: 300, cells: [{ panelId: falcon, span: 8 }, { panelId: anna, span: 4 }] },
         { height: null, cells: [{ panelId: reading, span: 12 }] },
       ]);
@@ -1600,13 +1301,13 @@ describe('Layouts', () => {
       await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
       await addPanel(dashboardId, 'Anna', { panelId: anna });
       const layoutId = nextId();
-      await saveRows(dashboardId, layoutId, 1280, [
+      await saveRows(dashboardId, layoutId, [
         { height: null, cells: [{ panelId: falcon, span: 12 }] },
         { height: 200, cells: [{ panelId: anna, span: 12 }] },
       ]);
 
       // The two of them on one line now, which is one row where there were two.
-      await saveRows(dashboardId, layoutId, 1280, [
+      await saveRows(dashboardId, layoutId, [
         { height: null, cells: [{ panelId: falcon, span: 6 }, { panelId: anna, span: 6 }] },
       ]);
 
@@ -1620,7 +1321,7 @@ describe('Layouts', () => {
       const panelId = nextId();
       await addPanel(dashboardId, aName(), { panelId });
 
-      const refused = await saveRows(dashboardId, nextId(), 1280, [
+      const refused = await saveRows(dashboardId, nextId(), [
         { height: null, cells: [{ panelId, span: 12 }] },
         { height: null, cells: [] },
       ]);
@@ -1634,7 +1335,7 @@ describe('Layouts', () => {
       const panelId = nextId();
       await addPanel(dashboardId, aName(), { panelId });
 
-      const refused = await saveRows(dashboardId, nextId(), 1280, [
+      const refused = await saveRows(dashboardId, nextId(), [
         { height: null, cells: [{ panelId, span: 12 }] },
         { height: null, cells: [{ panelId, span: 12 }] },
       ]);
@@ -1651,7 +1352,7 @@ describe('Layouts', () => {
       const panelId = nextId();
       await addPanel(dashboardId, aName(), { panelId });
 
-      const refused = await saveRows(dashboardId, nextId(), 1280, [
+      const refused = await saveRows(dashboardId, nextId(), [
         { height, cells: [{ panelId, span: 12 }] },
       ]);
 
@@ -1670,7 +1371,7 @@ describe('Layouts', () => {
       await addPanel(dashboardId, 'Project Falcon', { panelId: falcon });
       await addPanel(dashboardId, 'Beside Falcon', { panelId: shared });
       await addPanel(dashboardId, 'On its own line', { panelId: alone });
-      await saveRows(dashboardId, nextId(), 1280, [
+      await saveRows(dashboardId, nextId(), [
         { height: null, cells: [{ panelId: falcon, span: 6 }, { panelId: shared, span: 6 }] },
         { height: null, cells: [{ panelId: alone, span: 12 }] },
       ]);

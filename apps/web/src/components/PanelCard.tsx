@@ -99,6 +99,12 @@ export interface PanelCardProps {
    */
   lifted: boolean;
   /**
+   * That a Panel is in the air somewhere on the board: this one is then drawn
+   * as its header alone, whatever it holds, so the whole arrangement is in view
+   * at once.
+   */
+  collapsed?: boolean;
+  /**
    * The grab, and the whole of what this reports.
    *
    * **The board takes the gesture from here**, pointer and all. A panel that
@@ -148,6 +154,7 @@ export function PanelCard({
   onFilter,
   onSort,
   lifted,
+  collapsed = false,
   onPickUp,
   refusal,
   busy,
@@ -551,7 +558,12 @@ export function PanelCard({
       {/* Neither on a panel of text nor on a Filter: an item made here would
           be filed onto the panel it was made on, and a Filter is the one panel
           nothing is filed onto. */}
-      {!text && !filter && <PanelAddItemForm workspaceId={workspaceId} panelId={panel.id} />}
+      {!text && !filter && (
+        // Hidden rather than unmounted, so a half-typed item survives a drag.
+        <div style={collapsed ? { display: 'none' } : undefined}>
+          <PanelAddItemForm workspaceId={workspaceId} panelId={panel.id} />
+        </div>
+      )}
 
       {/* No padding of its own: a row carries its own, so a list inside a panel
           reads exactly as it does in the Inbox.
@@ -563,7 +575,10 @@ export function PanelCard({
       {/* A panel of text fills its well with one box and lets that box scroll,
           rather than scrolling the well around it: a textarea that grew past
           the panel would put a second scrollbar inside the first. */}
+      {/* Hidden rather than unmounted, for what a panel keeps in its well: the
+          scroll position, the pages of rows loaded, a text being written. */}
       <div
+        style={collapsed ? { display: 'none' } : undefined}
         data-drag-scroll={text ? undefined : 'panel'}
         className={`well m-1 min-h-0 flex-1 ${text ? 'flex flex-col overflow-hidden' : 'overflow-auto'}`}
       >
@@ -592,9 +607,7 @@ export function PanelCard({
             // dragged to a new place in it.
             sorted={(sortedAs !== null || dashboardFiltered) && filter === null}
             emptyMessage={
-              dashboardFiltered
-                ? 'Nothing here matches the dashboard filter.'
-                : filter
+              filter
                 ? filter.conditions.length === 0
                   ? NOTHING_CHOSEN_TO_SHOW
                   : NOTHING_MATCHES_YET

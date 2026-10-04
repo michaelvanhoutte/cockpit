@@ -107,6 +107,7 @@
         "apps/web/src/components/CaptureNote.tsx",
         "apps/web/src/components/CaptureWindow.tsx",
         "apps/web/src/captureForm.ts",
+        "apps/web/src/dictation.ts",
         "apps/web/src/captureShortcut.ts",
         "apps/web/src/pages/CapturePage.tsx",
         "apps/web/src/capture.ts",
@@ -183,7 +184,7 @@
     {
       "key": "Panels",
       "label": "Panels",
-      "browserWalks": 15,
+      "browserWalks": 16,
       "parent": "Dashboards",
       "sourcePatterns": [
         "apps/api/src/domain/panels.ts",
@@ -229,13 +230,11 @@
         "apps/web/src/panels/useScreenWidth.ts",
         "apps/web/src/components/DashboardBar.tsx",
         "apps/api/src/domain/panels.ts",
-        "apps/api/src/domain/screen-sizes.ts",
         "apps/api/src/accounts/changes.ts",
         "apps/api/src/accounts/command-service.ts",
         "apps/api/src/accounts/repo.ts",
         "apps/api/src/http/app.ts",
         "packages/shared/src/domain/panel.ts",
-        "packages/shared/src/domain/screen-size.ts",
         "packages/shared/src/commands.ts"
       ]
     },

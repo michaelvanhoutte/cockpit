@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -23,7 +23,6 @@ import type {
   LayoutRow,
   Panel,
   PanelSort,
-  ScreenSize,
 } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
@@ -47,6 +46,7 @@ import {
 import { dashboardTabAt } from '../panels/dashboardDrop';
 import type { TabRect } from '../panels/dashboardDrop';
 import { DeleteQuestion } from './DeleteQuestion';
+import { anchored } from '../panels/anchoring';
 import { arrangedWith, placementFor } from '../panels/dragging';
 import type { DrawnRow } from '../panels/dragging';
 import { MovePanelToDashboardPicker } from './MovePanelToDashboardPicker';
@@ -103,7 +103,6 @@ export function PanelBoard({
   panels,
   panelsInWorkspace,
   layouts,
-  screenSizes,
   items,
   filings,
   itemTypes,
@@ -130,8 +129,6 @@ export function PanelBoard({
    */
   panelsInWorkspace: readonly Panel[];
   layouts: readonly Layout[];
-  /** Every screen size the account has, whether or not this dashboard has defined one at it. */
-  screenSizes: readonly ScreenSize[];
   /** Every open item of the workspace; each panel is handed the ones filed on it. */
   items: readonly Item[];
   filings: readonly Filing[];
@@ -150,8 +147,8 @@ export function PanelBoard({
   /**
    * How wide the panels actually are, which is not the screen: the Inbox takes
    * about a fifth of it wherever there is room ("Show the Inbox beside the
-   * dashboards instead of as a tab", issue 117). The screen's width is what a
-   * layout is *recorded* against; this is what decides how many fit across.
+   * dashboards instead of as a tab", issue 117). The screen's width decides
+   * whether this is a phone; this is what decides how many fit across.
    * Before anything has been measured the screen's width stands in, which is
    * the arrangement one paint early rather than every panel full width.
    */
@@ -246,6 +243,27 @@ export function PanelBoard({
    * exactly the moves this ref exists to catch.
    */
   const draggingNow = useRef<string | null>(null);
+  /**
+   * **Every Panel is its header alone while one is in the air**, so the whole
+   * arrangement is in view at once and a Panel can be taken to any row without
+   * riding the edge-scroll past screens of Items. Only a Panel drag does it: a
+   * size is set against what is in the Panels, so a line being dragged
+   * collapses nothing.
+   */
+  const collapsed = dragging !== null;
+  /**
+   * The header that must stay where it is while the board changes shape: the
+   * Panel and where its top was the moment before - grabbed when the board
+   * collapses, dropped when it opens.
+   */
+  const anchor = useRef<{ panelId: string; top: number } | null>(null);
+  /**
+   * What the Dashboard could not scroll to keep the anchor: room above the
+   * board where positive, the board pulled up where negative. It outlives the
+   * drag, since taking it away on the drop would move the dropped Panel; the
+   * next anchoring takes back what scrolling can now hold.
+   */
+  const [room, setRoom] = useState(0);
   /** Where the pointer last was during a panel drag, for the scroll that moves the page under a still hand. */
   const pointerAt = useRef<{ x: number; y: number } | null>(null);
   /** The control a question was opened from, so the focus can go back to it. */
@@ -278,7 +296,7 @@ export function PanelBoard({
     latest: LayoutRow[];
   } | null>(null);
 
-  const drawnWith = layoutToDraw(layouts, screenSizes, dashboard.id, screenWidth);
+  const drawnWith = layoutToDraw(layouts, dashboard.id, screenWidth);
   const stored = drawnRows(drawnWith, panels, acrossWidth);
   // The preview while a drag is on, then a draft that has been sent and is
   // waiting for the store to agree, then what the store holds.
@@ -310,6 +328,43 @@ export function PanelBoard({
     filteringOn
       ? list.filter((item) => matchesDashboardFilter(dashboardFilter, item, withAttachments, today, withRun))
       : list;
+
+  /** What a Panel shows: its own Items, or what its Filter gathers, narrowed by the Dashboard filter. */
+  const itemsOf = (panel: Panel): Item[] =>
+    narrowed(
+      panelGathers(panel)
+        ? itemsMatchingFilter(
+            items,
+            filings,
+            panelsInWorkspace,
+            itemTypes,
+            panel.filter ?? NO_CONDITIONS,
+            today,
+            sortOf(panel) ?? DEFAULT_FILTER_SORT,
+          )
+        : inSortOrder(itemsOnPanel(items, filings, panel.id), sortOf(panel), itemTypes),
+    );
+  /**
+   * **While a Dashboard filter is on, a Panel with no matching Item is not
+   * drawn**, a Panel of text included, which has no Item to match. The cells
+   * keep the layout's own spans, so the Panels left share a row in their
+   * proportions; nothing is stored, so clearing the filter brings every Panel
+   * back.
+   */
+  const shows = new Map(panels.map((panel) => [panel.id, itemsOf(panel)]));
+  const hidden = filteringOn
+    ? new Set(panels.filter((panel) => shows.get(panel.id)!.length === 0).map((panel) => panel.id))
+    : null;
+  // Each row keeps the place it has in `shown`, which is what it is keyed by:
+  // a row hidden above would otherwise move every row under it to a new key
+  // and remount the panels on them.
+  const drawn = shown
+    .map((row, place) => ({
+      place,
+      row: hidden ? { ...row, cells: row.cells.filter((cell) => !hidden.has(cell.panelId)) } : row,
+    }))
+    .filter(({ row }) => !hidden || row.cells.length > 0);
+  const hiddenCount = hidden ? hidden.size : 0;
 
   /**
    * The filings that file, read once for the whole board rather than per panel:
@@ -358,11 +413,7 @@ export function PanelBoard({
     sent.current = null;
   };
 
-  const saveArrangement = (
-    layoutId: string,
-    screenWidthOfLayout: number,
-    rows: readonly LayoutRow[],
-  ) => {
+  const saveArrangement = (layoutId: string, rows: readonly LayoutRow[]) => {
     command.mutate(
       {
         name: 'save_layout',
@@ -372,7 +423,6 @@ export function PanelBoard({
           workspaceId,
           dashboardId: dashboard.id,
           layoutId,
-          screenWidth: screenWidthOfLayout,
           // Named field by field rather than sent as read, so a row that
           // arrived from a snapshot with something extra on it cannot carry
           // that back into a command the schema then refuses.
@@ -397,13 +447,8 @@ export function PanelBoard({
          * is the same "looks like it worked" failure the questions elsewhere in
          * the app are shaped to avoid.
          *
-         * **Reachable rather than theoretical.** Two tabs on a dashboard with
-         * no layout, both dragging: the first records one and the second is
-         * refused, because its own copy of the dashboard still has no layout
-         * for the size to be taken against. Dropping `sent` with the draft is what lets the same
-         * gesture be made again once the snapshot has caught up; `justMade` is
-         * deliberately kept, so the retry changes the layout this board made
-         * rather than defining a second one at the same width.
+         * Dropping `sent` with the draft is what lets the same gesture be made
+         * again once the snapshot has caught up.
          */
         onError: () => {
           setDraft(null);
@@ -418,14 +463,12 @@ export function PanelBoard({
    * The id of the layout this board made, kept until the snapshot has it.
    *
    * Two gestures can both find the dashboard with no layout: the first sends
-   * one and the second happens before the re-read lands. A fresh id each time
-   * would define a second layout for the same dashboard. Sending the same id
-   * makes the second gesture change the layout the first one made, which is
-   * what it meant, whatever the window was resized to between the two: a
-   * dashboard has one layout, so there is no other screen to make one for.
+   * one and the second happens before the re-read lands. Sending the same id
+   * keeps the second gesture plainly about the layout the first one made; the
+   * server would put a save naming any other id into that one anyway.
    */
   const justMade = useRef<string | null>(null);
-  const layoutForThisScreen = (): string => {
+  const firstLayoutId = (): string => {
     if (justMade.current) return justMade.current;
     justMade.current = uuidv7();
     return justMade.current;
@@ -444,7 +487,7 @@ export function PanelBoard({
   const propose = (next: LayoutRow[]) => {
     // A gesture already in the air when the window shrank past the phone line
     // has nothing to keep: a phone is never arranged, and sending it would
-    // make a layout at a screen that has none to make.
+    // replace the one Layout every wider screen draws.
     if (!arrangeable) return;
     // Against what has been *sent* - or the store, where nothing has - rather
     // than against what is drawn: a gesture that puts a panel back where the
@@ -454,18 +497,9 @@ export function PanelBoard({
     if (sameArrangement(next, sent.current ?? stored)) return;
     command.reset();
     setDraft(next);
-    if (drawnWith) {
-      // The screen's own width, not anything the layout stores: `screenWidth`
-      // is only ever read when a save creates a layout (`saveLayoutSchema`),
-      // and this one already exists.
-      saveArrangement(drawnWith.id, screenWidth, next);
-      return;
-    }
-    // Nothing defined asks nothing: the server keeps this in the nearest
-    // screen size the account has, or makes one called Default where it has
-    // none at all (`save_layout`, `screenSizeId`) - the same silent choice
-    // making a layout used to be, one layer further down.
-    saveArrangement(layoutForThisScreen(), screenWidth, next);
+    // A dashboard nobody has arranged gets its one layout from this first
+    // move, under an id made here (`save_layout`).
+    saveArrangement(drawnWith?.id ?? firstLayoutId(), next);
   };
 
   /**
@@ -593,6 +627,45 @@ export function PanelBoard({
     propose(withRowHeight(shown, rowIndex, null));
   };
 
+  /** Where a Panel's header is on the page, or null where it is not drawn. */
+  const headerTop = (panelId: string): number | null => {
+    const header = rowsRef.current?.querySelector(`[data-panel-cell="${panelId}"] header`);
+    return header ? header.getBoundingClientRect().top : null;
+  };
+
+  /** Notes where the header is now, for the board about to change shape around it. */
+  const anchorOn = (panelId: string) => {
+    const top = headerTop(panelId);
+    anchor.current = top === null ? null : { panelId, top };
+  };
+
+  /**
+   * Puts the anchored header back under the pointer once the board has
+   * collapsed or opened: the Dashboard scrolls by the difference, and what it
+   * cannot scroll becomes room above the board or the board pulled up
+   * (`panels/anchoring.ts`). A header that has gone (deleted in another tab)
+   * leaves everything as it fell.
+   */
+  useLayoutEffect(() => {
+    const held = anchor.current;
+    anchor.current = null;
+    if (!held) return;
+    const now = headerTop(held.panelId);
+    if (now === null) return;
+    const scroller = rowsRef.current?.closest<HTMLElement>('[data-drag-scroll="dashboard"]');
+    const next = anchored({
+      wanted: held.top,
+      now,
+      scrollTop: scroller?.scrollTop ?? 0,
+      maxScrollTop: scroller ? scroller.scrollHeight - scroller.clientHeight : 0,
+    });
+    if (scroller) scroller.scrollTop = next.scrollTop;
+    // Added to what is already there, and so taken back where a header that
+    // had to be held down by room can now be held by scrolling.
+    setRoom((room) => (Math.abs(room + next.shift) < 0.5 ? 0 : room + next.shift));
+    // Once per collapse and once per opening, which is what `collapsed` changes with.
+  }, [collapsed]);
+
   /**
    * Picks a panel up. Nothing is sent; the board just starts drawing it moved.
    *
@@ -603,6 +676,7 @@ export function PanelBoard({
    * one thing on screen that no rearrangement can unmount.
    */
   const pickUp = (panelId: string, pointerId: number) => {
+    anchorOn(panelId);
     command.reset();
     setRenaming(null);
     setDeleting(null);
@@ -669,6 +743,7 @@ export function PanelBoard({
     if (!draggingNow.current) return;
     draggingNow.current = null;
     const held = dragging;
+    if (held) anchorOn(held.id);
     setDragging(null);
     if (!held) return;
     const droppedOnDashboard = dashboardTabAt(point, tabsOnScreen(), dashboard.id);
@@ -682,6 +757,7 @@ export function PanelBoard({
 
   /** A drag abandoned rather than dropped: the panels go back and nothing is sent. */
   const abandon = () => {
+    if (draggingNow.current) anchorOn(draggingNow.current);
     draggingNow.current = null;
     setDragging(null);
   };
@@ -935,10 +1011,11 @@ export function PanelBoard({
           and the tab is the one that says *which of several*, so the tab is
           the one that stays. */}
       <h2 className="sr-only">{dashboard.name}</h2>
-      <DashboardFilterBar dashboardId={dashboard.id} />
+      <DashboardFilterBar dashboardId={dashboard.id} panelsHidden={hiddenCount} />
       {filteringOn && (
         <p className="sr-only" role="status">
           This dashboard is filtered
+          {hiddenCount > 0 && `, ${hiddenCount === 1 ? '1 panel' : `${hiddenCount} panels`} hidden`}
         </p>
       )}
 
@@ -974,9 +1051,10 @@ export function PanelBoard({
           // The browser taking it back - a touch that became a scroll, the
           // window losing focus. The panels go back where they were.
           onPointerCancel={abandon}
+          style={room !== 0 ? { marginTop: room } : undefined}
           className="flex min-w-0 flex-col"
         >
-          {shown.map((row, rowIndex) => {
+          {drawn.map(({ row, place: rowIndex }) => {
             const shares = sharesOf(row);
             return (
               // Keyed by where the row is, not by what is on it. A row has no
@@ -1021,8 +1099,8 @@ export function PanelBoard({
                   // it header - and filing an item into it stopped working
                   // where there was nothing left to aim at.
                   style={{
-                    height: filteringOn ? undefined : (row.height ?? undefined),
-                    minHeight: filteringOn ? undefined : MIN_ROW_HEIGHT,
+                    height: filteringOn || collapsed ? undefined : (row.height ?? undefined),
+                    minHeight: filteringOn || collapsed ? undefined : MIN_ROW_HEIGHT,
                     display: 'grid',
                     // The gap between two panels is a track of its own rather
                     // than a `gap`, so it is an element a hand can take hold
@@ -1053,23 +1131,7 @@ export function PanelBoard({
                           panel={panel}
                           workspaceId={workspaceId}
                           dashboardFiltered={filteringOn}
-                          items={narrowed(
-                            panelGathers(panel)
-                              ? itemsMatchingFilter(
-                                  items,
-                                  filings,
-                                  panelsInWorkspace,
-                                  itemTypes,
-                                  panel.filter ?? NO_CONDITIONS,
-                                  today,
-                                  sortOf(panel) ?? DEFAULT_FILTER_SORT,
-                                )
-                              : inSortOrder(
-                                  itemsOnPanel(items, filings, panel.id),
-                                  sortOf(panel),
-                                  itemTypes,
-                                ),
-                          )}
+                          items={shows.get(panel.id) ?? []}
                           itemTypes={itemTypes}
                           panelsInWorkspace={panelsInWorkspace}
                           // What is filed anywhere, which a filing onto a
@@ -1132,6 +1194,7 @@ export function PanelBoard({
                             setSorting(panel.id);
                           }}
                           lifted={dragging?.id === panel.id}
+                          collapsed={collapsed}
                           onPickUp={arrangeable ? (pointerId) => pickUp(panel.id, pointerId) : null}
                           refusal={
                             refusalFor('rename_panel', panel.id) ??
@@ -1156,6 +1219,13 @@ export function PanelBoard({
               </Fragment>
             );
           })}
+          {filteringOn && drawn.length === 0 && (
+            <section className="well px-4 py-14 text-center">
+              <p className="mx-auto max-w-md text-sm text-ink-faint">
+                No panel has an item matching the filter.
+              </p>
+            </section>
+          )}
           {/* The gap under the last row, so a panel can be dropped below
               everything rather than only between two things - and, being under
               a row, the line that sets that row's height. */}
@@ -1344,7 +1414,10 @@ function RowSeam({
       // gap saying something can go in it.
       data-testid="row-seam"
       style={{ height: dragging ? 22 : PANEL_GAP, position: 'relative' }}
-      className="shrink-0 transition-[height] duration-100"
+      // No transition on the height: the board anchors the grabbed header the
+      // moment it collapses (`anchored`), and a seam still growing then would
+      // carry it away from the pointer by the growth after it was placed.
+      className="shrink-0"
     >
       {/* Four pixels is the seam and four pixels is not a target, so the line
           reaches past it - **upwards only**. Reaching down would put it over

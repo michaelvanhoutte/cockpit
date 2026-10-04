@@ -270,7 +270,6 @@ describe('Layouts', () => {
         workspaceId: 'ws-work',
         dashboardId: 'today',
         layoutId: 'wide',
-        screenWidth: 1280,
         rows: named.map((panelIds) => ({
           height: null,
           cells: panelIds.map((panelId) => ({ panelId, span: 12 / panelIds.length })),

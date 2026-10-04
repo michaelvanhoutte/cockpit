@@ -375,12 +375,29 @@ test.describe('Dashboards', () => {
       const other = uniqueTitle('Elsewhere');
       const otherId = randomUUID();
       await send('add_dashboard', { dashboardId: otherId, panelId: randomUUID(), name: other });
+      // The Panels that give Dashboard 1 its height hold High items, because a
+      // filter hides a Panel it leaves empty and a Dashboard of hidden Panels
+      // has nothing to scroll.
+      const tall = [0, 1, 2].map(() => ({
+        panelId: randomUUID(),
+        itemIds: Array.from({ length: 4 }, () => randomUUID()),
+      }));
       await Promise.all([
-        ...[0, 1, 2].map((at) =>
-          send('add_panel', { dashboardId: dashboardId!, panelId: randomUUID(), name: `Extra ${at}` }),
+        ...tall.map(({ panelId }, at) =>
+          send('add_panel', { dashboardId: dashboardId!, panelId, name: `Extra ${at}` }),
         ),
         ...[0, 1].map((at) =>
           send('add_panel', { dashboardId: otherId, panelId: randomUUID(), name: `Other ${at}` }),
+        ),
+        ...tall.flatMap(({ itemIds }) =>
+          itemIds.map((itemId) =>
+            send('capture_item', {
+              itemId,
+              message: uniqueTitle('High'),
+              typeId: aType!.id,
+              priority: 'high',
+            }),
+          ),
         ),
         ...Array.from({ length: 12 }, (_, at) =>
           send('capture_item', {
@@ -390,6 +407,14 @@ test.describe('Dashboards', () => {
           }),
         ),
       ]);
+      // One Panel's items go on in turn, since each names the order so far.
+      await Promise.all(
+        tall.map(async ({ panelId, itemIds }) => {
+          for (let at = 0; at < itemIds.length; at += 1) {
+            await send('add_item_to_panel', { itemId: itemIds[at]!, panelId, order: itemIds.slice(0, at + 1) });
+          }
+        }),
+      );
       await page.reload();
 
       // **A Dashboard.**

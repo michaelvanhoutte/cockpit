@@ -16,7 +16,7 @@ import type {
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../../../src/api/client';
 import { DUE_DATE_SETTLES_MS, ItemForm, whatChanged } from '../../../src/components/ItemForm';
 import { DESCRIPTION_TEXT_CLASS } from '../../../src/description/textClass';
-import { dueComingFriday, dueSevenDaysOut, dueToday } from '../../../src/dueDateShortcuts';
+import { dueSevenDaysOut, dueToday, dueTomorrow } from '../../../src/dueDateShortcuts';
 import { THE_BAR_LASTS_MS, UndoWhatJustHappened } from '../../../src/undo';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
@@ -613,17 +613,27 @@ describe('Item editing', () => {
   /**
    * "Give the item's form more room, and put clutter out of the way" (issue
    * 480): one-click alongside typing one directly. What each shortcut
-   * actually computes - the coming Friday never a past one, seven days out -
-   * is tests/unit/dueDateShortcuts.test.ts's own claim; what is asked here is
+   * actually computes is tests/unit/dueDateShortcuts.test.ts's own claim;
+   * what is asked here is
    * that pressing one fills the field with it, overriding whatever was
    * already there, and that typing afterwards still wins.
    */
   describe('setting a due date has one-click shortcuts alongside typing one directly', () => {
     const dueDateBox = () => screen.getByLabelText('Due date');
 
+    it('offers exactly Today, Tmrw and +7d, in that order', async () => {
+      await theForm(anItem({ dueDate: null }));
+
+      const offered = screen
+        .getAllByRole('button', { name: /^(Today|Tmrw|Fri|\+7d)$/ })
+        .map((button) => button.textContent);
+
+      expect(offered).toEqual(['Today', 'Tmrw', '+7d']);
+    });
+
     it.each([
       { situation: 'Today', button: 'Today', shortcut: dueToday },
-      { situation: 'Fri', button: 'Fri', shortcut: dueComingFriday },
+      { situation: 'Tmrw', button: 'Tmrw', shortcut: dueTomorrow },
       { situation: '+7d', button: '+7d', shortcut: dueSevenDaysOut },
     ])('$situation fills the field, overriding a due date already there', async ({ button, shortcut }) => {
       await theForm(anItem({ dueDate: '2020-01-01' }));
@@ -1528,6 +1538,15 @@ describe('Item editing', () => {
       const opener = screen.getByRole('link', { name: 'Open in Microsoft Teams' });
       expect(opener).toHaveAttribute('href', link);
       expect(opener).toHaveAttribute('target', '_blank');
+    });
+
+    /** "Connect a Gmail account to a workspace, and disconnect it", issue 724. */
+    it('names an item from Gmail "Gmail", never the stored "mail"', async () => {
+      await theForm(anItem({ source: 'mail', sender: 'Anna', sourceLink: 'https://mail.google.com/mail/#all/1' }));
+
+      expect(screen.getByText(/From Gmail - Anna/)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open in Gmail' })).toBeInTheDocument();
+      expect(screen.queryByText(/\bmail\b/)).toBeNull();
     });
 
     it('names the app that captured it, and not the protocol it came through', async () => {

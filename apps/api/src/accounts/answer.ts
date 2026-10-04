@@ -10,7 +10,6 @@ import type {
   Layout,
   Panel,
   PossibleDuplicate,
-  ScreenSize,
   Workspace,
 } from '@cockpit/shared';
 
@@ -36,8 +35,8 @@ export interface AccountSnapshot {
   /** The workspace's dashboards, oldest first: the bar under the tabs. */
   dashboards: Dashboard[];
   /**
-   * Every panel of every one of those dashboards, oldest first, and every
-   * layout arranging them - the whole workspace rather than the dashboard being
+   * Every panel of every one of those dashboards, oldest first, and each one's
+   * layout where it has one - the whole workspace rather than the dashboard being
    * looked at, because switching between dashboards happens without a round
    * trip.
    */
@@ -48,15 +47,6 @@ export interface AccountSnapshot {
   associations: Association[];
   /** Every live Type of the account, in the order they are offered in. */
   itemTypes: ItemType[];
-  /**
-   * Every screen size of the account, narrowest first - the account's, like the
-   * Types above, and in the workspace's snapshot for the same reason ("Give the
-   * account a list of screen sizes, before anything reads it", issue 262).
-   *
-   * Empty in every account until "Draw a dashboard against the screen sizes
-   * its account has" (issue 263), since nothing writes one yet.
-   */
-  screenSizes: ScreenSize[];
   /**
    * Which of the Items above say the same thing as which ("Flag a captured
    * note that says what another one already said", issue 407) - both halves of

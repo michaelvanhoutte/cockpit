@@ -7,7 +7,6 @@ import type {
   Layout,
   Panel,
   PossibleDuplicate,
-  ScreenSize,
   WorkspaceSnapshot,
 } from '@cockpit/shared';
 import { DashboardBar } from '../../../src/components/DashboardBar';
@@ -34,7 +33,6 @@ const held = vi.hoisted(() => ({
   dashboards: [] as Dashboard[],
   panels: [] as Panel[],
   layouts: [] as Layout[],
-  screenSizes: [] as ScreenSize[],
   duplicates: [] as PossibleDuplicate[],
   /**
    * Which dashboard the address names, so the stand-in `Link` below can mark
@@ -118,7 +116,6 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         associations: [],
         attachments: [],
         itemTypes: [],
-        screenSizes: held.screenSizes,
         itemFormPresentation: 'centered',
         duplicates: held.duplicates,
         filings: [],
@@ -179,7 +176,6 @@ function showBar(
     openDashboardId?: string | null;
     panels?: Panel[];
     layouts?: Layout[];
-    screenSizes?: ScreenSize[];
     /** What a Save comes back with, the form sending its own change. */
     sendFails?: Error;
     /** A dashboard another tab adds while a refused move is in flight. */
@@ -193,7 +189,6 @@ function showBar(
   held.dashboards = names.map(aDashboard);
   held.panels = answer.panels ?? [];
   held.layouts = answer.layouts ?? [];
-  held.screenSizes = answer.screenSizes ?? [];
   held.openDashboardId = answer.openDashboardId ?? null;
   held.allItemsOpen = answer.allItemsOpen ?? false;
   wentTo.calls = [];
@@ -1078,29 +1073,23 @@ describe('Panels', () => {
 describe('Layouts', () => {
   const OPEN = 'ws-work-dashboard 1';
 
-  function aScreenSize(id: string, name: string, width: number): ScreenSize {
-    return { id, tenantId: 'tenant', name, width, createdAt: '2026-09-01T09:00:00.000Z' };
-  }
-
-  function aLayout(id: string, screenSizeId: string): Layout {
+  function aLayout(id: string): Layout {
     return {
       id,
       tenantId: 'tenant',
       dashboardId: OPEN,
-      screenSizeId,
       rows: [{ height: null, cells: [{ panelId: 'falcon', span: 12 }] }],
     };
   }
 
   describe('nothing on a dashboard offers a choice of layout or screen size', () => {
     it.each([
-      { situation: 'several layouts', layouts: [aLayout('a', 'sz-laptop'), aLayout('b', 'sz-wide')] },
+      { situation: 'its layout', layouts: [aLayout('a')] },
       { situation: 'none', layouts: [] },
     ])('draws no layout control on a dashboard with $situation, and keeps + Panel and the actions menu', async ({ layouts }) => {
       showBar(['Dashboard 1'], {
         openDashboardId: OPEN,
         layouts,
-        screenSizes: [aScreenSize('sz-laptop', 'Laptop', 1280), aScreenSize('sz-wide', 'Wide', 2560)],
       });
 
       expect(await screen.findByRole('button', { name: '+ Panel' })).toBeVisible();
@@ -1391,21 +1380,15 @@ describe('Dashboards', () => {
     it('says why a panel cannot be added', async () => {
       const open = id('Locked one');
       writeDashboardFilter(localStorage, open, { ...NO_DASHBOARD_FILTER, text: 'vat' });
-      const sizes: ScreenSize[] = [
-        { id: 'sz-laptop', tenantId: 'tenant', name: 'Laptop', width: 1280, createdAt: '2026-09-01T09:00:00.000Z' },
-        { id: 'sz-wide', tenantId: 'tenant', name: 'Wide', width: 2560, createdAt: '2026-09-01T09:00:00.000Z' },
-      ];
       const layout: Layout = {
         id: 'laptop',
         tenantId: 'tenant',
         dashboardId: open,
-        screenSizeId: 'sz-laptop',
         rows: [],
       };
       const { user } = showBar(['Locked one'], {
         openDashboardId: open,
         layouts: [layout],
-        screenSizes: sizes,
       });
 
       const add = await screen.findByRole('button', { name: '+ Panel' });

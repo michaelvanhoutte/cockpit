@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { SourceAccount } from '@cockpit/shared';
 import ManageConnections from '../../../src/components/ManageConnections';
+import type { ConnectOutcome } from '../../../src/connections';
 import { useCommand, useConnectClaudeCode, useTestClaudeCodeConnection } from '../../../src/api/queries';
 
 /**
@@ -100,7 +101,7 @@ let testedClaudeCode: ReturnType<typeof vi.fn>;
  */
 type TestOutcome = { accepted: true } | { accepted: false; message: string } | 'network-failure';
 
-function showWindow(outcome?: 'connected' | 'refused', testOutcome: TestOutcome = { accepted: true }) {
+function showWindow(outcome?: ConnectOutcome, testOutcome: TestOutcome = { accepted: true }) {
   sent = vi.fn();
   testedClaudeCode = vi.fn(
     (_sourceAccountId: string, opts: { onSuccess?: (r: unknown) => void; onError?: () => void }) => {
@@ -205,6 +206,73 @@ describe('Connector management', () => {
 
       expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
       expect(screen.queryByRole('alert')).toBeNull();
+    });
+  });
+
+  /** "Connect a Gmail account to a workspace, and disconnect it", issue 724. */
+  describe('Gmail is connected through three steps before Google, and the window says how it went', () => {
+    it('Connect on the Gmail card shows the three steps, and says the label and the task stay in step', async () => {
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
+
+      const steps = await screen.findByRole('dialog', { name: 'Connect Gmail to Work' });
+      expect(steps).toHaveTextContent(/1\. Create a label called Cockpit in Gmail/);
+      expect(steps).toHaveTextContent(/2\. Sign in with Google\..*Advanced, then Go to Cockpit/);
+      expect(steps).toHaveTextContent(/3\. Label any conversation Cockpit/);
+      expect(steps).toHaveTextContent(/The label and the task stay in step/);
+      // The card says it too, before anybody presses anything.
+      expect(screen.getByText(/Finishing the task takes the label off/)).toBeInTheDocument();
+    });
+
+    it('Sign in with Google leaves for this workspace’s own Gmail connect address', async () => {
+      const leaving = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Sign in with Google' }));
+
+      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/gmail/connect');
+    });
+
+    it('Cancel stays, back on the connections list', async () => {
+      const leaving = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Connect Gmail to Work' })).toBeNull());
+      expect(screen.getByRole('button', { name: 'Connect Gmail' })).toBeInTheDocument();
+      expect(leaving).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      {
+        situation: 'connected',
+        outcome: 'gmail-connected' as const,
+        says: 'Connected. Conversations labelled Cockpit arrive in this workspace’s Inbox within a minute.',
+      },
+      { situation: 'refused', outcome: 'refused' as const, says: /^That did not connect\. Nothing was stored\./ },
+    ])('back from Google, $situation, it says so', async ({ outcome, says }) => {
+      showWindow(outcome);
+
+      expect(await screen.findByText(says)).toBeInTheDocument();
+    });
+
+    it('a connected Gmail account is a row named by its address, reading the label it follows', async () => {
+      held.sourceAccounts = [
+        { ...ADA, id: 'account-anna', connectorId: 'gmail', displayName: 'anna@example.com', lastTestedAt: '2026-10-04T09:00:00.000Z' },
+      ];
+
+      showWindow('gmail-connected');
+
+      expect(await screen.findByText('anna@example.com')).toBeInTheDocument();
+      expect(screen.getByText('Gmail · label Cockpit')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Actions for anna@example.com' }));
+      expect(await screen.findByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
     });
   });
 

@@ -45,7 +45,6 @@ function asItWasStoredBefore(): WorkspaceSnapshot {
     dashboards: [{ id: 'today', tenantId: 'tenant', workspaceId: 'ws-work', name: 'Today' }],
     associations: [],
     itemTypes: [],
-    screenSizes: [],
     duplicates: [],
     filings: [],
     generatedAt: '2026-09-02T09:00:00.000Z',

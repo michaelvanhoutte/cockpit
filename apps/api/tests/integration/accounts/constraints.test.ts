@@ -175,7 +175,7 @@ describe('Capture', () => {
               WHERE schema = 'main'
                 AND name IN ('workspaces', 'dashboards', 'panels', 'layouts',
                              'layout_rows', 'panel_placements', 'panel_items',
-                             'items', 'item_types', 'screen_sizes',
+                             'items', 'item_types',
                              'associations', 'commands', 'decision_history',
                              'text_corrections',
                              'duplicate_settlements')
@@ -197,7 +197,6 @@ describe('Capture', () => {
         'panel_items',
         'panel_placements',
         'panels',
-        'screen_sizes',
         'text_corrections',
         'workspaces',
       ]);
@@ -242,7 +241,6 @@ describe('Capture', () => {
         'items',
         'layouts',
         'panels',
-        'screen_sizes',
         'workspaces',
       ]);
     });
@@ -421,29 +419,11 @@ describe('Panels', () => {
     });
   }
 
-  /** A screen size written straight into the store, for a layout's FK to point at. */
-  async function aScreenSizeId(): Promise<string> {
-    const id = nextId();
-    await inTheStore((sql) => {
-      sql.exec(
-        `INSERT INTO screen_sizes (id, tenant_id, name, folded_name, width, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-        id,
-        ACCOUNT_NAME,
-        `Size ${id}`,
-        `size ${id}`,
-        1280,
-        AT,
-      );
-    });
-    return id;
-  }
-
   async function putLayout(overrides: Record<string, unknown> = {}): Promise<void> {
     const row = {
       id: nextId(),
       tenant_id: ACCOUNT_NAME,
       dashboard_id: DASHBOARD_ID,
-      screen_size_id: await aScreenSizeId(),
       created_at: AT,
       ...overrides,
     };
@@ -709,105 +689,55 @@ describe('Panels', () => {
 
 describe('Layouts', () => {
   /**
-   * A screen size written straight into the store, past the handlers that would
-   * have checked it - which is what the constraints are there for
-   * ("The database is the second lock"), and here it is also the only way in:
-   * no command writes one until "Draw a dashboard against the screen sizes its
-   * account has" (issue 263).
+   * A layout written straight into the store, past `save_layout`, which
+   * arranges a dashboard's own layout rather than making a second - so no
+   * request can reach the rule below, and the store's own refusal is the
+   * whole of what is asked.
    */
-  async function makeScreenSize(overrides: Record<string, unknown> = {}): Promise<void> {
-    const row = {
-      id: nextId(),
-      tenant_id: ACCOUNT_NAME,
-      name: 'Wide',
-      folded_name: 'wide',
-      width: 1280,
-      created_at: AT,
-      ...overrides,
-    };
-    const columns = Object.keys(row);
+  async function putLayoutOn(dashboardId: string): Promise<void> {
     await inTheStore((sql) => {
       sql.exec(
-        `INSERT INTO screen_sizes (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
-        ...Object.values(row),
+        'INSERT INTO layouts (id, tenant_id, dashboard_id, created_at) VALUES (?, ?, ?, ?)',
+        nextId(),
+        ACCOUNT_NAME,
+        dashboardId,
+        AT,
       );
     });
   }
 
-  describe('two screen sizes of one account never go by the same name', () => {
-    it.each([
-      { situation: 'the same name', name: 'Wide', folded: 'wide' },
-      { situation: 'the same name in another case', name: 'WIDE', folded: 'wide' },
-    ])('is refused $situation', async ({ name, folded }) => {
-      await makeScreenSize();
+  describe('a dashboard holds at most one layout', () => {
+    it('refuses a second layout for one dashboard', async () => {
+      await putLayoutOn(DASHBOARD_ID);
 
-      await expect(makeScreenSize({ name, folded_name: folded })).rejects.toThrow();
-    });
-  });
-
-  describe('a screen size only ever holds a width a window could be', () => {
-    it.each([
-      { situation: 'a width of nothing', width: 0 },
-      { situation: 'a negative width', width: -1280 },
-      { situation: 'a width no screen has', width: 100001 },
-    ])('is refused $situation', async ({ width }) => {
-      // Bounded because a window is matched to the size closest to it: one
-      // absurd width would win that comparison everywhere or never.
-      await expect(makeScreenSize({ width })).rejects.toThrow();
+      await expect(putLayoutOn(DASHBOARD_ID)).rejects.toThrow();
     });
 
-    it.each([
-      { situation: 'the narrowest a screen can be said to be', width: 1 },
-      { situation: 'an ordinary laptop', width: 1280 },
-      { situation: 'the widest a screen can be said to be', width: 100000 },
-    ])('is stored $situation', async ({ width }) => {
-      await expect(makeScreenSize({ width })).resolves.toBeUndefined();
-    });
-  });
+    it('allows one on each of two dashboards', async () => {
+      const other = nextId();
+      await inTheStore((sql) => {
+        sql.exec(
+          `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at)
+           VALUES (?, ?, ?, 'Research', 'research', ?)`,
+          other,
+          ACCOUNT_NAME,
+          WORKSPACE_ID,
+          AT,
+        );
+      });
+      await putLayoutOn(DASHBOARD_ID);
 
-  /** A layout written without a default screen size, so a case can name one or leave it out. */
-  async function putLayoutAt(overrides: Record<string, unknown> = {}): Promise<void> {
-    const row = {
-      id: nextId(),
-      tenant_id: ACCOUNT_NAME,
-      dashboard_id: DASHBOARD_ID,
-      created_at: AT,
-      ...overrides,
-    };
-    const columns = Object.keys(row);
-    await inTheStore((sql) => {
-      sql.exec(
-        `INSERT INTO layouts (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
-        ...Object.values(row),
+      await expect(putLayoutOn(other)).resolves.toBeUndefined();
+    });
+
+    it('keeps no list of screen sizes at all', async () => {
+      const tables = await inTheStore((sql) =>
+        sql
+          .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'screen_sizes'")
+          .toArray(),
       );
-    });
-  }
 
-  describe('a layout only ever names a screen size that exists', () => {
-    it('is refused against a size that was never made', async () => {
-      await expect(
-        putLayoutAt({ screen_size_id: '01920000-0000-7000-8000-0000000000ff' }),
-      ).rejects.toThrow();
-    });
-
-    it('is refused with no size at all, now that every layout is defined at one', async () => {
-      await expect(putLayoutAt()).rejects.toThrow();
-    });
-
-    it('keeps a size that a layout still names, rather than taking the layout with it', async () => {
-      // RESTRICT throughout, so deleting a size has to decide what happens to
-      // the layouts at it rather than inheriting a silent cascade. Which is
-      // what "Draw a dashboard against the screen sizes its account has" then
-      // decides out loud.
-      const sizeId = nextId();
-      await makeScreenSize({ id: sizeId });
-      await putLayoutAt({ screen_size_id: sizeId });
-
-      await expect(
-        inTheStore((sql) => {
-          sql.exec('DELETE FROM screen_sizes WHERE id = ?', sizeId);
-        }),
-      ).rejects.toThrow();
+      expect(tables).toEqual([]);
     });
   });
 });

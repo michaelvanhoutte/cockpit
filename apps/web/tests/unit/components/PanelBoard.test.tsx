@@ -15,7 +15,6 @@ import type {
   Layout,
   Panel,
   PanelSort,
-  ScreenSize,
 } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
 import {
@@ -137,42 +136,16 @@ function aType(id: string, name: string): ItemType {
 }
 
 /**
- * The width `aLayout` intended for the matching screen size `screenSizeOf`
- * derives - kept here rather than on the Layout itself, which no longer
- * carries a width of its own, keyed by the deterministic id the two share.
- */
-const widthByScreenSizeId = new Map<string, number>();
-
-/**
  * A layout of one row holding every panel, side by side - which is what the
- * flat arrangement these cases were written against drew at this width, so a
- * panel still has somewhere to move left to.
- *
- * Defined at a screen size of its own, one per layout, so the automatic
- * choice (`arrangement.ts`, `layoutToDraw`) has something to find it by -
- * `showBoard` derives the matching `screenSizes` list from these unless a
- * case hands it its own.
+ * flat arrangement these cases were written against drew, so a panel still has
+ * somewhere to move left to.
  */
-function aLayout(id: string, screenWidth: number, panelIds: string[]): Layout {
-  const screenSizeId = `sz-${id}`;
-  widthByScreenSizeId.set(screenSizeId, screenWidth);
+function aLayout(id: string, panelIds: string[]): Layout {
   return {
     id,
     tenantId: 'tenant',
     dashboardId: 'today',
-    screenSizeId,
     rows: [{ height: null, cells: panelIds.map((panelId) => ({ panelId, span: 12 })) }],
-  };
-}
-
-/** The screen size a layout made by `aLayout` is drawn for. */
-function screenSizeOf(layout: Layout): ScreenSize {
-  return {
-    id: layout.screenSizeId,
-    tenantId: 'tenant',
-    name: layout.id,
-    width: widthByScreenSizeId.get(layout.screenSizeId) ?? 1280,
-    createdAt: '2026-09-08T10:00:00.000Z',
   };
 }
 
@@ -229,11 +202,6 @@ function showBoard({
   // off the dashboard.
   dashboards = [DASHBOARD] as Dashboard[],
   layouts = [] as Layout[],
-  // Derived from the layouts unless a case wants its own - most cases here
-  // are about drag-and-drop mechanics, not about which screen sizes an
-  // account has, and every layout `aLayout` makes needs its own size for the
-  // board to draw it automatically at all.
-  screenSizes = layouts.map(screenSizeOf) as ScreenSize[],
   items = [] as Item[],
   attachments = [] as Attachment[],
   agentRuns = [] as AgentRun[],
@@ -255,7 +223,6 @@ function showBoard({
   panelsInWorkspace?: Panel[];
   dashboards?: Dashboard[];
   layouts?: Layout[];
-  screenSizes?: ScreenSize[];
   items?: Item[];
   attachments?: Attachment[];
   agentRuns?: AgentRun[];
@@ -296,7 +263,6 @@ function showBoard({
         panels={drawing}
         panelsInWorkspace={panelsInWorkspace}
         layouts={layouts}
-        screenSizes={screenSizes}
         items={drawnItems}
         attachments={drawnAttachments}
         agentRuns={drawnRuns}
@@ -663,7 +629,7 @@ describe('Panels', () => {
       // close, and starve `SurfaceMenu`'s long press of the touch it needs to
       // open at all. `pointerType` is the whole of what tells the two apart,
       // the same guard `tabDrag.ts` carries for the same reason.
-      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
       const lifted = () => screen.getByRole('region', { name: 'To read' }).className;
 
       fireEvent.pointerDown(handleOf('To read'), {
@@ -969,52 +935,40 @@ describe('Panels', () => {
   });
 
   describe('changing the arrangement changes the layout you are on, and asks nothing', () => {
-    it.each([
-      {
-        situation: 'the layout is the one this screen was measured at',
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
-      },
-      {
-        // The case that used to stop and ask which layout to keep the change
-        // in. You picked the layout you are on, so the gesture means what it
-        // says and goes into it.
-        situation: 'the layout was made for a screen four times as wide',
-        layouts: [aLayout('wide', 2560, ['falcon', 'reading'])],
-      },
-    ])('changes the layout on screen when $situation', async ({ layouts }) => {
+    it('draws the dashboard from its one layout, with no list of screen sizes to read', () => {
+      // Another dashboard's layout beside it, as the workspace's snapshot
+      // carries every dashboard's.
+      showBoard({
+        layouts: [
+          { ...aLayout('elsewhere', ['falcon', 'reading']), dashboardId: 'research' },
+          {
+            ...aLayout('mine', []),
+            rows: [
+              { height: null, cells: [{ panelId: 'reading', span: 12 }] },
+              { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
+            ],
+          },
+        ],
+      });
+
+      expect(drawnLines()).toEqual([['reading'], ['falcon']]);
+    });
+
+    it('changes the layout on screen, asking nothing', async () => {
+      const layouts = [aLayout('mine', ['falcon', 'reading'])];
       const { mutate } = showBoard({ layouts });
 
       dragTo('To read', slotBefore('falcon'));
 
       expect(screen.queryByRole('alertdialog')).toBeNull();
       const [asked] = mutate.mock.calls[0]!;
-      expect(asked.payload.layoutId).toBe(layouts[0]!.id);
+      expect(asked.payload.layoutId).toBe('mine');
       expect(sentOrder(mutate)).toEqual(['reading', 'falcon']);
     });
 
-    it('keeps a move in the widest layout, leaves the other untouched, and ignores a remembered pick of another', async () => {
-      // A pick left in the browser by an earlier version, naming the narrower one.
-      localStorage.setItem(
-        'cockpit.layoutPick',
-        JSON.stringify({ screenSizeId: 'sz-laptop', whileNearestIs: 'sz-laptop' }),
-      );
-      screenIs(1300);
-      const layouts = [aLayout('laptop', 1646, ['falcon', 'reading']), aLayout('wide', 2560, ['falcon', 'reading'])];
-      const { mutate } = showBoard({ layouts });
-
-      dragTo('To read', slotBefore('falcon'));
-
-      expect(mutate).toHaveBeenCalledTimes(1);
-      const [asked] = mutate.mock.calls[0]!;
-      expect(asked.name).toBe('save_layout');
-      expect(asked.payload.layoutId).toBe('wide');
-    });
-
-    it('makes an arrangement with nothing defined without naming a screen size, and leaves the server to resolve one', async () => {
+    it('makes the first arrangement of a dashboard nobody has arranged without naming a screen size or a width', async () => {
       // There is nothing to change and nothing worth interrupting a drag to
-      // ask - the server keeps it in the nearest size the account has, or
-      // makes one called Default where it has none at all (`save_layout`,
-      // `screenSizeId`). The board asks nothing about either.
+      // ask: the first move makes the dashboard's one layout (`save_layout`).
       screenIs(1280);
       const { mutate } = showBoard();
 
@@ -1022,14 +976,13 @@ describe('Panels', () => {
 
       const [asked] = mutate.mock.calls[0]!;
       expect(asked.name).toBe('save_layout');
-      expect(asked.payload.screenSizeId).toBeUndefined();
-      expect(asked.payload.screenWidth).toBe(1280);
+      expect(asked.payload).not.toHaveProperty('screenSizeId');
+      expect(asked.payload).not.toHaveProperty('screenWidth');
     });
 
-    it('changes the layout it just made rather than defining a second one at the same width', async () => {
+    it('changes the layout it just made rather than naming a second one', async () => {
       // Two gestures before the first has been re-read both find a dashboard
-      // with no layout. A fresh id each time would leave the layout menu
-      // listing the same width twice with nothing to tell the two apart.
+      // with no layout, and the second is about the one the first made.
       // Left in flight, which is the state two quick gestures happen in: the
       // first is sent and not yet re-read, so the second still finds a
       // dashboard with no layout.
@@ -1050,7 +1003,7 @@ describe('Panels', () => {
       // have yet. Measured against the snapshot it would look like no change at
       // all, and the move would be silently dropped.
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
         settles: false,
       });
 
@@ -1062,12 +1015,12 @@ describe('Panels', () => {
     });
 
     it('sends nothing when the gesture leaves the arrangement where it already was', async () => {
-      // Dropped back where it already is - before the panel it is already
-      // before. A gesture happened, and what it asks for is what the layout
-      // already holds; sending it would make every abandoned drag a write.
-      const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      // Dropped back where it already is - on its own slot. A gesture
+      // happened, and what it asks for is what the layout already holds;
+      // sending it would make every abandoned drag a write.
+      const { mutate } = showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
 
-      dragTo('Project Falcon', slotBefore('reading'));
+      dragTo('Project Falcon', slotBefore('falcon'));
 
       expect(mutate).not.toHaveBeenCalled();
     });
@@ -1075,7 +1028,7 @@ describe('Panels', () => {
     it('puts a panel on a line of its own when it is let go in the gap', async () => {
       // The seam between two rows is the gesture that makes a row, and it is
       // the one thing the wrapping grid had no way to express.
-      const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      const { mutate } = showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
 
       dragTo('To read', gapAbove(0));
 
@@ -1091,7 +1044,7 @@ describe('Panels', () => {
       showBoard({
         layouts: [
           {
-            ...aLayout('laptop', 1280, ['falcon']),
+            ...aLayout('laptop', ['falcon']),
             rows: [
               { height: 248, cells: [{ panelId: 'falcon', span: 12 }] },
               { height: null, cells: [{ panelId: 'reading', span: 12 }] },
@@ -1112,7 +1065,7 @@ describe('Panels', () => {
     it('closes the gaps again when a panel is picked up and let go nowhere', async () => {
       // The seams open to be aimed at, so they have to close when there is no
       // longer anything to aim.
-      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
       const handle = handleOf('To read');
 
       fireEvent.pointerDown(handle, { button: 0, pointerId: 1, pointerType: 'mouse' });
@@ -1130,7 +1083,7 @@ describe('Panels', () => {
       // side it would land on - so the only way to find out what a drag meant
       // was to finish it.
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
 
       dragTo('To read', gapAbove(0), false);
@@ -1142,7 +1095,7 @@ describe('Panels', () => {
     it('marks the panel that is in the air, and unmarks it once it lands', async () => {
       // A gesture with no sign that it has begun is one you find out about
       // afterwards: the panel picked up used to be drawn exactly as it was.
-      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
       const lifted = () => screen.getByRole('region', { name: 'To read' }).className;
       const handle = handleOf('To read');
 
@@ -1159,7 +1112,7 @@ describe('Panels', () => {
       // have already moved on screen by then, so leaving them there would be
       // a change nobody asked for and nobody sent.
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
       const handle = handleOf('To read');
 
@@ -1184,7 +1137,7 @@ describe('Panels', () => {
       // long since left. The board holds the pointer now, and it outlives every
       // rearrangement.
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
       const handle = handleOf('To read');
 
@@ -1209,7 +1162,7 @@ describe('Panels', () => {
       // app, and a drag in progress had nothing to abandon: the only way out
       // was to drop the panel somewhere and move it back.
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
       const handle = handleOf('To read');
 
@@ -1229,7 +1182,7 @@ describe('Panels', () => {
       // lands - unless the browser refused the capture, which it is allowed to
       // do. The board would then sit lifted around a drag that was over.
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
       const handle = handleOf('To read');
 
@@ -1254,7 +1207,7 @@ describe('Panels', () => {
       const { mutate } = showBoard({
         layouts: [
           {
-            ...aLayout('laptop', 1280, ['falcon']),
+            ...aLayout('laptop', ['falcon']),
             rows: [
               { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
               { height: null, cells: [{ panelId: 'reading', span: 12 }] },
@@ -1298,7 +1251,7 @@ describe('Panels', () => {
         });
       try {
         const { mutate } = showBoard({
-          layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+          layouts: [aLayout('laptop', ['falcon', 'reading'])],
         });
         const handle = handleOf('To read');
 
@@ -1319,7 +1272,7 @@ describe('Panels', () => {
       // Every wander that comes home is one of these, and sending it would
       // make a change out of a gesture that changed nothing.
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
 
       dragTo('To read', slotBefore('reading'));
@@ -1335,7 +1288,7 @@ describe('Panels', () => {
     it('sends the same move the picker would, rather than an arrangement', async () => {
       const { mutate } = showBoard({
         dashboards: [DASHBOARD, RESEARCH],
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
       aTabElement('research', { left: 0, right: 80, top: -420, bottom: -380 });
 
@@ -1355,7 +1308,7 @@ describe('Panels', () => {
       // never left.
       const { mutate } = showBoard({
         dashboards: [DASHBOARD, RESEARCH],
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
       const point = slotBefore('falcon');
       aTabElement('today', {
@@ -1380,7 +1333,7 @@ describe('Panels', () => {
       // keep. Sending as the pointer moved would be a change per pixel.
       const { mutate } = showBoard({
         ...oneRow,
-        layouts: [aLayout('laptop', 1280, ['falcon'])],
+        layouts: [aLayout('laptop', ['falcon'])],
       });
 
       dragRowLine(0, 200, false);
@@ -1393,7 +1346,7 @@ describe('Panels', () => {
 
     it('gives one panel what the other gives up, and leaves the row adding up to a whole', () => {
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
 
       dragColumnLine(0, ONE_COLUMN);
@@ -1408,7 +1361,7 @@ describe('Panels', () => {
         ...oneRow,
         layouts: [
           {
-            ...aLayout('laptop', 1280, ['falcon']),
+            ...aLayout('laptop', ['falcon']),
             rows: [{ height: 400, cells: [{ panelId: 'falcon', span: 12 }] }],
           },
         ],
@@ -1424,7 +1377,7 @@ describe('Panels', () => {
       { situation: 'a line moved less than a whole column', act: () => dragColumnLine(0, 4) },
     ])('sends nothing for $situation', ({ act }) => {
       const { mutate } = showBoard({
-        layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])],
+        layouts: [aLayout('laptop', ['falcon', 'reading'])],
       });
 
       act();
@@ -1438,7 +1391,7 @@ describe('Panels', () => {
       // under every mouse move until some later click ended it.
       const { mutate } = showBoard({
         ...oneRow,
-        layouts: [aLayout('laptop', 1280, ['falcon'])],
+        layouts: [aLayout('laptop', ['falcon'])],
       });
 
       layOut();
@@ -1454,7 +1407,7 @@ describe('Panels', () => {
       const { mutate } = showBoard({
         layouts: [
           {
-            ...aLayout('laptop', 1280, ['falcon']),
+            ...aLayout('laptop', ['falcon']),
             rows: [
               { height: 240, cells: [{ panelId: 'falcon', span: 12 }] },
               { height: null, cells: [{ panelId: 'reading', span: 12 }] },
@@ -1484,7 +1437,7 @@ describe('Panels', () => {
     ])('puts the row back and sends nothing when $situation', ({ end }) => {
       const { mutate } = showBoard({
         panels: [aPanel('falcon', 'Project Falcon')],
-        layouts: [aLayout('laptop', 1280, ['falcon'])],
+        layouts: [aLayout('laptop', ['falcon'])],
       });
 
       dragRowLine(0, 200, false);
@@ -1501,7 +1454,7 @@ describe('Panels', () => {
     it('takes the lines away for the length of a drag and gives them back when it lands', () => {
       // The seam a panel is dropped into and the line that sizes a row are the
       // same four pixels, so only one of them can mean anything at a time.
-      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
       const handle = handleOf('To read');
       expect(screen.queryAllByTestId('row-line')).not.toHaveLength(0);
 
@@ -1525,7 +1478,7 @@ describe('Panels', () => {
         lines: 2,
       },
     ])('gives a dashboard with $situation $lines of them', ({ panels, lines }) => {
-      showBoard({ panels, layouts: [aLayout('laptop', 1280, ['falcon'])] });
+      showBoard({ panels, layouts: [aLayout('laptop', ['falcon'])] });
 
       expect(screen.queryAllByTestId('row-line')).toHaveLength(lines);
     });
@@ -1536,14 +1489,14 @@ describe('Panels', () => {
 
     it('ignores the layout made for a wider screen, however near it is', () => {
       screenIs(375);
-      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
 
       expect(rowsDrawn()).toBe(2);
     });
 
     it('takes away every line and the grab that rearranging is done with', () => {
       screenIs(375);
-      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
 
       expect(screen.queryAllByTestId('row-line')).toHaveLength(0);
       expect(screen.queryAllByTestId('column-line')).toHaveLength(0);
@@ -1554,7 +1507,7 @@ describe('Panels', () => {
     });
 
     it('keeps nothing of a drag the window was shrunk to a phone in the middle of', () => {
-      const { mutate } = showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      const { mutate } = showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
       const point = slotBefore('falcon');
       dragTo('To read', point, false);
 
@@ -1569,7 +1522,7 @@ describe('Panels', () => {
 
     it('switches between the layout and one panel across as the window crosses the line, without a reload', () => {
       screenIs(1280);
-      showBoard({ layouts: [aLayout('laptop', 1280, ['falcon', 'reading'])] });
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
       expect(rowsDrawn()).toBe(1);
       expect(screen.queryAllByTestId('column-line')).toHaveLength(1);
 
@@ -1648,7 +1601,7 @@ describe('Panels', () => {
       // Nothing asked for the arrangement in a box that could hold the answer -
       // it came from a drag - so the board itself says it.
       showBoard({
-        layouts: [aLayout('wide', 2560, ['falcon', 'reading'])],
+        layouts: [aLayout('wide', ['falcon', 'reading'])],
         error: new CommandRefused(404, 'panel reading is not on this dashboard'),
         variables: { name: 'save_layout', payload: {} },
       });
@@ -2608,23 +2561,26 @@ describe('Dashboards', () => {
     { panelId: 'falcon', itemId: ID(3), position: 2 },
   ];
 
-  /** A board with a panel of items, a Filter panel, a panel of text and a panel nothing is filed on. */
+  const ITEMS = [vatHigh, vatLow, rentHigh];
+  /** A panel of items, a Filter panel, a panel of text and a panel nothing is filed on. */
+  const ALL_PANELS = [
+    aPanel('falcon', 'Project Falcon'),
+    aFilter('highs', 'The highs', [PRIORITY_HIGH]),
+    aPanelOfText('notes', 'Notes', { body: 'Remember the VAT deadline' }),
+    aPanel('reading', 'To read'),
+  ];
+
   function aFilteredBoard(more: Parameters<typeof showBoard>[0] = {}) {
     return showBoard({
-      panels: [
-        aPanel('falcon', 'Project Falcon'),
-        aFilter('highs', 'The highs', [PRIORITY_HIGH]),
-        aPanelOfText('notes', 'Notes', { body: 'Remember the VAT deadline' }),
-        aPanel('reading', 'To read'),
-      ],
-      items: [vatHigh, vatLow, rentHigh],
+      panels: ALL_PANELS,
+      items: ITEMS,
       filings: FILED,
       ...more,
     });
   }
 
   describe('a Dashboard filter shows, on every panel of items and Filter panel, only the Items meeting its conditions', () => {
-    it('narrows a panel of items, a Filter panel and each header count, and leaves a panel of text alone', async () => {
+    it('narrows a panel of items, a Filter panel and each header count', async () => {
       filterTheDashboard({ text: 'vat' });
       aFilteredBoard();
 
@@ -2637,24 +2593,41 @@ describe('Dashboards', () => {
       expect(rowsOf('The highs')).toEqual([expect.stringContaining('VAT return')]);
       expect(within(handleOf('Project Falcon')).getByText('2')).toBeVisible();
       expect(within(handleOf('The highs')).getByText('1')).toBeVisible();
-      expect(screen.getByText('Remember the VAT deadline')).toBeVisible();
     });
 
-    it('keeps a panel with nothing matching in place, saying so', async () => {
+    it.each([
+      { situation: 'a panel of items with nothing matching', hidden: 'Elsewhere' },
+      { situation: 'a panel of items that held nothing before the filter', hidden: 'To read' },
+      { situation: 'a panel of text, though its words match', hidden: 'Notes' },
+    ])('does not draw $situation', async ({ hidden }) => {
       filterTheDashboard({ text: 'vat' });
-      aFilteredBoard();
+      aFilteredBoard({
+        panels: [...ALL_PANELS, aPanel('elsewhere', 'Elsewhere')],
+        items: [...ITEMS, anItem(ID(4), 'Water bill')],
+        filings: [...FILED, { panelId: 'elsewhere', itemId: ID(4), position: 0 }],
+      });
 
-      const reading = await screen.findByRole('region', { name: 'To read' });
-      expect(within(reading).getByText('Nothing here matches the dashboard filter.')).toBeVisible();
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(screen.queryByRole('region', { name: hidden })).toBeNull();
     });
 
-    it('draws every panel exactly as unfiltered where no condition is set', async () => {
+    it('draws a Filter panel only where its own conditions and the Dashboard filter have Items in common', async () => {
+      filterTheDashboard({ priorities: ['low'] });
+      aFilteredBoard({ panels: [aPanel('falcon', 'Project Falcon'), aFilter('highs', 'The highs', [PRIORITY_HIGH])] });
+
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(screen.queryByRole('region', { name: 'The highs' })).toBeNull();
+    });
+
+    it('draws every panel exactly as unfiltered where no condition is set, with no count', async () => {
       aFilteredBoard();
 
       await screen.findByRole('region', { name: 'Project Falcon' });
       expect(rowsOf('Project Falcon')).toHaveLength(3);
       expect(rowsOf('The highs')).toHaveLength(2);
-      expect(screen.queryByText('Nothing here matches the dashboard filter.')).toBeNull();
+      expect(screen.getByRole('region', { name: 'Notes' })).toBeVisible();
+      expect(screen.getByRole('region', { name: 'To read' })).toBeVisible();
+      expect(screen.queryByText(/hidden/)).toBeNull();
     });
 
     it('reads attachments off the Items, and shows Items that hold one', async () => {
@@ -2684,14 +2657,12 @@ describe('Dashboards', () => {
       expect(within(handleOf('The highs')).getByText('1')).toBeVisible();
     });
 
-    it('says nothing matches on every panel where nothing has a run', async () => {
+    it('draws no panel where nothing has a run', async () => {
       filterTheDashboard({ agentRunning: true });
       aFilteredBoard();
 
-      const falcon = await screen.findByRole('region', { name: 'Project Falcon' });
-      expect(within(falcon).getByText('Nothing here matches the dashboard filter.')).toBeVisible();
-      const highs = screen.getByRole('region', { name: 'The highs' });
-      expect(within(highs).getByText('Nothing here matches the dashboard filter.')).toBeVisible();
+      expect(await screen.findByText('No panel has an item matching the filter.')).toBeVisible();
+      expect(screen.queryAllByRole('region')).toEqual([]);
     });
 
     it('follows a run as it starts and finishes', async () => {
@@ -2704,7 +2675,7 @@ describe('Dashboards', () => {
       expect(rowsOf('Project Falcon')).toHaveLength(2);
 
       redrawnWithRuns([]);
-      expect(rowsOf('Project Falcon')).toEqual([]);
+      expect(screen.queryByRole('region', { name: 'Project Falcon' })).toBeNull();
     });
   });
 
@@ -2722,21 +2693,163 @@ describe('Dashboards', () => {
       ]);
     });
 
-    it('shows an Item that comes to hold an attachment', async () => {
+    it('shows an Item that comes to hold an attachment, and the panel it is on with it', async () => {
       filterTheDashboard({ attachments: 'with' });
       const { redrawnWithItems } = aFilteredBoard();
-      await screen.findByRole('region', { name: 'Project Falcon' });
-      expect(rowsOf('Project Falcon')).toEqual([]);
+      await screen.findByText('No panel has an item matching the filter.');
 
       redrawnWithItems([vatHigh, vatLow, rentHigh], [{ itemId: ID(2) } as Attachment]);
 
       expect(rowsOf('Project Falcon')).toEqual([expect.stringContaining('VAT refund')]);
     });
+
+    it('takes a panel away when its only matching Item stops matching, and counts it', async () => {
+      filterTheDashboard({ text: 'refund' });
+      const { redrawnWithItems } = aFilteredBoard();
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(screen.getByText('3 panels hidden')).toBeVisible();
+
+      redrawnWithItems([vatHigh, { ...vatLow, title: 'VAT rebate' }, rentHigh]);
+
+      expect(screen.queryByRole('region', { name: 'Project Falcon' })).toBeNull();
+      expect(screen.getByText('No panel has an item matching the filter.')).toBeVisible();
+    });
+
+    it('brings a panel back when an Item on it comes to match, and the count goes down', async () => {
+      filterTheDashboard({ text: 'rebate' });
+      const { redrawnWithItems } = aFilteredBoard();
+      await screen.findByText('No panel has an item matching the filter.');
+      expect(screen.getByText('4 panels hidden')).toBeVisible();
+
+      redrawnWithItems([vatHigh, { ...vatLow, title: 'VAT rebate' }, rentHigh]);
+
+      expect(rowsOf('Project Falcon')).toEqual([expect.stringContaining('VAT rebate')]);
+      expect(screen.getByText('3 panels hidden')).toBeVisible();
+    });
+  });
+
+  describe('the bar says how many panels the filter hid', () => {
+    it('says nothing where no panel is hidden', async () => {
+      filterTheDashboard({ text: 'vat' });
+      aFilteredBoard({ panels: [aPanel('falcon', 'Project Falcon')] });
+
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(screen.queryByText(/hidden/)).toBeNull();
+    });
+
+    it.each([
+      { situation: 'one panel', panels: [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read')], said: '1 panel hidden' },
+      { situation: 'a panel of items and a panel of text', panels: ALL_PANELS.filter((p) => p.id !== 'highs'), said: '2 panels hidden' },
+    ])('says $said where the filter hid $situation', async ({ panels, said }) => {
+      filterTheDashboard({ text: 'vat' });
+      aFilteredBoard({ panels });
+
+      await screen.findByRole('region', { name: 'Project Falcon' });
+      expect(screen.getByText(said)).toBeVisible();
+    });
+
+    it('says so on the board, with the count, where the filter hid every panel', async () => {
+      filterTheDashboard({ text: 'zzz' });
+      aFilteredBoard();
+
+      expect(await screen.findByText('No panel has an item matching the filter.')).toBeVisible();
+      expect(screen.getByText('4 panels hidden')).toBeVisible();
+    });
+
+    it('keeps the invitation, and says no count, on a dashboard with no panels', async () => {
+      filterTheDashboard({ text: 'vat' });
+      showBoard({ panels: [] });
+
+      expect(await screen.findByText(/This one has none yet/)).toBeVisible();
+      expect(screen.queryByText(/hidden/)).toBeNull();
+      expect(screen.queryByText('No panel has an item matching the filter.')).toBeNull();
+    });
+  });
+
+  describe('the panels left in a row share it in their proportions', () => {
+    const SHARES_3_3_6: Layout = {
+      ...aLayout('wide', []),
+      rows: [
+        {
+          height: null,
+          cells: [
+            { panelId: 'falcon', span: 3 },
+            { panelId: 'reading', span: 3 },
+            { panelId: 'highs', span: 6 },
+          ],
+        },
+        { height: null, cells: [{ panelId: 'notes', span: 12 }] },
+      ],
+    };
+
+    it('draws 1 : 2 where the first of 3 : 3 : 6 is hidden, and no row for panels all hidden', async () => {
+      filterTheDashboard({ priorities: ['high'] });
+      showBoard({
+        panels: [
+          aPanel('falcon', 'Project Falcon'),
+          aPanel('reading', 'To read'),
+          aFilter('highs', 'The highs', [PRIORITY_HIGH]),
+          aPanelOfText('notes', 'Notes'),
+        ],
+        layouts: [SHARES_3_3_6],
+        items: [vatHigh, rentHigh, vatLow],
+        filings: [
+          { panelId: 'falcon', itemId: ID(2), position: 0 },
+          { panelId: 'reading', itemId: ID(1), position: 0 },
+        ],
+      });
+
+      await screen.findByRole('region', { name: 'To read' });
+      expect(screen.queryByRole('region', { name: 'Project Falcon' })).toBeNull();
+      expect(screen.queryByRole('region', { name: 'Notes' })).toBeNull();
+      const rows = [...document.querySelectorAll<HTMLElement>('[data-panel-row]')];
+      expect(rows).toHaveLength(1);
+      const shares = [...rows[0]!.style.gridTemplateColumns.matchAll(/minmax\(0, ([\d.]+)fr\)/g)].map((m) =>
+        Number(m[1]),
+      );
+      expect(shares).toHaveLength(2);
+      expect(shares[1]! / shares[0]!).toBeCloseTo(2);
+    });
+
+    it('keeps a panel mounted when the row above it is hidden', async () => {
+      filterTheDashboard({ text: 'vat' });
+      const { redrawnWithItems } = showBoard({
+        panels: [aPanel('reading', 'To read'), aPanel('falcon', 'Project Falcon')],
+        layouts: [
+          {
+            ...aLayout('wide', []),
+            rows: [
+              { height: null, cells: [{ panelId: 'reading', span: 12 }] },
+              { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
+            ],
+          },
+        ],
+        items: [vatHigh, vatLow],
+        filings: [
+          { panelId: 'reading', itemId: ID(1), position: 0 },
+          { panelId: 'falcon', itemId: ID(2), position: 0 },
+        ],
+      });
+      const falcon = await screen.findByRole('region', { name: 'Project Falcon' });
+
+      redrawnWithItems([{ ...vatHigh, title: 'Tax return' }, vatLow]);
+
+      expect(screen.queryByRole('region', { name: 'To read' })).toBeNull();
+      // The same element, not a new one: a remount would drop what was typed into it.
+      expect(screen.getByRole('region', { name: 'Project Falcon' })).toBe(falcon);
+    });
   });
 
   describe('while filtered, nothing about the arrangement can change', () => {
-    const SIDE_BY_SIDE = [aLayout('wide', 1280, ['falcon', 'reading'])];
+    const SIDE_BY_SIDE = [aLayout('wide', ['falcon', 'reading'])];
     const TWO = [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read')];
+    const BOTH_MATCHING = {
+      items: [vatHigh, vatLow],
+      filings: [
+        { panelId: 'falcon', itemId: ID(1), position: 0 },
+        { panelId: 'reading', itemId: ID(2), position: 0 },
+      ],
+    };
 
     it('offers a line between two panels where the board is not filtered', async () => {
       showBoard({ panels: TWO, layouts: SIDE_BY_SIDE });
@@ -2746,7 +2859,7 @@ describe('Dashboards', () => {
 
     it('offers no line between two panels, and a header drag sends nothing', async () => {
       filterTheDashboard({ text: 'vat' });
-      const { mutate } = showBoard({ panels: TWO, layouts: SIDE_BY_SIDE });
+      const { mutate } = showBoard({ panels: TWO, layouts: SIDE_BY_SIDE, ...BOTH_MATCHING });
       await screen.findByRole('region', { name: 'Project Falcon' });
 
       expect(screen.queryAllByTestId('column-line')).toHaveLength(0);
@@ -2757,7 +2870,7 @@ describe('Dashboards', () => {
 
     it('says to clear the dashboard filter where a panel is moved to another dashboard', async () => {
       filterTheDashboard({ text: 'vat' });
-      showBoard({ dashboards: [DASHBOARD, RESEARCH] });
+      showBoard({ dashboards: [DASHBOARD, RESEARCH], items: [vatHigh], filings: [{ panelId: 'falcon', itemId: ID(1), position: 0 }] });
       await screen.findByRole('region', { name: 'Project Falcon' });
 
       openMenu('Project Falcon');
@@ -2767,6 +2880,140 @@ describe('Dashboards', () => {
           name: 'Move to another dashboard: Clear the dashboard filter to move a panel',
         }),
       ).toHaveAttribute('aria-disabled', 'true');
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('while a panel is in the air every panel is its header alone and every row a header tall', () => {
+    const BART = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
+    const TALL = {
+      ...aLayout('laptop', ['falcon']),
+      rows: [
+        { height: 600, cells: [{ panelId: 'falcon', span: 6 }, { panelId: 'notes', span: 6 }] },
+        { height: null, cells: [{ panelId: 'due', span: 6 }, { panelId: 'reading', span: 6 }] },
+      ],
+    };
+    const board = (extra: Parameters<typeof showBoard>[0] = {}) =>
+      showBoard({
+        panels: [
+          aPanel('falcon', 'Project Falcon'),
+          aPanelOfText('notes', 'Notes', { body: 'Some prose' }),
+          aFilter('due', 'Due today', [DUE_TODAY]),
+          aPanel('reading', 'To read'),
+        ],
+        layouts: [TALL],
+        items: [BART],
+        filings: [{ panelId: 'falcon', itemId: BART.id, position: 0 }],
+        ...extra,
+      });
+    const regions = () => screen.getAllByRole('region');
+    const rowStyles = () =>
+      [...document.querySelectorAll<HTMLElement>('[data-panel-row]')].map((row) => row.style);
+    const pickUp = (name: string) =>
+      fireEvent.pointerDown(handleOf(name), { button: 0, pointerId: 1, pointerType: 'mouse' });
+
+    it('draws each kind of panel as its header alone, the one in hand too, and the rows as tall as a header', () => {
+      board();
+      expect(within(screen.getByRole('region', { name: 'Project Falcon' })).getAllByRole('listitem')).toHaveLength(1);
+      expect(rowStyles()[0]!.height).toBe('600px');
+
+      pickUp('To read');
+
+      for (const region of regions()) {
+        expect(within(region).queryAllByRole('listitem')).toHaveLength(0);
+        notShown(within(region).queryByText(/Add an item/));
+        notShown(within(region).queryByText(NOTHING_FILED_HERE));
+        notShown(within(region).queryByText('Some prose'));
+        expect(within(region).queryByRole('textbox')).toBeNull();
+        expect(within(region).getByRole('heading', { level: 3 })).toBeVisible();
+      }
+      expect(screen.getByRole('region', { name: 'To read' }).className).toContain('opacity-40');
+      for (const style of rowStyles()) {
+        expect(style.height).toBe('');
+        expect(style.minHeight).toBe('');
+      }
+    });
+
+    // Hidden rather than unmounted: absent from the page, still held by it.
+    const notShown = (element: HTMLElement | null) => {
+      if (element) expect(element).not.toBeVisible();
+    };
+
+    it('keeps a half-typed item on a panel through a drag, hidden while it is in the air', () => {
+      board();
+      fireEvent.click(within(screen.getByRole('region', { name: 'Project Falcon' })).getByRole('button', { name: '+ Add an item' }));
+      fireEvent.change(screen.getByRole('textbox', { name: 'Capture a note or to-do' }), { target: { value: 'Call Bart' } });
+
+      pickUp('To read');
+      expect(screen.queryByRole('textbox', { name: 'Capture a note or to-do' })).toBeNull();
+      fireEvent.keyDown(window, { key: 'Escape' });
+
+      expect(screen.getByRole('textbox', { name: 'Capture a note or to-do' })).toHaveValue('Call Bart');
+    });
+
+    it('hides the empty-panel how-to too, where nothing has been filed anywhere', () => {
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
+      const falcon = () => screen.getByRole('region', { name: 'Project Falcon' });
+      expect(within(falcon()).getByText(NOTHING_FILED_HERE_YET_AND_HOW)).toBeVisible();
+
+      pickUp('To read');
+
+      notShown(within(falcon()).queryByText(NOTHING_FILED_HERE_YET_AND_HOW));
+    });
+
+    it.each([
+      { situation: 'dropped on the board', end: () => fireEvent.pointerUp(window, { pointerId: 1 }) },
+      { situation: 'abandoned with Escape', end: () => fireEvent.keyDown(window, { key: 'Escape' }) },
+      { situation: 'taken back by the browser', end: () => fireEvent.pointerCancel(window, { pointerId: 1 }) },
+    ])('opens everything again when it is $situation', ({ end }) => {
+      board();
+      pickUp('To read');
+      expect(within(screen.getByRole('region', { name: 'Project Falcon' })).queryAllByRole('listitem')).toHaveLength(0);
+
+      end();
+
+      expect(within(screen.getByRole('region', { name: 'Project Falcon' })).getAllByRole('listitem')).toHaveLength(1);
+      expect(within(screen.getByRole('region', { name: 'Notes' })).getByText('Some prose')).toBeVisible();
+      expect(rowStyles()[0]!.height).toBe('600px');
+      expect(rowStyles()[1]!.minHeight).toBe(`${MIN_ROW_HEIGHT}px`);
+    });
+
+    it('opens the board it left when the panel is dropped on another dashboard’s tab', () => {
+      board({ dashboards: [DASHBOARD, RESEARCH] });
+      aTabElement(RESEARCH.id, { left: 0, right: 100, top: 0, bottom: 30 });
+      pickUp('To read');
+      layOut();
+
+      fireEvent.pointerUp(window, { pointerId: 1, clientX: 50, clientY: 15 });
+
+      expect(within(screen.getByRole('region', { name: 'Project Falcon' })).getAllByRole('listitem')).toHaveLength(1);
+      expect(rowStyles()[0]!.height).toBe('600px');
+    });
+
+    it('opens without a fuss when the panel in hand was deleted in another tab', () => {
+      const { redrawnWith } = board();
+      pickUp('To read');
+      redrawnWith([aPanel('falcon', 'Project Falcon')]);
+
+      expect(() => fireEvent.keyDown(window, { key: 'Escape' })).not.toThrow();
+
+      expect(within(screen.getByRole('region', { name: 'Project Falcon' })).getAllByRole('listitem')).toHaveLength(1);
+    });
+
+    it.each([
+      { situation: 'the line under a row', take: () => dragRowLine(0, 100, false) },
+      { situation: 'the line between two panels', take: () => dragColumnLine(0, ONE_COLUMN) },
+    ])('collapses nothing while $situation is taken and moved', ({ take }) => {
+      board();
+      // A column drag ends on its own pointer-up; the row line is left in hand.
+      take();
+
+      for (const name of ['Project Falcon', 'Notes', 'To read']) {
+        expect(screen.getByRole('region', { name })).toBeVisible();
+      }
+      expect(within(screen.getByRole('region', { name: 'Project Falcon' })).getAllByRole('listitem')).toHaveLength(1);
+      expect(within(screen.getByRole('region', { name: 'Notes' })).getByText('Some prose')).toBeVisible();
     });
   });
 });

@@ -82,9 +82,11 @@ function perStack(name: string, url: string): string {
  * The first two went with the list of names ("Sign in with Google, and retire
  * the list of names", issue 196); the rest are the read and the five commands
  * behind the two learning settings screens ("Remove the two learning settings
- * screens, and the commands that write to them", issue 452). A retired address
- * is kept here until no browser can plausibly still be holding a build that
- * asks for it.
+ * screens, and the commands that write to them", issue 452); the last four are
+ * the commands that made and removed Screen sizes and Layouts ("Convert every
+ * Dashboard to its widest Layout and retire Screen sizes", issue 713). A
+ * retired address is kept here until no browser can plausibly still be holding
+ * a build that asks for it.
  */
 export const RETIRED_PATHS: readonly string[] = [
   '/v1/users',
@@ -95,6 +97,10 @@ export const RETIRED_PATHS: readonly string[] = [
   '/v1/commands/edit_pinned_example',
   '/v1/commands/delete_pinned_example',
   '/v1/commands/set_routing_summary_correction',
+  '/v1/commands/create_screen_size',
+  '/v1/commands/rename_screen_size',
+  '/v1/commands/delete_screen_size',
+  '/v1/commands/delete_layout',
 ];
 
 /**
@@ -360,6 +366,12 @@ const CONNECT_COOKIE = 'cockpit_connect';
 export interface ConnectAttempt extends Attempt {
   readonly workspaceId: string;
   readonly accountName: string;
+  /**
+   * Which source it was started for, so each callback refuses an attempt
+   * started for another ("Connect a Gmail account to a workspace, and
+   * disconnect it", issue 724). A cookie from before this field was Teams'.
+   */
+  readonly connectorId: string;
 }
 
 function attemptCookieName(url: string): string {
@@ -433,7 +445,7 @@ export function attemptHeld(c: Context): SignInAttempt | null {
 export function connectAttemptHeld(c: Context): ConnectAttempt | null {
   const held = readAttempt(getCookie(c, connectCookieName(c.req.url)));
   if (!held) return null;
-  const { workspaceId, accountName } = held.also;
+  const { workspaceId, accountName, connectorId } = held.also;
   if (typeof workspaceId !== 'string' || !workspaceId) return null;
   if (typeof accountName !== 'string' || !accountName) return null;
   return {
@@ -442,6 +454,7 @@ export function connectAttemptHeld(c: Context): ConnectAttempt | null {
     codeVerifier: held.codeVerifier,
     workspaceId,
     accountName,
+    connectorId: typeof connectorId === 'string' && connectorId ? connectorId : 'teams',
   };
 }
 
