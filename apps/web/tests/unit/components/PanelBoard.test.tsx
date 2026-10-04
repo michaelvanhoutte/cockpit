@@ -2857,6 +2857,34 @@ describe('Dashboards', () => {
       expect(shares).toHaveLength(2);
       expect(shares[1]! / shares[0]!).toBeCloseTo(2);
     });
+
+    it('keeps a panel mounted when the row above it is hidden', async () => {
+      filterTheDashboard({ text: 'vat' });
+      const { redrawnWithItems } = showBoard({
+        panels: [aPanel('reading', 'To read'), aPanel('falcon', 'Project Falcon')],
+        layouts: [
+          {
+            ...aLayout('wide', 1280, []),
+            rows: [
+              { height: null, cells: [{ panelId: 'reading', span: 12 }] },
+              { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
+            ],
+          },
+        ],
+        items: [vatHigh, vatLow],
+        filings: [
+          { panelId: 'reading', itemId: ID(1), position: 0 },
+          { panelId: 'falcon', itemId: ID(2), position: 0 },
+        ],
+      });
+      const falcon = await screen.findByRole('region', { name: 'Project Falcon' });
+
+      redrawnWithItems([{ ...vatHigh, title: 'Tax return' }, vatLow]);
+
+      expect(screen.queryByRole('region', { name: 'To read' })).toBeNull();
+      // The same element, not a new one: a remount would drop what was typed into it.
+      expect(screen.getByRole('region', { name: 'Project Falcon' })).toBe(falcon);
+    });
   });
 
   describe('while filtered, nothing about the arrangement can change', () => {

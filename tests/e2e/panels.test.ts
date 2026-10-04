@@ -848,7 +848,7 @@ test.describe('Panels', () => {
       await expect(page.getByTestId('row-line')).toHaveCount(0);
       await expect(page.getByTestId('column-line')).toHaveCount(0);
       await expect(page.getByRole('region', { name: second })).toHaveCount(0);
-      await expect(page.getByText('1 panel hidden')).toBeVisible();
+      await expect(page.getByText('1 panel hidden', { exact: true })).toBeVisible();
       const rowWidth = (await row.boundingBox())!.width;
       expect((await page.getByRole('region', { name: first }).boundingBox())!.width).toBeCloseTo(rowWidth, 0);
 

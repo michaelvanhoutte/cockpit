@@ -333,14 +333,19 @@ export function PanelBoard({
    * proportions; nothing is stored, so clearing the filter brings every Panel
    * back.
    */
+  const shows = new Map(panels.map((panel) => [panel.id, itemsOf(panel)]));
   const hidden = filteringOn
-    ? new Set(panels.filter((panel) => itemsOf(panel).length === 0).map((panel) => panel.id))
+    ? new Set(panels.filter((panel) => shows.get(panel.id)!.length === 0).map((panel) => panel.id))
     : null;
-  const drawn = hidden
-    ? shown
-        .map((row) => ({ ...row, cells: row.cells.filter((cell) => !hidden.has(cell.panelId)) }))
-        .filter((row) => row.cells.length > 0)
-    : shown;
+  // Each row keeps the place it has in `shown`, which is what it is keyed by:
+  // a row hidden above would otherwise move every row under it to a new key
+  // and remount the panels on them.
+  const drawn = shown
+    .map((row, place) => ({
+      place,
+      row: hidden ? { ...row, cells: row.cells.filter((cell) => !hidden.has(cell.panelId)) } : row,
+    }))
+    .filter(({ row }) => !hidden || row.cells.length > 0);
   const hiddenCount = hidden ? hidden.size : 0;
 
   /**
@@ -971,6 +976,7 @@ export function PanelBoard({
       {filteringOn && (
         <p className="sr-only" role="status">
           This dashboard is filtered
+          {hiddenCount > 0 && `, ${hiddenCount === 1 ? '1 panel' : `${hiddenCount} panels`} hidden`}
         </p>
       )}
 
@@ -1008,7 +1014,7 @@ export function PanelBoard({
           onPointerCancel={abandon}
           className="flex min-w-0 flex-col"
         >
-          {drawn.map((row, rowIndex) => {
+          {drawn.map(({ row, place: rowIndex }) => {
             const shares = sharesOf(row);
             return (
               // Keyed by where the row is, not by what is on it. A row has no
@@ -1085,7 +1091,7 @@ export function PanelBoard({
                           panel={panel}
                           workspaceId={workspaceId}
                           dashboardFiltered={filteringOn}
-                          items={itemsOf(panel)}
+                          items={shows.get(panel.id) ?? []}
                           itemTypes={itemTypes}
                           panelsInWorkspace={panelsInWorkspace}
                           // What is filed anywhere, which a filing onto a
