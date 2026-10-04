@@ -2768,7 +2768,7 @@ describe('Dashboards', () => {
 
   describe('the panels left in a row share it in their proportions', () => {
     const SHARES_3_3_6: Layout = {
-      ...aLayout('wide', 1280, []),
+      ...aLayout('wide', []),
       rows: [
         {
           height: null,
@@ -2817,7 +2817,7 @@ describe('Dashboards', () => {
         panels: [aPanel('reading', 'To read'), aPanel('falcon', 'Project Falcon')],
         layouts: [
           {
-            ...aLayout('wide', 1280, []),
+            ...aLayout('wide', []),
             rows: [
               { height: null, cells: [{ panelId: 'reading', span: 12 }] },
               { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
@@ -3021,7 +3021,7 @@ describe('Panels', () => {
 describe('Panels', () => {
   describe('a whole row is moved by a grip at its left edge', () => {
     const THREE_ROWS: Layout = {
-      ...aLayout('laptop', 1280, ['falcon']),
+      ...aLayout('laptop', ['falcon']),
       rows: [
         { height: 300, cells: [{ panelId: 'falcon', span: 12 }] },
         { height: null, cells: [{ panelId: 'notes', span: 4 }, { panelId: 'due', span: 8 }] },
