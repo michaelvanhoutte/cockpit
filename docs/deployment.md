@@ -668,8 +668,9 @@ wrangler secret put GMAIL_CLIENT_SECRET --env staging
 ```
 
 **Nothing reads a mailbox until somebody connects one there.** Disconnecting
-forgets the sign-in and revokes it at Google; a revoke Google does not answer is
-logged and never keeps the connection.
+forgets the sign-in and revokes it at Google, unless another Workspace of the
+account still holds the mailbox, since Google revokes the whole grant; a revoke
+Google does not answer is logged and never keeps the connection.
 
 **Once these are set, the shared guest account can connect a Teams account
 too** — every concurrent guest sees it and can disconnect it, the same as

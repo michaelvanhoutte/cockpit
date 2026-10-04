@@ -85,14 +85,20 @@ export async function gmailAccountFrom(
 /**
  * What is sealed into the connection: the refresh token, and the hour-long
  * access token beside it with when it lapses, which the next slices refresh
- * and re-seal in the same place. Or why there is nothing worth keeping.
+ * and re-seal in the same place - and the mailbox's key, so disconnecting
+ * can tell whether another Workspace still holds the same grant. Or why
+ * there is nothing worth keeping.
  *
  * **No refresh token is a refusal**, because without one the connection
  * cannot outlive the hour. **The permission to change mail missing is one
  * too**: Google's consent screen lets each permission be unticked, and a
  * connection that cannot take the label off is not the one asked for.
  */
-export function gmailCredentialFrom(asIssued: string, now: Date): { credential: string } | GmailRefusal {
+export function gmailCredentialFrom(
+  asIssued: string,
+  mailboxKey: string,
+  now: Date,
+): { credential: string } | GmailRefusal {
   let answer: Record<string, unknown>;
   try {
     const parsed: unknown = JSON.parse(asIssued);
@@ -110,6 +116,7 @@ export function gmailCredentialFrom(asIssued: string, now: Date): { credential: 
   const expiresIn = typeof answer.expires_in === 'number' ? answer.expires_in : null;
   return {
     credential: JSON.stringify({
+      mailboxKey,
       refreshToken,
       accessToken,
       accessTokenExpiresAt:
@@ -118,12 +125,18 @@ export function gmailCredentialFrom(asIssued: string, now: Date): { credential: 
   };
 }
 
-/** The refresh token inside a sealed-and-opened Gmail credential, or null for one that does not hold one. */
-export function refreshTokenIn(credential: string): string | null {
+/**
+ * The refresh token inside a sealed-and-opened Gmail credential, and the
+ * mailbox it is for - null for a credential holding no token, and a null
+ * key for one sealed without it.
+ */
+export function revocableIn(credential: string): { refreshToken: string; mailboxKey: string | null } | null {
   try {
     const parsed: unknown = JSON.parse(credential);
-    const token = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>).refreshToken : null;
-    return typeof token === 'string' && token ? token : null;
+    if (!parsed || typeof parsed !== 'object') return null;
+    const { refreshToken, mailboxKey } = parsed as Record<string, unknown>;
+    if (typeof refreshToken !== 'string' || !refreshToken) return null;
+    return { refreshToken, mailboxKey: typeof mailboxKey === 'string' && mailboxKey ? mailboxKey : null };
   } catch {
     return null;
   }

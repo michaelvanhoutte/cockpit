@@ -65,6 +65,7 @@ import {
   resetGuestAccount,
   restoreAccount,
   restoreRegister,
+  type Account,
   type AccountBackup,
   type RegisterBackup,
 } from '../accounts/index.js';
@@ -126,7 +127,7 @@ import {
   gmailAccountFrom,
   gmailAuthorizationUrl,
   gmailCredentialFrom,
-  refreshTokenIn,
+  revocableIn,
 } from '../connectors/gmail.js';
 import { fireRoutine, testClaudeCodeConnection } from '../connectors/claude-code.js';
 import { countForGuest, countryOf, referrerHostOf } from '../auth/sign-in-history.js';
@@ -297,12 +298,33 @@ async function whatConnectingGmailNeeds(
  * it", issue 724) - because a token that can change mail should not outlive
  * it. **Never throws and never retries**: the row is gone whatever Google
  * answers, and anything that went wrong is logged.
+ *
+ * **Not while another Workspace of this account holds the same mailbox**:
+ * Google revokes the whole grant, not one token, so revoking here would cut
+ * that connection off too. Another Cockpit account holding the same mailbox
+ * is in a store this one cannot read, and is not protected.
  */
-async function revokeGmailSignIn(env: Env, sealed: Sealed): Promise<void> {
+async function revokeGmailSignIn(env: Env, account: Account, sealed: Sealed): Promise<void> {
   try {
     const key = await sealingKey(env.CONNECTOR_CREDENTIAL_KEY);
     const opened = key ? await open(sealed, key) : null;
-    const token = opened ? refreshTokenIn(opened) : null;
+    const held = opened ? revocableIn(opened) : null;
+    const mailboxKey = held?.mailboxKey;
+    if (mailboxKey) {
+      const stillHeld = await Promise.all(
+        (await account.workspaces()).map((workspace) => account.connectionUnder(workspace.id, GMAIL, mailboxKey)),
+      );
+      if (stillHeld.some(Boolean)) {
+        console.info(
+          JSON.stringify({
+            level: 'info',
+            message: 'a Gmail connection was disconnected, and not revoked: another workspace still holds the mailbox',
+          }),
+        );
+        return;
+      }
+    }
+    const token = held?.refreshToken;
     if (!token) {
       console.error(
         JSON.stringify({
@@ -1845,7 +1867,7 @@ const routes = app
     const result = await account.applyChange('disconnect_source_account', cmd);
     // After the row is gone and only then: a revoke that fails or hangs must
     // never keep it.
-    if (sealed && result.applied) await revokeGmailSignIn(c.env, sealed);
+    if (sealed && result.applied) await revokeGmailSignIn(c.env, account, sealed);
     return c.json(result, 200);
   })
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))
@@ -2394,7 +2416,7 @@ const routes = app
         now,
       );
       if (typeof mailbox === 'string') return refuseConnection(c, attempt!.workspaceId, mailbox);
-      const kept = gmailCredentialFrom(exchanged.asIssued, now);
+      const kept = gmailCredentialFrom(exchanged.asIssued, mailbox.key, now);
       // Refused before anything is stored: a grant without a refresh token,
       // or without the permission asked for, is one Cockpit never keeps.
       if (typeof kept === 'string') return refuseConnection(c, attempt!.workspaceId, kept);

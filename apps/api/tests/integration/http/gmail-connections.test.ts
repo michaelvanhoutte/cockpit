@@ -116,14 +116,14 @@ async function listed(
     .sourceAccounts;
 }
 
-function disconnect(sourceAccountId: string, commandId: string): Promise<Response> {
+function disconnect(sourceAccountId: string, commandId: string, workspaceId = WORKSPACE_ID): Promise<Response> {
   return asUser('http://cockpit.test/v1/commands/disconnect_source_account', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       commandId,
       issuedAt: '2026-10-04T10:00:00.000Z',
-      workspaceId: WORKSPACE_ID,
+      workspaceId,
       sourceAccountId,
     }),
   });
@@ -306,6 +306,25 @@ describe('Connector management', () => {
       expect(res.status).toBe(200);
       expect(await storedRows()).toEqual([]);
       expect(revoked).toEqual(['the-refresh-token-to-revoke']);
+    });
+
+    /**
+     * Google revokes the whole grant rather than one token, so a revoke here
+     * would cut off the other Workspace's connection to the same mailbox.
+     */
+    it('leaves the sign-in at Google while another workspace still holds the mailbox', async () => {
+      await connect(ANNA, granted('work-refresh-token'));
+      await connect(ANNA, granted('atlas-refresh-token'), OTHER_WORKSPACE_ID);
+      const [inWork] = await listed();
+      const [inAtlas] = await listed(OTHER_WORKSPACE_ID);
+
+      expect((await disconnect(inWork!.id, '018f0000-0000-7000-8000-0000000724b3')).status).toBe(200);
+      expect(await listed()).toEqual([]);
+      expect(await listed(OTHER_WORKSPACE_ID)).toHaveLength(1);
+      expect(revoked).toEqual([]);
+
+      expect((await disconnect(inAtlas!.id, '018f0000-0000-7000-8000-0000000724b4', OTHER_WORKSPACE_ID)).status).toBe(200);
+      expect(revoked).toEqual(['atlas-refresh-token']);
     });
 
     it.each([
