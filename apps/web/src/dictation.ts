@@ -355,7 +355,7 @@ export function useDictation({
   store = browserStore(),
 }: {
   onPhrase: (text: string, final: boolean) => void;
-  /** Told each time dictation stops on an error, after what was still provisional has been delivered as final - including an error worded as the last one was, which rror alone cannot show. */
+  /** Told each time dictation stops on an error, after what was still provisional has been delivered as final - including an error worded as the last one was, which `error` alone cannot show. */
   onFailure?: (message: string) => void;
   engine?: EngineFactory | null;
   store?: Storage | undefined;

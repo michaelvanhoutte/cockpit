@@ -151,10 +151,16 @@ function Driving({
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const keepNow = useRef<(heard: string, stoppedBecause: string | null) => void>(() => {});
+  /** An error raised while the second tap waits for the last words: the capture that follows says it. */
+  const failedWhileCapturing = useRef<string | null>(null);
   const dictation = useDictation({
     ...dictating,
     // An error while listening: what was heard is captured, and the status says why it stopped.
     onFailure: (reason) => {
+      if (phaseNow.current === 'capturing') {
+        failedWhileCapturing.current = reason;
+        return;
+      }
       if (phaseNow.current !== 'starting' && phaseNow.current !== 'listening') return;
       const heard = said.current.trim();
       keepNow.current(heard, heard ? `${reason} ${WHAT_WAS_HEARD_WAS_CAPTURED}` : reason);
@@ -249,7 +255,12 @@ function Driving({
     } else if (now === 'starting' || now === 'listening') {
       // Set before the wait, so a second press of the same button is not a second capture.
       setPhase('capturing');
-      void dictation.finish(finishWithin).then(() => keep(said.current, null));
+      failedWhileCapturing.current = null;
+      void dictation.finish(finishWithin).then(() => {
+        const reason = failedWhileCapturing.current;
+        const heard = said.current.trim();
+        keep(heard, reason && (heard ? `${reason} ${WHAT_WAS_HEARD_WAS_CAPTURED}` : reason));
+      });
     }
   };
 

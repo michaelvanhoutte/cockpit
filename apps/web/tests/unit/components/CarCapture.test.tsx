@@ -442,6 +442,20 @@ describe('Capture', () => {
       expect(capturedCalls()).toHaveLength(1);
     });
 
+    it('says why it stopped when the error comes while the second tap waits for the last words', async () => {
+      const { engine, current } = anEngine();
+      const user = await theCar({ dictating: { engine } });
+      await listeningTo(user, current, 'already said');
+      const listening = current();
+      listening.whenStopped = () => listening.fails('network');
+
+      await user.click(theButton());
+
+      expect((await theCapture()).message).toBe('already said');
+      expect(theStatus()).toHaveTextContent(DICTATION_OFFLINE);
+      expect(theStatus()).toHaveTextContent('What you said was captured.');
+    });
+
     it('clears the message once the next start succeeds', async () => {
       const { engine, current } = anEngine();
       const user = await theCar({ dictating: { engine } });
