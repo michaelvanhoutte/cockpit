@@ -77,8 +77,7 @@ export function isFiltering(filter: DashboardFilter): boolean {
 /**
  * The *Containing* rule: whether the text, trimmed and case-insensitive, is in
  * the title, the description or the next action. Nothing typed matches
- * everything. Shared with the list of items marked done (`markedDone.ts`), so
- * the two never disagree about what a search matches.
+ * everything.
  */
 export function containsText(
   item: Pick<Item, 'title' | 'description' | 'nextAction'>,

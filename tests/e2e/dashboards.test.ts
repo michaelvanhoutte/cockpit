@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   capture,
   chooseRowAction,
@@ -266,12 +267,51 @@ test.describe('Dashboards', () => {
       await expect(row).toBeVisible();
       await expect(tab).toHaveClass(/(^|\s)active(\s|$)/);
 
+      // Narrowed from the tab's funnel to what is finished: no row of another
+      // status is left, and the finished one is.
+      await press(tab.getByRole('button', { name: 'Filter All items' }), isMobile);
+      await press(
+        page.getByRole('group', { name: 'Status' }).getByRole('button', { name: 'Done', exact: true }),
+        isMobile,
+      );
+      await expect(row).toBeVisible();
+      await expect(page.getByRole('row').filter({ hasNotText: 'Done' })).toHaveCount(1); // the header
+      await press(tab.getByRole('button', { name: 'Clear the filter and close it' }), isMobile);
+      await expect(page.getByRole('group', { name: 'Status' })).toHaveCount(0);
+
       // The row opens its form, and the Status control reopens the item.
       await press(row.getByRole('button', { name: finished }), isMobile);
       await page.getByRole('dialog').getByLabel('Status').selectOption('to_do');
       await press(page.getByRole('dialog').getByRole('button', { name: 'Save' }), isMobile);
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await expect(row).toContainText('To do');
+
+      // Then paged: sixty more items made through the API, since sixty captures
+      // by hand is a minute spent on nothing this proves (that paging is by
+      // count is apps/web/tests/unit/components/AllItemsBoard.test.tsx).
+      const workspaceId = new URL(page.url()).pathname.split('/')[2]!;
+      const known = await page.request.get('/v1/item-types');
+      const [aType] = ((await known.json()) as { itemTypes: { id: string }[] }).itemTypes;
+      for (let at = 0; at < 60; at += 1) {
+        const sent = await page.request.post('/v1/commands/capture_item', {
+          data: {
+            commandId: randomUUID(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            itemId: randomUUID(),
+            message: uniqueTitle(`Entry ${at}`),
+            typeId: aType!.id,
+          },
+        });
+        expect(sent.ok(), `capturing from outside failed: ${sent.status()}`).toBe(true);
+      }
+      await page.reload();
+
+      // The header row and fifty items, then the rest of the sixty-one.
+      const rows = page.getByRole('row');
+      await expect(rows).toHaveCount(51);
+      await press(page.getByRole('button', { name: 'Show more' }), isMobile);
+      await expect.poll(() => rows.count()).toBe(62);
     });
   });
 });

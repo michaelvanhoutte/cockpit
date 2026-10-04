@@ -57,7 +57,7 @@
     {
       "key": "User management",
       "label": "User management",
-      "browserWalks": 6,
+      "browserWalks": 5,
       "parent": "Accounts",
       "sourcePatterns": [
         "apps/api/src/auth/admin.ts",

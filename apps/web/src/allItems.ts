@@ -1,6 +1,8 @@
 import {
   UNTITLED,
   itemStatus,
+  panelPlace,
+  panelTakesItems,
   type Dashboard,
   type Filing,
   type Item,
@@ -8,17 +10,42 @@ import {
   type Panel,
   type Priority,
 } from '@cockpit/shared';
-import { placesFiledOn } from './markedDone';
 
 /**
  * The table on *All items* ("Put each setting where a person looks for it",
  * issue 688): every item of the workspace in one table, and how it is ordered.
  *
- * **A view over the snapshot**, like the Inbox (`filing.ts`) and the window of
- * items marked done (`markedDone.ts`): finished items travel in it and
- * dismissed ones do not, so the table is the snapshot's items as they stand and
- * asks the server for nothing.
+ * **A view over the snapshot**, like the Inbox (`filing.ts`): finished items
+ * travel in it and dismissed ones do not, so the table is the snapshot's items
+ * as they stand and asks the server for nothing. It is sorted and filtered over
+ * every row, then drawn `ALL_ITEMS_PAGE` at a time.
  */
+
+/** How many rows are drawn before *Show more*. */
+export const ALL_ITEMS_PAGE = 50;
+
+/**
+ * Where an item is filed, as "Dashboard ▸ Panel" for each Panel that takes
+ * items, or none to name.
+ *
+ * A filing onto a Filter is no filing (`filingsThatFile`), and one whose Panel
+ * the snapshot no longer carries is a deleted Panel's: both leave the item in
+ * the Inbox, which is what reopening it will do.
+ */
+export function placesFiledOn(
+  item: Item,
+  filings: readonly Filing[],
+  panels: readonly Panel[],
+  dashboards: readonly Dashboard[],
+): string[] {
+  const held = new Set(filings.filter((filing) => filing.itemId === item.id).map((f) => f.panelId));
+  return panels
+    .filter((panel) => held.has(panel.id) && panelTakesItems(panel))
+    .map((panel) => {
+      const dashboard = dashboards.find((candidate) => candidate.id === panel.dashboardId);
+      return dashboard ? panelPlace(dashboard.name, panel.name) : panel.name;
+    });
+}
 
 export type AllItemsKey = 'title' | 'type' | 'status' | 'priority' | 'due' | 'where' | 'changed';
 

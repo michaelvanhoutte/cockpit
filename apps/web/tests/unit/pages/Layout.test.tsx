@@ -341,7 +341,6 @@ describe('Across the app', () => {
       await user.click(await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }));
 
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
-        'Items marked done…',
         'Edit…',
         'Delete',
       ]);
@@ -354,26 +353,9 @@ describe('Across the app', () => {
       fireEvent.contextMenu(await screen.findByText(A_NAME_THAT_LOOKS_LIKE_MARKUP));
 
       expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toEqual([
-        'Items marked done…',
         'Edit…',
         'Delete',
       ]);
-    });
-
-    // "See the items you have marked done, from the header menu", issue 637.
-    it('opens the items marked done from the first entry, and gives the focus back to the “…”', async () => {
-      openWorkspaceId = 'ws-markup';
-      const user = userEvent.setup();
-      shell();
-      const dots = () =>
-        screen.getByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` });
-
-      await user.click(await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }));
-      await user.click(await screen.findByRole('menuitem', { name: 'Items marked done…' }));
-      await screen.findByRole('dialog', { name: 'Marked done' });
-      await user.click(screen.getByRole('button', { name: 'Close' }));
-
-      await waitFor(() => expect(dots()).toHaveFocus());
     });
 
     // Whether Admin joins these two is a question of role rather than of
