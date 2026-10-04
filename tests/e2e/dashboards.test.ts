@@ -285,19 +285,10 @@ test.describe('Dashboards', () => {
       await press(page.getByRole('dialog').getByRole('button', { name: 'Save' }), isMobile);
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await expect(row).toContainText('To do');
-    });
 
-    /**
-     * F3 for the paging, which reaches the real table over a real snapshot: the
-     * items are made through the API, since fifty-one captures by hand is a
-     * minute of the walk spent on nothing it proves. That paging is by count is
-     * apps/web/tests/unit/components/AllItemsBoard.test.tsx.
-     */
-    test('draws fifty rows, and fifty more on Show more', async ({ page, isMobile }) => {
-      const workspace = uniqueTitle('Archive');
-      await openFirstWorkspace(page, isMobile);
-      await makeWorkspace(page, workspace, isMobile);
-      await switchTo(page, workspace, isMobile);
+      // Then paged: sixty more items made through the API, since sixty captures
+      // by hand is a minute spent on nothing this proves (that paging is by
+      // count is apps/web/tests/unit/components/AllItemsBoard.test.tsx).
       const workspaceId = new URL(page.url()).pathname.split('/')[2]!;
       const known = await page.request.get('/v1/item-types');
       const [aType] = ((await known.json()) as { itemTypes: { id: string }[] }).itemTypes;
@@ -314,17 +305,13 @@ test.describe('Dashboards', () => {
         });
         expect(sent.ok(), `capturing from outside failed: ${sent.status()}`).toBe(true);
       }
+      await page.reload();
 
-      await openDashboard(page, 'Dashboard 1', isMobile);
-      await chooseRowAction(page, 'Dashboard 1', 'Show all items', isMobile);
-      await press(dashboardBar(page).getByRole('link', { name: 'All items' }), isMobile);
-
-      // The header row and fifty items, then the rest of the sixty.
+      // The header row and fifty items, then the rest of the sixty-one.
       const rows = page.getByRole('row');
       await expect(rows).toHaveCount(51);
       await press(page.getByRole('button', { name: 'Show more' }), isMobile);
-      await expect(rows).not.toHaveCount(51);
-      await expect.poll(() => rows.count()).toBeGreaterThanOrEqual(61);
+      await expect.poll(() => rows.count()).toBe(62);
     });
   });
 });
