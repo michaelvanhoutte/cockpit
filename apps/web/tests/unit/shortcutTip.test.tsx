@@ -41,6 +41,13 @@ describe('Shortcuts', () => {
     it('a control activated from the keyboard shows none', () => {
       expect(tipForClick({ detail: 0, target: control('capture') })).toBeNull();
     });
+
+    it.each(['ctrlKey', 'metaKey', 'shiftKey', 'altKey'])(
+      'a click with %s held, which opens a new tab or window rather than doing what the key does, shows none',
+      (modifier) => {
+        expect(tipForClick({ ...mouse(control('capture')), [modifier]: true })).toBeNull();
+      },
+    );
   });
 
   describe('a tip goes away, and never gets in the way', () => {

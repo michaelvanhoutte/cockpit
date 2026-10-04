@@ -26,13 +26,25 @@ const TIPS: Record<string, string> = {
   dock: `Tip: press ${AGENT_DOCK_KEY.toUpperCase()} to hide or show the agents\u2019 dock`,
 };
 
+/** What of a click decides its tip; a `MouseEvent` is one. */
+type Click = {
+  detail: number;
+  target: EventTarget | null;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  shiftKey?: boolean;
+  altKey?: boolean;
+};
+
 /**
  * The tip a click earns, or null. A keyboard activation (Enter or Space on a
  * button) arrives as a click with `detail` 0, which is how it is told from a
  * pointer's.
  */
-export function tipForClick(click: { detail: number; target: EventTarget | null }): string | null {
+export function tipForClick(click: Click): string | null {
   if (click.detail === 0) return null;
+  // A modified press (a new tab, a new window) does something the key does not.
+  if (click.ctrlKey || click.metaKey || click.shiftKey || click.altKey) return null;
   const target = click.target;
   if (!(target instanceof Element)) return null;
   const control = target.closest(`[${TIP_ATTRIBUTE}]`)?.getAttribute(TIP_ATTRIBUTE);
@@ -52,7 +64,7 @@ export function useShortcutTip(room: boolean) {
     setTip(null);
   }, []);
   const clicked = useCallback(
-    (click: { detail: number; target: EventTarget | null }) => {
+    (click: Click) => {
       const next = room ? tipForClick(click) : null;
       if (next === null) return;
       clearTimeout(timer.current);
