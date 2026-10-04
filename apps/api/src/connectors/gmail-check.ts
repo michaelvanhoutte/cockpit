@@ -156,7 +156,6 @@ export async function checkGmail(env: Env, host: GmailCheckHost, now: Date): Pro
         host.failing(connection.id, NO_LABEL, at);
         continue;
       }
-      if (reached === 'more to do') moreToDo = true;
       host.checked(connection.id, at);
     } catch (error) {
       if (error instanceof SignInRefused) {
@@ -192,7 +191,7 @@ async function bringInLabelled(
   mailbox: Mailbox,
   at: string,
   broughtIn: string[],
-): Promise<'no label' | 'done' | 'more to do'> {
+): Promise<'no label' | 'done'> {
   const labelId = cockpitLabelIn(await mailbox.get('labels'));
   if (!labelId) return 'no label';
 
