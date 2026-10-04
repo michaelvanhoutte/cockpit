@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, renderHook, screen } from '@testing-library/react';
-import { ShortcutTip, TIP_ATTRIBUTE, TIP_MS, tipForClick, useShortcutTip } from '../../src/shortcutTip';
+import { TIP_ATTRIBUTE, TIP_MS, tipForClick, useShortcutTip } from '../../src/shortcutTip';
+import { ShortcutTip, TIPS } from '../../src/components/ShortcutTip';
 import { opensCapture } from '../../src/captureShortcut';
 import { somethingIsOpenOverThePage, togglesTheInbox } from '../../src/inboxCollapsed';
 import { togglesTheAgentDock } from '../../src/agentDockHidden';
@@ -33,7 +34,8 @@ describe('Shortcuts', () => {
       { situation: 'the dock\u2019s show strip', tip: 'dock', says: 'Tip: press A to hide or show the agents\u2019 dock' },
       { situation: 'anything else', tip: undefined, says: null },
     ])('$situation', ({ tip, says }) => {
-      expect(tipForClick(mouse(control(tip)))).toBe(says);
+      const earned = tipForClick(mouse(control(tip)));
+      expect(earned && TIPS[earned]).toBe(says);
     });
   });
 
@@ -57,7 +59,7 @@ describe('Shortcuts', () => {
     it('is gone 5 seconds after it appears', () => {
       const { result } = renderHook(() => useShortcutTip(true));
       click(result, 'capture');
-      expect(result.current.tip).toContain('press C');
+      expect(result.current.tip).toBe('capture');
       act(() => vi.advanceTimersByTime(TIP_MS - 1));
       expect(result.current.tip).not.toBeNull();
       act(() => vi.advanceTimersByTime(1));
@@ -76,15 +78,15 @@ describe('Shortcuts', () => {
       click(result, 'capture');
       act(() => vi.advanceTimersByTime(3000));
       click(result, 'inbox');
-      expect(result.current.tip).toContain('press I');
+      expect(result.current.tip).toBe('inbox');
       act(() => vi.advanceTimersByTime(3000));
-      expect(result.current.tip).toContain('press I');
+      expect(result.current.tip).toBe('inbox');
       act(() => vi.advanceTimersByTime(2000));
       expect(result.current.tip).toBeNull();
     });
 
     it('leaves C, I and A working while it shows', () => {
-      const { unmount } = render(<ShortcutTip tip="Tip: press C to capture from anywhere" onDismiss={() => {}} />);
+      const { unmount } = render(<ShortcutTip control="capture" onDismiss={() => {}} />);
       expect(screen.getByText('Tip: press C to capture from anywhere')).toBeTruthy();
       // The tip is no menu or window, so the keys' own guard finds nothing open.
       const covered = somethingIsOpenOverThePage();
@@ -112,7 +114,7 @@ describe('Shortcuts', () => {
       render(
         <UndoWhatJustHappened>
           <Offers />
-          <ShortcutTip tip="Tip: press C to capture from anywhere" onDismiss={() => {}} />
+          <ShortcutTip control="capture" onDismiss={() => {}} />
         </UndoWhatJustHappened>,
       );
       expect(screen.queryByText('Tip: press C to capture from anywhere')).not.toBeNull();

@@ -16,6 +16,8 @@ const AgentDock = lazy(() => import('../components/AgentDock'));
 // (components/SettingsWindow.tsx).
 const SettingsWindow = lazy(() => import('../components/SettingsWindow'));
 const PlatformSettingsWindow = lazy(() => import('../components/PlatformSettingsWindow'));
+// And the shortcut tip's toast and wording, fetched with the first tip.
+const ShortcutTip = lazy(() => import('../components/ShortcutTip'));
 import { DashboardBar } from '../components/DashboardBar';
 import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { CaptureWindow } from '../components/CaptureWindow';
@@ -29,7 +31,7 @@ import { OpensItemForms } from '../itemForm';
 import { litForChrome } from '../chrome';
 import { Logo } from '../components/Logo';
 import { opensCapture } from '../captureShortcut';
-import { ShortcutTip, useShortcutTip } from '../shortcutTip';
+import { useShortcutTip } from '../shortcutTip';
 import { captureStateFor } from './CapturePage';
 import { browserStore } from '../lastVisited';
 import { clampInboxWidth, readInboxWidth, writeInboxWidth } from '../inboxWidth';
@@ -1232,7 +1234,11 @@ function TheShell() {
           opened by that same address (`itemForm.tsx`). Here rather than in the
           lists, because there is one form open at a time. */}
       <ItemForm />
-      <ShortcutTip tip={shortcutTip.tip} onDismiss={shortcutTip.dismiss} />
+      {shortcutTip.tip && (
+        <Suspense fallback={null}>
+          <ShortcutTip control={shortcutTip.tip} onDismiss={shortcutTip.dismiss} />
+        </Suspense>
+      )}
     </div>
   );
 }

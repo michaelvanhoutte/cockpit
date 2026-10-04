@@ -1,8 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AGENT_DOCK_KEY } from './agentDockHidden';
-import { CAPTURE_KEY } from './captureShortcut';
-import { INBOX_KEY } from './inboxCollapsed';
-import { BOTTOM_CENTRE_STRIP, useAnUndoIsOffered } from './undo';
 
 /**
  * "Tell a mouse user the key when they click what a key also does" (issue
@@ -12,6 +8,10 @@ import { BOTTOM_CENTRE_STRIP, useAnUndoIsOffered } from './undo';
  * **Shown and forgotten**: nothing is stored, so a tip shows on every click.
  * It listens for clicks only, so a key press never shows one and never has to
  * be told not to suspend the keys.
+ *
+ * Which control was clicked is decided here, in the shell; what the tip says
+ * and the toast that says it are `components/ShortcutTip.tsx`, fetched on the
+ * first tip rather than in the initial bundle.
  */
 
 /** How long a tip stays up before it goes of its own accord. */
@@ -20,11 +20,9 @@ export const TIP_MS = 5000;
 /** The attribute a control wears to say which tip a click on it earns. */
 export const TIP_ATTRIBUTE = 'data-shortcut-tip';
 
-const TIPS: Record<string, string> = {
-  capture: `Tip: press ${CAPTURE_KEY.toUpperCase()} to capture from anywhere`,
-  inbox: `Tip: press ${INBOX_KEY.toUpperCase()} to collapse or open the Inbox`,
-  dock: `Tip: press ${AGENT_DOCK_KEY.toUpperCase()} to hide or show the agents\u2019 dock`,
-};
+/** The controls that have a key, as their `data-shortcut-tip` names them. */
+export type TipControl = 'capture' | 'inbox' | 'dock';
+const CONTROLS: readonly string[] = ['capture', 'inbox', 'dock'] satisfies TipControl[];
 
 /** What of a click decides its tip; a `MouseEvent` is one. */
 type Click = {
@@ -37,18 +35,18 @@ type Click = {
 };
 
 /**
- * The tip a click earns, or null. A keyboard activation (Enter or Space on a
- * button) arrives as a click with `detail` 0, which is how it is told from a
- * pointer's.
+ * The control whose tip a click earns, or null. A keyboard activation (Enter
+ * or Space on a button) arrives as a click with `detail` 0, which is how it is
+ * told from a pointer's.
  */
-export function tipForClick(click: Click): string | null {
+export function tipForClick(click: Click): TipControl | null {
   if (click.detail === 0) return null;
   // A modified press (a new tab, a new window) does something the key does not.
   if (click.ctrlKey || click.metaKey || click.shiftKey || click.altKey) return null;
   const target = click.target;
   if (!(target instanceof Element)) return null;
   const control = target.closest(`[${TIP_ATTRIBUTE}]`)?.getAttribute(TIP_ATTRIBUTE);
-  return (control && TIPS[control]) || null;
+  return control && CONTROLS.includes(control) ? (control as TipControl) : null;
 }
 
 /**
@@ -57,7 +55,7 @@ export function tipForClick(click: Click): string | null {
  * showing and restarts its five seconds.
  */
 export function useShortcutTip(room: boolean) {
-  const [tip, setTip] = useState<string | null>(null);
+  const [tip, setTip] = useState<TipControl | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const dismiss = useCallback(() => {
     clearTimeout(timer.current);
@@ -75,33 +73,4 @@ export function useShortcutTip(room: boolean) {
   );
   useEffect(() => () => clearTimeout(timer.current), []);
   return { tip, clicked, dismiss };
-}
-
-/**
- * The toast, where the undo offer is drawn. It stands aside while an undo is
- * offered rather than covering it: the way back matters more than a hint.
- */
-export function ShortcutTip({ tip, onDismiss }: { tip: string | null; onDismiss: () => void }) {
-  const undoOffered = useAnUndoIsOffered();
-  if (tip === null || undoOffered) return null;
-  return (
-    <div role="status" className={BOTTOM_CENTRE_STRIP}>
-      <div
-        // Kept from the document, where an open window (Capture, opened by the
-        // very click that showed this) would read a press here as one outside
-        // it and close: the tip must never get in the way.
-        onPointerDown={(event) => event.stopPropagation()}
-        className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
-        <span className="min-w-0 flex-1">{tip}</span>
-        <button
-          type="button"
-          onClick={onDismiss}
-          aria-label="Dismiss the tip"
-          className="pointer-events-auto shrink-0 rounded px-2 py-1 text-white/70 hover:bg-white/10 hover:text-white"
-        >
-          {'\u2715'}
-        </button>
-      </div>
-    </div>
-  );
 }

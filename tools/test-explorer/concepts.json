@@ -409,7 +409,7 @@
       "label": "Shortcuts",
       "browserWalks": 1,
       "parent": "Across the app",
-      "sourcePatterns": ["apps/web/src/shortcutTip.tsx"]
+      "sourcePatterns": ["apps/web/src/shortcutTip.ts", "apps/web/src/components/ShortcutTip.tsx"]
     },
     {
       "key": "Menus",
