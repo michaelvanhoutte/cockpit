@@ -280,6 +280,22 @@ function clamp(value: number, low: number, high: number): number {
   return Math.min(high, Math.max(low, Number.isFinite(value) ? value : low));
 }
 
+/**
+ * The arrangement with a whole row moved to another place among the rows.
+ *
+ * The row is carried as it is - its height, its panels and their shares - so
+ * moving it changes the order of the lines and nothing about any of them.
+ * `to` is the row's place in the arrangement that comes out, and is clamped
+ * to one that exists; a `from` that is no row leaves the arrangement alone.
+ */
+export function movedRow(rows: readonly LayoutRow[], from: number, to: number): LayoutRow[] {
+  const moving = rows[from];
+  if (!moving) return [...rows];
+  const next = rows.filter((_, at) => at !== from);
+  next.splice(clamp(to, 0, next.length), 0, moving);
+  return next;
+}
+
 /** Whether two arrangements say the same thing, so nothing is sent when nothing moved. */
 export function sameArrangement(
   one: readonly LayoutRow[],

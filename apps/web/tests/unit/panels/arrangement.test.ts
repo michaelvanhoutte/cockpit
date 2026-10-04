@@ -6,6 +6,7 @@ import {
   drawnRows,
   layoutToDraw,
   movedBeside,
+  movedRow,
   movedToOwnRow,
   sharesOf,
   withRowHeight,
@@ -341,6 +342,35 @@ describe('Layouts', () => {
 
     it('changes nothing when it already has that line to itself', () => {
       expect(movedToOwnRow(three, 'b', 1)).toEqual(three);
+    });
+  });
+});
+
+describe('Layouts', () => {
+  describe('a whole row moves among the rows with everything it holds', () => {
+    const rows = [aRow([cell('a', 12)], 300), aRow([cell('b', 4), cell('c', 8)]), aRow([cell('d', 12)], 150)];
+
+    it('carries its height and its panels’ shares, and changes nothing about the others', () => {
+      const next = movedRow(rows, 0, 2);
+
+      expect(next).toEqual([rows[1], rows[2], rows[0]]);
+    });
+
+    it('moves up as well as down', () => {
+      expect(idsOf(movedRow(rows, 2, 0))).toEqual([['d'], ['a'], ['b', 'c']]);
+    });
+
+    it.each([
+      { situation: 'to where it is', from: 1, to: 1 },
+      { situation: 'to a place past the end, which is the end', from: 2, to: 9 },
+    ])('keeps the order when asked $situation', ({ from, to }) => {
+      expect(idsOf(movedRow(rows, from, to))).toEqual(
+        from === to ? idsOf(rows) : [['a'], ['b', 'c'], ['d']],
+      );
+    });
+
+    it('leaves the arrangement alone for a row that is not there', () => {
+      expect(movedRow(rows, 7, 0)).toEqual(rows);
     });
   });
 });

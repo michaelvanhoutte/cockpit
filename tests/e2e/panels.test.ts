@@ -626,7 +626,7 @@ test.describe('Panels', () => {
   test.describe('every panel is its header alone while one is in the air, and the one you hold stays under the pointer', () => {
     test.skip(({ isMobile }) => !!isMobile, 'dragging a panel is a pointer gesture');
 
-    test('keeps the grabbed header where it was taken when the board collapses, changes nothing on the first move, and keeps the dropped one where it was let go when the board opens', async ({
+    test('keeps the grabbed header where it was taken when the board collapses, changes nothing on the first move, keeps the dropped one where it was let go when the board opens, and does the same for a row taken by its grip, kept through a reload', async ({
       page,
       isMobile,
     }) => {
@@ -695,6 +695,32 @@ test.describe('Panels', () => {
         .poll(async () => (await page.getByRole('region', { name: one }).boundingBox())!.height)
         .toBeGreaterThan(300);
       await expect.poll(async () => Math.abs((await headerTop(five)) - letGoAt) <= 1).toBe(true);
+
+      // **A whole row, by the grip at its left edge, anchors the same way**: the
+      // bottom row taken at the foot of the page keeps its header under the
+      // pointer as the board collapses, and carried to the top it is still
+      // there after a reload.
+      await dashboard.evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+      const rowGrabbedAt = await headerTop(three);
+      const [gripX, gripY] = await centreOf(page.getByTestId('row-grip').nth(2));
+      await page.mouse.move(gripX, gripY);
+      await page.mouse.down();
+      await expect
+        .poll(async () => (await page.getByRole('region', { name: one }).boundingBox())!.height)
+        .toBeLessThan(100);
+      await expect.poll(async () => Math.abs((await headerTop(three)) - rowGrabbedAt) <= 1).toBe(true);
+
+      const rowSaved = answerTo(page, 'save_layout');
+      const first = (await page.getByRole('region', { name: five }).boundingBox())!;
+      await page.mouse.move(gripX, first.y - 4, { steps: 8 });
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[three, four], [five], [one, two]]);
+      await page.mouse.up();
+      expect((await rowSaved).status()).toBe(200);
+
+      await page.reload();
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[three, four], [five], [one, two]]);
     });
   });
 
