@@ -43,7 +43,6 @@ import {
   sameArrangement,
   sharesOf,
   withRowHeight,
-  SAME_SCREEN_TOLERANCE,
 } from '../panels/arrangement';
 import { dashboardTabAt } from '../panels/dashboardDrop';
 import type { TabRect } from '../panels/dashboardDrop';
@@ -399,10 +398,9 @@ export function PanelBoard({
          * the app are shaped to avoid.
          *
          * **Reachable rather than theoretical.** Two tabs on a dashboard with
-         * no layout, both on a screen of the same size, both dragging: the
-         * first records *Wide* and the second is refused for the name, because
-         * its own copy of the dashboard still has no layout to make the name
-         * free against. Dropping `sent` with the draft is what lets the same
+         * no layout, both dragging: the first records one and the second is
+         * refused, because its own copy of the dashboard still has no layout
+         * for the size to be taken against. Dropping `sent` with the draft is what lets the same
          * gesture be made again once the snapshot has caught up; `justMade` is
          * deliberately kept, so the retry changes the layout this board made
          * rather than defining a second one at the same width.
@@ -417,26 +415,20 @@ export function PanelBoard({
   };
 
   /**
-   * The id of the layout this board made for this screen, kept until the
-   * snapshot has it.
+   * The id of the layout this board made, kept until the snapshot has it.
    *
    * Two gestures can both find the dashboard with no layout: the first sends
    * one and the second happens before the re-read lands. A fresh id each time
-   * would define a second layout at the same width, and the layout menu would
-   * list "Made for 1280 px" twice with nothing to tell them apart. Sending the
-   * same id makes the second gesture change the layout the first one made,
-   * which is what it meant.
-   *
-   * Kept per width, because a window resized between the two really is a
-   * different screen asking for a layout of its own.
+   * would define a second layout for the same dashboard. Sending the same id
+   * makes the second gesture change the layout the first one made, which is
+   * what it meant, whatever the window was resized to between the two: a
+   * dashboard has one layout, so there is no other screen to make one for.
    */
-  const justMade = useRef<{ id: string; screenWidth: number } | null>(null);
+  const justMade = useRef<string | null>(null);
   const layoutForThisScreen = (): string => {
-    const held = justMade.current;
-    if (held && Math.abs(held.screenWidth - screenWidth) <= SAME_SCREEN_TOLERANCE) return held.id;
-    const id = uuidv7();
-    justMade.current = { id, screenWidth };
-    return id;
+    if (justMade.current) return justMade.current;
+    justMade.current = uuidv7();
+    return justMade.current;
   };
 
   /**

@@ -149,7 +149,7 @@ const widthByScreenSizeId = new Map<string, number>();
  * panel still has somewhere to move left to.
  *
  * Defined at a screen size of its own, one per layout, so the automatic
- * choice (`arrangement.ts`, `nearestLayout`) has something to find it by -
+ * choice (`arrangement.ts`, `layoutToDraw`) has something to find it by -
  * `showBoard` derives the matching `screenSizes` list from these unless a
  * case hands it its own.
  */

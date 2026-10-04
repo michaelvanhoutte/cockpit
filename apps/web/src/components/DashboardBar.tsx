@@ -974,7 +974,7 @@ function AddPanel({
  * What the new panel holds, asked in the same breath as its name.
  *
  * **Two choices in the naming question rather than two controls on the bar.**
- * The bar already carries the dashboards, a `+`, the layout picker and a menu,
+ * The bar already carries the dashboards, a `+` and a menu,
  * and a fifth control would push one of them off a laptop. It is also the
  * honest shape: this is one decision with two answers, made at the only moment
  * it can be made.

@@ -58,24 +58,6 @@ export function panelsAcross(availableWidth: number): number {
 }
 
 /**
- * How near a screen has to be to a layout's own width to count as the screen it
- * was made for.
- *
- * Exact equality would be unusable: a scrollbar appearing takes about fifteen
- * pixels off the width, and a window nudged by a few would count as a different
- * screen. Forty is under a tenth of the narrowest screen the app is drawn on,
- * so nothing that is really a different size can hide inside it.
- *
- * Its one reader is the board, deciding whether two quick gestures on a
- * dashboard with no layout are making the same one (PanelBoard,
- * `layoutForThisScreen`). It used to answer a second question - whether a
- * change had to stop and ask which layout to keep it in - and that question is
- * gone: you pick the layout you are on and every change goes into it ("Pick the
- * layout you are on, by name").
- */
-export const SAME_SCREEN_TOLERANCE = 40;
-
-/**
  * The layout a dashboard is drawn with: its widest, from 480px up, whatever
  * screen it is looked at on ("Draw a Dashboard on its one Layout, with nothing
  * to choose it by", issue 712). Nothing is picked and nothing follows the

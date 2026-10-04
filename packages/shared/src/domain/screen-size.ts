@@ -47,9 +47,7 @@ export type ScreenSize = z.infer<typeof screenSizeSchema>;
 /**
  * The account's screen size nearest this window, ties going to the narrower
  * (issue 263). Shared rather than written twice, since server and client both
- * ask the same question from the same list — the client calls this from
- * `apps/web/src/panels/arrangement.ts`'s `layoutToDraw`, to decide whether a
- * picked size has expired (architecture.md §4.4).
+ * ask the same question from the same list (architecture.md §4.4).
  */
 export function nearestScreenSize(
   sizes: readonly ScreenSize[],

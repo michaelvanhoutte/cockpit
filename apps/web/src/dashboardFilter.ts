@@ -214,8 +214,7 @@ export function forgetEveryDashboardFilter(store: Storage | undefined): void {
 /**
  * Everything reading a filter - the bar that sets it, the board that obeys it
  * and the tabs that carry its funnel - so a change redraws all three. A set of
- * callbacks rather than the `storage` event, which only reaches *other* tabs
- * (`useChosenLayout` says the same).
+ * callbacks rather than the `storage` event, which only reaches *other* tabs.
  */
 const readers = new Set<() => void>();
 
