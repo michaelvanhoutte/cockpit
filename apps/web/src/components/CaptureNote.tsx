@@ -523,7 +523,9 @@ export function CaptureNote({
         <textarea
           value={shown}
           onChange={(e) => {
-            // Typing over what is still provisional makes it part of the note.
+            // Typing over what is still provisional makes it part of the note,
+            // and the engine must not deliver it again.
+            if (provisional) dictation.forgetPhrase();
             setProvisional('');
             setMessage(e.target.value);
           }}
@@ -922,7 +924,7 @@ function PriorityAndDue({
         </span>
       </div>
 
-      {dictation.available && <Dictate dictation={dictation} />}
+      {dictation.available && <Dictate dictation={dictation} disabled={disabled} />}
     </div>
     {dictation.error && (
       <p role="alert" className="px-3 pb-2 text-sm text-over sm:px-4">
@@ -939,7 +941,7 @@ function PriorityAndDue({
  * it is filled and pulsing only once the engine has actually started
  * (`dictation.ts`), and the tag beside it is switched off while it listens.
  */
-function Dictate({ dictation }: { dictation: Dictation }) {
+function Dictate({ dictation, disabled }: { dictation: Dictation; disabled: boolean }) {
   const { listening, language } = dictation;
   const { tag, name } = DICTATION_LANGUAGES[language];
   return (
@@ -947,6 +949,7 @@ function Dictate({ dictation }: { dictation: Dictation }) {
       <button
         type="button"
         onClick={dictation.toggle}
+        disabled={disabled && !listening}
         aria-pressed={listening}
         aria-label="Dictate"
         title={listening ? 'Stop dictating' : 'Dictate the note'}

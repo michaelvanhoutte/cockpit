@@ -1416,6 +1416,23 @@ describe('Capture', () => {
 
       expect((await captured()).payload.message).toBe('almost finished');
     });
+
+    it('does not add a phrase twice when it was typed over while still being recognised', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      current().begins();
+      current().says('buy milk', false);
+      const heardIt = current();
+
+      await user.type(box(), '!');
+      // The engine's late final reading of the phrase belongs to a session that was let go.
+      heardIt.says('buy milk', true, true);
+      await user.click(mic());
+
+      expect(box()).toHaveValue('buy milk!');
+      expect(mic()).toHaveAttribute('aria-pressed', 'false');
+    });
   });
 
   describe('the mic shows as listening only once the engine has started, and keeps going until it is tapped off', () => {

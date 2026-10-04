@@ -182,6 +182,21 @@ export class DictationSession {
     if (wasAsked) this.on.onListening(false);
   }
 
+  /**
+   * Drops the phrase still being recognised, because the view has made it part
+   * of the note itself (typed over it). The engine would otherwise deliver its
+   * final reading of it later and add it twice, so a listening session is
+   * swapped for a fresh one that has not heard it.
+   */
+  forgetPhrase(): void {
+    if (!this.interim) return;
+    this.interim = '';
+    if (this.wanted && this.engine) {
+      this.release();
+      this.begin();
+    }
+  }
+
   private begin(): void {
     const engine = this.make();
     if (!engine) {
@@ -279,6 +294,8 @@ export interface Dictation {
   toggle(): void;
   /** Stops listening, keeping what was said. */
   stop(): void;
+  /** Forgets the phrase still being recognised, which the view has taken into the note itself. */
+  forgetPhrase(): void;
 }
 
 /**
@@ -340,5 +357,6 @@ export function useDictation({
       else own.start();
     },
     stop: () => session.current?.stop(),
+    forgetPhrase: () => session.current?.forgetPhrase(),
   };
 }
