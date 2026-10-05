@@ -1,12 +1,14 @@
 //
 // The I/O around scripts/lib/backup.mjs, for `pnpm backup:export`. Everything
 // that decides anything is in the module, which node --test covers in the
-// Scripts step; this fetches, writes files, prints and sets an exit code, so
-// there is nothing here for a test to hold.
+// Scripts step, including where the files go; this fetches, prints and sets an
+// exit code, so there is nothing here for a test to hold.
 //
 // Usage:
 //   pnpm backup:export --env production --out ./backups/2026-09-06
 //   pnpm backup:export --env production --out ./backups/anna --user tenant-anna
+//   pnpm backup:export --env production --out ./backups --dated
+//   pnpm backup:export --env production --out ./backups/latest --force
 //
 // The operator secret is that environment's own BACKUP_TOKEN, read from
 // backup-tokens.json so that naming the environment is the whole of what
@@ -14,12 +16,10 @@
 // docs/deployment.md, "Secrets and access", rather than here.
 //
 
-import { mkdir, rename, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { addressOf, readArguments, readRefusal, takeBackup } from './lib/backup.mjs';
+import { addressOf, prepareBackup, readArguments, readRefusal, takeBackup } from './lib/backup.mjs';
 import { readConfig, resolveSubdomain, resolveToken } from './lib/operator-config.mjs';
 import { isLinkedWorktree, portsFor } from './lib/ports.mjs';
 
@@ -31,7 +31,7 @@ try {
 } catch (error) {
   console.error(`${error.message}
 
-  pnpm backup:export --env <local|staging|production> --out <directory> [--user <account>]`);
+  pnpm backup:export --env <local|staging|production> --out <directory> [--user <account>] [--dated | --force]`);
   process.exit(2);
 }
 
@@ -71,35 +71,6 @@ async function ask(path) {
   return JSON.parse(answer.body);
 }
 
-/**
- * Nothing appears where the backup was asked for until all of it has been read.
- * The staging directory is beside it rather than in a temporary folder, so that
- * settling is a rename within one filesystem - which is the part that happens
- * all at once.
- */
-const files = {
-  async stage(out) {
-    const staged = `${out}.partial`;
-    // Refused rather than cleared away. What an interrupted run left there is
-    // evidence about how far it got, and this command is otherwise the one
-    // thing in the system that destroys nothing - a silent `rm -rf` of a path
-    // derived from what somebody typed would be a poor exception to that.
-    if (existsSync(staged)) {
-      throw new Error(
-        `${staged} is already there, left by a run that did not finish. Look at it or remove it, then try again.`,
-      );
-    }
-    await mkdir(`${staged}/accounts`, { recursive: true });
-    return staged;
-  },
-  async write(path, contents) {
-    await writeFile(path, `${JSON.stringify(contents, null, 2)}\n`, 'utf8');
-  },
-  async settle(staged, out) {
-    await rename(staged, out);
-  },
-};
-
 // Against the directory the command was run from, never against the repository
 // root. `resolve` only falls back to the working directory while the path it
 // has built is still relative, so passing an absolute `root` first silently
@@ -109,16 +80,26 @@ const files = {
 // that put real data one `git add -A` from being committed. `.gitignore` now
 // names the two paths as well; this is the half that stops them being created
 // there at all.
-const out = resolve(args.out);
-if (existsSync(out)) {
-  console.error(`${out} is already there. Backups are not written over; name a new directory.`);
+let place;
+try {
+  place = await prepareBackup({
+    out: resolve(args.out),
+    dated: args.dated,
+    force: args.force,
+    environment: args.environment,
+    user: args.user,
+    startedAt: new Date(),
+  });
+} catch (error) {
+  console.error(error.message);
   process.exit(2);
 }
+const out = place.target;
 
 try {
-  const { accounts } = await takeBackup({
+  const { accounts, warning } = await takeBackup({
     ask,
-    files,
+    files: place.files,
     out,
     only: args.user,
     environment: args.environment,
@@ -131,6 +112,7 @@ try {
   for (const account of accounts) {
     console.log(`  ${account.account}: ${account.rows} rows`);
   }
+  if (warning) console.warn(warning);
 } catch (error) {
   console.error(error.message);
   // What was read is left in `<out>.partial` rather than deleted, because it is

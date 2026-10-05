@@ -12,6 +12,9 @@
 // rather than a filter.
 //
 
+import * as fsp from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+
 import { readAnswer, readEnvironment, readFlags } from './operator.mjs';
 
 /** Where each environment answers. Production and staging are Workers of their own. */
@@ -57,11 +60,258 @@ export function addressOf(environment, { subdomain, apiPort } = {}) {
 export function readArguments(argv) {
   const args = readFlags(argv, {
     takes: { '--env': 'environment', '--out': 'out', '--user': 'user' },
+    switches: { '--dated': 'dated', '--force': 'force' },
   });
   if (!args.environment) throw new Error('--env says which environment to back up');
   readEnvironment(args.environment);
   if (!args.out) throw new Error('--out says where to write the backup');
+  if (args.force && args.dated) {
+    throw new Error('--force has nothing to replace with --dated - a dated folder is new every run');
+  }
   return args;
+}
+
+/**
+ * The sub-folder `--dated` writes into: `<env>-<UTC time>`, or
+ * `<env>-<user>-<UTC time>` with `--user`, the time as `2026-10-05T14-32-07Z`
+ * because Windows refuses colons in a name. `startedAt` is when the run began,
+ * since the name is needed before staging does; the manifest's `takenAt` stays
+ * the moment it finished.
+ */
+export function datedName(environment, user, startedAt) {
+  const time = `${startedAt.toISOString().slice(0, 19).replaceAll(':', '-')}Z`;
+  return [environment, user && nameAsAFile(user), time].filter(Boolean).join('-');
+}
+
+/** What may sit in a folder `--force` replaces: an earlier backup and nothing else. */
+const BACKUP_FILES = Object.freeze(['manifest.json', 'register.json']);
+
+/**
+ * Where the backup goes, and the `files` that put it there - refusing, before
+ * anything is fetched, every destination it must not write into.
+ *
+ * `disk` is `node:fs/promises` unless a test hands it one with a step that
+ * fails. Every refusal here leaves the disk as it found it; only once nothing
+ * has refused is the folder the backup goes into created, so a parent that
+ * cannot be made fails before anything is fetched rather than after.
+ */
+export async function prepareBackup({ out, dated, force, environment, user, startedAt, disk = fsp }) {
+  if (dated && (await kindOf(disk, out)) === 'other') throw notAFolder(out);
+  const target = dated ? join(out, datedName(environment, user, startedAt)) : out;
+  // `.partial` and `.replaced` sit beside the backup, and a root has no beside.
+  if (dirname(target) === target) {
+    throw new Error(
+      `${target} is the root of a drive. Name a folder in it, or add --dated to write into a new dated folder there.`,
+    );
+  }
+  await refuseLeftovers(disk, target);
+
+  let replacing = 'nothing';
+  const found = await kindOf(disk, target);
+  if (found === 'other') {
+    throw notAFolder(target);
+  } else if (found === 'directory' && (await disk.readdir(target)).length === 0) {
+    replacing = 'an empty folder';
+  } else if (found && dated) {
+    throw new Error(`${target} is already there - a dated backup was taken this same second.`);
+  } else if (found && !force) {
+    throw new Error(
+      `${target} is already there. Backups are not written over: name a new directory, ` +
+        'add --dated to write into a new dated folder inside it, or add --force to replace ' +
+        'an earlier backup there.',
+    );
+  } else if (found) {
+    await refuseAnythingButABackup(disk, target);
+    replacing = 'an earlier backup';
+  }
+  await disk.mkdir(dirname(target), { recursive: true });
+
+  return {
+    target,
+    files: {
+      // Beside the destination rather than in a temporary folder, so that
+      // settling is a rename within one filesystem.
+      async stage(at) {
+        const staged = `${at}.partial`;
+        // Not recursive, so a `.partial` that appeared since the check above
+        // fails here rather than being written into.
+        await disk.mkdir(staged);
+        await disk.mkdir(join(staged, 'accounts'));
+        return staged;
+      },
+      async write(path, contents) {
+        await disk.writeFile(path, `${JSON.stringify(contents, null, 2)}\n`, 'utf8');
+      },
+      settle: (staged, at) => settle({ disk, staged, target: at, replacing }),
+    },
+  };
+}
+
+/**
+ * Moves the staged backup to where it was asked for, and returns a warning to
+ * print if one is owed.
+ *
+ * **An earlier backup is set aside by renaming, never deleted first**, and is
+ * removed only once the new one is in its place. Windows will not rename onto
+ * an existing directory, hence three steps rather than one. Where a run stops:
+ *
+ *   - before the first rename: the earlier backup is untouched at `<out>` and
+ *     the new one is in `<out>.partial`;
+ *   - between the renames: `<out>` is absent, and `<out>.replaced` (the earlier
+ *     backup) and `<out>.partial` (the new) are both whole;
+ *   - after the second: the new backup is at `<out>`, and only removing
+ *     `<out>.replaced` is outstanding - a failure there is a warning, not a
+ *     failed run, and a removal stopped halfway leaves a partial copy of a
+ *     backup already superseded.
+ *
+ * Any `<out>.replaced` or `<out>.partial` left behind refuses the next run,
+ * `--force` or not (`refuseLeftovers`), so an interrupted swap is never
+ * compounded by another that deletes the copy set aside. The backup-only check
+ * is made again here, because a long run gives somebody time to put a file
+ * there; one written between this check and the rename is set aside and
+ * deleted with the earlier backup. An empty folder is removed with a plain
+ * directory removal, which the platform refuses on one that is no longer
+ * empty, rather than a recursive one trusting a check made a moment earlier.
+ */
+async function settle({ disk, staged, target, replacing }) {
+  if (replacing === 'nothing') {
+    if (await kindOf(disk, target)) {
+      throw new Error(`${target} appeared during the run. The new backup is in ${staged}.`);
+    }
+    await disk.rename(staged, target);
+    return undefined;
+  }
+
+  if (replacing === 'an empty folder') {
+    try {
+      await disk.rmdir(target);
+    } catch (error) {
+      if (error.code === 'ENOTEMPTY' || error.code === 'EEXIST') {
+        throw new Error(
+          `${target} is no longer empty - something was put there during the run - so it was ` +
+            `left alone. The new backup is in ${staged}.`,
+        );
+      }
+      // EBUSY, on Windows, is a folder some program is working in.
+      throw new Error(
+        `${target} could not be removed to make way for the backup (${error.code ?? error.message}). ` +
+          `The new backup is in ${staged}.`,
+      );
+    }
+    await disk.rename(staged, target);
+    return undefined;
+  }
+
+  await refuseAnythingButABackup(disk, target, ` The new backup is in ${staged}.`);
+  const replaced = `${target}.replaced`;
+  try {
+    await disk.rename(target, replaced);
+  } catch (error) {
+    throw new Error(
+      `${target} could not be set aside (${error.code ?? error.message}). The earlier backup is ` +
+        `untouched at ${target}, and the new one is in ${staged}.`,
+    );
+  }
+  try {
+    await disk.rename(staged, target);
+  } catch (error) {
+    throw new Error(
+      `${staged} could not be moved to ${target} (${error.code ?? error.message}). Both backups ` +
+        `are whole: the earlier one is in ${replaced}, the new one in ${staged}.`,
+    );
+  }
+  try {
+    // Retried, because Windows answers EBUSY or EPERM for a moment after a
+    // scanner or indexer touches a file, and giving up then leaves it half removed.
+    await disk.rm(replaced, { recursive: true, maxRetries: 3 });
+  } catch (error) {
+    return (
+      `The new backup is in place, but the earlier one it replaced could not be removed ` +
+      `(${error.code ?? error.message}): remove ${replaced} by hand before the next backup here.`
+    );
+  }
+  return undefined;
+}
+
+/** Refuses what an interrupted run left beside `target`, `--force` or not. */
+async function refuseLeftovers(disk, target) {
+  const replaced = `${target}.replaced`;
+  const staged = `${target}.partial`;
+  const stagedThere = await kindOf(disk, staged);
+  if (await kindOf(disk, replaced)) {
+    throw new Error(
+      `${replaced} is already there: the earlier backup, set aside by a replacement that did ` +
+        `not finish${stagedThere ? `, and ${staged} is the new one it was replacing it with` : ''}. ` +
+        `Put back what you want at ${target}, remove the rest, then try again.`,
+    );
+  }
+  // Refused rather than cleared away. What an interrupted run left there is
+  // evidence about how far it got, and a silent `rm -rf` of a path derived
+  // from what somebody typed would be a poor thing for a backup command to do.
+  if (stagedThere) {
+    throw new Error(
+      `${staged} is already there, left by a run that did not finish. Look at it or remove it, then try again.`,
+    );
+  }
+}
+
+/**
+ * Refuses `dir` unless it holds an earlier backup and nothing else: a
+ * `manifest.json` that reads as a backup's, nothing beside it but
+ * `register.json` and `accounts/`, and only `.json` files in `accounts/`. This
+ * is the whole of what stands between `--force` and a mistyped `--out I:\`.
+ */
+async function refuseAnythingButABackup(disk, dir, more = '') {
+  const refuse = (why) => {
+    throw new Error(`${dir} is not only an earlier backup (${why}), so --force leaves it alone.${more}`);
+  };
+  const entries = await disk.readdir(dir, { withFileTypes: true });
+  if (!entries.some((entry) => entry.name === 'manifest.json' && entry.isFile())) {
+    refuse('it has no manifest.json');
+  }
+  if (!isAManifest(await disk.readFile(join(dir, 'manifest.json'), 'utf8'))) {
+    refuse("its manifest.json is not a backup's");
+  }
+  for (const entry of entries) {
+    const expected = BACKUP_FILES.includes(entry.name)
+      ? entry.isFile()
+      : entry.name === 'accounts' && entry.isDirectory();
+    if (!expected) refuse(`it holds ${entry.name}`);
+  }
+  if (!entries.some((entry) => entry.name === 'accounts')) return;
+  for (const entry of await disk.readdir(join(dir, 'accounts'), { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) refuse(`accounts holds ${entry.name}`);
+  }
+}
+
+/** Whether `text` is shaped like the manifest `takeBackup` writes. */
+function isAManifest(text) {
+  try {
+    const manifest = JSON.parse(text);
+    return (
+      typeof manifest === 'object' &&
+      manifest !== null &&
+      typeof manifest.environment === 'string' &&
+      typeof manifest.takenAt === 'string' &&
+      Array.isArray(manifest.accounts)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function notAFolder(path) {
+  return new Error(`${path} is a file, not a folder. A backup is a folder; name one that is new, empty or a backup.`);
+}
+
+/** 'directory', 'other', or null where nothing is there. */
+async function kindOf(disk, path) {
+  try {
+    return (await disk.lstat(path)).isDirectory() ? 'directory' : 'other';
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
 }
 
 /**
@@ -106,8 +356,8 @@ export async function takeBackup({ ask, files, out, only, environment, now = () 
     environment,
     accounts: taken,
   });
-  await files.settle(staged, out);
-  return { accounts: taken };
+  const warning = await files.settle(staged, out);
+  return { accounts: taken, warning };
 }
 
 /**

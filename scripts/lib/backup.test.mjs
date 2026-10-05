@@ -2,16 +2,31 @@
 // Unit tests for what `pnpm backup:export` decides, run by `node --test` from
 // the Scripts step, like the rest of scripts/lib.
 //
-// Nothing here reaches an environment or the disk. What is worth asserting is
-// the ordering - that nothing appears where the backup was asked for until all
-// of it has been read - because a half-written backup looks exactly like a
-// whole one, and the day that difference matters is the day somebody needs it.
+// Nothing here reaches an environment. What is worth asserting is the ordering
+// - that nothing appears where the backup was asked for until all of it has
+// been read - because a half-written backup looks exactly like a whole one, and
+// the day that difference matters is the day somebody needs it.
+//
+// Where a backup lands is tested against a real temporary directory, because
+// what a rename or a directory removal does to a folder already there is the
+// platform's answer, not ours. An interruption is a disk with one step failing.
 //
 
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import * as fsp from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, parse, relative } from 'node:path';
+import { after, describe, it } from 'node:test';
 
-import { addressOf, readArguments, readRefusal, takeBackup } from './backup.mjs';
+import {
+  addressOf,
+  datedName,
+  prepareBackup,
+  readArguments,
+  readRefusal,
+  takeBackup,
+} from './backup.mjs';
 
 /** A disk that records what happened to it and never touches a real one. */
 function fakeFiles({ failOn } = {}) {
@@ -365,19 +380,45 @@ describe('the command refuses what it cannot act on, and says why', () => {
       argv: ['--env', 'prod', '--out', 'b'],
       complaint: /no environment prod - it is one of local, staging, production/,
     },
+    {
+      situation: '--force with --dated',
+      argv: ['--env', 'staging', '--out', 'b', '--force', '--dated'],
+      complaint: /a dated folder is new every run/,
+    },
+    // A switch takes no value, so a word after one is not quietly ignored.
+    {
+      situation: 'a word after --dated',
+      argv: ['--env', 'staging', '--out', 'b', '--dated', 'x'],
+      complaint: /there is no x/,
+    },
   ]) {
     it(`refuses ${situation}`, () => {
       assert.throws(() => readArguments(argv), complaint);
     });
   }
 
-  it('reads what it was asked to do', () => {
-    assert.deepEqual(readArguments(['--env', 'production', '--out', 'b', '--user', 'anna']), {
-      environment: 'production',
-      out: 'b',
-      user: 'anna',
+  for (const { situation, argv, read } of [
+    {
+      situation: 'no flags',
+      argv: ['--env', 'production', '--out', 'b', '--user', 'anna'],
+      read: { environment: 'production', out: 'b', user: 'anna', dated: false, force: false },
+    },
+    {
+      situation: '--dated',
+      argv: ['--env', 'production', '--out', 'b', '--dated'],
+      read: { environment: 'production', out: 'b', user: undefined, dated: true, force: false },
+    },
+    // A switch must not swallow the word after it.
+    {
+      situation: '--force followed by --out',
+      argv: ['--env', 'production', '--force', '--out', 'x'],
+      read: { environment: 'production', out: 'x', user: undefined, dated: false, force: true },
+    },
+  ]) {
+    it(`reads what it was asked to do, with ${situation}`, () => {
+      assert.deepEqual(readArguments(argv), read);
     });
-  });
+  }
 });
 
 describe('a refusal says which of the things somebody typed was wrong', () => {
@@ -419,6 +460,373 @@ describe('a refusal says which of the things somebody typed was wrong', () => {
   ]) {
     it(`says so when ${situation}`, () => {
       assert.match(readRefusal(answer), says);
+    });
+  }
+});
+
+describe('a dated folder is named for the environment, the user, and the UTC moment the run started', () => {
+  for (const { situation, user, startedAt, name } of [
+    {
+      situation: 'a whole environment',
+      user: undefined,
+      startedAt: new Date('2026-10-05T14:32:07.456Z'),
+      name: 'production-2026-10-05T14-32-07Z',
+    },
+    {
+      situation: 'one user',
+      user: 'tenant-anna',
+      startedAt: new Date('2026-10-05T14:32:07.456Z'),
+      name: 'production-tenant-anna-2026-10-05T14-32-07Z',
+    },
+    {
+      situation: 'a clock read two hours ahead of UTC',
+      user: undefined,
+      startedAt: new Date('2026-10-05T16:32:07+02:00'),
+      name: 'production-2026-10-05T14-32-07Z',
+    },
+  ]) {
+    it(`names ${situation}`, () => {
+      assert.equal(datedName('production', user, startedAt), name);
+    });
+  }
+});
+
+// The rest run against a real temporary directory.
+const scratches = [];
+after(() => {
+  for (const dir of scratches) rmSync(dir, { recursive: true, force: true });
+});
+
+function scratch() {
+  const dir = mkdtempSync(join(tmpdir(), 'cockpit-backup-test-'));
+  scratches.push(dir);
+  return dir;
+}
+
+const STARTED = new Date('2026-10-05T14:32:07.000Z');
+
+/** What the command does: decide where, then take the backup there. */
+async function backUpInto(out, { dated, force, ask = answering().ask, disk } = {}) {
+  const place = await prepareBackup({
+    out,
+    dated,
+    force,
+    environment: 'production',
+    startedAt: STARTED,
+    disk,
+  });
+  const taken = await takeBackup({
+    ask,
+    files: place.files,
+    out: place.target,
+    environment: 'production',
+    now: at,
+  });
+  return { ...taken, target: place.target };
+}
+
+const EARLIER_MANIFEST = '{"takenAt":"earlier","environment":"production","accounts":[]}';
+
+/** An earlier backup, with an account the new one will not have. */
+function earlierBackup(dir) {
+  mkdirSync(join(dir, 'accounts'), { recursive: true });
+  writeFileSync(join(dir, 'manifest.json'), EARLIER_MANIFEST);
+  writeFileSync(join(dir, 'register.json'), '{}');
+  writeFileSync(join(dir, 'accounts', 'gone.json'), '{}');
+  return dir;
+}
+
+const isTheEarlierBackup = (dir) =>
+  readFileSync(join(dir, 'manifest.json'), 'utf8') === EARLIER_MANIFEST &&
+  existsSync(join(dir, 'accounts', 'gone.json'));
+
+const isTheNewBackup = (dir) =>
+  JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')).takenAt === at().toISOString();
+
+/** Every file and folder under `dir` and what each file holds, to tell untouched from touched. */
+function contentsOf(dir) {
+  const found = {};
+  const walk = (here) => {
+    for (const name of readdirSync(here)) {
+      const path = join(here, name);
+      const named = relative(dir, path).replaceAll('\\', '/');
+      if (statSync(path).isDirectory()) {
+        found[`${named}/`] = '';
+        walk(path);
+      } else found[named] = readFileSync(path, 'utf8');
+    }
+  };
+  walk(dir);
+  return found;
+}
+
+/** A disk with one step failing where `when` says, and every other step real. */
+function failing(step, when = () => true) {
+  return {
+    ...fsp,
+    [step]: async (...args) => {
+      if (when(...args)) throw Object.assign(new Error(`${step} gave out`), { code: 'EBUSY' });
+      return fsp[step](...args);
+    },
+  };
+}
+
+/** An environment that puts a file in `dir` while it is being read. */
+function writingInto(dir) {
+  const env = answering();
+  return async (path) => {
+    if (path.includes('tenant-b')) writeFileSync(join(dir, 'notes.txt'), 'mine');
+    return env.ask(path);
+  };
+}
+
+describe('a backup lands where it is asked for, and a folder already holding anything is refused unless a flag says otherwise', () => {
+  it('writes into a folder that is not there yet', async () => {
+    const out = join(scratch(), 'b');
+    await backUpInto(out);
+    assert.ok(isTheNewBackup(out));
+  });
+
+  it('creates the parent of a folder that is not there yet, and writes the backup there', async () => {
+    const out = join(scratch(), 'backups', '2026-09-06');
+    await backUpInto(out);
+    assert.ok(isTheNewBackup(out));
+  });
+
+  it('writes into a folder that is there and empty', async () => {
+    const out = scratch();
+    await backUpInto(out);
+    assert.ok(isTheNewBackup(out));
+  });
+
+  // `.partial` and `.replaced` sit beside the backup, and a root has no beside.
+  for (const force of [false, true]) {
+    it(`refuses the root of a drive ${force ? 'with' : 'without'} --force, before anything is read`, async () => {
+      const env = answering();
+      await assert.rejects(
+        backUpInto(parse(scratch()).root, { force, ask: env.ask }),
+        /is the root of a drive/,
+      );
+      assert.equal(env.asked.length, 0);
+    });
+  }
+
+  for (const { situation, flags } of [
+    { situation: 'no flag', flags: {} },
+    { situation: '--dated', flags: { dated: true } },
+    { situation: '--force', flags: { force: true } },
+  ]) {
+    it(`refuses a file where the folder should be, with ${situation}, and leaves it alone`, async () => {
+      const out = join(scratch(), 'b');
+      writeFileSync(out, 'mine');
+      const env = answering();
+
+      await assert.rejects(backUpInto(out, { ...flags, ask: env.ask }), /is a file, not a folder/);
+
+      assert.equal(readFileSync(out, 'utf8'), 'mine');
+      assert.equal(env.asked.length, 0);
+    });
+  }
+
+  // EBUSY is what Windows answers for a folder some program is working in.
+  it('says an empty folder could not be removed, and why, rather than blaming something put in it', async () => {
+    const out = scratch();
+
+    await assert.rejects(
+      backUpInto(out, { disk: failing('rmdir') }),
+      (error) => /could not be removed to make way for the backup \(EBUSY\)/.test(error.message) &&
+        !error.message.includes('put there'),
+    );
+
+    assert.ok(isTheNewBackup(`${out}.partial`));
+  });
+
+  it('refuses a folder holding a file, naming --dated and --force, and leaves it alone', async () => {
+    const out = scratch();
+    writeFileSync(join(out, 'notes.txt'), 'mine');
+    const env = answering();
+
+    await assert.rejects(backUpInto(out, { ask: env.ask }), /--dated.*--force/s);
+
+    assert.deepEqual(contentsOf(out), { 'notes.txt': 'mine' });
+    assert.equal(env.asked.length, 0);
+  });
+
+  it('creates the folder --dated writes into, and puts the backup in a dated folder inside it', async () => {
+    const out = join(scratch(), 'backups');
+    const { target } = await backUpInto(out, { dated: true });
+    assert.equal(target, join(out, 'production-2026-10-05T14-32-07Z'));
+    assert.ok(isTheNewBackup(target));
+  });
+
+  it('leaves what else is in the folder --dated writes into alone', async () => {
+    const out = scratch();
+    writeFileSync(join(out, 'notes.txt'), 'mine');
+    const { target } = await backUpInto(out, { dated: true });
+    assert.ok(isTheNewBackup(target));
+    assert.equal(readFileSync(join(out, 'notes.txt'), 'utf8'), 'mine');
+  });
+
+  it('refuses a dated folder taken in the same second as already there', async () => {
+    const out = scratch();
+    await backUpInto(out, { dated: true });
+    await assert.rejects(backUpInto(out, { dated: true }), /already there - a dated backup was taken this same second/);
+  });
+
+  it('refuses an empty folder that something is put in during the run, and leaves that alone', async () => {
+    const out = scratch();
+
+    await assert.rejects(backUpInto(out, { ask: writingInto(out) }), /no longer empty/);
+
+    assert.deepEqual(contentsOf(out), { 'notes.txt': 'mine' });
+  });
+});
+
+describe('--force replaces an earlier backup and nothing else', () => {
+  it('replaces an earlier backup, leaving nothing of it behind', async () => {
+    const out = earlierBackup(join(scratch(), 'b'));
+
+    const { warning } = await backUpInto(out, { force: true });
+
+    assert.ok(isTheNewBackup(out));
+    assert.ok(!existsSync(join(out, 'accounts', 'gone.json')));
+    assert.ok(!existsSync(`${out}.replaced`));
+    assert.ok(!existsSync(`${out}.partial`));
+    assert.equal(warning, undefined);
+  });
+
+  for (const { situation, arrange } of [
+    {
+      situation: 'an earlier backup with one other file beside it',
+      arrange: (out) => writeFileSync(join(earlierBackup(out), 'notes.txt'), 'mine'),
+    },
+    {
+      situation: 'files but no manifest',
+      arrange: (out) => {
+        mkdirSync(out);
+        writeFileSync(join(out, 'register.json'), '{}');
+      },
+    },
+    {
+      situation: "a manifest.json that is not a backup's",
+      arrange: (out) => writeFileSync(join(earlierBackup(out), 'manifest.json'), '{"name":"my-app"}'),
+    },
+    {
+      situation: 'a manifest.json that is not JSON at all',
+      arrange: (out) => writeFileSync(join(earlierBackup(out), 'manifest.json'), 'CACHE MANIFEST'),
+    },
+    {
+      situation: 'an earlier backup whose accounts hold a file that is not one',
+      arrange: (out) => writeFileSync(join(earlierBackup(out), 'accounts', 'notes.txt'), 'mine'),
+    },
+    {
+      situation: 'an earlier backup whose accounts hold a folder',
+      arrange: (out) => mkdirSync(join(earlierBackup(out), 'accounts', 'nested')),
+    },
+  ]) {
+    it(`refuses ${situation} before anything is read, and leaves it alone`, async () => {
+      const out = join(scratch(), 'b');
+      arrange(out);
+      const before = contentsOf(out);
+      const env = answering();
+
+      await assert.rejects(backUpInto(out, { force: true, ask: env.ask }), /not only an earlier backup/);
+
+      assert.deepEqual(contentsOf(out), before);
+      assert.equal(env.asked.length, 0);
+    });
+  }
+
+  it('writes into a folder that is not there yet, as without it', async () => {
+    const out = join(scratch(), 'b');
+    await backUpInto(out, { force: true });
+    assert.ok(isTheNewBackup(out));
+  });
+
+  it('refuses an earlier backup that a file is put beside during the run, and leaves both alone', async () => {
+    const out = earlierBackup(join(scratch(), 'b'));
+
+    await assert.rejects(backUpInto(out, { force: true, ask: writingInto(out) }), /not only an earlier backup/);
+
+    assert.ok(isTheEarlierBackup(out));
+    assert.equal(readFileSync(join(out, 'notes.txt'), 'utf8'), 'mine');
+  });
+});
+
+describe('an interrupted replacement never loses the earlier backup', () => {
+  it('leaves the earlier backup in place, and what was read beside it, when reading stops partway', async () => {
+    const out = earlierBackup(join(scratch(), 'b'));
+
+    await assert.rejects(backUpInto(out, { force: true, ask: answering({ failOn: 'tenant-b' }).ask }));
+
+    assert.ok(isTheEarlierBackup(out));
+    assert.ok(existsSync(`${out}.partial`));
+  });
+
+  it('leaves the earlier backup in place when it cannot be set aside, and says where each is', async () => {
+    const out = earlierBackup(join(scratch(), 'b'));
+    const disk = failing('rename', (_from, to) => to.endsWith('.replaced'));
+
+    await assert.rejects(
+      backUpInto(out, { force: true, disk }),
+      (error) =>
+        error.message.includes('(EBUSY)') &&
+        error.message.includes(`The earlier backup is untouched at ${out}, and the new one is in ${out}.partial`),
+    );
+
+    assert.ok(isTheEarlierBackup(out));
+    assert.ok(isTheNewBackup(`${out}.partial`));
+  });
+
+  it('keeps both whole when the new one cannot be moved into place, and says where each is', async () => {
+    const out = earlierBackup(join(scratch(), 'b'));
+    const disk = failing('rename', (from) => from.endsWith('.partial'));
+
+    await assert.rejects(
+      backUpInto(out, { force: true, disk }),
+      (error) =>
+        error.message.includes(`the earlier one is in ${out}.replaced`) &&
+        error.message.includes(`the new one in ${out}.partial`),
+    );
+
+    assert.ok(isTheEarlierBackup(`${out}.replaced`));
+    assert.ok(isTheNewBackup(`${out}.partial`));
+  });
+
+  it('finishes with a warning naming the earlier backup when it cannot be removed', async () => {
+    const out = earlierBackup(join(scratch(), 'b'));
+
+    const { warning } = await backUpInto(out, { force: true, disk: failing('rm') });
+
+    assert.ok(isTheNewBackup(out));
+    assert.ok(warning.includes(`remove ${out}.replaced`), warning);
+  });
+
+  for (const force of [false, true]) {
+    const flag = force ? 'with --force' : 'without --force';
+
+    it(`refuses a run that finds an earlier backup set aside, ${flag}, naming it and the new one`, async () => {
+      const out = join(scratch(), 'b');
+      earlierBackup(`${out}.replaced`);
+      earlierBackup(`${out}.partial`);
+      const env = answering();
+
+      await assert.rejects(
+        backUpInto(out, { force, ask: env.ask }),
+        (error) =>
+          error.message.includes(`${out}.replaced is already there: the earlier backup`) &&
+          error.message.includes(`${out}.partial is the new one`),
+      );
+      assert.ok(isTheEarlierBackup(`${out}.replaced`));
+      assert.equal(env.asked.length, 0);
+    });
+
+    it(`refuses a run that finds a backup that did not finish, ${flag}`, async () => {
+      const out = earlierBackup(join(scratch(), 'b'));
+      mkdirSync(`${out}.partial`);
+
+      await assert.rejects(backUpInto(out, { force }), /\.partial is already there, left by a run that did not finish/);
+      assert.ok(isTheEarlierBackup(out));
     });
   }
 });
