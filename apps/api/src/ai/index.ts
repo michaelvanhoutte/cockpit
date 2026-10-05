@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
-import { buildCleanUpANote } from './prompts/clean-up-a-note.v9.js';
+import { buildCleanUpANote } from './prompts/clean-up-a-note.v10.js';
 import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v1.js';
 import { readPanelChoice, readProposal, type PanelRead, type ProposalRead } from './note-texts.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';

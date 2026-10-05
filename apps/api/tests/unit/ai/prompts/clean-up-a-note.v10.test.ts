@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v9.js';
+import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v10.js';
 import type { DecisionHistoryEntry } from '../../../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../../../src/domain/text-corrections.js';
 
@@ -156,6 +156,22 @@ describe('Capture', () => {
     });
   });
 
+  /**
+   * The note is Markdown, and the message keeps what it uses ("Keep a note's
+   * formatting when Cockpit rewrites it", issue 756). Whether the model
+   * obeys is the contract tier's; this holds that every way of asking says it.
+   */
+  describe('every reading is told to keep the note\'s formatting', () => {
+    it.each([
+      { situation: 'on capture', routing: { panels: [], history: [], recentlyCaptured: [] } },
+      { situation: 'in a re-read of the texts', routing: null },
+    ])('says so $situation, without allowing headings or bullets the note lacks', ({ routing }) => {
+      const { instructions } = buildCleanUpANote(routing, [], null).system;
+
+      expect(instructions).toContain('keep them on the same words in the message');
+      expect(instructions).toContain('no headings and no bullet points unless the note itself was a list');
+    });
+  });
   /**
    * A correction's re-read writes only the two texts ("Use a cheaper model for
    * panel-only re-proposal", issue 583), so it neither sends nor asks for
