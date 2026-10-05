@@ -67,10 +67,15 @@
   --color-chrome-ink-soft: #a5a3b5;
   --color-chrome-ink-faint: #9694a8;
   --color-accent: #6f62b5;
-  --color-accent-deep: #6b5eae;
+  /*
+   * Darker than Violet's `deep`, because outside the shell - the sign-in page,
+   * every menu and dialog - it is written on `accent-tint` below rather than on
+   * the shell's lighter 14% mix, and has to reach 4.5:1 there.
+   */
+  --color-accent-deep: #5d5294;
   /* The text on a fill of the accent, and the fill under the pointer: both follow the workspace's theme (`onAccent`, shared). */
   --color-on-accent: #ffffff;
-  --color-accent-hover: #6b5eae;
+  --color-accent-hover: #5d5294;
   --color-accent-soft: #b5abfc;
   --color-accent-tint: #e7e5fe;
   --color-due: #c98a4b;
@@ -102,7 +107,9 @@
    *
    * The hues are the palette's own rather than new ones - teal, cyan and the
    * accent are workspace tints, and `due` is already the app's amber - so the
-   * rows stay in the same world as everything else.
+   * rows stay in the same world as everything else. A name rather than a
+   * value is resolved here, at the root, so `to-process` is the default
+   * violet in every workspace rather than following its accent.
    */
   --color-status-to-process: var(--color-accent);
   --color-status-task: var(--color-cat-green);

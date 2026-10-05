@@ -719,9 +719,9 @@ function TheShell() {
           paddingRight: 'var(--docked-form-w, 0px)',
           '--ground': theme.ground,
           '--tint': theme.color,
-          // The accent follows the workspace, for everything below - and a
-          // menu or window opened over the page is below it too, since none is
-          // portalled out. The deep shade is where the tint is text; the soft
+          // The accent follows the workspace, for everything below. Menus and
+          // dialogs are portalled to the body, outside this element, so they
+          // keep the default theme's accent. The deep shade is where the tint is text; the soft
           // and the wash are mixed from the tint, so there is nothing more to
           // design per theme. The ink on a fill of the tint is the theme's
           // `onAccent`; under the pointer that fill goes darker where the ink
@@ -946,9 +946,10 @@ function TheShell() {
                   Sign out
                 </DropdownMenu.Item>
                 <DropdownMenu.Separator className="my-1 h-px bg-shade/10" />
-                <DropdownMenu.Item asChild className={`${menuItemClass} text-xs text-ink-faint`}>
+                <DropdownMenu.Item asChild className={`${menuItemClass} text-ink-faint`}>
                   <a href="https://www.conselit.be" target="_blank" rel="noopener">
-                    {creditLine()}
+                    {/* Its own element, so the smaller size cannot lose to the entry's `text-sm`. */}
+                    <span className="text-xs">{creditLine()}</span>
                   </a>
                 </DropdownMenu.Item>
               </MenuContent>
