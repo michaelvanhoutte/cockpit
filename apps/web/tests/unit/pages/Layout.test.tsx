@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from '../../../src/pages/Layout';
+import { creditLine } from '../../../src/credit';
 
 /**
  * F1, and one case only. This is not a test of React's escaping, which is
@@ -224,6 +225,7 @@ describe('Across the app', () => {
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Settings…',
         'Sign out',
+        creditLine(),
       ]);
     });
 
@@ -371,6 +373,21 @@ describe('Across the app', () => {
       expect(screen.queryByRole('menuitem', { name: 'Manage types' })).toBeNull();
     });
 
+    it('ends the profile with the credit, below a divider under Sign out, opening Conselit in a new tab', async () => {
+      const user = userEvent.setup();
+      shell();
+
+      await user.click(await screen.findByRole('button', { name: 'Profile' }));
+      const credit = await screen.findByRole('menuitem', { name: creditLine() });
+
+      expect(credit).toHaveAttribute('href', 'https://www.conselit.be');
+      expect(credit).toHaveAttribute('target', '_blank');
+      expect(credit.getAttribute('rel')).toContain('noopener');
+      expect(credit.previousElementSibling).toHaveAttribute('role', 'separator');
+      expect(credit.previousElementSibling!.previousElementSibling).toBe(screen.getByRole('menuitem', { name: 'Sign out' }));
+      expect(credit.nextElementSibling).toBeNull();
+    });
+
     it('shows the signed-in person’s initial on the profile control', async () => {
       shell();
 
@@ -435,6 +452,7 @@ describe('User management', () => {
         'Settings…',
         'Platform settings…',
         'Sign out',
+        creditLine(),
       ]);
     });
   });

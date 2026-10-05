@@ -279,7 +279,7 @@ export function AgentDock({
               ▼
             </button>
           )}
-          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto rounded-xl bg-black/25 px-2 py-1.5 shadow-[inset_0_1px_3px_rgb(0_0_0/0.45)]">
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto rounded-lg bg-shade/25 px-2 py-1.5 shadow-dock-well">
             <span className="shrink-0 text-xs font-semibold uppercase tracking-[0.11em] text-chrome-ink-faint">
               Agents
             </span>
@@ -287,7 +287,7 @@ export function AgentDock({
               ref={newAgentButton}
               type="button"
               onClick={() => startCreating(newAgentButton.current)}
-              className="shrink-0 rounded-xl border border-dashed border-white/15 px-3 py-2.5 text-sm text-chrome-ink-faint hover:border-white/30 hover:bg-white/6 hover:text-chrome-ink"
+              className="shrink-0 rounded-lg border border-dashed border-white/15 px-3 py-2.5 text-sm text-chrome-ink-faint hover:border-white/30 hover:bg-white/6 hover:text-chrome-ink"
             >
               + New agent
             </button>
@@ -455,7 +455,7 @@ function AgentMark({ color }: { color: string }) {
  * the fill), sized for a name and a mark rather than an icon.
  */
 const TILE_CLASS =
-  'flex shrink-0 cursor-grab items-center gap-2.5 rounded-xl border border-white/10 bg-white/6 py-2 pr-4 pl-3 hover:bg-white/10 data-[state=open]:bg-white/10';
+  'flex shrink-0 cursor-grab items-center gap-2.5 rounded-lg border border-white/10 bg-white/6 py-2 pr-4 pl-3 hover:bg-white/10 data-[state=open]:bg-white/10';
 
 /** How many of this Agent's runs are waiting on you, where any are (issue 572). */
 function WaitingCount({ count }: { count: number }) {

@@ -292,7 +292,7 @@ function Driving({
     <div className="flex min-h-0 flex-1 flex-col items-center">
       <div
         aria-label="What was heard"
-        className="mt-4 min-h-28 w-full rounded-md border border-black/10 bg-white p-4 text-lg leading-snug text-ink shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)]"
+        className="mt-4 min-h-28 w-full rounded-md border border-shade/10 bg-white p-4 text-lg leading-snug text-ink shadow-field"
       >
         {heardSoFar ? (
           <>
@@ -322,8 +322,12 @@ function Driving({
             onClick={tap}
             aria-label={label}
             aria-disabled={phase === 'capturing' || phase === 'captured' || phase === 'nothing'}
-            className={`milled relative flex size-40 items-center justify-center rounded-full text-white shadow-lg ${
-              listening ? 'bg-over-deep' : settled ? 'bg-accent-deep' : 'bg-accent'
+            className={`milled relative flex size-40 items-center justify-center rounded-full shadow-lg ${
+              listening
+                ? 'bg-over-deep text-white'
+                : settled
+                  ? 'bg-accent-deep text-white'
+                  : 'bg-accent text-on-accent'
             }`}
           >
             {listening ? (
@@ -367,7 +371,7 @@ function Driving({
         </p>
       </div>
 
-      <footer className="w-full border-t border-[rgb(41_43_49/0.08)] pt-3 text-sm text-ink-faint">
+      <footer className="w-full border-t border-shade/8 pt-3 text-sm text-ink-faint">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -375,7 +379,7 @@ function Driving({
             disabled={phase !== 'idle'}
             aria-label={`Dictation language: ${name}`}
             title={`Dictating in ${name}. Press to switch.`}
-            className="inline-flex min-h-9 items-center rounded-md border border-black/10 bg-white px-3 text-sm font-medium tracking-[0.05em] text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+            className="inline-flex min-h-9 items-center rounded-md border border-shade/10 bg-white px-3 text-sm font-medium tracking-[0.05em] text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
           >
             {tag}
           </button>

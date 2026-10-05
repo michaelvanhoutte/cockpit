@@ -2,10 +2,14 @@
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#2d2e35"/>
-      <stop offset="1" stop-color="#17181c"/>
+      <stop offset="1" stop-color="#16181d"/>
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="14" fill="url(#g)"/>
-  <path d="M43.8 20.4A18 18 0 1 0 43.8 43.6" fill="none" stroke="#f2f1f8" stroke-width="9" stroke-linecap="round"/>
-  <circle cx="47" cy="32" r="5.5" fill="#9a91cb"/>
+  <g transform="translate(12 12) scale(1.25)">
+    <rect x="3" y="3" width="12" height="12" rx="2.5" fill="#f2f1f8"/>
+    <rect x="17" y="3" width="12" height="12" rx="2.5" fill="#f2f1f8"/>
+    <rect x="3" y="17" width="12" height="12" rx="2.5" fill="#f2f1f8"/>
+    <rect x="17" y="17" width="12" height="12" rx="2.5" fill="#6f62b5"/>
+  </g>
 </svg>

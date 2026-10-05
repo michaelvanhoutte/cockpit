@@ -31,7 +31,7 @@ export function SelectionBar({
     // away by is the row you just picked. The Inbox does not scroll, where this
     // costs nothing and reads the same. Opaque for the same reason: rows pass
     // underneath it.
-    <div className="sticky bottom-0 z-10 border-t border-black/5 bg-accent-tint px-4 py-2">
+    <div className="sticky bottom-0 z-10 border-t border-shade/5 bg-accent-tint px-4 py-2">
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium tabular-nums text-accent-deep">
           {count} selected

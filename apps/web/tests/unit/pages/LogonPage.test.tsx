@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LogonPage } from '../../../src/pages/LogonPage';
+import { creditLine } from '../../../src/credit';
 
 /**
  * F1: the sentence a refused sign-in reads as. Which refusal the server gives
@@ -71,6 +72,17 @@ describe('Sign-in', () => {
       drawnAt('');
 
       expect(screen.queryByRole('alert')).toBeNull();
+    });
+  });
+
+  describe('the page credits Conselit under its card', () => {
+    it('links to Conselit in a new tab', () => {
+      drawnAt('');
+
+      const credit = screen.getByRole('link', { name: creditLine() });
+      expect(credit).toHaveAttribute('href', 'https://www.conselit.be');
+      expect(credit).toHaveAttribute('target', '_blank');
+      expect(credit.getAttribute('rel')).toContain('noopener');
     });
   });
 

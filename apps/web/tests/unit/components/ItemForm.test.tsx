@@ -1447,7 +1447,7 @@ describe('Item editing', () => {
       { situation: 'the description text', target: () => descriptionBox(), attached: 0 },
       {
         situation: 'the dimmed page just outside the form',
-        target: () => document.querySelector('.bg-black\\/30')!,
+        target: () => document.querySelector('.bg-shade\\/30')!,
         attached: 0,
       },
     ])('never leaves a drop on $situation to the browser, which would open the file', async ({ target, attached }) => {

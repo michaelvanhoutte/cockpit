@@ -458,7 +458,7 @@ export function WorkspaceTabs({
                 aria-pressed={pressed}
                 title={theme.name}
                 className={`flex size-8 flex-col justify-end overflow-hidden rounded-md border disabled:opacity-50 ${
-                  pressed ? 'border-ink ring-2 ring-ink/20' : 'border-black/10 hover:border-black/30'
+                  pressed ? 'border-ink ring-2 ring-ink/20' : 'border-shade/10 hover:border-shade/30'
                 }`}
                 style={{
                   backgroundImage: `linear-gradient(${theme.header} 0 30%, ${theme.bar} 30% 50%, ${theme.ground} 50% 100%)`,
@@ -527,7 +527,7 @@ export function WorkspaceTabs({
 export function stripTabClass(here: boolean): string {
   return `shrink-0 whitespace-nowrap rounded-t-lg pt-1.5 pb-2 text-sm ${
     here
-      ? 'font-medium text-chrome-ink shadow-[inset_0_2px_0_0_var(--tab-mark)]'
+      ? 'font-medium text-chrome-ink shadow-tab-mark'
       : 'text-chrome-ink-soft hover:bg-white/8 hover:text-chrome-ink'
   }`;
 }

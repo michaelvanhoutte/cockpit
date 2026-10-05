@@ -84,7 +84,7 @@ export function LoadFailure({ error, onRetry, surroundings }: Props) {
       {action === 'logon' && (
         <button
           type="button"
-          className="mt-3 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white"
+          className="mt-3 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent"
           onClick={goToLogonPage}
         >
           Sign in
@@ -93,7 +93,7 @@ export function LoadFailure({ error, onRetry, surroundings }: Props) {
       {action === 'retry' && onRetry && (
         <button
           type="button"
-          className="mt-3 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white"
+          className="mt-3 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent"
           onClick={onRetry}
         >
           Try again

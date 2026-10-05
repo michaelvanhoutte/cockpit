@@ -229,7 +229,7 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
     // form's own height and always scrolled.
     <div className="flex min-h-full flex-col">
       {showHowToFile && (
-        <p className="border-b border-black/5 px-4 py-2 text-sm text-ink-faint">
+        <p className="border-b border-shade/5 px-4 py-2 text-sm text-ink-faint">
           {HOW_TO_FILE_FROM_THE_INBOX}
         </p>
       )}

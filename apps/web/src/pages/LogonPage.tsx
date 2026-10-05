@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { DEFAULT_WORKSPACE_THEME } from '@cockpit/shared';
 import { guestSignInPath, SIGN_IN_PATH } from '../api/client';
 import { forgetEverything } from '../session/forget';
+import { creditLine } from '../credit';
 
 /**
  * The logon page: your Google account, or - where the deployment offers it -
@@ -62,7 +63,7 @@ export function LogonPage() {
             run first. */}
         <a
           href={SIGN_IN_PATH}
-          className="mt-4 flex w-full items-center justify-center rounded-md border border-accent-soft/70 bg-accent-tint px-3 py-2 text-sm font-medium text-accent-deep hover:border-accent hover:bg-accent hover:text-white"
+          className="mt-4 flex w-full items-center justify-center rounded-md border border-accent-soft/70 bg-accent-tint px-3 py-2 text-sm font-medium text-accent-deep hover:border-accent hover:bg-accent hover:text-on-accent"
         >
           Continue with Google
         </a>
@@ -72,13 +73,18 @@ export function LogonPage() {
             parse, so there is nothing here to await. */}
         <a
           href={guestSignInPath(document.referrer)}
-          className="mt-2 flex w-full items-center justify-center rounded-md border border-black/10 px-3 py-2 text-sm font-medium text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
+          className="mt-2 flex w-full items-center justify-center rounded-md border border-shade/10 px-3 py-2 text-sm font-medium text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
         >
           Continue as guest
         </a>
 
         <Refusal />
       </main>
+      <p className="mt-4 text-xs text-ink-soft">
+        <a href="https://www.conselit.be" target="_blank" rel="noopener" className="hover:text-ink hover:underline">
+          {creditLine()}
+        </a>
+      </p>
     </div>
   );
 }

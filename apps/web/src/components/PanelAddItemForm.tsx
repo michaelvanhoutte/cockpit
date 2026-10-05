@@ -68,7 +68,7 @@ export function PanelAddItemForm({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="w-full border-b border-black/5 px-4 py-2 text-left text-sm text-ink-faint hover:bg-accent-tint hover:text-accent-deep"
+        className="w-full border-b border-shade/5 px-4 py-2 text-left text-sm text-ink-faint hover:bg-accent-tint hover:text-accent-deep"
       >
         + Add an item
       </button>
@@ -137,7 +137,7 @@ export function PanelAddItemForm({
   return (
     <form
       onSubmit={submit}
-      className="flex flex-wrap gap-2 border-b border-black/5 px-4 py-3"
+      className="flex flex-wrap gap-2 border-b border-shade/5 px-4 py-3"
     >
       <input
         value={message}
@@ -145,14 +145,14 @@ export function PanelAddItemForm({
         placeholder="Capture a note or to-do…"
         aria-label="Capture a note or to-do"
         autoFocus
-        className="min-w-0 flex-1 basis-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+        className="min-w-0 flex-1 basis-full rounded-md border border-shade/10 bg-white px-3 py-2 text-sm shadow-field outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
       />
       {chosen && (
         <select
           value={chosen.id}
           onChange={(e) => setTypeId(e.target.value)}
           aria-label="What kind of thing this is"
-          className="min-w-0 flex-1 rounded-md border border-black/10 bg-white px-3 py-2 text-sm shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+          className="min-w-0 flex-1 rounded-md border border-shade/10 bg-white px-3 py-2 text-sm shadow-field outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
         >
           {offered.map((type) => (
             <option key={type.id} value={type.id}>
@@ -164,7 +164,7 @@ export function PanelAddItemForm({
       <button
         type="submit"
         disabled={busy || !chosen}
-        className="milled shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+        className="milled shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
       >
         Add
       </button>
@@ -172,7 +172,7 @@ export function PanelAddItemForm({
         type="button"
         onClick={close}
         disabled={busy}
-        className="shrink-0 rounded-md border border-black/10 px-3 py-2 text-sm hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+        className="shrink-0 rounded-md border border-shade/10 px-3 py-2 text-sm hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
       >
         Cancel
       </button>

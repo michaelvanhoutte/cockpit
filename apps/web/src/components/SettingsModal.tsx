@@ -51,7 +51,7 @@ export function SettingsModal({
   return (
     <Dialog.Root open onOpenChange={(nowOpen) => !nowOpen && !held && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-black/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
         <Dialog.Content
           aria-describedby={undefined}
           // The focus starts on the section that is showing, not on the first.
@@ -64,9 +64,9 @@ export function SettingsModal({
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed z-floating left-1/2 top-1/2 flex h-[min(40rem,calc(100dvh-4rem))] w-[min(56rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-black/10 bg-surface shadow-lg"
+          className="fixed z-floating left-1/2 top-1/2 flex h-[min(40rem,calc(100dvh-4rem))] w-[min(56rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-shade/10 bg-surface shadow-lg"
         >
-          <nav aria-label={title} className="flex w-48 shrink-0 flex-col gap-1 border-r border-black/10 p-3">
+          <nav aria-label={title} className="flex w-48 shrink-0 flex-col gap-1 border-r border-shade/10 p-3">
             <Dialog.Title className="px-2 pb-2 text-base font-semibold">{title}</Dialog.Title>
             {sections.map((section) => {
               const here = section.key === current?.key;
@@ -87,7 +87,7 @@ export function SettingsModal({
             })}
             <Dialog.Close
               disabled={held}
-              className="mt-auto rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint disabled:opacity-50"
+              className="mt-auto rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint disabled:opacity-50"
             >
               Close
             </Dialog.Close>

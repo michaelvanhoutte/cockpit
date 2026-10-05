@@ -22,6 +22,7 @@ import { WHAT_A_WORKSPACE_IS } from '../../../src/whatThingsAre';
 
 const VIOLET = WORKSPACE_THEMES[0]!;
 const BLUE = WORKSPACE_THEMES[1]!;
+const TEAL = WORKSPACE_THEMES[3]!;
 
 /**
  * The surfaces the Violet workspace was wearing before the page went neutral -
@@ -114,6 +115,15 @@ vi.mock('../../../src/api/queries', () => ({
             bar: BLUE.bar,
             ground: BLUE.ground,
             header: BLUE.header,
+          },
+          {
+            id: 'ws-teal',
+            tenantId: 'tenant',
+            name: 'Teal workspace',
+            color: TEAL.tint,
+            bar: TEAL.bar,
+            ground: TEAL.ground,
+            header: TEAL.header,
           },
         ],
       }),
@@ -233,6 +243,7 @@ describe('Workspace management', () => {
         tab: filledWith(tab(name)),
         accent: shell.style.getPropertyValue('--color-accent'),
         deepAccent: shell.style.getPropertyValue('--color-accent-deep'),
+        onAccent: shell.style.getPropertyValue('--color-on-accent'),
         topBarIsGraphite: container.querySelector('header')!.classList.contains('graphite'),
         topBarFill: filledWith(container.querySelector('header')),
       };
@@ -249,12 +260,14 @@ describe('Workspace management', () => {
         tab: rgb(VIOLET.bar),
         accent: VIOLET.tint,
         deepAccent: VIOLET.deep,
+        onAccent: VIOLET.onAccent,
       });
       expect(blue).toMatchObject({
         band: rgb(BLUE.bar),
         tab: rgb(BLUE.bar),
         accent: BLUE.tint,
         deepAccent: BLUE.deep,
+        onAccent: BLUE.onAccent,
       });
       for (const shell of [violet, blue]) {
         expect(shell.page).toBe(rgb(NEUTRAL_GROUND));
@@ -289,15 +302,27 @@ describe('Workspace management', () => {
       expect(within(container).queryByTestId('dashboard-strip')).not.toBeInTheDocument();
     });
 
-    it('puts the workspace’s tint in the logo’s dot, and the default tint outside any workspace', async () => {
-      params.workspaceId = 'ws-blue';
-      const inBlue = await theShell();
-      expect(inBlue.container.querySelector('[data-logo-dot]')).toHaveAttribute('fill', litForChrome(BLUE.tint));
-      inBlue.unmount();
+    it('draws the logo as four squares, the fourth in the workspace’s tint and the other three in the chrome’s light ink, and the default tint outside any workspace', async () => {
+      params.workspaceId = 'ws-teal';
+      const inTeal = await theShell();
+      const squares = [...inTeal.container.querySelectorAll('header svg rect')];
+      expect(squares).toHaveLength(4);
+      expect(squares.slice(0, 3).map((square) => square.getAttribute('class'))).toEqual(Array(3).fill('fill-chrome-ink'));
+      expect(squares[3]).toHaveAttribute('fill', litForChrome(TEAL.tint));
+      inTeal.unmount();
 
       delete params.workspaceId;
       const outside = await theShell();
       expect(outside.container.querySelector('[data-logo-dot]')).toHaveAttribute('fill', litForChrome(VIOLET.tint));
+    });
+
+    it('writes button text in dark ink in Teal and keeps it near-white in the default theme', async () => {
+      const teal = await worn('ws-teal', 'Teal workspace');
+      const violet = await worn('ws-violet', 'Violet workspace');
+
+      expect(teal.onAccent).toBe(TEAL.onAccent);
+      expect(violet.onAccent).toBe(VIOLET.onAccent);
+      expect(teal.onAccent).not.toBe(violet.onAccent);
     });
   });
 
