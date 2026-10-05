@@ -7,9 +7,11 @@ import {
   alsoWorkspaces,
   asUser,
   inTheStore,
+  besidesTheGuide,
   seedRegister,
   signInAs,
   startFromEmpty,
+  withoutTheGuide,
 } from '../seed.js';
 import { issuerIsForgotten, issuerIsReachable, issuerWillIdentify } from '../issuer.js';
 import {
@@ -88,11 +90,11 @@ async function saveFromTeams(
   });
 }
 
-/** What the Inbox would show: the Workspace's items, as the application reads them. */
+/** What the Inbox would show: the Workspace's items, as the application reads them, but those the account arrived with. */
 async function itemsIn(workspaceId = WORKSPACE_ID): Promise<Item[]> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/snapshot`);
   expect(res.status).toBe(200);
-  return ((await res.json()) as { items: Item[] }).items;
+  return besidesTheGuide(((await res.json()) as { items: Item[] }).items);
 }
 
 beforeEach(async () => {
@@ -339,7 +341,8 @@ describe('Capture', () => {
       await connectTeams();
       // An account can be left with no Types at all, every one of them being
       // deletable - and a saved message has to name one, with nobody at a
-      // keyboard to pick it.
+      // keyboard to pick it. The guide's Tasks go first, being of one of them.
+      await withoutTheGuide();
       await inTheStore((sql) => sql.exec('DELETE FROM item_types'));
 
       const failed = await saveFromTeams();

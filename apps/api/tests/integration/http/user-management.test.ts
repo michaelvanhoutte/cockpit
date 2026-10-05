@@ -10,6 +10,7 @@ import {
   USER_ID,
   WORKSPACE_ID,
   asUser,
+  NOT_THE_GUIDE,
   inStoreAsItIs,
   seedRegister,
   signInAs,
@@ -106,10 +107,11 @@ function everythingIn(accountName: string) {
   );
 }
 
+/** Every Item an account holds but those it arrived with. */
 function itemsIn(accountName: string): Promise<string[]> {
   return inStoreAsItIs(accountName, (sql) =>
     sql
-      .exec<{ id: string }>('SELECT id FROM items ORDER BY id')
+      .exec<{ id: string }>(`SELECT id FROM items WHERE ${NOT_THE_GUIDE} ORDER BY id`)
       .toArray()
       .map((row) => row.id),
   );

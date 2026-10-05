@@ -8,6 +8,7 @@ import {
   WORKSPACE_ID,
   alsoWorkspaces,
   asUser,
+  besidesTheGuide,
   seedRegister,
   signInAs,
   startFromEmpty,
@@ -183,10 +184,10 @@ async function listedTool(token: string): Promise<ListedTool> {
   return tools[0]!;
 }
 
-/** Every Item a workspace's Inbox shows, as the app reads it. */
+/** Every Item a workspace's Inbox shows, as the app reads it, but those the account arrived with. */
 async function inboxOf(workspaceId: string, userId: string = USER_ID): Promise<Item[]> {
   const answer = await asUser(`${ORIGIN}/v1/workspaces/${workspaceId}/snapshot`, {}, userId);
-  return ((await answer.json()) as { items: Item[] }).items;
+  return besidesTheGuide(((await answer.json()) as { items: Item[] }).items);
 }
 
 /** Signs somebody in with Google by address, the way a browser does, and answers their cookie. */
@@ -539,7 +540,7 @@ describe('MCP connections', () => {
       expect(answer.status).toBe(401);
       const theirs = await SELF.fetch(`${ORIGIN}/v1/workspaces/${WORKSPACE_ID}/snapshot`, { headers: { cookie: newcomer } });
       expect(theirs.status).toBe(200);
-      expect(((await theirs.json()) as { items: Item[] }).items).toEqual([]);
+      expect(besidesTheGuide(((await theirs.json()) as { items: Item[] }).items)).toEqual([]);
     });
   });
 });

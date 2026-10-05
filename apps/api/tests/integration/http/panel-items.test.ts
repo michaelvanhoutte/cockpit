@@ -437,7 +437,7 @@ describe('Panels', () => {
       const refused = await move(neverReal, falcon, [neverReal]);
 
       expect(refused.status).toBe(404);
-      expect((await snapshot()).filings).toEqual([]);
+      expect((await snapshot()).filings.filter((filing) => filing.panelId === falcon)).toEqual([]);
     });
 
     it.each([
@@ -486,7 +486,7 @@ describe('Panels', () => {
       const refused = await move(elsewhere, falcon, [elsewhere]);
 
       expect(refused.status).toBe(404);
-      expect((await snapshot()).filings).toEqual([]);
+      expect((await snapshot()).filings.filter((filing) => filing.panelId === falcon)).toEqual([]);
     });
   });
 
