@@ -20,12 +20,19 @@
  */
 export const DEMO_HOST = "demo.cockpit.invalid";
 
-export const DEMO_PAGES = ["gmail", "teams"] as const;
+export const DEMO_PAGES = ["gmail", "teams", "session"] as const;
 export type DemoPage = (typeof DEMO_PAGES)[number];
 
-/** The stored link for a demo page. */
-export function demoAddress(page: DemoPage): string {
-  return `https://${DEMO_HOST}/${page}`;
+/**
+ * The stored link for a demo page.
+ *
+ * **`detail` tells two links to one page apart**: a simulated Claude Code
+ * session is `session/<run id>`, so the delayed step that moves one run to
+ * *waiting on you* finds that run by the id its own link ends in, the way a
+ * real session's hook finds one (`hookNamesSession`).
+ */
+export function demoAddress(page: DemoPage, detail?: string): string {
+  return `https://${DEMO_HOST}/${page}${detail ? `/${encodeURIComponent(detail)}` : ""}`;
 }
 
 /**
@@ -42,7 +49,7 @@ export function demoPageOf(link: string): DemoPage | "unknown" | null {
   }
   if (url.protocol !== "https:" || url.hostname.toLowerCase() !== DEMO_HOST)
     return null;
-  const named = url.pathname.replace(/^\/+|\/+$/g, "");
+  const named = url.pathname.replace(/^\/+/, "").split("/")[0] ?? "";
   return (DEMO_PAGES as readonly string[]).includes(named)
     ? (named as DemoPage)
     : "unknown";

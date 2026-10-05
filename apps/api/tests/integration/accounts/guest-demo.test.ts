@@ -308,7 +308,7 @@ describe('Accounts', () => {
       ]);
     });
 
-    it('lists Gmail and Teams as connected in every workspace, and neither failing', async () => {
+    it('lists Gmail, Teams and Claude Code as connected in every workspace, and none failing', async () => {
       const cookie = await continueAsGuest();
       const seeded = (await workspacesOf(cookie)).filter((one) => one.name !== FIRST_WORKSPACE_NAME);
       expect(seeded.length).toBe(3);
@@ -318,7 +318,7 @@ describe('Accounts', () => {
           `http://cockpit.test/v1/workspaces/${workspace.id}/connections`,
           cookie,
         );
-        expect(sourceAccounts.map((one) => one.connectorId).sort(), workspace.name).toEqual(['gmail', 'teams']);
+        expect(sourceAccounts.map((one) => one.connectorId).sort(), workspace.name).toEqual(['claude-code', 'gmail', 'teams']);
         for (const account of sourceAccounts) {
           expect(account.failingBecause ?? null, `${workspace.name} ${account.connectorId}`).toBeNull();
         }

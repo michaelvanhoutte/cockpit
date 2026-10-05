@@ -14,6 +14,7 @@ import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
 import { foldName } from '../domain/names.js';
 import {
   GUEST_DEMO,
+  GUEST_DEMO_AGENTS,
   GUEST_DEMO_CONNECTIONS,
   GUEST_DEMO_PLACEHOLDER_CREDENTIAL,
   isFilter,
@@ -3406,6 +3407,8 @@ const DEMO_ITEM = '0b000000';
 const DEMO_ASSOCIATION = '0c000000';
 const DEMO_LAYOUT = '0d000000';
 const DEMO_CONNECTION = '0e000000';
+const DEMO_AGENT = '0f000000';
+const DEMO_RUN = '10000000';
 
 /** A readable, stable id for the things whose ids are not uuids: `Day to day` -> `day-to-day`. */
 function demoSlug(name: string): string {
@@ -3638,6 +3641,38 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
   let itemsSoFar = 0;
   let associationsSoFar = 0;
   let connectionsSoFar = 0;
+  let runsSoFar = 0;
+
+  // The guest's dock ("Show agents at work in the guest demo, with simulated
+  // runs", issue 774). Account-wide, so written once, ahead of every Workspace.
+  // Guarded on the live name as well as the id: `agents_tenant_live_folded_name`
+  // is unique, and a guest's own Agent that took the name first must skip this
+  // one rather than fail the whole change.
+  const agentIds = new Map<string, string>();
+  GUEST_DEMO_AGENTS.forEach((agent, position) => {
+    const agentId = demoId(DEMO_AGENT, position + 1);
+    agentIds.set(agent.name, agentId);
+    statements.push({
+      sql: `INSERT INTO agents (id, tenant_id, name, folded_name, color, engine, message, asks_for_prompt, starts_in_progress, position, created_at)
+              SELECT ?, ?, ?, ?, ?, 'claude-code', ?, 0, ?, ?, ?
+              WHERE NOT EXISTS (SELECT 1 FROM agents WHERE id = ?)
+                AND NOT EXISTS (SELECT 1 FROM agents WHERE tenant_id = ? AND folded_name = ? AND deleted_at IS NULL)`,
+      params: [
+        agentId,
+        accountId,
+        agent.name,
+        foldName(agent.name),
+        agent.color,
+        agent.message,
+        agent.startsInProgress ? 1 : 0,
+        position,
+        at,
+        agentId,
+        accountId,
+        foldName(agent.name),
+      ],
+    });
+  });
 
   demo.forEach((workspace, index) => {
     const workspaceId = `guest-ws-${demoSlug(workspace.name)}`;
@@ -3914,6 +3949,46 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
         itemId,
       ],
     });
+
+    if (item.run) {
+      runsSoFar += 1;
+      const runId = demoId(DEMO_RUN, runsSoFar);
+      const agentId = agentIds.get(item.run.agent)!;
+      // Started a little before the Item was last touched, so it never
+      // predates the Item and never falls after midnight.
+      const startedAt = hoursBefore(runsSoFar + 1);
+      statements.push({
+        sql: `INSERT INTO agent_runs (id, tenant_id, workspace_id, item_id, agent_id, status, session_url, started_at, settled_at)
+                SELECT ?, ?, ?, ?, ?, 'working', ?, ?, ?
+                WHERE EXISTS (SELECT 1 FROM items WHERE id = ? AND tenant_id = ?)
+                  AND EXISTS (SELECT 1 FROM agents WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL)
+                  AND NOT EXISTS (SELECT 1 FROM agent_runs WHERE id = ?)`,
+        params: [
+          runId,
+          accountId,
+          workspaceId,
+          itemId,
+          agentId,
+          demoAddress('session', runId),
+          startedAt,
+          startedAt,
+          itemId,
+          accountId,
+          agentId,
+          accountId,
+          runId,
+        ],
+      });
+      if (item.run.state === 'waiting') {
+        statements.push({
+          sql: `INSERT INTO agent_run_activity (run_id, tenant_id, waiting, reported_at)
+                  SELECT ?, ?, 1, ?
+                  WHERE EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND tenant_id = ?)
+                    AND NOT EXISTS (SELECT 1 FROM agent_run_activity WHERE run_id = ?)`,
+          params: [runId, accountId, startedAt, runId, accountId, runId],
+        });
+      }
+    }
 
     for (const association of demoAssociations(item, dashboard)) {
       associationsSoFar += 1;

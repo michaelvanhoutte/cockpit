@@ -9,6 +9,7 @@ import {
 } from '../../../src/accounts/changes.js';
 import {
   GUEST_DEMO,
+  GUEST_DEMO_AGENTS,
   isFilter,
   type SeedInboxItem,
   type SeedItem,
@@ -210,7 +211,7 @@ describe('Accounts', () => {
    * "Seed Gmail and Teams in the guest demo, with fewer items" (issue 773): the
    * demonstration is for reading at a glance, and a Panel of thirteen is not.
    */
-  describe('the demo stays readable: no panel holds more than five items, and every dashboard has one from Gmail or Teams', () => {
+  describe('the demo stays readable: no panel holds more than five items, and every dashboard has one from Gmail or Teams or a run', () => {
     const MOST_ITEMS = 5;
 
     /**
@@ -248,14 +249,14 @@ describe('Accounts', () => {
       }
     });
 
-    it('puts at least one item from Gmail or Teams on every dashboard', () => {
+    it('puts at least one item from Gmail or Teams, or one with a run, on every dashboard', () => {
       for (const workspace of GUEST_DEMO) {
         for (const dashboard of workspace.dashboards) {
           const items = dashboard.rows.flatMap((row) =>
             row.panels.flatMap((panel) => (isFilter(panel) ? [] : panel.items)),
           );
           expect(
-            items.filter((item) => item.via).length,
+            items.filter((item) => item.via || item.run).length,
             `${workspace.name} / ${dashboard.name}`,
           ).toBeGreaterThanOrEqual(1);
         }
@@ -309,17 +310,55 @@ describe('Accounts', () => {
   });
 
   /** Every workspace shows Gmail and Teams connected, on rows nothing outside Cockpit reads. */
-  describe('every workspace is seeded with Gmail and Teams connected', () => {
-    it('writes a Gmail row and a Teams row for each workspace, each with a placeholder credential', () => {
+  describe('every workspace is seeded with Gmail, Teams and Claude Code connected', () => {
+    it('writes a Gmail, a Teams and a Claude Code row for each workspace, each with a placeholder credential', () => {
       const rows = guestSeed().filter((one) => one.sql.includes('INSERT INTO connector_accounts '));
 
       expect(rows.map((one) => one.params![3])).toEqual(
-        GUEST_DEMO.flatMap(() => ['gmail', 'teams']),
+        GUEST_DEMO.flatMap(() => ['gmail', 'teams', 'claude-code']),
       );
       for (const row of rows) {
         // Sealed with no key and opened by nothing: the same text in both columns.
         expect(row.params![6]).toBe(row.params![7]);
         expect(String(row.params![6])).toContain('placeholder');
+      }
+    });
+  });
+
+  /** "Show agents at work in the guest demo, with simulated runs" (issue 774): four Agents, and runs on Items an Agent could still be started on. */
+  describe('the guest’s dock holds four agents, and runs are seeded only on filed items still to do', () => {
+    it('writes the four agents, in dock order', () => {
+      const written = guestSeed().filter((one) => one.sql.includes('INSERT INTO agents '));
+
+      expect(written.map((one) => one.params![2])).toEqual(['Draft a reply', 'Research', 'Plan it', 'Fix it']);
+      expect(GUEST_DEMO_AGENTS.map((agent) => agent.name)).toEqual(written.map((one) => one.params![2]));
+    });
+
+    it('puts each run on a different filed item, by one of those agents', () => {
+      const withRuns = filedItems.filter((item) => item.run);
+      expect(withRuns.length).toBeGreaterThanOrEqual(4);
+      expect(inboxItems.filter((item) => item.run), 'a run on an Inbox item').toEqual([]);
+      const agents: string[] = GUEST_DEMO_AGENTS.map((agent) => agent.name);
+      for (const item of withRuns) expect(agents, item.title).toContain(item.run!.agent);
+
+      const written = guestSeed().filter((one) => one.sql.includes('INSERT INTO agent_runs '));
+      const itemsRunning = written.map((one) => one.params![3]);
+      expect(written).toHaveLength(withRuns.length);
+      expect(new Set(itemsRunning).size, 'two runs on one item').toBe(itemsRunning.length);
+    });
+
+    it('seeds some runs working and some waiting on you, each on a demo session address ending in its own id', () => {
+      const statements = guestSeed();
+      const runs = statements.filter((one) => one.sql.includes('INSERT INTO agent_runs '));
+      const waiting = new Set(
+        statements.filter((one) => one.sql.includes('INSERT INTO agent_run_activity ')).map((one) => one.params![0]),
+      );
+
+      expect(waiting.size).toBeGreaterThan(0);
+      expect(waiting.size).toBeLessThan(runs.length);
+      for (const run of runs) {
+        expect(run.params![5], String(run.params![0])).toBe(demoAddress('session', String(run.params![0])));
+        expect(demoPageOf(String(run.params![5]))).toBe('session');
       }
     });
   });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Item, Source } from '@cockpit/shared';
-import { openableAtSource } from '../../src/itemSource';
+import { openableAtSource, whereALinkOpens } from '../../src/itemSource';
 
 /**
  * F1, and pure: where *Open ↗* goes for an Item ("Seed Gmail and Teams in the
@@ -42,6 +42,17 @@ describe('Connector management', () => {
       { situation: 'an item with no link', item: itemFrom('mail', null), opens: null },
     ])('$situation', ({ item, opens }) => {
       expect(openableAtSource(item)).toEqual(opens);
+    });
+  });
+
+  /** A run's ↗ asks the same place: a simulated session opens Cockpit's own page, and a real one is untouched (issue 774). */
+  describe('a run’s link on a demo session opens Cockpit’s session page, and a real Claude session opens as before', () => {
+    it.each([
+      { situation: 'a demo session address', link: 'https://demo.cockpit.invalid/session/018f0000-0000', opens: '/demo/session' },
+      { situation: 'a real claude.ai session link', link: 'https://claude.ai/code/session_01EXAMPLE', opens: 'https://claude.ai/code/session_01EXAMPLE' },
+      { situation: 'an unknown path on the demo host', link: 'https://demo.cockpit.invalid/anything-else', opens: null },
+    ])('$situation', ({ link, opens }) => {
+      expect(whereALinkOpens(link)).toBe(opens);
     });
   });
 });

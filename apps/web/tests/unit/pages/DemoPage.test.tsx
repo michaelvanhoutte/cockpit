@@ -14,6 +14,7 @@ describe('Connector management', () => {
     it.each([
       { situation: 'the Gmail page', page: 'gmail', names: 'Gmail' },
       { situation: 'the Teams page', page: 'teams', names: 'Microsoft Teams' },
+      { situation: 'a simulated Claude Code session', page: 'session', names: 'Claude Code session' },
     ])('$situation', ({ page, names }) => {
       render(<DemoPage page={page} />);
 

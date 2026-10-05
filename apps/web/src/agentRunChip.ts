@@ -1,4 +1,5 @@
 import { STARTING_GIVES_UP_AFTER_MS, type AgentRun } from '@cockpit/shared';
+import { whereALinkOpens } from './itemSource';
 
 /**
  * What a row's chip says about its run ("Drop an agent on an item to start a
@@ -26,6 +27,9 @@ export interface RunChip {
 
 export function runChipFor(run: AgentRun, now: number): RunChip {
   const agent = run.agentName ?? 'a deleted agent';
+  // A simulated run's session is a demo address, which opens Cockpit's own page
+  // for it ("Show agents at work in the guest demo, with simulated runs", issue 774).
+  const href = run.sessionUrl === null ? null : whereALinkOpens(run.sessionUrl);
   const status =
     run.status === 'starting' && now - Date.parse(run.startedAt) > STARTING_GIVES_UP_AFTER_MS
       ? 'unknown'
@@ -37,8 +41,8 @@ export function runChipFor(run: AgentRun, now: number): RunChip {
       // What the session's hooks last said, where the repository has them
       // ("See on the item when Claude is waiting on you", issue 572).
       return run.waiting
-        ? { agent, text: 'Claude is waiting on you ↗', href: run.sessionUrl, hint: 'Open the Claude session to answer', trouble: false, waiting: true }
-        : { agent, text: 'Claude is working ↗', href: run.sessionUrl, hint: 'Open the Claude session', trouble: false, waiting: false };
+        ? { agent, text: 'Claude is waiting on you ↗', href, hint: 'Open the Claude session to answer', trouble: false, waiting: true }
+        : { agent, text: 'Claude is working ↗', href, hint: 'Open the Claude session', trouble: false, waiting: false };
     case 'link_lost':
       return {
         agent,

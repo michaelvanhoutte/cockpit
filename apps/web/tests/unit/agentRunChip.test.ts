@@ -45,6 +45,14 @@ describe('Agents', () => {
       expect({ text: chip.text, link: chip.href !== null, trouble: chip.trouble }).toEqual({ text, link, trouble });
     });
 
+    it.each([
+      { situation: 'a simulated run in the guest demo', sessionUrl: 'https://demo.cockpit.invalid/session/018f0000', opens: '/demo/session' },
+      { situation: 'a real Claude session', sessionUrl: 'https://claude.ai/code/session_01', opens: 'https://claude.ai/code/session_01' },
+    ])('opens $situation at the page it belongs at, working or waiting on you', ({ sessionUrl, opens }) => {
+      expect(runChipFor(aRun({ sessionUrl }), NOW).href).toBe(opens);
+      expect(runChipFor(aRun({ sessionUrl, waiting: true }), NOW).href).toBe(opens);
+    });
+
     it('gives the reason Claude refused on hover', () => {
       expect(runChipFor(aRun({ status: 'failed', reason: 'The token is wrong or was revoked.' }), NOW).hint).toBe(
         'The token is wrong or was revoked.',

@@ -228,6 +228,23 @@ describe('Agents', () => {
       expect((await snapshot()).claudeCodeFailing).toBe(failing);
     });
 
+    it('asks the queue for nothing: only the guest account plays a run out, and a named person’s calls Claude', async () => {
+      const agentId = await anAgent();
+      const itemId = await anItem('Chase the invoice', panelId);
+      const sent: unknown[] = [];
+      const realQueue = env.ENRICHMENT;
+      env.ENRICHMENT = { send: async (body: unknown) => void sent.push(body) } as unknown as typeof env.ENRICHMENT;
+
+      try {
+        await start(itemId, agentId);
+      } finally {
+        env.ENRICHMENT = realQueue;
+      }
+
+      expect(claude.fired).toHaveLength(1);
+      expect(sent).toEqual([]);
+    });
+
     it("sends the agent's message with the item's words, the way Anthropic asks for it", async () => {
       const agentId = await anAgent({ message: '/scoping {title} - {link}' });
       const itemId = await anItem('Chase the invoice', panelId);

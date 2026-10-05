@@ -4,6 +4,18 @@ import { connectorNamed, demoPageOf, type Item } from '@cockpit/shared';
 export const demoPath = (page: string) => `/demo/${page}`;
 
 /**
+ * Where a stored link is opened: the guest demo's own addresses become
+ * Cockpit's page for them (issue 773), one on the demo host that names no page
+ * opens nothing (null), and any other link passes through as it was. Both the
+ * *Open ↗* of an Item and a run's ↗ ask this one place.
+ */
+export function whereALinkOpens(link: string): string | null {
+  const demo = demoPageOf(link);
+  if (demo === 'unknown') return null;
+  return demo ? demoPath(demo) : link;
+}
+
+/**
  * The app that captured an Item, by the name it registered under - null for an
  * Item that no app captured.
  *
@@ -38,7 +50,6 @@ export function openableAtSource(item: Item): { name: string; link: string } | n
   if (item.source === 'internal' || !item.sourceLink) return null;
   if (!/^https?:\/\//i.test(item.sourceLink)) return null;
   const name = capturingApp(item) ?? connectorNamed(item.source);
-  const demo = demoPageOf(item.sourceLink);
-  if (demo === 'unknown') return null;
-  return { name, link: demo ? demoPath(demo) : item.sourceLink };
+  const link = whereALinkOpens(item.sourceLink);
+  return link === null ? null : { name, link };
 }

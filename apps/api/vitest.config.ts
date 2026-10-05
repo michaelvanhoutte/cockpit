@@ -141,6 +141,8 @@ export default defineConfig({
            * rather than waiting one out (tests/integration/http/refresh-debounce.test.ts).
            */
           REPROPOSE_DEBOUNCE_SECONDS: '0',
+          /** No pause on *Starting Claude…*, so a simulated start answers at once. */
+          SIMULATED_START_MS: '0',
           OIDC_ISSUER: 'https://issuer.test',
           /**
            * Set, as production sets it: an environment that offers guest

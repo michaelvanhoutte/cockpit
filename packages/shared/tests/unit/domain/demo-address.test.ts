@@ -11,6 +11,7 @@ describe('Connector management', () => {
     it.each([
       { situation: 'the Gmail page', link: 'https://demo.cockpit.invalid/gmail', reads: 'gmail' },
       { situation: 'the Teams page', link: 'https://demo.cockpit.invalid/teams', reads: 'teams' },
+      { situation: 'a simulated session, named by its run', link: 'https://demo.cockpit.invalid/session/018f0000-0000', reads: 'session' },
       { situation: 'a page with a trailing slash', link: 'https://demo.cockpit.invalid/gmail/', reads: 'gmail' },
       { situation: 'the host in capitals', link: 'https://DEMO.COCKPIT.INVALID/teams', reads: 'teams' },
       { situation: 'a path on the demo host that names no page', link: 'https://demo.cockpit.invalid/whatsapp', reads: 'unknown' },
@@ -22,6 +23,11 @@ describe('Connector management', () => {
       { situation: 'something that is no address', link: 'not a url', reads: null },
     ])('$situation', ({ link, reads }) => {
       expect(demoPageOf(link)).toBe(reads);
+    });
+
+    it('keeps a detail at the end of an address, which is how one session is told from another', () => {
+      expect(demoAddress('session', 'run-1')).toBe('https://demo.cockpit.invalid/session/run-1');
+      expect(demoAddress('session', 'run-1')).not.toBe(demoAddress('session', 'run-2'));
     });
 
     it('is on a host that cannot resolve, and every page address is a link an Item may store', () => {

@@ -60,7 +60,12 @@ import { debounceSecondsFor, isSuperseded, type RefreshAsk } from './debounce.js
  * is what a message from before a deploy is refused by rather than
  * misinterpreted.
  */
-export type EnrichmentJob = CleanUpJob | ReproposePanelsJob | ReadWhatItMeansJob | ReproposeTextsJob;
+export type EnrichmentJob =
+  | CleanUpJob
+  | ReproposePanelsJob
+  | ReadWhatItMeansJob
+  | ReproposeTextsJob
+  | SimulatedRunWaitsJob;
 
 export interface CleanUpJob {
   kind: 'clean-up-a-note';
@@ -158,6 +163,20 @@ export interface ReproposeTextsJob {
   ask?: RefreshAsk | undefined;
 }
 
+/**
+ * Moves a simulated run in the guest account to *waiting on you*, a while
+ * after it was started ("Show agents at work in the guest demo, with simulated
+ * runs", issue 774) - `jobs/simulated-run.ts`, which also says why it is on
+ * this queue. The run is named by its id, which its own demo session address
+ * ends in.
+ */
+export interface SimulatedRunWaitsJob {
+  kind: 'simulated-run-waits';
+  accountName: string;
+  workspaceId: string;
+  runId: string;
+}
+
 const refreshAskSchema = z.object({ at: z.number().int().nonnegative(), id: z.uuid() });
 
 export const enrichmentJobSchema = z.discriminatedUnion('kind', [
@@ -185,6 +204,12 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     kind: z.literal('re-propose-texts'),
     accountName: z.string().min(1),
     ask: refreshAskSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal('simulated-run-waits'),
+    accountName: z.string().min(1),
+    workspaceId: z.string().min(1),
+    runId: z.string().min(1),
   }),
 ]);
 

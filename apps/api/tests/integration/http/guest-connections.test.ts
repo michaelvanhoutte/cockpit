@@ -94,6 +94,23 @@ async function guestRows(): Promise<{ id: string; display_name: string; updated_
   ]);
 }
 
+/** The Claude Code connection the demo seeds in one Workspace. */
+async function seededClaudeCode(workspaceId: string): Promise<Planted> {
+  const [row] = await inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) => [
+    ...sql.exec<{ id: string }>(
+      "SELECT id FROM connector_accounts WHERE connector_id = 'claude-code' AND workspace_id = ?",
+      workspaceId,
+    ),
+  ]);
+  return { id: row!.id, connectorId: 'claude-code' };
+}
+
+/** Every Claude Code row the guest holds, as stored - what a refused change must leave exactly as it was. */
+const claudeCodeRows = () =>
+  inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) => [
+    ...sql.exec("SELECT * FROM connector_accounts WHERE connector_id = 'claude-code' ORDER BY id"),
+  ]);
+
 /** The Teams items the guest holds that came from a message saved to Cockpit rather than from the demo. */
 const savedFromTeams = (sql: SqlStorage) => [
   ...sql.exec(
@@ -180,8 +197,9 @@ describe('Connector management', () => {
       expect(created.status).toBe(403);
       expect(await guestRows()).toEqual([]);
 
-      const planted = await plantInGuestStore(workspaceId, 'claude-code', 'connection');
-      const before = await guestRows();
+      // Seeded in every Workspace ("Show agents at work in the guest demo", issue 774), with a placeholder credential.
+      const planted = await seededClaudeCode(workspaceId);
+      const before = await claudeCodeRows();
 
       const edited = await asGuest(cookie, connect, post({ routineUrl: ROUTINE_URL, token: 'another-token' }));
       const tested = await asGuest(
@@ -191,7 +209,7 @@ describe('Connector management', () => {
       );
 
       expect([edited.status, tested.status]).toEqual([403, 403]);
-      expect(await guestRows()).toEqual(before);
+      expect(await claudeCodeRows()).toEqual(before);
       expect(reached).not.toHaveBeenCalled();
     });
 
@@ -231,7 +249,7 @@ describe('Connector management', () => {
     it('answers a Claude Code hook carrying the secret of a guest connection as having no such connection', async () => {
       const cookie = await continueAsGuest();
       const workspaceId = await guestWorkspace(cookie);
-      const planted = await plantInGuestStore(workspaceId, 'claude-code', 'connection');
+      const planted = await seededClaudeCode(workspaceId);
       await env.DB.prepare(
         `INSERT INTO connector_directory (connector_id, external_account_key, account_id, workspace_id, connected_at)
          VALUES ('claude-code-hooks', ?, ?, ?, ?)`,

@@ -21,6 +21,7 @@ import {
   commandSchemas,
   connectClaudeCodeSchema,
   connectorNamed,
+  demoAddress,
   MAX_ATTACHMENT_SIZE,
   itemTypeListSchema,
   registeredUserListSchema,
@@ -84,8 +85,10 @@ import {
   enqueueReadingItsMeaning,
   enqueueRepropose,
   enqueueReproposeTexts,
+  enqueueSimulatedRunWaiting,
   readWhatTheseNotesMean,
 } from '../jobs/index.js';
+import { startingPauseMs } from '../jobs/simulated-run.js';
 import { readUsage } from '../accounts/usage.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
@@ -130,7 +133,7 @@ import {
   revocableIn,
   type GmailRefusal,
 } from '../connectors/gmail.js';
-import { guestConnectionGate } from '../auth/guest-connections.js';
+import { guestConnectionGate, isTheGuest } from '../auth/guest-connections.js';
 import { fireRoutine, testClaudeCodeConnection } from '../connectors/claude-code.js';
 import { countForGuest, countryOf, referrerHostOf } from '../auth/sign-in-history.js';
 import {
@@ -1723,6 +1726,22 @@ const routes = app
         return false;
       }
     };
+
+    // The shared guest never calls Claude ("Show agents at work in the guest
+    // demo, with simulated runs", issue 774): its connection is a placeholder
+    // that is never opened, and the run is played out instead - starting for
+    // a moment, then working on a demo session, then waiting on you from the
+    // queue. Decided by the account, so an Agent the guest made is simulated
+    // too, and checked before anything below reads the connection.
+    if (isTheGuest(c.get('visitor'))) {
+      await new Promise((resolve) => setTimeout(resolve, startingPauseMs(c.env.SIMULATED_START_MS)));
+      if (!(await settle({ status: 'working', sessionUrl: demoAddress('session', start.runId) }))) {
+        await settle({ status: 'link_lost' });
+        return c.json({ alreadyStarted: false, status: 'link_lost' }, 200);
+      }
+      await enqueueSimulatedRunWaiting(c.env, c.get('visitor').accountName, workspaceId, start.runId);
+      return c.json({ alreadyStarted: false, status: 'working' }, 200);
+    }
 
     // Read straight after the start was recorded. Whatever stops it - the
     // connection disconnected in another tab in between, or the read itself
