@@ -227,6 +227,13 @@ export function conversationPage(answer: unknown): { threadIds: string[]; nextPa
 export interface HistoryPage {
   /** The conversations that gained the label on this page, and kept it to its end - oldest first. */
   readonly gained: string[];
+  /**
+   * Every conversation whose label this page may have put on or taken off -
+   * the label added or removed, a labelled message trashed, untrashed or
+   * deleted for good - oldest first. Only a read of the conversation says
+   * which, since the label belongs to each message and the page sees some.
+   */
+  readonly changed: string[];
   readonly nextPageToken: string | null;
   /** The mailbox's position as of this answer: where the next check reads from once every page is done. */
   readonly historyId: string | null;
@@ -246,13 +253,21 @@ interface HistoryEntry {
  * **A reply changes nothing**, since labels belong to messages and a reply
  * arrives without the one its conversation carries; a reply that does arrive
  * labelled names a conversation the caller finds already brought in. A label
- * added and taken off again within the page is nothing new - closing is
- * "Close a Gmail task when its label comes off" (issue 727)'s to decide.
+ * added and taken off again within the page is nothing new.
+ *
+ * **And for the conversations it may have closed or reopened** ("Close a
+ * Gmail task when its label comes off, and reopen it when it goes back",
+ * issue 727): the label taken off or put back, a labelled message moved to or
+ * out of the bin or spam, or deleted for good - each read by the caller to
+ * see where it now stands.
  */
 export function historyPage(answer: unknown, labelId: string): HistoryPage {
   const { history, nextPageToken, historyId } = (answer ?? {}) as Record<string, unknown>;
   const gained = new Set<string>();
+  const changed = new Set<string>();
   const carries = (labels: unknown) => Array.isArray(labels) && labels.includes(labelId);
+  const movesAway = (labels: unknown) =>
+    Array.isArray(labels) && labels.some((label) => label === labelId || AWAY.includes(label as string));
   const threadOf = (entry: HistoryEntry): string | null => {
     const threadId = entry?.message?.threadId;
     return typeof threadId === 'string' && threadId ? threadId : null;
@@ -261,30 +276,55 @@ export function historyPage(answer: unknown, labelId: string): HistoryPage {
     const entries = (key: string) => (Array.isArray(record?.[key]) ? (record[key] as HistoryEntry[]) : []);
     for (const added of entries('messagesAdded')) {
       const threadId = threadOf(added);
-      if (threadId && carries(added.message?.labelIds)) gained.add(threadId);
+      if (threadId && carries(added.message?.labelIds)) {
+        gained.add(threadId);
+        changed.add(threadId);
+      }
     }
     for (const added of entries('labelsAdded')) {
       const threadId = threadOf(added);
       if (threadId && carries(added.labelIds)) gained.add(threadId);
+      if (threadId && movesAway(added.labelIds)) changed.add(threadId);
     }
     for (const removed of entries('labelsRemoved')) {
       const threadId = threadOf(removed);
       if (threadId && carries(removed.labelIds)) gained.delete(threadId);
+      if (threadId && movesAway(removed.labelIds)) changed.add(threadId);
+    }
+    for (const deleted of entries('messagesDeleted')) {
+      const threadId = threadOf(deleted);
+      if (threadId) changed.add(threadId);
     }
   }
   return {
     gained: [...gained],
+    changed: [...changed],
     nextPageToken: typeof nextPageToken === 'string' && nextPageToken ? nextPageToken : null,
     historyId: typeof historyId === 'string' || typeof historyId === 'number' ? String(historyId) : null,
   };
 }
 
-/** Whether a conversation, as `threads.get` answers it, still has a message carrying the label. */
+/**
+ * Gmail's own labels for mail on its way out: in the bin, or marked spam. A
+ * labelled message there keeps the label, and no longer counts as labelled.
+ */
+const AWAY: readonly string[] = ['TRASH', 'SPAM'];
+
+/**
+ * Whether a conversation, as `threads.get` answers it, still has a message
+ * carrying the label - and not in the bin or spam, which Gmail's own listing
+ * of labelled conversations leaves out too.
+ */
 export function stillLabelled(answer: unknown, labelId: string): boolean {
   const { messages } = (answer ?? {}) as { messages?: unknown };
   return (
     Array.isArray(messages) &&
-    (messages as GmailMessage[]).some((message) => Array.isArray(message?.labelIds) && message.labelIds.includes(labelId))
+    (messages as GmailMessage[]).some(
+      (message) =>
+        Array.isArray(message?.labelIds) &&
+        message.labelIds.includes(labelId) &&
+        !message.labelIds.some((label) => AWAY.includes(label as string)),
+    )
   );
 }
 

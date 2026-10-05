@@ -3,7 +3,9 @@
  * Gmail answers them ("Bring in the conversations already labelled Cockpit as
  * tasks", issue 725): `users.labels.list`, `users.threads.list` and
  * `users.threads.get` with `format=full`, plus `users.getProfile` and
- * `users.history.list` (issue 726).
+ * `users.history.list` (issue 726). A check reads a conversation again with
+ * `format=minimal` (issue 727), which answers the same messages and labels
+ * without their bodies.
  *
  * Every field Gmail sends is kept, whether the connector reads it or not, so
  * these stay comparable to a live answer field for field - which is what the
@@ -71,6 +73,8 @@ interface MessageOptions {
   readonly subject?: string;
   readonly from?: string;
   readonly labelled?: boolean;
+  /** In the bin, which keeps whatever labels the message had. */
+  readonly trashed?: boolean;
   /** The parts of the message: one plain text, one HTML, or both as multipart/alternative. */
   readonly plain?: string;
   readonly html?: string;
@@ -120,7 +124,10 @@ export function message(threadId: string, options: MessageOptions) {
   return {
     id: options.id,
     threadId,
-    labelIds: options.labelled === false ? ['INBOX', 'UNREAD'] : ['INBOX', 'UNREAD', COCKPIT_LABEL_ID],
+    labelIds: [
+      ...(options.trashed ? ['TRASH', 'UNREAD'] : ['INBOX', 'UNREAD']),
+      ...(options.labelled === false ? [] : [COCKPIT_LABEL_ID]),
+    ],
     snippet: (options.plain ?? '').slice(0, 100),
     sizeEstimate: 4096,
     historyId: '4815162300',
@@ -134,21 +141,28 @@ export function threadAnswer(id: string, messages: readonly ReturnType<typeof me
   return { id, historyId: '4815162300', messages };
 }
 
-/** The commonest conversation: one labelled plain-text message. */
-export function plainThread(id: string, subject = `About ${id}`, text = `The text of ${id}.`) {
-  return threadAnswer(id, [message(id, { id, sentAt: '2026-10-01T08:30:00Z', subject, plain: text })]);
+/** The commonest conversation: one labelled plain-text message - or that message unlabelled, or in the bin. */
+export function plainThread(
+  id: string,
+  subject = `About ${id}`,
+  text = `The text of ${id}.`,
+  { labelled = true, trashed = false }: { labelled?: boolean; trashed?: boolean } = {},
+) {
+  return threadAnswer(id, [message(id, { id, sentAt: '2026-10-01T08:30:00Z', subject, plain: text, labelled, trashed })]);
 }
 
 /** What one history record says happened to one message. */
 type HistoryChange =
   | { readonly added: string; readonly threadId: string; readonly labelIds: readonly string[] }
+  | { readonly deleted: string; readonly threadId: string }
   | { readonly labelled: string; readonly threadId: string; readonly with: readonly string[]; readonly labelIds: readonly string[] }
   | { readonly unlabelled: string; readonly threadId: string; readonly with: readonly string[]; readonly labelIds: readonly string[] };
 
 /**
  * One record of `users.history.list`: what changed at one history position -
- * a message arriving, or labels added to or taken off a message. `labelIds`
- * on a change is the message's labels after it, `with` the labels it moved.
+ * a message arriving or deleted for good, or labels added to or taken off a
+ * message. `labelIds` on a change is the message's labels after it, `with`
+ * the labels it moved; binning a message is `TRASH` added to it.
  */
 export function historyRecord(id: string, change: HistoryChange) {
   const messageOf = (messageId: string, threadId: string, labelIds: readonly string[]) => ({
@@ -156,6 +170,13 @@ export function historyRecord(id: string, change: HistoryChange) {
     threadId,
     labelIds,
   });
+  if ('deleted' in change) {
+    return {
+      id,
+      messages: [{ id: change.deleted, threadId: change.threadId }],
+      messagesDeleted: [{ message: { id: change.deleted, threadId: change.threadId } }],
+    };
+  }
   if ('added' in change) {
     return {
       id,

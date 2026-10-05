@@ -1757,6 +1757,14 @@ export const gmailConversations = sqliteTable(
       .references(() => items.id, { onDelete: 'restrict' }),
     labelWanted: integer('label_wanted', { mode: 'boolean' }),
     linkedAt: text('linked_at').notNull(),
+    /**
+     * Which full reconcile last found the conversation labelled, named by
+     * when it started (`gmail_checks.started_at`) - null before any did ("Close
+     * a Gmail task when its label comes off", issue 727). Once a listing is
+     * complete, an open Item whose link names another one is the conversation
+     * the listing did not find, and is read to see whether it is done.
+     */
+    listedIn: text('listed_in'),
   },
   (t) => [
     primaryKey({ columns: [t.workspaceId, t.mailboxKey, t.threadId] }),

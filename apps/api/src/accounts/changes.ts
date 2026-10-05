@@ -126,6 +126,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     REWRITE_HISTORY_PANEL_BEFORE,
     ONE_LAYOUT_PER_DASHBOARD,
     GMAIL_CONVERSATIONS,
+    GMAIL_CONVERSATIONS_LISTED_IN,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -342,6 +343,31 @@ const GMAIL_CONVERSATIONS: Change = {
 ) STRICT`,
     },
   ],
+};
+
+/**
+ * Which full reconcile last found each Gmail conversation labelled ("Close a
+ * Gmail task when its label comes off, and reopen it when it goes back", issue
+ * 727) - one nullable column on `gmail_conversations`; `schema.ts` says what
+ * it carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** one statement, so it cannot.
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** none. Every existing link reads
+ *   NULL, found by no listing yet, so the checks after it read each open one
+ *   before marking any done.
+ * - **Rolled back after it has run:** an older release never names the
+ *   column, and closes nothing.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const GMAIL_CONVERSATIONS_LISTED_IN: Change = {
+  name: '0055-gmail-conversations-listed-in',
+  statements: [{ sql: 'ALTER TABLE `gmail_conversations` ADD COLUMN `listed_in` text' }],
 };
 
 /**

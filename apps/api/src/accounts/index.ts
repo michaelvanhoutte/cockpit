@@ -521,8 +521,10 @@ export async function resetGuestAccount(env: Env): Promise<'reset' | 'no guest a
  * Re-arms the Gmail check of every account holding a Gmail connection whose
  * check is not armed ("Bring in the conversations already labelled Cockpit as
  * tasks", issue 725) - the nightly guard against an alarm that was lost,
- * which would otherwise stop the check without a word. Answers how many it
- * armed; one account failing is logged and costs only itself.
+ * which would otherwise stop the check without a word - and starts each
+ * connection's full reconcile again, the nightly sweep that corrects what the
+ * history missed (issue 727). Answers how many it armed; one account failing
+ * is logged and costs only itself.
  */
 export async function keepEveryAccountCheckingGmail(env: Env): Promise<number> {
   let armed = 0;

@@ -451,6 +451,18 @@ describe('Capture', () => {
       expect(historyReadsFrom().at(-1)).toBe('1200');
     });
 
+    it('more labelled at once than one check can read are all brought in, over successive runs', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      const later = Array.from({ length: 45 }, (_, at) => `thread-later-${at}`);
+      labelledAfterwards(later);
+
+      await runsSettle();
+
+      expect((await inboxOf()).map((item) => item.sourceId).sort()).toEqual(['thread-000', ...later].sort());
+    });
+
     it('a position Gmail no longer keeps starts the full reconcile, which brings in what is labelled and missing', async () => {
       mailboxWith(1);
       await connect();
@@ -467,6 +479,322 @@ describe('Capture', () => {
       gmailHolds({ historyLapsed: false });
       await aCheckRuns();
       expect(historyReadsFrom().at(-1)).toBe('3000');
+    });
+  });
+});
+
+type HistoryChange = Parameters<typeof historyRecord>[1];
+type Held = 'labelled' | 'unlabelled' | 'binned' | 'deleted';
+
+/** The conversation as Gmail holds it now: labelled, with the label taken off, in the bin, or deleted for good. */
+function nowIs(threadId: string, held: Held): void {
+  threadsHeld = threadsHeld.filter((one) => one.id !== threadId);
+  if (held !== 'deleted') {
+    threadsHeld.push({
+      id: threadId,
+      labelled: held === 'labelled',
+      answer: plainThread(threadId, `Subject ${threadId}`, `Text ${threadId}`, {
+        labelled: held !== 'unlabelled',
+        trashed: held === 'binned',
+      }),
+    });
+  }
+  gmailHolds({ threads: threadsHeld });
+}
+
+/** What Gmail's history records since the last check: one record per change from `from`, and the position moved on to `now`. */
+function historySays(changes: HistoryChange[], { from = 778, now = '900' } = {}): void {
+  gmailHolds({ historyId: now, history: changes.map((change, at) => historyRecord(String(from + at), change)) });
+}
+
+const labelOff = (threadId: string): HistoryChange => ({
+  unlabelled: `m-${threadId}`,
+  threadId,
+  with: [COCKPIT_LABEL_ID],
+  labelIds: ['INBOX'],
+});
+const labelOn = (threadId: string): HistoryChange => ({
+  labelled: `m-${threadId}`,
+  threadId,
+  with: [COCKPIT_LABEL_ID],
+  labelIds: ['INBOX', COCKPIT_LABEL_ID],
+});
+
+/** A conversation's Item as the store holds it: its id, and whether it is open, done or dismissed. */
+async function itemFor(threadId: string, workspaceId = WORKSPACE_ID): Promise<{ id: string; is: 'open' | 'done' | 'dismissed' } | null> {
+  const [row] = await inTheStore((sql) => [
+    ...sql.exec<{ id: string; completed_at: string | null; deleted_at: string | null }>(
+      "SELECT id, completed_at, deleted_at FROM items WHERE source = 'mail' AND source_id = ? AND workspace_id = ?",
+      threadId,
+      workspaceId,
+    ),
+  ]);
+  if (!row) return null;
+  return { id: row.id, is: row.deleted_at ? 'dismissed' : row.completed_at ? 'done' : 'open' };
+}
+
+/** Marks an Item done or dismisses it, as its row's own menu does. */
+async function personMarks(itemId: string, as: 'done' | 'dismissed'): Promise<void> {
+  const res = await asUser(`http://cockpit.test/v1/commands/${as === 'done' ? 'set_done' : 'set_dismissed'}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      commandId: crypto.randomUUID(),
+      issuedAt: new Date().toISOString(),
+      workspaceId: WORKSPACE_ID,
+      itemId,
+      ...(as === 'done' ? { done: true } : { dismissed: true }),
+    }),
+  });
+  expect(res.status).toBe(200);
+}
+
+/** How many changes the account's log holds. */
+function changesLogged(): Promise<number> {
+  return inTheStore((sql) => [...sql.exec<{ n: number }>('SELECT count(*) AS n FROM commands')][0]!.n);
+}
+
+/** Runs the check until it has nothing more to do before five minutes from now. */
+async function runsSettle(): Promise<void> {
+  await aCheckRuns();
+  await checksSettle();
+}
+
+describe('Capture', () => {
+  describe('a conversation’s Item is open exactly while the conversation carries the label', () => {
+    it.each([
+      { situation: 'the label taken off in Gmail', before: 'open', held: 'unlabelled', change: labelOff('thread-000'), becomes: 'done' },
+      {
+        situation: 'its mail moved to the bin',
+        before: 'open',
+        held: 'binned',
+        change: { labelled: 'm-0', threadId: 'thread-000', with: ['TRASH'], labelIds: ['TRASH', COCKPIT_LABEL_ID] },
+        becomes: 'done',
+      },
+      {
+        situation: 'its mail deleted for good',
+        before: 'open',
+        held: 'deleted',
+        change: { deleted: 'm-0', threadId: 'thread-000' },
+        becomes: 'done',
+      },
+      { situation: 'the label put back on a done conversation', before: 'done', held: 'labelled', change: labelOn('thread-000'), becomes: 'open' },
+      {
+        situation: 'the label put back on a dismissed conversation',
+        before: 'dismissed',
+        held: 'labelled',
+        change: labelOn('thread-000'),
+        becomes: 'open',
+      },
+    ] as { situation: string; before: 'open' | 'done' | 'dismissed'; held: Held; change: HistoryChange; becomes: 'open' | 'done' }[])(
+      '$situation leaves the same Item $becomes at the next check',
+      async ({ before, held, change, becomes }) => {
+        mailboxWith(2);
+        await connect();
+        await checksSettle();
+        const item = (await itemFor('thread-000'))!;
+        if (before !== 'open') await personMarks(item.id, before);
+
+        nowIs('thread-000', held);
+        historySays([change]);
+        await aCheckRuns();
+
+        expect(await itemFor('thread-000')).toEqual({ id: item.id, is: becomes });
+        expect(await itemFor('thread-001')).toMatchObject({ is: 'open' });
+      },
+    );
+
+    it('the label taken off a conversation that never had an Item makes nothing, and reads nothing', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+
+      historySays([labelOff('thread-unlabelled')]);
+      await aCheckRuns();
+
+      expect(await itemFor('thread-unlabelled')).toBeNull();
+      expect(gmailCalls.some((call) => call.startsWith('threads/thread-unlabelled'))).toBe(false);
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'open' });
+    });
+
+    it('the label taken off a mailbox connected to two Workspaces marks both Items done', async () => {
+      mailboxWith(1);
+      await connect(granted('anna-in-work'));
+      await connect(granted('anna-in-atlas'), OTHER_WORKSPACE_ID);
+      await checksSettle();
+
+      nowIs('thread-000', 'unlabelled');
+      historySays([labelOff('thread-000')]);
+      await aCheckRuns();
+
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'done' });
+      expect(await itemFor('thread-000', OTHER_WORKSPACE_ID)).toMatchObject({ is: 'done' });
+    });
+
+    it('the label taken off more conversations at once than one check can read marks every one done, over successive runs', async () => {
+      mailboxWith(45);
+      await connect();
+      await checksSettle();
+
+      const all = threadsHeld.filter((one) => one.labelled).map((one) => one.id);
+      for (const id of all) nowIs(id, 'unlabelled');
+      historySays(all.map(labelOff));
+      await runsSettle();
+
+      const still = [];
+      for (const id of all) if ((await itemFor(id))?.is !== 'done') still.push(id);
+      expect(still).toEqual([]);
+    });
+  });
+
+  describe('the full reconcile marks done only from a complete listing of what is labelled', () => {
+    /** 120 labelled - three pages - brought in, then one unlabelled and one done, found only by listing them all again. */
+    async function relistedAfter(): Promise<{ unlabelled: string; done: string }> {
+      mailboxWith(120);
+      await connect();
+      await checksSettle();
+      await personMarks((await itemFor('thread-110'))!.id, 'done');
+      // Neither in any history record: only the listing finds them.
+      nowIs('thread-005', 'unlabelled');
+      gmailHolds({ historyLapsed: true, historyId: '3000' });
+      return { unlabelled: 'thread-005', done: 'thread-110' };
+    }
+
+    it('an open Item whose conversation is no longer labelled is done once the last page is in, and a done one that is labelled is open again', async () => {
+      const { unlabelled, done } = await relistedAfter();
+
+      await runsSettle();
+
+      expect(await itemFor(unlabelled)).toMatchObject({ is: 'done' });
+      expect(await itemFor(done)).toMatchObject({ is: 'open' });
+      expect(await itemFor('thread-006')).toMatchObject({ is: 'open' });
+    });
+
+    it('a listing that fails after page one of three marks nothing done, and the next run resumes it', async () => {
+      const { unlabelled } = await relistedAfter();
+      gmailAnswersWith(503, (call) => call.startsWith('threads?') && call.includes('pageToken=50'));
+
+      await aCheckRuns();
+      expect(await itemFor(unlabelled)).toMatchObject({ is: 'open' });
+
+      const listedBefore = gmailCalls.filter((call) => call.startsWith('threads?')).length;
+      await runsSettle();
+
+      const listed = gmailCalls.filter((call) => call.startsWith('threads?')).slice(listedBefore);
+      expect(listed[0]).toContain('pageToken=50');
+      expect(await itemFor(unlabelled)).toMatchObject({ is: 'done' });
+    });
+
+    it('a mailbox with no label called Cockpit fails the row and marks nothing done', async () => {
+      mailboxWith(2);
+      await connect();
+      await checksSettle();
+      nowIs('thread-000', 'unlabelled');
+      gmailHolds({ labels: labelsAnswer({ cockpit: false }), historyLapsed: true });
+
+      await aCheckRuns();
+
+      expect((await rowOf()).failingBecause).toBe(NO_LABEL);
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'open' });
+      expect(await itemFor('thread-001')).toMatchObject({ is: 'open' });
+    });
+
+    it('one the listing missed but that is still labelled when read stays open', async () => {
+      mailboxWith(2);
+      await connect();
+      await checksSettle();
+      // Listed by nothing - as a conversation a new reply moves between two
+      // pages being read - but labelled when read.
+      threadsHeld = threadsHeld.map((one) => (one.id === 'thread-001' ? { ...one, labelled: false } : one));
+      gmailHolds({ threads: threadsHeld, historyLapsed: true });
+
+      await runsSettle();
+
+      expect(await itemFor('thread-001')).toMatchObject({ is: 'open' });
+    });
+  });
+
+  describe('Gmail saying again what an Item already shows changes nothing', () => {
+    it.each([
+      { situation: 'the label taken off a conversation whose Item is done', done: true, change: labelOff('thread-000'), held: 'unlabelled' },
+      { situation: 'the label put on a conversation whose Item is open', done: false, change: labelOn('thread-000'), held: 'labelled' },
+    ] as { situation: string; done: boolean; change: HistoryChange; held: Held }[])(
+      '$situation: no change, and nothing more in the log',
+      async ({ done, change, held }) => {
+        mailboxWith(1);
+        await connect();
+        await checksSettle();
+        if (done) await personMarks((await itemFor('thread-000'))!.id, 'done');
+        const before = await itemFor('thread-000');
+        const logged = await changesLogged();
+
+        nowIs('thread-000', held);
+        historySays([change]);
+        await aCheckRuns();
+
+        expect(await itemFor('thread-000')).toEqual(before);
+        expect(await changesLogged()).toBe(logged);
+      },
+    );
+  });
+
+  describe('the nightly sweep corrects what the history missed', () => {
+    it('a label taken off that the history never reported is done after the nightly run', async () => {
+      mailboxWith(2);
+      await connect();
+      await checksSettle();
+      nowIs('thread-001', 'unlabelled');
+
+      await aCheckRuns();
+      expect(await itemFor('thread-001')).toMatchObject({ is: 'open' });
+
+      await handleScheduled({} as never, env);
+      await runsSettle();
+
+      expect(await itemFor('thread-001')).toMatchObject({ is: 'done' });
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'open' });
+    });
+
+    it('the nightly run landing while a check reads the history lists the mailbox from its first page', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      // Two history pages; the nightly run lands while the first is read,
+      // and the second does not answer.
+      labelledAfterwards([...Array.from({ length: 100 }, () => 'thread-first'), 'thread-second'], '1200');
+      whileGmailIsAsked(
+        (call) => call.startsWith('history?'),
+        () => handleScheduled({} as never, env),
+      );
+      gmailAnswersWith(503, (call) => call.startsWith('history?') && call.includes('pageToken=100'));
+
+      const listedBefore = gmailCalls.filter((call) => call.startsWith('threads?')).length;
+      await runsSettle();
+
+      const listed = gmailCalls.filter((call) => call.startsWith('threads?')).slice(listedBefore);
+      expect(listed[0]).toBeDefined();
+      expect(listed[0]).not.toContain('pageToken');
+      expect((await inboxOf()).map((item) => item.sourceId).sort()).toEqual(['thread-000', 'thread-first', 'thread-second']);
+    });
+  });
+});
+
+describe('Live updates', () => {
+  describe('an Item a check marks done is a change open tabs hear of', () => {
+    it('the label taken off reaches the live-updates stream', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      const before = await storeNamed(ACCOUNT_NAME).changesSince(ACCOUNT_NAME, '2026-01-01T00:00:00.000Z');
+      if (before.status !== 'ok') throw new Error('the store could not be read');
+
+      nowIs('thread-000', 'unlabelled');
+      historySays([labelOff('thread-000')]);
+      await aCheckRuns();
+
+      const after = await storeNamed(ACCOUNT_NAME).changesSince(ACCOUNT_NAME, before.value.cursor);
+      if (after.status !== 'ok') throw new Error('the store could not be read');
+      expect(after.value.events).toEqual([expect.objectContaining({ type: 'snapshot_invalidated', workspaceId: WORKSPACE_ID })]);
     });
   });
 });

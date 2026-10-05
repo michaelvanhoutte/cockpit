@@ -51,10 +51,18 @@ export type SourceItem = Pick<
 /** What the host did with an emitted item: `filed` as a new Item, or `already-known` and left as it was. */
 export type EmittedItem = 'filed' | 'already-known';
 
-/** A source-state change observed during sync (tombstones, completions). */
+/**
+ * A source-state change observed during sync (tombstones, completions).
+ *
+ * `resolved` is finished with at the source, which the host applies as done;
+ * `reopened` is live at the source again, which the host applies as open and
+ * undismissed. Either, on an Item already in that state, changes nothing.
+ * Generic by the test above: Gmail's label coming off and going back on and
+ * Notion's "done there counts as done" are the same need.
+ */
 export interface SourceStateChange {
   sourceId: string;
-  change: 'resolved' | 'removed';
+  change: 'resolved' | 'reopened' | 'removed';
   observedAt: string;
 }
 

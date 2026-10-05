@@ -339,7 +339,9 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   /**
    * Arms the account's Gmail check where it holds a Gmail connection and
    * nothing has the check armed ("Bring in the conversations already
-   * labelled Cockpit as tasks", issue 725) - what the nightly run asks of
+   * labelled Cockpit as tasks", issue 725), and starts each connection's
+   * full reconcile again ("Close a Gmail task when its label comes off, and
+   * reopen it when it goes back", issue 727) - what the nightly run asks of
    * every account.
    */
   keepCheckingGmail(accountName: string): Awaitable<Answer<'armed' | 'already armed' | 'nothing to check'>>;

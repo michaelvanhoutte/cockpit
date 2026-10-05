@@ -1,10 +1,11 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm';
 import { GMAIL } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import { noteTypeId, taskTypeId } from './changes.js';
 import { runCommand } from './command-service.js';
 import { listItemTypes } from './repo.js';
-import { connectionFailures, connectorAccounts, gmailChecks, gmailConversations } from './schema.js';
+import { connectionFailures, connectorAccounts, gmailChecks, gmailConversations, items } from './schema.js';
+import { applySourceStateChange } from './source-state.js';
 import { inGroupsOf } from '../domain/attachments.js';
 import { typeToBringInAs } from '../domain/item-types.js';
 import type { GmailCheckHost } from '../connectors/gmail-check.js';
@@ -20,6 +21,29 @@ import type { GmailCheckHost } from '../connectors/gmail-check.js';
 const LOOKUP_GROUP = 90;
 
 export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHost {
+  // Asked in the same synchronous step as a write: the run awaited Gmail
+  // since it read the connections, and a disconnect may have landed.
+  const stillConnected = (sourceAccountId: string) =>
+    db
+      .select({ id: connectorAccounts.id })
+      .from(connectorAccounts)
+      .where(and(eq(connectorAccounts.tenantId, accountName), eq(connectorAccounts.id, sourceAccountId)))
+      .get() !== undefined;
+  /** The full reconcile the connection is on, named by when it started - null before its first. */
+  const listingOf = (sourceAccountId: string) =>
+    db
+      .select({ startedAt: gmailChecks.startedAt })
+      .from(gmailChecks)
+      .where(and(eq(gmailChecks.tenantId, accountName), eq(gmailChecks.sourceAccountId, sourceAccountId)))
+      .get()?.startedAt ?? null;
+  /** The links this connection's mailbox made in its Workspace. */
+  const linksOf = (connection: { workspaceId: string; mailboxKey: string }) =>
+    and(
+      eq(gmailConversations.tenantId, accountName),
+      eq(gmailConversations.workspaceId, connection.workspaceId),
+      eq(gmailConversations.mailboxKey, connection.mailboxKey),
+    );
+
   return {
     accountName,
 
@@ -44,7 +68,12 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
 
     progress: (sourceAccountId) =>
       db
-        .select({ historyId: gmailChecks.historyId, pageToken: gmailChecks.pageToken, listedAt: gmailChecks.listedAt })
+        .select({
+          historyId: gmailChecks.historyId,
+          pageToken: gmailChecks.pageToken,
+          startedAt: gmailChecks.startedAt,
+          listedAt: gmailChecks.listedAt,
+        })
         .from(gmailChecks)
         .where(and(eq(gmailChecks.tenantId, accountName), eq(gmailChecks.sourceAccountId, sourceAccountId)))
         .get() ?? null,
@@ -67,9 +96,17 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
     },
 
     historyPageRead: (sourceAccountId, historyId, nextPageToken) => {
+      // Only while the listing is complete: one the nightly sweep started
+      // meanwhile owns the page token, and a history page's would misdirect it.
       db.update(gmailChecks)
         .set({ historyId, pageToken: nextPageToken })
-        .where(and(eq(gmailChecks.tenantId, accountName), eq(gmailChecks.sourceAccountId, sourceAccountId)))
+        .where(
+          and(
+            eq(gmailChecks.tenantId, accountName),
+            eq(gmailChecks.sourceAccountId, sourceAccountId),
+            isNotNull(gmailChecks.listedAt),
+          ),
+        )
         .run();
     },
 
@@ -95,14 +132,7 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
     },
 
     bringIn: (connection, conversation, ids, at) => {
-      // Asked in the same synchronous step as the write: the run awaited
-      // Gmail since it read the connections, and a disconnect may have landed.
-      const stillConnected = db
-        .select({ id: connectorAccounts.id })
-        .from(connectorAccounts)
-        .where(and(eq(connectorAccounts.tenantId, accountName), eq(connectorAccounts.id, connection.id)))
-        .get();
-      if (!stillConnected) return 'disconnected';
+      if (!stillConnected(connection.id)) return 'disconnected';
       const type = typeToBringInAs(listItemTypes(db, accountName), taskTypeId(accountName), noteTypeId(accountName));
       if (!type) throw new Error(`account ${accountName} has no type to bring a conversation in as`);
       // Through `capture_item`, the one command every front door captures
@@ -138,11 +168,61 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
           itemId: ids.itemId,
           labelWanted: null,
           linkedAt: at,
+          // Read labelled just now, so found by the reconcile under way - or
+          // by the last one, for one brought in from history after it.
+          listedIn: listingOf(connection.id),
         })
         .onConflictDoNothing()
         .returning({ itemId: gmailConversations.itemId })
         .all();
       return linked.length > 0 ? 'linked' : 'already linked';
+    },
+
+    sourceChanged: (connection, threadIds, change, at) => {
+      if (!stillConnected(connection.id)) return 'disconnected';
+      const listing = change === 'reopened' ? listingOf(connection.id) : null;
+      let changed = 0;
+      for (const group of inGroupsOf(threadIds, LOOKUP_GROUP)) {
+        const links = db
+          .select({ threadId: gmailConversations.threadId, itemId: gmailConversations.itemId })
+          .from(gmailConversations)
+          .where(and(linksOf(connection), inArray(gmailConversations.threadId, group)))
+          .all();
+        for (const link of links) {
+          if (applySourceStateChange(db, accountName, link.itemId, change, at) === 'changed') changed += 1;
+        }
+        if (listing !== null) {
+          db.update(gmailConversations)
+            .set({ listedIn: listing })
+            .where(and(linksOf(connection), inArray(gmailConversations.threadId, group)))
+            .run();
+        }
+      }
+      return changed;
+    },
+
+    unconfirmed: (connection, limit) => {
+      const progress = db
+        .select({ startedAt: gmailChecks.startedAt, listedAt: gmailChecks.listedAt })
+        .from(gmailChecks)
+        .where(and(eq(gmailChecks.tenantId, accountName), eq(gmailChecks.sourceAccountId, connection.id)))
+        .get();
+      if (!progress?.listedAt) return [];
+      return db
+        .select({ threadId: gmailConversations.threadId })
+        .from(gmailConversations)
+        .innerJoin(items, and(eq(items.tenantId, accountName), eq(items.id, gmailConversations.itemId)))
+        .where(
+          and(
+            linksOf(connection),
+            or(isNull(gmailConversations.listedIn), ne(gmailConversations.listedIn, progress.startedAt)),
+            isNull(items.completedAt),
+          ),
+        )
+        .orderBy(asc(gmailConversations.linkedAt), asc(gmailConversations.threadId))
+        .limit(limit)
+        .all()
+        .map((row) => row.threadId);
     },
 
     reseal: (sourceAccountId, was, sealed) =>
@@ -177,6 +257,23 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
         .run();
     },
   };
+}
+
+/**
+ * The nightly sweep ("Close a Gmail task when its label comes off, and reopen
+ * it when it goes back", issue 727): every connection whose full reconcile is
+ * complete starts another from its first page, which corrects whatever the
+ * history missed. One still going is left to finish.
+ *
+ * **The history position is kept**, so once the listing is done the history
+ * is read from where it was: whatever changed while the listing ran is read
+ * again, and reading it again changes nothing that is already so.
+ */
+export function sweepGmailNightly(db: AccountDb, accountName: string, at: string): void {
+  db.update(gmailChecks)
+    .set({ pageToken: null, startedAt: at, listedAt: null })
+    .where(and(eq(gmailChecks.tenantId, accountName), isNotNull(gmailChecks.listedAt)))
+    .run();
 }
 
 /** Whether the account holds any Gmail connection - what keeps its alarm armed. */
