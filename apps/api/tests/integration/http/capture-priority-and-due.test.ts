@@ -70,4 +70,17 @@ describe('Capture', () => {
       expect(await theItem()).toBeUndefined();
     });
   });
+
+  describe('names its Item by the words of the note, keeping the Markdown in the description', () => {
+    it('makes a plain title and a Markdown description from a note written with bold', async () => {
+      const response = await capture({ message: '**Ask Jan** about the audit' });
+      expect(response.status).toBe(200);
+
+      const item = await theItem();
+      expect([item?.title, item?.description]).toEqual([
+        'Ask Jan about the audit',
+        '**Ask Jan** about the audit',
+      ]);
+    });
+  });
 });

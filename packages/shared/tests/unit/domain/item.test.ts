@@ -271,6 +271,61 @@ describe('Capture', () => {
   });
 
   /**
+   * The title carries the words; the description keeps the Markdown as it was
+   * captured, and holds the whole note whenever the two differ.
+   */
+  describe('a title carries the words of what was captured, not their Markdown', () => {
+    it.each([
+      { situation: 'bold', typed: '**Ask Jan** about the audit', named: 'Ask Jan about the audit' },
+      { situation: 'italic with asterisks', typed: '*soon*', named: 'soon' },
+      { situation: 'italic with underscores', typed: '_soon_', named: 'soon' },
+      { situation: 'a link, keeping its text', typed: '[the doc](https://x.test)', named: 'the doc' },
+      { situation: 'a dashed list', typed: '- one\n- two', named: 'one two' },
+      { situation: 'a starred list', typed: '* one\n* two', named: 'one two' },
+      { situation: 'a numbered list', typed: '1. one\n2. two', named: 'one two' },
+      { situation: 'a heading', typed: '# Heading', named: 'Heading' },
+      { situation: 'an escaped character', typed: 'who \\- signs', named: 'who - signs' },
+      { situation: 'plain words with no syntax', typed: 'Ask Novy about part 11', named: 'Ask Novy about part 11' },
+      { situation: 'a name with underscores in it', typed: 'send snake_case_name today', named: 'send snake_case_name today' },
+      { situation: 'a marker nothing closes', typed: '**unbalanced', named: '**unbalanced' },
+      { situation: 'a table row', typed: 'a \\| b', named: 'a \\| b' },
+    ])('$situation', ({ typed, named }) => {
+      expect(textsFromCapture(typed).title).toBe(named);
+    });
+
+    it.each([
+      { situation: 'a note that is only its words', typed: 'Ask Jan', description: null },
+      { situation: 'a note written with bold', typed: '**Ask Jan**', description: '**Ask Jan**' },
+      {
+        situation: 'a note of several formatted lines',
+        typed: '# Plan\n- **one**\n- two',
+        description: '# Plan\n- **one**\n- two',
+      },
+    ])('keeps the Markdown in the description for $situation', ({ typed, description }) => {
+      expect(textsFromCapture(typed).description).toBe(description);
+    });
+
+    it('cuts at the title length after the Markdown is gone, never inside a character', () => {
+      const words = 'x'.repeat(TITLE_LENGTH - 1);
+
+      expect(textsFromCapture(`**${words}**\u{1F600}tail`).title).toBe(words);
+      expect(textsFromCapture(`**${'x'.repeat(TITLE_LENGTH + 5)}**`).title).toBe('x'.repeat(TITLE_LENGTH));
+    });
+
+    it('reads a very large note quickly and still gives a title within the cap', () => {
+      const typed = '**word** [a](https://x.test) *b* _c_ **unclosed '.repeat(1500);
+
+      const started = performance.now();
+      const { title, description } = textsFromCapture(typed);
+
+      expect(title.length).toBeLessThanOrEqual(TITLE_LENGTH);
+      expect(title.startsWith('word a b c')).toBe(true);
+      expect(description).toBe(typed);
+      expect(performance.now() - started).toBeLessThan(1000);
+    });
+  });
+
+  /**
    * The shape read back is permissive on purpose: what is stored has to render
    * even where it predates a rule, and refusing it blanks the screen it is on
    * rather than drawing one row oddly. Found in the browser, not by these:

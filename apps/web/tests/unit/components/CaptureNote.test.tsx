@@ -827,6 +827,20 @@ describe('Capture', () => {
       expect(await waitFor(() => rowOf('Book the venue deposit').getByText(reads))).toBeVisible();
     });
 
+    it.each([
+      { situation: 'landed', answer: () => Promise.resolve({ ok: true as const, applied: true }), reads: 'now' },
+      { situation: 'waiting', answer: () => Promise.reject(new TypeError('Failed to fetch')), reads: 'Waiting to send' },
+    ])('shows the words of a note written with bold once it is $situation', async ({ answer, reads }) => {
+      vi.mocked(sendCommand).mockImplementation(answer);
+      const user = await thePage();
+
+      await user.type(box(), '**Ask Jan** about the audit');
+      await user.click(chip('Capture'));
+
+      const row = await waitFor(() => rowOf('Ask Jan about the audit'));
+      expect(await waitFor(() => row.getByText(reads))).toBeVisible();
+    });
+
     it('lists only what is waiting or refused after a reload, the landed ones dropping off', async () => {
       vi.mocked(sendCommand).mockImplementation((_name, payload) =>
         (payload as { message: string }).message === 'Landed'
