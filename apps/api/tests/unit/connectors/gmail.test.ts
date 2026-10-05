@@ -8,10 +8,11 @@ import {
   gmailAccountFrom,
   gmailAuthorizationUrl,
   gmailCredentialIn,
+  historyPage,
   usableAccessToken,
 } from '../../../src/connectors/gmail.js';
 import { typeToBringInAs } from '../../../src/domain/item-types.js';
-import { COCKPIT_LABEL_ID, labelsAnswer, message, threadAnswer } from '../../gmail-payloads.js';
+import { COCKPIT_LABEL_ID, historyAnswer, historyRecord, labelsAnswer, message, threadAnswer } from '../../gmail-payloads.js';
 import type { IssuerEndpoints } from '../../../src/auth/oidc.js';
 
 /**
@@ -198,6 +199,61 @@ describe('Capture', () => {
       const live = types.map((id, position) => ({ id, tenantId: 'acc', name: id, color: '#6f62b5', position, createdAt: '2026-10-01T00:00:00.000Z' }));
 
       expect(typeToBringInAs(live as ItemType[], 'acc-type-action', 'acc-type-thought')?.id).toBe(becomes);
+    });
+  });
+});
+
+describe('Capture', () => {
+  describe('a history page is read into the conversations that gained the label', () => {
+    const labelled = ['INBOX', COCKPIT_LABEL_ID];
+    it.each([
+      {
+        situation: 'a label added to an old conversation',
+        records: [historyRecord('11', { labelled: 'm1', threadId: 't-old', with: [COCKPIT_LABEL_ID], labelIds: labelled })],
+        gained: ['t-old'],
+      },
+      {
+        situation: 'a new message arriving already labelled, as a filter does it',
+        records: [historyRecord('11', { added: 'm2', threadId: 't-new', labelIds: labelled })],
+        gained: ['t-new'],
+      },
+      {
+        situation: 'a reply in a conversation already labelled, arriving without the label',
+        records: [historyRecord('11', { added: 'm3', threadId: 't-old', labelIds: ['INBOX', 'UNREAD'] })],
+        gained: [],
+      },
+      {
+        situation: 'the label added and taken off again within the page',
+        records: [
+          historyRecord('11', { labelled: 'm1', threadId: 't-old', with: [COCKPIT_LABEL_ID], labelIds: labelled }),
+          historyRecord('12', { unlabelled: 'm1', threadId: 't-old', with: [COCKPIT_LABEL_ID], labelIds: ['INBOX'] }),
+        ],
+        gained: [],
+      },
+      {
+        situation: 'another label added',
+        records: [historyRecord('11', { labelled: 'm1', threadId: 't-old', with: ['STARRED'], labelIds: ['INBOX', 'STARRED'] })],
+        gained: [],
+      },
+      {
+        situation: 'two messages of one conversation labelled',
+        records: [
+          historyRecord('11', { labelled: 'm1', threadId: 't-old', with: [COCKPIT_LABEL_ID], labelIds: labelled }),
+          historyRecord('12', { labelled: 'm2', threadId: 't-old', with: [COCKPIT_LABEL_ID], labelIds: labelled }),
+        ],
+        gained: ['t-old'],
+      },
+      { situation: 'nothing having changed', records: [], gained: [] },
+    ])('reads $situation as $gained', ({ records, gained }) => {
+      expect(historyPage(historyAnswer(records), COCKPIT_LABEL_ID).gained).toEqual(gained);
+    });
+
+    it('carries the mailbox’s position, and where the next page starts', () => {
+      expect(historyPage(historyAnswer([], { historyId: '99', nextPageToken: 'more' }), COCKPIT_LABEL_ID)).toMatchObject({
+        historyId: '99',
+        nextPageToken: 'more',
+      });
+      expect(historyPage(historyAnswer([], { historyId: '99' }), COCKPIT_LABEL_ID).nextPageToken).toBeNull();
     });
   });
 });

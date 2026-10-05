@@ -223,6 +223,71 @@ export function conversationPage(answer: unknown): { threadIds: string[]; nextPa
   return { threadIds, nextPageToken: typeof nextPageToken === 'string' && nextPageToken ? nextPageToken : null };
 }
 
+/** One page of what changed in a mailbox since a history position. */
+export interface HistoryPage {
+  /** The conversations that gained the label on this page, and kept it to its end - oldest first. */
+  readonly gained: string[];
+  readonly nextPageToken: string | null;
+  /** The mailbox's position as of this answer: where the next check reads from once every page is done. */
+  readonly historyId: string | null;
+}
+
+interface HistoryEntry {
+  message?: { threadId?: unknown; labelIds?: unknown } | null;
+  labelIds?: unknown;
+}
+
+/**
+ * One page of `users.history.list`, read for the conversations that gained the
+ * label ("Bring in a conversation within five minutes of labelling it
+ * Cockpit", issue 726): a label added to a message, or a message arriving
+ * already labelled - by hand or by a filter.
+ *
+ * **A reply changes nothing**, since labels belong to messages and a reply
+ * arrives without the one its conversation carries; a reply that does arrive
+ * labelled names a conversation the caller finds already brought in. A label
+ * added and taken off again within the page is nothing new - closing is
+ * "Close a Gmail task when its label comes off" (issue 727)'s to decide.
+ */
+export function historyPage(answer: unknown, labelId: string): HistoryPage {
+  const { history, nextPageToken, historyId } = (answer ?? {}) as Record<string, unknown>;
+  const gained = new Set<string>();
+  const carries = (labels: unknown) => Array.isArray(labels) && labels.includes(labelId);
+  const threadOf = (entry: HistoryEntry): string | null => {
+    const threadId = entry?.message?.threadId;
+    return typeof threadId === 'string' && threadId ? threadId : null;
+  };
+  for (const record of Array.isArray(history) ? (history as Record<string, unknown>[]) : []) {
+    const entries = (key: string) => (Array.isArray(record?.[key]) ? (record[key] as HistoryEntry[]) : []);
+    for (const added of entries('messagesAdded')) {
+      const threadId = threadOf(added);
+      if (threadId && carries(added.message?.labelIds)) gained.add(threadId);
+    }
+    for (const added of entries('labelsAdded')) {
+      const threadId = threadOf(added);
+      if (threadId && carries(added.labelIds)) gained.add(threadId);
+    }
+    for (const removed of entries('labelsRemoved')) {
+      const threadId = threadOf(removed);
+      if (threadId && carries(removed.labelIds)) gained.delete(threadId);
+    }
+  }
+  return {
+    gained: [...gained],
+    nextPageToken: typeof nextPageToken === 'string' && nextPageToken ? nextPageToken : null,
+    historyId: typeof historyId === 'string' || typeof historyId === 'number' ? String(historyId) : null,
+  };
+}
+
+/** Whether a conversation, as `threads.get` answers it, still has a message carrying the label. */
+export function stillLabelled(answer: unknown, labelId: string): boolean {
+  const { messages } = (answer ?? {}) as { messages?: unknown };
+  return (
+    Array.isArray(messages) &&
+    (messages as GmailMessage[]).some((message) => Array.isArray(message?.labelIds) && message.labelIds.includes(labelId))
+  );
+}
+
 /** What a conversation brings in as its Item. */
 export interface GmailConversation {
   readonly threadId: string;

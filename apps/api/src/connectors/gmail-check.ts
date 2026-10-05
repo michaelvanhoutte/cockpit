@@ -7,7 +7,9 @@ import {
   conversationFrom,
   conversationPage,
   credentialRefreshed,
+  historyPage,
   gmailCredentialIn,
+  stillLabelled,
   usableAccessToken,
   type GmailConversation,
   type GmailCredential,
@@ -26,13 +28,17 @@ import { derivedUuid } from './push-host.js';
  * network boundary (tests/integration/http/gmail-import.test.ts).
  *
  * **A full reconcile, here creating only**: the history position is recorded
- * first, for "Bring in a conversation within five minutes of labelling it
- * Cockpit" (issue 726) to start from, then the labelled conversations are
+ * first, for the history reads below to start from, then the labelled conversations are
  * listed a page at a time - each page's new conversations read and brought
  * in before the next page is asked for, and the page persisted only once all
  * of them are. So a run that stops resumes at the page it stopped in, and a
  * conversation already brought in is found again by its link rather than
  * read again.
+ *
+ * **Then history** ("Bring in a conversation within five minutes of labelling
+ * it Cockpit", issue 726): once a listing is complete, each run asks Gmail
+ * what changed since the stored position, and a position Gmail no longer
+ * keeps starts the full reconcile over.
  */
 
 /**
@@ -48,6 +54,9 @@ export const CALLS_PER_RUN = 40;
  * ceiling of 500.
  */
 const PAGE_SIZE = 50;
+
+/** How many history records Gmail is asked for at a time (its ceiling is 500). */
+const HISTORY_PAGE_SIZE = 100;
 
 /** What the account row says while a connection cannot be checked - after "Failing:". */
 export const NO_LABEL =
@@ -81,6 +90,12 @@ export interface GmailCheckHost {
   startListing(sourceAccountId: string, historyId: string, at: string): void;
   /** One page done: the next one to ask for, or the listing finished. */
   pageListed(sourceAccountId: string, nextPageToken: string | null, at: string): void;
+  /**
+   * One history page's conversations are in: the position the next read starts
+   * from, and the page to continue at - null once the last page is done, when
+   * the position is the new one.
+   */
+  historyPageRead(sourceAccountId: string, historyId: string, nextPageToken: string | null): void;
   /** Which of these conversations this mailbox has already brought into this Workspace. */
   alreadyBroughtIn(workspaceId: string, mailboxKey: string, threadIds: readonly string[]): Set<string>;
   /**
@@ -184,7 +199,11 @@ export async function checkGmail(env: Env, host: GmailCheckHost, now: Date): Pro
   return { moreToDo };
 }
 
-/** Lists the labelled conversations from where the last run stopped, bringing in each one not yet in. */
+/**
+ * Brings in what is labelled and not yet in: the full reconcile where the
+ * connection has none finished - or has just found its history position
+ * lapsed - and otherwise what Gmail's history says changed since.
+ */
 async function bringInLabelled(
   host: GmailCheckHost,
   connection: GmailConnectionToCheck,
@@ -196,7 +215,12 @@ async function bringInLabelled(
   if (!labelId) return 'no label';
 
   let progress = host.progress(connection.id);
-  if (!progress) {
+  if (progress?.listedAt) {
+    if ((await readHistory(host, connection, mailbox, labelId, progress, at, broughtIn)) === 'caught up') return 'done';
+    // The position has lapsed: the full reconcile, from a fresh one.
+  }
+
+  if (!progress || progress.listedAt) {
     // The position first, so whatever is labelled while the listing runs is
     // after it, and the next slice's history reads it.
     const profile = (await mailbox.get('profile')) as { historyId?: unknown } | null;
@@ -212,19 +236,7 @@ async function bringInLabelled(
     const query = new URLSearchParams({ labelIds: labelId, maxResults: String(PAGE_SIZE) });
     if (progress.pageToken) query.set('pageToken', progress.pageToken);
     const page = conversationPage(await mailbox.get(`threads?${query}`));
-    const known = host.alreadyBroughtIn(connection.workspaceId, connection.mailboxKey, page.threadIds);
-    for (const threadId of page.threadIds.filter((id) => !known.has(id))) {
-      const thread = await mailbox.get(`threads/${encodeURIComponent(threadId)}?format=full`);
-      // Gone between the listing and the read - deleted, or no longer there
-      // to read - is nothing to bring in.
-      const conversation = thread === null ? null : conversationFrom(thread, labelId, connection.address);
-      if (!conversation) continue;
-      const named = `gmail:${connection.workspaceId}:${connection.mailboxKey}:${threadId}`;
-      const ids = { itemId: await derivedUuid(`item:${named}`), commandId: await derivedUuid(`capture:${named}`) };
-      const linked = host.bringIn(connection, conversation, ids, at);
-      if (linked === 'disconnected') throw new ConnectionChanged('the connection was disconnected');
-      if (linked === 'linked') broughtIn.push(ids.itemId);
-    }
+    await bringInThreads(host, connection, mailbox, labelId, page.threadIds, at, broughtIn);
     host.pageListed(connection.id, page.nextPageToken, at);
     const next = host.progress(connection.id);
     // Gone: connected again meanwhile, which starts the listing over.
@@ -232,6 +244,72 @@ async function bringInLabelled(
     progress = next;
   }
   return 'done';
+}
+
+/**
+ * Reads Gmail's history from the stored position a page at a time, bringing in
+ * the conversations that gained the label ("Bring in a conversation within
+ * five minutes of labelling it Cockpit", issue 726). The position moves only
+ * once the last page's conversations are in, so a run that stops reads them
+ * again and finds each one by its link. Gmail answers 404 for a position it no
+ * longer keeps, after about a week: that is `lapsed`, and the caller starts the
+ * full reconcile, which records a fresh one.
+ */
+async function readHistory(
+  host: GmailCheckHost,
+  connection: GmailConnectionToCheck,
+  mailbox: Mailbox,
+  labelId: string,
+  from: GmailProgress,
+  at: string,
+  broughtIn: string[],
+): Promise<'caught up' | 'lapsed'> {
+  let progress = from;
+  for (;;) {
+    const query = new URLSearchParams({ startHistoryId: progress.historyId, labelId, maxResults: String(HISTORY_PAGE_SIZE) });
+    for (const type of ['messageAdded', 'labelAdded', 'labelRemoved']) query.append('historyTypes', type);
+    if (progress.pageToken) query.set('pageToken', progress.pageToken);
+    const answer = await mailbox.get(`history?${query}`);
+    if (answer === null) return 'lapsed';
+    const page = historyPage(answer, labelId);
+    await bringInThreads(host, connection, mailbox, labelId, page.gained, at, broughtIn);
+    if (page.nextPageToken) {
+      host.historyPageRead(connection.id, progress.historyId, page.nextPageToken);
+    } else {
+      if (page.historyId === null) throw new NotAnswering('Gmail gave no history position');
+      host.historyPageRead(connection.id, page.historyId, null);
+    }
+    const next = host.progress(connection.id);
+    if (!next) throw new ConnectionChanged('the listing was started again');
+    if (!page.nextPageToken) return 'caught up';
+    progress = next;
+  }
+}
+
+/** Reads each of these conversations not yet brought in, and brings it in. */
+async function bringInThreads(
+  host: GmailCheckHost,
+  connection: GmailConnectionToCheck,
+  mailbox: Mailbox,
+  labelId: string,
+  threadIds: readonly string[],
+  at: string,
+  broughtIn: string[],
+): Promise<void> {
+  const known = host.alreadyBroughtIn(connection.workspaceId, connection.mailboxKey, threadIds);
+  for (const threadId of threadIds.filter((id) => !known.has(id))) {
+    const thread = await mailbox.get(`threads/${encodeURIComponent(threadId)}?format=full`);
+    // Gone between the listing and the read - deleted, or no longer there to
+    // read - or no longer labelled by the time it is read, is nothing to bring in.
+    if (thread === null || !stillLabelled(thread, labelId)) continue;
+    const conversation = conversationFrom(thread, labelId, connection.address);
+    if (!conversation) continue;
+    const named = `gmail:${connection.workspaceId}:${connection.mailboxKey}:${threadId}`;
+    const ids = { itemId: await derivedUuid(`item:${named}`), commandId: await derivedUuid(`capture:${named}`) };
+    const linked = host.bringIn(connection, conversation, ids, at);
+    if (linked === 'disconnected') throw new ConnectionChanged('the connection was disconnected');
+    if (linked === 'linked') broughtIn.push(ids.itemId);
+  }
 }
 
 /**

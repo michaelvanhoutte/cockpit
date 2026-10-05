@@ -247,9 +247,13 @@ interface Mailbox {
   historyId: string;
   /** Every conversation's `threads.get` answer, in the order `threads.list` lists them. */
   threads: { id: string; labelled: boolean; answer: unknown }[];
+  /** What changed, as `users.history.list` records it (../gmail-payloads.ts `historyRecord`), oldest first; each record's id is its position. */
+  history: { id: string }[];
+  /** Whether Gmail has forgotten the positions it was asked from - it keeps them for about a week. */
+  historyLapsed: boolean;
 }
 
-let mailbox: Mailbox = { labels: { labels: [] }, historyId: '1', threads: [] };
+let mailbox: Mailbox = { labels: { labels: [] }, historyId: '1', threads: [], history: [], historyLapsed: false };
 
 /** Every call Gmail was asked, as its path and query below `users/me/`, oldest first. */
 export const gmailCalls: string[] = [];
@@ -268,7 +272,7 @@ let meanwhile: { when: (call: string) => boolean; action: () => Promise<void> } 
 
 /** Forgets the mailbox and everything Gmail and Google were asked - each case starts from nothing. */
 export function gmailIsEmpty(): void {
-  mailbox = { labels: { labels: [] }, historyId: '1', threads: [] };
+  mailbox = { labels: { labels: [] }, historyId: '1', threads: [], history: [], historyLapsed: false };
   gmailCalls.length = 0;
   refreshes.length = 0;
   refreshing = 'answers';
@@ -339,6 +343,19 @@ async function gmailAnswer(url: URL, init?: RequestInit): Promise<Response> {
   if (path === 'labels') return Response.json(mailbox.labels);
   if (path === 'profile') {
     return Response.json({ emailAddress: 'anna@example.com', messagesTotal: 10, threadsTotal: 10, historyId: mailbox.historyId });
+  }
+  if (path === 'history') {
+    if (mailbox.historyLapsed) return Response.json({ error: { code: 404, message: 'Requested entity was not found.' } }, { status: 404 });
+    const since = BigInt(url.searchParams.get('startHistoryId') ?? 0);
+    const after = mailbox.history.filter((record) => BigInt(record.id) > since);
+    const from = Number(url.searchParams.get('pageToken') ?? 0);
+    const size = Number(url.searchParams.get('maxResults') ?? 100);
+    const page = after.slice(from, from + size);
+    return Response.json({
+      ...(page.length > 0 ? { history: page } : {}),
+      ...(from + size < after.length ? { nextPageToken: String(from + size) } : {}),
+      historyId: mailbox.historyId,
+    });
   }
   if (path === 'threads') {
     const labelled = mailbox.threads.filter((thread) => thread.labelled);

@@ -66,6 +66,13 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
         .run();
     },
 
+    historyPageRead: (sourceAccountId, historyId, nextPageToken) => {
+      db.update(gmailChecks)
+        .set({ historyId, pageToken: nextPageToken })
+        .where(and(eq(gmailChecks.tenantId, accountName), eq(gmailChecks.sourceAccountId, sourceAccountId)))
+        .run();
+    },
+
     alreadyBroughtIn: (workspaceId, mailboxKey, threadIds) => {
       const known = new Set<string>();
       for (const group of inGroupsOf(threadIds, LOOKUP_GROUP)) {
