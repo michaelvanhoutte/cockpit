@@ -24,6 +24,7 @@ import { CaptureWindow } from '../components/CaptureWindow';
 import { ItemForm } from '../components/ItemForm';
 import { LoadFailure } from '../components/LoadFailure';
 import { MenuContent, menuItemClass, type MenuEntry } from '../components/Menu';
+import { creditLine } from '../credit';
 import { NameQuestion } from '../components/NameQuestion';
 import { WorkspaceTabs, stripTabClass } from '../components/WorkspaceTabs';
 import { WHAT_A_WORKSPACE_IS } from '../whatThingsAre';
@@ -941,7 +942,7 @@ function TheShell() {
                 <DropdownMenu.Separator className="my-1 h-px bg-shade/10" />
                 <DropdownMenu.Item asChild className={`${menuItemClass} text-xs text-ink-faint`}>
                   <a href="https://www.conselit.be" target="_blank" rel="noopener">
-                    © 2026 Conselit · conselit.be
+                    {creditLine()}
                   </a>
                 </DropdownMenu.Item>
               </MenuContent>

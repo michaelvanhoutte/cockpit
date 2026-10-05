@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from '../../../src/pages/Layout';
+import { creditLine } from '../../../src/credit';
 
 /**
  * F1, and one case only. This is not a test of React's escaping, which is
@@ -224,7 +225,7 @@ describe('Across the app', () => {
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Settings…',
         'Sign out',
-        '© 2026 Conselit · conselit.be',
+        creditLine(),
       ]);
     });
 
@@ -436,7 +437,7 @@ describe('User management', () => {
         'Settings…',
         'Platform settings…',
         'Sign out',
-        '© 2026 Conselit · conselit.be',
+        creditLine(),
       ]);
     });
   });

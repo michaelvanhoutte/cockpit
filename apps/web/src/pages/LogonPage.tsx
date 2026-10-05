@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { DEFAULT_WORKSPACE_THEME } from '@cockpit/shared';
 import { guestSignInPath, SIGN_IN_PATH } from '../api/client';
 import { forgetEverything } from '../session/forget';
+import { creditLine } from '../credit';
 
 /**
  * The logon page: your Google account, or - where the deployment offers it -
@@ -80,9 +81,8 @@ export function LogonPage() {
         <Refusal />
       </main>
       <p className="mt-4 text-xs text-ink-soft">
-        © 2026{' '}
         <a href="https://www.conselit.be" target="_blank" rel="noopener" className="hover:text-ink hover:underline">
-          Conselit · conselit.be
+          {creditLine()}
         </a>
       </p>
     </div>
