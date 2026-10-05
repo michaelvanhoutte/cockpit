@@ -143,22 +143,24 @@ function wordsOf(text: string): string[] {
  *
  * **Chrome on Android reports each reading of the session so far as a final
  * result of its own** ("at", "at a", "at a dark"), where a desktop engine
- * reports each phrase once ("add a", "dark mode"). Both arrive the same way, so
- * only the words tell them apart: a reading is the earlier one again when it is
- * longer and its words, in the same places, repeat at least half of the earlier
- * ones - all of them for a plain continuation, a good part where the engine
- * revised a word on the way ("at a" then "add a dark mode"). Separate phrases
- * share no words in the same places, bar the odd coincidence, which costs a
- * phrase the next one then stands in for. A repeat of the very same words is
- * the same reading, so it replaces rather than adds.
+ * reports each phrase once ("buy milk", "buy eggs"). Both arrive the same way,
+ * so only the words tell them apart. A reading is the earlier one again when it
+ * starts with all of the earlier words, or, where it is longer, with all but one
+ * of them and that one is not the last ("at a" then "add a dark mode": the
+ * engine revised a word it had already passed; "first thing" then "second
+ * thing" is two phrases). A different last word is a new
+ * phrase ("buy milk" then "buy eggs now"), and so is a different word in a
+ * phrase of one word, because swallowing a phrase loses speech where a
+ * repeated one only shows. The very same words again are one reading, so they
+ * replace rather than add.
  */
 export function isLaterReadingOf(earlier: string, reading: string): boolean {
   const before = wordsOf(earlier);
   const after = wordsOf(reading);
   if (before.length === 0 || after.length < before.length) return false;
-  const same = before.filter((word, i) => after[i] === word).length;
-  if (after.length === before.length) return same === before.length;
-  return same * 2 >= before.length;
+  const differing = before.flatMap((word, i) => (after[i] === word ? [] : [i]));
+  if (differing.length === 0) return true;
+  return after.length > before.length && differing.length === 1 && differing[0] !== before.length - 1;
 }
 
 /** A note with `reading` in the place of `earlier` at its end; added after the note where the note no longer ends with it. */

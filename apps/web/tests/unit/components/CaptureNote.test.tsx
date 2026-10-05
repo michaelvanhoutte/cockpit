@@ -1409,6 +1409,21 @@ describe('Capture', () => {
       expect(box()).toHaveValue(expected);
     });
 
+    it.each([
+      ['a different last word', ['buy milk', 'buy eggs now'], 'buy milk buy eggs now'],
+      ['the same words with another to follow', ['call mom', 'call dad'], 'call mom call dad'],
+      ['a longer phrase that opens the same', ['i need milk', 'i need to go to the shop'], 'i need milk i need to go to the shop'],
+    ])('keeps both phrases a desktop engine reports separately, with %s', async (_situation, phrases, expected) => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      current().begins();
+
+      current().saysSoFar(...phrases);
+
+      expect(box()).toHaveValue(expected);
+    });
+
     it('never replaces what an earlier listening session heard with a later session’s reading', async () => {
       const { engine, current } = anEngine();
       const user = await thePage({ dictating: { engine } });
