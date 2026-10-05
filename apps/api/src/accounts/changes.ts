@@ -3459,7 +3459,13 @@ function gettingStarted(accountId: string): Change {
   if (accountId === GUEST_ACCOUNT_NAME) return { name, statements: [] };
 
   const panelId = crypto.randomUUID();
-  const now = new Date().toISOString();
+  // **Dated an hour back, not now.** A change to an Item is applied only when
+  // the browser's clock says it is newer than the Item (`isStale`,
+  // domain/items.ts), so a guide dated by the server's clock would silently
+  // refuse the first ticks of a browser running behind it. An hour is far past
+  // ordinary drift and still under the day an Item's row starts showing how
+  // long it has waited (`waitedSince`, apps/web/src/waited.ts).
+  const now = new Date(Date.now() - GUIDE_DATED_BEFORE_MS).toISOString();
   const taskType = taskTypeId(accountId);
   const statements: Statement[] = [
     {
@@ -3532,6 +3538,9 @@ function gettingStarted(accountId: string): Change {
 
   return { name, statements };
 }
+
+/** How long before it is written the guide is dated, for the reason `gettingStarted` gives. */
+const GUIDE_DATED_BEFORE_MS = 60 * 60 * 1000;
 
 /**
  * The ids the demonstration's Layouts, Panels, Items and Associations carry.

@@ -396,5 +396,20 @@ describe('Onboarding', () => {
         after.filings.filter((filing) => filing.panelId === FIRST_PANEL_ID).map((filing) => filing.itemId),
       ).toEqual([inboxTask!.id]);
     });
+
+    it('takes a step ticked off from a device whose clock runs a few minutes behind', async () => {
+      const before = await snapshot();
+      const firstStep = before.items.find((item) => item.title === GETTING_STARTED_TASKS[0]!.title)!;
+
+      const answer = await send('set_done', {
+        itemId: firstStep.id,
+        done: true,
+        issuedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+      });
+
+      expect(answer.status).toBe(200);
+      const after = await snapshot();
+      expect(after.items.find((item) => item.id === firstStep.id)?.completedAt).toEqual(expect.any(String));
+    });
   });
 });
