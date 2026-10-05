@@ -58,3 +58,6 @@ export function DemoPage({ page }: { page: string }) {
     </div>
   );
 }
+
+// Also the default export, for the lazy `import()` router.tsx loads this behind.
+export default DemoPage;

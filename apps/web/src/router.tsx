@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
+import { lazy, Suspense } from 'react';
 import {
   createRootRouteWithContext,
   createRoute,
@@ -23,7 +24,7 @@ import {
 import { roomForTheInbox } from './roomForTheInbox';
 import { LoadFailure } from './components/LoadFailure';
 import { AllItemsPage } from './pages/AllItemsPage';
-import { DemoPage } from './pages/DemoPage';
+const DemoPage = lazy(() => import('./pages/DemoPage'));
 import { CapturePage } from './pages/CapturePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { FirstWorkspacePage } from './pages/FirstWorkspacePage';
@@ -140,7 +141,11 @@ const demoRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/demo/$page',
   component: function DemoRoute() {
-    return <DemoPage page={demoRoute.useParams().page} />;
+    return (
+      <Suspense fallback={null}>
+        <DemoPage page={demoRoute.useParams().page} />
+      </Suspense>
+    );
   },
 });
 
