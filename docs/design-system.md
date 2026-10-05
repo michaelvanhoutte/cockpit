@@ -1,4 +1,4 @@
-`#647232` | ink |`#3f7286` | ink |`#886823` | ink |`#9b4e81` | white |`#347663` | ink |`#9e5739` | ink |`#3568b7` | white |`#6b5eae` | white |# Design system
+# Design system
 
 How Cockpit looks, as against what it does (`docs/product/`). Everything here is drawn from what the code already holds — `apps/web/src/styles.css` and `packages/shared/src/domain/workspace-themes.ts` — not from a plan for it.
 
@@ -29,14 +29,14 @@ The palette is eight designed sets, handed out to new Workspaces in this order. 
 
 | Theme | Tint | Bar | Deep | On accent |
 |---|---|---|---|---|
-| Violet | `#6f62b5` | `#594e91` | `#6e61b3` |
-| Blue | `#3a72c8` | `#2e5ba0` | `#376cbe` |
-| Terracotta | `#c06a45` | `#9a5537` | `#a1593a` |
-| Teal | `#3f8f78` | `#327260` | `#357865` |
-| Magenta | `#a8548c` | `#864370` | `#a15186` |
-| Amber | `#b58a2f` | `#866623` | `#886823` |
-| Cyan | `#4f8fa8` | `#3f7286` | `#3f7286` |
-| Olive | `#7d8f3f` | `#637132` | `#647232` |
+| Violet | `#6f62b5` | `#594e91` | `#6b5eae` | white |
+| Blue | `#3a72c8` | `#2e5ba0` | `#3568b7` | white |
+| Terracotta | `#c06a45` | `#9a5537` | `#9e5739` | ink |
+| Teal | `#3f8f78` | `#327260` | `#347663` | ink |
+| Magenta | `#a8548c` | `#864370` | `#9b4e81` | white |
+| Amber | `#b58a2f` | `#866623` | `#886823` | ink |
+| Cyan | `#4f8fa8` | `#3f7286` | `#3f7286` | ink |
+| Olive | `#7d8f3f` | `#637132` | `#647232` | ink |
 
 A Workspace is never assigned colours outside this table: a stored set that is not exactly a row of it, including every set stored before the page went neutral, is drawn in the theme its tint belongs to, or the default (Violet) where the tint is not in the table. Nothing stored is rewritten.
 

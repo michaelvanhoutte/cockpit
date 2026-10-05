@@ -723,7 +723,9 @@ function TheShell() {
           // menu or window opened over the page is below it too, since none is
           // portalled out. The deep shade is where the tint is text; the soft
           // and the wash are mixed from the tint, so there is nothing more to
-          // design per theme.
+          // design per theme. The ink on a fill of the tint is the theme's
+          // `onAccent`; under the pointer that fill goes darker where the ink
+          // is white, and lighter where it is dark.
           '--color-accent': theme.color,
           '--color-accent-deep': theme.deep,
           '--color-on-accent': theme.onAccent,
