@@ -11,6 +11,7 @@ import {
   type EnrichmentJob,
 } from './enrichment.js';
 import { moveSimulatedRunToWaiting } from './simulated-run.js';
+import { captureGuestArrival } from './guest-arrival.js';
 
 export {
   cleanUpACapturedNote,
@@ -30,7 +31,9 @@ export type {
   ReproposePanelsJob,
   ReproposeTextsJob,
   SimulatedRunWaitsJob,
+  GuestArrivalJob,
 } from './enrichment.js';
+export { enqueueGuestArrivals } from './guest-arrival.js';
 export { enqueueSimulatedRunWaiting, moveSimulatedRunToWaiting } from './simulated-run.js';
 export { CannotReadMeaningError, readWhatTheseNotesMean } from './backfill-meanings.js';
 export type { BatchRead } from './backfill-meanings.js';
@@ -212,6 +215,8 @@ function run(env: Env, job: EnrichmentJob): Promise<void> {
       return reproposeTexts(env, job);
     case 'simulated-run-waits':
       return moveSimulatedRunToWaiting(env, job);
+    case 'guest-arrival':
+      return captureGuestArrival(env, job);
   }
 }
 
@@ -227,5 +232,7 @@ function describe(job: EnrichmentJob): string {
       return `account ${job.accountName}`;
     case 'simulated-run-waits':
       return `run ${job.runId}`;
+    case 'guest-arrival':
+      return `${job.source} arrival ${job.itemId}`;
   }
 }

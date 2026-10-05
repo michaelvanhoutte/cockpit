@@ -65,7 +65,8 @@ export type EnrichmentJob =
   | ReproposePanelsJob
   | ReadWhatItMeansJob
   | ReproposeTextsJob
-  | SimulatedRunWaitsJob;
+  | SimulatedRunWaitsJob
+  | GuestArrivalJob;
 
 export interface CleanUpJob {
   kind: 'clean-up-a-note';
@@ -177,6 +178,21 @@ export interface SimulatedRunWaitsJob {
   runId: string;
 }
 
+/**
+ * Drops one Gmail mail or Teams message into the guest's Inbox, a while after a
+ * guest signed in ("Drop a mail and a Teams message into the guest's Inbox
+ * after each sign-in", issue 775) - `jobs/guest-arrival.ts`. The ids are the
+ * message's own, so a redelivery captures nothing new.
+ */
+export interface GuestArrivalJob {
+  kind: 'guest-arrival';
+  accountName: string;
+  workspaceId: string;
+  source: 'gmail' | 'teams';
+  itemId: string;
+  commandId: string;
+}
+
 const refreshAskSchema = z.object({ at: z.number().int().nonnegative(), id: z.uuid() });
 
 export const enrichmentJobSchema = z.discriminatedUnion('kind', [
@@ -210,6 +226,14 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     accountName: z.string().min(1),
     workspaceId: z.string().min(1),
     runId: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal('guest-arrival'),
+    accountName: z.string().min(1),
+    workspaceId: z.string().min(1),
+    source: z.enum(['gmail', 'teams']),
+    itemId: z.uuid(),
+    commandId: z.uuid(),
   }),
 ]);
 
