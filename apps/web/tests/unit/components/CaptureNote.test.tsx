@@ -143,6 +143,17 @@ const READ_LATER = aType('Read later', 2, '#b58a2f');
  * the one you came from - which is what a capture that names no workspace is
  * recorded against (`lastVisited.ts`).
  */
+/**
+ * Every outbox a case made. Each keeps a retry timer and the signed-in owner
+ * alive after its case ends, and sends into whatever case is running by then:
+ * a slower case, such as one waiting on the formatted editor, then saw an
+ * earlier case's capture as its own.
+ */
+const everyOutbox: CaptureOutbox[] = [];
+afterEach(() => {
+  for (const outbox of everyOutbox.splice(0)) outbox.signedInAs(null);
+});
+
 async function thePage({
   types = [ACTION, THOUGHT, READ_LATER],
   items = [] as Item[],
@@ -211,6 +222,7 @@ async function thePage({
     timeoutMs: 500,
   });
   outbox.signedInAs('user-michael');
+  everyOutbox.push(outbox);
   const page = render(
     <QueryClientProvider client={client}>
       <OutboxProvider value={outbox}>
@@ -1671,6 +1683,148 @@ describe('Capture', () => {
       current().begins();
 
       expect(screen.queryByRole('alert')).toBeNull();
+    });
+  });
+
+  /**
+   * The note can be written formatted, by an Aa in the strip (issue 758). What
+   * the editor is for is `RichDescription`'s own tests; what is proved here is
+   * what Capture does around it: when it opens, what it keeps across a switch,
+   * and that the form's own paths - the shortcut, files, dictation - still hold
+   * with it showing. The editor's file failing to arrive is
+   * CaptureNoteFormatFailed.test.tsx, which needs its own module registry.
+   */
+  describe('the note can be switched to formatted, and starts plain', () => {
+    const aa = () => screen.getByRole('button', { name: 'Format the note' });
+    const toolbar = () => screen.queryByRole('toolbar', { name: 'Formatting' });
+    const formattedNote = async () => {
+      await screen.findByRole('toolbar', { name: 'Formatting' });
+      return screen.getByRole('textbox', { name: 'What is on your mind?' });
+    };
+    /** Typed straight into the plain box, newlines and all, which `type` would take for key presses. */
+    const wrote = (text: string) => fireEvent.change(box(), { target: { value: text } });
+    const pressCtrlEnter = (user: ReturnType<typeof userEvent.setup>) =>
+      user.keyboard('{Control>}{Enter}{/Control}');
+
+    it('opens plain, with Aa unlit and no editor drawn', async () => {
+      await thePage();
+
+      expect(box().tagName).toBe('TEXTAREA');
+      expect(aa()).toHaveAttribute('aria-pressed', 'false');
+      expect(toolbar()).toBeNull();
+    });
+
+    it('shows the editor once Aa is pressed, lit, and opens plain again after the form closes', async () => {
+      const user = await thePage();
+
+      await user.click(aa());
+      const editor = await formattedNote();
+      expect(editor.tagName).not.toBe('TEXTAREA');
+      expect(aa()).toHaveAttribute('aria-pressed', 'true');
+
+      await reloaded(user);
+      expect(box().tagName).toBe('TEXTAREA');
+      expect(toolbar()).toBeNull();
+    });
+
+    it('carries the words into the editor, and back to the plain box exactly as they were stored', async () => {
+      const user = await thePage();
+      // Not what the editor would print: `- ` it re-prints as `* `.
+      wrote('Shopping\n\n- milk\n- bread');
+
+      await user.click(aa());
+      expect(await formattedNote()).toHaveTextContent('milk');
+      await user.click(aa());
+
+      expect(box()).toHaveValue('Shopping\n\n- milk\n- bread');
+    });
+
+    it('shows what the editor made as Markdown once something was done in it', async () => {
+      const user = await thePage();
+      wrote('Ask Ada');
+      await user.click(aa());
+      await formattedNote();
+
+      await user.click(screen.getByRole('button', { name: 'bullet list' }));
+      await user.click(aa());
+
+      expect(box()).toHaveValue('* Ask Ada\n');
+    });
+
+    it("captures the editor's Markdown on the shortcut, empties the note and stays formatted", async () => {
+      const user = await thePage();
+      wrote('Ask Ada');
+      await user.click(aa());
+      await formattedNote();
+      await user.click(screen.getByRole('button', { name: 'bullet list' }));
+
+      await pressCtrlEnter(user);
+
+      expect((await captured()).payload.message).toBe('* Ask Ada');
+      await waitFor(() =>
+        expect(screen.getByRole('textbox', { name: 'What is on your mind?' })).toHaveTextContent(/^$/),
+      );
+      expect(toolbar()).not.toBeNull();
+      expect(aa()).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('refuses an empty formatted note as it refuses an empty plain one', async () => {
+      const user = await thePage();
+      await user.click(aa());
+      const editor = await formattedNote();
+
+      await user.click(editor);
+      await pressCtrlEnter(user);
+      await settled();
+
+      expect(everythingAsked()).not.toContain('capture_item');
+    });
+
+    it('queues a file pasted on the formatted note as a chip and writes nothing into it', async () => {
+      const user = await thePage();
+      await user.click(aa());
+      const editor = await formattedNote();
+
+      fireEvent.paste(editor, { clipboardData: { files: [aPhoto()], types: ['Files'], getData: () => '' } });
+
+      expect(await screen.findByText('photo.png')).toBeVisible();
+      expect(editor).toHaveTextContent(/^$/);
+    });
+
+    it('queues a file copied with its HTML and does not also put the picture into the note', async () => {
+      const user = await thePage();
+      await user.click(aa());
+      const editor = await formattedNote();
+
+      fireEvent.paste(editor, {
+        clipboardData: {
+          files: [aPhoto()],
+          types: ['text/html', 'Files'],
+          getData: (type: string) => (type === 'text/html' ? '<img src="https://example.test/photo.png">' : ''),
+        },
+      });
+
+      expect(await screen.findByText('photo.png')).toBeVisible();
+      expect(editor.querySelector('img')).toBeNull();
+    });
+
+    it('puts what is dictated into the editor, replacing a reading still in progress with its final', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(aa());
+      await formattedNote();
+      await user.click(mic());
+      current().begins();
+
+      current().says('send the inv', false);
+      await waitFor(() =>
+        expect(screen.getByRole('textbox', { name: 'What is on your mind?' })).toHaveTextContent('send the inv'),
+      );
+      current().says('Send the invoice.', true, true);
+
+      await waitFor(() =>
+        expect(screen.getByRole('textbox', { name: 'What is on your mind?' })).toHaveTextContent(/^Send the invoice\.$/),
+      );
     });
   });
 

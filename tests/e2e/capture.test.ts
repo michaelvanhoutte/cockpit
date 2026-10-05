@@ -223,6 +223,33 @@ test.describe('Capture', () => {
       // is", issue 155).
       await expect(itemRow(page, thought).getByText('Note')).toBeVisible();
       await expectNoSidewaysScroll(page);
+
+      // The note written formatted ("Switch the Capture note to formatted",
+      // issue 758): only a browser has a real selection to bold and a real
+      // editor to carry it to an Item's description.
+      await openCapture(page, isMobile);
+      await press(page.getByRole('button', { name: 'Format the note' }), isMobile);
+      const toolbar = page.getByRole('toolbar', { name: 'Formatting' });
+      await expect(toolbar.getByRole('button', { name: 'bold' })).toBeEnabled();
+      const bolded = uniqueTitle('Bold in the note');
+      await press(captureBox(page), isMobile);
+      await page.keyboard.type(bolded);
+      await captureBox(page).press('ControlOrMeta+a');
+      await press(toolbar.getByRole('button', { name: 'bold' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(bolded)).toBeVisible();
+      // Emptied, and still formatted for the next note.
+      await expect(captureBox(page)).toHaveText('');
+      await expect(page.getByRole('button', { name: 'Format the note' })).toHaveAttribute('aria-pressed', 'true');
+      await closeCapture(page, isMobile);
+
+      // The row says it without the asterisks.
+      await expect(itemRow(page, bolded)).toBeVisible();
+      await press(itemRow(page, bolded).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
+      const form = page.getByRole('dialog');
+      await expect(form.getByRole('textbox', { name: 'Title' })).toHaveValue(bolded);
+      await expect(form.getByRole('textbox', { name: 'Description' }).locator('strong')).toHaveText(bolded);
     });
   });
 
@@ -237,7 +264,7 @@ test.describe('Capture', () => {
       await openCapture(page, isMobile);
 
       const note = captureBox(page);
-      const box = note.locator('xpath=..');
+      const box = note.locator('xpath=ancestor::div[contains(@class,"resize-y")]');
       const window = page.getByRole('dialog').filter({ has: note });
       const heights = async () => ({
         box: (await box.boundingBox())!.height,
@@ -259,12 +286,22 @@ test.describe('Capture', () => {
       const grown = await heights();
       expect(grown.box).toBeGreaterThan(before.box + 40);
 
+      // With the note formatted too ("Switch the Capture note to formatted",
+      // issue 758): the editor fills what the box is given instead of keeping
+      // a height of its own, so the same handle still moves it.
+      await press(page.getByRole('button', { name: 'Format the note' }), isMobile);
+      await expect(page.getByRole('toolbar', { name: 'Formatting' })).toBeVisible();
+      const formatted = await heights();
+      await dragHandleBy(60);
+      expect((await heights()).box).toBeGreaterThan(formatted.box + 40);
+      const grownAgain = await heights();
+
       // Dragged past anything the window can hold: the window stops at the
       // screen and scrolls, rather than growing off it or squeezing the box back.
       await dragHandleBy(2000);
       const past = await heights();
       const screen = page.viewportSize()!.height;
-      expect(past.box).toBeGreaterThan(grown.box);
+      expect(past.box).toBeGreaterThan(grownAgain.box);
       expect(past.box).toBeGreaterThan(past.window);
       expect(past.window).toBeLessThanOrEqual(screen);
       await expect(note).toBeVisible();

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { plainWords, prioritySchema, uuidv7, type ItemType, type Priority, type Workspace } from '@cockpit/shared';
 import { CommandRefused, uploadAttachment } from '../api/client';
@@ -10,6 +10,7 @@ import { stateOf, whatGoesBack, type EntryState, type OutboxEntry } from '../cap
 import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
 import { useDockedItem } from '../itemForm';
 import { NO_TYPES, typesOffered } from '../itemTypes';
+import { LazyRichDescription, NewerVersionIfStale, WhateverTheEditorDoes } from '../description/lazyEditor';
 import { dueDateLabel } from '../dueDate';
 import { DUE_DATE_SHORTCUTS } from '../dueDateShortcuts';
 import { PRIORITY_LABELS } from '../priority';
@@ -113,6 +114,55 @@ export function CaptureNote({
     },
   });
   const shown = appendPhrase(message, provisional);
+  /**
+   * Whether the note is written in the formatted editor ("Switch the Capture
+   * note to formatted", issue 758). Always plain on opening, and kept through
+   * captures until the form closes: the editor is a download, and a note that
+   * is usually a sentence should not pay for it.
+   */
+  const [formatted, setFormatted] = useState(false);
+  /** The editor's file or its drawing failed: the note stays plain, and says so. */
+  const [formattingFailed, setFormattingFailed] = useState(false);
+  /**
+   * Milkdown owns its document once it is made, so a note changed from outside
+   * the editor - a dictated phrase, the box emptying after a capture, Put back -
+   * is shown by building it again. `fromEditor` is the last text the editor
+   * itself reported or was given, which is how its own keystrokes are told
+   * apart from those.
+   */
+  const [generation, setGeneration] = useState(0);
+  const fromEditor = useRef(shown);
+  /**
+   * The keyboard stays in the note across a switch, and across the editor being
+   * built again, as neither is a reason to click into it again. The plain box is
+   * there at once; the editor is looked for until it has been drawn.
+   */
+  const refocus = useRef(false);
+  const theNote = () =>
+    form.current?.querySelector<HTMLElement>('textarea:not([readonly]), [role="textbox"][contenteditable="true"]');
+  useEffect(() => {
+    if (!refocus.current) return;
+    refocus.current = false;
+    let tries = 0;
+    const timer = setInterval(() => {
+      const note = theNote();
+      if (note || ++tries > 40) {
+        clearInterval(timer);
+        note?.focus();
+      }
+    }, 50);
+    return () => clearInterval(timer);
+  }, [formatted, generation]);
+  useEffect(() => {
+    // Only the editor needs building again: the plain box shows `shown` as it is.
+    if (!formatted || shown === fromEditor.current) return;
+    fromEditor.current = shown;
+    // Building it again takes the cursor with the old one, if it was in it.
+    if (form.current?.querySelector('[role="textbox"][contenteditable]')?.contains(document.activeElement)) {
+      refocus.current = true;
+    }
+    setGeneration((was) => was + 1);
+  }, [shown, formatted]);
   /**
    * The type pressed, by id, or the empty string for *not yet pressed one* -
    * which is not an answer, only the absence of one. What that resolves to is
@@ -451,6 +501,26 @@ export function CaptureNote({
     ...landedHere.filter((one) => !stillHeld.has(one.id)).map((one) => ({ ...one, state: null, entry: null })),
   ].sort((a, b) => b.at - a.at);
 
+  /** The plain box, which also stands in while the editor is on its way. */
+  const plainBox = (readOnly: boolean) => (
+    <textarea
+      value={shown}
+      onChange={(e) => {
+        // Typing over what was just heard makes it part of the note, and the
+        // engine must not deliver it again, as a final or as a longer reading.
+        dictation.forgetPhrase();
+        setProvisional('');
+        setMessage(e.target.value);
+      }}
+      placeholder="What is on your mind?"
+      aria-label="What is on your mind?"
+      autoFocus={!readOnly}
+      readOnly={readOnly}
+      rows={4}
+      className="w-full flex-1 resize-none rounded-md bg-transparent p-3 text-base leading-[1.5] text-ink outline-none sm:px-5 sm:py-[18px]"
+    />
+  );
+
   return (
     <form
       ref={form}
@@ -481,17 +551,18 @@ export function CaptureNote({
       onDragLeave={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFilesOver(false);
       }}
-      onDrop={(event) => {
+      onDropCapture={(event) => {
         if (!takesFiles(event)) return;
         event.preventDefault();
         setFilesOver(false);
         if (event.dataTransfer.files.length > 0) queueFiles(Array.from(event.dataTransfer.files));
       }}
-      // Pasted anywhere on the form, including with the cursor in the
-      // message box: unlike the Item form's own description text, this box
-      // is plain text and cannot hold an image, so there is no second branch
-      // where the paste is the field's own.
-      onPaste={(event) => {
+      // Pasted anywhere on the form, including with the cursor in the message
+      // box, and taken in the capture phase: a file copied with its HTML (an
+      // image copied off a web page) is queued here and the formatted editor,
+      // which skips an event already handled, never also inserts it. A paste
+      // of text only returns before touching the event.
+      onPasteCapture={(event) => {
         const files = Array.from(event.clipboardData.files);
         if (files.length === 0) return;
         event.preventDefault();
@@ -526,21 +597,48 @@ export function CaptureNote({
           much room. The border and the focus ring belong to the box, so the
           strip reads as inside the note rather than under it. */}
       <div className="order-1 mt-2.5 flex w-full flex-col rounded-md border border-shade/10 bg-white shadow-field focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40 sm:order-none sm:mt-4 sm:min-h-56 sm:shrink-0 sm:resize-y sm:overflow-auto">
-        <textarea
-          value={shown}
-          onChange={(e) => {
-            // Typing over what was just heard makes it part of the note, and the
-            // engine must not deliver it again, as a final or as a longer reading.
-            dictation.forgetPhrase();
-            setProvisional('');
-            setMessage(e.target.value);
-          }}
-          placeholder="What is on your mind?"
-          aria-label="What is on your mind?"
-          autoFocus
-          rows={4}
-          className="w-full flex-1 resize-none rounded-md bg-transparent p-3 text-base leading-[1.5] text-ink outline-none sm:px-5 sm:py-[18px]"
-        />
+        {formatted ? (
+          <WhateverTheEditorDoes
+            onFailure={() => {
+              setFormatted(false);
+              setFormattingFailed(true);
+            }}
+          >
+            {/* On a phone the box has no height of its own to give, so the
+                editor is as tall as the plain box (120px) under its own toolbar
+                (33px); at a desk the box's `min-h-56` and its resize handle
+                decide, and this fills them. */}
+            <div
+              className="flex min-h-[9.5rem] flex-1 flex-col sm:min-h-0"
+              // The editor is only as tall as its text, so the rest of the box
+              // is empty space that should still take the cursor, as the plain
+              // box's blank lines do.
+              onMouseDown={(e) => {
+                if ((e.target as HTMLElement).closest('[contenteditable], button, input, [role="toolbar"]')) return;
+                e.preventDefault();
+                theNote()?.focus();
+              }}
+            >
+              <Suspense fallback={plainBox(true)}>
+                <LazyRichDescription
+                  key={generation}
+                  initial={shown}
+                  label="What is on your mind?"
+                  onChange={(markdown) => {
+                    dictation.forgetPhrase();
+                    setProvisional('');
+                    fromEditor.current = markdown;
+                    setMessage(markdown);
+                  }}
+                  editable={!busy}
+                  fill
+                />
+              </Suspense>
+            </div>
+          </WhateverTheEditorDoes>
+        ) : (
+          plainBox(false)
+        )}
         <PriorityAndDue
           priority={priority}
           onPriority={setPriority}
@@ -548,8 +646,22 @@ export function CaptureNote({
           onDue={setDue}
           disabled={busy}
           dictation={dictation}
+          formatted={formatted}
+          onFormatted={() => {
+            // Opening the editor on the note as it stands, which is not a change to tell it from.
+            fromEditor.current = shown;
+            refocus.current = true;
+            setFormatted((was) => !was);
+          }}
+          canFormat={!formattingFailed}
         />
       </div>
+      {formattingFailed && (
+        <p role="alert" className="order-1 pt-1 text-sm text-over sm:order-none">
+          Formatting could not be loaded. The note is still here, as Markdown, and still captures.{' '}
+          <NewerVersionIfStale />
+        </p>
+      )}
 
       {/* Files queued to attach once Capture is pressed - shown whether or
           not anything is queued yet, the same "Drag a file here, or" plus
@@ -804,6 +916,9 @@ function PriorityAndDue({
   onDue,
   disabled,
   dictation,
+  formatted,
+  onFormatted,
+  canFormat,
 }: {
   priority: Priority | null;
   onPriority: (priority: Priority | null) => void;
@@ -811,6 +926,10 @@ function PriorityAndDue({
   onDue: (due: string | null) => void;
   disabled: boolean;
   dictation: Dictation;
+  formatted: boolean;
+  onFormatted: () => void;
+  /** False once the editor has failed to load, which asking again would not mend. */
+  canFormat: boolean;
 }) {
   const picker = useRef<HTMLInputElement>(null);
   const today = new Date();
@@ -831,7 +950,7 @@ function PriorityAndDue({
 
   return (
     <>
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 pb-2 sm:px-4">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-3 pb-2">
       <div role="group" aria-label="Priority" className="flex items-center gap-1.5">
         {prioritySchema.options.map((level) => {
           const lit = priority === level;
@@ -854,7 +973,7 @@ function PriorityAndDue({
         })}
       </div>
 
-      <div role="group" aria-label="Due" className="flex flex-wrap items-center gap-1.5">
+      <div role="group" aria-label="Due" className="flex flex-wrap items-center gap-1">
         <span
           aria-hidden="true"
           className="text-[11px] font-semibold tracking-[0.11em] text-ink-faint uppercase sm:text-xs"
@@ -920,10 +1039,23 @@ function PriorityAndDue({
         </span>
       </div>
 
-      {dictation.available && <Dictate dictation={dictation} disabled={disabled} />}
+      <div className="ml-auto flex items-center gap-1.5">
+        <button
+          type="button"
+          disabled={disabled || !canFormat}
+          aria-pressed={formatted}
+          aria-label="Format the note"
+          title={formatted ? 'Back to plain text' : 'Format the note'}
+          onClick={onFormatted}
+          className={`${STRIP_BUTTON} w-9 font-serif sm:w-7 ${formatted ? LIT_BUTTON : QUIET_BUTTON}`}
+        >
+          Aa
+        </button>
+        {dictation.available && <Dictate dictation={dictation} disabled={disabled} />}
+      </div>
     </div>
     {dictation.error && (
-      <p role="alert" className="px-3 pb-2 text-sm text-over sm:px-4">
+      <p role="alert" className="px-3 pb-2 text-sm text-over">
         {dictation.error}
       </p>
     )}
@@ -941,7 +1073,7 @@ function Dictate({ dictation, disabled }: { dictation: Dictation; disabled: bool
   const { listening, language } = dictation;
   const { tag, name } = DICTATION_LANGUAGES[language];
   return (
-    <div role="group" aria-label="Dictation" className="ml-auto flex items-center gap-1.5">
+    <div role="group" aria-label="Dictation" className="flex items-center gap-1.5">
       <button
         type="button"
         onClick={dictation.toggle}
