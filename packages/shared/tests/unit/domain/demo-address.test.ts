@@ -13,6 +13,8 @@ describe('Connector management', () => {
       { situation: 'the Teams page', link: 'https://demo.cockpit.invalid/teams', reads: 'teams' },
       { situation: 'a simulated session, named by its run', link: 'https://demo.cockpit.invalid/session/018f0000-0000', reads: 'session' },
       { situation: 'a page with a trailing slash', link: 'https://demo.cockpit.invalid/gmail/', reads: 'gmail' },
+      { situation: 'a path below a page that takes no detail', link: 'https://demo.cockpit.invalid/gmail/x', reads: 'unknown' },
+      { situation: 'a session with more than one detail', link: 'https://demo.cockpit.invalid/session/a/b', reads: 'unknown' },
       { situation: 'the host in capitals', link: 'https://DEMO.COCKPIT.INVALID/teams', reads: 'teams' },
       { situation: 'a path on the demo host that names no page', link: 'https://demo.cockpit.invalid/whatsapp', reads: 'unknown' },
       { situation: 'the demo host with no path', link: 'https://demo.cockpit.invalid/', reads: 'unknown' },

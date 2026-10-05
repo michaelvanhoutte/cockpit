@@ -49,8 +49,10 @@ export function demoPageOf(link: string): DemoPage | "unknown" | null {
   }
   if (url.protocol !== "https:" || url.hostname.toLowerCase() !== DEMO_HOST)
     return null;
-  const named = url.pathname.replace(/^\/+/, "").split("/")[0] ?? "";
-  return (DEMO_PAGES as readonly string[]).includes(named)
+  const [named = "", ...rest] = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
+  // Only a session carries a detail (its run's id); `/gmail/x` names no page.
+  const detailAllowed = named === "session" ? rest.length <= 1 : rest.length === 0;
+  return detailAllowed && (DEMO_PAGES as readonly string[]).includes(named)
     ? (named as DemoPage)
     : "unknown";
 }
