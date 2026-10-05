@@ -349,6 +349,24 @@ export function gmailChangeApplies(
   return labelled ? 'reopened' : 'resolved';
 }
 
+/**
+ * What Gmail refusing a label change with an error other than 401 or 404
+ * means for it: `later` where Gmail is only holding the mailbox back - 408,
+ * 429, a 403 for a rate limit, and any 5xx - and `never` for any other, which
+ * asking again will not change. A `never` is dropped rather than retried, so
+ * one conversation Gmail will not relabel cannot hold up the rest.
+ */
+export function labelChangeRefusal(status: number, answer: unknown): 'later' | 'never' {
+  if (status >= 500 || status === 408 || status === 429) return 'later';
+  if (status !== 403) return 'never';
+  const errors = (answer as { error?: { errors?: { reason?: unknown }[] } } | null)?.error?.errors;
+  const rateLimited = Array.isArray(errors) && errors.some((one) => RATE_LIMITS.has(String(one?.reason)));
+  return rateLimited ? 'later' : 'never';
+}
+
+/** The reasons Gmail gives a 403 that only means "not so fast". */
+const RATE_LIMITS = new Set(['rateLimitExceeded', 'userRateLimitExceeded', 'dailyLimitExceeded', 'quotaExceeded']);
+
 /** The change to one conversation's labels that puts the label on or takes it off - and touches no other. */
 export function labelChange(labelId: string, wanted: boolean): { addLabelIds: string[] } | { removeLabelIds: string[] } {
   return wanted ? { addLabelIds: [labelId] } : { removeLabelIds: [labelId] };

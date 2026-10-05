@@ -10,6 +10,7 @@ import {
   historyPage,
   gmailCredentialIn,
   labelChange,
+  labelChangeRefusal,
   stillLabelled,
   usableAccessToken,
   type GmailConversation,
@@ -150,7 +151,7 @@ export interface GmailCheckHost {
   ): number | 'disconnected';
   /**
    * Once the full reconcile's listing is complete, up to `limit` brought-in
-   * conversations it did not find whose Items are not done - each to be read
+   * conversations it did not find whose Items are open - each to be read
    * before it is marked done. None while the listing is still going.
    */
   unconfirmed(connection: GmailConnectionToCheck, limit: number): string[];
@@ -165,6 +166,11 @@ export interface GmailCheckHost {
    * still is. Answers that the connection has gone since the run read it.
    */
   gmailConfirmed(connection: GmailConnectionToCheck, confirmed: OpenStateWanted): 'confirmed' | 'disconnected';
+  /**
+   * Gmail will never take this change: it stops waiting, as a confirmed one
+   * does - under the same proviso - so it holds up nothing else.
+   */
+  gmailRefused(connection: GmailConnectionToCheck, refused: OpenStateWanted): 'dropped' | 'disconnected';
   /**
    * The connection's credential, sealed again around a refreshed access token
    * - only where it still holds `was`, so a reconnect made meanwhile keeps its
@@ -181,6 +187,14 @@ export interface GmailCheckHost {
 class SignInRefused extends Error {}
 /** Gmail or Google did not answer usefully this time - a 5xx, a rate limit, the network. */
 class NotAnswering extends Error {}
+/** Gmail holding the mailbox back for now - a rate limit - so a change it was asked for waits for the next run. */
+class HeldBack extends NotAnswering {}
+/** Gmail refusing a change in a way asking again will not alter; `status` is what it answered. */
+class ChangeRefused extends Error {
+  constructor(readonly status: number) {
+    super(`Gmail refused the change: ${status}`);
+  }
+}
 /** The run's calls are spent; what is left is the next run's. */
 class OutOfCalls extends Error {}
 /** The connection was disconnected or connected again while the run was reading it; the next run reads it afresh. */
@@ -326,8 +340,13 @@ async function bringInLabelled(
  * **Confirmed only once Gmail has answered**, so a run that stops between the
  * call and the record pushes it again, which changes nothing at Gmail. A
  * conversation that is gone has nothing left to label, and counts as
- * confirmed. Gmail refusing or not answering leaves the rest waiting for the
- * next run, which comes back to them before anything else.
+ * confirmed. Gmail not answering leaves the rest waiting for the next run,
+ * which comes back to them before anything else; a rate limit does too, and
+ * the run reads on.
+ *
+ * **One Gmail will never take is dropped, and logged**, rather than asked
+ * again first on every run, where it would stop the check of everything else
+ * the mailbox holds. The log names the connection and Gmail's answer alone.
  */
 async function pushWhatIsWanted(
   host: GmailCheckHost,
@@ -336,10 +355,20 @@ async function pushWhatIsWanted(
   labelId: string,
 ): Promise<void> {
   for (const wanted of host.waitingForGmail(connection, CALLS_PER_RUN)) {
-    await mailbox.post(`threads/${encodeURIComponent(wanted.sourceId)}/modify`, labelChange(labelId, wanted.open));
-    if (host.gmailConfirmed(connection, wanted) === 'disconnected') {
-      throw new ConnectionChanged('the connection was disconnected');
+    let settled: 'confirmed' | 'dropped' | 'disconnected';
+    try {
+      await mailbox.post(`threads/${encodeURIComponent(wanted.sourceId)}/modify`, labelChange(labelId, wanted.open));
+      settled = host.gmailConfirmed(connection, wanted);
+    } catch (error) {
+      if (error instanceof HeldBack) return;
+      if (!(error instanceof ChangeRefused)) throw error;
+      logged('warn', 'Gmail refused a label change, which is no longer asked of it', {
+        sourceAccountId: connection.id,
+        status: error.status,
+      });
+      settled = host.gmailRefused(connection, wanted);
     }
+    if (settled === 'disconnected') throw new ConnectionChanged('the connection was disconnected');
   }
 }
 
@@ -521,6 +550,11 @@ class Mailbox {
       if (response.status === 401) throw new SignInRefused('Gmail refused a fresh access token');
     }
     if (response.status === 404) return null;
+    if (!response.ok && body !== undefined && response.status < 500) {
+      const refusal = labelChangeRefusal(response.status, await response.json().catch(() => null));
+      if (refusal === 'never') throw new ChangeRefused(response.status);
+      throw new HeldBack(`Gmail answered ${response.status} to a change`);
+    }
     if (!response.ok) throw new NotAnswering(`Gmail answered ${response.status} to ${path.split('?')[0]}`);
     return response.json();
   }

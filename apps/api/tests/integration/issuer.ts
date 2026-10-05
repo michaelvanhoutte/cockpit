@@ -283,7 +283,8 @@ export const refreshes: string[] = [];
 let refreshing: 'answers' | 'refuses' | 'fails' = 'answers';
 
 /** Gmail answering one kind of call with a status, once or every time, in place of its answer. */
-let gmailFailing: { when: (call: string) => boolean; status: number; once: boolean; applied: boolean } | null = null;
+let gmailFailing: { when: (call: string) => boolean; status: number; once: boolean; applied: boolean; reason?: string | undefined } | null =
+  null;
 
 /** Something the person does while Gmail or Google is being asked one call, before it is answered. */
 let meanwhile: { when: (call: string) => boolean; action: () => Promise<void> } | null = null;
@@ -323,14 +324,15 @@ export function gmailHolds(held: Partial<Mailbox>): void {
 /**
  * Gmail answering calls matching `when` with `status` instead - once, or until
  * told otherwise; and where `applied`, having done what was asked all the
- * same, as a change whose answer was lost on its way back.
+ * same, as a change whose answer was lost on its way back. `reason` is the one
+ * Gmail gives beside the status, as it does for a 403 that is a rate limit.
  */
 export function gmailAnswersWith(
   status: number,
   when: (call: string) => boolean,
-  { once = true, applied = false } = {},
+  { once = true, applied = false, reason }: { once?: boolean; applied?: boolean; reason?: string | undefined } = {},
 ): void {
-  gmailFailing = { when, status, once, applied };
+  gmailFailing = { when, status, once, applied, reason };
 }
 
 /** Gmail answering every call as it does again. */
@@ -366,11 +368,20 @@ async function gmailAnswer(url: URL, init?: RequestInit): Promise<Response> {
     return Response.json({ error: { code: 401, message: 'Invalid Credentials' } }, { status: 401 });
   }
   if (gmailFailing?.when(call)) {
-    const { status, applied } = gmailFailing;
+    const { status, applied, reason } = gmailFailing;
     if (gmailFailing.once) gmailFailing = null;
     // Done at Gmail, and only the answer lost on its way back.
     if (applied) await answered(url, init);
-    return Response.json({ error: { code: status, message: 'Gmail did not answer this time' } }, { status });
+    return Response.json(
+      {
+        error: {
+          code: status,
+          message: 'Gmail did not answer this time',
+          ...(reason ? { errors: [{ domain: 'usageLimits', reason, message: reason }] } : {}),
+        },
+      },
+      { status },
+    );
   }
   return answered(url, init);
 }

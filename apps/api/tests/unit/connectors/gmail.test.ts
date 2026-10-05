@@ -11,6 +11,7 @@ import {
   gmailCredentialIn,
   historyPage,
   labelChange,
+  labelChangeRefusal,
   stillLabelled,
   usableAccessToken,
 } from '../../../src/connectors/gmail.js';
@@ -352,6 +353,21 @@ describe('Capture', () => {
       { situation: 'putting it back', wanted: true, change: { addLabelIds: [COCKPIT_LABEL_ID] } },
     ])('$situation', ({ wanted, change }) => {
       expect(labelChange(COCKPIT_LABEL_ID, wanted)).toEqual(change);
+    });
+  });
+
+  describe('a label change Gmail only holds back is asked again, and one it will never take is not', () => {
+    const because = (reason: string) => ({ error: { code: 403, errors: [{ domain: 'usageLimits', reason }] } });
+    it.each([
+      { situation: '429', status: 429, answer: null, refusal: 'later' },
+      { situation: '403 for the user’s rate limit', status: 403, answer: because('userRateLimitExceeded'), refusal: 'later' },
+      { situation: '403 for the project’s rate limit', status: 403, answer: because('rateLimitExceeded'), refusal: 'later' },
+      { situation: '503', status: 503, answer: null, refusal: 'later' },
+      { situation: '403 for want of permission', status: 403, answer: because('insufficientPermissions'), refusal: 'never' },
+      { situation: '403 with no reason', status: 403, answer: null, refusal: 'never' },
+      { situation: '400', status: 400, answer: { error: { code: 400, message: 'Invalid label' } }, refusal: 'never' },
+    ] as const)('$situation: $refusal', ({ status, answer, refusal }) => {
+      expect(labelChangeRefusal(status, answer)).toBe(refusal);
     });
   });
 });

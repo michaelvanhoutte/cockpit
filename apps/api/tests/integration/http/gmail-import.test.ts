@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, inject, it } from 'vitest';
+import { beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { SELF, applyD1Migrations, env, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import {
   ACCOUNT_NAME,
@@ -961,6 +961,81 @@ describe('Capture', () => {
       expect(labelChangesAskedOf('thread-000')).toEqual(['on']);
       expect(labelIsOn('thread-000')).toBe(true);
       expect(await itemFor('thread-000')).toMatchObject({ is: 'open' });
+    });
+
+    it.each([
+      { situation: 'Gmail answering 429', status: 429, reason: undefined },
+      { situation: 'Gmail answering 403 for a rate limit', status: 403, reason: 'userRateLimitExceeded' },
+    ])('$situation to the change leaves it waiting, reads on, and the next check takes the label off', async ({ status, reason }) => {
+      const itemId = await connectedWithOne();
+      gmailAnswersWith(status, (call) => call.endsWith('/modify'), { reason });
+
+      const before = gmailCalls.length;
+      await personMarks(itemId, 'done');
+
+      const run = gmailCalls.slice(before);
+      expect(run.some((call) => call.startsWith('history?'))).toBe(true);
+      expect(labelIsOn('thread-000')).toBe(true);
+      expect((await rowOf()).failingBecause).toBeNull();
+
+      await aCheckRuns();
+
+      expect(labelIsOn('thread-000')).toBe(false);
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'done' });
+    });
+  });
+
+  describe('a change Gmail will never take is given up on, and holds up nothing else', () => {
+    it.each([
+      { situation: '400', status: 400, reason: undefined },
+      { situation: '403 for want of permission', status: 403, reason: 'insufficientPermissions' },
+    ])('Gmail answering $situation to one conversation’s change: the task stays done, the other conversation’s change and the history still go through, and it is asked no more', async ({ status, reason }) => {
+      mailboxWith(2);
+      await connect();
+      await checksSettle();
+      const refused = (call: string) => call === 'threads/thread-000/modify';
+      gmailAnswersWith(status, refused, { once: false, reason });
+      const logged = vi.spyOn(console, 'log');
+      try {
+        const before = gmailCalls.length;
+        await personMarks((await itemFor('thread-000'))!.id, 'done');
+        expect(gmailCalls.slice(before).some((call) => call.startsWith('history?'))).toBe(true);
+        await personMarks((await itemFor('thread-001'))!.id, 'done');
+        await aCheckRuns();
+
+        expect(await itemFor('thread-000')).toMatchObject({ is: 'done' });
+        expect(labelIsOn('thread-000')).toBe(true);
+        expect(gmailCalls.filter(refused)).toHaveLength(1);
+        expect(labelIsOn('thread-001')).toBe(false);
+        expect((await rowOf()).failingBecause).toBeNull();
+        // Logged by the connection and Gmail's answer, and nothing of the mail or the sign-in.
+        const warning = logged.mock.calls.map(([line]) => String(line)).find((line) => line.includes('refused a label change'));
+        expect(JSON.parse(warning!)).toMatchObject({ level: 'warn', data: { status } });
+        expect(Object.keys(JSON.parse(warning!).data).sort()).toEqual(['sourceAccountId', 'status']);
+        expect(warning).not.toContain('thread-000');
+        expect(warning).not.toContain('access-for-');
+      } finally {
+        logged.mockRestore();
+      }
+    });
+  });
+
+  describe('a task dismissed in Cockpit, its label taken off, is left as it is by the full reconcile', () => {
+    it('not found by the listing, it is not read again by every check after', async () => {
+      mailboxWith(2);
+      await connect();
+      await checksSettle();
+      await personMarks((await itemFor('thread-000'))!.id, 'dismissed');
+      gmailHolds({ historyLapsed: true });
+      await runsSettle();
+      gmailHolds({ historyLapsed: false });
+
+      const before = gmailCalls.length;
+      await aCheckRuns();
+      await aCheckRuns();
+
+      expect(gmailCalls.slice(before).filter((call) => call.startsWith('threads/thread-000'))).toEqual([]);
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'dismissed' });
     });
   });
 

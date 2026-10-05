@@ -9,7 +9,8 @@ import { isOpen } from './mirrored-open-state.js';
 import { applySourceStateChange } from './source-state.js';
 import { inGroupsOf } from '../domain/attachments.js';
 import { typeToBringInAs } from '../domain/item-types.js';
-import type { GmailCheckHost } from '../connectors/gmail-check.js';
+import type { GmailCheckHost, GmailConnectionToCheck } from '../connectors/gmail-check.js';
+import type { OpenStateWanted } from '@cockpit/connector-sdk';
 import { gmailChangeApplies } from '../connectors/gmail.js';
 
 /**
@@ -45,6 +46,26 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
       eq(gmailConversations.workspaceId, connection.workspaceId),
       eq(gmailConversations.mailboxKey, connection.mailboxKey),
     );
+  /**
+   * Nothing waiting for Gmail on this conversation any more - only while it
+   * still wants what was pushed, since a person changing the Item again while
+   * Gmail was being asked has a change of their own waiting. False where the
+   * connection has gone since the run read it.
+   */
+  const stopWaiting = (connection: GmailConnectionToCheck, pushed: OpenStateWanted) => {
+    if (!stillConnected(connection.id)) return false;
+    db.update(gmailConversations)
+      .set({ labelWanted: null })
+      .where(
+        and(
+          linksOf(connection),
+          eq(gmailConversations.threadId, pushed.sourceId),
+          eq(gmailConversations.labelWanted, pushed.open),
+        ),
+      )
+      .run();
+    return true;
+  };
 
   return {
     accountName,
@@ -229,7 +250,10 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
           and(
             linksOf(connection),
             or(isNull(gmailConversations.listedIn), ne(gmailConversations.listedIn, progress.startedAt)),
+            // Open: a dismissed Item's label is off too (issue 728), and
+            // closing it again would change nothing and read it every run.
             isNull(items.completedAt),
+            isNull(items.deletedAt),
           ),
         )
         .orderBy(asc(gmailConversations.linkedAt), asc(gmailConversations.threadId))
@@ -248,22 +272,9 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
         .all()
         .map((row) => ({ sourceId: row.threadId, open: row.labelWanted === true })),
 
-    gmailConfirmed: (connection, confirmed) => {
-      if (!stillConnected(connection.id)) return 'disconnected';
-      // Only while it still wants what was pushed: a person changing the Item
-      // again while Gmail was being asked has a change of their own waiting.
-      db.update(gmailConversations)
-        .set({ labelWanted: null })
-        .where(
-          and(
-            linksOf(connection),
-            eq(gmailConversations.threadId, confirmed.sourceId),
-            eq(gmailConversations.labelWanted, confirmed.open),
-          ),
-        )
-        .run();
-      return 'confirmed';
-    },
+    gmailConfirmed: (connection, confirmed) => (stopWaiting(connection, confirmed) ? 'confirmed' : 'disconnected'),
+
+    gmailRefused: (connection, refused) => (stopWaiting(connection, refused) ? 'dropped' : 'disconnected'),
 
     reseal: (sourceAccountId, was, sealed) =>
       db
