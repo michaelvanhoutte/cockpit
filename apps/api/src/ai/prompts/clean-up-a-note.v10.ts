@@ -182,7 +182,11 @@ const INSTRUCTIONS_TEXTS_ONLY = instructionsFor(false);
  * writes them - this prompt learns purely from what this account actually
  * does.
  *
- * **10 keeps the note's Markdown on the message** - one sentence in the\n * instructions, so a bold name, a link or a list in the note comes back on\n * the same words (issue 756).\n *\n * Nothing else moves: language, the other readings, the Panel proposal, the
+ * **`v10` keeps the note's Markdown on the message** - one sentence in the
+ * instructions, so a bold name, a link or a list in the note comes back on
+ * the same words (issue 756).
+ *
+ * Nothing else moves: language, the other readings, the Panel proposal, the
  * routing history and the shape of `schema` are `v6`'s.
  *
  * **`routing` is `null` where only the two texts are wanted** - a correction's
