@@ -130,6 +130,7 @@ import {
   revocableIn,
   type GmailRefusal,
 } from '../connectors/gmail.js';
+import { guestConnectionGate } from '../auth/guest-connections.js';
 import { fireRoutine, testClaudeCodeConnection } from '../connectors/claude-code.js';
 import { countForGuest, countryOf, referrerHostOf } from '../auth/sign-in-history.js';
 import {
@@ -479,6 +480,9 @@ app.use(`${OPERATOR_PREFIX}*`, operatorGate());
  * `isAdminPath`, since they answer a command line that holds no session at all.
  */
 app.use(`${ADMIN_PREFIX}*`, adminGate());
+
+/** And the guest's refusal of every connection change, behind the same gate (`auth/guest-connections.ts`). */
+app.use('*', guestConnectionGate());
 
 /**
  * What this application used to answer, saying so.
@@ -2689,6 +2693,8 @@ const routes = app
       .map((id) => id.trim());
 
     for (const pointer of await connectionsFor(c.env, HOOKS_DIRECTORY, sourceAccountId)) {
+      // The shared guest holds no connection of its own to hear from (issue 772).
+      if (pointer.accountName === GUEST_ACCOUNT_NAME) continue;
       let account: Awaited<ReturnType<typeof openAccount>>;
       let arrival: 'admitted' | 'too-many';
       try {

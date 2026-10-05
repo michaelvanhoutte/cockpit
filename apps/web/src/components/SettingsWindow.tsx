@@ -34,6 +34,7 @@ export default function SettingsWindow({
   on,
   startsIn,
   outcome,
+  guest,
   onClose,
   returnFocusTo,
 }: {
@@ -43,6 +44,8 @@ export default function SettingsWindow({
   startsIn: string | undefined;
   /** How the last connect attempt went, where Settings has been reopened by one. */
   outcome?: ConnectOutcomeFor | undefined;
+  /** The shared guest, who is offered no connection to make (issue 772). */
+  guest?: boolean | undefined;
   onClose: () => void;
   returnFocusTo?: HTMLElement | null | undefined;
 }) {
@@ -57,12 +60,12 @@ export default function SettingsWindow({
         {
           key: 'connections',
           label: 'Connections',
-          content: <ConnectionsOf connectors={SOURCES} startsIn={startsIn} outcome={outcome} onClose={onClose} />,
+          content: <ConnectionsOf connectors={SOURCES} startsIn={startsIn} outcome={outcome} guest={guest} onClose={onClose} />,
         },
         {
           key: 'agents',
           label: 'Agent settings',
-          content: <ConnectionsOf connectors={AGENTS} startsIn={startsIn} onClose={onClose} />,
+          content: <ConnectionsOf connectors={AGENTS} startsIn={startsIn} guest={guest} onClose={onClose} />,
         },
         { key: 'mcp', label: 'MCP', content: <ManageConnectedApps open onClose={onClose} /> },
       ]}
@@ -80,9 +83,11 @@ function ConnectionsOf({
   connectors,
   startsIn,
   outcome,
+  guest,
   onClose,
 }: {
   connectors: readonly string[];
+  guest?: boolean | undefined;
   startsIn: string | undefined;
   outcome?: ConnectOutcomeFor | undefined;
   onClose: () => void;
@@ -98,6 +103,7 @@ function ConnectionsOf({
       // open over the next.
       key={chosen.id}
       only={connectors}
+      guest={guest}
       workspaceId={chosen.id}
       workspaceName={chosen.name}
       outcome={outcome?.workspaceId === chosen.id ? outcome.outcome : undefined}

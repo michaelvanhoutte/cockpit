@@ -6,6 +6,7 @@ import type {
 } from '@cockpit/connector-sdk';
 import type { Env } from '../env.js';
 import { AccountNotInRegisterError, openAccount, type Account } from '../accounts/index.js';
+import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
 import { noteTypeId } from '../accounts/changes.js';
 import { typeToCaptureAs } from '../domain/item-types.js';
 import { enqueueCleanUp, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
@@ -41,6 +42,8 @@ export function pushHostFor(connectorId: string, around: PushSurroundings): Push
       // else, and then the account's own store - the authority on whether that
       // connection is still there (`directory.ts`).
       for (const pointer of await connectionsFor(around.env, connectorId, externalAccountKey)) {
+        // The shared guest connects nothing real, so nothing pushed is its own (issue 772).
+        if (pointer.accountName === GUEST_ACCOUNT_NAME) continue;
         const account = await accountAt(around.env, pointer);
         const connection = account
           ? await account.connectionUnder(pointer.workspaceId, connectorId, externalAccountKey)

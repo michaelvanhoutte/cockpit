@@ -17,6 +17,13 @@ export const userSchema = z.object({
 });
 export type User = z.infer<typeof userSchema>;
 
+/**
+ * The shared guest's id, which the browser compares `/v1/me` against to offer
+ * no connection and the server compares the visitor against to refuse one
+ * ("Refuse every connection change from the guest account", issue 772).
+ */
+export const GUEST_USER_ID = 'user-guest';
+
 /** Who Cockpit currently believes you are. */
 export const signedInSchema = z.object({ user: userSchema });
 export type SignedIn = z.infer<typeof signedInSchema>;
