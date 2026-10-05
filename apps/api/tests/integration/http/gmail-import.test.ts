@@ -25,7 +25,7 @@ import {
   whileGmailIsAsked,
   type Grant,
 } from '../issuer.js';
-import { labelsAnswer, plainThread } from '../../gmail-payloads.js';
+import { COCKPIT_LABEL_ID, historyRecord, labelsAnswer, plainThread } from '../../gmail-payloads.js';
 import { NO_LABEL, SIGN_IN_REFUSED } from '../../../src/connectors/gmail-check.js';
 import { derivedUuid } from '../../../src/connectors/push-host.js';
 import { handleScheduled } from '../../../src/jobs/index.js';
@@ -79,17 +79,41 @@ async function connect(grant: Grant = granted('anna-refresh'), workspaceId = WOR
 
 /** A mailbox holding `count` conversations labelled Cockpit, and one that is not. */
 function mailboxWith(count: number): void {
+  threadsHeld = [
+    ...Array.from({ length: count }, (_, at) => {
+      const id = `thread-${String(at).padStart(3, '0')}`;
+      return { id, labelled: true, answer: plainThread(id, `Subject ${at}`, `Text ${at}`) };
+    }),
+    { id: 'thread-unlabelled', labelled: false, answer: plainThread('thread-unlabelled') },
+  ];
+  gmailHolds({ labels: labelsAnswer(), historyId: '777', threads: threadsHeld, history: [], historyLapsed: false });
+}
+
+let threadsHeld: { id: string; labelled: boolean; answer: unknown }[] = [];
+
+/**
+ * The mailbox after the first check: each of these conversations gains the
+ * label - one history record apiece, from position 778 - and its position
+ * moves on to `now`. Several records may name one conversation.
+ */
+function labelledAfterwards(threadIds: string[], now = '900'): void {
+  for (const id of new Set(threadIds)) {
+    threadsHeld.push({ id, labelled: true, answer: plainThread(id, `Subject ${id}`, `Text ${id}`) });
+  }
   gmailHolds({
-    labels: labelsAnswer(),
-    historyId: '777',
-    threads: [
-      ...Array.from({ length: count }, (_, at) => {
-        const id = `thread-${String(at).padStart(3, '0')}`;
-        return { id, labelled: true, answer: plainThread(id, `Subject ${at}`, `Text ${at}`) };
-      }),
-      { id: 'thread-unlabelled', labelled: false, answer: plainThread('thread-unlabelled') },
-    ],
+    historyId: now,
+    threads: threadsHeld,
+    history: threadIds.map((id, at) =>
+      historyRecord(String(778 + at), { labelled: `m-${at}`, threadId: id, with: [COCKPIT_LABEL_ID], labelIds: ['INBOX', COCKPIT_LABEL_ID] }),
+    ),
   });
+}
+
+/** The positions history was asked to read from, oldest first. */
+function historyReadsFrom(): string[] {
+  return gmailCalls
+    .filter((call) => call.startsWith('history?'))
+    .map((call) => new URL(`http://x/${call}`).searchParams.get('startHistoryId')!);
 }
 
 /** One run of the account's Gmail check, as the alarm fires it. */
@@ -315,6 +339,117 @@ describe('Capture', () => {
       expect(inWork).toHaveLength(2);
       expect(inAtlas).toHaveLength(2);
       expect(inWork.some((item) => inAtlas.some((other) => other.id === item.id))).toBe(false);
+    });
+  });
+});
+
+describe('Capture', () => {
+  describe('a conversation labelled after connecting is one open Item within the next check, once', () => {
+    it('one labelled between two runs is one more Item after the second, and a reply in it adds nothing', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      expect(await inboxOf()).toHaveLength(1);
+
+      labelledAfterwards(['thread-later']);
+      await aCheckRuns();
+
+      expect((await inboxOf()).map((item) => item.sourceId).sort()).toEqual(['thread-000', 'thread-later']);
+      expect(historyReadsFrom()).toEqual(['777']);
+
+      // A reply in either arrives as a message without the label.
+      gmailHolds({
+        historyId: '950',
+        history: [
+          historyRecord('901', { added: 'm-reply', threadId: 'thread-later', labelIds: ['INBOX', 'UNREAD'] }),
+          historyRecord('902', { added: 'm-reply-2', threadId: 'thread-000', labelIds: ['INBOX', 'UNREAD'] }),
+        ],
+      });
+      const readsBefore = gmailCalls.length;
+      await aCheckRuns();
+
+      expect(await inboxOf()).toHaveLength(2);
+      expect(historyReadsFrom()).toEqual(['777', '900']);
+      expect(gmailCalls.slice(readsBefore).some((call) => call.startsWith('threads/'))).toBe(false);
+    });
+
+    it('one whose read fails is brought in by the next run, which reads from the same position', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      labelledAfterwards(['thread-later']);
+      gmailAnswersWith(503, (call) => call.startsWith('threads/thread-later'));
+
+      await aCheckRuns();
+      expect(await inboxOf()).toHaveLength(1);
+      await aCheckRuns();
+
+      expect((await inboxOf()).map((item) => item.sourceId).sort()).toEqual(['thread-000', 'thread-later']);
+      expect(historyReadsFrom()).toEqual(['777', '777']);
+    });
+
+    it('one made just before a run stopped, with no link yet, is not made again and is cleaned up like the rest', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      labelledAfterwards(['thread-later']);
+      whileGmailIsAsked(
+        (call) => call.startsWith('history?'),
+        async () => {
+          const named = `gmail:${WORKSPACE_ID}:${ANNA.subject}:thread-later`;
+          const answer = await storeNamed(ACCOUNT_NAME).applyChange(ACCOUNT_NAME, 'capture_item', {
+            commandId: await derivedUuid(`capture:${named}`),
+            issuedAt: new Date().toISOString(),
+            workspaceId: WORKSPACE_ID,
+            itemId: await derivedUuid(`item:${named}`),
+            title: 'Subject thread-later',
+            message: 'Text thread-later',
+            typeId: TASK_TYPE_ID,
+            capturedFrom: { source: 'mail', sourceId: 'thread-later', sourceLink: 'https://mail.google.com/mail/#all/thread-later' },
+          });
+          expect(answer.status).toBe('ok');
+        },
+      );
+
+      await aCheckRuns();
+
+      const items = await inboxOf();
+      expect(items).toHaveLength(2);
+      expect((await cleanUpsAskedFor()).sort()).toEqual(items.map((item) => item.id).sort());
+    });
+
+    it('several history pages are all read, and the position is the last one’s', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      // A hundred records is a page: the hundred-and-first is on the second.
+      labelledAfterwards([...Array.from({ length: 100 }, () => 'thread-first'), 'thread-second'], '1200');
+
+      await aCheckRuns();
+
+      expect((await inboxOf()).map((item) => item.sourceId).sort()).toEqual(['thread-000', 'thread-first', 'thread-second']);
+      expect(gmailCalls.filter((call) => call.startsWith('history?'))).toHaveLength(2);
+
+      await aCheckRuns();
+      expect(historyReadsFrom().at(-1)).toBe('1200');
+    });
+
+    it('a position Gmail no longer keeps starts the full reconcile, which brings in what is labelled and missing', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      // Labelled while the position had lapsed: no history record to find it by.
+      threadsHeld.push({ id: 'thread-missed', labelled: true, answer: plainThread('thread-missed', 'Missed', 'Missed text') });
+      gmailHolds({ threads: threadsHeld, historyLapsed: true, historyId: '3000' });
+
+      await aCheckRuns();
+
+      expect((await inboxOf()).map((item) => item.sourceId).sort()).toEqual(['thread-000', 'thread-missed']);
+
+      // The fresh position was recorded first: the next run reads from it.
+      gmailHolds({ historyLapsed: false });
+      await aCheckRuns();
+      expect(historyReadsFrom().at(-1)).toBe('3000');
     });
   });
 });

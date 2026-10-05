@@ -105,6 +105,78 @@ export async function startStubIssuer({ port, seedPath }) {
     });
   }
 
+  /**
+   * The stand-in mailboxes, kept for the life of the issuer so what is done to
+   * one - a conversation labelled, a reply arriving - is still there when the
+   * next check reads it ("Bring in a conversation within five minutes of
+   * labelling it Cockpit", issue 726).
+   */
+  const mailboxes = new Map();
+  function heldMailbox(email) {
+    if (!mailboxes.has(email)) mailboxes.set(email, stubMailbox(email));
+    return mailboxes.get(email);
+  }
+
+  /**
+   * What a person does in Gmail, for a walk to do it from outside:
+   * `POST /gmail-stub/label?email=&subject=&text=` labels a new conversation
+   * Cockpit, and `POST /gmail-stub/reply?email=&thread=` adds a reply to one -
+   * each leaving the history record Gmail would, and moving the mailbox's
+   * position on.
+   */
+  function actInMailbox(action, url, response) {
+    const email = url.searchParams.get('email') ?? '';
+    const mailbox = heldMailbox(email);
+    const cockpit = mailbox.labels.find((label) => label.name === 'Cockpit');
+    if (!cockpit) return json(response, { error: 'that mailbox has no label called Cockpit' }, 409);
+    mailbox.historyId += 1;
+    const at = String(mailbox.historyId);
+    const messageOf = (id, threadId, labelIds, subject, from, words) => ({
+      id,
+      threadId,
+      labelIds,
+      snippet: '',
+      internalDate: String(Date.now()),
+      payload: {
+        mimeType: 'text/plain',
+        headers: [
+          { name: 'Subject', value: subject },
+          { name: 'From', value: from },
+        ],
+        body: { size: words.length, data: base64url(words) },
+      },
+    });
+    if (action === 'label') {
+      const id = `18f0a1b2c3d4e${at}`;
+      const message = messageOf(
+        id,
+        id,
+        ['INBOX', cockpit.id],
+        url.searchParams.get('subject') ?? 'Labelled just now',
+        'Anna Peeters <anna@example.com>',
+        url.searchParams.get('text') ?? 'Labelled Cockpit a moment ago.',
+      );
+      mailbox.threads.push({ id, historyId: at, messages: [message] });
+      mailbox.history.push({
+        id: at,
+        messages: [{ id, threadId: id }],
+        labelsAdded: [{ message: { id, threadId: id, labelIds: message.labelIds }, labelIds: [cockpit.id] }],
+      });
+      return json(response, { thread: id, historyId: at });
+    }
+    const thread = mailbox.threads.find((one) => one.id === url.searchParams.get('thread'));
+    if (!thread) return json(response, { error: 'no such thread' }, 404);
+    const id = `reply-${at}`;
+    const reply = messageOf(id, thread.id, ['INBOX', 'UNREAD'], 'Re:', 'pieter@example.com', 'A reply, arriving without the label.');
+    thread.messages.push(reply);
+    mailbox.history.push({
+      id: at,
+      messages: [{ id, threadId: thread.id }],
+      messagesAdded: [{ message: { id, threadId: thread.id, labelIds: reply.labelIds } }],
+    });
+    json(response, { thread: thread.id, historyId: at });
+  }
+
   const server = createServer((request, response) => {
     const url = new URL(request.url, issuer);
     if (url.pathname === '/.well-known/openid-configuration') {
@@ -191,6 +263,8 @@ export async function startStubIssuer({ port, seedPath }) {
     }
 
     if (url.pathname.startsWith('/gmail/v1/users/me/')) return gmail(url, request, response);
+    const acting = url.pathname.match(/^\/gmail-stub\/(label|reply)$/);
+    if (acting && request.method === 'POST') return actInMailbox(acting[1], url, response);
 
     if (url.pathname === '/authorize') return authorize(url, response);
     if (url.pathname === '/authorize/pick') return pick(url, response);
@@ -320,10 +394,22 @@ export async function startStubIssuer({ port, seedPath }) {
     const email = mailboxOf((request.headers.authorization ?? '').replace(/^Bearer /, ''), 'access');
     if (!email) return json(response, { error: { code: 401, message: 'Invalid Credentials' } }, 401);
     const path = url.pathname.slice('/gmail/v1/users/me/'.length);
-    const mailbox = stubMailbox(email);
+    const mailbox = heldMailbox(email);
     if (path === 'labels') return json(response, { labels: mailbox.labels });
     if (path === 'profile') {
-      return json(response, { emailAddress: email, messagesTotal: 3, threadsTotal: 3, historyId: '1000' });
+      return json(response, { emailAddress: email, messagesTotal: 3, threadsTotal: 3, historyId: String(mailbox.historyId) });
+    }
+    if (path === 'history') {
+      const since = Number(url.searchParams.get('startHistoryId') ?? 0);
+      const after = mailbox.history.filter((record) => Number(record.id) > since);
+      const from = Number(url.searchParams.get('pageToken') ?? 0);
+      const size = Number(url.searchParams.get('maxResults') ?? 100);
+      const page = after.slice(from, from + size);
+      return json(response, {
+        ...(page.length > 0 ? { history: page } : {}),
+        ...(from + size < after.length ? { nextPageToken: String(from + size) } : {}),
+        historyId: String(mailbox.historyId),
+      });
     }
     if (path === 'threads') {
       const labelled = mailbox.threads.filter((thread) =>
@@ -333,7 +419,7 @@ export async function startStubIssuer({ port, seedPath }) {
       const size = Number(url.searchParams.get('maxResults') ?? 100);
       const page = labelled.slice(from, from + size);
       return json(response, {
-        threads: page.map((thread) => ({ id: thread.id, snippet: '', historyId: '1000' })),
+        threads: page.map((thread) => ({ id: thread.id, snippet: '', historyId: String(mailbox.historyId) })),
         ...(from + size < labelled.length ? { nextPageToken: String(from + size) } : {}),
         resultSizeEstimate: labelled.length,
       });
@@ -459,6 +545,9 @@ export function stubMailbox(email) {
   const text = (mimeType, words) => ({ mimeType, body: { size: words.length, data: base64url(words) } });
   return {
     labels,
+    // Gmail's position in the mailbox, and what changed at each one since.
+    historyId: 1000,
+    history: [],
     threads: [
       {
         id: '18f0a1b2c3d4e5f1',

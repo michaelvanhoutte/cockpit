@@ -2,7 +2,8 @@
  * Gmail's answers to the three calls the connector reads, in the shapes
  * Gmail answers them ("Bring in the conversations already labelled Cockpit as
  * tasks", issue 725): `users.labels.list`, `users.threads.list` and
- * `users.threads.get` with `format=full`, plus `users.getProfile`.
+ * `users.threads.get` with `format=full`, plus `users.getProfile` and
+ * `users.history.list` (issue 726).
  *
  * Every field Gmail sends is kept, whether the connector reads it or not, so
  * these stay comparable to a live answer field for field - which is what the
@@ -136,4 +137,50 @@ export function threadAnswer(id: string, messages: readonly ReturnType<typeof me
 /** The commonest conversation: one labelled plain-text message. */
 export function plainThread(id: string, subject = `About ${id}`, text = `The text of ${id}.`) {
   return threadAnswer(id, [message(id, { id, sentAt: '2026-10-01T08:30:00Z', subject, plain: text })]);
+}
+
+/** What one history record says happened to one message. */
+type HistoryChange =
+  | { readonly added: string; readonly threadId: string; readonly labelIds: readonly string[] }
+  | { readonly labelled: string; readonly threadId: string; readonly with: readonly string[]; readonly labelIds: readonly string[] }
+  | { readonly unlabelled: string; readonly threadId: string; readonly with: readonly string[]; readonly labelIds: readonly string[] };
+
+/**
+ * One record of `users.history.list`: what changed at one history position -
+ * a message arriving, or labels added to or taken off a message. `labelIds`
+ * on a change is the message's labels after it, `with` the labels it moved.
+ */
+export function historyRecord(id: string, change: HistoryChange) {
+  const messageOf = (messageId: string, threadId: string, labelIds: readonly string[]) => ({
+    id: messageId,
+    threadId,
+    labelIds,
+  });
+  if ('added' in change) {
+    return {
+      id,
+      messages: [{ id: change.added, threadId: change.threadId }],
+      messagesAdded: [{ message: messageOf(change.added, change.threadId, change.labelIds) }],
+    };
+  }
+  if ('labelled' in change) {
+    return {
+      id,
+      messages: [{ id: change.labelled, threadId: change.threadId }],
+      labelsAdded: [{ message: messageOf(change.labelled, change.threadId, change.labelIds), labelIds: change.with }],
+    };
+  }
+  return {
+    id,
+    messages: [{ id: change.unlabelled, threadId: change.threadId }],
+    labelsRemoved: [{ message: messageOf(change.unlabelled, change.threadId, change.labelIds), labelIds: change.with }],
+  };
+}
+
+/** `users.history.list`: one page of records, where the next one starts, and the mailbox's position now. */
+export function historyAnswer(
+  records: readonly ReturnType<typeof historyRecord>[],
+  { historyId = '4815162400', nextPageToken }: { historyId?: string; nextPageToken?: string } = {},
+) {
+  return { ...(records.length > 0 ? { history: records } : {}), ...(nextPageToken ? { nextPageToken } : {}), historyId };
 }

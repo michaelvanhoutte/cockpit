@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { cockpitLabelIn, conversationFrom, conversationPage } from '../../src/connectors/gmail.js';
-import { labelsAnswer, plainThread, profileAnswer, threadsPage } from '../gmail-payloads.js';
+import { cockpitLabelIn, conversationFrom, conversationPage, historyPage } from '../../src/connectors/gmail.js';
+import { historyAnswer, historyRecord, labelsAnswer, plainThread, profileAnswer, threadsPage } from '../gmail-payloads.js';
 
 /**
  * The contract tier: the calls the Gmail connector reads, asked of Gmail
@@ -100,6 +100,34 @@ describe.skipIf(!provisioned)('Capture', () => {
       const live = await gmail('profile');
 
       expect(missingFrom(live, profileAnswer(), ['emailAddress', 'historyId'])).toEqual([]);
+    });
+
+    it('lists what changed since a history position, restricted to the label, and answers 404 for one it no longer keeps', async () => {
+      const labelId = cockpitLabelIn(await gmail('labels'))!;
+      const { historyId } = await gmail('profile');
+      const query = new URLSearchParams({ startHistoryId: String(historyId), labelId, maxResults: '1' });
+      for (const type of ['messageAdded', 'labelAdded', 'labelRemoved']) query.append('historyTypes', type);
+
+      // Nothing has changed since the position just read: a position and no records.
+      const live = await gmail(`history?${query}`);
+
+      expect(missingFrom(live, historyAnswer([]), ['historyId'])).toEqual([]);
+      expect(historyPage(live, labelId).gained).toEqual([]);
+      // The shape of a record is held to the recorded one only where the mailbox has any.
+      const [record] = (live.history as unknown[] | undefined) ?? [];
+      if (record) {
+        expect(
+          missingFrom({ history: [record] }, { history: [historyRecord('1', { labelled: 'm', threadId: 't', with: [labelId], labelIds: [labelId] })] }, [
+            'history',
+            'history[].id',
+          ]),
+        ).toEqual([]);
+      }
+
+      const answer = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=1`, {
+        headers: { authorization: `Bearer ${await signedIn()}` },
+      });
+      expect(answer.status, 'Gmail no longer answers 404 to a position it does not keep').toBe(404);
     });
 
     it('lists the conversations carrying the label, a page at a time, and reads one whole', async () => {

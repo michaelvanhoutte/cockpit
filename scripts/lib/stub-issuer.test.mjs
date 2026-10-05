@@ -279,4 +279,27 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
     assert.equal(labels.some((label) => label.name === 'Cockpit'), false);
     assert.equal((await read('not-a-stub-token', 'labels')).status, 401);
   });
+
+  it('records a conversation labelled and a reply arriving as history, which moves the position on', async () => {
+    const token = await accessTokenFor('history@example.com');
+    const act = (what, query) =>
+      fetch(`${issuer.origin}/gmail-stub/${what}?email=history%40example.com&${query}`, { method: 'POST' }).then((answer) => answer.json());
+    const { historyId: before } = await (await read(token, 'profile')).json();
+
+    const labelled = await act('label', 'subject=Hello');
+    const reply = await act('reply', `thread=${labelled.thread}`);
+
+    const { history, historyId } = await (await read(token, `history?startHistoryId=${before}`)).json();
+    assert.equal(historyId, reply.historyId);
+    assert.deepEqual(
+      history.map((record) => Object.keys(record).filter((key) => key.startsWith('messages') || key.startsWith('labels'))),
+      [['messages', 'labelsAdded'], ['messages', 'messagesAdded']],
+    );
+    const { threads } = await (await read(token, `threads?labelIds=Label_1001`)).json();
+    assert.equal(threads.some((thread) => thread.id === labelled.thread), true);
+    assert.equal(
+      (await (await read(token, `history?startHistoryId=${reply.historyId}`)).json()).history,
+      undefined,
+    );
+  });
 });
