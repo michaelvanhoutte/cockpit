@@ -518,15 +518,19 @@ describe('What Cockpit changed', () => {
       theModelIs({ says: { ...A_READING, panel: { panelId, reason: 'it fits' } } });
       const itemId = await captureANote();
 
-      await vi.waitFor(async () => expect(await statusOf(itemId)).toBe('rewritten'), {
-        timeout: 15_000,
-        interval: 50,
-      });
-      const [row] = await rowsFor(itemId);
-      expect({ before: row!.panel_before_id, after: row!.proposed_panel_id }).toEqual({
-        before: null,
-        after: panelId,
-      });
+      // Waited on whole rather than on the status alone: the row reads
+      // `rewritten` from the moment the texts settle, before the Panel step
+      // writes it again (`cleanUpACapturedNote`, src/jobs/enrichment.ts).
+      await vi.waitFor(
+        async () => {
+          const [row] = await rowsFor(itemId);
+          expect({ before: row?.panel_before_id, after: row?.proposed_panel_id }).toEqual({
+            before: null,
+            after: panelId,
+          });
+        },
+        { timeout: 15_000, interval: 50 },
+      );
     });
 
     /**
