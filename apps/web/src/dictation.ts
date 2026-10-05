@@ -132,7 +132,7 @@ export function appendPhrase(note: string, phrase: string): string {
 function wordsOf(text: string): string[] {
   return text
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s']/gu, ' ')
+    .replace(/[^\p{L}\p{M}\p{N}\s']/gu, ' ')
     .split(/\s+/)
     .filter(Boolean);
 }
