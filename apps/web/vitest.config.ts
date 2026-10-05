@@ -5,6 +5,8 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'jsdom',
+    // styles.css is read as text by the dark Car view's contrast test.
+    css: { include: [/styles\.css/] },
     setupFiles: ['./tests/setup.ts'],
     // Only collected when run with `--coverage` (tools/test-explorer's
     // "branches nothing takes" column, docs/test-explorer-spec.md §6.3) —

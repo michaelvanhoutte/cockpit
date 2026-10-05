@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { uuidv7 } from '@cockpit/shared';
 import { snapshotQuery, workspacesQuery } from '../api/queries';
@@ -31,6 +31,14 @@ import { browserWakeLock, useScreenWakeLock, type WakeLockApi } from '../wakeLoc
  *
  * **The screen is kept on for as long as this is shown** (`wakeLock.ts`).
  *
+ * **It can be switched dark from its footer** ("Switch the Car view dark from
+ * inside it", issue 753), for capturing at night. The choice is this device's,
+ * light until first switched whatever the phone's own setting says. While shown
+ * dark it flags the document (`CAR_DARK_FLAG`); the page heading, the Write | Car
+ * switch, the shell's edge and the band under the tabs are styled from that flag
+ * in `styles.css`. The flag is cleared on switching light and on leaving, so
+ * Write and every other screen are never dark.
+ *
  * Fetched behind the shell with the Capture form (`captureForm.ts`), so none of
  * it is in the first bundle.
  */
@@ -58,6 +66,30 @@ const SCREEN_LINES = {
   asking: 'Screen stays on while this is open',
   unavailable: 'This browser cannot keep the screen on, so it may lock',
 };
+
+/** Where the dark choice is kept: this browser, not the account, as the dictation language is. */
+export const CAR_DARK_KEY = 'cockpit.car-dark';
+
+/** The attribute set on the document while the view is shown dark. */
+export const CAR_DARK_FLAG = 'data-car-dark';
+
+/** Whether the view was last left dark on this device: light where nothing, or nothing recognised, is stored. */
+export function readCarDark(store: Storage | undefined): boolean {
+  try {
+    return store?.getItem(CAR_DARK_KEY) === 'dark';
+  } catch {
+    // Storage refused: nothing was remembered, so light.
+    return false;
+  }
+}
+
+export function writeCarDark(store: Storage | undefined, dark: boolean): void {
+  try {
+    store?.setItem(CAR_DARK_KEY, dark ? 'dark' : 'light');
+  } catch {
+    // Not remembered; this visit still uses the choice.
+  }
+}
 
 /** How many of the notes captured from this view are listed. */
 const RECENT = 3;
@@ -149,6 +181,18 @@ function Driving({
   const [wordsShown, setWordsShown] = useState('');
   const [provisional, setProvisional] = useState('');
   const [recent, setRecent] = useState<Recent[]>([]);
+  const store = dictating?.store ?? browserStore();
+  const [dark, setDark] = useState(() => readCarDark(store));
+  const toggleDark = () => {
+    writeCarDark(store, !dark);
+    setDark(!dark);
+  };
+  // Before the view first paints, so opening it dark never shows a light frame.
+  useLayoutEffect(() => {
+    if (!dark) return;
+    document.documentElement.setAttribute(CAR_DARK_FLAG, '');
+    return () => document.documentElement.removeAttribute(CAR_DARK_FLAG);
+  }, [dark]);
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const keepNow = useRef<(heard: string, stoppedBecause: string | null) => void>(() => {});
@@ -287,25 +331,30 @@ function Driving({
   }[phase];
   const { tag, name } = DICTATION_LANGUAGES[dictation.language];
   const heardSoFar = appendPhrase(wordsShown, provisional);
+  /** The light class, or the dark one. */
+  const d = (light: string, night: string) => (dark ? night : light);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center">
       <div
         aria-label="What was heard"
-        className="mt-4 min-h-28 w-full rounded-md border border-black/10 bg-white p-4 text-lg leading-snug text-ink shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)]"
+        className={`mt-4 min-h-28 w-full rounded-md border p-4 text-lg leading-snug ${d(
+          'border-black/10 bg-white text-ink shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)]',
+          'border-white/5 bg-night-card text-night-ink',
+        )}`}
       >
         {heardSoFar ? (
           <>
             <span>{wordsShown}</span>
             {provisional && (
-              <span data-testid="provisional" className="text-ink-faint">
+              <span data-testid="provisional" className={d('text-ink-faint', 'text-night-faint')}>
                 {wordsShown ? ' ' : ''}
                 {provisional}
               </span>
             )}
           </>
         ) : (
-          <span className="text-ink-faint">What you say shows here.</span>
+          <span className={d('text-ink-faint', 'text-night-faint')}>What you say shows here.</span>
         )}
       </div>
 
@@ -314,7 +363,7 @@ function Driving({
           {listening && (
             <span
               aria-hidden="true"
-              className="absolute inset-0 rounded-full bg-over/40 motion-safe:animate-ping"
+              className={`absolute inset-0 rounded-full motion-safe:animate-ping ${d('bg-over/40', 'bg-over/15')}`}
             />
           )}
           <button
@@ -322,9 +371,10 @@ function Driving({
             onClick={tap}
             aria-label={label}
             aria-disabled={phase === 'capturing' || phase === 'captured' || phase === 'nothing'}
-            className={`milled relative flex size-40 items-center justify-center rounded-full text-white shadow-lg ${
-              listening ? 'bg-over-deep' : settled ? 'bg-accent-deep' : 'bg-accent'
-            }`}
+            className={`milled relative flex size-40 items-center justify-center rounded-full ${d(
+              'text-white shadow-lg',
+              'text-[#c9cbd1] brightness-[0.7]',
+            )} ${listening ? 'bg-over-deep' : settled ? 'bg-accent-deep' : d('bg-accent', 'bg-accent-deep')}`}
           >
             {listening ? (
               <svg viewBox="0 0 16 16" className="size-14" aria-hidden="true">
@@ -360,14 +410,21 @@ function Driving({
         <p
           role="status"
           className={`mt-6 text-center text-2xl leading-snug font-medium ${
-            phase === 'idle' && why ? 'text-over-deep' : 'text-ink'
+            phase === 'idle' && why
+              ? d('text-over-deep', 'text-night-over')
+              : d('text-ink', 'text-night-ink')
           }`}
         >
           {status}
         </p>
       </div>
 
-      <footer className="w-full border-t border-[rgb(41_43_49/0.08)] pt-3 text-sm text-ink-faint">
+      <footer
+        className={`w-full border-t pt-3 text-sm ${d(
+          'border-[rgb(41_43_49/0.08)] text-ink-faint',
+          'border-white/5 text-night-ink-soft',
+        )}`}
+      >
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -375,16 +432,46 @@ function Driving({
             disabled={phase !== 'idle'}
             aria-label={`Dictation language: ${name}`}
             title={`Dictating in ${name}. Press to switch.`}
-            className="inline-flex min-h-9 items-center rounded-md border border-black/10 bg-white px-3 text-sm font-medium tracking-[0.05em] text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+            className={`inline-flex min-h-9 items-center rounded-md border px-3 text-sm font-medium tracking-[0.05em] disabled:opacity-50 ${d(
+              'border-black/10 bg-white text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink',
+              'border-white/10 bg-night-card text-night-ink-soft',
+            )}`}
           >
             {tag}
+          </button>
+          <button
+            type="button"
+            onClick={toggleDark}
+            aria-pressed={dark}
+            aria-label="Dark view"
+            title={dark ? 'Switch to the light view' : 'Switch to the dark view'}
+            className={`inline-flex min-h-9 min-w-9 items-center justify-center rounded-md border px-2 ${d(
+              'border-black/10 bg-white text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink',
+              'border-white/10 bg-night-card text-night-ink-soft',
+            )}`}
+          >
+            {dark ? (
+              <svg viewBox="0 0 16 16" className="size-4" aria-hidden="true">
+                <circle cx="8" cy="8" r="3" fill="currentColor" />
+                <path
+                  d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6 13 13M3 13l1.4-1.4M11.6 4.4 13 3"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 16 16" className="size-4" aria-hidden="true">
+                <path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5Z" fill="currentColor" />
+              </svg>
+            )}
           </button>
           <span>{SCREEN_LINES[screen]}</span>
         </div>
         {recent.length > 0 && (
           <ul aria-label="Captured here" className="mt-2">
             {recent.slice(0, RECENT).map((one) => (
-              <li key={one.id} className="truncate py-0.5 text-ink-soft">
+              <li key={one.id} className={`truncate py-0.5 ${d('text-ink-soft', 'text-night-ink-soft')}`}>
                 {one.message}
               </li>
             ))}
