@@ -98,7 +98,11 @@ This writes an environment to local JSON — the register, and each account's ow
 ```bash
 pnpm backup:export --env production --out ./backups/2026-09-06
 pnpm backup:export --env local --out ./backups/mine --user tenant-default
+pnpm backup:export --env production --out ./backups --dated
+pnpm backup:export --env production --out ./backups/latest --force
 ```
+
+`--out` has to be new or empty. `--dated` writes into a new `<env>-<UTC time>` folder inside it instead; `--force` replaces an earlier backup there, and refuses a folder holding anything else.
 
 Taking a backup changes nothing about the environment it reads, deliberately — including not bringing any account up to date.
 

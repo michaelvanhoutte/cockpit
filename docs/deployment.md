@@ -397,9 +397,13 @@ Rollback, in order of preference:
 ```bash
 pnpm backup:export --env production --out ./backups/2026-09-06
 pnpm backup:export --env production --out ./backups/anna --user tenant-anna
+pnpm backup:export --env production --out ./backups --dated
+pnpm backup:export --env production --out ./backups/latest --force
 ```
 
-Both read that environment's own `BACKUP_TOKEN` from `backup-tokens.json`, along with the subdomain the address is built from — see "Secrets and access" below.
+`--out` has to be new or empty. `--dated` writes into a new `<env>-<UTC time>` folder inside it (`<env>-<user>-<UTC time>` with `--user`), so one folder holds every environment's backups in date order. `--force` replaces an earlier backup there, and refuses a folder holding anything else; the earlier one is set aside as `<out>.replaced` and removed only once the new one is in place. A leftover `<out>.partial` or `<out>.replaced` is a run that did not finish, and refuses the next run until it is looked at.
+
+Each reads that environment's own `BACKUP_TOKEN` from `backup-tokens.json`, along with the subdomain the address is built from — see "Secrets and access" below.
 
 And `pnpm backup:restore` puts one back, an environment or one user at a time:
 
