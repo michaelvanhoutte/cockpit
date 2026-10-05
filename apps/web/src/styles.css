@@ -182,6 +182,17 @@ body {
 }
 
 /*
+ * The stacking level of everything that floats over the page: menus,
+ * submenus, dialogs and the dimming behind them. Above the pinned bars (the
+ * Dashboard filter bar is z-20, the selection bar z-10) and below the undo
+ * toast and the "Updating" notice (z-50). Radix copies a menu's level onto its
+ * positioning wrapper, so it goes on the content, not a wrapper.
+ */
+@utility z-floating {
+  z-index: 30;
+}
+
+/*
  * A list sunk into the sheet: no radius, no border, and a shallow inner shadow
  * along the top edge, so the sheet stays one surface and the list is a hollow
  * in it rather than a card on it ("Cockpit Shell Explorations", artboard 2c).

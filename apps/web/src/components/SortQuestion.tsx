@@ -86,7 +86,7 @@ function SortQuestion({
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-black/30" />
         <Dialog.Content
           onCloseAutoFocus={(event) => {
             if (!returnFocusTo) return;
@@ -95,7 +95,7 @@ function SortQuestion({
           }}
           // Wider than the Filter question's 28rem, so a row's name, its two
           // directions, ↑ ↓ and Remove fit on one line on a desktop.
-          className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
+          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
           <Dialog.Title className="text-base font-semibold">
             How is {panelName} sorted?

@@ -44,10 +44,10 @@ export function MoveOrAddQuestion({
   return (
     <AlertDialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && onCancel()}>
       <AlertDialog.Portal>
-        <AlertDialog.Overlay className="fixed inset-0 bg-black/30" />
+        <AlertDialog.Overlay className="fixed inset-0 z-floating bg-black/30" />
         <AlertDialog.Content
           aria-describedby={undefined}
-          className="fixed left-1/2 top-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
+          className="fixed z-floating left-1/2 top-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
         >
           <AlertDialog.Title className="text-base font-semibold">
             Move “{itemTitle}” to {panelName}, or add it there as well?

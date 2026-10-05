@@ -1250,7 +1250,7 @@ function TheForm({
             the browser for the reason the form's own drop is. */}
         {!docked && (
           <Dialog.Overlay
-            className="fixed inset-0 bg-black/30"
+            className="fixed inset-0 z-floating bg-black/30"
             onDragOver={(event) => {
               if (takesFiles(event)) event.preventDefault();
             }}
@@ -1359,8 +1359,8 @@ function TheForm({
           // positioning, the sizing and the modality below it are its own.
           className={`${
             docked
-              ? '@container fixed right-0 top-0 flex h-full flex-col overflow-hidden rounded-l-lg border border-black/10 bg-surface p-5 shadow-lg'
-              : '@container fixed left-1/2 top-1/2 flex h-[var(--item-form-h)] max-h-[var(--item-form-max-h)] min-h-[min(18rem,var(--item-form-max-h))] w-[var(--item-form-w)] max-w-[var(--item-form-max-w)] min-w-[min(20rem,var(--item-form-max-w))] -translate-x-1/2 -translate-y-1/2 flex-col resize-none overflow-hidden rounded-lg border border-black/10 bg-surface p-5 shadow-lg sm:resize'
+              ? '@container fixed z-floating right-0 top-0 flex h-full flex-col overflow-hidden rounded-l-lg border border-black/10 bg-surface p-5 shadow-lg'
+              : '@container fixed z-floating left-1/2 top-1/2 flex h-[var(--item-form-h)] max-h-[var(--item-form-max-h)] min-h-[min(18rem,var(--item-form-max-h))] w-[var(--item-form-w)] max-w-[var(--item-form-max-w)] min-w-[min(20rem,var(--item-form-max-w))] -translate-x-1/2 -translate-y-1/2 flex-col resize-none overflow-hidden rounded-lg border border-black/10 bg-surface p-5 shadow-lg sm:resize'
           }${filesOver ? ' ring-2 ring-accent' : ''}`}
           style={
             docked

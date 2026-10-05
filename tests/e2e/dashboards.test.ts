@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Page } from '@playwright/test';
 import {
   capture,
   chooseRowAction,
@@ -35,6 +36,27 @@ import {
  * spec in a run shares one database (support/app.ts), so a walk that filled
  * Work's bar would leave it filled for whatever ran next.
  */
+/**
+ * What is drawn on top at a point. A hit test cannot say: while a menu or a
+ * window is open Radix makes everything outside it inert, which a hit test
+ * skips, so the bar would be passed over even where it is painted over the
+ * menu. Lifting that for the one question is what exposes paint order.
+ */
+const drawnOnTopAt = (page: Page, x: number, y: number) =>
+  page.evaluate(
+    ([px, py]) => {
+      const before = document.body.style.pointerEvents;
+      document.body.style.pointerEvents = 'auto';
+      const top = document.elementFromPoint(px!, py!);
+      document.body.style.pointerEvents = before;
+      return {
+        inTheBar: !!top?.closest('[role="search"][aria-label="Dashboard filter"]'),
+        role: top?.getAttribute('role') ?? top?.tagName.toLowerCase(),
+      };
+    },
+    [x, y],
+  );
+
 test.describe('Dashboards', () => {
   test.describe('a dashboard you add is one you can switch to and come back to', () => {
     test('puts it in the bar, opens it empty, and is reachable by its address', async ({
@@ -426,6 +448,46 @@ test.describe('Dashboards', () => {
 
       await scrollDown('bottom');
       await expectPinned();
+
+      // **Menus and windows draw above it.** The bar is only pinned usefully
+      // if it never hides what opens over it. By selector, since a modal hides
+      // what is behind it from role queries; paint order exists only in a real
+      // layout, hence F3. Item-row submenus take their level from the same
+      // `z-floating` the menus do, so they are not walked apart.
+      const drawn = page.locator('[role="search"][aria-label="Dashboard filter"]');
+      const filterButton = (await drawn.locator('button', { hasText: 'High' }).boundingBox())!;
+      if (!isMobile) {
+        // A desk's: a phone has no Settings.
+        await press(page.getByRole('button', { name: 'Profile' }), isMobile);
+        const settings = page.getByRole('menuitem', { name: 'Settings…', exact: true });
+        await expect(settings).toBeVisible();
+        // The entry's foot is under the bar, and that foot is where it is
+        // pressed: the walk means nothing unless the point really is inside it.
+        const entry = (await settings.boundingBox())!;
+        const barBox = (await drawn.boundingBox())!;
+        const into = barBox.y + 3 - entry.y;
+        expect(into, 'the point is inside the entry').toBeLessThan(entry.height);
+        expect(entry.y + into, 'and inside the bar').toBeGreaterThan(barBox.y);
+        expect(await drawnOnTopAt(page, entry.x + entry.width / 2, entry.y + into)).toEqual({
+          inTheBar: false,
+          role: 'menuitem',
+        });
+        await settings.click({ position: { x: entry.width / 2, y: into } });
+        await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+      } else {
+        await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
+        await expect(page.getByRole('dialog')).toBeVisible();
+      }
+      // Whichever window is open, its dimming is what is on top where a filter
+      // button is, so a press there is not a press on a filter.
+      const top = await drawnOnTopAt(
+        page,
+        filterButton.x + filterButton.width / 2,
+        filterButton.y + filterButton.height / 2,
+      );
+      expect(top.inTheBar, 'the bar is drawn over the dimming').toBe(false);
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
 
       // Filtered and scrolled: clearing closes the bar and goes nowhere.
       await press(bar.getByRole('button', { name: 'High' }), isMobile);

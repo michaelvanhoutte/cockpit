@@ -93,7 +93,7 @@ export function ManageWindow({
             browser, which would otherwise navigate away to open it - the
             same guard the Item form's own overlay carries. */}
         <Dialog.Overlay
-          className="fixed inset-0 bg-black/30"
+          className="fixed inset-0 z-floating bg-black/30"
           onDragOver={(event) => {
             if (takesFiles(event)) event.preventDefault();
           }}
@@ -121,7 +121,7 @@ export function ManageWindow({
           // reach both ends of the screen, so both the 16px it starts at and
           // the height it may grow to are measured inside the screen's own
           // edges (styles.css, `--edge-top`).
-          className={`fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] flex max-h-[calc(100dvh_-_2rem_-_var(--edge-top)_-_var(--edge-bottom))] -translate-x-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2 ${wide ? 'w-[min(48rem,calc(100vw-2rem))] md:max-h-[min(52rem,calc(100dvh-4rem))]' : 'w-[min(32rem,calc(100vw-2rem))] md:max-h-[min(40rem,calc(100dvh-8rem))]'}`}
+          className={`fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] flex max-h-[calc(100dvh_-_2rem_-_var(--edge-top)_-_var(--edge-bottom))] -translate-x-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2 ${wide ? 'w-[min(48rem,calc(100vw-2rem))] md:max-h-[min(52rem,calc(100dvh-4rem))]' : 'w-[min(32rem,calc(100vw-2rem))] md:max-h-[min(40rem,calc(100dvh-8rem))]'}`}
         >
           <Dialog.Title className="text-base font-semibold">{title}</Dialog.Title>
           {children}

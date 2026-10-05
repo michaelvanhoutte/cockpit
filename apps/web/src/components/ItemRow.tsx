@@ -791,7 +791,7 @@ export function ItemRow({
             <M.SubContent
               sideOffset={roomBesideTheMenu ? 0 : -SUBMENU_WIDTH_PX}
               style={{ width: SUBMENU_WIDTH_PX }}
-              className="rounded-md border border-black/10 bg-surface p-1 shadow-lg"
+              className="z-floating rounded-md border border-black/10 bg-surface p-1 shadow-lg"
             >
               {(
                 [
