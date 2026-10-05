@@ -33,6 +33,19 @@ async function fetchSourceAccounts(workspaceId: string): Promise<SourceAccountLi
 }
 
 /**
+ * What a trip that did not connect says, by why: each names the one thing that
+ * would make the next attempt go through, and every other reason is plain
+ * `refused`, for which trying again is the whole advice.
+ */
+const REFUSED_BECAUSE: Partial<Record<ConnectOutcome, string>> = {
+  refused: 'That did not connect. Nothing was stored. Try again.',
+  'gmail-permission-missing':
+    'Google did not give Cockpit permission to change your mail, so nothing was stored. Connect again, and tick the Gmail box on Google’s last screen.',
+  'gmail-no-refresh-token':
+    'Google did not let Cockpit stay signed in, so nothing was stored. Remove Cockpit under third-party access in your Google account, then connect again.',
+};
+
+/**
  * **Never served from a copy.** The window says what is connected *now*, and
  * the two moments it is read are the two where a copy would be wrong: coming
  * back from Microsoft, where the row was made a redirect ago, and reopening
@@ -249,9 +262,14 @@ export default function ManageConnections({
           Connected. Conversations labelled Cockpit arrive in this workspace’s Inbox within a minute.
         </p>
       )}
-      {outcome === 'refused' && (
+      {outcome === 'cancelled' && (
+        <p role="status" className="pt-3 text-sm text-ink-soft">
+          Connecting was cancelled. Nothing was stored.
+        </p>
+      )}
+      {outcome && REFUSED_BECAUSE[outcome] && (
         <p role="alert" className="pt-3 text-sm text-over">
-          That did not connect. Nothing was stored. Try again.
+          {REFUSED_BECAUSE[outcome]}
         </p>
       )}
 

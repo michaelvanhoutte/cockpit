@@ -256,6 +256,17 @@ describe('Connector management', () => {
         says: 'Connected. Conversations labelled Cockpit arrive in this workspace’s Inbox within a minute.',
       },
       { situation: 'refused', outcome: 'refused' as const, says: /^That did not connect\. Nothing was stored\./ },
+      { situation: 'cancelled', outcome: 'cancelled' as const, says: 'Connecting was cancelled. Nothing was stored.' },
+      {
+        situation: 'without the permission to change mail',
+        outcome: 'gmail-permission-missing' as const,
+        says: /tick the Gmail box on Google’s last screen\.$/,
+      },
+      {
+        situation: 'without a refresh token',
+        outcome: 'gmail-no-refresh-token' as const,
+        says: /Remove Cockpit under third-party access in your Google account, then connect again\.$/,
+      },
     ])('back from Google, $situation, it says so', async ({ outcome, says }) => {
       showWindow(outcome);
 
