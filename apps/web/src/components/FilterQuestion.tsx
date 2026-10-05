@@ -128,14 +128,14 @@ function FilterQuestion({
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-black/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
         <Dialog.Content
           onCloseAutoFocus={(event) => {
             if (!returnFocusTo) return;
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
+          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
           <Dialog.Title className="text-base font-semibold">
             What does {panelName} show?
@@ -163,7 +163,7 @@ function FilterQuestion({
                         or
                       </li>
                     )}
-                    <li className="rounded-md border border-black/10 p-3">
+                    <li className="rounded-md border border-shade/10 p-3">
                       <ConditionRow
                         at={at}
                         row={row}
@@ -182,7 +182,7 @@ function FilterQuestion({
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger
                   type="button"
-                  className="mt-3 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
+                  className="mt-3 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
                 >
                   + Add a condition
                 </DropdownMenu.Trigger>
@@ -209,7 +209,7 @@ function FilterQuestion({
             <div className="flex justify-end gap-2 pt-5">
               <Dialog.Close
                 disabled={busy}
-                className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+                className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
               >
                 Cancel
               </Dialog.Close>
@@ -404,7 +404,7 @@ function DueConditionRow({
         value={row.window}
         aria-label={`Due date is, condition ${at + 1}`}
         onChange={(event) => onChange({ ...row, window: event.target.value as DueWindow })}
-        className="rounded-md border border-black/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+        className="rounded-md border border-shade/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
       >
         {DUE_WINDOWS.map((window) => (
           <option key={window} value={window}>

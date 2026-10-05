@@ -261,7 +261,7 @@ export default function ManageConnections({
       <section className="-mx-2 mt-2 min-h-0 flex-1 overflow-y-auto">
         <ul>
           {connected.map((account) => (
-            <li key={account.id} className="border-b border-black/5 px-4 py-2 last:border-b-0">
+            <li key={account.id} className="border-b border-shade/5 px-4 py-2 last:border-b-0">
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm">{account.displayName}</p>
@@ -368,7 +368,7 @@ export default function ManageConnections({
         {AVAILABLE_CONNECTORS.filter((connectorId) => !only || only.includes(connectorId)).map((connectorId) => (
           <div
             key={connectorId}
-            className="flex items-center gap-3 rounded-md border border-black/10 p-3"
+            className="flex items-center gap-3 rounded-md border border-shade/10 p-3"
           >
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium">{connectorNamed(connectorId)}</p>

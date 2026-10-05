@@ -349,7 +349,7 @@ export default function RichDescription({
       className={
         fill
           ? 'flex min-h-0 flex-1 flex-col'
-          : 'mt-1 rounded-md border border-black/10 bg-white focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40'
+          : 'mt-1 rounded-md border border-shade/10 bg-white focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40'
       }
     >
       {toolbar && (
@@ -360,7 +360,7 @@ export default function RichDescription({
           // panel - so there is never a second one on the screen to tell it
           // apart from.
           aria-label="Formatting"
-          className="flex flex-wrap gap-1 border-b border-black/10 px-2 py-1.5"
+          className="flex flex-wrap gap-1 border-b border-shade/10 px-2 py-1.5"
         >
           {(Object.keys(KEY_FOR) as Formatting[]).map((command) => (
             <button
@@ -408,14 +408,14 @@ export default function RichDescription({
       {imageTrouble && (
         <p
           role="alert"
-          className="border-b border-black/10 px-2.5 py-1.5 text-xs font-normal normal-case tracking-normal text-over"
+          className="border-b border-shade/10 px-2.5 py-1.5 text-xs font-normal normal-case tracking-normal text-over"
         >
           {imageTrouble}
         </p>
       )}
 
       {asking && editable && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-black/10 px-2 py-1.5">
+        <div className="flex flex-wrap items-center gap-2 border-b border-shade/10 px-2 py-1.5">
           <input
             autoFocus
             aria-label="Address"
@@ -428,7 +428,7 @@ export default function RichDescription({
               }
             }}
             placeholder="https://"
-            className="min-w-0 flex-1 rounded border border-black/10 px-2 py-1 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent"
+            className="min-w-0 flex-1 rounded border border-shade/10 px-2 py-1 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent"
           />
           <button
             type="button"

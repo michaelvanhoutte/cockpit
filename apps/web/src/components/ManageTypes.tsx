@@ -359,7 +359,7 @@ export function ManageTypes({
             placeholder="Question, Decision…"
             aria-label="Name of the new type"
             maxLength={60}
-            className="min-w-0 flex-1 rounded-md border border-black/10 bg-surface px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+            className="min-w-0 flex-1 rounded-md border border-shade/10 bg-surface px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
           />
           <button
             type="submit"
@@ -387,7 +387,7 @@ export function ManageTypes({
               onDoubleClick={(event) => {
                 if (wasOnTheRow(event)) startEditing(type, null);
               }}
-              className={`border-b border-black/5 px-4 py-2 last:border-b-0 ${
+              className={`border-b border-shade/5 px-4 py-2 last:border-b-0 ${
                 dragging?.id === type.id
                   ? 'rounded-md bg-accent-tint shadow-panel'
                   : dragging
@@ -477,7 +477,7 @@ export function ManageTypes({
                 className={`flex size-8 items-center justify-center rounded-md border disabled:opacity-50 ${
                   editing.color === color
                     ? 'border-ink ring-2 ring-ink/20'
-                    : 'border-black/10 hover:border-black/30'
+                    : 'border-shade/10 hover:border-shade/30'
                 }`}
               >
                 <span className="block size-4 rounded-full" style={{ backgroundColor: color }} />

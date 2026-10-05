@@ -479,7 +479,7 @@ export function DashboardBar({
    * strip by two pixels on every switch.
    */
   const tabClass =
-    'shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-1 pb-1.5 text-sm text-chrome-ink hover:bg-white/8 [&.active]:bg-[var(--tab-on)] [&.active]:font-medium [&.active]:text-ink [&.active]:shadow-[inset_0_2px_0_0_var(--tab-mark)]';
+    'shrink-0 whitespace-nowrap rounded-t-md px-2.5 pt-1 pb-1.5 text-sm text-chrome-ink hover:bg-white/8 [&.active]:bg-[var(--tab-on)] [&.active]:font-medium [&.active]:text-ink [&.active]:shadow-tab-mark';
 
   return (
     <nav
@@ -740,7 +740,7 @@ function FilterFunnel({
       aria-label={label}
       title={label}
       className={`inline-flex rounded p-0.5 ${filtered ? 'text-accent' : 'text-ink-faint hover:text-ink'} ${
-        pressable ? 'cursor-pointer hover:bg-black/8' : ''
+        pressable ? 'cursor-pointer hover:bg-shade/8' : ''
       }`}
       // The tab is dragged by the pointer (`tabDrag.ts`) and is a link, so a
       // press on the funnel must be neither.
@@ -1021,7 +1021,7 @@ function WhatItHolds({
             className={`flex-1 cursor-pointer rounded-md border px-3 py-2 text-sm has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent ${
               kind === choice.kind
                 ? 'border-accent bg-accent-tint text-accent-deep'
-                : 'border-black/10 hover:bg-accent-tint/50'
+                : 'border-shade/10 hover:bg-accent-tint/50'
             }`}
           >
             <input

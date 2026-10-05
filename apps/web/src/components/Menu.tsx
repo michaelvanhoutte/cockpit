@@ -200,7 +200,7 @@ export function MenuContent({
         align="end"
         sideOffset={4}
         onCloseAutoFocus={onCloseAutoFocus}
-        className="z-floating min-w-44 rounded-md border border-black/10 bg-surface p-1 shadow-lg"
+        className="z-floating min-w-44 rounded-md border border-shade/10 bg-surface p-1 shadow-lg"
       >
         {children}
       </DropdownMenu.Content>
@@ -228,7 +228,7 @@ export function ContextMenuContent({
       <ContextMenu.Content
         aria-label={label}
         onCloseAutoFocus={onCloseAutoFocus}
-        className="z-floating min-w-44 rounded-md border border-black/10 bg-surface p-1 shadow-lg"
+        className="z-floating min-w-44 rounded-md border border-shade/10 bg-surface p-1 shadow-lg"
       >
         {children}
       </ContextMenu.Content>
@@ -252,7 +252,7 @@ export const destructiveItemClass =`${menuItemClass} text-over data-[highlighted
  * rather than going - so it still highlights as the focus moves over it, and
  * looks unavailable rather than looking like nothing.
  */
-const unavailableItemClass = `${menuItemClass} text-ink-faint data-[highlighted]:bg-black/5 data-[highlighted]:text-ink-faint`;
+const unavailableItemClass = `${menuItemClass} text-ink-faint data-[highlighted]:bg-shade/5 data-[highlighted]:text-ink-faint`;
 
 export interface MenuEntry {
   label: string;
@@ -342,7 +342,7 @@ export function RowMenu({
         {entries.map((entry, at) => (
           <Fragment key={entry.label}>
             {entry.separatorBefore && at > 0 && (
-              <DropdownMenu.Separator className="my-1 h-px bg-black/10" />
+              <DropdownMenu.Separator className="my-1 h-px bg-shade/10" />
             )}
             <DropdownMenu.Item
               // `aria-disabled` rather than `disabled`, which is not a smaller
@@ -473,7 +473,7 @@ export function SurfaceMenu({
         {entries.map((entry, at) => (
           <Fragment key={entry.label}>
             {entry.separatorBefore && at > 0 && (
-              <ContextMenu.Separator className="my-1 h-px bg-black/10" />
+              <ContextMenu.Separator className="my-1 h-px bg-shade/10" />
             )}
             <ContextMenu.Item
               {...(entry.unavailable

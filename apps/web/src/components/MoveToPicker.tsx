@@ -265,7 +265,7 @@ function MoveToPicker({
       onOpenChange={(nowOpen) => !nowOpen && !busy && !making && onCancel()}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-black/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
         <Dialog.Content
           ref={contentRef}
           // Escape in the name field closes the field and leaves the picker.
@@ -289,7 +289,7 @@ function MoveToPicker({
           // list is long, so the height it may grow to is measured inside the
           // screen's own edges - twice the larger of them, for the reason the
           // item's form gives (ItemForm.tsx, and styles.css for the edges).
-          className="fixed z-floating left-1/2 top-1/2 flex max-h-[min(32rem,calc(100vh_-_2rem_-_2_*_max(var(--edge-top),var(--edge-bottom))))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
+          className="fixed z-floating left-1/2 top-1/2 flex max-h-[min(32rem,calc(100vh_-_2rem_-_2_*_max(var(--edge-top),var(--edge-bottom))))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-shade/10 bg-surface p-5 shadow-lg"
         >
           <Dialog.Title className="text-base font-semibold">
             {adding ? `Also show ${what} on` : `Move ${what} to`}
@@ -318,7 +318,7 @@ function MoveToPicker({
             }}
             placeholder="Find a panel or dashboard…"
             aria-label="Find a panel or dashboard"
-            className="mt-4 w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm placeholder:text-ink-faint focus:border-accent focus:outline-none"
+            className="mt-4 w-full rounded-md border border-shade/15 bg-white px-3 py-2 text-sm placeholder:text-ink-faint focus:border-accent focus:outline-none"
           />
 
           {/* Its own scroller rather than the dialog growing: a workspace with
@@ -433,7 +433,7 @@ function MoveToPicker({
                         data-1p-ignore
                         data-lpignore="true"
                         data-bwignore
-                        className="min-w-0 flex-1 rounded-md border border-black/15 bg-white px-2 py-1 text-sm placeholder:text-ink-faint focus:border-accent focus:outline-none"
+                        className="min-w-0 flex-1 rounded-md border border-shade/15 bg-white px-2 py-1 text-sm placeholder:text-ink-faint focus:border-accent focus:outline-none"
                       />
                       <button
                         type="submit"
@@ -472,7 +472,7 @@ function MoveToPicker({
           <div className="flex justify-end pt-4">
             <Dialog.Close
               disabled={busy}
-              className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+              className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
             >
               Cancel
             </Dialog.Close>
@@ -527,7 +527,7 @@ function DashboardHeading({
     <rect x={x} y={y} width="5.5" height="5.5" rx="1" fill="none" stroke="currentColor" strokeWidth="1.5" />
   );
   return (
-    <section className="mt-3 border-t border-black/10">
+    <section className="mt-3 border-t border-shade/10">
       {/* The + sits beside the heading rather than in it, so it is not part of
           the heading's name. */}
       <div className="sticky top-0 z-10 flex items-center gap-2 bg-surface px-2 pb-1 pt-3">

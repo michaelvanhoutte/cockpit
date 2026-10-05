@@ -144,7 +144,7 @@ export function WhatCockpitChangedOnAnItem({
       {changes.map((entry) => {
         const isOpen = open.has(entry.id);
         return (
-          <li key={entry.id} className="border-b border-black/5 py-1.5 last:border-b-0">
+          <li key={entry.id} className="border-b border-shade/5 py-1.5 last:border-b-0">
             <button
               type="button"
               aria-expanded={isOpen}

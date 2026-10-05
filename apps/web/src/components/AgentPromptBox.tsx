@@ -39,7 +39,7 @@ export function AgentPromptBox({
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-black/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
         <Dialog.Content
           aria-describedby={undefined}
           onCloseAutoFocus={(event) => {
@@ -47,7 +47,7 @@ export function AgentPromptBox({
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed z-floating left-1/2 top-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
+          className="fixed z-floating left-1/2 top-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg"
         >
           <Dialog.Title className="truncate text-base font-semibold">About “{about}”</Dialog.Title>
           <p className="mt-1 text-sm text-ink-soft">{agentName}</p>
@@ -66,7 +66,7 @@ export function AgentPromptBox({
               aria-label="What to ask Claude"
               rows={4}
               maxLength={4000}
-              className="mt-4 w-full resize-y rounded-md border border-black/10 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+              className="mt-4 w-full resize-y rounded-md border border-shade/10 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
             />
 
             {refusal && (
@@ -79,7 +79,7 @@ export function AgentPromptBox({
               <Dialog.Close
                 type="button"
                 disabled={sending}
-                className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+                className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
               >
                 Cancel
               </Dialog.Close>

@@ -128,7 +128,7 @@ export function DescriptionBox({ value, onChange, editable, resetKey, uploadImag
           // into the dialog's own once the two shared a box ("Give the
           // item's form more room, and put clutter out of the way", issue
           // 480).
-          className="mt-1 min-h-0 flex-1 resize-none rounded-md border border-black/10 bg-white px-3 py-2 font-mono text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+          className="mt-1 min-h-0 flex-1 resize-none rounded-md border border-shade/10 bg-white px-3 py-2 font-mono text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
         />
       ) : (
         // `RichDescription`'s own `fill` skips its usual border/background/
@@ -139,7 +139,7 @@ export function DescriptionBox({ value, onChange, editable, resetKey, uploadImag
         // (above) kept its (found in review). Supplied here instead, so
         // `Arriving` below drops the matching border/background it used to
         // carry on its own rather than drawing two.
-        <div className="mt-1 flex min-h-0 flex-1 flex-col rounded-md border border-black/10 bg-white focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40">
+        <div className="mt-1 flex min-h-0 flex-1 flex-col rounded-md border border-shade/10 bg-white focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40">
           <WhateverTheEditorDoes onFailure={() => setFailed(true)}>
             <Suspense fallback={<Arriving value={value} />}>
               <RichDescription
@@ -231,7 +231,7 @@ function Arriving({ value }: { value: string }) {
         readOnly
         aria-label="Description"
         value={value}
-        className="min-h-0 flex-1 resize-none rounded-md bg-black/5 px-3 py-2 font-mono text-sm font-normal normal-case tracking-normal text-ink-soft outline-none"
+        className="min-h-0 flex-1 resize-none rounded-md bg-shade/5 px-3 py-2 font-mono text-sm font-normal normal-case tracking-normal text-ink-soft outline-none"
       />
       {/* A status rather than a paragraph: it is a live region, so a screen
           reader is told the editor arrived rather than having to go and look. */}

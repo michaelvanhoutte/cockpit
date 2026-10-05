@@ -72,13 +72,19 @@ export function LogonPage() {
             parse, so there is nothing here to await. */}
         <a
           href={guestSignInPath(document.referrer)}
-          className="mt-2 flex w-full items-center justify-center rounded-md border border-black/10 px-3 py-2 text-sm font-medium text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
+          className="mt-2 flex w-full items-center justify-center rounded-md border border-shade/10 px-3 py-2 text-sm font-medium text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
         >
           Continue as guest
         </a>
 
         <Refusal />
       </main>
+      <p className="mt-4 text-xs text-ink-soft">
+        © 2026{' '}
+        <a href="https://www.conselit.be" target="_blank" rel="noopener" className="hover:text-ink hover:underline">
+          Conselit · conselit.be
+        </a>
+      </p>
     </div>
   );
 }

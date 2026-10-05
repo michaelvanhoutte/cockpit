@@ -113,7 +113,7 @@ export default function ManageConnectedApps({
         Apps you allowed to capture items into your Cockpit. To connect Claude, paste this address into
         claude.ai.
       </p>
-      <div className="mt-3 flex items-center gap-3 rounded-md border border-black/10 p-3">
+      <div className="mt-3 flex items-center gap-3 rounded-md border border-shade/10 p-3">
         <code className="min-w-0 flex-1 select-all break-all text-sm">{address}</code>
         <button
           type="button"
@@ -128,7 +128,7 @@ export default function ManageConnectedApps({
       <section className="-mx-2 mt-2 min-h-0 flex-1 overflow-y-auto">
         <ul>
           {apps.map((app) => (
-            <li key={app.id} className="border-b border-black/5 px-4 py-2 last:border-b-0">
+            <li key={app.id} className="border-b border-shade/5 px-4 py-2 last:border-b-0">
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm">{app.name}</p>

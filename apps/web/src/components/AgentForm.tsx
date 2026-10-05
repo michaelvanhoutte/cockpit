@@ -64,7 +64,7 @@ export function AgentForm({
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-black/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
         <Dialog.Content
           aria-describedby={undefined}
           onCloseAutoFocus={(event) => {
@@ -72,7 +72,7 @@ export function AgentForm({
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed z-floating left-1/2 top-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
+          className="fixed z-floating left-1/2 top-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg"
         >
           <Dialog.Title className="truncate text-base font-semibold">{title}</Dialog.Title>
 
@@ -91,7 +91,7 @@ export function AgentForm({
                 onChange={(event) => onName(event.target.value)}
                 aria-label="Name of the agent"
                 maxLength={60}
-                className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                className="mt-1 w-full rounded-md border border-shade/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
               />
             </label>
 
@@ -109,7 +109,7 @@ export function AgentForm({
                     className={`flex size-8 items-center justify-center rounded-md border disabled:opacity-50 ${
                       color === swatch
                         ? 'border-ink ring-2 ring-ink/20'
-                        : 'border-black/10 hover:border-black/30'
+                        : 'border-shade/10 hover:border-shade/30'
                     }`}
                   >
                     <span className="block size-4 rounded-full" style={{ backgroundColor: swatch }} />
@@ -127,7 +127,7 @@ export function AgentForm({
                 aria-label="The message this agent sends with an item"
                 rows={4}
                 maxLength={4000}
-                className="mt-1 w-full resize-y rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                className="mt-1 w-full resize-y rounded-md border border-shade/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
               />
               <span className="mt-1 block text-xs font-normal normal-case tracking-normal text-ink-faint">
                 {'{title}'}, {'{description}'}, {'{link}'} and, where it asks for one, {'{prompt}'}.
@@ -140,7 +140,7 @@ export function AgentForm({
                 disabled={saving}
                 checked={asksForPrompt}
                 onChange={(event) => onAsksForPrompt(event.target.checked)}
-                className="size-4 rounded border-black/20"
+                className="size-4 rounded border-shade/20"
               />
               Ask for a prompt when dropped
             </label>
@@ -151,7 +151,7 @@ export function AgentForm({
                 disabled={saving}
                 checked={startsInProgress}
                 onChange={(event) => onStartsInProgress(event.target.checked)}
-                className="size-4 rounded border-black/20"
+                className="size-4 rounded border-shade/20"
               />
               Set the item In progress when started
             </label>
@@ -166,7 +166,7 @@ export function AgentForm({
               <Dialog.Close
                 type="button"
                 disabled={saving}
-                className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+                className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
               >
                 Cancel
               </Dialog.Close>

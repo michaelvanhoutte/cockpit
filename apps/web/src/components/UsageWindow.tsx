@@ -49,7 +49,7 @@ export default function UsageWindow({
         <label className="flex items-center gap-2">
           Show the last
           <select
-            className="rounded border border-black/15 px-2 py-1 text-sm text-ink"
+            className="rounded border border-shade/15 px-2 py-1 text-sm text-ink"
             value={days}
             onChange={(event) => setDays(Number(event.target.value))}
           >
@@ -117,7 +117,7 @@ function Figures({ usage }: { usage: Usage }) {
               </thead>
               <tbody>
                 {guests.perDay.map((day) => (
-                  <tr key={day.day} className="border-t border-black/5">
+                  <tr key={day.day} className="border-t border-shade/5">
                     <td className="py-1">{day.day}</td>
                     <td className="py-1">{day.sessions}</td>
                     <td className="py-1">{day.itemsCaptured}</td>
@@ -146,7 +146,7 @@ function Figures({ usage }: { usage: Usage }) {
         </h3>
         <ul className="mt-1">
           {named.map((person) => (
-            <li key={person.userId} className="border-t border-black/5 py-2 first:border-t-0">
+            <li key={person.userId} className="border-t border-shade/5 py-2 first:border-t-0">
               <p className="text-sm">{person.name}</p>
               <p className="text-sm text-ink-faint">
                 {person.latest ? `Latest ${when(person.latest)}` : 'Has not signed in yet'}
@@ -172,7 +172,7 @@ function Breakdown({ title, rows }: { title: string; rows: { name: string | null
       <h4 className="text-xs text-ink-faint">{title}</h4>
       <ul className="mt-1 text-sm">
         {rows.map((row) => (
-          <li key={row.name ?? ''} className="flex justify-between gap-3 border-t border-black/5 py-1">
+          <li key={row.name ?? ''} className="flex justify-between gap-3 border-t border-shade/5 py-1">
             {/* Plain text, whatever it holds: a referrer is client input. */}
             <span className="min-w-0 truncate">{row.name ?? 'Unknown'}</span>
             <span>{row.sessions}</span>

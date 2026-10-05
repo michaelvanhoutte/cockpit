@@ -224,6 +224,7 @@ describe('Across the app', () => {
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Settings…',
         'Sign out',
+        '© 2026 Conselit · conselit.be',
       ]);
     });
 
@@ -435,6 +436,7 @@ describe('User management', () => {
         'Settings…',
         'Platform settings…',
         'Sign out',
+        '© 2026 Conselit · conselit.be',
       ]);
     });
   });

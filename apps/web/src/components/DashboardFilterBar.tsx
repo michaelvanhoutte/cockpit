@@ -73,15 +73,15 @@ export function DashboardFilterBar({
 
   const chip = (on: boolean) =>
     `rounded-full border px-2.5 py-0.5 text-xs ${
-      on ? 'border-accent bg-accent-tint text-ink' : 'border-black/15 text-ink-soft hover:bg-black/5'
+      on ? 'border-accent bg-accent-tint text-ink' : 'border-shade/15 text-ink-soft hover:bg-shade/5'
     }`;
 
   // One filter's chips are joined inside one outline, so where a filter ends is
   // plain without spending width on a label.
-  const group = 'inline-flex items-center overflow-hidden rounded-full border border-black/15';
+  const group = 'inline-flex items-center overflow-hidden rounded-full border border-shade/15';
   const segment = (on: boolean) =>
-    `border-l border-black/15 px-2.5 py-0.5 text-xs first:border-l-0 ${
-      on ? 'bg-accent-tint text-ink' : 'text-ink-soft hover:bg-black/5'
+    `border-l border-shade/15 px-2.5 py-0.5 text-xs first:border-l-0 ${
+      on ? 'bg-accent-tint text-ink' : 'text-ink-soft hover:bg-shade/5'
     }`;
 
   return (
@@ -93,7 +93,7 @@ export function DashboardFilterBar({
       <div
         role="search"
         aria-label="Dashboard filter"
-        className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-black/10 bg-black/[0.03] px-3 py-2 text-sm"
+        className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-shade/10 bg-shade/[0.03] px-3 py-2 text-sm"
       >
         <span className="flex items-center gap-1.5 text-ink-soft">
           <FunnelGlyph filled={filtering} />
@@ -154,7 +154,7 @@ export function DashboardFilterBar({
           <label className="flex items-center gap-1.5">
             <span className="text-ink-soft">Due</span>
             <select
-              className="rounded border border-black/15 bg-transparent px-1 py-0.5 text-xs"
+              className="rounded border border-shade/15 bg-transparent px-1 py-0.5 text-xs"
               value={filter.due?.window ?? ''}
               onChange={(event) =>
                 setFilter({
@@ -196,7 +196,7 @@ export function DashboardFilterBar({
           <input
             type="search"
             placeholder="Containing…"
-            className="w-full rounded border border-black/15 bg-transparent px-2 py-0.5 text-xs"
+            className="w-full rounded border border-shade/15 bg-transparent px-2 py-0.5 text-xs"
             value={filter.text}
             onChange={(event) => setFilter({ ...filter, text: event.target.value })}
           />
@@ -242,7 +242,7 @@ export function DashboardFilterBar({
           type="button"
           aria-label="Clear the filter"
           title="Clear the filter"
-          className={`${panelsHidden > 0 ? "" : "ml-auto "}rounded px-1.5 py-0.5 text-ink-soft hover:bg-black/5 disabled:opacity-40`}
+          className={`${panelsHidden > 0 ? "" : "ml-auto "}rounded px-1.5 py-0.5 text-ink-soft hover:bg-shade/5 disabled:opacity-40`}
           disabled={!filtering}
           onClick={() => {
             // Kept open even where it was up only because it was filtered, as

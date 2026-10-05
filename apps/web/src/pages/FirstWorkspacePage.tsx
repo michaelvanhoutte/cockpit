@@ -113,7 +113,7 @@ export function FirstWorkspacePage() {
             aria-label="Name of the new workspace"
             maxLength={60}
             autoFocus
-            className="w-full rounded-md border border-black/10 bg-surface px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+            className="w-full rounded-md border border-shade/10 bg-surface px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
           />
           <button
             type="submit"

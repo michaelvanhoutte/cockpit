@@ -938,6 +938,12 @@ function TheShell() {
                 >
                   Sign out
                 </DropdownMenu.Item>
+                <DropdownMenu.Separator className="my-1 h-px bg-shade/10" />
+                <DropdownMenu.Item asChild className={`${menuItemClass} text-xs text-ink-faint`}>
+                  <a href="https://www.conselit.be" target="_blank" rel="noopener">
+                    © 2026 Conselit · conselit.be
+                  </a>
+                </DropdownMenu.Item>
               </MenuContent>
             </DropdownMenu.Root>
           </div>

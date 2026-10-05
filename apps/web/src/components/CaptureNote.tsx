@@ -520,7 +520,7 @@ export function CaptureNote({
           and a due date: one box rather than a row of its own, which took too
           much room. The border and the focus ring belong to the box, so the
           strip reads as inside the note rather than under it. */}
-      <div className="order-1 mt-2.5 flex w-full flex-col rounded-md border border-black/10 bg-white shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)] focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40 sm:order-none sm:mt-4 sm:min-h-56">
+      <div className="order-1 mt-2.5 flex w-full flex-col rounded-md border border-shade/10 bg-white shadow-field focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40 sm:order-none sm:mt-4 sm:min-h-56">
         <textarea
           value={shown}
           onChange={(e) => {
@@ -553,13 +553,13 @@ export function CaptureNote({
           three before anyone has tried any of them. */}
       <div
         className={`order-1 mt-2 flex flex-col gap-1.5 rounded-md border border-dashed px-3 py-2 sm:order-none ${
-          filesOver ? 'border-accent bg-accent-tint' : 'border-black/10'
+          filesOver ? 'border-accent bg-accent-tint' : 'border-shade/10'
         }`}
       >
         {queued.map((file) => (
           <div
             key={file.id}
-            className="flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm"
+            className="flex items-center gap-2 rounded-md border border-shade/10 bg-white px-3 py-2 text-sm"
           >
             {file.previewUrl ? (
               <img
@@ -581,7 +581,7 @@ export function CaptureNote({
               onClick={() => removeQueued(file.id)}
               title="Remove"
               aria-label={`Remove ${file.file.name}`}
-              className="shrink-0 rounded-md border border-black/10 px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+              className="shrink-0 rounded-md border border-shade/10 px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
             >
               ✕
             </button>
@@ -596,7 +596,7 @@ export function CaptureNote({
         <button
           type="button"
           onClick={() => attachmentInputRef.current?.click()}
-          className="self-start rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+          className="self-start rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50"
         >
           Add
         </button>
@@ -673,7 +673,7 @@ export function CaptureNote({
         <button
           type="submit"
           disabled={busy || !chosen}
-          className="milled min-h-13 w-full rounded-[10px] bg-accent text-[17px] font-medium text-white hover:bg-accent-deep disabled:opacity-50 sm:min-h-0 sm:w-auto sm:flex-none sm:rounded-md sm:px-[22px] sm:py-[11px] sm:text-[15px]"
+          className="milled min-h-13 w-full rounded-md bg-accent text-[17px] font-medium text-white hover:bg-accent-deep disabled:opacity-50 sm:min-h-0 sm:w-auto sm:flex-none sm:rounded-md sm:px-[22px] sm:py-[11px] sm:text-[15px]"
         >
           Capture
         </button>
@@ -693,7 +693,7 @@ export function CaptureNote({
       {rows.length > 0 && (
         <section
           aria-labelledby={JUST_CAPTURED}
-          className="order-5 mt-[18px] border-t border-[rgb(41_43_49/0.08)] pt-3 sm:order-none sm:mt-auto"
+          className="order-5 mt-[18px] border-t border-shade/8 pt-3 sm:order-none sm:mt-auto"
         >
           <div className="flex items-baseline gap-2">
             <h2
@@ -778,7 +778,7 @@ const FLAG_COLOURS: Record<Priority, { lit: string; unlit: string }> = {
 const STRIP_BUTTON =
   'inline-flex min-h-9 shrink-0 items-center justify-center rounded-md border px-2 text-sm disabled:opacity-50 sm:min-h-0 sm:py-0.5 sm:text-xs';
 const QUIET_BUTTON =
-  'border-black/10 bg-white text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink';
+  'border-shade/10 bg-white text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink';
 const LIT_BUTTON = 'border-accent bg-accent-tint font-medium text-accent-deep';
 /** The mic while listening: filled, where a lit chip is only tinted, so it cannot be mistaken for a choice made. */
 const LIT_BUTTON_SOLID = 'border-accent bg-accent text-white';
@@ -840,7 +840,7 @@ function PriorityAndDue({
               title={`${PRIORITY_LABELS[level]} priority`}
               onClick={() => onPriority(lit ? null : level)}
               className={`${STRIP_BUTTON} w-9 sm:w-7 ${
-                lit ? FLAG_COLOURS[level].lit : `border-black/10 bg-white ${FLAG_COLOURS[level].unlit}`
+                lit ? FLAG_COLOURS[level].lit : `border-shade/10 bg-white ${FLAG_COLOURS[level].unlit}`
               }`}
             >
               <span aria-hidden="true">⚑</span>
@@ -1087,7 +1087,7 @@ function Chip({
       className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full border px-4 text-[15px] sm:min-h-0 sm:py-[7px] sm:text-sm ${
         chosen
           ? 'border-accent bg-accent-tint font-medium text-accent-deep'
-          : 'border-black/10 bg-white text-ink'
+          : 'border-shade/10 bg-white text-ink'
       }`}
     >
       {dot && (
@@ -1128,7 +1128,7 @@ function CapturedRow({
   const { state } = captured;
 
   return (
-    <li className="flex flex-col gap-0.5 border-b border-black/5 py-2 last:border-0 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:py-[7px]">
+    <li className="flex flex-col gap-0.5 border-b border-shade/5 py-2 last:border-0 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:py-[7px]">
       <span className="flex min-w-0 items-center gap-2 sm:flex-1">
         <span
           aria-hidden="true"
@@ -1157,7 +1157,7 @@ function CapturedRow({
             <button
               type="button"
               onClick={onPutBack}
-              className="shrink-0 rounded-md border border-black/10 px-2 py-0.5 text-ink-soft hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
+              className="shrink-0 rounded-md border border-shade/10 px-2 py-0.5 text-ink-soft hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
             >
               Put back
             </button>

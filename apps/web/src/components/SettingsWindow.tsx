@@ -109,7 +109,7 @@ function ConnectionsOf({
           <select
             value={chosen.id}
             onChange={(event) => setPicked(event.target.value)}
-            className="rounded border border-black/10 px-1 py-0.5"
+            className="rounded border border-shade/10 px-1 py-0.5"
           >
             {workspaces.map((ws) => (
               <option key={ws.id} value={ws.id}>

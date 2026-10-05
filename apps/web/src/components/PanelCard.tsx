@@ -207,7 +207,7 @@ export function PanelCard({
       // old height regardless - nothing to shrink into, and nothing to scroll
       // ("A Panel doesn't shrink or scroll to fit a shorter dashboard row",
       // issue 432).
-      className={`@container flex min-h-0 min-w-0 flex-col border border-dotted border-black/15 ${
+      className={`@container flex min-h-0 min-w-0 flex-col border border-dotted border-shade/15 ${
         lifted ? 'rounded-lg opacity-40 outline-2 outline-dashed outline-accent' : 'rounded-sm'
       }`}
     >
@@ -405,7 +405,7 @@ export function PanelCard({
                 aria-label={`New name for ${panel.name}`}
                 maxLength={60}
                 autoFocus
-                className="min-w-0 flex-1 rounded-md border border-black/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                className="min-w-0 flex-1 rounded-md border border-shade/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
               />
               <button
                 type="submit"
@@ -417,7 +417,7 @@ export function PanelCard({
               <button
                 type="button"
                 onClick={onStopRenaming}
-                className="shrink-0 rounded-md border border-black/10 px-2 py-1 text-xs hover:bg-accent-tint hover:text-accent-deep"
+                className="shrink-0 rounded-md border border-shade/10 px-2 py-1 text-xs hover:bg-accent-tint hover:text-accent-deep"
               >
                 Cancel
               </button>

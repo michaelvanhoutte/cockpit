@@ -96,14 +96,14 @@ export function ConnectClaudeCode({
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && close()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-black/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
         <Dialog.Content
           onCloseAutoFocus={(event) => {
             if (!returnFocusTo) return;
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] max-h-[calc(100dvh-2rem_-_var(--edge-top))] flex w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 flex-col rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
+          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] max-h-[calc(100dvh-2rem_-_var(--edge-top))] flex w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 flex-col rounded-lg border border-shade/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
           <form
             onSubmit={(event) => {
@@ -132,7 +132,7 @@ export function ConnectClaudeCode({
                       along when an agent starts", issue 573). Said once, here,
                       since it is needed before the first start. */}
                   2. Allow its environment to reach{' '}
-                  <code className="rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
+                  <code className="rounded bg-shade/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
                     {window.location.hostname}
                   </code>
                   , so the session can read an item's attachments and say when it is waiting on you.
@@ -145,14 +145,14 @@ export function ConnectClaudeCode({
                   <div className="mt-1 flex items-start gap-2">
                     <code
                       aria-label="Routine prompt"
-                      className="min-w-0 flex-1 whitespace-pre-wrap break-words rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft"
+                      className="min-w-0 flex-1 whitespace-pre-wrap break-words rounded bg-shade/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft"
                     >
                       {ROUTINE_PROMPT}
                     </code>
                     <button
                       type="button"
                       onClick={() => void navigator.clipboard.writeText(ROUTINE_PROMPT).catch(() => {})}
-                      className="shrink-0 rounded-md border border-black/10 px-2 py-1 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
+                      className="shrink-0 rounded-md border border-shade/10 px-2 py-1 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
                     >
                       Copy
                     </button>
@@ -168,7 +168,7 @@ export function ConnectClaudeCode({
                       placeholder="https://api.anthropic.com/v1/claude_code/routines/…/fire"
                       autoFocus
                       disabled={busy}
-                      className="w-full rounded-md border border-black/10 bg-surface px-3 py-2 text-base outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 disabled:opacity-50"
+                      className="w-full rounded-md border border-shade/10 bg-surface px-3 py-2 text-base outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 disabled:opacity-50"
                     />
                     <input
                       value={token}
@@ -177,7 +177,7 @@ export function ConnectClaudeCode({
                       aria-label="Routine token"
                       placeholder="Token"
                       disabled={busy}
-                      className="w-full rounded-md border border-black/10 bg-surface px-3 py-2 text-base outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 disabled:opacity-50"
+                      className="w-full rounded-md border border-shade/10 bg-surface px-3 py-2 text-base outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 disabled:opacity-50"
                     />
                   </div>
                 </li>
@@ -194,7 +194,7 @@ export function ConnectClaudeCode({
             <div className="flex justify-end gap-2 pt-4">
               <Dialog.Close
                 disabled={busy}
-                className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+                className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
               >
                 Cancel
               </Dialog.Close>
@@ -259,7 +259,7 @@ function ReportingBack({
           <div className="flex items-start gap-2">
             <pre
               aria-label="Hooks for .claude/settings.json"
-              className="max-h-72 min-w-0 flex-1 overflow-y-auto whitespace-pre-wrap break-all rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs text-ink-soft"
+              className="max-h-72 min-w-0 flex-1 overflow-y-auto whitespace-pre-wrap break-all rounded bg-shade/5 px-1.5 py-0.5 font-mono text-xs text-ink-soft"
             >
               {claudeCodeHooksSnippet(data)}
             </pre>
@@ -281,7 +281,7 @@ function CopyButton({ text }: { text: string }) {
     <button
       type="button"
       onClick={() => void navigator.clipboard.writeText(text).catch(() => {})}
-      className="shrink-0 rounded-md border border-black/10 px-2 py-1 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
+      className="shrink-0 rounded-md border border-shade/10 px-2 py-1 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
     >
       Copy
     </button>
