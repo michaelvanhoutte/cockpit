@@ -254,7 +254,7 @@ export default function ManageUsers({
               <label
                 key={role}
                 className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm ${
-                  stuck ? 'border-black/5 text-ink-faint' : 'border-black/10'
+                  stuck ? 'border-shade/5 text-ink-faint' : 'border-shade/10'
                 }`}
               >
                 <input
@@ -528,7 +528,7 @@ function AddSomebody() {
       <label className="flex flex-col gap-1 text-xs text-ink-faint">
         Name
         <input
-          className="rounded border border-black/15 px-2 py-1 text-sm text-ink"
+          className="rounded border border-shade/15 px-2 py-1 text-sm text-ink"
           value={name}
           maxLength={NAME_LIMIT}
           onChange={(event) => setName(event.target.value)}
@@ -537,7 +537,7 @@ function AddSomebody() {
       <label className="flex flex-col gap-1 text-xs text-ink-faint">
         Signs in with
         <input
-          className="rounded border border-black/15 px-2 py-1 text-sm text-ink"
+          className="rounded border border-shade/15 px-2 py-1 text-sm text-ink"
           value={email}
           maxLength={ADDRESS_LIMIT}
           onChange={(event) => setEmail(event.target.value)}
@@ -545,7 +545,7 @@ function AddSomebody() {
       </label>
       <button
         type="submit"
-        className="rounded bg-black/80 px-3 py-1.5 text-sm text-white disabled:opacity-40"
+        className="rounded bg-shade/80 px-3 py-1.5 text-sm text-white disabled:opacity-40"
         disabled={adding.isPending || name.trim() === '' || email.trim() === ''}
       >
         {adding.isPending ? 'Adding…' : 'Add'}
@@ -609,7 +609,7 @@ function Row({
 }) {
   return (
     <li
-      className="border-b border-black/5 px-4 py-2 last:border-b-0"
+      className="border-b border-shade/5 px-4 py-2 last:border-b-0"
       onDoubleClick={(event) => {
         if (wasOnTheRow(event)) onEdit(user, null);
       }}
@@ -623,7 +623,7 @@ function Row({
                 Cockpit holds, and an admin looking for them would not find them
                 in a list they had dropped out of. */}
             {user.disabled && (
-              <span className="ml-2 rounded bg-black/5 px-1.5 py-0.5 text-xs text-ink-faint">
+              <span className="ml-2 rounded bg-shade/5 px-1.5 py-0.5 text-xs text-ink-faint">
                 No access
               </span>
             )}

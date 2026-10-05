@@ -17,7 +17,7 @@ describe('Management windows', () => {
         <p>content</p>
       </ManageWindow>,
     );
-    const overlay = document.querySelector('.bg-black\\/30')!;
+    const overlay = document.querySelector('.bg-shade\\/30')!;
     const carrying = { dataTransfer: { types: ['Files'], files: [] } };
 
     const leftToTheBrowser = fireEvent.drop(overlay, carrying);

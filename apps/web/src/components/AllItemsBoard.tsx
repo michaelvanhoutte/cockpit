@@ -68,7 +68,7 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
   return (
     <div className="flex min-w-0 flex-col">
       <DashboardFilterBar dashboardId={allItemsFilterId(workspaceId)} withDone />
-      <section className="min-w-0 rounded-md border border-black/10 bg-surface p-3" aria-label="All items">
+      <section className="min-w-0 rounded-md border border-shade/10 bg-surface p-3" aria-label="All items">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-accent-deep">
           All items{' '}
           <span className="text-ink-faint">
@@ -83,7 +83,7 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[40rem] text-left text-sm">
               <thead>
-                <tr className="border-b border-black/10 text-xs uppercase tracking-wide text-ink-faint">
+                <tr className="border-b border-shade/10 text-xs uppercase tracking-wide text-ink-faint">
                   {ALL_ITEMS_COLUMNS.map(({ key, label }) => (
                     <th
                       key={key}
@@ -108,7 +108,7 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
                   <tr
                     key={row.item.id}
                     onClick={() => openItem(row.item.id)}
-                    className={`cursor-pointer border-b border-black/5 last:border-b-0 hover:bg-accent-tint ${
+                    className={`cursor-pointer border-b border-shade/5 last:border-b-0 hover:bg-accent-tint ${
                       row.status === 'done' ? 'text-ink-faint' : ''
                     }`}
                   >
@@ -143,7 +143,7 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
           <button
             type="button"
             onClick={() => setPaging({ of: viewKey, shown: shown + ALL_ITEMS_PAGE })}
-            className="mt-2 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
+            className="mt-2 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
           >
             Show more
           </button>

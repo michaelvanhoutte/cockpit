@@ -18,11 +18,43 @@
 @theme {
   --font-sans: 'Inter Variable', 'Inter', system-ui, sans-serif;
 
-  --color-ink: #292b31;
-  --color-ink-soft: #595d6c;
-  --color-ink-faint: #75798c;
+  /* The Conselit inks (conselit assets/brand.css): headings, body, secondary. */
+  --color-ink-strong: #16181d;
+  --color-ink: #3a3f4b;
+  --color-ink-soft: #646a78;
+  --color-ink-faint: #6a6f7e;
   --color-surface: #f4f5fb;
-  --color-ground: #f3f3f1;
+  --color-ground: #f4f4f2;
+  /* Hairlines, dimming and shadows are this ink at low alpha, never black. */
+  --color-shade: #16181d;
+
+  /*
+   * The Conselit category colours, each with a -tint for hover and selected
+   * fills and a -light for use on the chrome. The status dots below map onto
+   * them rather than keeping near-duplicates.
+   */
+  --color-cat-slate: #2f4f7a;
+  --color-cat-slate-tint: #e9eef5;
+  --color-cat-slate-light: #93a6c2;
+  --color-cat-teal: #0e7490;
+  --color-cat-teal-tint: #e0f2f6;
+  --color-cat-teal-light: #5fc0d3;
+  --color-cat-amber: #9a5b14;
+  --color-cat-amber-tint: #f8ecdc;
+  --color-cat-amber-light: #e3a752;
+  --color-cat-green: #0b7a55;
+  --color-cat-green-tint: #e3f5ee;
+  --color-cat-green-light: #4ad6a0;
+  --color-cat-violet: #6a4cc9;
+  --color-cat-violet-tint: #efebfb;
+  --color-cat-violet-light: #b09af8;
+  --color-cat-grey: #475569;
+  --color-cat-grey-tint: #eceff3;
+  --color-cat-grey-light: #a7b0be;
+
+  /* The chrome's graphite, top to bottom; the bottom is the brand ink. */
+  --color-graphite-top: #2d2e35;
+  --color-graphite-bottom: #16181d;
 
   /*
    * What is drawn *on* the chrome, which is near-black in every theme now
@@ -33,9 +65,17 @@
    */
   --color-chrome-ink: #f2f1f8;
   --color-chrome-ink-soft: #a5a3b5;
-  --color-chrome-ink-faint: #8e8ca0;
+  --color-chrome-ink-faint: #9694a8;
   --color-accent: #6f62b5;
+  /*
+   * Darker than Violet's `deep`, because outside the shell - the sign-in page,
+   * every menu and dialog - it is written on `accent-tint` below rather than on
+   * the shell's lighter 14% mix, and has to reach 4.5:1 there.
+   */
   --color-accent-deep: #5d5294;
+  /* The text on a fill of the accent, and the fill under the pointer: both follow the workspace's theme (`onAccent`, shared). */
+  --color-on-accent: #ffffff;
+  --color-accent-hover: #5d5294;
   --color-accent-soft: #b5abfc;
   --color-accent-tint: #e7e5fe;
   --color-due: #c98a4b;
@@ -67,13 +107,15 @@
    *
    * The hues are the palette's own rather than new ones - teal, cyan and the
    * accent are workspace tints, and `due` is already the app's amber - so the
-   * rows stay in the same world as everything else.
+   * rows stay in the same world as everything else. A name rather than a
+   * value is resolved here, at the root, so `to-process` is the default
+   * violet in every workspace rather than following its accent.
    */
-  --color-status-to-process: #6f62b5;
-  --color-status-task: #3f8f78;
-  --color-status-waiting: #c98a4b;
-  --color-status-delegated: #4f8fa8;
-  --color-status-snoozed: #a9adc0;
+  --color-status-to-process: var(--color-accent);
+  --color-status-task: var(--color-cat-green);
+  --color-status-waiting: var(--color-due);
+  --color-status-delegated: var(--color-cat-teal);
+  --color-status-snoozed: var(--color-cat-grey-light);
   --color-status-reference: #b0b3c2;
 
   /*
@@ -106,8 +148,9 @@
   --color-night-over: #d0716a;
   --color-night-icon: #c9cbd1;
 
+  /* Small marks, buttons and inputs, cards and panels (brand.css). */
   --radius-sm: 4px;
-  --radius-md: 8px;
+  --radius-md: 10px;
   --radius-lg: 14px;
 
   /*
@@ -121,10 +164,25 @@
    * you. Depth without floating anything, and it is the only treatment of the
    * three tried that survives a panel with nothing in it.
    */
-  --shadow-panel: 0 0 0 1px color-mix(in srgb, #6f62b5 14%, #d3d6e2), 0 1px 2px rgb(41 43 49 / 0.05),
-    0 6px 16px rgb(41 43 49 / 0.07);
-  --shadow-raised: 0 0 0 1px color-mix(in srgb, #6f62b5 20%, #c3c6d4), 0 2px 4px rgb(41 43 49 / 0.07),
-    0 12px 28px rgb(41 43 49 / 0.11);
+  --shadow-panel: 0 0 0 1px color-mix(in srgb, var(--color-accent) 14%, #d3d6e2), 0 1px 2px rgb(22 24 29 / 0.05),
+    0 6px 16px rgb(22 24 29 / 0.07);
+  --shadow-raised: 0 0 0 1px color-mix(in srgb, var(--color-accent) 20%, #c3c6d4), 0 2px 4px rgb(22 24 29 / 0.07),
+    0 12px 28px rgb(22 24 29 / 0.11);
+  /* A text field sunk a pixel into its form. */
+  --shadow-field: inset 0 1px 2px rgb(22 24 29 / 0.06);
+  /* The agents' dock's strip, a deeper hollow in the graphite. */
+  --shadow-dock-well: inset 0 1px 3px rgb(0 0 0 / 0.45);
+  /* The marks on the tab you are on: a bar in the workspace's colour along its top. */
+  --shadow-tab-mark: inset 0 2px 0 0 var(--tab-mark);
+}
+
+/* Headings take the strongest ink; body text is `ink` from `body` below. */
+@layer base {
+  h1,
+  h2,
+  h3 {
+    color: var(--color-ink-strong);
+  }
 }
 
 /*
@@ -265,8 +323,8 @@ html[data-car-dark] [data-capture-switch] a[data-lit] {
 @utility well {
   background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 40%, white);
   box-shadow:
-    inset 0 1px 3px rgb(41 43 49 / 0.14),
-    inset 0 0 0 1px rgb(41 43 49 / 0.07);
+    inset 0 1px 3px rgb(22 24 29 / 0.14),
+    inset 0 0 0 1px rgb(22 24 29 / 0.07);
 }
 
 /*
@@ -278,16 +336,16 @@ html[data-car-dark] [data-capture-switch] a[data-lit] {
 @utility well-inbox {
   background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 62%, white);
   box-shadow:
-    inset 0 1px 3px rgb(41 43 49 / 0.16),
-    inset 0 0 0 1px rgb(41 43 49 / 0.09);
+    inset 0 1px 3px rgb(22 24 29 / 0.16),
+    inset 0 0 0 1px rgb(22 24 29 / 0.09);
 }
 
 
 /*
  * The top bar and the agents' dock: the same soft graphite gradient in every
- * workspace, top `#2d2e35` to bottom `#17181c`. `NEUTRAL_HEADER` (shared) is its
- * top, which is what the strip under a phone's status bar is painted with.
+ * workspace. `NEUTRAL_HEADER` (shared) is its top, which is what the strip
+ * under a phone's status bar is painted with.
  */
 @utility graphite {
-  background-image: linear-gradient(#2d2e35, #17181c);
+  background-image: linear-gradient(var(--color-graphite-top), var(--color-graphite-bottom));
 }

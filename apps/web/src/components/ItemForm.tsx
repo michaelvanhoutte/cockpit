@@ -1250,7 +1250,7 @@ function TheForm({
             the browser for the reason the form's own drop is. */}
         {!docked && (
           <Dialog.Overlay
-            className="fixed inset-0 z-floating bg-black/30"
+            className="fixed inset-0 z-floating bg-shade/30"
             onDragOver={(event) => {
               if (takesFiles(event)) event.preventDefault();
             }}
@@ -1359,8 +1359,8 @@ function TheForm({
           // positioning, the sizing and the modality below it are its own.
           className={`${
             docked
-              ? '@container fixed z-floating right-0 top-0 flex h-full flex-col overflow-hidden rounded-l-lg border border-black/10 bg-surface p-5 shadow-lg'
-              : '@container fixed z-floating left-1/2 top-1/2 flex h-[var(--item-form-h)] max-h-[var(--item-form-max-h)] min-h-[min(18rem,var(--item-form-max-h))] w-[var(--item-form-w)] max-w-[var(--item-form-max-w)] min-w-[min(20rem,var(--item-form-max-w))] -translate-x-1/2 -translate-y-1/2 flex-col resize-none overflow-hidden rounded-lg border border-black/10 bg-surface p-5 shadow-lg sm:resize'
+              ? '@container fixed z-floating right-0 top-0 flex h-full flex-col overflow-hidden rounded-l-lg border border-shade/10 bg-surface p-5 shadow-lg'
+              : '@container fixed z-floating left-1/2 top-1/2 flex h-[var(--item-form-h)] max-h-[var(--item-form-max-h)] min-h-[min(18rem,var(--item-form-max-h))] w-[var(--item-form-w)] max-w-[var(--item-form-max-w)] min-w-[min(20rem,var(--item-form-max-w))] -translate-x-1/2 -translate-y-1/2 flex-col resize-none overflow-hidden rounded-lg border border-shade/10 bg-surface p-5 shadow-lg sm:resize'
           }${filesOver ? ' ring-2 ring-accent' : ''}`}
           style={
             docked
@@ -1397,7 +1397,7 @@ function TheForm({
               type="button"
               disabled={saving}
               onClick={() => void togglePresentation()}
-              className="rounded-md border border-black/10 bg-surface px-2 py-1 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+              className="rounded-md border border-shade/10 bg-surface px-2 py-1 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
             >
               {chosenDocked ? 'Center' : 'Dock'}
             </button>
@@ -1443,7 +1443,7 @@ function TheForm({
                     onBlur={() => {
                       if (docked) void commitFields(['title']);
                     }}
-                    className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                    className="mt-1 w-full rounded-md border border-shade/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
                   />
                 </label>
 
@@ -1480,7 +1480,7 @@ function TheForm({
                 <div
                   role="tablist"
                   aria-label="Item"
-                  className="mt-3 flex shrink-0 gap-4 border-b border-black/10"
+                  className="mt-3 flex shrink-0 gap-4 border-b border-shade/10"
                   onKeyDown={(e) => {
                     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
                     e.preventDefault();
@@ -1570,7 +1570,7 @@ function TheForm({
                                   // now, as one thing to undo.
                                   if (docked) void commitFields(['title', 'description']);
                                 }}
-                                className="rounded-md border border-black/10 bg-surface px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                                className="rounded-md border border-shade/10 bg-surface px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
                               >
                                 <span className="block font-medium text-ink">{reading.title}</span>
                                 <span className="block text-xs text-ink-faint">{reading.meaning}</span>
@@ -1603,7 +1603,7 @@ function TheForm({
                                   // src/itemForm.tsx) - which is what makes this a link
                                   // between two notes rather than a jump out of one.
                                   onClick={() => openItem(other.id)}
-                                  className="flex-1 rounded-md border border-black/10 bg-surface px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                                  className="flex-1 rounded-md border border-shade/10 bg-surface px-3 py-2 text-left text-sm hover:border-accent hover:bg-accent-tint disabled:opacity-50"
                                 >
                                   <span className="block font-medium text-ink">{itemLabel(other)}</span>
                                 </button>
@@ -1617,7 +1617,7 @@ function TheForm({
                                   onClick={() => void settleNotADuplicate(other.id, other)}
                                   title="Not a duplicate"
                                   aria-label="Not a duplicate"
-                                  className="rounded-md border border-black/10 bg-surface px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+                                  className="rounded-md border border-shade/10 bg-surface px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
                                 >
                                   ✕
                                 </button>
@@ -1668,7 +1668,7 @@ function TheForm({
                               setDraft({ ...draft, typeId: e.target.value });
                               if (docked) void commitFields(['typeId']);
                             }}
-                            className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                            className="mt-1 w-full rounded-md border border-shade/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
                           >
                             {/* Only while the item has none: nothing sets a type to none, so once one is picked it is not offered again. */}
                             {draft.typeId === null && <option value="">No type</option>}
@@ -1688,7 +1688,7 @@ function TheForm({
                               setDraft({ ...draft, status: e.target.value as ItemStatus });
                               if (docked) void commitFields(['status']);
                             }}
-                            className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                            className="mt-1 w-full rounded-md border border-shade/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
                           >
                             <option value="to_do">To do</option>
                             <option value="in_progress">In progress</option>
@@ -1766,7 +1766,7 @@ function TheForm({
                               onBlur={() => {
                                 if (docked) void settleDueDate();
                               }}
-                              className="mt-1 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                              className="mt-1 w-full rounded-md border border-shade/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
                             />
                           </label>
                           {/* One-click alongside typing one directly (issue
@@ -1788,7 +1788,7 @@ function TheForm({
                                   });
                                   if (docked) void settleDueDate();
                                 }}
-                                className="rounded-md border border-black/10 px-2 py-0.5 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+                                className="rounded-md border border-shade/10 px-2 py-0.5 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
                               >
                                 {label}
                               </button>
@@ -1849,13 +1849,13 @@ function TheForm({
                             item's description", issue 442). */}
                         <div
                           className={`mt-1 flex flex-col gap-1.5 rounded-md border border-dashed px-3 py-2 ${
-                            filesOver ? 'border-accent bg-accent-tint' : 'border-black/10'
+                            filesOver ? 'border-accent bg-accent-tint' : 'border-shade/10'
                           }`}
                         >
                           {attachments.map((attachment) => (
                             <div
                               key={attachment.id}
-                              className="flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm"
+                              className="flex items-center gap-2 rounded-md border border-shade/10 bg-white px-3 py-2 text-sm"
                             >
                               <a
                                 href={attachmentUrl(attachment.id)}
@@ -1889,7 +1889,7 @@ function TheForm({
                                 onClick={() => void removeAttachment(attachment)}
                                 title="Remove"
                                 aria-label={`Remove ${attachment.filename}`}
-                                className="shrink-0 rounded-md border border-black/10 px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+                                className="shrink-0 rounded-md border border-shade/10 px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
                               >
                                 ✕
                               </button>
@@ -1898,7 +1898,7 @@ function TheForm({
                           {pendingAttachments.map((pending) => (
                             <div
                               key={`pending-${pending.id}`}
-                              className="flex items-center gap-2 rounded-md border border-black/10 px-3 py-2 text-sm text-ink-faint"
+                              className="flex items-center gap-2 rounded-md border border-shade/10 px-3 py-2 text-sm text-ink-faint"
                             >
                               <span aria-hidden="true">⏳</span>
                               <span className="min-w-0 flex-1 truncate">{pending.filename}</span>
@@ -1912,7 +1912,7 @@ function TheForm({
                             type="button"
                             disabled={saving}
                             onClick={() => attachmentInputRef.current?.click()}
-                            className="self-start rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                            className="self-start rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50"
                           >
                             Add
                           </button>
@@ -1980,13 +1980,13 @@ function TheForm({
                             what Cockpit proposed for the Inbox's items", issue
                             444). */}
                         <dd className="mt-1 flex items-center gap-2">
-                          <code className="min-w-0 flex-1 truncate rounded bg-black/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
+                          <code className="min-w-0 flex-1 truncate rounded bg-shade/5 px-1.5 py-0.5 font-mono text-sm text-ink-soft">
                             {item.id}
                           </code>
                           <button
                             type="button"
                             onClick={() => void navigator.clipboard.writeText(item.id).catch(() => {})}
-                            className="shrink-0 rounded-md border border-black/10 px-2 py-1 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
+                            className="shrink-0 rounded-md border border-shade/10 px-2 py-1 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
                           >
                             Copy
                           </button>
@@ -2069,14 +2069,14 @@ function TheForm({
               // Nothing to save and nothing to discard: each field was written
               // as it was left (`commitFields`), and closing keeps whatever is
               // still in a box.
-              <Dialog.Close className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
+              <Dialog.Close className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
                 Close
               </Dialog.Close>
             ) : (
               <div className="flex gap-2">
                 <Dialog.Close
                   disabled={saving}
-                  className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+                  className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
                 >
                   Cancel
                 </Dialog.Close>
@@ -2084,7 +2084,7 @@ function TheForm({
                   type="button"
                   disabled={!item || saving || tooLong}
                   onClick={() => void save()}
-                  className="milled shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+                  className="milled shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
                 >
                   Save
                 </button>

@@ -23,7 +23,7 @@ export function Segmented<V extends string>({
     <div
       role="radiogroup"
       aria-label={label}
-      className={`inline-flex rounded-md border border-black/10 p-0.5 text-sm ${className}`}
+      className={`inline-flex rounded-md border border-shade/10 p-0.5 text-sm ${className}`}
     >
       {options.map((option) => (
         <label key={option.value} className="relative" title={option.hint}>

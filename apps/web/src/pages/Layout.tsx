@@ -3,7 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ADMIN, DEFAULT_WORKSPACE_THEME, isPaletteTheme, themeOf, uuidv7 } from '@cockpit/shared';
+import { ADMIN, DEFAULT_WORKSPACE_THEME, ON_ACCENT_LIGHT, isPaletteTheme, themeOf, uuidv7 } from '@cockpit/shared';
 import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, refusalFrom, snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
@@ -24,6 +24,7 @@ import { CaptureWindow } from '../components/CaptureWindow';
 import { ItemForm } from '../components/ItemForm';
 import { LoadFailure } from '../components/LoadFailure';
 import { MenuContent, menuItemClass, type MenuEntry } from '../components/Menu';
+import { creditLine } from '../credit';
 import { NameQuestion } from '../components/NameQuestion';
 import { WorkspaceTabs, stripTabClass } from '../components/WorkspaceTabs';
 import { WHAT_A_WORKSPACE_IS } from '../whatThingsAre';
@@ -59,6 +60,7 @@ const DEFAULT_WORKSPACE_THEME_COLORS = {
   ground: DEFAULT_WORKSPACE_THEME.ground,
   header: DEFAULT_WORKSPACE_THEME.header,
   deep: DEFAULT_WORKSPACE_THEME.deep,
+  onAccent: DEFAULT_WORKSPACE_THEME.onAccent,
 };
 
 /**
@@ -93,8 +95,9 @@ function paint(
   if (!workspace) return DEFAULT_WORKSPACE_THEME_COLORS;
   const { color, bar, ground, header } = workspace;
   const theme = themeOf(color);
-  if (isPaletteTheme({ tint: color, bar, ground, header })) return { ...workspace, deep: theme.deep };
-  return { color, bar: theme.bar, ground: theme.ground, header: theme.header, deep: theme.deep };
+  const { deep, onAccent } = theme;
+  if (isPaletteTheme({ tint: color, bar, ground, header })) return { ...workspace, deep, onAccent };
+  return { color, bar: theme.bar, ground: theme.ground, header: theme.header, deep, onAccent };
 }
 
 /** What the profile control shows in place of a photograph nobody has set. */
@@ -716,13 +719,17 @@ function TheShell() {
           paddingRight: 'var(--docked-form-w, 0px)',
           '--ground': theme.ground,
           '--tint': theme.color,
-          // The accent follows the workspace, for everything below - and a
-          // menu or window opened over the page is below it too, since none is
-          // portalled out. The deep shade is where the tint is text; the soft
+          // The accent follows the workspace, for everything below. Menus and
+          // dialogs are portalled to the body, outside this element, so they
+          // keep the default theme's accent. The deep shade is where the tint is text; the soft
           // and the wash are mixed from the tint, so there is nothing more to
-          // design per theme.
+          // design per theme. The ink on a fill of the tint is the theme's
+          // `onAccent`; under the pointer that fill goes darker where the ink
+          // is white, and lighter where it is dark.
           '--color-accent': theme.color,
           '--color-accent-deep': theme.deep,
+          '--color-on-accent': theme.onAccent,
+          '--color-accent-hover': theme.onAccent === ON_ACCENT_LIGHT ? theme.deep : `color-mix(in srgb, ${theme.color} 85%, white)`,
           '--color-accent-soft': `color-mix(in srgb, ${theme.color} 55%, white)`,
           '--color-accent-tint': `color-mix(in srgb, ${theme.color} 14%, white)`,
         } as React.CSSProperties
@@ -937,6 +944,13 @@ function TheShell() {
                   className={menuItemClass}
                 >
                   Sign out
+                </DropdownMenu.Item>
+                <DropdownMenu.Separator className="my-1 h-px bg-shade/10" />
+                <DropdownMenu.Item asChild className={`${menuItemClass} text-ink-faint`}>
+                  <a href="https://www.conselit.be" target="_blank" rel="noopener">
+                    {/* Its own element, so the smaller size cannot lose to the entry's `text-sm`. */}
+                    <span className="text-xs">{creditLine()}</span>
+                  </a>
                 </DropdownMenu.Item>
               </MenuContent>
             </DropdownMenu.Root>

@@ -73,7 +73,7 @@ export function DeleteQuestion({
   return (
     <AlertDialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && onCancel()}>
       <AlertDialog.Portal>
-        <AlertDialog.Overlay className="fixed inset-0 z-floating bg-black/30" />
+        <AlertDialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
         <AlertDialog.Content
           // The question is the whole of what is being said, so there is no
           // separate description to point at. Radix asks for the attribute to
@@ -84,7 +84,7 @@ export function DeleteQuestion({
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed z-floating left-1/2 top-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
+          className="fixed z-floating left-1/2 top-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg"
         >
           <AlertDialog.Title className="text-base font-semibold">{question}</AlertDialog.Title>
           {refusal && (
@@ -93,7 +93,7 @@ export function DeleteQuestion({
             </p>
           )}
           <div className="flex justify-end gap-2 pt-5">
-            <AlertDialog.Cancel className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
+            <AlertDialog.Cancel className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
               Cancel
             </AlertDialog.Cancel>
             <button
@@ -104,7 +104,7 @@ export function DeleteQuestion({
               className={
                 variant === 'destructive'
                   ? 'shrink-0 rounded-md bg-over px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50'
-                  : 'shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50'
+                  : 'shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50'
               }
             >
               {confirmText}

@@ -89,7 +89,7 @@ export function NameQuestion({
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-black/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
         <Dialog.Content
           // Only where there is nothing to describe it with: the prop is how
           // Radix is told the omission is deliberate, and passing it beside a
@@ -108,7 +108,7 @@ export function NameQuestion({
           // Near the top of a phone is where the status bar is, so the 16px is
           // measured from below it (styles.css, `--edge-top`). Nothing to
           // allow for at the desktop width, where it is centred anyway.
-          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
+          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
           <Dialog.Title className="text-base font-semibold">{question}</Dialog.Title>
           {describes && (
@@ -131,7 +131,7 @@ export function NameQuestion({
               placeholder={placeholder}
               maxLength={60}
               autoFocus
-              className="w-full rounded-md border border-black/10 bg-surface px-3 py-2 text-base outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+              className="w-full rounded-md border border-shade/10 bg-surface px-3 py-2 text-base outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
             />
 
             {alsoAsks}
@@ -148,14 +148,14 @@ export function NameQuestion({
             <div className="flex justify-end gap-2 pt-5">
               <Dialog.Close
                 disabled={busy}
-                className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+                className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
               >
                 Cancel
               </Dialog.Close>
               <button
                 type="submit"
                 disabled={busy}
-                className="milled shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+                className="milled shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
               >
                 {submitLabel}
               </button>

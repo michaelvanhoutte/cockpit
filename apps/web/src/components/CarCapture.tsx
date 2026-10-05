@@ -339,7 +339,7 @@ function Driving({
       <div
         aria-label="What was heard"
         className={`mt-4 min-h-28 w-full rounded-md border p-4 text-lg leading-snug ${d(
-          'border-black/10 bg-white text-ink shadow-[inset_0_1px_2px_rgb(41_43_49/0.06)]',
+          'border-shade/10 bg-white text-ink shadow-field',
           'border-white/5 bg-night-card text-night-ink',
         )}`}
       >
@@ -371,10 +371,17 @@ function Driving({
             onClick={tap}
             aria-label={label}
             aria-disabled={phase === 'capturing' || phase === 'captured' || phase === 'nothing'}
-            className={`milled relative flex size-40 items-center justify-center rounded-full ${d(
-              'text-white shadow-lg',
-              'text-night-icon brightness-[0.7]',
-            )} ${listening ? 'bg-over-deep' : settled ? 'bg-accent-deep' : d('bg-accent', 'bg-accent-deep')}`}
+            className={`milled relative flex size-40 items-center justify-center rounded-full ${
+              dark
+                ? `text-night-icon brightness-[0.7] ${listening ? 'bg-over-deep' : 'bg-accent-deep'}`
+                : `shadow-lg ${
+                    listening
+                      ? 'bg-over-deep text-white'
+                      : settled
+                        ? 'bg-accent-deep text-white'
+                        : 'bg-accent text-on-accent'
+                  }`
+            }`}
           >
             {listening ? (
               <svg viewBox="0 0 16 16" className="size-14" aria-hidden="true">
@@ -421,7 +428,7 @@ function Driving({
 
       <footer
         className={`w-full border-t pt-3 text-sm ${d(
-          'border-[rgb(41_43_49/0.08)] text-ink-faint',
+          'border-shade/8 text-ink-faint',
           'border-white/5 text-night-ink-soft',
         )}`}
       >
@@ -433,7 +440,7 @@ function Driving({
             aria-label={`Dictation language: ${name}`}
             title={`Dictating in ${name}. Press to switch.`}
             className={`inline-flex min-h-9 items-center rounded-md border px-3 text-sm font-medium tracking-[0.05em] disabled:opacity-50 ${d(
-              'border-black/10 bg-white text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink',
+              'border-shade/10 bg-white text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink',
               'border-white/10 bg-night-card text-night-ink-soft',
             )}`}
           >
@@ -446,7 +453,7 @@ function Driving({
             aria-label="Dark view"
             title={dark ? 'Switch to the light view' : 'Switch to the dark view'}
             className={`inline-flex min-h-9 min-w-9 items-center justify-center rounded-md border px-2 ${d(
-              'border-black/10 bg-white text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink',
+              'border-shade/10 bg-white text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink',
               'border-white/10 bg-night-card text-night-ink-soft',
             )}`}
           >

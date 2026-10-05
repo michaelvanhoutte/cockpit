@@ -44,10 +44,10 @@ export function MoveOrAddQuestion({
   return (
     <AlertDialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && onCancel()}>
       <AlertDialog.Portal>
-        <AlertDialog.Overlay className="fixed inset-0 z-floating bg-black/30" />
+        <AlertDialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
         <AlertDialog.Content
           aria-describedby={undefined}
-          className="fixed z-floating left-1/2 top-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg"
+          className="fixed z-floating left-1/2 top-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg"
         >
           <AlertDialog.Title className="text-base font-semibold">
             Move “{itemTitle}” to {panelName}, or add it there as well?
@@ -66,7 +66,7 @@ export function MoveOrAddQuestion({
               question puts Cancel and Delete: the way out is always in the same
               place, whatever is being asked. */}
           <div className="flex justify-end gap-2 pt-5">
-            <AlertDialog.Cancel className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
+            <AlertDialog.Cancel className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
               Cancel
             </AlertDialog.Cancel>
             <button
@@ -81,7 +81,7 @@ export function MoveOrAddQuestion({
               type="button"
               disabled={busy}
               onClick={onMove}
-              className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+              className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
             >
               Move it here
             </button>

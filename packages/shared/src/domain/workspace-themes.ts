@@ -28,7 +28,10 @@ export const NEUTRAL_HEADER = '#2d2e35';
  *   and the top of the graphite chrome. They stay in the stored colors so a
  *   later step can drop the columns without this changing.
  * - `deep` is the tint where it is text: dark enough to read on the page and on
- *   a list's well. Not stored; found by tint like the rest.
+ *   a list's well and on the selected chip's fill. Not stored; found by tint
+ *   like the rest.
+ * - `onAccent` is the text on a fill of the tint (a button): white, or dark ink
+ *   where white reads under 4.5:1. Not stored either.
  */
 export const workspaceThemeSchema = z.object({
   name: z.string(),
@@ -37,11 +40,16 @@ export const workspaceThemeSchema = z.object({
   ground: hexColorSchema,
   header: hexColorSchema,
   deep: hexColorSchema,
+  onAccent: hexColorSchema,
 });
 export type WorkspaceTheme = z.infer<typeof workspaceThemeSchema>;
 
 const GROUND = NEUTRAL_GROUND;
 const HEADER = NEUTRAL_HEADER;
+
+/** The two inks text is written in on a fill of a theme's tint: white, or the brand's strongest ink where white falls short of 4.5:1. */
+export const ON_ACCENT_LIGHT = '#ffffff';
+export const ON_ACCENT_INK = '#16181d';
 
 /**
  * The palette: designed sets rather than a free color wheel, so the
@@ -50,14 +58,14 @@ const HEADER = NEUTRAL_HEADER;
  * workspaces.
  */
 export const WORKSPACE_THEMES = [
-  { name: 'Violet', tint: '#6f62b5', bar: '#594e91', ground: GROUND, header: HEADER, deep: '#6e61b3' },
-  { name: 'Blue', tint: '#3a72c8', bar: '#2e5ba0', ground: GROUND, header: HEADER, deep: '#376cbe' },
-  { name: 'Terracotta', tint: '#c06a45', bar: '#9a5537', ground: GROUND, header: HEADER, deep: '#a1593a' },
-  { name: 'Teal', tint: '#3f8f78', bar: '#327260', ground: GROUND, header: HEADER, deep: '#357865' },
-  { name: 'Magenta', tint: '#a8548c', bar: '#864370', ground: GROUND, header: HEADER, deep: '#a15186' },
-  { name: 'Amber', tint: '#b58a2f', bar: '#866623', ground: GROUND, header: HEADER, deep: '#886823' },
-  { name: 'Cyan', tint: '#4f8fa8', bar: '#3f7286', ground: GROUND, header: HEADER, deep: '#3f7286' },
-  { name: 'Olive', tint: '#7d8f3f', bar: '#637132', ground: GROUND, header: HEADER, deep: '#647232' },
+  { name: 'Violet', tint: '#6f62b5', bar: '#594e91', ground: GROUND, header: HEADER, deep: '#6b5eae', onAccent: ON_ACCENT_LIGHT },
+  { name: 'Blue', tint: '#3a72c8', bar: '#2e5ba0', ground: GROUND, header: HEADER, deep: '#3568b7', onAccent: ON_ACCENT_LIGHT },
+  { name: 'Terracotta', tint: '#c06a45', bar: '#9a5537', ground: GROUND, header: HEADER, deep: '#9e5739', onAccent: ON_ACCENT_INK },
+  { name: 'Teal', tint: '#3f8f78', bar: '#327260', ground: GROUND, header: HEADER, deep: '#347663', onAccent: ON_ACCENT_INK },
+  { name: 'Magenta', tint: '#a8548c', bar: '#864370', ground: GROUND, header: HEADER, deep: '#9b4e81', onAccent: ON_ACCENT_LIGHT },
+  { name: 'Amber', tint: '#b58a2f', bar: '#866623', ground: GROUND, header: HEADER, deep: '#886823', onAccent: ON_ACCENT_INK },
+  { name: 'Cyan', tint: '#4f8fa8', bar: '#3f7286', ground: GROUND, header: HEADER, deep: '#3f7286', onAccent: ON_ACCENT_INK },
+  { name: 'Olive', tint: '#7d8f3f', bar: '#637132', ground: GROUND, header: HEADER, deep: '#647232', onAccent: ON_ACCENT_INK },
 ] as const satisfies readonly WorkspaceTheme[];
 
 /**

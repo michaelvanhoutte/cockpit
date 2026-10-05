@@ -61,10 +61,27 @@ describe('Workspace management', () => {
         // The well is the page lifted 60% towards white (styles.css, `well`).
         expect(contrast(theme.deep, towardsWhite(theme.ground, 0.6))).toBeGreaterThanOrEqual(4.5);
       });
+      it('as selected-chip text on the chip’s own fill', () => {
+        // The chip is the tint at 14% over white (Layout.tsx, `--color-accent-tint`).
+        expect(contrast(theme.deep, towardsWhite(theme.tint, 0.86))).toBeGreaterThanOrEqual(4.5);
+      });
+      it('as button text on a fill of the workspace colour', () => {
+        expect(contrast(theme.onAccent, theme.tint)).toBeGreaterThanOrEqual(4.5);
+      });
       it('as the logo’s dot on the top bar', () => {
         // Lifted 30% towards white, as every tint drawn on the chrome is (chrome.ts).
         expect(contrast(towardsWhite(theme.tint, 0.3), theme.header)).toBeGreaterThanOrEqual(3);
       });
+    });
+
+    it.each([
+      { situation: 'the five light colours', names: ['Amber', 'Olive', 'Cyan', 'Teal', 'Terracotta'], text: '#16181d' },
+      { situation: 'the three darker colours', names: ['Violet', 'Blue', 'Magenta'], text: '#ffffff' },
+    ])('writes button text in $text on $situation', ({ names, text }) => {
+      const wearing = WORKSPACE_THEMES.filter((theme) => names.includes(theme.name));
+
+      expect(wearing).toHaveLength(names.length);
+      expect(wearing.map((theme) => theme.onAccent)).toEqual(names.map(() => text));
     });
 
     it('wears the same page and top bar in every theme', () => {

@@ -768,7 +768,7 @@ export function ItemRow({
                   {agent.name}
                   {agent.asksForPrompt ? '…' : ''}
                 </span>{' '}
-                <span className="rounded bg-black/5 px-1.5 text-xs text-ink-faint">Agent</span>
+                <span className="rounded bg-shade/5 px-1.5 text-xs text-ink-faint">Agent</span>
               </M.Item>
             ))
           : []),
@@ -791,7 +791,7 @@ export function ItemRow({
             <M.SubContent
               sideOffset={roomBesideTheMenu ? 0 : -SUBMENU_WIDTH_PX}
               style={{ width: SUBMENU_WIDTH_PX }}
-              className="z-floating rounded-md border border-black/10 bg-surface p-1 shadow-lg"
+              className="z-floating rounded-md border border-shade/10 bg-surface p-1 shadow-lg"
             >
               {(
                 [
@@ -839,7 +839,7 @@ export function ItemRow({
           .filter((group) => group.length > 0)
           .map((group, at) => (
             <Fragment key={at}>
-              {at > 0 && <M.Separator className="my-1 h-px bg-black/10" />}
+              {at > 0 && <M.Separator className="my-1 h-px bg-shade/10" />}
               {group}
             </Fragment>
           ))}
@@ -1024,7 +1024,7 @@ export function ItemRow({
       // overdue row is no longer filled red. The row being shown in a docked
       // form is ringed instead, and named to assistive tech.
       aria-current={dock.openId === item.id ? 'true' : undefined}
-      className={`group relative touch-pan-y border-b border-black/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
+      className={`group relative touch-pan-y border-b border-shade/5 last:border-b-0 pointer-coarse:select-none hover:bg-accent-tint/40 ${
         dock.openId === item.id ? 'ring-2 ring-inset ring-accent ' : ''
       }${selecting?.picked ? 'bg-accent-tint ' : ''}${
         // Every row that will take the Agent in the air is faintly tinted the
@@ -1069,7 +1069,7 @@ export function ItemRow({
         ) : (
           <span
             aria-hidden="true"
-            className="mt-0.5 flex size-4 shrink-0 items-center justify-center self-start rounded-full bg-black/5 text-[9px] leading-none text-black/15"
+            className="mt-0.5 flex size-4 shrink-0 items-center justify-center self-start rounded-full bg-shade/5 text-[9px] leading-none text-shade/15"
           >
             ⚑
           </span>
@@ -1274,7 +1274,7 @@ export function ItemRow({
             {routingProposal && onAcceptRouting && (
               <button
                 type="button"
-                className="flex min-w-0 max-w-full items-baseline overflow-hidden rounded-full bg-accent-tint px-1.5 text-accent-deep hover:bg-accent hover:text-white"
+                className="flex min-w-0 max-w-full items-baseline overflow-hidden rounded-full bg-accent-tint px-1.5 text-accent-deep hover:bg-accent hover:text-on-accent"
                 title={routingLabel}
                 aria-label={routingLabel}
                 onClick={(event) => {
