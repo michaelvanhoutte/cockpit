@@ -225,4 +225,46 @@ test.describe('Capture', () => {
       await expectNoSidewaysScroll(page);
     });
   });
+
+  test.describe('dragging the handle of the note box at a desk changes its height', () => {
+    test('grows the box, and past what the window holds the window scrolls instead of growing', async ({
+      page,
+      isMobile,
+    }) => {
+      // No handle on a phone, by design.
+      test.skip(isMobile, 'the handle is a desk affordance');
+      await openInbox(page, isMobile);
+      await openCapture(page, isMobile);
+
+      const note = captureBox(page);
+      const box = note.locator('xpath=..');
+      const window = page.getByRole('dialog').filter({ has: note });
+      const heights = async () => ({
+        box: (await box.boundingBox())!.height,
+        window: (await window.boundingBox())!.height,
+      });
+      // The handle is the box's bottom-right corner; a drag from just inside it.
+      const dragHandleBy = async (dy: number) => {
+        const at = (await box.boundingBox())!;
+        const x = at.x + at.width - 6;
+        const y = at.y + at.height - 6;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x, y + dy, { steps: 8 });
+        await page.mouse.up();
+      };
+
+      const before = await heights();
+      await dragHandleBy(60);
+      const grown = await heights();
+      expect(grown.box).toBeGreaterThan(before.box + 40);
+
+      // Dragged past anything the window can hold: it keeps its height and scrolls.
+      await dragHandleBy(2000);
+      const past = await heights();
+      expect(past.box).toBeGreaterThan(grown.box);
+      expect(past.window).toBeLessThanOrEqual(grown.window + 1);
+      await expect(note).toBeVisible();
+    });
+  });
 });
