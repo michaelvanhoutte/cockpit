@@ -9,6 +9,7 @@ import { typesOffered } from '../itemTypes';
 import {
   DICTATION_LANGUAGES,
   appendPhrase,
+  replacePhrase,
   browserEngine,
   useDictation,
   type EngineFactory,
@@ -165,9 +166,11 @@ function Driving({
       const heard = said.current.trim();
       keepNow.current(heard, heard ? `${reason} ${WHAT_WAS_HEARD_WAS_CAPTURED}` : reason);
     },
-    onPhrase: (text, final) => {
+    onPhrase: (text, final, replaces) => {
       if (final) {
-        said.current = appendPhrase(said.current, text);
+        said.current = replaces
+          ? replacePhrase(said.current, replaces, text)
+          : appendPhrase(said.current, text);
         setWordsShown(said.current);
       } else {
         setProvisional(text);

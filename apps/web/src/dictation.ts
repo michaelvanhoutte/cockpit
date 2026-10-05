@@ -128,11 +128,57 @@ export function appendPhrase(note: string, phrase: string): string {
   return /\s$/.test(note) ? `${note}${said}` : `${note} ${said}`;
 }
 
+/** The words of a reading as the engine's own wording leaves them: lower case, no punctuation. */
+function wordsOf(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s']/gu, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/**
+ * Whether `reading` is the same stretch of speech as `earlier`, heard again
+ * with more of it or with a word corrected, rather than a phrase of its own.
+ *
+ * **Chrome on Android reports each reading of the session so far as a final
+ * result of its own** ("at", "at a", "at a dark"), where a desktop engine
+ * reports each phrase once ("add a", "dark mode"). Both arrive the same way, so
+ * only the words tell them apart: a reading is the earlier one again when it is
+ * longer and its words, in the same places, repeat at least half of the earlier
+ * ones - all of them for a plain continuation, a good part where the engine
+ * revised a word on the way ("at a" then "add a dark mode"). Separate phrases
+ * share no words in the same places, bar the odd coincidence, which costs a
+ * phrase the next one then stands in for. A repeat of the very same words is
+ * the same reading, so it replaces rather than adds.
+ */
+export function isLaterReadingOf(earlier: string, reading: string): boolean {
+  const before = wordsOf(earlier);
+  const after = wordsOf(reading);
+  if (before.length === 0 || after.length < before.length) return false;
+  const same = before.filter((word, i) => after[i] === word).length;
+  if (after.length === before.length) return same === before.length;
+  return same * 2 >= before.length;
+}
+
+/** A note with `reading` in the place of `earlier` at its end; added after the note where the note no longer ends with it. */
+export function replacePhrase(note: string, earlier: string, reading: string): string {
+  const old = earlier.trim();
+  const body = note.trimEnd();
+  if (old && body.endsWith(old)) return appendPhrase(body.slice(0, body.length - old.length), reading);
+  return appendPhrase(note, reading);
+}
+
 export interface DictationHandlers {
   /** Whether the engine is actually listening: true only once it has said it started. */
   onListening(listening: boolean): void;
-  /** A phrase: final once the engine has settled on it, otherwise provisional and to be replaced. Empty provisional text clears. */
-  onPhrase(text: string, final: boolean): void;
+  /**
+   * A phrase: final once the engine has settled on it, otherwise provisional and
+   * to be replaced. Empty provisional text clears. A final that is a later
+   * reading of the one before it in the same listening session names that one in
+   * `replaces`: the view puts it in that one's place, not after it.
+   */
+  onPhrase(text: string, final: boolean, replaces?: string): void;
   /** Why dictation stopped, or null once a start succeeds. */
   onError(message: string | null): void;
 }
@@ -154,6 +200,8 @@ export class DictationSession {
   private wanted = false;
   private started = false;
   private interim = '';
+  /** The last final this engine session reported, so a later reading of the same words can replace it. Empty on a new session. */
+  private lastFinal = '';
   /** Set while `finish` waits for the engine's last words; calling it ends the wait. */
   private finishing: (() => void) | null = null;
 
@@ -220,11 +268,14 @@ export class DictationSession {
    * Drops the phrase still being recognised, because the view has made it part
    * of the note itself (typed over it). The engine would otherwise deliver its
    * final reading of it later and add it twice, so a listening session is
-   * swapped for a fresh one that has not heard it.
+   * swapped for a fresh one that has not heard it. The same goes for the last
+   * final of a session that reports each reading again: a longer one would
+   * otherwise come after the typing and say what is already in the note.
    */
   forgetPhrase(): void {
-    if (!this.interim) return;
+    if (!this.interim && !this.lastFinal) return;
     this.interim = '';
+    this.lastFinal = '';
     if (this.wanted && this.engine) {
       this.release();
       this.begin();
@@ -239,6 +290,8 @@ export class DictationSession {
     }
     this.engine = engine;
     this.started = false;
+    // A new session counts from the start: its readings never replace the last one's.
+    this.lastFinal = '';
     engine.lang = DICTATION_LANGUAGES[this.language()].locale;
     engine.continuous = true;
     engine.interimResults = true;
@@ -283,18 +336,26 @@ export class DictationSession {
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
       const result = event.results[i]!;
       const text = result[0].transcript;
-      if (result.isFinal) this.on.onPhrase(text, true);
+      if (result.isFinal) this.final(text);
       else provisional += text;
     }
     this.interim = provisional;
     this.on.onPhrase(provisional, false);
   }
 
+  /** A final phrase, in the place of the session's last one where it is a later reading of the same words. */
+  private final(text: string): void {
+    const earlier = this.lastFinal;
+    this.lastFinal = text;
+    if (earlier !== '' && isLaterReadingOf(earlier, text)) this.on.onPhrase(text, true, earlier);
+    else this.on.onPhrase(text, true);
+  }
+
   /** Turns what was still provisional into a phrase of its own. */
   private settle(): void {
     const left = this.interim.trim();
     this.interim = '';
-    if (left) this.on.onPhrase(left, true);
+    if (left) this.final(left);
     this.on.onPhrase('', false);
   }
 
@@ -336,7 +397,7 @@ export interface Dictation {
   stop(): void;
   /** Stops listening and waits for the engine's last reading of what it was still working out, for at most `withinMs`. */
   finish(withinMs: number): Promise<void>;
-  /** Forgets the phrase still being recognised, which the view has taken into the note itself. */
+  /** Forgets what is still being recognised and the last final heard, which the view has taken into the note itself. */
   forgetPhrase(): void;
 }
 
@@ -354,7 +415,7 @@ export function useDictation({
   engine = browserEngine,
   store = browserStore(),
 }: {
-  onPhrase: (text: string, final: boolean) => void;
+  onPhrase: (text: string, final: boolean, replaces?: string) => void;
   /** Told each time dictation stops on an error, after what was still provisional has been delivered as final - including an error worded as the last one was, which `error` alone cannot show. */
   onFailure?: (message: string) => void;
   engine?: EngineFactory | null;
@@ -377,7 +438,7 @@ export function useDictation({
   if (!session.current && factory) {
     session.current = new DictationSession(factory, () => languageNow.current, {
       onListening: setListening,
-      onPhrase: (text, final) => phrase.current(text, final),
+      onPhrase: (text, final, replaces) => phrase.current(text, final, replaces),
       onError: (message) => {
         setError(message);
         if (message) failure.current?.(message);

@@ -43,6 +43,14 @@ export class FakeEngine implements RecognitionEngine {
     const resultIndex = this.heard.length - 1;
     act(() => this.onresult?.({ resultIndex, results: this.heard }));
   }
+  /**
+   * What Chrome on Android does: each reading of the session so far arrives as a
+   * final result of its own, every one repeating the last with more of it
+   * ("at", "at a", "at a dark"), where a desktop engine says each phrase once.
+   */
+  saysSoFar(...readings: string[]) {
+    for (const reading of readings) this.says(reading);
+  }
   endsOnItsOwn() {
     act(() => this.onend?.());
   }

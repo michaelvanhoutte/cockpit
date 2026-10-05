@@ -16,6 +16,7 @@ import { PRIORITY_LABELS } from '../priority';
 import {
   DICTATION_LANGUAGES,
   appendPhrase,
+  replacePhrase,
   useDictation,
   type Dictation,
   type EngineFactory,
@@ -105,9 +106,10 @@ export function CaptureNote({
   const [provisional, setProvisional] = useState('');
   const dictation = useDictation({
     ...dictating,
-    onPhrase: (text, final) => {
-      if (final) setMessage((was) => appendPhrase(was, text));
-      else setProvisional(text);
+    onPhrase: (text, final, replaces) => {
+      if (final) {
+        setMessage((was) => (replaces ? replacePhrase(was, replaces, text) : appendPhrase(was, text)));
+      } else setProvisional(text);
     },
   });
   const shown = appendPhrase(message, provisional);
@@ -522,9 +524,9 @@ export function CaptureNote({
         <textarea
           value={shown}
           onChange={(e) => {
-            // Typing over what is still provisional makes it part of the note,
-            // and the engine must not deliver it again.
-            if (provisional) dictation.forgetPhrase();
+            // Typing over what was just heard makes it part of the note, and the
+            // engine must not deliver it again, as a final or as a longer reading.
+            dictation.forgetPhrase();
             setProvisional('');
             setMessage(e.target.value);
           }}

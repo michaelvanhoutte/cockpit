@@ -297,6 +297,17 @@ describe('Capture', () => {
       expect((await theCapture()).message).toBe('water the plants and the');
     });
 
+    it('captures what an Android phone heard once, the engine repeating each reading with more of it', async () => {
+      const { engine, current } = anEngine();
+      const user = await theCar({ dictating: { engine } });
+      await listeningTo(user, current);
+
+      current().saysSoFar('at', 'at a', 'at a dark', 'at a dark mode option');
+      await user.click(theButton());
+
+      expect((await theCapture()).message).toBe('at a dark mode option');
+    });
+
     it('captures nothing when nothing was said, and says so before going back to the start', async () => {
       const { engine, current } = anEngine();
       const user = await theCar({ dictating: { engine } });
