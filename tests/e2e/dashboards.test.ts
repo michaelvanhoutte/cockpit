@@ -22,21 +22,6 @@ import {
 } from './support/app';
 
 /**
- * F3, because the bar, the field that grows in it and the address only exist in
- * a browser: the `+` is reached by a tap on a 480px screen and by a mouse on a
- * 1280px one, and landing on a dashboard by its own address is real navigation.
- *
- * It is not re-proving the naming rules, which
- * apps/api/tests/integration/http/dashboards.test.ts owns against a real store,
- * nor which view a workspace opens on, which
- * apps/web/tests/unit/router.test.tsx owns. This is the one walk that says the
- * capability works for a person.
- *
- * It adds its dashboard to a workspace it makes, not to a seeded one: every
- * spec in a run shares one database (support/app.ts), so a walk that filled
- * Work's bar would leave it filled for whatever ran next.
- */
-/**
  * What is drawn on top at a point. A hit test cannot say: while a menu or a
  * window is open Radix makes everything outside it inert, which a hit test
  * skips, so the bar would be passed over even where it is painted over the
@@ -57,6 +42,21 @@ const drawnOnTopAt = (page: Page, x: number, y: number) =>
     [x, y],
   );
 
+/**
+ * F3, because the bar, the field that grows in it and the address only exist in
+ * a browser: the `+` is reached by a tap on a 480px screen and by a mouse on a
+ * 1280px one, and landing on a dashboard by its own address is real navigation.
+ *
+ * It is not re-proving the naming rules, which
+ * apps/api/tests/integration/http/dashboards.test.ts owns against a real store,
+ * nor which view a workspace opens on, which
+ * apps/web/tests/unit/router.test.tsx owns. This is the one walk that says the
+ * capability works for a person.
+ *
+ * It adds its dashboard to a workspace it makes, not to a seeded one: every
+ * spec in a run shares one database (support/app.ts), so a walk that filled
+ * Work's bar would leave it filled for whatever ran next.
+ */
 test.describe('Dashboards', () => {
   test.describe('a dashboard you add is one you can switch to and come back to', () => {
     test('puts it in the bar, opens it empty, and is reachable by its address', async ({
@@ -466,8 +466,9 @@ test.describe('Dashboards', () => {
         const entry = (await settings.boundingBox())!;
         const barBox = (await drawn.boundingBox())!;
         const into = barBox.y + 3 - entry.y;
+        expect(into, 'the entry starts above the bar').toBeGreaterThanOrEqual(0);
         expect(into, 'the point is inside the entry').toBeLessThan(entry.height);
-        expect(entry.y + into, 'and inside the bar').toBeGreaterThan(barBox.y);
+        expect(entry.y + into, 'and inside the bar').toBeLessThan(barBox.y + barBox.height);
         expect(await drawnOnTopAt(page, entry.x + entry.width / 2, entry.y + into)).toEqual({
           inTheBar: false,
           role: 'menuitem',
