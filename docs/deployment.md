@@ -648,7 +648,12 @@ console:
    the app name `Cockpit`, and the one scope
    `https://www.googleapis.com/auth/gmail.modify` beside `openid` and `email`.
    Gmail offers nothing narrower that can take a label off, so touching only the
-   `Cockpit` label is Cockpit's own rule.
+   `Cockpit` label is Cockpit's own rule. Under *Branding*, the home page
+   `<APP_ORIGIN>`, the privacy policy `<APP_ORIGIN>/privacy`, and the authorised
+   domain `vanhoutte-michael.workers.dev`, because *Publish app* stays disabled
+   without a privacy policy. That page is `apps/web/public/privacy.html`, served
+   before the sign-in gate; change it whenever what Cockpit does with Gmail
+   changes.
 3. **Publish it, unverified**: *Publishing status* to *In production*, without
    submitting for verification. Anyone can then connect after clicking through
    Google's warning once, the sign-in does not lapse weekly as it does in
