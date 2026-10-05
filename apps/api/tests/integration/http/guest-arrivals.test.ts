@@ -122,8 +122,9 @@ describe('Sign-in', () => {
       const first = await continueAsGuest();
       held = [];
 
-      await continueAsGuest(sessionIn(first));
+      const again = await continueAsGuest(sessionIn(first));
 
+      expect(again.headers.get('location')).toBe('/');
       expect(held).toEqual([]);
     });
 

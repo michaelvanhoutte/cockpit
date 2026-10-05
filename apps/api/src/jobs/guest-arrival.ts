@@ -61,28 +61,31 @@ const ARRIVALS: readonly Arrival[] = [
  * failing the sign-in.
  */
 export async function enqueueGuestArrivals(env: Env): Promise<void> {
-  for (const arrival of ARRIVALS) {
-    const job: GuestArrivalJob = {
-      kind: 'guest-arrival',
-      accountName: GUEST_ACCOUNT_NAME,
-      workspaceId: ARRIVES_IN_WORKSPACE,
-      source: arrival.source,
-      itemId: crypto.randomUUID(),
-      commandId: crypto.randomUUID(),
-    };
-    try {
-      await env.ENRICHMENT.send(job, { delaySeconds: arrival.after });
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          message: `the ${arrival.source} arrival was not queued: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        }),
-      );
-    }
-  }
+  // Both asked for at once: each is its own round trip to the queue service.
+  await Promise.all(
+    ARRIVALS.map(async (arrival) => {
+      const job: GuestArrivalJob = {
+        kind: 'guest-arrival',
+        accountName: GUEST_ACCOUNT_NAME,
+        workspaceId: ARRIVES_IN_WORKSPACE,
+        source: arrival.source,
+        itemId: crypto.randomUUID(),
+        commandId: crypto.randomUUID(),
+      };
+      try {
+        await env.ENRICHMENT.send(job, { delaySeconds: arrival.after });
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            message: `the ${arrival.source} arrival was not queued: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          }),
+        );
+      }
+    }),
+  );
 }
 
 /**
