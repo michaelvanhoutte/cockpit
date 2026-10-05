@@ -7,7 +7,10 @@ const READ_LIMIT = 5000;
 
 /** A backslash before one of these is the character itself, written the way Markdown spells it. */
 const ESCAPABLE = /\\([\\`*_{}[\]()#+.!<>~-])/gu;
-const KEPT = '';
+const ESCAPABLE_CHARS = '\\`*_{}[]()#+.!<>~-';
+/** Private-use stand-ins for escaped characters, so no marker rule below can match one. */
+const STAND_IN_BASE = 0xe000;
+const STAND_IN = /[\ue000-\ue0ff]/gu;
 
 /**
  * A note's words without the Markdown that Capture's toolbar writes around them
@@ -32,11 +35,11 @@ export function plainWords(markdown: string): string {
 function plainLine(line: string): string {
   return line
     .replace(/^\s*(?:#{1,6}|[-*+]|\d+[.)])\s+/u, '')
-    .replace(ESCAPABLE, `${KEPT}$1`)
-    .replace(/\[([^\]]*)\]\([^)\s]*\)/gu, '$1')
+    .replace(ESCAPABLE, (_, char: string) => String.fromCharCode(STAND_IN_BASE + ESCAPABLE_CHARS.indexOf(char)))
+    .replace(/!?\[([^\]]*)\]\([^)\s]*\)/gu, '$1')
     .replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/gu, '$1')
     .replace(/(?<!\w)__(?=\S)(.+?)(?<=\S)__(?!\w)/gu, '$1')
     .replace(/\*(?=\S)(.+?)(?<=\S)\*/gu, '$1')
     .replace(/(?<!\w)_(?=\S)(.+?)(?<=\S)_(?!\w)/gu, '$1')
-    .replaceAll(KEPT, '');
+    .replace(STAND_IN, (stand) => ESCAPABLE_CHARS[stand.charCodeAt(0) - STAND_IN_BASE] ?? '');
 }
