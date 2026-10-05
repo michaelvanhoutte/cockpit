@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm';
 import { GMAIL } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
+import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
 import { noteTypeId, taskTypeId } from './changes.js';
 import { runCommand } from './command-service.js';
 import { listItemTypes } from './repo.js';
@@ -67,27 +68,31 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
     return true;
   };
 
+  const connectionsHeld = (): GmailConnectionToCheck[] =>
+    db
+      .select({
+        id: connectorAccounts.id,
+        workspaceId: connectorAccounts.workspaceId,
+        mailboxKey: connectorAccounts.externalAccountKey,
+        address: connectorAccounts.displayName,
+        sealedCredential: connectorAccounts.encryptedCredential,
+        credentialNonce: connectorAccounts.credentialNonce,
+      })
+      .from(connectorAccounts)
+      .where(and(eq(connectorAccounts.tenantId, accountName), eq(connectorAccounts.connectorId, GMAIL)))
+      .orderBy(asc(connectorAccounts.connectedAt), asc(connectorAccounts.id))
+      .all()
+      .map(({ sealedCredential, credentialNonce, ...connection }) => ({
+        ...connection,
+        sealed: { sealedCredential, credentialNonce },
+      }));
+
   return {
     accountName,
 
+    // None for the guest, whose rows are demonstrations (`holdsGmailConnection`).
     connections: () =>
-      db
-        .select({
-          id: connectorAccounts.id,
-          workspaceId: connectorAccounts.workspaceId,
-          mailboxKey: connectorAccounts.externalAccountKey,
-          address: connectorAccounts.displayName,
-          sealedCredential: connectorAccounts.encryptedCredential,
-          credentialNonce: connectorAccounts.credentialNonce,
-        })
-        .from(connectorAccounts)
-        .where(and(eq(connectorAccounts.tenantId, accountName), eq(connectorAccounts.connectorId, GMAIL)))
-        .orderBy(asc(connectorAccounts.connectedAt), asc(connectorAccounts.id))
-        .all()
-        .map(({ sealedCredential, credentialNonce, ...connection }) => ({
-          ...connection,
-          sealed: { sealedCredential, credentialNonce },
-        })),
+      accountName === GUEST_ACCOUNT_NAME ? [] : connectionsHeld(),
 
     progress: (sourceAccountId) =>
       db
@@ -327,8 +332,19 @@ export function sweepGmailNightly(db: AccountDb, accountName: string, at: string
     .run();
 }
 
-/** Whether the account holds any Gmail connection - what keeps its alarm armed. */
+/**
+ * Whether the account holds any Gmail connection - what keeps its alarm armed.
+ *
+ * **Never the guest account, by its identity** ("Seed Gmail and Teams in the
+ * guest demo", issue 773): its Gmail rows are seeded demonstrations with a
+ * placeholder credential, so arming a check on them - or re-arming it each
+ * night - would ask Google about a mailbox that does not exist and mark the
+ * row failing. Every path that checks Gmail asks this first (the alarm, the
+ * nightly re-arming, the sweep), and `connections` above answers none for the
+ * guest as well, so a check that runs anyway reads nothing.
+ */
 export function holdsGmailConnection(db: AccountDb, accountName: string): boolean {
+  if (accountName === GUEST_ACCOUNT_NAME) return false;
   return (
     db
       .select({ id: connectorAccounts.id })

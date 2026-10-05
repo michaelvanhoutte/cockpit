@@ -1,4 +1,7 @@
-import { connectorNamed, type Item } from '@cockpit/shared';
+import { connectorNamed, demoPageOf, type Item } from '@cockpit/shared';
+
+/** Where Cockpit draws the page for one of the guest demo's addresses (`DemoPage`, pages/DemoPage.tsx). */
+export const demoPath = (page: string) => `/demo/${page}`;
 
 /**
  * The app that captured an Item, by the name it registered under - null for an
@@ -24,9 +27,18 @@ export function capturingApp(item: Item): string | null {
  * parses, `javascript:` and `data:` included, and this is the first place it is
  * put in an `href`; a connector that let one through would otherwise run script
  * in this page from a click on a row.
+ *
+ * **The guest demo's own addresses are translated here, once, for every
+ * surface** (issue 773): a link on the reserved demo host opens Cockpit's own
+ * page for that source rather than the source, and one on it that names no page
+ * opens nothing. Any other link - a named person's real one included - passes
+ * through as it was.
  */
 export function openableAtSource(item: Item): { name: string; link: string } | null {
   if (item.source === 'internal' || !item.sourceLink) return null;
   if (!/^https?:\/\//i.test(item.sourceLink)) return null;
-  return { name: capturingApp(item) ?? connectorNamed(item.source), link: item.sourceLink };
+  const name = capturingApp(item) ?? connectorNamed(item.source);
+  const demo = demoPageOf(item.sourceLink);
+  if (demo === 'unknown') return null;
+  return { name, link: demo ? demoPath(demo) : item.sourceLink };
 }

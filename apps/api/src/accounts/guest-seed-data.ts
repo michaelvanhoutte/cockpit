@@ -1,4 +1,4 @@
-import type { PanelFilter, Priority, WorkspaceTint } from '@cockpit/shared';
+import { GMAIL, TEAMS, type PanelFilter, type Priority, type WorkspaceTint } from '@cockpit/shared';
 
 /**
  * What the shared guest account holds when a visitor opens it: a contractor's
@@ -47,7 +47,37 @@ export interface SeedItem {
   readonly people?: readonly string[];
   /** Topic associations on this Item. */
   readonly topics?: readonly string[];
+  /**
+   * That this Item came in from Gmail or Teams, and from whom ("Seed Gmail and
+   * Teams in the guest demo", issue 773): the row then reads "Gmail · Els
+   * Maes", and its *Open ↗* is the reserved demo address of that source
+   * (`demoAddress`, `@cockpit/shared`), which the app opens as its own page.
+   */
+  readonly via?: { readonly source: 'gmail' | 'teams'; readonly sender: string };
 }
+
+/**
+ * The connections every demo Workspace shows as connected, under Settings ›
+ * Connections ("Seed Gmail and Teams in the guest demo", issue 773).
+ *
+ * **Rows nothing outside Cockpit ever reads.** The credential is a placeholder
+ * that opens nothing, and every path that would use a connection skips the
+ * guest account by identity (`holdsGmailConnection`, accounts/gmail.ts), so
+ * neither is checked against Google or Microsoft and neither can show as
+ * failing. A seeded row is also never a way to connect for real: the guest's
+ * connection changes are refused at the route (auth/guest-connections.ts).
+ */
+export const GUEST_DEMO_CONNECTIONS: readonly {
+  readonly connectorId: typeof GMAIL | typeof TEAMS;
+  readonly externalAccountKey: string;
+  readonly displayName: string;
+}[] = [
+  { connectorId: GMAIL, externalAccountKey: 'alex@contractor.example', displayName: 'alex@contractor.example' },
+  { connectorId: TEAMS, externalAccountKey: 'demo-tenant/alex', displayName: 'Alex Contractor' },
+];
+
+/** The credential every demo connection carries: not sealed, and not a secret, so nothing can open it. */
+export const GUEST_DEMO_PLACEHOLDER_CREDENTIAL = 'demo-placeholder-not-a-credential';
 
 /** An Item still in its Workspace's Inbox, filed on no Panel. */
 export interface SeedInboxItem extends SeedItem {
@@ -128,6 +158,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
       },
       {
         title: 'Look into a cheaper energy tariff',
+        via: { source: 'gmail', sender: 'Voltra Energy' },
         suggest: { panel: 'Admin & money', why: 'A bill to compare, like the insurance quote.' },
       },
       { title: 'Weekend in the Ardennes in October?', note: true },
@@ -152,15 +183,17 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                 items: [
                   { title: 'Book the car in for its service', due: 3, priority: 'normal' },
                   { title: 'Renew the gym membership before it lapses', due: 0, priority: 'low' },
-                  { title: 'Reply to Mum about the weekend' },
+                  {
+                    title: 'Reply to Mum about the weekend',
+                    via: { source: 'gmail', sender: 'Mum' },
+                  },
                   {
                     title: 'Pick up the parcel from the collection point',
                     description: 'Closes at six, and they only hold it for a week.',
                     due: -1,
+                    via: { source: 'gmail', sender: 'ParcelPoint' },
                   },
                   { title: 'Ask the dentist about a night guard', note: true },
-                  { title: 'Replace the coffee grinder', note: true },
-                  { title: 'Return the drill to Pieter next door' },
                 ],
               },
               {
@@ -173,7 +206,11 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     priority: 'high',
                   },
                   { title: 'File the quarterly VAT return', due: 2, priority: 'high', started: 1 },
-                  { title: 'Insurance renewal quote came in - worth comparing', note: true },
+                  {
+                    title: 'Insurance renewal quote came in - worth comparing',
+                    note: true,
+                    via: { source: 'gmail', sender: 'Ardent Insurance' },
+                  },
                 ],
               },
             ],
@@ -194,8 +231,12 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     priority: 'normal',
                     people: ['Fien Coppens'],
                   },
-                  { title: 'Draw up the agenda for the committee meeting', due: 6, people: ['Bram Willems'] },
-                  { title: 'Ask Bram to sign off the referee expenses', people: ['Bram Willems'] },
+                  { title: 'Draw up the agenda for the committee meeting', people: ['Bram Willems'] },
+                  {
+                    title: 'Ask Bram to sign off the referee expenses',
+                    people: ['Bram Willems'],
+                    via: { source: 'teams', sender: 'Bram Willems' },
+                  },
                   { title: 'Minutes from the June meeting are still unpublished', note: true },
                   {
                     title: "Renew the club's insurance with the federation",
@@ -208,7 +249,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
               {
                 name: 'Season prep',
                 items: [
-                  { title: 'Order new match balls for the first team', due: 5, priority: 'normal' },
+                  { title: 'Order new match balls for the first team', due: 11, priority: 'normal' },
                   { title: 'Book the sports hall for the Christmas tournament', due: 24 },
                 ],
               },
@@ -225,15 +266,18 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
       {
         title: "Sara: can we move Thursday's sync to Friday?",
         people: ['Sara Okafor'],
+        via: { source: 'teams', sender: 'Sara Okafor' },
         suggest: { panel: 'Today', why: 'A question from Sara about this week.' },
       },
       {
         title: 'Clinic in Ghent reports slow logins since Monday',
         priority: 'high',
+        via: { source: 'gmail', sender: 'Els Maes' },
         suggest: { panel: 'API & service cutover', why: 'Logins go through the new booking service.' },
       },
       {
         title: 'Security questionnaire arrived from the imaging supplier',
+        via: { source: 'gmail', sender: 'Lumen Imaging' },
         suggest: { panel: 'Vendor & third-party review', why: 'Another supplier answering for the audit.' },
       },
       { title: 'Check whether the pen test window clashes with the release freeze' },
@@ -250,14 +294,23 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
           {
             panels: [
               {
-                name: 'Needs attention',
-                filter: {
-                  match: 'any',
-                  conditions: [
-                    { field: 'dueDate', window: 'overdue', orOverdue: true },
-                    { field: 'priority', values: ['high'] },
-                  ],
-                },
+                name: 'To answer',
+                items: [
+                  {
+                    title: 'Reply to Els about the slow logins in Ghent',
+                    priority: 'high',
+                    via: { source: 'gmail', sender: 'Els Maes' },
+                  },
+                  {
+                    title: 'Sara needs a yes or no on Friday for the sync',
+                    people: ['Sara Okafor'],
+                    via: { source: 'teams', sender: 'Sara Okafor' },
+                  },
+                  {
+                    title: 'Send the imaging supplier our answers',
+                    via: { source: 'gmail', sender: 'Lumen Imaging' },
+                  },
+                ],
               },
               {
                 name: 'Today',
@@ -271,7 +324,6 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                   },
                   { title: 'Write up the incident notes from Tuesday', topics: ['Security'] },
                   { title: 'Pair with Sara on the scheduling bug', people: ['Sara Okafor'] },
-                  { title: 'Sketch the API for the referral flow', note: true, people: ['Tom Delrue'] },
                   { title: 'Answer the clinic leads about the new booking hours', due: 0 },
                 ],
               },
@@ -322,15 +374,15 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                   match: 'all',
                   conditions: [
                     { field: 'dueDate', window: 'week', orOverdue: true },
-                    { field: 'priority', values: ['high', 'normal'] },
+                    { field: 'priority', values: ['high'] },
                   ],
                 },
               },
               {
                 name: 'Infrastructure & cloud',
                 items: [
-                  { title: 'Write the Terraform module for the new network', started: 3 },
-                  { title: 'Decide which region the EU workloads run in', due: 1, priority: 'high' },
+                  { title: 'Write the Terraform module for the new network' },
+                  { title: 'Decide which region the EU workloads run in', due: 1, priority: 'normal' },
                   { title: 'Set up the private link to the on-premise network', due: 15 },
                   { title: 'Cost estimate for the month of running both', note: true },
                 ],
@@ -348,17 +400,13 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     started: 6,
                   },
                   { title: "Dry-run the bulk export against last month's snapshot", due: 4, priority: 'normal' },
-                  { title: 'Decide what happens to records with no consent flag', priority: 'high' },
-                  { title: 'Write the reconciliation report for finance' },
-                  { title: 'Archive the pre-migration backups off-site', due: 27 },
-                  { title: 'Row counts differ by 412 between the two systems', note: true, priority: 'high' },
-                  { title: 'Script the export of appointment history' },
-                  { title: 'Agree a freeze on schema changes during the dry runs', priority: 'normal' },
-                  { title: 'Check the date formats in the referral letters' },
-                  { title: 'Find out who owns the orphaned lab results table', people: ['Sara Okafor'] },
-                  { title: 'Encrypt the extract before it leaves the old network', topics: ['Security'] },
-                  { title: 'Duplicate patients from the 2019 merge', note: true },
-                  { title: 'Sign-off from the data protection officer on the mapping', due: 11 },
+                  { title: 'Decide what happens to records with no consent flag' },
+                  {
+                    title: 'Sign-off from the data protection officer on the mapping',
+                    due: 11,
+                    via: { source: 'gmail', sender: 'Hanne Claes' },
+                  },
+                  { title: 'Row counts differ by 412 between the two systems', note: true },
                 ],
               },
               {
@@ -367,9 +415,8 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                   { title: 'Version the appointments endpoint before the switch' },
                   { title: 'Feature flag for routing traffic to the new service', due: 6 },
                   { title: 'Retire the old bridge once nothing calls it', priority: 'low' },
-                  { title: 'Contract tests against the new booking API', people: ['Tom Delrue'], started: 2 },
+                  { title: 'Contract tests against the new booking API', people: ['Tom Delrue'] },
                   { title: 'Rollback plan for the first cutover window', due: 0, priority: 'high' },
-                  { title: 'The old service still writes audit rows of its own', note: true },
                 ],
               },
             ],
@@ -381,7 +428,11 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                 items: [
                   { title: 'Regression pack for the referral journey', priority: 'normal' },
                   { title: 'Load test at three times the Monday-morning peak', due: 2, priority: 'normal' },
-                  { title: 'Sign-off checklist with the Halcyon test lead', people: ['Tom Delrue'] },
+                  {
+                    title: 'Sign-off checklist with the Halcyon test lead',
+                    people: ['Tom Delrue'],
+                    via: { source: 'teams', sender: 'Tom Delrue' },
+                  },
                   {
                     title: 'Penetration test booked for the week before go-live',
                     due: 19,
@@ -400,13 +451,15 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     due: 12,
                     priority: 'high',
                   },
-                  { title: 'Tell the clinics two weeks before the switch', due: -1, priority: 'normal' },
+                  {
+                    title: 'Tell the clinics two weeks before the switch',
+                    due: -1,
+                    priority: 'normal',
+                    via: { source: 'gmail', sender: 'Els Maes' },
+                  },
                   { title: 'Draft the status-page notice for the window' },
                   { title: 'Train the front-desk staff on the new screens', people: ['Tom Delrue'] },
                   { title: 'Standby rota for the weekend of the cutover', people: ['Sara Okafor'] },
-                  { title: 'Post-migration review pencilled in for next month', note: true },
-                  { title: 'FAQ for the clinic receptionists' },
-                  { title: 'Agree who announces the go-live internally', priority: 'low' },
                 ],
               },
             ],
@@ -433,6 +486,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     priority: 'high',
                     people: ['Ines Verbeek'],
                     started: 5,
+                    via: { source: 'teams', sender: 'Ines Verbeek' },
                   },
                   { title: 'Agree the risk appetite statement with the board', due: 18 },
                   { title: 'Threat model for the patient portal', topics: ['Security'] },
@@ -457,18 +511,13 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                   {
                     title: 'Quarterly access review for the production systems',
                     due: 3,
-                    priority: 'high',
+                    priority: 'normal',
                     topics: ['Security'],
-                    started: 1,
                   },
                   { title: 'Enforce hardware keys on the administrator accounts', priority: 'normal', topics: ['Security'] },
                   { title: 'Remove the shared service account from the database', priority: 'high' },
-                  { title: 'Write down the joiners, movers and leavers process' },
-                  { title: 'Encryption at rest confirmed for every store', note: true, topics: ['Security'] },
-                  { title: 'Password rules brought in line with the standard', priority: 'low' },
                   { title: 'Turn off the VPN accounts of last year\'s contractors', due: -4 },
-                  { title: 'Log retention on the firewall is only seven days', note: true },
-                  { title: 'Break-glass procedure for the clinical systems' },
+                  { title: 'Encryption at rest confirmed for every store', note: true, topics: ['Security'] },
                 ],
               },
             ],
@@ -478,11 +527,14 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
               {
                 name: 'Internal audit',
                 items: [
-                  { title: 'Book the internal audit for next month', due: 10 },
+                  {
+                    title: 'Book the internal audit for next month',
+                    due: 10,
+                    via: { source: 'gmail', sender: 'Vantage Audit' },
+                  },
                   { title: 'Audit programme covering every control area', people: ['Ines Verbeek'] },
                   { title: 'Evidence pack for the change-management control', due: 5, priority: 'normal' },
                   { title: 'Non-conformities from the readiness review', note: true, people: ['Ines Verbeek'] },
-                  { title: 'Minutes of the management review meeting', priority: 'low' },
                   { title: 'Track the corrective actions through to closure' },
                 ],
               },
@@ -508,11 +560,13 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
         title: 'Priya: the till update failed in two stores overnight',
         priority: 'high',
         people: ['Priya Shah'],
+        via: { source: 'teams', sender: 'Priya Shah' },
         suggest: { panel: 'This week', why: 'A store problem to deal with this week.' },
       },
       {
         title: 'Recruiter sent three CVs for the data engineer role',
         topics: ['Hiring'],
+        via: { source: 'gmail', sender: 'Jolien at TalentBridge' },
         suggest: { panel: 'Leadership', why: 'Hiring sits with the other Leadership work.' },
       },
       { title: 'Read the analyst note on composable commerce', note: true },
@@ -520,6 +574,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
         title: 'Liam wants a view on the loyalty vendor shortlist',
         due: 2,
         people: ['Liam Novak'],
+        via: { source: 'gmail', sender: 'Liam Novak' },
         suggest: { panel: 'This week', why: 'Due in two days, and it is the loyalty decision.' },
       },
     ],
@@ -544,12 +599,14 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     started: 1,
                   },
                   { title: 'Review the warehouse integration spike', priority: 'normal' },
-                  { title: 'Walk the new checkout flow with Priya', due: 1, people: ['Priya Shah'] },
+                  {
+                    title: 'Walk the new checkout flow with Priya',
+                    due: 1,
+                    people: ['Priya Shah'],
+                    via: { source: 'teams', sender: 'Priya Shah' },
+                  },
                   { title: 'Decide build or buy for the loyalty scheme', due: 4, priority: 'high' },
                   { title: 'Store managers are asking for offline mode on the tills', note: true, people: ['Priya Shah'] },
-                  { title: 'Catch up with the platform team about the incident' },
-                  { title: 'Approve the payment provider\'s change window', due: 3 },
-                  { title: 'Price the extra checkout capacity for December', note: true },
                 ],
               },
               {
@@ -560,6 +617,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     due: -1,
                     priority: 'high',
                     people: ['Liam Novak'],
+                    via: { source: 'gmail', sender: 'Liam Novak' },
                   },
                   { title: 'Second interviews for the data engineer role', priority: 'normal', topics: ['Hiring'] },
                   { title: 'Architecture slide for the quarterly board pack', due: 16, people: ['Liam Novak'] },

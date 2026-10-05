@@ -81,13 +81,27 @@ async function plantInGuestStore(workspaceId: string, connectorId: string, key: 
   return { id, connectorId };
 }
 
+/**
+ * The connections the guest holds that the demo did not seed: every Workspace
+ * arrives with a Gmail and a Teams row (issue 773, `DEMO_CONNECTION` in
+ * accounts/changes.ts), and what is asked here is what a visitor adds.
+ */
 async function guestRows(): Promise<{ id: string; display_name: string; updated_at: string }[]> {
   return inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) => [
     ...sql.exec<{ id: string; display_name: string; updated_at: string }>(
-      'SELECT id, display_name, updated_at FROM connector_accounts ORDER BY id',
+      "SELECT id, display_name, updated_at FROM connector_accounts WHERE id NOT LIKE '0e000000-%' ORDER BY id",
     ),
   ]);
 }
+
+/** The Teams items the guest holds that came from a message saved to Cockpit rather than from the demo. */
+const savedFromTeams = (sql: SqlStorage) => [
+  ...sql.exec(
+    "SELECT id FROM items WHERE source_connector = ? AND COALESCE(source_link, '') NOT LIKE ?",
+    'teams',
+    'https://demo.cockpit.invalid/%',
+  ),
+];
 
 function asGuest(cookie: string, path: string, init: RequestInit = {}): Promise<Response> {
   return SELF.fetch(`http://cockpit.test${path}`, {
@@ -210,9 +224,7 @@ describe('Connector management', () => {
       });
 
       expect(answer.status).toBeLessThan(500);
-      const saved = await inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) => [
-        ...sql.exec('SELECT id FROM items WHERE source_connector = ?', 'teams'),
-      ]);
+      const saved = await inStoreAsItIs(GUEST_ACCOUNT_NAME, savedFromTeams);
       expect(saved).toEqual([]);
     });
 

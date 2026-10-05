@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GRID_COLUMNS } from '@cockpit/shared';
+import { GRID_COLUMNS, demoAddress, demoPageOf, type PanelFilter } from '@cockpit/shared';
 import {
   accountChanges,
   checkedGuestDemo,
@@ -49,6 +49,10 @@ function boundBy(statements: readonly Statement[], table: string): unknown[] {
 /** What one written Item was bound with, by name rather than by position. */
 interface WrittenItem {
   id: string;
+  source: unknown;
+  sourceConnector: unknown;
+  sourceLink: unknown;
+  sender: unknown;
   title: string;
   dueDate: unknown;
   startedAt: unknown;
@@ -62,10 +66,14 @@ function itemsWritten(statements: readonly Statement[]): WrittenItem[] {
       const p = one.params!;
       return {
         id: String(p[0]),
-        title: String(p[4]),
-        dueDate: p[8],
-        startedAt: p[9],
-        createdAt: String(p[15]),
+        source: p[4],
+        sourceConnector: p[5],
+        sourceLink: p[6],
+        sender: p[7],
+        title: String(p[9]),
+        dueDate: p[13],
+        startedAt: p[14],
+        createdAt: String(p[20]),
       };
     });
 }
@@ -187,15 +195,132 @@ describe('Accounts', () => {
       for (const span of shares) expect(span).toBeLessThanOrEqual(GRID_COLUMNS);
     });
 
-    /** What made the first version read as invented: every Panel six Items long. */
+    /** What made the first version read as invented: every Panel the same length. Kept short, below. */
     it('fills its panels as unevenly as a real list is', () => {
       const sizes = GUEST_DEMO.flatMap(panelsOf).flatMap((panel) =>
         isFilter(panel) ? [] : [panel.items.length],
       );
 
       expect(Math.min(...sizes)).toBeLessThanOrEqual(2);
-      expect(Math.max(...sizes)).toBeGreaterThanOrEqual(10);
-      expect(new Set(sizes).size).toBeGreaterThanOrEqual(6);
+      expect(new Set(sizes).size).toBeGreaterThanOrEqual(4);
+    });
+  });
+
+  /**
+   * "Seed Gmail and Teams in the guest demo, with fewer items" (issue 773): the
+   * demonstration is for reading at a glance, and a Panel of thirteen is not.
+   */
+  describe('the demo stays readable: no panel holds more than five items, and every dashboard has one from Gmail or Teams', () => {
+    const MOST_ITEMS = 5;
+
+    /**
+     * Whether a Filter could show this Item on some day the demo is opened -
+     * the widest reading of each window, so a Filter passes only if it holds on
+     * every day. Throws on a Filter shape it was not written for, so a new one
+     * cannot slip past unchecked.
+     */
+    function mightShow(filter: PanelFilter, item: SeedItem): boolean {
+      const results = filter.conditions.map((condition) => {
+        if (condition.field === 'dueDate') {
+          if (item.due === undefined) return false;
+          if (condition.window === 'today') return item.due <= 0;
+          if (condition.window === 'week') return item.due <= 6;
+          throw new Error(`the check does not know the window ${condition.window}`);
+        }
+        if (condition.field === 'priority') {
+          return item.priority !== undefined && condition.values.includes(item.priority);
+        }
+        if (condition.field === 'status') return item.started !== undefined;
+        throw new Error('the check does not know this Filter condition');
+      });
+      return filter.match === 'any' ? results.some(Boolean) : results.every(Boolean);
+    }
+
+    it('shows five items or fewer on every panel of every workspace, filters included', () => {
+      for (const workspace of GUEST_DEMO) {
+        const everyItem = panelsOf(workspace).flatMap((panel) => (isFilter(panel) ? [] : panel.items));
+        for (const panel of panelsOf(workspace)) {
+          const shown = isFilter(panel)
+            ? everyItem.filter((item) => mightShow(panel.filter, item)).length
+            : panel.items.length;
+          expect(shown, `${workspace.name} / ${panel.name}`).toBeLessThanOrEqual(MOST_ITEMS);
+        }
+      }
+    });
+
+    it('puts at least one item from Gmail or Teams on every dashboard', () => {
+      for (const workspace of GUEST_DEMO) {
+        for (const dashboard of workspace.dashboards) {
+          const items = dashboard.rows.flatMap((row) =>
+            row.panels.flatMap((panel) => (isFilter(panel) ? [] : panel.items)),
+          );
+          expect(
+            items.filter((item) => item.via).length,
+            `${workspace.name} / ${dashboard.name}`,
+          ).toBeGreaterThanOrEqual(1);
+        }
+      }
+    });
+
+    it('trims Halcyon Health’s day to day to a short To answer panel in place of the busy Needs attention filter', () => {
+      const halcyon = GUEST_DEMO.find((one) => one.name === 'Halcyon Health')!;
+      const dayToDay = halcyon.dashboards.find((one) => one.name === 'Day to day')!;
+      const panels = dayToDay.rows.flatMap((row) => row.panels);
+
+      expect(panels.map((panel) => panel.name)).not.toContain('Needs attention');
+      const toAnswer = panels.find((panel) => panel.name === 'To answer')!;
+      expect(isFilter(toAnswer)).toBe(false);
+      expect(isFilter(toAnswer) ? [] : toAnswer.items.every((item) => item.via)).toBe(true);
+    });
+  });
+
+  /** An Item from Gmail or Teams names who it is from and opens at an address the app turns into its own page. */
+  describe('a seeded item from Gmail or Teams is written with its source, its sender and a demo address', () => {
+    it.each([
+      { situation: 'Gmail', source: 'gmail', stored: ['mail', null] },
+      // Teams is not one of the five sources the column holds, so it names its connector beside it.
+      { situation: 'Microsoft Teams', source: 'teams', stored: ['internal', 'teams'] },
+    ] as const)('$situation', ({ source, stored }) => {
+      const seeded = [...filedItems, ...inboxItems].filter((item) => item.via?.source === source);
+      expect(seeded.length).toBeGreaterThan(0);
+      const written = itemsWritten(guestSeed());
+
+      for (const item of seeded) {
+        const one = written.find((w) => w.title === item.title)!;
+        expect([one.source, one.sourceConnector], item.title).toEqual(stored);
+        expect(one.sender, item.title).toBe(item.via!.sender);
+        expect(one.sourceLink, item.title).toBe(demoAddress(source));
+        expect(demoPageOf(String(one.sourceLink)), item.title).toBe(source);
+      }
+    });
+
+    it('leaves an item with no source stored as one captured inside Cockpit', () => {
+      const written = itemsWritten(guestSeed());
+      for (const item of [...filedItems, ...inboxItems].filter((one) => !one.via)) {
+        const one = written.find((w) => w.title === item.title)!;
+        expect([one.source, one.sourceConnector, one.sourceLink, one.sender], item.title).toEqual([
+          'internal',
+          null,
+          null,
+          null,
+        ]);
+      }
+    });
+  });
+
+  /** Every workspace shows Gmail and Teams connected, on rows nothing outside Cockpit reads. */
+  describe('every workspace is seeded with Gmail and Teams connected', () => {
+    it('writes a Gmail row and a Teams row for each workspace, each with a placeholder credential', () => {
+      const rows = guestSeed().filter((one) => one.sql.includes('INSERT INTO connector_accounts '));
+
+      expect(rows.map((one) => one.params![3])).toEqual(
+        GUEST_DEMO.flatMap(() => ['gmail', 'teams']),
+      );
+      for (const row of rows) {
+        // Sealed with no key and opened by nothing: the same text in both columns.
+        expect(row.params![6]).toBe(row.params![7]);
+        expect(String(row.params![6])).toContain('placeholder');
+      }
     });
   });
 

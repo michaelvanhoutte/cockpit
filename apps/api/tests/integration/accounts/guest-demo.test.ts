@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
-import { SELF, applyD1Migrations, env } from 'cloudflare:test';
+import { SELF, applyD1Migrations, env, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { FIRST_WORKSPACE_NAME } from '@cockpit/shared';
-import type { Workspace, WorkspaceSnapshot } from '@cockpit/shared';
+import type { SourceAccount, Workspace, WorkspaceSnapshot } from '@cockpit/shared';
 import { accountChanges } from '../../../src/accounts/changes.js';
 import { GUEST_ACCOUNT_NAME } from '../../../src/auth/register.js';
-import { inStoreAsItIs, seedRegister, startFromEmpty } from '../seed.js';
+import { inStoreAsItIs, seedRegister, startFromEmpty, storeNamed } from '../seed.js';
+import { gmailCalls, gmailIsEmpty } from '../issuer.js';
+import { handleScheduled } from '../../../src/jobs/index.js';
 
 /**
  * Integration level, and it could be nothing else: what is claimed is what a
@@ -265,18 +267,95 @@ describe('Accounts', () => {
       const filters = halcyon.panels.filter((panel) => panel.kind === 'filter');
 
       expect(filters.map((panel) => panel.name).sort()).toEqual(
-        ['In progress', 'Needs attention', "This week's priorities"].sort(),
+        ['In progress', "This week's priorities"].sort(),
       );
       expect(filters.find((panel) => panel.name === "This week's priorities")!.filter).toEqual({
         match: 'all',
         conditions: [
           { field: 'dueDate', window: 'week', orOverdue: true },
-          { field: 'priority', values: ['high', 'normal'] },
+          { field: 'priority', values: ['high'] },
         ],
       });
       expect(halcyon.filings.some((one) => filters.some((panel) => panel.id === one.panelId))).toBe(
         false,
       );
+    });
+  });
+
+  /**
+   * "Seed Gmail and Teams in the guest demo" (issue 773). Teams is stored
+   * differently from Gmail (its source lives beside the column, which cannot
+   * hold it), so what is claimed is what the ordinary read hands back, which
+   * a list of statements cannot say.
+   */
+  describe('a guest finds Gmail and Teams at work', () => {
+    it('hands back a seeded Gmail item and a seeded Teams item with their source and sender', async () => {
+      const cookie = await continueAsGuest();
+      const halcyon = await snapshotOf(cookie, named(await workspacesOf(cookie), 'Halcyon Health').id);
+
+      const reply = halcyon.items.find((item) => item.title === 'Reply to Els about the slow logins in Ghent')!;
+      const sara = halcyon.items.find((item) => item.title === 'Sara needs a yes or no on Friday for the sync')!;
+
+      expect([reply.source, reply.sender, reply.sourceLink]).toEqual([
+        'mail',
+        'Els Maes',
+        'https://demo.cockpit.invalid/gmail',
+      ]);
+      expect([sara.source, sara.sender, sara.sourceLink]).toEqual([
+        'teams',
+        'Sara Okafor',
+        'https://demo.cockpit.invalid/teams',
+      ]);
+    });
+
+    it('lists Gmail and Teams as connected in every workspace, and neither failing', async () => {
+      const cookie = await continueAsGuest();
+      const seeded = (await workspacesOf(cookie)).filter((one) => one.name !== FIRST_WORKSPACE_NAME);
+      expect(seeded.length).toBe(3);
+
+      for (const workspace of seeded) {
+        const { sourceAccounts } = await read<{ sourceAccounts: SourceAccount[] }>(
+          `http://cockpit.test/v1/workspaces/${workspace.id}/connections`,
+          cookie,
+        );
+        expect(sourceAccounts.map((one) => one.connectorId).sort(), workspace.name).toEqual(['gmail', 'teams']);
+        for (const account of sourceAccounts) {
+          expect(account.failingBecause ?? null, `${workspace.name} ${account.connectorId}`).toBeNull();
+        }
+      }
+    });
+
+    /**
+     * The nightly job re-arms the check of every account holding a Gmail
+     * connection, and the guest holds three. Armed, it would ask Google about
+     * a mailbox that does not exist and mark the row failing - so what is
+     * asked is that the night leaves the guest's check unarmed and the rows
+     * as they were, and that a check run on the guest anyway reads nothing.
+     */
+    it('never arms or runs a Gmail check for the guest, so its rows never fail', async () => {
+      await continueAsGuest();
+      gmailIsEmpty();
+      const alarmOf = () =>
+        runInDurableObject(storeNamed(GUEST_ACCOUNT_NAME), (_instance, state) => state.storage.getAlarm());
+
+      await handleScheduled({} as never, env);
+
+      expect(await alarmOf()).toBeNull();
+
+      // A check that runs anyway: the alarm fires with the account named.
+      await runInDurableObject(storeNamed(GUEST_ACCOUNT_NAME), async (_instance, state) => {
+        state.storage.kv.put('gmail-check-account', GUEST_ACCOUNT_NAME);
+        await state.storage.setAlarm(Date.now());
+      });
+      await runDurableObjectAlarm(storeNamed(GUEST_ACCOUNT_NAME));
+
+      expect(gmailCalls).toEqual([]);
+      expect(await alarmOf()).toBeNull();
+      const counts = await inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) => ({
+        failing: sql.exec('SELECT COUNT(*) AS n FROM connection_failures').one().n,
+        checks: sql.exec('SELECT COUNT(*) AS n FROM gmail_checks').one().n,
+      }));
+      expect(counts).toEqual({ failing: 0, checks: 0 });
     });
   });
 
