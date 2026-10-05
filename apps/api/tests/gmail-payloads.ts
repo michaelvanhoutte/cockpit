@@ -5,7 +5,8 @@
  * `users.threads.get` with `format=full`, plus `users.getProfile` and
  * `users.history.list` (issue 726). A check reads a conversation again with
  * `format=minimal` (issue 727), which answers the same messages and labels
- * without their bodies.
+ * without their bodies, and changes its labels with `users.threads.modify`
+ * (issue 728).
  *
  * Every field Gmail sends is kept, whether the connector reads it or not, so
  * these stay comparable to a live answer field for field - which is what the
@@ -139,6 +140,20 @@ export function message(threadId: string, options: MessageOptions) {
 /** `users.threads.get` with `format=full`: the conversation and every message in it, oldest first. */
 export function threadAnswer(id: string, messages: readonly ReturnType<typeof message>[]) {
   return { id, historyId: '4815162300', messages };
+}
+
+/**
+ * `users.threads.modify` ("Take the Cockpit label off in Gmail when its task
+ * is done in Cockpit", issue 728): the conversation, each message carrying
+ * only its id and its labels after the change.
+ */
+export function modifyAnswer(thread: unknown) {
+  const { id, historyId, messages } = thread as {
+    id: string;
+    historyId: string;
+    messages: { id: string; threadId: string; labelIds: string[] }[];
+  };
+  return { id, historyId, messages: messages.map((one) => ({ id: one.id, threadId: one.threadId, labelIds: one.labelIds })) };
 }
 
 /** The commonest conversation: one labelled plain-text message - or that message unlabelled, or in the bin. */

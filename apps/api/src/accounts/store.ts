@@ -33,6 +33,7 @@ import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
 import { admittedCalls } from '../connectors/claude-code-hooks.js';
 import { checkGmail } from '../connectors/gmail-check.js';
 import { gmailCheckHost, holdsGmailConnection, sweepGmailNightly } from './gmail.js';
+import { labelChangeWaiting } from './mirrored-open-state.js';
 import { APP_CAPTURES_PER_MINUTE } from '../mcp/create-item.js';
 import {
   deleteAllRows,
@@ -762,6 +763,15 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         (payload as CommandPayload<'connect_source_account'>).connectorId === GMAIL;
       await this.#keepCheckingGmail(accountName, connectingGmail);
     }
+    // Within seconds rather than at the next five-minute check.
+    if (
+      answer.status === 'ok' &&
+      answer.value.applied &&
+      OPENS_OR_CLOSES.has(name) &&
+      labelChangeWaiting(this.#database(), accountName, (payload as { itemId: string }).itemId)
+    ) {
+      await this.#keepCheckingGmail(accountName, true);
+    }
     return answer;
   }
 
@@ -1273,6 +1283,13 @@ const GMAIL_LIFECYCLE: ReadonlySet<CommandName> = new Set<CommandName>([
   'disconnect_source_account',
   'delete_workspace',
 ]);
+
+/**
+ * The changes that can open or close an Item, after which a change waiting
+ * for Gmail brings the check forward to now ("Take the Cockpit label off in
+ * Gmail when its task is done in Cockpit", issue 728).
+ */
+const OPENS_OR_CLOSES: ReadonlySet<CommandName> = new Set<CommandName>(['set_done', 'set_dismissed', 'finish_agent_run']);
 
 /** Where the account a Gmail check is for is kept, in the object's key-value storage beside its alarm. */
 const GMAIL_CHECK_ACCOUNT = 'gmail-check-account';

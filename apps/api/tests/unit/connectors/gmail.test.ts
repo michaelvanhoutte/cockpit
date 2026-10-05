@@ -7,8 +7,11 @@ import {
   credentialRefreshed,
   gmailAccountFrom,
   gmailAuthorizationUrl,
+  gmailChangeApplies,
   gmailCredentialIn,
   historyPage,
+  labelChange,
+  labelChangeRefusal,
   stillLabelled,
   usableAccessToken,
 } from '../../../src/connectors/gmail.js';
@@ -321,6 +324,50 @@ describe('Capture', () => {
         messages.map((one, at) => message('t', { id: `m${at}`, sentAt: '2026-10-01T08:30:00Z', plain: 'x', ...one })),
       );
       expect(stillLabelled(thread, COCKPIT_LABEL_ID)).toBe(counts);
+    });
+  });
+
+  describe('a change made in Cockpit and not yet in Gmail wins, and Cockpit’s own changes do not come back', () => {
+    it.each([
+      {
+        situation: 'done in Cockpit, the label put back in Gmail before Cockpit took it off',
+        labelWanted: false,
+        open: false,
+        labelled: true,
+        becomes: 'stays done',
+      },
+      { situation: 'done in Cockpit and taken off in Gmail, which then reports it', labelWanted: null, open: false, labelled: false, becomes: 'stays done' },
+      { situation: 'reopened in Cockpit and put on in Gmail, which then reports it', labelWanted: null, open: true, labelled: true, becomes: 'stays open' },
+      { situation: 'nothing waiting, and the label taken off in Gmail', labelWanted: null, open: true, labelled: false, becomes: 'done' },
+      { situation: 'nothing waiting, and the label put back in Gmail', labelWanted: null, open: false, labelled: true, becomes: 'open' },
+    ] as const)('$situation: the Item $becomes', ({ labelWanted, open, labelled, becomes }) => {
+      const applies = gmailChangeApplies({ labelWanted, open }, labelled);
+      const after = applies === 'resolved' ? 'done' : applies === 'reopened' ? 'open' : open ? 'stays open' : 'stays done';
+      expect(after).toBe(becomes);
+    });
+  });
+
+  describe('taking the label off a conversation or putting it back touches the Cockpit label alone', () => {
+    it.each([
+      { situation: 'taking it off', wanted: false, change: { removeLabelIds: [COCKPIT_LABEL_ID] } },
+      { situation: 'putting it back', wanted: true, change: { addLabelIds: [COCKPIT_LABEL_ID] } },
+    ])('$situation', ({ wanted, change }) => {
+      expect(labelChange(COCKPIT_LABEL_ID, wanted)).toEqual(change);
+    });
+  });
+
+  describe('a label change Gmail only holds back is asked again, and one it will never take is not', () => {
+    const because = (reason: string) => ({ error: { code: 403, errors: [{ domain: 'usageLimits', reason }] } });
+    it.each([
+      { situation: '429', status: 429, answer: null, refusal: 'later' },
+      { situation: '403 for the user’s rate limit', status: 403, answer: because('userRateLimitExceeded'), refusal: 'later' },
+      { situation: '403 for the project’s rate limit', status: 403, answer: because('rateLimitExceeded'), refusal: 'later' },
+      { situation: '503', status: 503, answer: null, refusal: 'later' },
+      { situation: '403 for want of permission', status: 403, answer: because('insufficientPermissions'), refusal: 'never' },
+      { situation: '403 with no reason', status: 403, answer: null, refusal: 'never' },
+      { situation: '400', status: 400, answer: { error: { code: 400, message: 'Invalid label' } }, refusal: 'never' },
+    ] as const)('$situation: $refusal', ({ status, answer, refusal }) => {
+      expect(labelChangeRefusal(status, answer)).toBe(refusal);
     });
   });
 });

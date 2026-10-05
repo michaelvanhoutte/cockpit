@@ -1739,9 +1739,11 @@ export const claudeCodeHookArrivals = sqliteTable(
  * mailbox connected to two Workspaces gives each its own Item.
  *
  * **Never deleted**: a disconnect leaves the Items, and the link with them.
- * `label_wanted` is the room "Take the Cockpit label off in Gmail when its
- * task is done in Cockpit" (issue 728) fills - null while Cockpit wants
- * nothing of Gmail.
+ * `label_wanted` is what Cockpit wants of the conversation's `Cockpit` label
+ * and Gmail has not yet confirmed ("Take the Cockpit label off in Gmail when
+ * its task is done in Cockpit", issue 728): on (1) or off (0), written with
+ * the Item's own change, and null once Gmail holds it - or while Cockpit
+ * wants nothing of Gmail.
  */
 export const gmailConversations = sqliteTable(
   'gmail_conversations',

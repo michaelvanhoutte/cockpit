@@ -2388,12 +2388,13 @@ export function getSourceAccount(
   db: AccountDb,
   tenantId: string,
   sourceAccountId: string,
-): { id: string; workspaceId: string; connectorId: string } | undefined {
+): { id: string; workspaceId: string; connectorId: string; externalAccountKey: string | null } | undefined {
   return db
     .select({
       id: connectorAccounts.id,
       workspaceId: connectorAccounts.workspaceId,
       connectorId: connectorAccounts.connectorId,
+      externalAccountKey: connectorAccounts.externalAccountKey,
     })
     .from(connectorAccounts)
     .where(

@@ -1,9 +1,12 @@
+import { resolve } from 'node:path';
+import { isLinkedWorktree, portsFor } from '../../scripts/lib/ports.mjs';
 import {
   chooseRowAction,
   closeSettings,
   openSettings,
   deleteWorkspace,
   expect,
+  itemRow,
   makeWorkspace,
   openFirstWorkspace,
   press,
@@ -11,6 +14,10 @@ import {
   test,
   uniqueTitle,
 } from './support/app';
+
+const root = resolve(__dirname, '..', '..');
+/** The stub the stack runs, which stands in for Gmail's mailbox as well as for Google's sign-in. */
+const issuer = `http://127.0.0.1:${portsFor(root, { linked: isLinkedWorktree(root), env: process.env }).e2eIssuer}`;
 
 /**
  * F3, and the one walk this capability gets: connecting leaves the application
@@ -115,6 +122,22 @@ test.describe('Connector management', () => {
       await expect(page.getByText('Lunch on Thursday?')).toBeVisible();
       await expect(page.getByText(/Gmail · Anna Peeters/)).toBeVisible();
       await expect(page.getByRole('link', { name: 'Open in Gmail' }).first()).toBeVisible();
+
+      // Done on one takes it off the list, and within seconds the label off
+      // its conversation in that mailbox ("Take the Cockpit label off in Gmail
+      // when its task is done in Cockpit", issue 728).
+      const lunch = itemRow(page, 'Lunch on Thursday?');
+      await press(lunch.getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: /^Status/ }), isMobile);
+      await press(page.getByRole('menuitemradio', { name: 'Done' }), isMobile);
+      await expect(lunch).toHaveCount(0);
+      await expect
+        .poll(async () => {
+          const held = await fetch(`${issuer}/gmail-stub/thread?email=michael%40example.com&thread=18f0a1b2c3d4e5f2`);
+          return ((await held.json()) as { labelled: boolean }).labelled;
+        })
+        .toBe(false);
+
       const checked = await openSettings(page, 'Connections', isMobile);
       await expect(checked.getByText(/^Gmail · label Cockpit · last checked /)).toBeVisible();
 

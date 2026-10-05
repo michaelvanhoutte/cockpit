@@ -328,6 +328,50 @@ export function stillLabelled(answer: unknown, labelId: string): boolean {
   );
 }
 
+/**
+ * What Gmail's say on a conversation does to its Item ("Take the Cockpit
+ * label off in Gmail when its task is done in Cockpit", issue 728): marks it
+ * done where the label is off, opens it where the label is on - but only
+ * where that disagrees with the Item and Cockpit has no change of its own
+ * still waiting to reach Gmail.
+ *
+ * **A change waiting wins**, since Gmail's history carries no time for a
+ * label change and so cannot say which came later; the push then puts Gmail
+ * back in step. **One that agrees is nothing**, which is what makes Cockpit's
+ * own label writes come back from the history as no-ops rather than a loop.
+ */
+export function gmailChangeApplies(
+  link: { readonly labelWanted: boolean | null; readonly open: boolean },
+  labelled: boolean,
+): 'resolved' | 'reopened' | null {
+  if (link.labelWanted !== null) return null;
+  if (labelled === link.open) return null;
+  return labelled ? 'reopened' : 'resolved';
+}
+
+/**
+ * What Gmail refusing a label change with an error other than 401 or 404
+ * means for it: `later` where Gmail is only holding the mailbox back - 408,
+ * 429, a 403 for a rate limit, and any 5xx - and `never` for any other, which
+ * asking again will not change. A `never` is dropped rather than retried, so
+ * one conversation Gmail will not relabel cannot hold up the rest.
+ */
+export function labelChangeRefusal(status: number, answer: unknown): 'later' | 'never' {
+  if (status >= 500 || status === 408 || status === 429) return 'later';
+  if (status !== 403) return 'never';
+  const errors = (answer as { error?: { errors?: { reason?: unknown }[] } } | null)?.error?.errors;
+  const rateLimited = Array.isArray(errors) && errors.some((one) => RATE_LIMITS.has(String(one?.reason)));
+  return rateLimited ? 'later' : 'never';
+}
+
+/** The reasons Gmail gives a 403 that only means "not so fast". */
+const RATE_LIMITS = new Set(['rateLimitExceeded', 'userRateLimitExceeded', 'dailyLimitExceeded', 'quotaExceeded']);
+
+/** The change to one conversation's labels that puts the label on or takes it off - and touches no other. */
+export function labelChange(labelId: string, wanted: boolean): { addLabelIds: string[] } | { removeLabelIds: string[] } {
+  return wanted ? { addLabelIds: [labelId] } : { removeLabelIds: [labelId] };
+}
+
 /** What a conversation brings in as its Item. */
 export interface GmailConversation {
   readonly threadId: string;

@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
+import { modifyAnswer } from '../gmail-payloads.js';
 
 /**
  * A Google that can be reached from inside a test.
@@ -258,6 +259,23 @@ let mailbox: Mailbox = { labels: { labels: [] }, historyId: '1', threads: [], hi
 /** Every call Gmail was asked, as its path and query below `users/me/`, oldest first. */
 export const gmailCalls: string[] = [];
 
+/** Every change to a conversation's labels Gmail was asked for (`users.threads.modify`), oldest first. */
+export const gmailModifies: { threadId: string; addLabelIds?: string[]; removeLabelIds?: string[] }[] = [];
+
+/** A conversation as `threads.get` answers it, with these labels added to and taken off every message, as `threads.modify` does. */
+function labelsChanged(answer: unknown, change: { addLabelIds?: string[]; removeLabelIds?: string[] }): unknown {
+  const thread = answer as { messages?: { labelIds?: string[] }[] };
+  return {
+    ...thread,
+    messages: (thread.messages ?? []).map((message) => ({
+      ...message,
+      labelIds: [
+        ...new Set([...(message.labelIds ?? []), ...(change.addLabelIds ?? [])]),
+      ].filter((label) => !(change.removeLabelIds ?? []).includes(label)),
+    })),
+  };
+}
+
 /** Every refresh Google was asked for, oldest first, by the refresh token it named. */
 export const refreshes: string[] = [];
 
@@ -265,7 +283,8 @@ export const refreshes: string[] = [];
 let refreshing: 'answers' | 'refuses' | 'fails' = 'answers';
 
 /** Gmail answering one kind of call with a status, once or every time, in place of its answer. */
-let gmailFailing: { when: (call: string) => boolean; status: number; once: boolean } | null = null;
+let gmailFailing: { when: (call: string) => boolean; status: number; once: boolean; applied: boolean; reason?: string | undefined } | null =
+  null;
 
 /** Something the person does while Gmail or Google is being asked one call, before it is answered. */
 let meanwhile: { when: (call: string) => boolean; action: () => Promise<void> } | null = null;
@@ -274,6 +293,7 @@ let meanwhile: { when: (call: string) => boolean; action: () => Promise<void> } 
 export function gmailIsEmpty(): void {
   mailbox = { labels: { labels: [] }, historyId: '1', threads: [], history: [], historyLapsed: false };
   gmailCalls.length = 0;
+  gmailModifies.length = 0;
   refreshes.length = 0;
   refreshing = 'answers';
   gmailFailing = null;
@@ -301,9 +321,23 @@ export function gmailHolds(held: Partial<Mailbox>): void {
   mailbox = { ...mailbox, ...held };
 }
 
-/** Gmail answering calls matching `when` with `status` instead - once, or until told otherwise. */
-export function gmailAnswersWith(status: number, when: (call: string) => boolean, { once = true } = {}): void {
-  gmailFailing = { when, status, once };
+/**
+ * Gmail answering calls matching `when` with `status` instead - once, or until
+ * told otherwise; and where `applied`, having done what was asked all the
+ * same, as a change whose answer was lost on its way back. `reason` is the one
+ * Gmail gives beside the status, as it does for a 403 that is a rate limit.
+ */
+export function gmailAnswersWith(
+  status: number,
+  when: (call: string) => boolean,
+  { once = true, applied = false, reason }: { once?: boolean; applied?: boolean; reason?: string | undefined } = {},
+): void {
+  gmailFailing = { when, status, once, applied, reason };
+}
+
+/** Gmail answering every call as it does again. */
+export function gmailAnswersAgain(): void {
+  gmailFailing = null;
 }
 
 /** Google answering every refresh from now on by refusing the sign-in, or with a 503. */
@@ -334,11 +368,25 @@ async function gmailAnswer(url: URL, init?: RequestInit): Promise<Response> {
     return Response.json({ error: { code: 401, message: 'Invalid Credentials' } }, { status: 401 });
   }
   if (gmailFailing?.when(call)) {
-    const { status } = gmailFailing;
+    const { status, applied, reason } = gmailFailing;
     if (gmailFailing.once) gmailFailing = null;
-    return Response.json({ error: { code: status, message: 'Gmail did not answer this time' } }, { status });
+    // Done at Gmail, and only the answer lost on its way back.
+    if (applied) await answered(url, init);
+    return Response.json(
+      {
+        error: {
+          code: status,
+          message: 'Gmail did not answer this time',
+          ...(reason ? { errors: [{ domain: 'usageLimits', reason, message: reason }] } : {}),
+        },
+      },
+      { status },
+    );
   }
+  return answered(url, init);
+}
 
+async function answered(url: URL, init?: RequestInit): Promise<Response> {
   const path = url.pathname.replace(/^\/gmail\/v1\/users\/me\//, '');
   if (path === 'labels') return Response.json(mailbox.labels);
   if (path === 'profile') {
@@ -367,6 +415,14 @@ async function gmailAnswer(url: URL, init?: RequestInit): Promise<Response> {
       ...(from + size < labelled.length ? { nextPageToken: String(from + size) } : {}),
       resultSizeEstimate: labelled.length,
     });
+  }
+  const modified = mailbox.threads.find((one) => path === `threads/${one.id}/modify`);
+  if (modified && init?.method === 'POST') {
+    const change = JSON.parse(String(init.body)) as { addLabelIds?: string[]; removeLabelIds?: string[] };
+    gmailModifies.push({ threadId: modified.id, ...change });
+    modified.answer = labelsChanged(modified.answer, change);
+    modified.labelled = (change.addLabelIds ?? []).length > 0 ? true : (change.removeLabelIds ?? []).length > 0 ? false : modified.labelled;
+    return Response.json(modifyAnswer(modified.answer));
   }
   const thread = mailbox.threads.find((one) => path === `threads/${one.id}`);
   if (thread) return Response.json(thread.answer);

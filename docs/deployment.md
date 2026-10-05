@@ -667,7 +667,9 @@ wrangler secret put GMAIL_CLIENT_ID --env staging
 wrangler secret put GMAIL_CLIENT_SECRET --env staging
 ```
 
-**Nothing reads a mailbox until somebody connects one there.** Disconnecting
+**Nothing reads or writes a mailbox until somebody connects one there**, and
+the only write is the `Cockpit` label, taken off or put back as its Item is
+closed or reopened. Disconnecting
 forgets the sign-in and revokes it at Google, unless another Workspace of the
 account still holds the mailbox, since Google revokes the whole grant; a revoke
 Google does not answer is logged and never keeps the connection.
@@ -683,7 +685,8 @@ configuring; the nightly cron re-arms any check that was lost.
 real one (`apps/api/tests/contract/gmail.test.ts`; it skips without these):
 
 1. A Google account for testing, with a label called `Cockpit` and at least
-   one conversation carrying it that has a subject and some text.
+   one conversation carrying it that has a subject and some text. Each run
+   takes the label off one of them and puts it back.
 2. An OAuth client allowed `gmail.modify` - production's Gmail client will do,
    with `https://developers.google.com/oauthplayground` added as a redirect URI,
    or a *Desktop app* client in the same project.
