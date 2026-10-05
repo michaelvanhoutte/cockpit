@@ -96,9 +96,17 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
     },
 
     historyPageRead: (sourceAccountId, historyId, nextPageToken) => {
+      // Only while the listing is complete: one the nightly sweep started
+      // meanwhile owns the page token, and a history page's would misdirect it.
       db.update(gmailChecks)
         .set({ historyId, pageToken: nextPageToken })
-        .where(and(eq(gmailChecks.tenantId, accountName), eq(gmailChecks.sourceAccountId, sourceAccountId)))
+        .where(
+          and(
+            eq(gmailChecks.tenantId, accountName),
+            eq(gmailChecks.sourceAccountId, sourceAccountId),
+            isNotNull(gmailChecks.listedAt),
+          ),
+        )
         .run();
     },
 
@@ -182,12 +190,12 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
           .all();
         for (const link of links) {
           if (applySourceStateChange(db, accountName, link.itemId, change, at) === 'changed') changed += 1;
-          if (listing !== null) {
-            db.update(gmailConversations)
-              .set({ listedIn: listing })
-              .where(and(linksOf(connection), eq(gmailConversations.threadId, link.threadId)))
-              .run();
-          }
+        }
+        if (listing !== null) {
+          db.update(gmailConversations)
+            .set({ listedIn: listing })
+            .where(and(linksOf(connection), inArray(gmailConversations.threadId, group)))
+            .run();
         }
       }
       return changed;

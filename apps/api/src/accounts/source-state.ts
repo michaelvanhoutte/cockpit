@@ -3,6 +3,9 @@ import type { AccountDb } from './client.js';
 import { runCommand } from './command-service.js';
 import { getItem } from './repo.js';
 
+/** The source-state changes the host applies to an Item; `removed` is not yet one. */
+export type AppliedSourceChange = Exclude<SourceStateChange['change'], 'removed'>;
+
 /**
  * What the host does with a connector's source-state change (the SDK's
  * `SourceStateChange`): `resolved` marks the Item done, `reopened` makes it
@@ -18,8 +21,6 @@ import { getItem } from './repo.js';
  * nothing to the log. Synchronous, so nothing falls between the read of the
  * Item and the write it decides.
  */
-export type AppliedSourceChange = Exclude<SourceStateChange['change'], 'removed'>;
-
 export function applySourceStateChange(
   db: AccountDb,
   accountName: string,

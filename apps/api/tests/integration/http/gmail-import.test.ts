@@ -451,6 +451,18 @@ describe('Capture', () => {
       expect(historyReadsFrom().at(-1)).toBe('1200');
     });
 
+    it('more labelled at once than one check can read are all brought in, over successive runs', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      const later = Array.from({ length: 45 }, (_, at) => `thread-later-${at}`);
+      labelledAfterwards(later);
+
+      await runsSettle();
+
+      expect((await inboxOf()).map((item) => item.sourceId).sort()).toEqual(['thread-000', ...later].sort());
+    });
+
     it('a position Gmail no longer keeps starts the full reconcile, which brings in what is labelled and missing', async () => {
       mailboxWith(1);
       await connect();
@@ -618,6 +630,21 @@ describe('Capture', () => {
       expect(await itemFor('thread-000')).toMatchObject({ is: 'done' });
       expect(await itemFor('thread-000', OTHER_WORKSPACE_ID)).toMatchObject({ is: 'done' });
     });
+
+    it('the label taken off more conversations at once than one check can read marks every one done, over successive runs', async () => {
+      mailboxWith(45);
+      await connect();
+      await checksSettle();
+
+      const all = threadsHeld.filter((one) => one.labelled).map((one) => one.id);
+      for (const id of all) nowIs(id, 'unlabelled');
+      historySays(all.map(labelOff));
+      await runsSettle();
+
+      const still = [];
+      for (const id of all) if ((await itemFor(id))?.is !== 'done') still.push(id);
+      expect(still).toEqual([]);
+    });
   });
 
   describe('the full reconcile marks done only from a complete listing of what is labelled', () => {
@@ -726,6 +753,28 @@ describe('Capture', () => {
 
       expect(await itemFor('thread-001')).toMatchObject({ is: 'done' });
       expect(await itemFor('thread-000')).toMatchObject({ is: 'open' });
+    });
+
+    it('the nightly run landing while a check reads the history lists the mailbox from its first page', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      // Two history pages; the nightly run lands while the first is read,
+      // and the second does not answer.
+      labelledAfterwards([...Array.from({ length: 100 }, () => 'thread-first'), 'thread-second'], '1200');
+      whileGmailIsAsked(
+        (call) => call.startsWith('history?'),
+        () => handleScheduled({} as never, env),
+      );
+      gmailAnswersWith(503, (call) => call.startsWith('history?') && call.includes('pageToken=100'));
+
+      const listedBefore = gmailCalls.filter((call) => call.startsWith('threads?')).length;
+      await runsSettle();
+
+      const listed = gmailCalls.filter((call) => call.startsWith('threads?')).slice(listedBefore);
+      expect(listed[0]).toBeDefined();
+      expect(listed[0]).not.toContain('pageToken');
+      expect((await inboxOf()).map((item) => item.sourceId).sort()).toEqual(['thread-000', 'thread-first', 'thread-second']);
     });
   });
 });

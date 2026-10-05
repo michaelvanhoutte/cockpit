@@ -358,8 +358,8 @@ const GMAIL_CONVERSATIONS: Change = {
  * - **If it stops halfway:** one statement, so it cannot.
  * - **The second time it runs:** it does not, having been recorded.
  * - **Rows that already break the new rule:** none. Every existing link reads
- *   NULL, found by no listing yet, so the next complete listing reads the
- *   open ones it does not find before marking any done.
+ *   NULL, found by no listing yet, so the checks after it read each open one
+ *   before marking any done.
  * - **Rolled back after it has run:** an older release never names the
  *   column, and closes nothing.
  * - **A backup restored from before it:** the restore replays the recorded

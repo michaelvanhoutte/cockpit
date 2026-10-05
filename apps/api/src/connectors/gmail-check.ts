@@ -66,6 +66,14 @@ const PAGE_SIZE = 50;
 /** How many history records Gmail is asked for at a time (its ceiling is 500). */
 const HISTORY_PAGE_SIZE = 100;
 
+/**
+ * The most conversations one history page may name and still be read from
+ * the history; a page naming more is left to the full reconcile, which pages
+ * through the same work. Leaves a run's other calls room beside them: the
+ * label, the history page, and a refresh.
+ */
+const CHANGED_PER_HISTORY_PAGE = 30;
+
 /** What the account row says while a connection cannot be checked - after "Failing:". */
 export const NO_LABEL =
   'there is no label called Cockpit in this account. Create it in Gmail, and label the conversations to bring in.';
@@ -246,8 +254,13 @@ async function bringInLabelled(
 
   let progress = host.progress(connection.id);
   if (progress?.listedAt) {
-    if ((await readHistory(host, connection, mailbox, labelId, progress, at, broughtIn)) === 'caught up') return 'done';
-    // The position has lapsed: the full reconcile, from a fresh one.
+    if ((await readHistory(host, connection, mailbox, labelId, progress, at, broughtIn)) === 'caught up') {
+      // Whatever closing the last complete listing left for want of calls.
+      await closeUnlisted(host, connection, mailbox, labelId, at);
+      return 'done';
+    }
+    // The position has lapsed, or changed more than a run can read: the full
+    // reconcile, from a fresh one.
   }
 
   if (!progress || progress.listedAt) {
@@ -288,7 +301,8 @@ async function bringInLabelled(
  * goes back", issue 727) - each read first, so a conversation the listing
  * missed by moving between its pages, as a new reply moves it, stays open.
  * Gone, in the bin or no longer labelled is done. A run that stops part-way
- * leaves the rest for the next, which asks the store again.
+ * leaves the rest for the next, which asks the store again after its history
+ * read.
  *
  * **Only after a complete, successful listing**: `unconfirmed` names nothing
  * while it is still going, and a mailbox with no label called Cockpit never
@@ -354,7 +368,8 @@ async function stillThere(mailbox: Mailbox, threadId: string, labelId: string): 
  * once the last page's conversations are in, so a run that stops reads them
  * again and finds each one by its link. Gmail answers 404 for a position it no
  * longer keeps, after about a week: that is `lapsed`, and the caller starts the
- * full reconcile, which records a fresh one.
+ * full reconcile, which records a fresh one - as it does for a page naming more
+ * conversations than a run can read.
  */
 async function readHistory(
   host: GmailCheckHost,
@@ -373,6 +388,9 @@ async function readHistory(
     const answer = await mailbox.get(`history?${query}`);
     if (answer === null) return 'lapsed';
     const page = historyPage(answer, labelId);
+    // Each conversation named costs a read, and a run that stops reads the
+    // page again from its first: past what one run can read, it never ends.
+    if (page.changed.length > CHANGED_PER_HISTORY_PAGE) return 'lapsed';
     await settleThreads(host, connection, mailbox, labelId, page.changed, at);
     await bringInThreads(host, connection, mailbox, labelId, page.gained, at, broughtIn);
     if (page.nextPageToken) {
@@ -382,7 +400,8 @@ async function readHistory(
       host.historyPageRead(connection.id, page.historyId, null);
     }
     const next = host.progress(connection.id);
-    if (!next) throw new ConnectionChanged('the listing was started again');
+    // Gone, or the nightly sweep started the listing over meanwhile.
+    if (!next?.listedAt) throw new ConnectionChanged('the listing was started again');
     if (!page.nextPageToken) return 'caught up';
     progress = next;
   }
