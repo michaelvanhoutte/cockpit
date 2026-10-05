@@ -143,6 +143,17 @@ const READ_LATER = aType('Read later', 2, '#b58a2f');
  * the one you came from - which is what a capture that names no workspace is
  * recorded against (`lastVisited.ts`).
  */
+/**
+ * Every outbox a case made. Each keeps a retry timer and the signed-in owner
+ * alive after its case ends, and sends into whatever case is running by then:
+ * a slower case, such as one waiting on the formatted editor, then saw an
+ * earlier case's capture as its own.
+ */
+const everyOutbox: CaptureOutbox[] = [];
+afterEach(() => {
+  for (const outbox of everyOutbox.splice(0)) outbox.signedInAs(null);
+});
+
 async function thePage({
   types = [ACTION, THOUGHT, READ_LATER],
   items = [] as Item[],
@@ -211,6 +222,7 @@ async function thePage({
     timeoutMs: 500,
   });
   outbox.signedInAs('user-michael');
+  everyOutbox.push(outbox);
   const page = render(
     <QueryClientProvider client={client}>
       <OutboxProvider value={outbox}>
@@ -1777,6 +1789,23 @@ describe('Capture', () => {
 
       expect(await screen.findByText('photo.png')).toBeVisible();
       expect(editor).toHaveTextContent(/^$/);
+    });
+
+    it('queues a file copied with its HTML and does not also put the picture into the note', async () => {
+      const user = await thePage();
+      await user.click(aa());
+      const editor = await formattedNote();
+
+      fireEvent.paste(editor, {
+        clipboardData: {
+          files: [aPhoto()],
+          types: ['text/html', 'Files'],
+          getData: (type: string) => (type === 'text/html' ? '<img src="https://example.test/photo.png">' : ''),
+        },
+      });
+
+      expect(await screen.findByText('photo.png')).toBeVisible();
+      expect(editor.querySelector('img')).toBeNull();
     });
 
     it('puts what is dictated into the editor, replacing a reading still in progress with its final', async () => {

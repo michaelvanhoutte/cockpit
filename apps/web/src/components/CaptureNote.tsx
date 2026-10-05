@@ -154,14 +154,15 @@ export function CaptureNote({
     return () => clearInterval(timer);
   }, [formatted, generation]);
   useEffect(() => {
-    if (shown === fromEditor.current) return;
+    // Only the editor needs building again: the plain box shows `shown` as it is.
+    if (!formatted || shown === fromEditor.current) return;
     fromEditor.current = shown;
     // Building it again takes the cursor with the old one, if it was in it.
     if (form.current?.querySelector('[role="textbox"][contenteditable]')?.contains(document.activeElement)) {
       refocus.current = true;
     }
     setGeneration((was) => was + 1);
-  }, [shown]);
+  }, [shown, formatted]);
   /**
    * The type pressed, by id, or the empty string for *not yet pressed one* -
    * which is not an answer, only the absence of one. What that resolves to is
@@ -550,17 +551,19 @@ export function CaptureNote({
       onDragLeave={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFilesOver(false);
       }}
-      onDrop={(event) => {
+      onDropCapture={(event) => {
         if (!takesFiles(event)) return;
         event.preventDefault();
         setFilesOver(false);
         if (event.dataTransfer.files.length > 0) queueFiles(Array.from(event.dataTransfer.files));
       }}
       // Pasted anywhere on the form, including with the cursor in the
-      // message box: unlike the Item form's own description text, this box
+      // message box. Taken in the capture phase, so a file copied with its
+      // HTML (an image copied off a web page) is queued and never also
+      // reaches the formatted editor, which skips an event already handled: unlike the Item form's own description text, this box
       // is plain text and cannot hold an image, so there is no second branch
       // where the paste is the field's own.
-      onPaste={(event) => {
+      onPasteCapture={(event) => {
         const files = Array.from(event.clipboardData.files);
         if (files.length === 0) return;
         event.preventDefault();
