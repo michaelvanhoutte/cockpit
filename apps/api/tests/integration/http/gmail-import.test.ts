@@ -373,6 +373,23 @@ describe('Capture', () => {
       expect(gmailCalls.slice(readsBefore).some((call) => call.startsWith('threads/'))).toBe(false);
     });
 
+    it('one brought in by a run is a change the live-updates stream tells open tabs of', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      const before = await storeNamed(ACCOUNT_NAME).changesSince(ACCOUNT_NAME, '2026-01-01T00:00:00.000Z');
+      if (before.status !== 'ok') throw new Error('the store could not be read');
+
+      labelledAfterwards(['thread-later']);
+      await aCheckRuns();
+
+      const after = await storeNamed(ACCOUNT_NAME).changesSince(ACCOUNT_NAME, before.value.cursor);
+      if (after.status !== 'ok') throw new Error('the store could not be read');
+      expect(after.value.events).toEqual([
+        expect.objectContaining({ type: 'snapshot_invalidated', workspaceId: WORKSPACE_ID }),
+      ]);
+    });
+
     it('one whose read fails is brought in by the next run, which reads from the same position', async () => {
       mailboxWith(1);
       await connect();
