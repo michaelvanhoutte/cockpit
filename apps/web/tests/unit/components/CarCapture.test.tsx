@@ -6,7 +6,8 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Item, ItemType } from '@cockpit/shared';
 import { sendCommand } from '../../../src/api/client';
-import { CarCapture, NO_SPEECH_HERE } from '../../../src/components/CarCapture';
+import { CAR_DARK_KEY, CarCapture, NO_SPEECH_HERE } from '../../../src/components/CarCapture';
+import styles from '../../../src/styles.css?raw';
 import {
   CaptureOutbox,
   OutboxProvider,
@@ -221,7 +222,9 @@ describe('Capture', () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     pageIs('visible');
+    document.documentElement.removeAttribute('data-car-dark');
   });
 
   describe('the Car view is not offered where the browser cannot recognise speech', () => {
@@ -629,4 +632,187 @@ describe('Capture', () => {
       expect(theStatus()).toHaveTextContent('Tap to speak');
     });
   });
+
+  describe('the dark view is switched from the footer, beside the language tag, at any time', () => {
+    it.each([
+      { situation: 'light', listening: false, status: 'Tap to speak' },
+      { situation: 'listening', listening: true, status: 'Listening — tap to capture' },
+    ])('$situation, tapped: goes dark and captures nothing', async ({ listening, status }) => {
+      const { engine, current } = anEngine();
+      const user = await theCar({ dictating: { engine, store: aStore() } });
+      if (listening) await listeningTo(user, current);
+
+      await user.click(theMoon());
+
+      expect(theMoon()).toHaveAttribute('aria-pressed', 'true');
+      expect(theMoon()).toHaveAttribute('title', 'Switch to the light view');
+      expect(theStatus()).toHaveTextContent(status);
+      await settled();
+      expect(capturedCalls()).toHaveLength(0);
+    });
+
+    it('goes light again on the next tap', async () => {
+      const { engine } = anEngine();
+      const user = await theCar({ dictating: { engine, store: aStore() } });
+
+      await user.click(theMoon());
+      await user.click(theMoon());
+
+      expect(theMoon()).toHaveAttribute('aria-pressed', 'false');
+      expect(theMoon()).toHaveAttribute('title', 'Switch to the dark view');
+    });
+
+    it('still resets to Tap to speak after Captured while dark', async () => {
+      const { engine, current } = anEngine();
+      const user = await theCar({ dictating: { engine, store: aStore() }, capturedFor: 200 });
+      await listeningTo(user, current, 'buy oat milk');
+      await user.click(theButton());
+      await waitFor(() => expect(theStatus()).toHaveTextContent('Captured'));
+
+      await user.click(theMoon());
+
+      expect(theMoon()).toHaveAttribute('aria-pressed', 'true');
+      await waitFor(() => expect(theStatus()).toHaveTextContent('Tap to speak'));
+    });
+  });
+
+  describe('while the Car view is shown dark the document is flagged, and never otherwise', () => {
+    const flagged = () => document.documentElement.hasAttribute('data-car-dark');
+
+    it('flags the document while dark and takes the flag off on switching light', async () => {
+      const { engine } = anEngine();
+      const user = await theCar({ dictating: { engine, store: aStore() } });
+      expect(flagged()).toBe(false);
+
+      await user.click(theMoon());
+      expect(flagged()).toBe(true);
+
+      await user.click(theMoon());
+      expect(flagged()).toBe(false);
+    });
+
+    it('takes the flag off on leaving, and puts it back on coming again from what was remembered', async () => {
+      const { engine } = anEngine();
+      const store = aStore();
+      const first = await theCar({ dictating: { engine, store } });
+      await first.click(theMoon());
+      expect(flagged()).toBe(true);
+
+      first.unmount();
+      expect(flagged()).toBe(false);
+
+      await theCar({ dictating: { engine: anEngine().engine, store } });
+      expect(flagged()).toBe(true);
+    });
+
+    it('is not flagged, and says its message light, where there is no speech engine', async () => {
+      await theCar({ dictating: { engine: null, store: aStore({ [CAR_DARK_KEY]: 'dark' }) } });
+
+      expect(flagged()).toBe(false);
+      expect(screen.getByRole('status')).toHaveTextContent(NO_SPEECH_HERE);
+    });
+  });
+
+  describe('the dark choice is remembered on this device, and the view is light until first switched', () => {
+    it('is light with nothing stored, whatever the phone is set to', async () => {
+      vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('dark'), media: query }));
+      const { engine } = anEngine();
+      await theCar({ dictating: { engine, store: aStore() } });
+
+      expect(theMoon()).toHaveAttribute('aria-pressed', 'false');
+      expect(document.documentElement.hasAttribute('data-car-dark')).toBe(false);
+    });
+
+    it('is dark when it is opened again after being switched dark', async () => {
+      const { engine } = anEngine();
+      const store = aStore();
+      const first = await theCar({ dictating: { engine, store } });
+      await first.click(theMoon());
+      first.unmount();
+
+      await theCar({ dictating: { engine: anEngine().engine, store } });
+
+      expect(theMoon()).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('is light where something unrecognised is stored', async () => {
+      const { engine } = anEngine();
+      await theCar({ dictating: { engine, store: aStore({ [CAR_DARK_KEY]: 'blue' }) } });
+
+      expect(theMoon()).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('still switches without an error where storage is unavailable', async () => {
+      const { engine } = anEngine();
+      const refusing = {
+        getItem: () => {
+          throw new Error('refused');
+        },
+        setItem: () => {
+          throw new Error('refused');
+        },
+      } as unknown as Storage;
+      const user = await theCar({ dictating: { engine, store: refusing } });
+      expect(theMoon()).toHaveAttribute('aria-pressed', 'false');
+
+      await user.click(theMoon());
+
+      expect(theMoon()).toHaveAttribute('aria-pressed', 'true');
+    });
+  });
+
+  describe('text in the dark view reads at 4.5:1 or better on what it is drawn on', () => {
+    const night = (name: string) => {
+      const found = new RegExp(`--color-night${name}:\\s*(#[0-9a-f]{6})`).exec(styles);
+      if (!found) throw new Error(`no --color-night${name} in styles.css`);
+      return found[1]!;
+    };
+
+    it.each([
+      { situation: 'the status line', text: night('-ink'), on: night(''), least: 4.5 },
+      { situation: 'the words card', text: night('-ink'), on: night('-card'), least: 4.5 },
+      { situation: 'an error in the status line', text: night('-over'), on: night(''), least: 4.5 },
+      { situation: 'the footer text', text: night('-ink-soft'), on: night(''), least: 4.5 },
+      { situation: 'the Capture heading', text: night('-ink-soft'), on: night(''), least: 4.5 },
+      { situation: 'the language tag and the switch', text: night('-ink-soft'), on: night('-card'), least: 4.5 },
+      {
+        situation: 'the lit side of the Write | Car switch',
+        text: night('-ink'),
+        on: lightenedBy10(night('-card')),
+        least: 4.5,
+      },
+      { situation: 'placeholder and provisional words', text: night('-faint'), on: night('-card'), least: 3 },
+    ])('$situation reads on its ground', ({ text, on, least }) => {
+      expect(contrast(text, on)).toBeGreaterThanOrEqual(least);
+    });
+  });
 });
+
+const theMoon = () => screen.getByRole('button', { name: 'Dark view' });
+
+/** A storage the test holds, with what was stored on this device before the view opens. */
+function aStore(initial: Record<string, string> = {}): Storage {
+  const held = new Map(Object.entries(initial));
+  return {
+    getItem: (key: string) => held.get(key) ?? null,
+    setItem: (key: string, value: string) => void held.set(key, value),
+  } as unknown as Storage;
+}
+
+const channels = (hex: string) => [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16));
+/** White at 10% over a colour, which is how the lit side of the switch is drawn. */
+const lightenedBy10 = (hex: string) =>
+  `#${channels(hex)
+    .map((value) => Math.round(255 * 0.1 + value * 0.9).toString(16).padStart(2, '0'))
+    .join('')}`;
+const luminance = (hex: string) => {
+  const [r, g, b] = channels(hex).map((value) => {
+    const unit = value / 255;
+    return unit <= 0.04045 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+};
+const contrast = (one: string, other: string) => {
+  const [light, dark] = [luminance(one), luminance(other)].sort((a, b) => b - a);
+  return (light! + 0.05) / (dark! + 0.05);
+};

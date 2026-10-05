@@ -990,6 +990,7 @@ function TheShell() {
         // dashboards' side comes to on its own. Said here so an address with
         // nothing to draw in the band comes to the same thing.
         className="flex min-h-11 w-full items-end"
+        data-band=""
         // Inset the same way the header above it is, so the Inbox's heading
         // still lines up with the column it heads and the first dashboard tab
         // does not go under a sideways phone's notch.

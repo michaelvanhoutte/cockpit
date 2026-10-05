@@ -155,6 +155,31 @@ test.describe('Capture', () => {
       const drive = page.getByRole('button', { name: 'Speak a note' });
       await expect(drive).toBeInViewport();
       await expectNoSidewaysScroll(page);
+
+      // Dark, for capturing at night: the whole screen under the top bar - the
+      // page, the shell's edge and the empty band under the tabs - goes dark with
+      // the Car view and is light again on Write. Only a browser applies the
+      // stylesheet that is keyed on the view's flag.
+      const colour = (selector: string) =>
+        page.locator(selector).first().evaluate((el) => getComputedStyle(el).backgroundColor);
+      const NIGHT = 'rgb(17, 18, 22)';
+      const NIGHT_BAND = 'rgb(23, 24, 28)';
+      expect(await colour('body')).not.toBe(NIGHT);
+      await press(page.getByRole('button', { name: 'Dark view' }), isMobile);
+      await expect.poll(() => colour('body')).toBe(NIGHT);
+      expect(await colour('main')).toBe(NIGHT);
+      expect(await colour('[data-capture]')).toBe(NIGHT);
+      expect(await colour('[data-band]')).toBe(NIGHT_BAND);
+      // The lit side of the Write | Car switch is still the view shown.
+      expect(await colour('[data-capture] a[data-lit]')).not.toBe(await colour('[data-capture] a:not([data-lit])'));
+      await press(page.getByRole('link', { name: 'Write' }), isMobile);
+      await expect.poll(() => colour('body')).not.toBe(NIGHT);
+      expect(await colour('[data-band]')).not.toBe(NIGHT_BAND);
+      // Remembered on this device: Car opens dark again.
+      await press(page.getByRole('link', { name: 'Car' }), isMobile);
+      await expect.poll(() => colour('body')).toBe(NIGHT);
+      await expect(page.getByRole('button', { name: 'Dark view' })).toHaveAttribute('aria-pressed', 'true');
+
       await press(drive, isMobile);
       const driven = uniqueTitle('Book the car service');
       await engineHears(page, driven);

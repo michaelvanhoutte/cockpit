@@ -132,6 +132,22 @@
   --color-priority-normal: #c98a4b;
   --color-priority-high: #e0362b;
 
+  /*
+   * The dark Car view, dimmed rather than inverted ("Switch the Car view dark
+   * from inside it", issue 753): a near-black ground, grey text, and each step
+   * of surface one notch lighter. Text is at least 4.5:1 on what it is drawn
+   * on, except `night-faint`, which is set-apart text (placeholder and
+   * provisional words) at 3:1.
+   */
+  --color-night: #111216;
+  --color-night-band: #17181c;
+  --color-night-card: #1a1b20;
+  --color-night-ink: #a9acb4;
+  --color-night-ink-soft: #868993;
+  --color-night-faint: #6b6e78;
+  --color-night-over: #d0716a;
+  --color-night-icon: #c9cbd1;
+
   /* Small marks, buttons and inputs, cards and panels (brand.css). */
   --radius-sm: 4px;
   --radius-md: 10px;
@@ -221,6 +237,42 @@ body {
   @apply bg-ground text-ink font-sans antialiased;
   font-size: 15px;
   line-height: 1.55;
+}
+
+/*
+ * The dark Car view. It sets `data-car-dark` on the document while it is shown
+ * dark (components/CarCapture.tsx), and the screen around it is styled from
+ * that: the page behind it, the shell's edge, the empty band under the tabs, and
+ * the Capture heading and Write | Car switch. Keyed on a flag rather than told
+ * by the page so the choice costs the first bundle nothing. **A new surface
+ * under Capture is light until it gets a rule here.**
+ */
+html[data-car-dark] body,
+html[data-car-dark] main {
+  background-color: var(--color-night);
+}
+html[data-car-dark] [data-band] {
+  /* Over the workspace's colour, which the shell sets inline. */
+  background-color: var(--color-night-band) !important;
+}
+html[data-car-dark] [data-capture] {
+  background-color: var(--color-night);
+  box-shadow: none;
+}
+html[data-car-dark] [data-capture-heading] {
+  color: var(--color-night-ink-soft);
+}
+html[data-car-dark] [data-capture-switch] {
+  background-color: var(--color-night-card);
+  border-color: rgb(255 255 255 / 0.1);
+}
+html[data-car-dark] [data-capture-switch] a {
+  color: var(--color-night-ink-soft);
+  background-color: transparent;
+}
+html[data-car-dark] [data-capture-switch] a[data-lit] {
+  color: var(--color-night-ink);
+  background-color: rgb(255 255 255 / 0.1);
 }
 
 /*

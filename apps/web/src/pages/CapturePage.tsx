@@ -36,7 +36,10 @@ export const captureStateFor = (workspaceId: string | undefined): never =>
  * **Write | Car** in the header switches between the form and the Car view
  * (components/CarCapture.tsx, "Capture by voice in the car", issue 730) and
  * keeps the workspace you came from; `/capture` opens on Write and
- * `/capture/car` on Car.
+ * `/capture/car` on Car. **The Car view can be dark** (`styles.css`, "The dark
+ * Car view"): it flags the document while shown dark, and this page's ground,
+ * heading and switch are styled from that flag rather than told, so a car-only
+ * look costs the first bundle nothing.
  */
 export function CapturePage() {
   const startsIn = useRouterState({
@@ -50,9 +53,12 @@ export function CapturePage() {
     /* The sheet's own hollow, the same one a panel's list sits in ("Cockpit
        Shell Explorations", artboard 2c): this screen is one thing rather than a
        page of cards, so it is one well. */
-    <section className="well flex min-h-full flex-col px-4 pt-[18px] pb-[14px] sm:px-10 sm:pt-[30px] sm:pb-[22px]">
+    <section
+      data-capture=""
+      className="well flex min-h-full flex-col px-4 pt-[18px] pb-[14px] sm:px-10 sm:pt-[30px] sm:pb-[22px]"
+    >
       <div className="flex items-baseline gap-3">
-        <h1 className="text-xs font-semibold tracking-[0.11em] text-accent-deep uppercase sm:text-[15px]">
+        <h1 data-capture-heading="" className="text-xs font-semibold tracking-[0.11em] text-accent-deep uppercase sm:text-[15px]">
           Capture
         </h1>
         {/* Gone on a phone, where the heading and the box below it already say
@@ -63,12 +69,14 @@ export function CapturePage() {
         <div
           role="group"
           aria-label="Capture view"
+          data-capture-switch=""
           className="ml-auto flex overflow-hidden rounded-md border border-shade/10 bg-white text-sm"
         >
           <Link
             to="/capture"
             state={carried}
             aria-current={inCar ? undefined : 'page'}
+            data-lit={inCar ? undefined : ''}
             className={viewClass(!inCar)}
           >
             Write
@@ -77,6 +85,7 @@ export function CapturePage() {
             to="/capture/car"
             state={carried}
             aria-current={inCar ? 'page' : undefined}
+            data-lit={inCar ? '' : undefined}
             className={viewClass(inCar)}
           >
             Car

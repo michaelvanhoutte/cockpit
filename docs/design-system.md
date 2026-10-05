@@ -55,6 +55,19 @@ A Workspace is never assigned colours outside this table: a stored set that is n
 - **Milled** — a control that reads as a surface rather than a filled rectangle: a faint vertical gradient over whatever background colour it already has, and a one-pixel highlight along its top edge. Additive: it paints over a control's own Tailwind background colour rather than replacing it, meant to be felt rather than seen.
 - **Elevation** — a two-step shadow scale (`panel`, `raised`) for what genuinely floats: a dialog, a menu, the row lifted under a drag. A Panel itself is not elevated — its list is sunk (`well`, above) rather than raised, so nothing on a Dashboard advances towards you. Floating layers stack in one order: page content, then pinned bars (the Dashboard filter bar, the selection bar), then menus, submenus and dialogs with their dimming (`z-floating`), then the undo toast and the "Updating" notice. A new pinned element goes below `z-floating`; a new floating layer takes it.
 
+## The dark Car view
+
+Switched on from inside the Car view only, for capturing at night; no other screen has a dark appearance. **Dimmed, not inverted**: a near-black ground, grey text, each surface one notch lighter. The top bar is unchanged. The tokens are `night*` in `styles.css`; every text is at least 4.5:1 on what it is drawn on (held by a test), except the set-apart placeholder and provisional words at 3:1.
+
+| Where | Value |
+|---|---|
+| ground (page, shell edge) | `night` `#111216`; the band under the tabs `night-band` `#17181c` |
+| words card, footer controls, Write \| Car switch | `night-card` `#1a1b20`, border white at 5% (card) or 10% (controls) |
+| status line and card text | `night-ink` `#a9acb4`; an error `night-over` `#d0716a` |
+| footer text, Capture heading, tag, switch text | `night-ink-soft` `#868993`; the lit side of the switch is white at 10% with `night-ink` |
+| placeholder and provisional words | `night-faint` `#6b6e78` |
+| round button | `accent-deep` idle and captured, `over-deep` listening, no shadow, brightness 70%, icon `night-icon` `#c9cbd1`; the listening ring is `over` at 15% |
+
 ## One token set
 
 Every colour, radius and shadow in the web app is a name from `styles.css`: no hex, `rgb(`, `black`, or arbitrary Tailwind colour, radius or shadow value is written anywhere else, and `scripts/lib/theme-tokens.test.mjs` fails on one. A value the theme cannot name at build time arrives as a runtime variable (`bg-[var(--tab-on)]`). A value with no token gets a named one. Font sizes are outside this.
