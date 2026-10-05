@@ -278,4 +278,11 @@ export interface Env {
    * queue does not wait out a window it is not asserting on.
    */
   REPROPOSE_DEBOUNCE_SECONDS?: string;
+  /**
+   * How many milliseconds a simulated run in the guest account stays on
+   * *Starting Claude…* before it is settled as working
+   * (`src/jobs/simulated-run.ts`). Unset everywhere but the backend suite,
+   * which sets `0` so a start does not wait for a pause nobody is asserting on.
+   */
+  SIMULATED_START_MS?: string;
 }

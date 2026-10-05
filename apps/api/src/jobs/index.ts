@@ -10,6 +10,7 @@ import {
   reproposeTexts,
   type EnrichmentJob,
 } from './enrichment.js';
+import { moveSimulatedRunToWaiting } from './simulated-run.js';
 
 export {
   cleanUpACapturedNote,
@@ -28,7 +29,9 @@ export type {
   ReadWhatItMeansJob,
   ReproposePanelsJob,
   ReproposeTextsJob,
+  SimulatedRunWaitsJob,
 } from './enrichment.js';
+export { enqueueSimulatedRunWaiting, moveSimulatedRunToWaiting } from './simulated-run.js';
 export { CannotReadMeaningError, readWhatTheseNotesMean } from './backfill-meanings.js';
 export type { BatchRead } from './backfill-meanings.js';
 
@@ -207,6 +210,8 @@ function run(env: Env, job: EnrichmentJob): Promise<void> {
       return readWhatANoteMeans(env, job);
     case 're-propose-texts':
       return reproposeTexts(env, job);
+    case 'simulated-run-waits':
+      return moveSimulatedRunToWaiting(env, job);
   }
 }
 
@@ -220,5 +225,7 @@ function describe(job: EnrichmentJob): string {
       return `workspace ${job.workspaceId}`;
     case 're-propose-texts':
       return `account ${job.accountName}`;
+    case 'simulated-run-waits':
+      return `run ${job.runId}`;
   }
 }

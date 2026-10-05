@@ -1,4 +1,12 @@
-import { GMAIL, TEAMS, type PanelFilter, type Priority, type WorkspaceTint } from '@cockpit/shared';
+import {
+  CLAUDE_CODE,
+  GMAIL,
+  TEAMS,
+  connectorNamed,
+  type PanelFilter,
+  type Priority,
+  type WorkspaceTint,
+} from '@cockpit/shared';
 
 /**
  * What the shared guest account holds when a visitor opens it: a contractor's
@@ -54,7 +62,60 @@ export interface SeedItem {
    * (`demoAddress`, `@cockpit/shared`), which the app opens as its own page.
    */
   readonly via?: { readonly source: 'gmail' | 'teams'; readonly sender: string };
+  /**
+   * That one of the demo's Agents is on this Item ("Show agents at work in the
+   * guest demo, with simulated runs", issue 774), working or waiting on you.
+   * Only on an Item filed on a Panel, which is the only place an Agent starts.
+   */
+  readonly run?: { readonly agent: DemoAgentName; readonly state: 'working' | 'waiting' };
 }
+
+/** An Agent of the guest's dock: what its tile says and sends, as an Agent a person made would. */
+export interface SeedAgent {
+  readonly name: string;
+  /** One of the palette's tints (`AGENT_COLORS`), which the table's CHECK holds it to. */
+  readonly color: WorkspaceTint;
+  readonly message: string;
+  readonly startsInProgress: boolean;
+}
+
+/** What every demo Agent's message ends with: the Item's own words, in the template's placeholders. */
+const ABOUT_THE_ITEM = '\n\n{title}\n\n{description}\n\n{link}';
+
+/**
+ * The four Agents the guest's dock holds ("Show agents at work in the guest
+ * demo, with simulated runs", issue 774), in the order the dock draws them.
+ * Ordinary Agents, so one the guest edits or deletes behaves like any: what
+ * makes a start simulated is the account being the guest's, not these rows.
+ */
+export const GUEST_DEMO_AGENTS = [
+  {
+    name: 'Draft a reply',
+    color: '#6f62b5',
+    message: `Draft a short, friendly reply to this and leave it for me to send.${ABOUT_THE_ITEM}`,
+    startsInProgress: false,
+  },
+  {
+    name: 'Research',
+    color: '#3f8f78',
+    message: `Research this and come back with what you found and where you found it.${ABOUT_THE_ITEM}`,
+    startsInProgress: false,
+  },
+  {
+    name: 'Plan it',
+    color: '#b58a2f',
+    message: `Break this into small steps and put them in order.${ABOUT_THE_ITEM}`,
+    startsInProgress: false,
+  },
+  {
+    name: 'Fix it',
+    color: '#c06a45',
+    message: `Find what is wrong here and fix it, then tell me what you changed.${ABOUT_THE_ITEM}`,
+    startsInProgress: true,
+  },
+] as const satisfies readonly SeedAgent[];
+
+export type DemoAgentName = (typeof GUEST_DEMO_AGENTS)[number]['name'];
 
 /**
  * The connections every demo Workspace shows as connected, under Settings ›
@@ -68,12 +129,17 @@ export interface SeedItem {
  * connection changes are refused at the route (auth/guest-connections.ts).
  */
 export const GUEST_DEMO_CONNECTIONS: readonly {
-  readonly connectorId: typeof GMAIL | typeof TEAMS;
+  readonly connectorId: typeof GMAIL | typeof TEAMS | typeof CLAUDE_CODE;
   readonly externalAccountKey: string;
   readonly displayName: string;
 }[] = [
   { connectorId: GMAIL, externalAccountKey: 'alex@contractor.example', displayName: 'alex@contractor.example' },
   { connectorId: TEAMS, externalAccountKey: 'demo-tenant/alex', displayName: 'Alex Contractor' },
+  // Claude Code, so an Agent can start ("Show agents at work in the guest
+  // demo, with simulated runs", issue 774). Its key is the constant a real one
+  // carries (`externalAccountKey` of the connect route); the credential is the
+  // placeholder, which a guest's start never opens - it is simulated instead.
+  { connectorId: CLAUDE_CODE, externalAccountKey: 'connection', displayName: connectorNamed(CLAUDE_CODE) },
 ];
 
 /** The credential every demo connection carries: not sealed, and not a secret, so nothing can open it. */
@@ -186,6 +252,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                   {
                     title: 'Reply to Mum about the weekend',
                     via: { source: 'gmail', sender: 'Mum' },
+                    run: { agent: 'Draft a reply', state: 'waiting' },
                   },
                   {
                     title: 'Pick up the parcel from the collection point',
@@ -210,6 +277,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     title: 'Insurance renewal quote came in - worth comparing',
                     note: true,
                     via: { source: 'gmail', sender: 'Ardent Insurance' },
+                    run: { agent: 'Research', state: 'working' },
                   },
                 ],
               },
@@ -231,7 +299,11 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     priority: 'normal',
                     people: ['Fien Coppens'],
                   },
-                  { title: 'Draw up the agenda for the committee meeting', people: ['Bram Willems'] },
+                  {
+                    title: 'Draw up the agenda for the committee meeting',
+                    people: ['Bram Willems'],
+                    run: { agent: 'Plan it', state: 'working' },
+                  },
                   {
                     title: 'Ask Bram to sign off the referee expenses',
                     people: ['Bram Willems'],
@@ -300,6 +372,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     title: 'Reply to Els about the slow logins in Ghent',
                     priority: 'high',
                     via: { source: 'gmail', sender: 'Els Maes' },
+                    run: { agent: 'Draft a reply', state: 'waiting' },
                   },
                   {
                     title: 'Sara needs a yes or no on Friday for the sync',
@@ -309,6 +382,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                   {
                     title: 'Send the imaging supplier our answers',
                     via: { source: 'gmail', sender: 'Lumen Imaging' },
+                    run: { agent: 'Draft a reply', state: 'working' },
                   },
                 ],
               },
@@ -323,7 +397,11 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     started: 0,
                   },
                   { title: 'Write up the incident notes from Tuesday', topics: ['Security'] },
-                  { title: 'Pair with Sara on the scheduling bug', people: ['Sara Okafor'] },
+                  {
+                    title: 'Pair with Sara on the scheduling bug',
+                    people: ['Sara Okafor'],
+                    run: { agent: 'Fix it', state: 'working' },
+                  },
                   { title: 'Answer the clinic leads about the new booking hours', due: 0 },
                 ],
               },
@@ -416,7 +494,12 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                   { title: 'Feature flag for routing traffic to the new service', due: 6 },
                   { title: 'Retire the old bridge once nothing calls it', priority: 'low' },
                   { title: 'Contract tests against the new booking API', people: ['Tom Delrue'] },
-                  { title: 'Rollback plan for the first cutover window', due: 0, priority: 'high' },
+                  {
+                    title: 'Rollback plan for the first cutover window',
+                    due: 0,
+                    priority: 'high',
+                    run: { agent: 'Plan it', state: 'waiting' },
+                  },
                 ],
               },
             ],
@@ -515,7 +598,11 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     topics: ['Security'],
                   },
                   { title: 'Enforce hardware keys on the administrator accounts', priority: 'normal', topics: ['Security'] },
-                  { title: 'Remove the shared service account from the database', priority: 'high' },
+                  {
+                    title: 'Remove the shared service account from the database',
+                    priority: 'high',
+                    run: { agent: 'Fix it', state: 'waiting' },
+                  },
                   { title: 'Turn off the VPN accounts of last year\'s contractors', due: -4 },
                   { title: 'Encryption at rest confirmed for every store', note: true, topics: ['Security'] },
                 ],
@@ -597,6 +684,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     due: 0,
                     priority: 'high',
                     started: 1,
+                    run: { agent: 'Plan it', state: 'working' },
                   },
                   { title: 'Review the warehouse integration spike', priority: 'normal' },
                   {
@@ -605,7 +693,12 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                     people: ['Priya Shah'],
                     via: { source: 'teams', sender: 'Priya Shah' },
                   },
-                  { title: 'Decide build or buy for the loyalty scheme', due: 4, priority: 'high' },
+                  {
+                    title: 'Decide build or buy for the loyalty scheme',
+                    due: 4,
+                    priority: 'high',
+                    run: { agent: 'Research', state: 'waiting' },
+                  },
                   { title: 'Store managers are asking for offline mode on the tills', note: true, people: ['Priya Shah'] },
                 ],
               },

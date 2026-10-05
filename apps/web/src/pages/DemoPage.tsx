@@ -15,9 +15,21 @@ import {
  * `Record<DemoPageName, …>` makes the next demo page a compile error until it
  * has its words.
  */
-const WORDS: Record<DemoPageName, { title: string; where: string }> = {
-  gmail: { title: "Gmail", where: "the email in Gmail" },
-  teams: { title: "Microsoft Teams", where: "the message in Microsoft Teams" },
+const WORDS: Record<DemoPageName, { heading: string; body: string }> = {
+  gmail: {
+    heading: "This is where Gmail would open",
+    body: "In your own Cockpit, Open ↗ takes you to the email in Gmail. This demo is not connected to a real Gmail account, so it stops here.",
+  },
+  teams: {
+    heading: "This is where Microsoft Teams would open",
+    body: "In your own Cockpit, Open ↗ takes you to the message in Microsoft Teams. This demo is not connected to a real Microsoft Teams account, so it stops here.",
+  },
+  // A simulated run's link ("Show agents at work in the guest demo, with
+  // simulated runs", issue 774).
+  session: {
+    heading: "This is where the Claude Code session would be",
+    body: "In your own Cockpit, a run's ↗ takes you to its Claude Code session. In this demo the run is played out for you and never reaches Claude, so it stops here.",
+  },
 };
 
 export function DemoPage({ page }: { page: string }) {
@@ -31,14 +43,10 @@ export function DemoPage({ page }: { page: string }) {
     >
       <main className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-panel">
         <h1 className="text-xl font-semibold tracking-tight">
-          {words
-            ? `This is where ${words.title} would open`
-            : "Nothing opens here"}
+          {words ? words.heading : "Nothing opens here"}
         </h1>
         <p className="mt-2 text-sm text-ink-soft">
-          {words
-            ? `In your own Cockpit, Open ↗ takes you to ${words.where}. This demo is not connected to a real ${words.title} account, so it stops here.`
-            : "This demo address does not lead anywhere."}
+          {words ? words.body : "This demo address does not lead anywhere."}
         </p>
         <a
           href="/"
@@ -50,3 +58,6 @@ export function DemoPage({ page }: { page: string }) {
     </div>
   );
 }
+
+// Also the default export, for the lazy `import()` router.tsx loads this behind.
+export default DemoPage;
