@@ -525,7 +525,7 @@ export function CaptureNote({
           and a due date: one box rather than a row of its own, which took too
           much room. The border and the focus ring belong to the box, so the
           strip reads as inside the note rather than under it. */}
-      <div className="order-1 mt-2.5 flex w-full flex-col rounded-md border border-shade/10 bg-white shadow-field focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40 sm:order-none sm:mt-4 sm:min-h-56 sm:shrink-0 sm:resize-y sm:overflow-hidden">
+      <div className="order-1 mt-2.5 flex w-full flex-col rounded-md border border-shade/10 bg-white shadow-field focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40 sm:order-none sm:mt-4 sm:min-h-56 sm:shrink-0 sm:resize-y sm:overflow-auto">
         <textarea
           value={shown}
           onChange={(e) => {
@@ -1038,7 +1038,7 @@ function Choice({
   children: React.ReactNode;
 }) {
   return (
-    <div className="order-4 mt-3 flex flex-col gap-1.5 sm:order-none sm:mt-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
+    <div className="order-4 mt-3 flex flex-col gap-1.5 sm:order-none sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
       <span
         aria-hidden="true"
         className="text-[11px] font-semibold tracking-[0.11em] text-ink-faint uppercase sm:w-[74px] sm:shrink-0 sm:text-xs"

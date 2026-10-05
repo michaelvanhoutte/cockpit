@@ -259,11 +259,14 @@ test.describe('Capture', () => {
       const grown = await heights();
       expect(grown.box).toBeGreaterThan(before.box + 40);
 
-      // Dragged past anything the window can hold: it keeps its height and scrolls.
+      // Dragged past anything the window can hold: the window stops at the
+      // screen and scrolls, rather than growing off it or squeezing the box back.
       await dragHandleBy(2000);
       const past = await heights();
+      const screen = page.viewportSize()!.height;
       expect(past.box).toBeGreaterThan(grown.box);
-      expect(past.window).toBeLessThanOrEqual(grown.window + 1);
+      expect(past.box).toBeGreaterThan(past.window);
+      expect(past.window).toBeLessThanOrEqual(screen);
       await expect(note).toBeVisible();
     });
   });
