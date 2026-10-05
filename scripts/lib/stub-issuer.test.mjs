@@ -330,4 +330,37 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
       ],
     );
   });
+
+  // What Cockpit asks of the mailbox when a task is done or reopened there
+  // ("Take the Cockpit label off in Gmail when its task is done in Cockpit",
+  // issue 728).
+  it('takes the label off a conversation and puts it back when asked, recording only what changed', async () => {
+    const token = await accessTokenFor('mirrored@example.com');
+    const { thread } = await fetch(`${issuer.origin}/gmail-stub/label?email=mirrored%40example.com&subject=Mirrored`, {
+      method: 'POST',
+    }).then((answer) => answer.json());
+    const { historyId: before } = await (await read(token, 'profile')).json();
+    const modify = (change) =>
+      fetch(`${issuer.origin}/gmail/v1/users/me/threads/${thread}/modify`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(change),
+      });
+    const labelled = async () =>
+      (await (await fetch(`${issuer.origin}/gmail-stub/thread?email=mirrored%40example.com&thread=${thread}`)).json()).labelled;
+
+    assert.equal((await modify({ removeLabelIds: ['Label_1001'] })).status, 200);
+    assert.equal(await labelled(), false);
+    await modify({ removeLabelIds: ['Label_1001'] });
+    await modify({ addLabelIds: ['Label_1001'] });
+    assert.equal(await labelled(), true);
+
+    const { history } = await (await read(token, `history?startHistoryId=${before}`)).json();
+    assert.deepEqual(
+      history.map((record) => Object.keys(record).find((key) => key.startsWith('labels'))),
+      ['labelsRemoved', 'labelsAdded'],
+    );
+    const asked = await (await fetch(`${issuer.origin}/gmail-stub/modified`)).json();
+    assert.equal(asked.filter((one) => one.thread === thread).length, 3);
+  });
 });

@@ -16,6 +16,12 @@ export interface ConnectorManifest {
   source: Source;
   /** Whether the source can push (webhooks) in addition to being pulled. */
   supportsPush: boolean;
+  /**
+   * Whether the source mirrors an Item's open state: a person marking the
+   * Item done or dismissing it closes it at the source, and reopening it
+   * opens it there again (`OpenStateWanted`). Absent is no.
+   */
+  mirrorsOpenState?: boolean;
   auth: OAuthDescriptor | { kind: 'none' };
 }
 
@@ -64,6 +70,23 @@ export interface SourceStateChange {
   sourceId: string;
   change: 'resolved' | 'reopened' | 'removed';
   observedAt: string;
+}
+
+/**
+ * An Item a person opened or closed in Cockpit, whose source should be opened
+ * or closed to match - what the host hands a connector that mirrors open
+ * state ("Take the Cockpit label off in Gmail when its task is done in
+ * Cockpit", issue 728).
+ *
+ * **Wanted state, not an event**: the host keeps handing it over until the
+ * connector confirms the source holds it, so a push that fails or stops is
+ * made again, and doing it again must change nothing at the source. A change
+ * still waiting here wins over a `SourceStateChange` that disagrees, since
+ * the person's is the one the source has not heard yet.
+ */
+export interface OpenStateWanted {
+  sourceId: string;
+  open: boolean;
 }
 
 /**
@@ -153,4 +176,11 @@ export interface Connector {
    * connection this push belongs to.
    */
   handleWebhook?(request: Request, host: PushHost): Promise<Response>;
+
+  /**
+   * Opens or closes these Items' sources to match, for a connector whose
+   * manifest says it `mirrorsOpenState`; answers the source ids the source now
+   * holds as wanted; whatever it leaves out is handed over again next time.
+   */
+  mirrorOpenState?(host: ConnectorHost, wanted: OpenStateWanted[]): Promise<string[]>;
 }

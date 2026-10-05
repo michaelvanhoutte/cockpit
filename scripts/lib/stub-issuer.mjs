@@ -74,6 +74,8 @@ export async function startStubIssuer({ port, seedPath }) {
   const fired = [];
   /** Every token handed back at `/revoke`, newest last. */
   const revoked = [];
+  /** Every `threads.modify` Gmail was asked for, newest last - what `/gmail-stub/modified` lists. */
+  const modifications = [];
 
   /**
    * Answers a routine fire the way Anthropic's API does: the error envelope
@@ -293,6 +295,19 @@ export async function startStubIssuer({ port, seedPath }) {
     if (url.pathname.startsWith('/gmail/v1/users/me/')) return gmail(url, request, response);
     const acting = url.pathname.match(/^\/gmail-stub\/(label|unlabel|trash|reply)$/);
     if (acting && request.method === 'POST') return actInMailbox(acting[1], url, response);
+    // What a walk reads back of a conversation Cockpit changed (issue 728):
+    // whether it is labelled Cockpit now, and every change Cockpit asked for.
+    if (url.pathname === '/gmail-stub/thread') {
+      const mailbox = heldMailbox(url.searchParams.get('email') ?? '');
+      const cockpit = mailbox.labels.find((label) => label.name === 'Cockpit');
+      const thread = mailbox.threads.find((one) => one.id === url.searchParams.get('thread'));
+      if (!thread) return json(response, { error: 'no such thread' }, 404);
+      return json(response, {
+        thread: thread.id,
+        labelled: thread.messages.some((message) => cockpit && message.labelIds.includes(cockpit.id)),
+      });
+    }
+    if (url.pathname === '/gmail-stub/modified') return json(response, modifications);
 
     if (url.pathname === '/authorize') return authorize(url, response);
     if (url.pathname === '/authorize/pick') return pick(url, response);
@@ -455,9 +470,58 @@ export async function startStubIssuer({ port, seedPath }) {
         resultSizeEstimate: labelled.length,
       });
     }
+    const modified = mailbox.threads.find((one) => path === `threads/${one.id}/modify`);
+    if (modified && request.method === 'POST') return modifyThread(mailbox, modified, request, response);
     const thread = mailbox.threads.find((one) => path === `threads/${one.id}`);
     if (thread) return json(response, thread);
     json(response, { error: { code: 404, message: 'Requested entity was not found.' } }, 404);
+  }
+
+  /**
+   * `users.threads.modify` ("Take the Cockpit label off in Gmail when its task
+   * is done in Cockpit", issue 728): the labels added to and taken off every
+   * message of the conversation, leaving a history record for each message
+   * whose labels actually changed - none where they were already so, as Gmail
+   * records none.
+   */
+  function modifyThread(mailbox, thread, request, response) {
+    let body = '';
+    request.on('data', (chunk) => (body += chunk));
+    request.on('end', () => {
+      let change;
+      try {
+        change = JSON.parse(body || '{}');
+      } catch {
+        return json(response, { error: { code: 400, message: 'Invalid JSON payload received.' } }, 400);
+      }
+      const adding = change.addLabelIds ?? [];
+      const removing = change.removeLabelIds ?? [];
+      for (const message of thread.messages) {
+        const before = message.labelIds;
+        const after = [...new Set([...before, ...adding])].filter((label) => !removing.includes(label));
+        const added = after.filter((label) => !before.includes(label));
+        const removed = before.filter((label) => !after.includes(label));
+        message.labelIds = after;
+        if (added.length === 0 && removed.length === 0) continue;
+        mailbox.historyId += 1;
+        mailbox.history.push({
+          id: String(mailbox.historyId),
+          messages: [{ id: message.id, threadId: thread.id }],
+          ...(added.length > 0
+            ? { labelsAdded: [{ message: { id: message.id, threadId: thread.id, labelIds: after }, labelIds: added }] }
+            : {}),
+          ...(removed.length > 0
+            ? { labelsRemoved: [{ message: { id: message.id, threadId: thread.id, labelIds: after }, labelIds: removed }] }
+            : {}),
+        });
+      }
+      modifications.push({ thread: thread.id, ...change });
+      json(response, {
+        id: thread.id,
+        historyId: String(mailbox.historyId),
+        messages: thread.messages.map((message) => ({ id: message.id, threadId: thread.id, labelIds: message.labelIds })),
+      });
+    });
   }
 
   function identityToken(held) {

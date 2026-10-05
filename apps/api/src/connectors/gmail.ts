@@ -328,6 +328,32 @@ export function stillLabelled(answer: unknown, labelId: string): boolean {
   );
 }
 
+/**
+ * What Gmail's say on a conversation does to its Item ("Take the Cockpit
+ * label off in Gmail when its task is done in Cockpit", issue 728): marks it
+ * done where the label is off, opens it where the label is on - but only
+ * where that disagrees with the Item and Cockpit has no change of its own
+ * still waiting to reach Gmail.
+ *
+ * **A change waiting wins**, since Gmail's history carries no time for a
+ * label change and so cannot say which came later; the push then puts Gmail
+ * back in step. **One that agrees is nothing**, which is what makes Cockpit's
+ * own label writes come back from the history as no-ops rather than a loop.
+ */
+export function gmailChangeApplies(
+  link: { readonly labelWanted: boolean | null; readonly open: boolean },
+  labelled: boolean,
+): 'resolved' | 'reopened' | null {
+  if (link.labelWanted !== null) return null;
+  if (labelled === link.open) return null;
+  return labelled ? 'reopened' : 'resolved';
+}
+
+/** The change to one conversation's labels that puts the label on or takes it off - and touches no other. */
+export function labelChange(labelId: string, wanted: boolean): { addLabelIds: string[] } | { removeLabelIds: string[] } {
+  return wanted ? { addLabelIds: [labelId] } : { removeLabelIds: [labelId] };
+}
+
 /** What a conversation brings in as its Item. */
 export interface GmailConversation {
   readonly threadId: string;

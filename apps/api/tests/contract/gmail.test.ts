@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { cockpitLabelIn, conversationFrom, conversationPage, historyPage, stillLabelled } from '../../src/connectors/gmail.js';
-import { historyAnswer, historyRecord, labelsAnswer, plainThread, profileAnswer, threadsPage } from '../gmail-payloads.js';
+import { cockpitLabelIn, conversationFrom, conversationPage, historyPage, labelChange, stillLabelled } from '../../src/connectors/gmail.js';
+import { historyAnswer, historyRecord, labelsAnswer, modifyAnswer, plainThread, profileAnswer, threadsPage } from '../gmail-payloads.js';
 
 /**
- * The contract tier: the calls the Gmail connector reads, asked of Gmail
+ * The contract tier: the calls the Gmail connector reads, and the one change
+ * it writes (undone in the same case), asked of Gmail
  * itself against a dedicated test mailbox (docs/testing-strategy.md, "Third
  * parties"; "Bring in the conversations already labelled Cockpit as tasks",
  * issue 725). **Scheduled, never on a pull request** (.github/workflows/
@@ -165,6 +166,36 @@ describe.skipIf(!provisioned)('Capture', () => {
       expect(missingFrom(minimal, plainThread('a-thread'), ['id', 'messages', 'messages[].id', 'messages[].labelIds'])).toEqual([]);
       expect(stillLabelled(minimal, labelId)).toBe(true);
     });
+
+    // What Cockpit changes in the mailbox ("Take the Cockpit label off in
+    // Gmail when its task is done in Cockpit", issue 728). The label goes
+    // back on whatever happens, so the mailbox ends as it started.
+    it('takes the label off a conversation and puts it back, answering its labels each time', async () => {
+      const labelId = cockpitLabelIn(await gmail('labels'))!;
+      const [threadId] = conversationPage(await gmail(`threads?${new URLSearchParams({ labelIds: labelId, maxResults: '1' })}`)).threadIds;
+      expect(threadId).toBeTruthy();
+      const modify = (wanted: boolean) => gmailChanges(`threads/${encodeURIComponent(threadId!)}/modify`, labelChange(labelId, wanted));
+
+      try {
+        const off = await modify(false);
+        expect(missingFrom(off, modifyAnswer(plainThread('a-thread')), ['id', 'messages', 'messages[].id', 'messages[].labelIds'])).toEqual([]);
+        expect(stillLabelled(off, labelId)).toBe(false);
+        // Again, as a check that stopped before recording it asks again: no change, no refusal.
+        expect(stillLabelled(await modify(false), labelId)).toBe(false);
+      } finally {
+        expect(stillLabelled(await modify(true), labelId)).toBe(true);
+      }
+    });
   });
 });
+
+async function gmailChanges(path: string, body: unknown): Promise<Record<string, unknown>> {
+  const answer = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${await signedIn()}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  expect(answer.ok, `Gmail answered ${answer.status} to ${path}`).toBe(true);
+  return (await answer.json()) as Record<string, unknown>;
+}
 

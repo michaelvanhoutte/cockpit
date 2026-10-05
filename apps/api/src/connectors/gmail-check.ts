@@ -9,12 +9,14 @@ import {
   credentialRefreshed,
   historyPage,
   gmailCredentialIn,
+  labelChange,
   stillLabelled,
   usableAccessToken,
   type GmailConversation,
   type GmailCredential,
 } from './gmail.js';
 import { derivedUuid } from './push-host.js';
+import type { OpenStateWanted } from '@cockpit/connector-sdk';
 import type { AppliedSourceChange } from '../accounts/source-state.js';
 
 /**
@@ -47,6 +49,11 @@ import type { AppliedSourceChange } from '../accounts/source-state.js';
  * again is reopened, through the host's source-state change. The full
  * reconcile does the same once its listing is complete; it runs on
  * connecting, on a lapsed position, and nightly.
+ *
+ * **And the other way** ("Take the Cockpit label off in Gmail when its task
+ * is done in Cockpit", issue 728): before anything is read, each run takes
+ * the label off the conversations whose Items a person marked done or
+ * dismissed, and puts it back on those reopened, until Gmail confirms each.
  */
 
 /**
@@ -147,6 +154,17 @@ export interface GmailCheckHost {
    * before it is marked done. None while the listing is still going.
    */
   unconfirmed(connection: GmailConnectionToCheck, limit: number): string[];
+  /**
+   * Up to `limit` brought-in conversations whose label Cockpit wants changed
+   * and Gmail has not confirmed - each with whether it should be labelled.
+   */
+  waitingForGmail(connection: GmailConnectionToCheck, limit: number): OpenStateWanted[];
+  /**
+   * Gmail holds the conversation labelled as wanted: nothing is waiting for
+   * it any more - unless the Item changed again meanwhile, whose own change
+   * still is. Answers that the connection has gone since the run read it.
+   */
+  gmailConfirmed(connection: GmailConnectionToCheck, confirmed: OpenStateWanted): 'confirmed' | 'disconnected';
   /**
    * The connection's credential, sealed again around a refreshed access token
    * - only where it still holds `was`, so a reconnect made meanwhile keeps its
@@ -252,6 +270,10 @@ async function bringInLabelled(
   const labelId = cockpitLabelIn(await mailbox.get('labels'));
   if (!labelId) return 'no label';
 
+  // Cockpit's own changes first, so what the history then reports of them
+  // agrees with the Items and changes nothing.
+  await pushWhatIsWanted(host, connection, mailbox, labelId);
+
   let progress = host.progress(connection.id);
   if (progress?.listedAt) {
     if ((await readHistory(host, connection, mailbox, labelId, progress, at, broughtIn)) === 'caught up') {
@@ -293,6 +315,32 @@ async function bringInLabelled(
   }
   await closeUnlisted(host, connection, mailbox, labelId, at);
   return 'done';
+}
+
+/**
+ * Puts the label on, or takes it off, each conversation whose Item a person
+ * opened or closed in Cockpit ("Take the Cockpit label off in Gmail when its
+ * task is done in Cockpit", issue 728) - the `Cockpit` label alone, on the
+ * whole conversation, and nothing else of the mailbox.
+ *
+ * **Confirmed only once Gmail has answered**, so a run that stops between the
+ * call and the record pushes it again, which changes nothing at Gmail. A
+ * conversation that is gone has nothing left to label, and counts as
+ * confirmed. Gmail refusing or not answering leaves the rest waiting for the
+ * next run, which comes back to them before anything else.
+ */
+async function pushWhatIsWanted(
+  host: GmailCheckHost,
+  connection: GmailConnectionToCheck,
+  mailbox: Mailbox,
+  labelId: string,
+): Promise<void> {
+  for (const wanted of host.waitingForGmail(connection, CALLS_PER_RUN)) {
+    await mailbox.post(`threads/${encodeURIComponent(wanted.sourceId)}/modify`, labelChange(labelId, wanted.open));
+    if (host.gmailConfirmed(connection, wanted) === 'disconnected') {
+      throw new ConnectionChanged('the connection was disconnected');
+    }
+  }
 }
 
 /**
@@ -454,13 +502,22 @@ class Mailbox {
   }
 
   /** One read of Gmail's API, or null where what it names is not there. */
-  async get(path: string): Promise<unknown> {
+  get(path: string): Promise<unknown> {
+    return this.#ask(path);
+  }
+
+  /** One change through Gmail's API - its answer, or null where what it names is not there. */
+  post(path: string, body: unknown): Promise<unknown> {
+    return this.#ask(path, body);
+  }
+
+  async #ask(path: string, body?: unknown): Promise<unknown> {
     const token = this.#token ?? (await this.#refresh());
-    let response = await this.#call(path, token);
+    let response = await this.#call(path, token, body);
     if (response.status === 401) {
       // A token Google has stopped accepting early is refreshed once; a
       // second refusal is the sign-in's.
-      response = await this.#call(path, await this.#refresh());
+      response = await this.#call(path, await this.#refresh(), body);
       if (response.status === 401) throw new SignInRefused('Gmail refused a fresh access token');
     }
     if (response.status === 404) return null;
@@ -468,11 +525,20 @@ class Mailbox {
     return response.json();
   }
 
-  async #call(path: string, token: string): Promise<Response> {
+  async #call(path: string, token: string, body?: unknown): Promise<Response> {
     this.#spend();
     const origin = this.env.GMAIL_API_ORIGIN?.trim() || 'https://gmail.googleapis.com';
     try {
-      return await fetch(`${origin}/gmail/v1/users/me/${path}`, { headers: { authorization: `Bearer ${token}` } });
+      return await fetch(
+        `${origin}/gmail/v1/users/me/${path}`,
+        body === undefined
+          ? { headers: { authorization: `Bearer ${token}` } }
+          : {
+              method: 'POST',
+              headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+              body: JSON.stringify(body),
+            },
+      );
     } catch (error) {
       throw new NotAnswering(error instanceof Error ? error.message : String(error));
     }

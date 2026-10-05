@@ -8,6 +8,7 @@ import {
 } from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
+import { dropWhatWasWanted, wantOpenStateMirrored } from './mirrored-open-state.js';
 import {
   accountItemFormPresentation,
   agentRunActivity,
@@ -744,12 +745,20 @@ function forTheLog<N extends CommandName>(name: N, payload: CommandPayload<N>): 
  * Object's SQLite is `ctx.storage.transactionSync`, which commits when its
  * callback returns. An `await` inside it would commit the transaction before
  * the work it wraps had happened. See `client.ts`.
+ *
+ * **`fromTheSource`** marks a change a source reported rather than one a
+ * person made ("Take the Cockpit label off in Gmail when its task is done in
+ * Cockpit", issue 728): what Gmail says is already so there, so it asks
+ * nothing of Gmail in return. Everything else that opens or closes an Item
+ * records that as wanted of a source mirroring its open state, in the same
+ * transaction (`mirrored-open-state.ts`).
  */
 export function runCommand<N extends CommandName>(
   db: AccountDb,
   tenantId: string,
   name: N,
   payload: CommandPayload<N>,
+  { fromTheSource = false }: { fromTheSource?: boolean } = {},
 ): CommandResult {
   if (commandAlreadyApplied(db, payload.commandId)) {
     return { ok: true, applied: false };
@@ -2087,6 +2096,11 @@ export function runCommand<N extends CommandName>(
             ),
           )
           .run();
+        // Disconnecting stops the mirroring: a change still waiting for Gmail
+        // goes with the connection, never pushed by a later one.
+        if (held.connectorId === GMAIL && held.externalAccountKey) {
+          dropWhatWasWanted(tx, tenantId, held.workspaceId, held.externalAccountKey);
+        }
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -2350,6 +2364,7 @@ export function runCommand<N extends CommandName>(
             .set(asStored(settled))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
+          wantOpenStateMirrored(tx, tenantId, item, settled);
         }
         tx.insert(commands).values(commandRow).run();
       });
@@ -2453,6 +2468,7 @@ export function runCommand<N extends CommandName>(
             .set(asStored(updated))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
+          if (!fromTheSource) wantOpenStateMirrored(tx, tenantId, existing, updated);
           if (correction) {
             if (existing.textsSettledAt === null) {
               // The true first edit, and the only moment `existing.title`/

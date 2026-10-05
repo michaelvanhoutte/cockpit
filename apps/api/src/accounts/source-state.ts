@@ -14,7 +14,9 @@ export type AppliedSourceChange = Exclude<SourceStateChange['change'], 'removed'
  *
  * **Through the same changes a person makes** - `set_done` and
  * `set_dismissed` - so the command log records them and open tabs hear of
- * them like any other change.
+ * them like any other change; but as the source's own, so they ask nothing
+ * of a source mirroring the Item's open state in return ("Take the Cockpit
+ * label off in Gmail when its task is done in Cockpit", issue 728).
  *
  * **Only what differs is written**: done on a done Item, or reopen on an open
  * and undismissed one, sends nothing, so applying the same change again adds
@@ -34,17 +36,24 @@ export function applySourceStateChange(
   // refused as stale: the source says this is how things stand now.
   const issuedAt = observedAt < item.updatedAt ? item.updatedAt : observedAt;
   const envelope = { issuedAt, workspaceId: item.workspaceId, itemId };
+  const asTheSource = { fromTheSource: true };
   if (change === 'resolved') {
     if (item.completedAt !== null) return 'unchanged';
-    runCommand(db, accountName, 'set_done', { ...envelope, commandId: crypto.randomUUID(), done: true });
+    runCommand(db, accountName, 'set_done', { ...envelope, commandId: crypto.randomUUID(), done: true }, asTheSource);
     return 'changed';
   }
   if (item.completedAt === null && item.deletedAt === null) return 'unchanged';
   if (item.completedAt !== null) {
-    runCommand(db, accountName, 'set_done', { ...envelope, commandId: crypto.randomUUID(), done: false });
+    runCommand(db, accountName, 'set_done', { ...envelope, commandId: crypto.randomUUID(), done: false }, asTheSource);
   }
   if (item.deletedAt !== null) {
-    runCommand(db, accountName, 'set_dismissed', { ...envelope, commandId: crypto.randomUUID(), dismissed: false });
+    runCommand(
+      db,
+      accountName,
+      'set_dismissed',
+      { ...envelope, commandId: crypto.randomUUID(), dismissed: false },
+      asTheSource,
+    );
   }
   return 'changed';
 }

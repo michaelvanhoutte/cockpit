@@ -14,9 +14,11 @@ import {
   storeNamed,
 } from '../seed.js';
 import {
+  gmailAnswersAgain,
   gmailAnswersWith,
   gmailCalls,
   gmailHolds,
+  gmailModifies,
   gmailIsEmpty,
   googleRefreshes,
   issuerIsReachable,
@@ -533,9 +535,18 @@ async function itemFor(threadId: string, workspaceId = WORKSPACE_ID): Promise<{ 
   return { id: row.id, is: row.deleted_at ? 'dismissed' : row.completed_at ? 'done' : 'open' };
 }
 
-/** Marks an Item done or dismisses it, as its row's own menu does. */
-async function personMarks(itemId: string, as: 'done' | 'dismissed'): Promise<void> {
-  const res = await asUser(`http://cockpit.test/v1/commands/${as === 'done' ? 'set_done' : 'set_dismissed'}`, {
+/**
+ * Marks an Item done, dismisses it, or takes either back, as its row's own
+ * menu does - and lets the check that brings forward finish, unless told the
+ * person acts while a check is already part-way through.
+ */
+async function personMarks(
+  itemId: string,
+  as: 'done' | 'dismissed' | 'reopened' | 'undismissed',
+  { checkFinishes = true } = {},
+): Promise<void> {
+  const dismissing = as === 'dismissed' || as === 'undismissed';
+  const res = await asUser(`http://cockpit.test/v1/commands/${dismissing ? 'set_dismissed' : 'set_done'}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -543,10 +554,26 @@ async function personMarks(itemId: string, as: 'done' | 'dismissed'): Promise<vo
       issuedAt: new Date().toISOString(),
       workspaceId: WORKSPACE_ID,
       itemId,
-      ...(as === 'done' ? { done: true } : { dismissed: true }),
+      ...(dismissing ? { dismissed: as === 'dismissed' } : { done: as === 'done' }),
     }),
   });
   expect(res.status).toBe(200);
+  if (checkFinishes) await runningCheckFinishes();
+}
+
+/** Whether Gmail holds the conversation labelled Cockpit now. */
+function labelIsOn(threadId: string): boolean {
+  return threadsHeld.find((one) => one.id === threadId)!.labelled;
+}
+
+/** The changes to this conversation's labels Gmail was asked for, oldest first: `off` or `on`. */
+function labelChangesAskedOf(threadId: string): ('off' | 'on')[] {
+  return gmailModifies
+    .filter((one) => one.threadId === threadId)
+    .map((one) => {
+      expect([...(one.addLabelIds ?? []), ...(one.removeLabelIds ?? [])]).toEqual([COCKPIT_LABEL_ID]);
+      return (one.addLabelIds ?? []).length > 0 ? 'on' : 'off';
+    });
 }
 
 /** How many changes the account's log holds. */
@@ -654,7 +681,9 @@ describe('Capture', () => {
       await connect();
       await checksSettle();
       await personMarks((await itemFor('thread-110'))!.id, 'done');
-      // Neither in any history record: only the listing finds them.
+      // Neither in any history record: only the listing finds them - the
+      // label Cockpit took off put back on, and another taken off.
+      nowIs('thread-110', 'labelled');
       nowIs('thread-005', 'unlabelled');
       gmailHolds({ historyLapsed: true, historyId: '3000' });
       return { unlabelled: 'thread-005', done: 'thread-110' };
@@ -775,6 +804,207 @@ describe('Capture', () => {
       expect(listed[0]).toBeDefined();
       expect(listed[0]).not.toContain('pageToken');
       expect((await inboxOf()).map((item) => item.sourceId).sort()).toEqual(['thread-000', 'thread-first', 'thread-second']);
+    });
+  });
+});
+
+/**
+ * "Take the Cockpit label off in Gmail when its task is done in Cockpit"
+ * (issue 728). Which side applies when both changed is
+ * tests/unit/connectors/gmail.test.ts's; here, that the change reaches Gmail
+ * and is never lost on the way.
+ */
+describe('Capture', () => {
+  describe('a Gmail task done or dismissed in Cockpit takes the label off its conversation, and reopening it puts the label back', () => {
+    it.each([
+      { situation: 'marking it done', steps: ['done'], labelled: false, asked: ['off'] },
+      { situation: 'dismissing it', steps: ['dismissed'], labelled: false, asked: ['off'] },
+      { situation: 'reopening it after marking it done', steps: ['done', 'reopened'], labelled: true, asked: ['off', 'on'] },
+      { situation: 'undoing the dismiss', steps: ['dismissed', 'undismissed'], labelled: true, asked: ['off', 'on'] },
+    ] as { situation: string; steps: ('done' | 'dismissed' | 'reopened' | 'undismissed')[]; labelled: boolean; asked: string[] }[])(
+      '$situation leaves the conversation labelled: $labelled',
+      async ({ steps, labelled, asked }) => {
+        mailboxWith(2);
+        await connect();
+        await checksSettle();
+        const item = (await itemFor('thread-000'))!;
+
+        for (const step of steps) await personMarks(item.id, step);
+
+        expect(labelIsOn('thread-000')).toBe(labelled);
+        expect(labelChangesAskedOf('thread-000')).toEqual(asked);
+        expect(labelChangesAskedOf('thread-001')).toEqual([]);
+        // And Gmail reporting it back changes nothing.
+        await aCheckRuns();
+        expect(await itemFor('thread-000')).toMatchObject({ is: labelled ? 'open' : steps[0] });
+      },
+    );
+
+    it('an Item of your own marked done asks nothing of Gmail, and the check stays five minutes out', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      const itemId = '018f0000-0000-7000-8000-0000000728c1';
+      const captured = await asUser('http://cockpit.test/v1/commands/capture_item', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: '018f0000-0000-7000-8000-0000000728c2',
+          issuedAt: new Date().toISOString(),
+          workspaceId: WORKSPACE_ID,
+          itemId,
+          message: 'Ring the plumber',
+          typeId: TASK_TYPE_ID,
+        }),
+      });
+      expect(captured.status).toBe(200);
+
+      await personMarks(itemId, 'done');
+
+      expect(gmailModifies).toEqual([]);
+      expect((await nextCheck())! - Date.now()).toBeGreaterThan(4 * 60_000);
+    });
+  });
+
+  describe('a change made in Cockpit reaches Gmail within seconds, not at the next five-minute check', () => {
+    it('marking a Gmail task done brings the check forward, which takes the label off', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      expect((await nextCheck())! - Date.now()).toBeGreaterThan(4 * 60_000);
+
+      // Nobody runs a check: the one marking it done brought forward does.
+      await personMarks((await itemFor('thread-000'))!.id, 'done');
+
+      expect(labelChangesAskedOf('thread-000')).toEqual(['off']);
+      expect(labelIsOn('thread-000')).toBe(false);
+    });
+  });
+
+  describe('a change made in Cockpit waits until Gmail has it, and none is lost', () => {
+    async function connectedWithOne(): Promise<string> {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      return (await itemFor('thread-000'))!.id;
+    }
+
+    it('Google refusing the sign-in leaves the task done and the row failing, and the next check that works takes the label off', async () => {
+      const itemId = await connectedWithOne();
+      gmailAnswersWith(401, (call) => call.endsWith('/modify'), { once: false });
+
+      await personMarks(itemId, 'done');
+
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'done' });
+      expect((await rowOf()).failingBecause).toBe(SIGN_IN_REFUSED);
+      expect(labelIsOn('thread-000')).toBe(true);
+
+      gmailAnswersAgain();
+      await aCheckRuns();
+
+      expect(labelIsOn('thread-000')).toBe(false);
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'done' });
+      expect((await rowOf()).failingBecause).toBeNull();
+    });
+
+    it.each([
+      {
+        situation: 'Gmail answering 503 to the change',
+        fails: (call: string) => call.endsWith('/modify'),
+        applied: false,
+        asked: ['off'],
+      },
+      { situation: 'a check that stops before asking Gmail', fails: (call: string) => call === 'labels', applied: false, asked: ['off'] },
+      {
+        situation: 'a check that stops after Gmail took the label off, before that was recorded',
+        fails: (call: string) => call.endsWith('/modify'),
+        applied: true,
+        asked: ['off', 'off'],
+      },
+    ])('$situation: the next check takes the label off, and the one after asks nothing more', async ({ fails, applied, asked }) => {
+      const itemId = await connectedWithOne();
+      gmailAnswersWith(503, fails, { applied });
+
+      await personMarks(itemId, 'done');
+      expect(labelIsOn('thread-000')).toBe(!applied);
+
+      await aCheckRuns();
+      await aCheckRuns();
+
+      expect(labelIsOn('thread-000')).toBe(false);
+      expect(labelChangesAskedOf('thread-000')).toEqual(asked);
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'done' });
+    });
+
+    it('disconnecting while a change waits drops it: connecting again asks nothing of Gmail', async () => {
+      const itemId = await connectedWithOne();
+      gmailAnswersWith(503, (call) => call === 'labels');
+      await personMarks(itemId, 'done');
+
+      await disconnect(WORKSPACE_ID, '018f0000-0000-7000-8000-0000000728d1');
+      await connect(granted('anna-refresh-again'));
+      await checksSettle();
+
+      expect(gmailModifies).toEqual([]);
+      expect(labelIsOn('thread-000')).toBe(true);
+    });
+
+    it('done in one tab and reopened in another before Gmail is asked leaves the later: the label on', async () => {
+      const itemId = await connectedWithOne();
+      gmailAnswersWith(503, (call) => call === 'labels', { once: false });
+      await personMarks(itemId, 'done');
+      await personMarks(itemId, 'reopened');
+
+      gmailAnswersAgain();
+      await aCheckRuns();
+
+      expect(labelChangesAskedOf('thread-000')).toEqual(['on']);
+      expect(labelIsOn('thread-000')).toBe(true);
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'open' });
+    });
+  });
+
+  describe('a change made in Cockpit and not yet in Gmail wins', () => {
+    it('done in Cockpit while a check reads Gmail still finding the label on: the task stays done, and the next check takes the label off', async () => {
+      const itemId = await (async () => {
+        mailboxWith(1);
+        await connect();
+        await checksSettle();
+        return (await itemFor('thread-000'))!.id;
+      })();
+      historySays([labelOn('thread-000')]);
+      whileGmailIsAsked(
+        (call) => call.startsWith('history?'),
+        () => personMarks(itemId, 'done', { checkFinishes: false }),
+      );
+
+      await aCheckRuns();
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'done' });
+
+      await runningCheckFinishes();
+      expect(labelIsOn('thread-000')).toBe(false);
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'done' });
+    });
+  });
+
+  describe('what Gmail changed is never sent back to it', () => {
+    it('the label taken off in Gmail and then put back leaves the task open and the label on, asking nothing of Gmail', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+
+      nowIs('thread-000', 'unlabelled');
+      historySays([labelOff('thread-000')]);
+      await aCheckRuns();
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'done' });
+
+      nowIs('thread-000', 'labelled');
+      historySays([labelOn('thread-000')], { from: 901, now: '950' });
+      await aCheckRuns();
+
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'open' });
+      expect(labelIsOn('thread-000')).toBe(true);
+      expect(gmailModifies).toEqual([]);
     });
   });
 });
