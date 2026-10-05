@@ -253,18 +253,21 @@ describe('Connector management', () => {
         situation: 'the consent screen is declined',
         reply: { error: 'access_denied' },
         spoil: 'nothing' as const,
+        told: 'cancelled',
       },
       {
         situation: 'the code has already been spent',
         reply: { code: 'a-code' },
         spoil: 'the exchange' as const,
+        told: 'refused',
       },
       {
         situation: 'the exchange with the source fails',
         reply: { code: 'a-code' },
         spoil: 'the exchange' as const,
+        told: 'refused',
       },
-    ])('refuses and stores nothing when $situation', async ({ reply, spoil }) => {
+    ])('refuses, stores nothing and says $told when $situation', async ({ reply, spoil, told }) => {
       await issuerIsReachable();
       const session = await signInAs();
       const { asked, attempt } = await startConnecting(WORKSPACE_ID, session);
@@ -275,7 +278,7 @@ describe('Connector management', () => {
         `${session}; ${attempt}`,
       );
 
-      expect(back.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=refused`);
+      expect(back.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=${told}`);
       expect(await storedRows()).toEqual([]);
     });
 

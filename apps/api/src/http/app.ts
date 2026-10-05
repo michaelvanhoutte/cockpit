@@ -128,6 +128,7 @@ import {
   gmailAuthorizationUrl,
   gmailCredentialFrom,
   revocableIn,
+  type GmailRefusal,
 } from '../connectors/gmail.js';
 import { fireRoutine, testClaudeCodeConnection } from '../connectors/claude-code.js';
 import { countForGuest, countryOf, referrerHostOf } from '../auth/sign-in-history.js';
@@ -226,9 +227,11 @@ function gmailCallbackUrl(c: Context): string {
  * client (`apps/web/src/connections.ts`) - with Gmail's going through a value
  * of its own, because what comes next differs ("Connect a Gmail account to a
  * workspace, and disconnect it", issue 724). Why it did not goes to the log,
- * never here - each reason names something an attacker got wrong or something
- * only an operator can fix, and the window offers the one thing that helps,
- * which is Connect again.
+ * and reaches the address **only where the person can act on it**: they
+ * cancelled, or Google's consent screen was left with the Gmail permission
+ * unticked or handed no refresh token. Every other reason names something an
+ * attacker got wrong or something only an operator can fix, and for those the
+ * window offers the one thing that helps, which is Connect again.
  *
  * A browser holding no attempt has no Workspace to be sent back to, so it
  * lands where the app decides - which is what a stray navigation to this
@@ -237,7 +240,7 @@ function gmailCallbackUrl(c: Context): string {
 function backToConnections(
   c: Context,
   workspaceId: string | undefined,
-  outcome: 'connected' | 'gmail-connected' | 'refused',
+  outcome: 'connected' | 'gmail-connected' | NotConnected,
 ) {
   if (!workspaceId) return c.redirect('/', 302);
   return c.redirect(
@@ -246,12 +249,28 @@ function backToConnections(
   );
 }
 
+/** How a connection that did not go through is told in the window it started from. */
+type NotConnected = 'refused' | 'cancelled' | 'gmail-permission-missing' | 'gmail-no-refresh-token';
+
+/**
+ * What the window is told of a refusal: the few reasons the person can act on
+ * by name, and every other as plain `refused`. A cancel is the issuer's
+ * `access_denied`, believed only once the state matched (`replyBelongsTo`).
+ */
+function notConnectedBecause(reason: string, reply: { error?: string | null }): NotConnected {
+  if (reason === 'the issuer refused the sign-in' && reply.error === 'access_denied') return 'cancelled';
+  if (reason === ('the permission to change mail was not granted' satisfies GmailRefusal)) return 'gmail-permission-missing';
+  if (reason === ('Google gave no refresh token' satisfies GmailRefusal)) return 'gmail-no-refresh-token';
+  return 'refused';
+}
+
 /** A connection that will not be completed, logged the way a refused sign-in is. */
 function refuseConnection(
   c: Context,
   workspaceId: string | undefined,
   reason: string,
   cause?: unknown,
+  told: NotConnected = 'refused',
 ) {
   console.error(
     JSON.stringify({
@@ -262,7 +281,7 @@ function refuseConnection(
         : { cause: cause instanceof Error ? cause.message : String(cause) }),
     }),
   );
-  return backToConnections(c, workspaceId, 'refused');
+  return backToConnections(c, workspaceId, told);
 }
 
 /**
@@ -2207,7 +2226,7 @@ const routes = app
     // Including the issuer's own refusal - somebody who declined the consent
     // screen is told so in the window they started from, unlike a cancelled
     // sign-in, which simply leaves you where you already were.
-    if (wrong) return refuseConnection(c, attempt?.workspaceId, wrong);
+    if (wrong) return refuseConnection(c, attempt?.workspaceId, wrong, undefined, notConnectedBecause(wrong, reply));
 
     // **The account that started it has to be the account that comes back.**
     // The session is what decides whose store the row lands in, and every
@@ -2376,7 +2395,7 @@ const routes = app
     const reply = c.req.query();
 
     const wrong = replyBelongsTo(attempt, reply);
-    if (wrong) return refuseConnection(c, attempt?.workspaceId, wrong);
+    if (wrong) return refuseConnection(c, attempt?.workspaceId, wrong, undefined, notConnectedBecause(wrong, reply));
     // Whose store the row lands in is the session's to say, for the reason
     // Teams' callback gives.
     if (attempt!.accountName !== c.get('visitor').accountName) {
@@ -2407,7 +2426,7 @@ const routes = app
       const kept = gmailCredentialFrom(exchanged.asIssued, mailbox.key, now);
       // Refused before anything is stored: a grant without a refresh token,
       // or without the permission asked for, is one Cockpit never keeps.
-      if (typeof kept === 'string') return refuseConnection(c, attempt!.workspaceId, kept);
+      if (typeof kept === 'string') return refuseConnection(c, attempt!.workspaceId, kept, undefined, notConnectedBecause(kept, reply));
 
       const connectedAt = now.toISOString();
       await change(c, 'connect_source_account', {

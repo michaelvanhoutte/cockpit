@@ -15,11 +15,26 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
  * callback routes (`apps/api/src/http/app.ts`, `backToConnections`) - Gmail's
  * going through having a value of its own, since what it says next differs
  * ("Connect a Gmail account to a workspace, and disconnect it", issue 724).
- * Why it did not is in the Worker's log and never here.
+ * Why it did not is in the Worker's log, and here only where the person can
+ * act on it: they cancelled, or Google's consent screen left the Gmail
+ * permission unticked or handed no refresh token. Anything else is `refused`.
  */
-export type ConnectOutcome = 'connected' | 'gmail-connected' | 'refused';
+export type ConnectOutcome =
+  | 'connected'
+  | 'gmail-connected'
+  | 'refused'
+  | 'cancelled'
+  | 'gmail-permission-missing'
+  | 'gmail-no-refresh-token';
 
-const OUTCOMES: readonly unknown[] = ['connected', 'gmail-connected', 'refused'] satisfies ConnectOutcome[];
+const OUTCOMES: readonly unknown[] = [
+  'connected',
+  'gmail-connected',
+  'refused',
+  'cancelled',
+  'gmail-permission-missing',
+  'gmail-no-refresh-token',
+] satisfies ConnectOutcome[];
 
 export interface ConnectionsSearch {
   connections?: ConnectOutcome;

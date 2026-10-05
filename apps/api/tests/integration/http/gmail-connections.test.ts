@@ -232,25 +232,39 @@ describe('Connector management', () => {
     });
 
     it.each([
-      { situation: 'the consent screen is declined', reply: { error: 'access_denied' }, answer: 'none' as const },
+      {
+        situation: 'the consent screen is declined',
+        reply: { error: 'access_denied' },
+        answer: 'none' as const,
+        told: 'cancelled',
+      },
+      {
+        situation: 'Google refuses the sign-in for any other reason',
+        reply: { error: 'admin_policy_enforced' },
+        answer: 'none' as const,
+        told: 'refused',
+      },
       // A spent code, an expired one and a failed exchange are one answer
       // from Google, and so one case.
       {
         situation: 'Google refuses the code, spent, expired or otherwise',
         reply: { code: 'a-code' },
         answer: 'refused' as const,
+        told: 'refused',
       },
       {
         situation: 'Google hands over no refresh token',
         reply: { code: 'a-code' },
         answer: (({ refresh_token: _none, ...rest }) => rest)(granted('x')) as Grant,
+        told: 'gmail-no-refresh-token',
       },
       {
         situation: 'the permission to change mail is unticked on the consent screen',
         reply: { code: 'a-code' },
         answer: { ...granted('x'), scope: 'openid https://www.googleapis.com/auth/userinfo.email' } as Grant,
+        told: 'gmail-permission-missing',
       },
-    ])('refuses and stores nothing when $situation', async ({ reply, answer }) => {
+    ])('refuses, stores nothing and says $told when $situation', async ({ reply, answer, told }) => {
       await issuerIsReachable();
       const session = await signInAs();
       const { asked, attempt } = await startConnecting(WORKSPACE_ID, session);
@@ -259,8 +273,19 @@ describe('Connector management', () => {
 
       const back = await comeBack({ ...reply, state: asked.searchParams.get('state')! }, `${session}; ${attempt}`);
 
-      expect(back.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=refused`);
+      expect(back.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=${told}`);
       expect(await storedRows()).toEqual([]);
+    });
+
+    /** An unsolicited `?error=` proves nothing, so it cannot say cancelled either. */
+    it('says refused, not cancelled, for a declined reply that does not match the attempt', async () => {
+      await issuerIsReachable();
+      const session = await signInAs();
+      const { attempt } = await startConnecting(WORKSPACE_ID, session);
+
+      const back = await comeBack({ error: 'access_denied', state: 'not-the-attempt' }, `${session}; ${attempt}`);
+
+      expect(back.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=refused`);
     });
 
     it('refuses the same reply delivered twice by the back button, and connects once', async () => {

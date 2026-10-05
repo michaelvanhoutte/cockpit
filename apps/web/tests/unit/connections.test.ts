@@ -1,0 +1,31 @@
+import { describe, expect, it } from 'vitest';
+import { connectionsSearch } from '../../src/connections';
+
+/**
+ * F1, and pure: what the address may carry back from a trip out to connect an
+ * account. What the window then says for each is in
+ * tests/unit/components/ManageConnections.test.tsx.
+ */
+describe('Connector management', () => {
+  describe('coming back from connecting keeps how it went, and nothing else the address says', () => {
+    it.each([
+      { situation: 'connected to Microsoft Teams', connections: 'connected', keeps: 'connected' },
+      { situation: 'connected to Gmail', connections: 'gmail-connected', keeps: 'gmail-connected' },
+      { situation: 'refused', connections: 'refused', keeps: 'refused' },
+      { situation: 'cancelled on the consent screen', connections: 'cancelled', keeps: 'cancelled' },
+      {
+        situation: 'refused without the permission to change mail',
+        connections: 'gmail-permission-missing',
+        keeps: 'gmail-permission-missing',
+      },
+      {
+        situation: 'refused without a refresh token',
+        connections: 'gmail-no-refresh-token',
+        keeps: 'gmail-no-refresh-token',
+      },
+      { situation: 'a word typed into the address', connections: 'you-have-been-hacked', keeps: undefined },
+    ])('$situation', ({ connections, keeps }) => {
+      expect(connectionsSearch({ connections }).connections).toBe(keeps);
+    });
+  });
+});
