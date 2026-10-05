@@ -206,28 +206,18 @@ export const ADA = 'Ada';
  * make its own test vacuous.
  */
 export async function signIn(page: Page, name: string, isMobile: boolean): Promise<void> {
-  await signInWithoutSkipping(page, name, isMobile);
-  await pastOnboarding(page, isMobile);
+  await signInToFirstScreen(page, name, isMobile);
+  await pastCapture(page, isMobile);
 }
 
 /**
- * The onboarding question, answered the way somebody who wants the app would,
- * where it was asked at all - and the dashboard afterwards either way.
- *
- * **Conditional, and that is not order-dependence sneaking back in:** whether
- * an account has been started on depends on what else has run - the tier
- * shares one database - and having been through the question is remembered in
- * the browser, which Playwright gives every walk fresh. So the honest thing is
- * to answer the question when it is asked and notice nothing when it is not.
+ * The dashboard, from wherever a bare `/` opened.
  *
  * **Shared by every way into the app, not only `signIn`.** Continuing as a
- * guest can land here too - the guest account may never have been opened on
- * before - and the caller is expected to have already waited for one of the
- * two landings, the way `signInWithoutSkipping` does for this one.
+ * guest can land here too, and the caller is expected to have already waited
+ * for one of the two landings, the way `signInToFirstScreen` does for this one.
  */
-export async function pastOnboarding(page: Page, isMobile: boolean): Promise<void> {
-  const skip = page.getByRole('button', { name: 'Skip' });
-  if (await skip.isVisible()) await press(skip, isMobile);
+export async function pastCapture(page: Page, isMobile: boolean): Promise<void> {
   // A phone's bare `/` opens Capture ("Open Cockpit on the Capture page on a
   // phone", issue 644), which is no dashboard: press the first workspace's tab.
   if (await captureBox(page).isVisible()) await press(page.locator('nav[aria-label="Workspaces"] a').first(), isMobile);
@@ -235,9 +225,9 @@ export async function pastOnboarding(page: Page, isMobile: boolean): Promise<voi
 }
 
 /**
- * The sign-in, stopping at whichever screen it lands on, for the one walk whose
- * subject is what an account nobody has started on is shown. Everything else
- * wants `signIn`, which goes on into the app.
+ * The sign-in, stopping at whichever screen it lands on, for a walk whose
+ * subject is what a new account is shown. Everything else wants `signIn`, which
+ * goes on into the app.
  *
  * **It waits for one of the two landings before answering.** Pressing the
  * account and returning leaves the caller on the issuer, mid-redirect, and
@@ -247,7 +237,7 @@ export async function pastOnboarding(page: Page, isMobile: boolean): Promise<voi
  * each other would settle on the first to *time out* as readily as on the first
  * to appear.
  */
-export async function signInWithoutSkipping(
+export async function signInToFirstScreen(
   page: Page,
   name: string,
   isMobile: boolean,
@@ -255,9 +245,7 @@ export async function signInWithoutSkipping(
   await page.goto('/signin');
   await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);
   await press(page.getByRole('link', { name: addressOf(name), exact: true }), isMobile);
-  await page
-    .getByRole('button', { name: 'Skip' })
-    .or(dashboardBar(page))
+  await dashboardBar(page)
     .or(captureBox(page))
     .first()
     .waitFor({ state: 'visible' });

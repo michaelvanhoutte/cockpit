@@ -1,7 +1,5 @@
 # Dashboards
 
-**How an Item gets onto a Panel is shown until it has been done once**, at both ends of the gesture: while nothing in a Workspace has been filed, an empty Panel says how one arrives and the Inbox says it from the other side once it holds anything. Both name the row's own menu, since there is no drag from the Inbox to a Panel. The first filing anywhere in that Workspace ends both, the gesture having been done rather than read about.
-
 **Dashboard** — a named view *inside* a Workspace, switched between like tabs. The bar under the workspace tabs is where they live: a `+` after them adds one, and each tab carries a menu of what can be done to it. **The Inbox is not a Dashboard**; it sits beside them (see "The Inbox and the triage flow" in `docs/product/inbox.md`). Every Workspace has at least one, and a Dashboard's name is unique within its Workspace, so two Workspaces may each have a *Research*.
 
 **The Dashboards of a Workspace are in the order you put them in, left to right along their bar**, stored per Workspace and the same on every device. A new one goes last, after every Dashboard that Workspace has ever had; deleting one closes the gap. A tab is moved by dragging it along the bar, the gesture the Workspace tabs take and with the same preview and the same answer to a refusal (see "The Workspaces are in the order you put them in, left to right" in `docs/product/workspaces.md`). The Inbox is no Dashboard, so it neither moves nor gives up its place.

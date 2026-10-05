@@ -27,9 +27,7 @@ import { DemoPage } from './pages/DemoPage';
 import { CapturePage } from './pages/CapturePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { FirstWorkspacePage } from './pages/FirstWorkspacePage';
-import { WelcomePage } from './pages/WelcomePage';
 import { whereToLand } from './landing';
-import { shouldWelcome, welcomedBefore } from './welcoming';
 import { Layout } from './pages/Layout';
 import { LogonPage } from './pages/LogonPage';
 import { WorkspacePage } from './pages/WorkspacePage';
@@ -76,13 +74,10 @@ async function orTheLogonPage<T>(read: Promise<T>): Promise<T> {
  */
 const somewhereThatWorks = async (queryClient: QueryClient, room: boolean) => {
   const { workspaces } = await orTheLogonPage(queryClient.ensureQueryData(workspacesQuery));
-  // An account nobody has started on opens on the one question worth asking
-  // before the app is drawn (pages/WelcomePage.tsx). **Only from here**, so a
-  // link to a dashboard goes where it says and is never diverted into a screen
-  // about something else. A phone opens on Capture (`landing.ts`).
-  const landing = whereToLand(workspaces, welcomedBefore(), room);
+  // **Only from here**, so a link to a dashboard goes where it says. A phone
+  // opens on Capture (`landing.ts`).
+  const landing = whereToLand(workspaces, room);
   if (landing.to === 'start') throw redirect({ to: '/start' });
-  if (landing.to === 'welcome') throw redirect({ to: '/welcome' });
   if (landing.to === 'capture') throw redirect({ to: '/capture' });
   throw redirect({ to: '/w/$workspaceId', params: { workspaceId: landing.workspaceId } });
 };
@@ -166,31 +161,6 @@ const startRoute = createRoute({
     if (first) throw redirect({ to: '/w/$workspaceId', params: { workspaceId: first.id } });
   },
   component: FirstWorkspacePage,
-});
-
-/**
- * The question a new account is asked, beside the logon page for the reason the
- * screen above it is: it carries none of the app's chrome, because what it is
- * explaining is what the chrome is made of.
- *
- * It reads the list for the same reason too - an account somebody has already
- * started on is sent into it rather than shown a question it is past, whether
- * the address was typed, bookmarked or arrived at by going back.
- */
-const welcomeRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/welcome',
-  beforeLoad: async ({ context }) => {
-    const { workspaces } = await orTheLogonPage(
-      context.queryClient.ensureQueryData(workspacesQuery),
-    );
-    const first = workspaces[0];
-    if (!first) throw redirect({ to: '/start' });
-    if (!shouldWelcome(workspaces, welcomedBefore())) {
-      throw redirect({ to: '/w/$workspaceId', params: { workspaceId: first.id } });
-    }
-  },
-  component: WelcomePage,
 });
 
 /**
@@ -410,7 +380,6 @@ const routeTree = rootRoute.addChildren([
   signInRoute,
   demoRoute,
   startRoute,
-  welcomeRoute,
   appRoute.addChildren([
     indexRoute,
     captureRoute,

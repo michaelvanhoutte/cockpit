@@ -229,7 +229,7 @@ The Zod schemas in `packages/shared/src` are the wire contract; where a decision
 
 **First-run names (`domain/starting.ts`):**
 
-- **`FIRST_WORKSPACE_NAME` and its siblings are numbered, not descriptive** — a plausible name like *Work* or *Personal* reads as a decision already made and gets left alone; a number reads as an invitation to rename it. Defined once and read from both apps: `apps/api` writes them when an account's first workspace, dashboard or panel is created, and `apps/web` reads the workspace's name to know whether anybody has started on the account yet — two copies of a name that has to match is one of them being wrong. Changing one of these only changes what a *new* account is given: a change already run is recorded and never reruns, so no existing account is renamed by editing this.
+- **`FIRST_WORKSPACE_NAME` and its siblings are numbered, not descriptive** — a plausible name like *Work* or *Personal* reads as a decision already made and gets left alone; a number reads as an invitation to rename it. Defined once in `packages/shared`: `apps/api` writes them when an account's first workspace, dashboard or panel is created. Changing one of these only changes what a *new* account is given: a change already run is recorded and never reruns, so no existing account is renamed by editing this.
 
 ## 5. Client architecture
 

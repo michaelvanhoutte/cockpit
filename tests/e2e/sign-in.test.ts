@@ -9,7 +9,7 @@ import {
   inbox,
   itemRow,
   makeWorkspace,
-  pastOnboarding,
+  pastCapture,
   press,
   signIn,
   somebodyNew,
@@ -59,16 +59,13 @@ test.describe('Sign-in', () => {
       await expect(page).toHaveURL(/\/authorize/);
       await press(page.getByRole('link', { name: addressOf(MICHAEL), exact: true }), isMobile);
 
-      // Either landing, waited for as one: whether this account has been
-      // started on depends on what else has run, so the onboarding question
-      // is answered where it is asked (as the walk below does).
-      await page
-        .getByRole('button', { name: 'Skip' })
-        .or(dashboardBar(page))
+      // Either landing, waited for as one: a desk opens the workspace and a
+      // phone opens Capture.
+      await dashboardBar(page)
         .or(captureBox(page))
         .first()
         .waitFor({ state: 'visible' });
-      await pastOnboarding(page, isMobile);
+      await pastCapture(page, isMobile);
       await press(page.getByRole('button', { name: 'Profile' }), isMobile);
       await expect(page.getByText(`Signed in as ${MICHAEL}`)).toBeVisible();
       await page.keyboard.press('Escape');
@@ -102,15 +99,13 @@ test.describe('Sign-in', () => {
       await page.getByPlaceholder('Their name at Google').fill(name);
       await press(page.getByRole('button', { name: 'Continue' }), isMobile);
 
-      // Either landing, waited for as one: an account nobody has opened before
-      // may ask the onboarding question first (as `signInWithoutSkipping`).
-      await page
-        .getByRole('button', { name: 'Skip' })
-        .or(dashboardBar(page))
+      // Either landing, waited for as one: a desk opens the workspace and a
+      // phone opens Capture.
+      await dashboardBar(page)
         .or(captureBox(page))
         .first()
         .waitFor({ state: 'visible' });
-      await pastOnboarding(page, isMobile);
+      await pastCapture(page, isMobile);
 
       await press(page.getByRole('button', { name: 'Profile' }), isMobile);
       await expect(page.getByText(`Signed in as ${name}`)).toBeVisible();
@@ -151,18 +146,15 @@ test.describe('Sign-in', () => {
 
       await press(page.getByRole('link', { name: 'Continue as guest' }), isMobile);
 
-      // Either landing, waited for as one: the guest account may never have
-      // been opened on before, and the question that asks is the first thing on
-      // screen. (The same wait `signInWithoutSkipping` makes, and for the same
-      // reason - asserting against a page mid-redirect fails saying it could
-      // not find a heading rather than that it never arrived.)
-      await page
-        .getByRole('button', { name: 'Skip' })
-        .or(dashboardBar(page))
+      // Either landing, waited for as one (the same wait `signInToFirstScreen`
+      // makes, and for the same reason - asserting against a page mid-redirect
+      // fails saying it could not find a heading rather than that it never
+      // arrived).
+      await dashboardBar(page)
         .or(captureBox(page))
         .first()
         .waitFor({ state: 'visible' });
-      await pastOnboarding(page, isMobile);
+      await pastCapture(page, isMobile);
 
       await press(page.getByRole('button', { name: 'Profile' }), isMobile);
       await expect(page.getByText('Signed in as Guest')).toBeVisible();
@@ -255,15 +247,11 @@ test.describe('Accounts', () => {
       await press(page.getByRole('link', { name: 'Continue with Google' }), isMobile);
       await press(page.getByRole('link', { name: addressOf(MICHAEL), exact: true }), isMobile);
 
-      // Michael's account may not have been opened before, when this walk runs
-      // without the others.
-      await page
-        .getByRole('button', { name: 'Skip' })
-        .or(dashboardBar(page))
+      await dashboardBar(page)
         .or(captureBox(page))
         .first()
         .waitFor({ state: 'visible' });
-      await pastOnboarding(page, isMobile);
+      await pastCapture(page, isMobile);
       await expect(workspaceTab(page, workspace)).toHaveCount(0);
       await expect(itemRow(page, thought)).toHaveCount(0);
       // And it is genuinely Michael looking, rather than an empty screen.
