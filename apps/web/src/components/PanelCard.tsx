@@ -17,7 +17,6 @@ import { SurfaceMenu, SurfaceMenuButton, opensOnKey, opensOnActivate } from './M
 import {
   NOTHING_CHOSEN_TO_SHOW,
   NOTHING_FILED_HERE,
-  NOTHING_FILED_HERE_YET_AND_HOW,
   NOTHING_MATCHES_YET,
 } from '../whatThingsAre';
 
@@ -118,16 +117,6 @@ export interface PanelCardProps {
    * no handle, with no grab and no cursor saying there is one.
    */
   onPickUp: ((pointerId: number) => void) | null;
-  /**
-   * That nothing has been filed anywhere in this workspace, which is what makes
-   * an empty panel worth explaining rather than merely reporting: until the
-   * gesture has been done once, "Nothing filed here yet." is a true sentence
-   * that says nothing about how anything gets here.
-   *
-   * The workspace's rather than this panel's, because an empty panel beside a
-   * full one is empty on purpose and needs no lesson.
-   */
-  nothingFiledYet: boolean;
   /** Why the last change to this panel did not happen, if it did not. */
   refusal: string | null;
   busy: boolean;
@@ -139,7 +128,6 @@ export function PanelCard({
   items,
   itemTypes,
   panelsInWorkspace,
-  nothingFiledYet,
   renaming,
   onRenamingChange,
   onStartRenaming,
@@ -611,9 +599,7 @@ export function PanelCard({
                 ? filter.conditions.length === 0
                   ? NOTHING_CHOSEN_TO_SHOW
                   : NOTHING_MATCHES_YET
-                : nothingFiledYet
-                  ? NOTHING_FILED_HERE_YET_AND_HOW
-                  : NOTHING_FILED_HERE
+                : NOTHING_FILED_HERE
             }
           />
         )}

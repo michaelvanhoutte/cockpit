@@ -30,17 +30,7 @@ export const WHAT_A_DASHBOARD_IS =
 export const WHAT_A_PANEL_IS =
   'A box on this dashboard holding whatever you file into it — everything about your one-on-ones, what is waiting on somebody else, or what the next board meeting needs.';
 
-/**
- * How an item gets onto a panel, said until it has been done once.
- *
- * **Both ends of one gesture**, because on a wide screen the Inbox and the
- * panels are side by side and on a phone they are two screens: whichever half
- * somebody is looking at says it.
- *
- * **Neither says only "drag".** There is no drag from the Inbox to a panel on a
- * phone - it is a swipe, or *Move to…* in the row's own menu - so both name the
- * menu, which is the one way that works everywhere.
- */
+/** What an empty panel of items says. */
 export const NOTHING_FILED_HERE = 'Nothing filed here yet.';
 
 /**
@@ -81,10 +71,3 @@ export const NOTHING_CHOSEN_TO_SHOW = 'Choose what this shows from its menu.';
 
 /** What a Filter that has conditions says while nothing filed anywhere meets them. */
 export const NOTHING_MATCHES_YET = 'Nothing matches this yet.';
-
-/** What that says instead, while nobody has filed anything in this workspace. */
-export const NOTHING_FILED_HERE_YET_AND_HOW =
-  `${NOTHING_FILED_HERE} Drag an item onto it from the Inbox, or file it from the item’s own menu.`;
-
-export const HOW_TO_FILE_FROM_THE_INBOX =
-  'Drag one onto a panel to file it, or file it from its own menu.';

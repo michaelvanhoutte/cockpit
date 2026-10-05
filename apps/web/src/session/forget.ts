@@ -10,7 +10,6 @@ import { forgetEveryAllItemsTab } from '../allItemsTab';
 import { forgetAgentDockHidden } from '../agentDockHidden';
 import { forgetEverySeenChange } from '../cockpitChanges';
 import { forgetWhatJustHappened } from '../undo';
-import { forgetWelcomed } from '../welcoming';
 import { persister } from '../persistence';
 
 /**
@@ -30,12 +29,11 @@ import { persister } from '../persistence';
  *   from, a week later if need be (`persistence.tsx`);
  * - which view each workspace was last on, which panels were last filed into,
  *   the size a drag last left the item form at, the width a drag last left it
- *   docked to, the size a drag last left the Inbox column at, whether the
- *   question a new account opens on has been answered, and whether the
+ *   docked to, the size a drag last left the Inbox column at, and whether the
  *   agents' dock is hidden, which dashboards are filtered, which
  *   workspaces show their All items tab, and which of what Cockpit changed on
- *   an item has been seen, all ten in localStorage - the last
- *   nine of them
+ *   an item has been seen, all nine in localStorage - the last
+ *   eight of them
  *   because leaving one behind gives the first person's answer to the second;
  * - what the undo bar is still offering, which is a title of theirs drawn over
  *   whatever screen comes next.
@@ -69,6 +67,5 @@ export async function forgetEverything(queryClient: QueryClient): Promise<void> 
   forgetAgentDockHidden(browserStore());
   forgetEveryAllItemsTab(browserStore());
   forgetEverySeenChange(browserStore());
-  forgetWelcomed(browserStore());
   forgetWhatJustHappened();
 }

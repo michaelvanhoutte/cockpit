@@ -27,7 +27,6 @@ import { QUIET } from '../../../src/panels/PanelText';
 import {
   NOTHING_CHOSEN_TO_SHOW,
   NOTHING_FILED_HERE,
-  NOTHING_FILED_HERE_YET_AND_HOW,
   NOTHING_MATCHES_YET,
   NOTHING_WRITTEN_HERE,
 } from '../../../src/whatThingsAre';
@@ -2069,30 +2068,24 @@ function aSortedPanel(id: string, name: string, sort: PanelSort): Panel {
 
 describe('Onboarding', () => {
   /**
-   * "Nothing filed here yet." is true and says nothing about how anything gets
-   * here, and a new account is looking at exactly that: one panel, empty, with
-   * the Inbox beside it. So until the gesture has been done once the empty
-   * panel says how - and afterwards it stops, because it has been done rather
-   * than read about.
-   *
-   * **Asked of the workspace, not the panel.** An empty panel beside a full one
-   * is empty on purpose.
+   * An empty panel says it is empty and nothing about how an item gets there,
+   * whatever has or has not been filed in the workspace.
    */
-  describe('an empty panel says how an item gets onto it, until one has been filed', () => {
-    it('says how while nothing in the workspace has been filed', async () => {
-      showBoard({ items: [], filings: [] });
+  describe('an empty panel says only that nothing is filed on it', () => {
+    const bart = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
+    it.each([
+      { situation: 'nothing has been filed anywhere in the workspace', items: [], filings: [] },
+      {
+        situation: 'something has been filed on another panel',
+        items: [bart],
+        filings: [{ panelId: 'falcon', itemId: bart.id, position: 0 }],
+      },
+    ])('when $situation', async ({ items, filings }) => {
+      showBoard({ items, filings });
 
       const reading = await screen.findByRole('region', { name: 'To read' });
-      expect(within(reading).getByText(NOTHING_FILED_HERE_YET_AND_HOW)).toBeVisible();
-    });
-
-    it('says only that it is empty once something has been filed anywhere in the workspace', async () => {
-      const bart = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
-      showBoard({ items: [bart], filings: [{ panelId: 'falcon', itemId: bart.id, position: 0 }] });
-
-      const reading = await screen.findByRole('region', { name: 'To read' });
-      expect(within(reading).getByText(NOTHING_FILED_HERE)).toBeVisible();
-      expect(within(reading).queryByText(NOTHING_FILED_HERE_YET_AND_HOW)).toBeNull();
+      expect(within(reading).getByText('Nothing filed here yet.', { exact: true })).toBeVisible();
+      expect(within(reading).queryByText(/Drag an item onto it/)).toBeNull();
     });
   });
 
@@ -2950,16 +2943,6 @@ describe('Panels', () => {
       fireEvent.keyDown(window, { key: 'Escape' });
 
       expect(screen.getByRole('textbox', { name: 'Capture a note or to-do' })).toHaveValue('Call Bart');
-    });
-
-    it('hides the empty-panel how-to too, where nothing has been filed anywhere', () => {
-      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
-      const falcon = () => screen.getByRole('region', { name: 'Project Falcon' });
-      expect(within(falcon()).getByText(NOTHING_FILED_HERE_YET_AND_HOW)).toBeVisible();
-
-      pickUp('To read');
-
-      notShown(within(falcon()).queryByText(NOTHING_FILED_HERE_YET_AND_HOW));
     });
 
     it.each([

@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Filing, Item, WorkspaceSnapshot } from '@cockpit/shared';
 import { InboxHeading, InboxPanel } from '../../../src/components/InboxPanel';
-import { HOW_TO_FILE_FROM_THE_INBOX } from '../../../src/whatThingsAre';
 
 /**
  * F1: what the Inbox holds is a view over the snapshot evaluated in the
@@ -184,38 +183,24 @@ describe('Panels', () => {
 });
 
 describe('Onboarding', () => {
-  /**
-   * The other end of the gesture the empty panel explains
-   * (components/PanelBoard.test.tsx). Both ends, because on a wide screen the
-   * Inbox and the panels are side by side and on a phone they are two screens,
-   * so whichever half somebody is looking at says it.
-   */
-  describe('the Inbox says how to file, while there is something to file and nothing filed', () => {
-    it('says it once the Inbox holds something and nothing has been filed', async () => {
-      const inbox = await showWorkspace([anItem('Buy milk')]);
-
-      expect(within(inbox).getByText(HOW_TO_FILE_FROM_THE_INBOX)).toBeVisible();
-    });
-
-    it('says nothing while the Inbox is empty, there being nothing to file', async () => {
-      const inbox = await showWorkspace([]);
-
-      expect(within(inbox).queryByText(HOW_TO_FILE_FROM_THE_INBOX)).toBeNull();
-    });
-
-    it('stops once something has been filed anywhere in the workspace', async () => {
+  describe('the Inbox says nothing about how to file, whatever has been filed', () => {
+    it.each([
+      { situation: 'it holds something and nothing has been filed', filedToo: false },
+      { situation: 'it holds something and something has been filed elsewhere', filedToo: true },
+    ])('when $situation', async ({ filedToo }) => {
       const filed = anItem('Reply to Bart');
       const loose = anItem('Buy milk');
 
-      const inbox = await showWorkspace([filed, loose], [
-        { panelId: 'p-falcon', itemId: filed.id, position: 0 },
-      ]);
+      const inbox = await showWorkspace(
+        filedToo ? [filed, loose] : [loose],
+        filedToo ? [{ panelId: 'p-falcon', itemId: filed.id, position: 0 }] : [],
+      );
 
-      expect(within(inbox).queryByText(HOW_TO_FILE_FROM_THE_INBOX)).toBeNull();
+      expect(within(inbox).getByText('Buy milk')).toBeVisible();
+      expect(within(inbox).queryByText(/to file it/)).toBeNull();
     });
   });
 });
-
 
 describe('Capture', () => {
   describe('the header is the only way in to capturing', () => {

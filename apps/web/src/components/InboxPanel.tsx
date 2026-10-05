@@ -4,7 +4,6 @@ import { snapshotQuery } from '../api/queries';
 import { filingsThatFile, itemsInTheInbox } from '../filing';
 import { ItemList } from './ItemList';
 import { RowMenu } from './Menu';
-import { HOW_TO_FILE_FROM_THE_INBOX } from '../whatThingsAre';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { INBOX_KEY } from '../inboxCollapsed';
 import { restedLongEnough } from '../switchWhileDragging';
@@ -211,15 +210,6 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
   const filed = filingsThatFile(data.filings ?? [], data.panels ?? []);
   const inbox = itemsInTheInbox(data.items, filed);
 
-  /**
-   * The other end of the gesture the empty panel explains (`PanelCard.tsx`),
-   * and it exists only while both halves do: something to file, and nothing
-   * filed yet anywhere in this workspace. It goes for good the first time
-   * anything is filed, because the gesture has then been done rather than read
-   * about.
-   */
-  const showHowToFile = inbox.length > 0 && filed.length === 0;
-
   /* No box of its own and no heading: the column it is drawn in is the hollow
      in the sheet (pages/Layout.tsx), and the name and count are up in the band
      above it. What is left here is what the Inbox actually holds. */
@@ -228,12 +218,6 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
     // form above it leaves: as tall as the whole column, it overflowed by the
     // form's own height and always scrolled.
     <div className="flex min-h-full flex-col">
-      {showHowToFile && (
-        <p className="border-b border-shade/5 px-4 py-2 text-sm text-ink-faint">
-          {HOW_TO_FILE_FROM_THE_INBOX}
-        </p>
-      )}
-
       <ItemList
         workspaceId={workspaceId}
         items={inbox}

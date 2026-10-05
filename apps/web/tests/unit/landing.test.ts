@@ -3,9 +3,9 @@ import { FIRST_WORKSPACE_NAME } from '@cockpit/shared';
 import { survivingWorkspace, whereToLand } from '../../src/landing';
 
 /**
- * F1: where a bare `/` opens is a decision over the account's list, one
- * remembered fact and the width. That the router asks it, and that a link
- * still goes where it says, is `router.test.tsx` and the walk in tests/e2e.
+ * F1: where a bare `/` opens is a decision over the account's list and the
+ * width. That the router asks it, and that a link still goes where it says, is
+ * `router.test.tsx` and the walk in tests/e2e.
  */
 
 const work = { id: 'ws-work', name: 'Work' };
@@ -18,43 +18,41 @@ describe('Workspace management', () => {
       {
         situation: 'a phone, signed in with workspaces',
         workspaces: [work, personal],
-        welcomed: true,
         room: false,
         lands: { to: 'capture' },
       },
       {
         situation: 'a desk',
         workspaces: [work, personal],
-        welcomed: true,
         room: true,
         lands: { to: 'workspace', workspaceId: 'ws-work' },
       },
       {
         situation: 'a phone, an account with no workspaces',
         workspaces: [],
-        welcomed: true,
         room: false,
         lands: { to: 'start' },
       },
       {
         situation: 'a desk, an account with no workspaces',
         workspaces: [],
-        welcomed: true,
         room: true,
         lands: { to: 'start' },
       },
-    ])('$situation', ({ workspaces, welcomed, room, lands }) => {
-      expect(whereToLand(workspaces, welcomed, room)).toEqual(lands);
-    });
-  });
-
-  describe('A new account is welcomed before it lands, at any width', () => {
-    it.each([
-      { situation: 'a phone, not yet welcomed', welcomed: false, room: false, lands: { to: 'welcome' } },
-      { situation: 'a desk, not yet welcomed', welcomed: false, room: true, lands: { to: 'welcome' } },
-      { situation: 'a phone, welcomed', welcomed: true, room: false, lands: { to: 'capture' } },
-    ])('$situation', ({ welcomed, room, lands }) => {
-      expect(whereToLand([untouched], welcomed, room)).toEqual(lands);
+      {
+        situation: 'a desk, one workspace still called Workspace 1',
+        workspaces: [untouched],
+        room: true,
+        lands: { to: 'workspace', workspaceId: 'ws-1' },
+      },
+      {
+        situation: 'a phone, one workspace still called Workspace 1',
+        workspaces: [untouched],
+        room: false,
+        lands: { to: 'capture' },
+      },
+    ])('$situation', ({ workspaces, room, lands }) => {
+      expect(whereToLand(workspaces, room)).toEqual(lands);
     });
   });
 

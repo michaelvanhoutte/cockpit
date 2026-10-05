@@ -27,7 +27,7 @@ import type {
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { scrollWhileDragging } from '../dragScroll';
-import { filingsThatFile, itemsOnPanel } from '../filing';
+import { itemsOnPanel } from '../filing';
 import { dayOf, filtersUsingPanel, itemsMatchingFilter, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
 import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, matchesDashboardFilter, useDashboardFilter } from '../dashboardFilter';
@@ -388,15 +388,6 @@ export function PanelBoard({
     }))
     .filter(({ row }) => !hidden || row.cells.length > 0);
   const hiddenCount = hidden ? hidden.size : 0;
-
-  /**
-   * The filings that file, read once for the whole board rather than per panel:
-   * every panel below asks it, and a Filter asks it again for each of its rows.
-   *
-   * Against the workspace's panels rather than this dashboard's, for the reason
-   * `panelsInWorkspace` carries.
-   */
-  const filed = filingsThatFile(filings, panelsInWorkspace);
 
   const refusal =
     command.error instanceof CommandRefused
@@ -1174,11 +1165,6 @@ export function PanelBoard({
                           items={shows.get(panel.id) ?? []}
                           itemTypes={itemTypes}
                           panelsInWorkspace={panelsInWorkspace}
-                          // What is filed anywhere, which a filing onto a
-                          // Filter is not (`filingsThatFile`): a workspace
-                          // whose only filing is one of those has still never
-                          // filed anything, and the lesson has to stay up.
-                          nothingFiledYet={filed.length === 0}
                           renaming={renaming?.id === panel.id ? renaming.name : null}
                           onRenamingChange={(name) => setRenaming({ id: panel.id, name })}
                           onStartRenaming={() => {

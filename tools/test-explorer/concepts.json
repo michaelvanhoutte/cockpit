@@ -398,8 +398,6 @@
       "parent": "Across the app",
       "sourcePatterns": [
         "apps/web/src/whatThingsAre.ts",
-        "apps/web/src/welcoming.ts",
-        "apps/web/src/pages/WelcomePage.tsx",
         "apps/web/src/components/NameQuestion.tsx",
         "apps/api/src/accounts/getting-started-data.ts"
       ]
