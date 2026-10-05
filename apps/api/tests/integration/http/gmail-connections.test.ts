@@ -264,7 +264,7 @@ describe('Connector management', () => {
         answer: { ...granted('x'), scope: 'openid https://www.googleapis.com/auth/userinfo.email' } as Grant,
         told: 'gmail-permission-missing',
       },
-    ])('refuses, stores nothing and says $told when $situation', async ({ reply, answer, told }) => {
+    ])('refuses and stores nothing when $situation, saying why where you can act on it', async ({ reply, answer, told }) => {
       await issuerIsReachable();
       const session = await signInAs();
       const { asked, attempt } = await startConnecting(WORKSPACE_ID, session);
