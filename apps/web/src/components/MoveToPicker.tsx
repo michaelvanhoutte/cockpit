@@ -438,7 +438,7 @@ function MoveToPicker({
                       <button
                         type="submit"
                         disabled={naming.name.trim() === '' || busy || making}
-                        className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+                        className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
                       >
                         {adding ? 'Add & show' : 'Add & move'}
                       </button>

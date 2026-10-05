@@ -74,7 +74,7 @@ export function ConnectGmail({
               // Leaves the application, as signing in does, rather than
               // opening a popup nothing else in this app uses.
               onClick={() => window.location.assign(connectGmailPath(workspaceId))}
-              className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-deep"
+              className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover"
             >
               Sign in with Google
             </button>

@@ -1274,7 +1274,7 @@ export function ItemRow({
             {routingProposal && onAcceptRouting && (
               <button
                 type="button"
-                className="flex min-w-0 max-w-full items-baseline overflow-hidden rounded-full bg-accent-tint px-1.5 text-accent-deep hover:bg-accent hover:text-white"
+                className="flex min-w-0 max-w-full items-baseline overflow-hidden rounded-full bg-accent-tint px-1.5 text-accent-deep hover:bg-accent hover:text-on-accent"
                 title={routingLabel}
                 aria-label={routingLabel}
                 onClick={(event) => {

@@ -373,6 +373,21 @@ describe('Across the app', () => {
       expect(screen.queryByRole('menuitem', { name: 'Manage types' })).toBeNull();
     });
 
+    it('ends the profile with the credit, below a divider under Sign out, opening Conselit in a new tab', async () => {
+      const user = userEvent.setup();
+      shell();
+
+      await user.click(await screen.findByRole('button', { name: 'Profile' }));
+      const credit = await screen.findByRole('menuitem', { name: creditLine() });
+
+      expect(credit).toHaveAttribute('href', 'https://www.conselit.be');
+      expect(credit).toHaveAttribute('target', '_blank');
+      expect(credit.getAttribute('rel')).toContain('noopener');
+      expect(credit.previousElementSibling).toHaveAttribute('role', 'separator');
+      expect(credit.previousElementSibling!.previousElementSibling).toBe(screen.getByRole('menuitem', { name: 'Sign out' }));
+      expect(credit.nextElementSibling).toBeNull();
+    });
+
     it('shows the signed-in person’s initial on the profile control', async () => {
       shell();
 

@@ -86,7 +86,7 @@ export function AgentPromptBox({
               <button
                 type="submit"
                 disabled={!canSend}
-                className="milled shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+                className="milled shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
               >
                 Send to Claude
               </button>

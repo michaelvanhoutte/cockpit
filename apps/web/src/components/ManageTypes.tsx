@@ -364,7 +364,7 @@ export function ManageTypes({
           <button
             type="submit"
             disabled={command.isPending || saving}
-            className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+            className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
           >
             New type
           </button>

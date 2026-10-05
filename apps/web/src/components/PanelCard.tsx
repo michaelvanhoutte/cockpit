@@ -410,7 +410,7 @@ export function PanelCard({
               <button
                 type="submit"
                 disabled={busy}
-                className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+                className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
               >
                 Save
               </button>

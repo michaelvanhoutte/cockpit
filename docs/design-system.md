@@ -1,4 +1,4 @@
-# Design system
+`#647232` | ink |`#3f7286` | ink |`#886823` | ink |`#9b4e81` | white |`#347663` | ink |`#9e5739` | ink |`#3568b7` | white |`#6b5eae` | white |# Design system
 
 How Cockpit looks, as against what it does (`docs/product/`). Everything here is drawn from what the code already holds — `apps/web/src/styles.css` and `packages/shared/src/domain/workspace-themes.ts` — not from a plan for it.
 
@@ -10,22 +10,25 @@ How Cockpit looks, as against what it does (`docs/product/`). Everything here is
 
 The page, the top bar, the agents' dock and every list's well are the same in every Workspace. Only the dashboard band, the accent and the logo's dot follow one (below), which is what lets a Workspace's colour be chosen freely without touching legibility anywhere else.
 
-- **Ink** — `ink`, `ink-soft`, `ink-faint`: body text, on the neutral surfaces.
-- **Neutral surfaces** — `surface`, and `ground`, the page: warm grey `#f3f3f1`.
-- **Accent** — `accent`, `accent-deep`, `accent-soft`, `accent-tint`: headings, buttons, focus rings and type labels. The shell sets them from the Workspace, so menus and windows opened over the page follow it too; outside a Workspace they are the default theme's.
+- **Ink** — the Conselit brand's: `ink-strong` `#16181d` (headings), `ink` `#3a3f4b` (body), `ink-soft`, `ink-faint`, on the neutral surfaces. `shade`, the same `#16181d`, is what hairlines, dimming and shadows are at low alpha; nothing is black.
+- **Neutral surfaces** — `surface`, and `ground`: the page is warm grey `#f3f3f1` inside a Workspace (stored with it), and `ground` `#f4f4f2` where no Workspace paints it, such as the logon page.
+- **Category colours** — the brand's six (`cat-slate`, `cat-teal`, `cat-amber`, `cat-green`, `cat-violet`, `cat-grey`), each with a `-tint` for hover and selected fills and a `-light` for use on the chrome. Status colours map onto them where the hue is close rather than keeping near-duplicates.
+- **Accent** — `accent`, `accent-deep`, `accent-soft`, `accent-tint`: headings, buttons, focus rings and type labels. `on-accent` is the text on a fill of `accent`, and `accent-hover` that fill under the pointer. The shell sets them from the Workspace, so menus and windows opened over the page follow it too; outside a Workspace they are the default theme's.
 - **Due / overdue** — `due`, `due-soft`, `due-ink`, `due-deep`, `over`, `over-deep`: the amber and red of a deadline pill, never of a whole row. The pill steps up as the date closes — an outline in `due` with `due-ink` text, a `due-soft` fill, solid `due` with `due-deep` text, then `over-deep` with white text once passed — each at least 4.5:1 on what it is written on. `over-deep` exists because the swipe reveal also fills a band with `over` and writes a word inside it, and white on `over` itself falls short of readable at that size.
 - **Status** — one colour per Item status (`to-process`, `task`, `waiting`, `delegated`, `snoozed`, `reference`), always paired with the word beside it: colour alone cannot separate six statuses, and cannot be read by a screen reader at all.
 
 ## Workspace themes
 
-A Workspace theme is designed as a set: **tint** (the saturated colour: the accent, the tab dot, the logo's dot), **bar** (the dashboard band, a deep shade of the tint), **deep** (the tint where it is text) and the two neutrals **ground** and **header**, which are the same in all eight. Near-white text (`chrome-ink`) is what is drawn on the band, never themed.
+A Workspace theme is designed as a set: **tint** (the saturated colour: the accent, the tab dot, the logo's dot), **bar** (the dashboard band, a deep shade of the tint), **deep** (the tint where it is text), **onAccent** (the text on a fill of the tint) and the two neutrals **ground** and **header**, which are the same in all eight. Near-white text (`chrome-ink`) is what is drawn on the band, never themed.
 
-**Every band and deep shade is designed per theme, not mixed**, and held by a test to: near-white text on the band at least 4.5:1, `deep` as text on the page and on a well at least 4.5:1, and the tint lifted 30% towards white at least 3:1 as the logo's dot on the top bar. A band is the tint darkened 20% where that already reads, and further where it does not (Amber, Olive, Cyan).
+**Every band and deep shade is designed per theme, not mixed**, and held by a test to: near-white text on the band at least 4.5:1, `deep` as text on the page and on a well at least 4.5:1, `deep` on the selected chip's fill (the tint at 14% over white) at least 4.5:1, `onAccent` on the tint at least 4.5:1, and the tint lifted 30% towards white at least 3:1 as the logo's dot on the top bar. A band is the tint darkened 20% where that already reads, and further where it does not (Amber, Olive, Cyan).
+
+**Text on an accent fill is dark ink (`#16181d`) on the five light themes (Terracotta, Teal, Amber, Cyan, Olive) and white on Violet, Blue and Magenta**, because white on those five falls under 4.5:1. Every filled button writes `text-on-accent`, never `text-white`. On the five, the hover fill is the tint mixed 15% towards white, since `deep` is darker than ink can be read on. `deep` and `onAccent` are not stored, so changing either rewrites no Workspace.
 
 The palette is eight designed sets, handed out to new Workspaces in this order. `header` and `ground` are `#2d2e35` and `#f3f3f1` in every row:
 
-| Theme | Tint | Bar | Deep |
-|---|---|---|---|
+| Theme | Tint | Bar | Deep | On accent |
+|---|---|---|---|---|
 | Violet | `#6f62b5` | `#594e91` | `#6e61b3` |
 | Blue | `#3a72c8` | `#2e5ba0` | `#376cbe` |
 | Terracotta | `#c06a45` | `#9a5537` | `#a1593a` |
@@ -39,9 +42,10 @@ A Workspace is never assigned colours outside this table: a stored set that is n
 
 ## Chrome
 
-- **Top bar and agents' dock** — one soft graphite gradient, `#2d2e35` at the top to `#17181c`, in every Workspace. The agents sit in a recessed tray in the dock, each tile with a 10px round dot in its colour. A hide control (▼) leads the dock; while the dock is hidden, a strip as tall as a button (▲ Agents) stays in the same spot at the bottom edge and opens it again. A row that takes an Agent being dragged wears a faint `accent-tint`; the one under the pointer wears a full `accent-tint` and a solid 2px `accent` outline inset on the row.
+- **Top bar and agents' dock** — one soft graphite gradient, `#2d2e35` at the top to `#16181d`, in every Workspace. The agents sit in a recessed tray in the dock, each tile with a 10px round dot in its colour. A hide control (▼) leads the dock; while the dock is hidden, a strip as tall as a button (▲ Agents) stays in the same spot at the bottom edge and opens it again. A row that takes an Agent being dragged wears a faint `accent-tint`; the one under the pointer wears a full `accent-tint` and a solid 2px `accent` outline inset on the row.
 - **Dashboard band** — the Workspace's `bar`. The selected Workspace tab is filled with it and runs down into it; unselected dashboard tabs are near-white; the selected one is filled with the page. The Inbox's heading is a rounded tab in the page's colour with a strip of band above it.
-- **Logo** — a bold "C" with a dot in the Workspace's tint (`components/Logo.tsx`), beside the name and gone with it below `sm`. The favicon and installed-app icon are the same mark on a graphite tile with the default violet dot.
+- **Logo** — four rounded squares in a two-by-two grid, the fourth in the Workspace's tint and the other three in `chrome-ink` (`components/Logo.tsx`), beside the name and gone with it below `sm`. The favicon and installed-app icon are the same mark on a graphite tile with the default violet fourth square. A C is Conselit's own mark and is never drawn.
+- **Credit** — "© 2026 Conselit · conselit.be" (the years run to the current one), linking www.conselit.be in a new tab: faint under the logon page's card, and the last profile-menu entry below a divider.
 - **Panel frame** — each panel wears a faint 1px dotted frame around its heading and list, the list inset 4px.
 
 ## Surfaces
@@ -51,6 +55,10 @@ A Workspace is never assigned colours outside this table: a stored set that is n
 - **Milled** — a control that reads as a surface rather than a filled rectangle: a faint vertical gradient over whatever background colour it already has, and a one-pixel highlight along its top edge. Additive: it paints over a control's own Tailwind background colour rather than replacing it, meant to be felt rather than seen.
 - **Elevation** — a two-step shadow scale (`panel`, `raised`) for what genuinely floats: a dialog, a menu, the row lifted under a drag. A Panel itself is not elevated — its list is sunk (`well`, above) rather than raised, so nothing on a Dashboard advances towards you. Floating layers stack in one order: page content, then pinned bars (the Dashboard filter bar, the selection bar), then menus, submenus and dialogs with their dimming (`z-floating`), then the undo toast and the "Updating" notice. A new pinned element goes below `z-floating`; a new floating layer takes it.
 
+## One token set
+
+Every colour, radius and shadow in the web app is a name from `styles.css`: no hex, `rgb(`, `black`, or arbitrary Tailwind colour, radius or shadow value is written anywhere else, and `scripts/lib/theme-tokens.test.mjs` fails on one. A value the theme cannot name at build time arrives as a runtime variable (`bg-[var(--tab-on)]`). A value with no token gets a named one. Font sizes are outside this.
+
 ## Radius
 
-Three steps — `sm` (4px), `md` (8px), `lg` (14px) — used by control size rather than by component identity.
+Three steps — `sm` (4px), `md` (10px), `lg` (14px) — used by control size rather than by component identity.

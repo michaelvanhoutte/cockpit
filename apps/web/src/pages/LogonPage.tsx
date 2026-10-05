@@ -63,7 +63,7 @@ export function LogonPage() {
             run first. */}
         <a
           href={SIGN_IN_PATH}
-          className="mt-4 flex w-full items-center justify-center rounded-md border border-accent-soft/70 bg-accent-tint px-3 py-2 text-sm font-medium text-accent-deep hover:border-accent hover:bg-accent hover:text-white"
+          className="mt-4 flex w-full items-center justify-center rounded-md border border-accent-soft/70 bg-accent-tint px-3 py-2 text-sm font-medium text-accent-deep hover:border-accent hover:bg-accent hover:text-on-accent"
         >
           Continue with Google
         </a>

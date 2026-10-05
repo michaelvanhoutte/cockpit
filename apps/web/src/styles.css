@@ -67,7 +67,10 @@
   --color-chrome-ink-soft: #a5a3b5;
   --color-chrome-ink-faint: #9694a8;
   --color-accent: #6f62b5;
-  --color-accent-deep: #5d5294;
+  --color-accent-deep: #6b5eae;
+  /* The text on a fill of the accent, and the fill under the pointer: both follow the workspace's theme (`onAccent`, shared). */
+  --color-on-accent: #ffffff;
+  --color-accent-hover: #6b5eae;
   --color-accent-soft: #b5abfc;
   --color-accent-tint: #e7e5fe;
   --color-due: #c98a4b;

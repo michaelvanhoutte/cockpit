@@ -322,8 +322,12 @@ function Driving({
             onClick={tap}
             aria-label={label}
             aria-disabled={phase === 'capturing' || phase === 'captured' || phase === 'nothing'}
-            className={`milled relative flex size-40 items-center justify-center rounded-full text-white shadow-lg ${
-              listening ? 'bg-over-deep' : settled ? 'bg-accent-deep' : 'bg-accent'
+            className={`milled relative flex size-40 items-center justify-center rounded-full shadow-lg ${
+              listening
+                ? 'bg-over-deep text-white'
+                : settled
+                  ? 'bg-accent-deep text-white'
+                  : 'bg-accent text-on-accent'
             }`}
           >
             {listening ? (

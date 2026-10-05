@@ -3,7 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ADMIN, DEFAULT_WORKSPACE_THEME, isPaletteTheme, themeOf, uuidv7 } from '@cockpit/shared';
+import { ADMIN, DEFAULT_WORKSPACE_THEME, ON_ACCENT_LIGHT, isPaletteTheme, themeOf, uuidv7 } from '@cockpit/shared';
 import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, refusalFrom, snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
@@ -60,6 +60,7 @@ const DEFAULT_WORKSPACE_THEME_COLORS = {
   ground: DEFAULT_WORKSPACE_THEME.ground,
   header: DEFAULT_WORKSPACE_THEME.header,
   deep: DEFAULT_WORKSPACE_THEME.deep,
+  onAccent: DEFAULT_WORKSPACE_THEME.onAccent,
 };
 
 /**
@@ -94,8 +95,9 @@ function paint(
   if (!workspace) return DEFAULT_WORKSPACE_THEME_COLORS;
   const { color, bar, ground, header } = workspace;
   const theme = themeOf(color);
-  if (isPaletteTheme({ tint: color, bar, ground, header })) return { ...workspace, deep: theme.deep };
-  return { color, bar: theme.bar, ground: theme.ground, header: theme.header, deep: theme.deep };
+  const { deep, onAccent } = theme;
+  if (isPaletteTheme({ tint: color, bar, ground, header })) return { ...workspace, deep, onAccent };
+  return { color, bar: theme.bar, ground: theme.ground, header: theme.header, deep, onAccent };
 }
 
 /** What the profile control shows in place of a photograph nobody has set. */
@@ -724,6 +726,8 @@ function TheShell() {
           // design per theme.
           '--color-accent': theme.color,
           '--color-accent-deep': theme.deep,
+          '--color-on-accent': theme.onAccent,
+          '--color-accent-hover': theme.onAccent === ON_ACCENT_LIGHT ? theme.deep : `color-mix(in srgb, ${theme.color} 85%, white)`,
           '--color-accent-soft': `color-mix(in srgb, ${theme.color} 55%, white)`,
           '--color-accent-tint': `color-mix(in srgb, ${theme.color} 14%, white)`,
         } as React.CSSProperties

@@ -81,7 +81,7 @@ export function MoveOrAddQuestion({
               type="button"
               disabled={busy}
               onClick={onMove}
-              className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-deep disabled:opacity-50"
+              className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
             >
               Move it here
             </button>

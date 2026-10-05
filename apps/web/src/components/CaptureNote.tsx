@@ -673,7 +673,7 @@ export function CaptureNote({
         <button
           type="submit"
           disabled={busy || !chosen}
-          className="milled min-h-13 w-full rounded-md bg-accent text-[17px] font-medium text-white hover:bg-accent-deep disabled:opacity-50 sm:min-h-0 sm:w-auto sm:flex-none sm:rounded-md sm:px-[22px] sm:py-[11px] sm:text-[15px]"
+          className="milled min-h-13 w-full rounded-md bg-accent text-[17px] font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50 sm:min-h-0 sm:w-auto sm:flex-none sm:rounded-md sm:px-[22px] sm:py-[11px] sm:text-[15px]"
         >
           Capture
         </button>
@@ -781,7 +781,7 @@ const QUIET_BUTTON =
   'border-shade/10 bg-white text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink';
 const LIT_BUTTON = 'border-accent bg-accent-tint font-medium text-accent-deep';
 /** The mic while listening: filled, where a lit chip is only tinted, so it cannot be mistaken for a choice made. */
-const LIT_BUTTON_SOLID = 'border-accent bg-accent text-white';
+const LIT_BUTTON_SOLID = 'border-accent bg-accent text-on-accent';
 
 /**
  * The strip along the bottom of the note: three priority flags, then **Due**
