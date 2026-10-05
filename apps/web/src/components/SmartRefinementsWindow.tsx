@@ -49,7 +49,7 @@ export function SmartRefinementsWindow({
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-black/30" />
         <Dialog.Content
           onCloseAutoFocus={(event) => {
             if (!returnFocusTo) return;
@@ -62,7 +62,7 @@ export function SmartRefinementsWindow({
           // the same way, so it grows towards the corner dragged the way that
           // one does. `overflow` other than `visible` is what makes the handle
           // appear at all; the table scrolls inside its own box below.
-          className="fixed left-1/2 top-1/2 flex h-[min(36rem,calc(100dvh-4rem))] max-h-[calc(100dvh-2rem)] min-h-[min(16rem,calc(100dvh-2rem))] w-[min(64rem,calc(100vw-2rem))] min-w-[min(20rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 resize-none flex-col overflow-hidden rounded-lg border border-black/10 bg-surface p-5 shadow-lg sm:resize"
+          className="fixed z-floating left-1/2 top-1/2 flex h-[min(36rem,calc(100dvh-4rem))] max-h-[calc(100dvh-2rem)] min-h-[min(16rem,calc(100dvh-2rem))] w-[min(64rem,calc(100vw-2rem))] min-w-[min(20rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 resize-none flex-col overflow-hidden rounded-lg border border-black/10 bg-surface p-5 shadow-lg sm:resize"
         >
           <Dialog.Title className="text-base font-semibold">What Cockpit changed</Dialog.Title>
           <Dialog.Description className="mt-0.5 text-xs text-ink-faint">

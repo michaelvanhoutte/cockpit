@@ -89,7 +89,7 @@ export function NameQuestion({
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-black/30" />
         <Dialog.Content
           // Only where there is nothing to describe it with: the prop is how
           // Radix is told the omission is deliberate, and passing it beside a
@@ -108,7 +108,7 @@ export function NameQuestion({
           // Near the top of a phone is where the status bar is, so the 16px is
           // measured from below it (styles.css, `--edge-top`). Nothing to
           // allow for at the desktop width, where it is centred anyway.
-          className="fixed left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
+          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-black/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
           <Dialog.Title className="text-base font-semibold">{question}</Dialog.Title>
           {describes && (

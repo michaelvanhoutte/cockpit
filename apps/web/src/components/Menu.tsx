@@ -200,7 +200,7 @@ export function MenuContent({
         align="end"
         sideOffset={4}
         onCloseAutoFocus={onCloseAutoFocus}
-        className="min-w-44 rounded-md border border-black/10 bg-surface p-1 shadow-lg"
+        className="z-floating min-w-44 rounded-md border border-black/10 bg-surface p-1 shadow-lg"
       >
         {children}
       </DropdownMenu.Content>
@@ -228,7 +228,7 @@ export function ContextMenuContent({
       <ContextMenu.Content
         aria-label={label}
         onCloseAutoFocus={onCloseAutoFocus}
-        className="min-w-44 rounded-md border border-black/10 bg-surface p-1 shadow-lg"
+        className="z-floating min-w-44 rounded-md border border-black/10 bg-surface p-1 shadow-lg"
       >
         {children}
       </ContextMenu.Content>
