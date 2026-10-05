@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { prioritySchema, uuidv7, type ItemType, type Priority, type Workspace } from '@cockpit/shared';
+import { plainWords, prioritySchema, uuidv7, type ItemType, type Priority, type Workspace } from '@cockpit/shared';
 import { CommandRefused, uploadAttachment } from '../api/client';
 import { snapshotQuery, workspacesQuery } from '../api/queries';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
@@ -1135,7 +1135,7 @@ function CapturedRow({
           className="size-2 shrink-0 rounded-full"
           style={{ backgroundColor: type?.color ?? 'var(--color-ink-faint)' }}
         />
-        <span className="min-w-0 truncate text-[15px] sm:text-sm">{captured.message}</span>
+        <span className="min-w-0 truncate text-[15px] sm:text-sm">{plainWords(captured.message)}</span>
       </span>
       <span className="flex shrink-0 items-center gap-2 pl-4 text-xs sm:pl-0">
         {type && <span className="text-accent-deep">{type.name}</span>}

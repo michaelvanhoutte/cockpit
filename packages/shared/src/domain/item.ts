@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { plainWords } from './plain-words.js';
 
 /**
  * The Item + Association model (functional-definition.md §4.2).
@@ -181,9 +182,9 @@ export function itemLabel(item: Pick<Item, 'nextAction' | 'title'>): string {
  * takes (architecture.md §4.4, "What names an item at capture").
  */
 export function textsFromCapture(message: string): { title: string; description: string | null } {
-  // Exactly what `itemTitleSchema` refuses: control characters and the line and paragraph separators.
-  const oneLine = message.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ').trim();
-  const title = cutTo(oneLine, TITLE_LENGTH);
+  // The words on one line (`plainWords` closes up exactly what `itemTitleSchema`
+  // refuses), cut after the Markdown is gone so the cap counts what is shown.
+  const title = cutTo(plainWords(message), TITLE_LENGTH);
   return { title, description: title === message ? null : message };
 }
 

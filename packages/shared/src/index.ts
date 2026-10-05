@@ -6,6 +6,7 @@ export * from './domain/duplicate.js';
 export * from './domain/item.js';
 export * from './domain/item-form-presentation.js';
 export * from './domain/item-type.js';
+export * from './domain/plain-words.js';
 export * from './domain/panel.js';
 export * from './domain/rewrite-history.js';
 export * from './domain/source-account.js';
