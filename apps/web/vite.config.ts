@@ -57,9 +57,9 @@ export default defineConfig({
       // calls are never intercepted — the persisted snapshot lives in IndexedDB.
       workbox: {
         navigateFallback: '/index.html',
-        // Prefixes the shell must never answer for. All but the last are this
-        // service's own: they are requests for data, or the consent page an
-        // app opens, and a cached page is not an answer to either.
+        // Prefixes the shell must never answer for. All but the last two are
+        // this service's own: they are requests for data, or the consent page
+        // an app opens, and a cached page is not an answer to either.
         //
         // `/cdn-cgi/` is **Cloudflare's, not ours**: the edge answers it before
         // assets or the Worker see it, so a cached page is never the right
@@ -74,11 +74,13 @@ export default defineConfig({
         // a real browser holding a real service worker against a deployment.
         //
         // Note this list is **not** the same as `run_worker_first` in
-        // apps/api/wrangler.jsonc, though every entry but the last matches it.
-        // `/cdn-cgi/` must bypass the service worker and must *not* reach the
-        // Worker: it belongs to Cloudflare's edge, which handles it before
-        // either. The two lists agree about this application's own prefixes
-        // and about nothing else.
+        // apps/api/wrangler.jsonc, though every entry but the last two matches
+        // it. `/cdn-cgi/` must bypass the service worker and must *not* reach
+        // the Worker: it belongs to Cloudflare's edge, which handles it before
+        // either. `/privacy` is a static asset, and must not reach the Worker
+        // either, since a page Google links to cannot sit behind sign-in. The
+        // two lists agree about this application's own API prefixes and about
+        // nothing else.
         navigateFallbackDenylist: [
           /^\/v1\//,
           /^\/health/,
@@ -88,7 +90,12 @@ export default defineConfig({
           /^\/oauth\//,
           /^\/\.well-known\/oauth-/,
           /^\/cdn-cgi\//,
+          // A static page, not the shell's: answered from the network so a
+          // changed policy is read at once rather than after the next update.
+          /^\/privacy(\.html)?([?#]|$)/,
         ],
+        // Kept out of the precache for the same reason.
+        globIgnores: ['**/privacy.html'],
         runtimeCaching: [],
       },
       manifest,
