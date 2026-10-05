@@ -87,6 +87,9 @@ function connectTeamsPath(workspaceId: string): string {
  */
 const AVAILABLE_CONNECTORS = [GMAIL, TEAMS, CLAUDE_CODE] as const;
 
+/** What the guest is told in place of every way to connect. */
+const GUEST_SENTENCE = 'Sign in with Google to connect your own';
+
 /** What each card says it does - for Gmail, that the label and the task stay in step (issue 724). */
 const CARD_TEXT: Record<(typeof AVAILABLE_CONNECTORS)[number], string> = {
   [GMAIL]:
@@ -144,6 +147,7 @@ export default function ManageConnections({
   returnFocusTo,
   only,
   picker,
+  guest = false,
 }: {
   /**
    * These kinds of connection only - Gmail and Teams under Connections,
@@ -151,6 +155,12 @@ export default function ManageConnections({
    * Absent, every kind is shown.
    */
   only?: readonly string[] | undefined;
+  /**
+   * The shared guest, who connects nothing: the server refuses it anyway
+   * (`auth/guest-connections.ts`), so this offers the way to connect one's own
+   * in place of every Connect, Disconnect, Test and Edit (issue 772).
+   */
+  guest?: boolean | undefined;
   /** What picks the workspace, drawn under the intro. */
   picker?: React.ReactNode;
   workspaceId: string;
@@ -291,7 +301,7 @@ export default function ManageConnections({
                     <p className="text-sm text-over-deep">Failing: {account.failingBecause}</p>
                   )}
                 </div>
-                <RowMenu
+                {!guest && <RowMenu
                   label={`Actions for ${account.displayName}`}
                   entries={[
                     ...(account.connectorId === CLAUDE_CODE
@@ -329,7 +339,7 @@ export default function ManageConnections({
                       onSelect: (openedFrom) => startDisconnecting(account, openedFrom),
                     },
                   ]}
-                />
+                />}
               </div>
             </li>
           ))}
@@ -392,7 +402,9 @@ export default function ManageConnections({
               <p className="text-sm font-medium">{connectorNamed(connectorId)}</p>
               <p className="text-sm text-ink-faint">{CARD_TEXT[connectorId]}</p>
             </div>
-            {connectorId === CLAUDE_CODE && claudeCodeConnected ? (
+            {guest ? (
+              <span className="shrink-0 text-sm text-ink-faint">{GUEST_SENTENCE}</span>
+            ) : connectorId === CLAUDE_CODE && claudeCodeConnected ? (
               <span className="shrink-0 text-sm text-ink-faint">Connected - one per workspace</span>
             ) : (
               <button

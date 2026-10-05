@@ -33,7 +33,7 @@ const USER_PREFIX = 'user-';
  * name for it.
  */
 export { normaliseAddress as foldAddress } from '../auth/oidc.js';
-import { NAME_LIMIT } from '@cockpit/shared';
+import { GUEST_USER_ID, NAME_LIMIT } from '@cockpit/shared';
 import { normaliseAddress } from '../auth/oidc.js';
 
 /**
@@ -49,7 +49,7 @@ import { normaliseAddress } from '../auth/oidc.js';
  * so `idsForNewUser` never offers them.
  */
 export const GUEST_ACCOUNT_NAME = 'tenant-guest';
-export const GUEST_USER_ID = 'user-guest';
+export { GUEST_USER_ID };
 
 /**
  * What somebody who signed in without being added is called, and what their

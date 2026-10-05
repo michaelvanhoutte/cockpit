@@ -3,7 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ADMIN, DEFAULT_WORKSPACE_THEME, ON_ACCENT_LIGHT, isPaletteTheme, themeOf, uuidv7 } from '@cockpit/shared';
+import { ADMIN, GUEST_USER_ID, DEFAULT_WORKSPACE_THEME, ON_ACCENT_LIGHT, isPaletteTheme, themeOf, uuidv7 } from '@cockpit/shared';
 import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, refusalFrom, snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
@@ -1211,6 +1211,7 @@ function TheShell() {
             on={settingsOn}
             startsIn={params.workspaceId}
             outcome={connectOutcome}
+            guest={me?.user.id === GUEST_USER_ID}
             onClose={() => setManaging(null)}
             returnFocusTo={profileControl.current}
           />

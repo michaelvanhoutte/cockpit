@@ -101,7 +101,7 @@ let testedClaudeCode: ReturnType<typeof vi.fn>;
  */
 type TestOutcome = { accepted: true } | { accepted: false; message: string } | 'network-failure';
 
-function showWindow(outcome?: ConnectOutcome, testOutcome: TestOutcome = { accepted: true }) {
+function showWindow(outcome?: ConnectOutcome, testOutcome: TestOutcome = { accepted: true }, guest = false) {
   sent = vi.fn();
   testedClaudeCode = vi.fn(
     (_sourceAccountId: string, opts: { onSuccess?: (r: unknown) => void; onError?: () => void }) => {
@@ -137,6 +137,7 @@ function showWindow(outcome?: ConnectOutcome, testOutcome: TestOutcome = { accep
         workspaceId="ws-work"
         workspaceName="Work"
         {...(outcome ? { outcome } : {})}
+        guest={guest}
         open
         onClose={() => {}}
       />
@@ -361,6 +362,32 @@ describe('Connector management', () => {
 
       expect(await screen.findByText(/the routine trigger it was connected with/)).toBeInTheDocument();
       expect(screen.queryByText(/the sign-in it was connected with/)).toBeNull();
+    });
+  });
+
+  describe('the guest is offered no way to connect, disconnect or test, only how to connect their own', () => {
+    it('says to sign in with Google in place of every Connect, on Connections and Agent settings alike', async () => {
+      showWindow(undefined, undefined, true);
+
+      await screen.findByText(/Nothing connected yet/);
+      expect(screen.getAllByText('Sign in with Google to connect your own')).toHaveLength(3);
+      expect(screen.queryByRole('button', { name: /^Connect / })).toBeNull();
+    });
+
+    it('offers nothing to do to a connection the guest is shown', async () => {
+      held.sourceAccounts = [ADA, CLAUDE];
+
+      showWindow(undefined, undefined, true);
+
+      expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Actions for / })).toBeNull();
+    });
+
+    it('still offers a named person Connect', async () => {
+      showWindow();
+
+      expect(await screen.findByRole('button', { name: 'Connect Microsoft Teams' })).toBeInTheDocument();
+      expect(screen.queryByText('Sign in with Google to connect your own')).toBeNull();
     });
   });
 
