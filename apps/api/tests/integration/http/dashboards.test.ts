@@ -582,7 +582,9 @@ describe('Dashboards', () => {
    */
   describe('every dashboard arrives with a panel, so there is somewhere to file into', () => {
     it('gives the dashboard an account starts with one, named Panel 1', async () => {
-      expect(await panelsOn(WORKSPACE_ID, await theDashboardOf(WORKSPACE_ID))).toEqual(['Panel 1']);
+      // Beside *Getting started*, whose arrival is
+      // tests/integration/accounts/getting-started.test.ts's.
+      expect(await panelsOn(WORKSPACE_ID, await theDashboardOf(WORKSPACE_ID))).toContain('Panel 1');
     });
 
     it('gives the dashboard of a workspace made afterwards one too', async () => {

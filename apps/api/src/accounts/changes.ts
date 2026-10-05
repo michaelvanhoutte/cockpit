@@ -22,6 +22,13 @@ import {
   type SeedItem,
   type SeedWorkspace,
 } from './guest-seed-data.js';
+import {
+  GETTING_STARTED_PANEL_NAME,
+  GETTING_STARTED_TASKS,
+  INBOX_TASK,
+  type GuideTask,
+} from './getting-started-data.js';
+import { DEAD_STATUS_VALUE } from './schema.js';
 import type { Change, Statement } from './up-to-date.js';
 
 /**
@@ -130,6 +137,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ONE_LAYOUT_PER_DASHBOARD,
     GMAIL_CONVERSATIONS,
     GMAIL_CONVERSATIONS_LISTED_IN,
+    gettingStarted(accountId),
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -3385,6 +3393,157 @@ function firstWorkspace(accountId: string): Change {
     ],
   };
 }
+
+/**
+ * What an account nobody has used arrives with to explain Cockpit ("Give a new
+ * account a Getting started panel and an Inbox item that explain Cockpit",
+ * issue 769): a Panel called *Getting started* on *Dashboard 1*, before
+ * *Panel 1*, holding the steps of getting-started-data.ts as open Tasks in
+ * order, and one Task in the Inbox. The words are in that file.
+ *
+ * **Guarded on the account being exactly as `0015-first-workspace` made it**:
+ * the store's only Workspace, Dashboard and Panel are *Workspace 1*,
+ * *Dashboard 1* and *Panel 1* under their own ids and names and none deleted,
+ * it holds no Item at all - a dismissed one included - and no action has ever
+ * been recorded (`commands`), so a Panel renamed and renamed back still counts
+ * as used. Anything else, however small, is somebody's account and gets
+ * nothing. Counted over every row rather than this account's alone, so a store
+ * holding anything unexpected is left alone too. **The guest account is skipped
+ * by name**, as `guestDemoSeed` decides by it: it applies this with no
+ * statements, so its demonstration is exactly as before.
+ *
+ * **Only the Panel's statement asks that question.** It cannot be asked again
+ * once the Panel is in - the store then holds two Panels - so every Item and
+ * filing after it is guarded on the guide's own Panel existing instead, the
+ * way `guestDemoSeed` guards a row on the one it hangs off. That Panel's id is
+ * fresh, so it exists only if this run wrote it, and the guide lands whole or
+ * not at all.
+ *
+ * **Fresh random ids**, uuids of the kind every Panel and Item command takes,
+ * so the guide can be renamed, ticked off, filed and deleted like anything
+ * else. Built afresh each time the list is, which is harmless: only the run
+ * that applies this change writes them, and nothing refers to them afterwards.
+ *
+ * **Placed before *Panel 1* by being dated a second before it.** A Dashboard
+ * nobody has arranged draws its Panels in the order they were made, and a phone
+ * always does (`layoutToDraw`, apps/web/src/panels/arrangement.ts), so the date
+ * is what puts *Getting started* first on every screen; writing a Layout would
+ * have done it on a desk alone. *Panel 1*'s own row is untouched.
+ *
+ * **Written as Items, never through capture**: no captured message, so nothing
+ * proposes a title, a description or a Panel for them, and nothing appears
+ * under *What Cockpit changed*.
+ *
+ * Its failure modes, per the scoping skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): inserts only, into accounts nobody has used.
+ * - **If it stops halfway:** it cannot. A change's statements and the record
+ *   that they ran commit in one `transactionSync` (store.ts), so a failure
+ *   leaves no Panel and no Task, and the whole change is retried.
+ * - **The second time it runs:** it does not, having been recorded. A retry
+ *   after a failure starts from an untouched account.
+ * - **Rows that already break the new rule:** every account anybody has used,
+ *   skipped and never changed - this is bootstrap data, not a rule.
+ * - **What is in each environment:** staging and production hold used
+ *   accounts, all skipped; only an account nobody has used changes, an
+ *   account opened before this release and never used among them.
+ * - **A backup restored:** its replay writes a guide only to empty it with
+ *   every other row, so the account ends with the guide the backup held, or -
+ *   from a backup taken before this change - gets one from the bring-up-to-date
+ *   that follows, if its rows are untouched.
+ * - **The windows it can be interrupted in.** *Between the first workspace's
+ *   change and this one*: an account is not served until every change has
+ *   run. *After it, with the previous release promoted back*: the guide is an
+ *   ordinary Panel and ordinary Items that release reads.
+ */
+function gettingStarted(accountId: string): Change {
+  const name = '0056-getting-started';
+  if (accountId === GUEST_ACCOUNT_NAME) return { name, statements: [] };
+
+  const panelId = crypto.randomUUID();
+  // **Dated an hour back, not now.** A change to an Item is applied only when
+  // the browser's clock says it is newer than the Item (`isStale`,
+  // domain/items.ts), so a guide dated by the server's clock would silently
+  // refuse the first ticks of a browser running behind it. An hour is far past
+  // ordinary drift and still under the day an Item's row starts showing how
+  // long it has waited (`waitedSince`, apps/web/src/waited.ts).
+  const now = new Date(Date.now() - GUIDE_DATED_BEFORE_MS).toISOString();
+  const taskType = taskTypeId(accountId);
+  const statements: Statement[] = [
+    {
+      sql: `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, created_at)
+              SELECT ?, ?, '${FIRST_DASHBOARD_ID}', ?, ?, '2026-09-06T23:59:59.000Z'
+              WHERE (SELECT count(*) FROM workspaces) = 1
+                AND EXISTS (SELECT 1 FROM workspaces
+                            WHERE id = '${FIRST_WORKSPACE_ID}' AND tenant_id = ? AND name = ?
+                              AND deleted_at IS NULL)
+                AND (SELECT count(*) FROM dashboards) = 1
+                AND EXISTS (SELECT 1 FROM dashboards
+                            WHERE id = '${FIRST_DASHBOARD_ID}' AND tenant_id = ?
+                              AND workspace_id = '${FIRST_WORKSPACE_ID}' AND name = ?
+                              AND deleted_at IS NULL)
+                AND (SELECT count(*) FROM panels) = 1
+                AND EXISTS (SELECT 1 FROM panels
+                            WHERE id = '${FIRST_PANEL_ID}' AND tenant_id = ?
+                              AND dashboard_id = '${FIRST_DASHBOARD_ID}' AND name = ?
+                              AND deleted_at IS NULL)
+                AND NOT EXISTS (SELECT 1 FROM items)
+                AND NOT EXISTS (SELECT 1 FROM commands)`,
+      params: [
+        panelId,
+        accountId,
+        GETTING_STARTED_PANEL_NAME,
+        foldName(GETTING_STARTED_PANEL_NAME),
+        accountId,
+        FIRST_WORKSPACE_NAME,
+        accountId,
+        FIRST_DASHBOARD_NAME,
+        accountId,
+        FIRST_PANEL_NAME,
+      ],
+    },
+  ];
+
+  const writeTask = (task: GuideTask): string => {
+    const itemId = crypto.randomUUID();
+    statements.push({
+      sql: `INSERT INTO items (id, tenant_id, workspace_id, workspace_decided, captured_message, source,
+                               title, description, type_id, status, created_at, updated_at)
+              SELECT ?, ?, '${FIRST_WORKSPACE_ID}', 1, NULL, 'internal', ?, ?, ?, ?, ?, ?
+              WHERE EXISTS (SELECT 1 FROM panels WHERE id = ? AND tenant_id = ?)`,
+      params: [
+        itemId,
+        accountId,
+        task.title,
+        task.description,
+        taskType,
+        DEAD_STATUS_VALUE,
+        now,
+        now,
+        panelId,
+        accountId,
+      ],
+    });
+    return itemId;
+  };
+
+  GETTING_STARTED_TASKS.forEach((task, position) => {
+    const itemId = writeTask(task);
+    statements.push({
+      sql: `INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at)
+              SELECT ?, ?, ?, ?, ?
+              WHERE EXISTS (SELECT 1 FROM items WHERE id = ? AND tenant_id = ?)`,
+      params: [accountId, panelId, itemId, position, now, itemId, accountId],
+    });
+  });
+  writeTask(INBOX_TASK);
+
+  return { name, statements };
+}
+
+/** How long before it is written the guide is dated, for the reason `gettingStarted` gives. */
+const GUIDE_DATED_BEFORE_MS = 60 * 60 * 1000;
 
 /**
  * The ids the demonstration's Layouts, Panels, Items and Associations carry.

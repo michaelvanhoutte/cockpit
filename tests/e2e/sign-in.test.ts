@@ -88,7 +88,7 @@ test.describe('Sign-in', () => {
      * however concurrently they sign in - is settled at
      * apps/api/tests/integration/http/sign-in.test.ts and not re-proved here.
      */
-    test('lets in a Google account nobody added, into an account of its own', async ({
+    test('lets in a Google account nobody added, into an account of its own that arrives with Getting started', async ({
       page,
       isMobile,
     }) => {
@@ -114,6 +114,27 @@ test.describe('Sign-in', () => {
 
       await press(page.getByRole('button', { name: 'Profile' }), isMobile);
       await expect(page.getByText(`Signed in as ${name}`)).toBeVisible();
+      await page.keyboard.press('Escape');
+
+      // And it arrives with its guide ("Give a new account a Getting started
+      // panel and an Inbox item that explain Cockpit", issue 769): Getting
+      // started drawn first - left of Panel 1 at a desk, above it on a phone,
+      // where Panels stand one across - and one Task in the Inbox. What the
+      // account holds, and which accounts are skipped, is
+      // apps/api/tests/integration/accounts/getting-started.test.ts's.
+      const guide = page.getByRole('region', { name: 'Getting started' });
+      const panelOne = page.getByRole('region', { name: 'Panel 1' });
+      await expect(guide.getByRole('listitem')).toHaveCount(9);
+      await expect(panelOne).toBeVisible();
+      const [drawn, beside] = [(await guide.boundingBox())!, (await panelOne.boundingBox())!];
+      if (isMobile) {
+        expect(drawn.y).toBeLessThan(beside.y);
+        await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      } else {
+        expect([drawn.x < beside.x, drawn.y]).toEqual([true, beside.y]);
+      }
+      await expect(inbox(page).getByRole('listitem')).toHaveCount(1);
+      await expect(itemRow(page, 'This is your Inbox — start here')).toBeVisible();
     });
   });
 

@@ -15,6 +15,7 @@ import {
   signInAs,
   startFromEmpty,
   taskTypeIn,
+  withoutTheGuide,
 } from '../seed.js';
 import { EMBEDDING_MODEL } from '../../../src/embeddings/index.js';
 
@@ -230,6 +231,10 @@ beforeEach(async () => {
   read = [];
   await signInAs();
   await signInAs(OTHER_USER_ID);
+  // Both accounts predate the guide a new one arrives with, as every account
+  // this command was written for does: its Items are no note a case captured.
+  await withoutTheGuide();
+  await withoutTheGuide(OTHER_ACCOUNT_NAME);
   // Every case starts from an Inbox nothing has read, which is the state this
   // whole command exists for.
   nothingCanReadMeaning();

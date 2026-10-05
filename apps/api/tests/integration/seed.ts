@@ -1,5 +1,10 @@
 import { abortAllDurableObjects, env, runInDurableObject, SELF } from 'cloudflare:test';
 import type { SqlStorage } from '@cloudflare/workers-types';
+import {
+  GETTING_STARTED_PANEL_NAME,
+  GETTING_STARTED_TASKS,
+  INBOX_TASK,
+} from '../../src/accounts/getting-started-data.js';
 import { PROBE_NAME } from '../../src/accounts/probe.js';
 import { GUEST_ACCOUNT_NAME } from '../../src/auth/register.js';
 import { issuerIsReachable, issuerWillIdentify } from './issuer.js';
@@ -38,6 +43,45 @@ export const WORKSPACE_ID = 'ws-1';
 
 /** The dashboard that workspace arrives with (src/accounts/changes.ts). */
 export const DASHBOARD_ID = `${WORKSPACE_ID}-dashboard-1`;
+
+/**
+ * The titles of the Tasks every account nobody has used arrives with: the
+ * steps on *Getting started* and the one in the Inbox (src/accounts/changes.ts,
+ * `0056-getting-started`). Every account a case signs into is new, so it holds
+ * them; a case about what *it* wrote leaves them out with `besidesTheGuide` or
+ * `NOT_THE_GUIDE` rather than counting them as its own.
+ */
+export const GUIDE_TITLES: ReadonlySet<string> = new Set(
+  [...GETTING_STARTED_TASKS, INBOX_TASK].map((task) => task.title),
+);
+
+/** Every Item but those an account arrives with. */
+export function besidesTheGuide<T extends { title: string }>(items: readonly T[]): T[] {
+  return items.filter((item) => !GUIDE_TITLES.has(item.title));
+}
+
+/**
+ * The same, as a condition on `items` for a case reading the store directly.
+ * The titles hold no quote, and are the code's own rather than anything typed.
+ */
+export const NOT_THE_GUIDE = `title NOT IN (${[...GUIDE_TITLES].map((title) => `'${title.replaceAll("'", "''")}'`).join(', ')})`;
+
+/**
+ * Opens the account and takes its guide back out, for a case about an account
+ * that predates it - one whose every Item is something a case means to count.
+ * Written into the store rather than deleted through the app, because deleting
+ * would leave tombstones and a log of actions that are not the case's either.
+ */
+export async function withoutTheGuide(accountName: string = ACCOUNT_NAME): Promise<void> {
+  const opened = await storeNamed(accountName).workspaces(accountName);
+  if (opened.status !== 'ok') throw new Error(JSON.stringify(opened));
+  await inStoreAsItIs(accountName, (sql) => {
+    const guide = `SELECT id FROM items WHERE NOT (${NOT_THE_GUIDE})`;
+    sql.exec(`DELETE FROM panel_items WHERE item_id IN (${guide})`);
+    sql.exec(`DELETE FROM items WHERE id IN (${guide})`);
+    sql.exec('DELETE FROM panels WHERE name = ?', GETTING_STARTED_PANEL_NAME);
+  });
+}
 
 /**
  * *Task*, one of the two types every account starts with, by the id the store
