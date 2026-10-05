@@ -23,6 +23,7 @@ import {
 import { roomForTheInbox } from './roomForTheInbox';
 import { LoadFailure } from './components/LoadFailure';
 import { AllItemsPage } from './pages/AllItemsPage';
+import { DemoPage } from './pages/DemoPage';
 import { CapturePage } from './pages/CapturePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { FirstWorkspacePage } from './pages/FirstWorkspacePage';
@@ -129,6 +130,18 @@ const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/signin',
   component: LogonPage,
+});
+
+/**
+ * Where the guest demo's *Open ↗* lands (`itemSource.ts`, issue 773): beside
+ * the logon page, outside the shell, so the page is the same signed in or not.
+ */
+const demoRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/demo/$page',
+  component: function DemoRoute() {
+    return <DemoPage page={demoRoute.useParams().page} />;
+  },
 });
 
 /**
@@ -395,6 +408,7 @@ const captureCarRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
+  demoRoute,
   startRoute,
   welcomeRoute,
   appRoute.addChildren([

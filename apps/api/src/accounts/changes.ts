@@ -4,6 +4,7 @@ import {
   FIRST_WORKSPACE_NAME,
   GRID_COLUMNS,
   MOST_ACROSS,
+  demoAddress,
   filterMatchSchema,
   panelFilterSchema,
   themeOf,
@@ -13,6 +14,8 @@ import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
 import { foldName } from '../domain/names.js';
 import {
   GUEST_DEMO,
+  GUEST_DEMO_CONNECTIONS,
+  GUEST_DEMO_PLACEHOLDER_CREDENTIAL,
   isFilter,
   type SeedDashboard,
   type SeedInboxItem,
@@ -3402,6 +3405,7 @@ const DEMO_PANEL = '0a000000';
 const DEMO_ITEM = '0b000000';
 const DEMO_ASSOCIATION = '0c000000';
 const DEMO_LAYOUT = '0d000000';
+const DEMO_CONNECTION = '0e000000';
 
 /** A readable, stable id for the things whose ids are not uuids: `Day to day` -> `day-to-day`. */
 function demoSlug(name: string): string {
@@ -3633,6 +3637,7 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
   let panelsSoFar = 0;
   let itemsSoFar = 0;
   let associationsSoFar = 0;
+  let connectionsSoFar = 0;
 
   demo.forEach((workspace, index) => {
     const workspaceId = `guest-ws-${demoSlug(workspace.name)}`;
@@ -3667,6 +3672,39 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
         foldName(workspace.name),
       ],
     });
+
+    // Gmail and Teams, connected (`GUEST_DEMO_CONNECTIONS`). Guarded on the
+    // Workspace being this change's own row, so a guest's Workspace that took
+    // the name first gets none; and on the row, so a second run adds nothing.
+    for (const connection of GUEST_DEMO_CONNECTIONS) {
+      connectionsSoFar += 1;
+      const connectionId = demoId(DEMO_CONNECTION, connectionsSoFar);
+      statements.push({
+        sql: `INSERT INTO connector_accounts (id, tenant_id, workspace_id, connector_id, external_account_key, display_name,
+                                              encrypted_credential, credential_nonce, connected_at, updated_at, last_tested_at)
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND tenant_id = ?)
+                  AND NOT EXISTS (SELECT 1 FROM connector_accounts WHERE id = ?)`,
+        params: [
+          connectionId,
+          accountId,
+          workspaceId,
+          connection.connectorId,
+          connection.externalAccountKey,
+          connection.displayName,
+          GUEST_DEMO_PLACEHOLDER_CREDENTIAL,
+          GUEST_DEMO_PLACEHOLDER_CREDENTIAL,
+          at,
+          at,
+          // Never "last checked" for Gmail, which nothing checks; Teams reads
+          // "last worked" a few hours ago, like a connection in use.
+          connection.connectorId === 'gmail' ? null : hoursBefore(3),
+          workspaceId,
+          accountId,
+          connectionId,
+        ],
+      });
+    }
 
     for (const dashboard of workspace.dashboards) {
       const under = `${demoSlug(workspace.name)}-${demoSlug(dashboard.name)}`;
@@ -3809,8 +3847,9 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
   /**
    * One Item and its Associations - filed or not is the caller's business.
    *
-   * `source` is `internal` because these were captured inside Cockpit rather
-   * than synced from anywhere, and `status` carries `DEAD_STATUS_VALUE`
+   * `source` is `internal` for an Item with no `via`, because it was captured
+   * inside Cockpit rather than synced from anywhere (one that came from Gmail or
+   * Teams is stored the way `asStored` does, with its sender and demo address), and `status` carries `DEAD_STATUS_VALUE`
    * (schema.ts) because the column is NOT NULL with a CHECK and nothing reads
    * it. `focus_horizon` is left alone: it is dead too, and what this
    * demonstrates in its place is a due date and a priority, which are live.
@@ -3830,12 +3869,19 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
     const madeAt = hoursBefore(demoAgeInHours(item, itemsSoFar, inbox !== undefined));
     // Before midnight, like `madeAt`: the nightly reset runs early in the
     // day, and a start later than it would be a start in the future.
+    // Gmail is stored as `mail`; Teams keeps `internal` and names its connector (`asStored`).
+    const stored = !item.via
+      ? { source: 'internal', sourceConnector: null }
+      : item.via.source === 'gmail'
+        ? { source: 'mail', sourceConnector: null }
+        : { source: 'internal', sourceConnector: 'teams' };
     const startedAt = item.started === undefined ? null : hoursBefore(item.started * 24 + 2);
     statements.push({
-      sql: `INSERT INTO items (id, tenant_id, workspace_id, workspace_decided, captured_message, source, title,
+      sql: `INSERT INTO items (id, tenant_id, workspace_id, workspace_decided, captured_message, source, source_connector,
+                               source_link, sender, source_timestamp, title,
                                description, type_id, priority, due_date, started_at,
                                proposed_panel_id, proposed_panel_reason, status, created_at, updated_at)
-              SELECT ?, ?, ?, ?, NULL, 'internal', ?, ?, ?, ?, ?, ?,
+              SELECT ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                      (SELECT id FROM panels WHERE id = ? AND tenant_id = ?),
                      (SELECT ? FROM panels WHERE id = ? AND tenant_id = ?), 'to_process', ?, ?
               WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND tenant_id = ?)
@@ -3845,6 +3891,11 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
         accountId,
         workspaceId,
         item.anyWorkspace ? 0 : 1,
+        stored.source,
+        stored.sourceConnector,
+        item.via ? demoAddress(item.via.source) : null,
+        item.via?.sender ?? null,
+        item.via ? madeAt : null,
         item.title,
         item.description ?? null,
         item.note ? noteType : taskType,
