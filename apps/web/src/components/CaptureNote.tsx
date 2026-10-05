@@ -515,12 +515,17 @@ export function CaptureNote({
           this box does not follow the chips down to `text-sm`.
 
           Resizable at a desk and not on a phone, where there is no room to
-          grow into and the handle is one more thing under a thumb. */}
+          grow into and the handle is one more thing under a thumb. The handle
+          is on the box rather than the field: a dragged height is an inline
+          `height`, which the field's `flex-1` (a basis of zero) overrides, so
+          a handle on the field moved and changed nothing. The box does not
+          shrink, so a height past what the window holds scrolls the window
+          instead of being squeezed back. */}
       {/* The note and, along its bottom edge, the strip that sets a priority
           and a due date: one box rather than a row of its own, which took too
           much room. The border and the focus ring belong to the box, so the
           strip reads as inside the note rather than under it. */}
-      <div className="order-1 mt-2.5 flex w-full flex-col rounded-md border border-shade/10 bg-white shadow-field focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40 sm:order-none sm:mt-4 sm:min-h-56">
+      <div className="order-1 mt-2.5 flex w-full flex-col rounded-md border border-shade/10 bg-white shadow-field focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40 sm:order-none sm:mt-4 sm:min-h-56 sm:shrink-0 sm:resize-y sm:overflow-auto">
         <textarea
           value={shown}
           onChange={(e) => {
@@ -534,7 +539,7 @@ export function CaptureNote({
           aria-label="What is on your mind?"
           autoFocus
           rows={4}
-          className="w-full flex-1 resize-none rounded-md bg-transparent p-3 text-base leading-[1.5] text-ink outline-none sm:resize-y sm:px-5 sm:py-[18px]"
+          className="w-full flex-1 resize-none rounded-md bg-transparent p-3 text-base leading-[1.5] text-ink outline-none sm:px-5 sm:py-[18px]"
         />
         <PriorityAndDue
           priority={priority}
@@ -1021,7 +1026,7 @@ function toQueued(file: File): QueuedFile {
  *
  * The label stands beside the chips at a desk and above them on a phone, which
  * is the one difference between the two artboards' rows: a 74px column of label
- * beside a wrapping row of 44px chips leaves no room for the chips.
+ * beside a wrapping row of chips leaves no room for the chips.
  */
 function Choice({
   label,
@@ -1033,7 +1038,7 @@ function Choice({
   children: React.ReactNode;
 }) {
   return (
-    <div className="order-4 mt-3.5 flex flex-col gap-2 sm:order-none sm:mt-5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
+    <div className="order-4 mt-3 flex flex-col gap-1.5 sm:order-none sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
       <span
         aria-hidden="true"
         className="text-[11px] font-semibold tracking-[0.11em] text-ink-faint uppercase sm:w-[74px] sm:shrink-0 sm:text-xs"
@@ -1052,7 +1057,7 @@ function Choice({
       <div
         role="group"
         aria-label={label}
-        className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-1"
+        className="flex min-w-0 flex-wrap items-center gap-1.5 sm:flex-1"
       >
         {children}
       </div>
@@ -1081,10 +1086,10 @@ function Chip({
       type="button"
       aria-pressed={chosen}
       onClick={onChoose}
-      /* 44px high on a phone and no taller than it needs to be at a desk: a
+      /* 36px high on a phone and as small as the Due shortcuts at a desk: a
          chip is one of a row of targets under a thumb there, and one of a row
          of words beside a pointer here. */
-      className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full border px-4 text-[15px] sm:min-h-0 sm:py-[7px] sm:text-sm ${
+      className={`inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm sm:min-h-0 sm:px-2.5 sm:py-[3px] sm:text-[13px] ${
         chosen
           ? 'border-accent bg-accent-tint font-medium text-accent-deep'
           : 'border-shade/10 bg-white text-ink'
