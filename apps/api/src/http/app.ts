@@ -85,6 +85,7 @@ import {
   enqueueReadingItsMeaning,
   enqueueRepropose,
   enqueueReproposeTexts,
+  enqueueGuestArrivals,
   enqueueSimulatedRunWaiting,
   readWhatTheseNotesMean,
 } from '../jobs/index.js';
@@ -2619,6 +2620,9 @@ const routes = app
       });
       if (!signedIn.signedIn) return refuse(c, 'the guest account is not available');
       rememberSessionCookie(c, signedIn.sessionId);
+      // Only here, past the already-signed-in return above: a fresh guest sign-in
+      // is what a mail and a Teams message arrive for (issue 775).
+      await enqueueGuestArrivals(c.env);
       return c.redirect('/', 302);
     } catch (error) {
       return refuse(c, 'the guest sign-in could not be finished', error);
