@@ -557,12 +557,11 @@ export function CaptureNote({
         setFilesOver(false);
         if (event.dataTransfer.files.length > 0) queueFiles(Array.from(event.dataTransfer.files));
       }}
-      // Pasted anywhere on the form, including with the cursor in the
-      // message box. Taken in the capture phase, so a file copied with its
-      // HTML (an image copied off a web page) is queued and never also
-      // reaches the formatted editor, which skips an event already handled: unlike the Item form's own description text, this box
-      // is plain text and cannot hold an image, so there is no second branch
-      // where the paste is the field's own.
+      // Pasted anywhere on the form, including with the cursor in the message
+      // box, and taken in the capture phase: a file copied with its HTML (an
+      // image copied off a web page) is queued here and the formatted editor,
+      // which skips an event already handled, never also inserts it. A paste
+      // of text only returns before touching the event.
       onPasteCapture={(event) => {
         const files = Array.from(event.clipboardData.files);
         if (files.length === 0) return;
