@@ -122,7 +122,10 @@ export async function startStubIssuer({ port, seedPath }) {
    * `POST /gmail-stub/label?email=&subject=&text=` labels a new conversation
    * Cockpit, and `POST /gmail-stub/reply?email=&thread=` adds a reply to one -
    * each leaving the history record Gmail would, and moving the mailbox's
-   * position on.
+   * position on. `POST /gmail-stub/unlabel?email=&thread=` takes the label
+   * off one, `/gmail-stub/trash?email=&thread=` moves it to the bin, and
+   * `/gmail-stub/label?email=&thread=` puts the label back ("Close a Gmail
+   * task when its label comes off", issue 727).
    */
   function actInMailbox(action, url, response) {
     const email = url.searchParams.get('email') ?? '';
@@ -146,6 +149,31 @@ export async function startStubIssuer({ port, seedPath }) {
         body: { size: words.length, data: base64url(words) },
       },
     });
+    const named = url.searchParams.get('thread');
+    if (action === 'unlabel' || action === 'trash' || (action === 'label' && named)) {
+      const thread = mailbox.threads.find((one) => one.id === named);
+      if (!thread) return json(response, { error: 'no such thread' }, 404);
+      const moved = action === 'trash' ? 'TRASH' : cockpit.id;
+      for (const message of thread.messages) {
+        message.labelIds =
+          action === 'unlabel'
+            ? message.labelIds.filter((label) => label !== cockpit.id)
+            : [...new Set([...message.labelIds.filter((label) => !(action === 'label' && label === 'TRASH')), moved])];
+      }
+      // `quietly` leaves no history record, as a change the history missed -
+      // which only the nightly read of the whole mailbox finds.
+      if (!url.searchParams.has('quietly')) {
+        const [first] = thread.messages;
+        mailbox.history.push({
+          id: at,
+          messages: [{ id: first.id, threadId: thread.id }],
+          [action === 'unlabel' ? 'labelsRemoved' : 'labelsAdded']: [
+            { message: { id: first.id, threadId: thread.id, labelIds: first.labelIds }, labelIds: [moved] },
+          ],
+        });
+      }
+      return json(response, { thread: thread.id, historyId: at });
+    }
     if (action === 'label') {
       const id = `18f0a1b2c3d4e${at}`;
       const message = messageOf(
@@ -263,7 +291,7 @@ export async function startStubIssuer({ port, seedPath }) {
     }
 
     if (url.pathname.startsWith('/gmail/v1/users/me/')) return gmail(url, request, response);
-    const acting = url.pathname.match(/^\/gmail-stub\/(label|reply)$/);
+    const acting = url.pathname.match(/^\/gmail-stub\/(label|unlabel|trash|reply)$/);
     if (acting && request.method === 'POST') return actInMailbox(acting[1], url, response);
 
     if (url.pathname === '/authorize') return authorize(url, response);
@@ -412,8 +440,11 @@ export async function startStubIssuer({ port, seedPath }) {
       });
     }
     if (path === 'threads') {
+      // Gmail leaves the bin out of a listing unless asked for it.
       const labelled = mailbox.threads.filter((thread) =>
-        thread.messages.some((message) => message.labelIds.includes(url.searchParams.get('labelIds'))),
+        thread.messages.some(
+          (message) => message.labelIds.includes(url.searchParams.get('labelIds')) && !message.labelIds.includes('TRASH'),
+        ),
       );
       const from = Number(url.searchParams.get('pageToken') ?? 0);
       const size = Number(url.searchParams.get('maxResults') ?? 100);

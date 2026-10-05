@@ -15,6 +15,7 @@ import {
   type GmailCredential,
 } from './gmail.js';
 import { derivedUuid } from './push-host.js';
+import type { AppliedSourceChange } from '../accounts/source-state.js';
 
 /**
  * Checking an account's Gmail connections, which its store's alarm does every
@@ -39,6 +40,13 @@ import { derivedUuid } from './push-host.js';
  * it Cockpit", issue 726): once a listing is complete, each run asks Gmail
  * what changed since the stored position, and a position Gmail no longer
  * keeps starts the full reconcile over.
+ *
+ * **And closing** ("Close a Gmail task when its label comes off, and reopen it
+ * when it goes back", issue 727): a conversation whose label comes off, or
+ * whose mail is binned or deleted, has its Item marked done, and one labelled
+ * again is reopened, through the host's source-state change. The full
+ * reconcile does the same once its listing is complete; it runs on
+ * connecting, on a lapsed position, and nightly.
  */
 
 /**
@@ -78,6 +86,8 @@ export interface GmailConnectionToCheck {
 export interface GmailProgress {
   readonly historyId: string;
   readonly pageToken: string | null;
+  /** When the current full reconcile started, which is what names it. */
+  readonly startedAt: string;
   readonly listedAt: string | null;
 }
 
@@ -109,6 +119,26 @@ export interface GmailCheckHost {
     ids: { itemId: string; commandId: string },
     at: string,
   ): 'linked' | 'already linked' | 'disconnected';
+  /**
+   * Gmail says these brought-in conversations are labelled (`reopened`) or
+   * not (`resolved`): their Items made open and undismissed, or done, where
+   * they are not already - and a labelled one noted as found by the current
+   * full reconcile. Conversations never brought in are passed over. Answers
+   * how many Items changed, or that the connection has gone since the run
+   * read it.
+   */
+  sourceChanged(
+    connection: GmailConnectionToCheck,
+    threadIds: readonly string[],
+    change: AppliedSourceChange,
+    at: string,
+  ): number | 'disconnected';
+  /**
+   * Once the full reconcile's listing is complete, up to `limit` brought-in
+   * conversations it did not find whose Items are not done - each to be read
+   * before it is marked done. None while the listing is still going.
+   */
+  unconfirmed(connection: GmailConnectionToCheck, limit: number): string[];
   /**
    * The connection's credential, sealed again around a refreshed access token
    * - only where it still holds `was`, so a reconnect made meanwhile keeps its
@@ -237,13 +267,84 @@ async function bringInLabelled(
     if (progress.pageToken) query.set('pageToken', progress.pageToken);
     const page = conversationPage(await mailbox.get(`threads?${query}`));
     await bringInThreads(host, connection, mailbox, labelId, page.threadIds, at, broughtIn);
+    // Listed is labelled: an Item done or dismissed is open again, and every
+    // one is noted as found, which is what keeps it from being closed below.
+    if (host.sourceChanged(connection, page.threadIds, 'reopened', at) === 'disconnected') {
+      throw new ConnectionChanged('the connection was disconnected');
+    }
     host.pageListed(connection.id, page.nextPageToken, at);
     const next = host.progress(connection.id);
     // Gone: connected again meanwhile, which starts the listing over.
     if (!next) throw new ConnectionChanged('the listing was started again');
     progress = next;
   }
+  await closeUnlisted(host, connection, mailbox, labelId, at);
   return 'done';
+}
+
+/**
+ * Marks done the open Items whose conversations a complete listing did not
+ * find ("Close a Gmail task when its label comes off, and reopen it when it
+ * goes back", issue 727) - each read first, so a conversation the listing
+ * missed by moving between its pages, as a new reply moves it, stays open.
+ * Gone, in the bin or no longer labelled is done. A run that stops part-way
+ * leaves the rest for the next, which asks the store again.
+ *
+ * **Only after a complete, successful listing**: `unconfirmed` names nothing
+ * while it is still going, and a mailbox with no label called Cockpit never
+ * gets here. Recovery after a long outage can close many at once, which is
+ * logged with the count.
+ */
+async function closeUnlisted(
+  host: GmailCheckHost,
+  connection: GmailConnectionToCheck,
+  mailbox: Mailbox,
+  labelId: string,
+  at: string,
+): Promise<void> {
+  let closed = 0;
+  try {
+    for (const threadId of host.unconfirmed(connection, CALLS_PER_RUN)) {
+      const labelled = await stillThere(mailbox, threadId, labelId);
+      const changed = host.sourceChanged(connection, [threadId], labelled ? 'reopened' : 'resolved', at);
+      if (changed === 'disconnected') throw new ConnectionChanged('the connection was disconnected');
+      if (!labelled) closed += changed;
+    }
+  } finally {
+    if (closed > 0) {
+      logged('info', 'marked done the Items of conversations no longer labelled Cockpit', {
+        sourceAccountId: connection.id,
+        count: closed,
+      });
+    }
+  }
+}
+
+/**
+ * Brings each of these brought-in conversations' Items into step with whether
+ * the conversation is labelled now: done where it is not, open and
+ * undismissed where it is.
+ */
+async function settleThreads(
+  host: GmailCheckHost,
+  connection: GmailConnectionToCheck,
+  mailbox: Mailbox,
+  labelId: string,
+  threadIds: readonly string[],
+  at: string,
+): Promise<void> {
+  const known = host.alreadyBroughtIn(connection.workspaceId, connection.mailboxKey, threadIds);
+  for (const threadId of threadIds.filter((id) => known.has(id))) {
+    const labelled = await stillThere(mailbox, threadId, labelId);
+    const changed = host.sourceChanged(connection, [threadId], labelled ? 'reopened' : 'resolved', at);
+    if (changed === 'disconnected') throw new ConnectionChanged('the connection was disconnected');
+  }
+}
+
+/** Whether the conversation is still there and labelled - not deleted, not in the bin or spam. */
+async function stillThere(mailbox: Mailbox, threadId: string, labelId: string): Promise<boolean> {
+  const thread = await mailbox.get(`threads/${encodeURIComponent(threadId)}?format=minimal`);
+  return thread !== null && stillLabelled(thread, labelId);
 }
 
 /**
@@ -267,11 +368,12 @@ async function readHistory(
   let progress = from;
   for (;;) {
     const query = new URLSearchParams({ startHistoryId: progress.historyId, labelId, maxResults: String(HISTORY_PAGE_SIZE) });
-    for (const type of ['messageAdded', 'labelAdded', 'labelRemoved']) query.append('historyTypes', type);
+    for (const type of ['messageAdded', 'messageDeleted', 'labelAdded', 'labelRemoved']) query.append('historyTypes', type);
     if (progress.pageToken) query.set('pageToken', progress.pageToken);
     const answer = await mailbox.get(`history?${query}`);
     if (answer === null) return 'lapsed';
     const page = historyPage(answer, labelId);
+    await settleThreads(host, connection, mailbox, labelId, page.changed, at);
     await bringInThreads(host, connection, mailbox, labelId, page.gained, at, broughtIn);
     if (page.nextPageToken) {
       host.historyPageRead(connection.id, progress.historyId, page.nextPageToken);
@@ -396,7 +498,7 @@ class Mailbox {
   }
 }
 
-function logged(level: 'warn' | 'error', message: string, data?: unknown): void {
+function logged(level: 'info' | 'warn' | 'error', message: string, data?: unknown): void {
   const line = JSON.stringify({ level, connector: 'gmail', message, data });
   if (level === 'error') console.error(line);
   else console.log(line);

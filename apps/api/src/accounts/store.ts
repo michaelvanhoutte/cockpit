@@ -32,7 +32,7 @@ import {
 import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
 import { admittedCalls } from '../connectors/claude-code-hooks.js';
 import { checkGmail } from '../connectors/gmail-check.js';
-import { gmailCheckHost, holdsGmailConnection } from './gmail.js';
+import { gmailCheckHost, holdsGmailConnection, sweepGmailNightly } from './gmail.js';
 import { APP_CAPTURES_PER_MINUTE } from '../mcp/create-item.js';
 import {
   deleteAllRows,
@@ -768,10 +768,16 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   /**
    * Arms the Gmail check where the account holds a Gmail connection and
    * nothing has it armed - what the nightly run asks of every account, so an
-   * alarm that was lost is found within a day (issue 725).
+   * alarm that was lost is found within a day (issue 725) - and starts each
+   * connection's full reconcile again, the nightly sweep that corrects what
+   * the history missed (issue 727).
    */
   async keepCheckingGmail(accountName: string): Promise<Answer<'armed' | 'already armed' | 'nothing to check'>> {
-    const holds = this.#answer(accountName, (db) => holdsGmailConnection(db, accountName));
+    const holds = this.#answer(accountName, (db) => {
+      if (!holdsGmailConnection(db, accountName)) return false;
+      sweepGmailNightly(db, accountName, new Date().toISOString());
+      return true;
+    });
     if (holds.status !== 'ok') return holds;
     if (!holds.value) return { status: 'ok', value: 'nothing to check' };
     if ((await this.ctx.storage.getAlarm()) !== null) return { status: 'ok', value: 'already armed' };

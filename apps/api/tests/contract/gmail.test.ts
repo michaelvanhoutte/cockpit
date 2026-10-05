@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cockpitLabelIn, conversationFrom, conversationPage, historyPage } from '../../src/connectors/gmail.js';
+import { cockpitLabelIn, conversationFrom, conversationPage, historyPage, stillLabelled } from '../../src/connectors/gmail.js';
 import { historyAnswer, historyRecord, labelsAnswer, plainThread, profileAnswer, threadsPage } from '../gmail-payloads.js';
 
 /**
@@ -106,7 +106,7 @@ describe.skipIf(!provisioned)('Capture', () => {
       const labelId = cockpitLabelIn(await gmail('labels'))!;
       const { historyId } = await gmail('profile');
       const query = new URLSearchParams({ startHistoryId: String(historyId), labelId, maxResults: '1' });
-      for (const type of ['messageAdded', 'labelAdded', 'labelRemoved']) query.append('historyTypes', type);
+      for (const type of ['messageAdded', 'messageDeleted', 'labelAdded', 'labelRemoved']) query.append('historyTypes', type);
 
       // Nothing has changed since the position just read: a position and no records.
       const live = await gmail(`history?${query}`);
@@ -157,6 +157,13 @@ describe.skipIf(!provisioned)('Capture', () => {
       expect(conversation?.title).toBeTruthy();
       expect(conversation?.text).toBeTruthy();
       expect(conversation?.sentAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+      // Read again as a check reads one whose label may have come off: each
+      // message's labels, and no body ("Close a Gmail task when its label
+      // comes off", issue 727).
+      const minimal = await gmail(`threads/${encodeURIComponent(threadId!)}?format=minimal`);
+      expect(missingFrom(minimal, plainThread('a-thread'), ['id', 'messages', 'messages[].id', 'messages[].labelIds'])).toEqual([]);
+      expect(stillLabelled(minimal, labelId)).toBe(true);
     });
   });
 });

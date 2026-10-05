@@ -302,4 +302,32 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
       undefined,
     );
   });
+
+  it('takes the label off, moves to the bin and labels again, each leaving the listing as Gmail would', async () => {
+    const token = await accessTokenFor('closing@example.com');
+    const act = (what, query) =>
+      fetch(`${issuer.origin}/gmail-stub/${what}?email=closing%40example.com&${query}`, { method: 'POST' }).then((answer) => answer.json());
+    const listed = async () => (await (await read(token, 'threads?labelIds=Label_1001')).json()).threads.map((thread) => thread.id);
+    const { thread } = await act('label', 'subject=To%20close');
+    const { historyId: before } = await (await read(token, 'profile')).json();
+
+    await act('unlabel', `thread=${thread}`);
+    assert.equal((await listed()).includes(thread), false);
+    await act('label', `thread=${thread}`);
+    assert.equal((await listed()).includes(thread), true);
+    await act('trash', `thread=${thread}`);
+    assert.equal((await listed()).includes(thread), false);
+    await act('label', `thread=${thread}&quietly`);
+    assert.equal((await listed()).includes(thread), true);
+
+    const { history } = await (await read(token, `history?startHistoryId=${before}`)).json();
+    assert.deepEqual(
+      history.map((record) => [Object.keys(record).find((key) => key.startsWith('labels')), record[Object.keys(record).find((key) => key.startsWith('labels'))][0].labelIds]),
+      [
+        ['labelsRemoved', ['Label_1001']],
+        ['labelsAdded', ['Label_1001']],
+        ['labelsAdded', ['TRASH']],
+      ],
+    );
+  });
 });

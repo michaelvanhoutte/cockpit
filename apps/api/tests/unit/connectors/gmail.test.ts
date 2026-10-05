@@ -9,6 +9,7 @@ import {
   gmailAuthorizationUrl,
   gmailCredentialIn,
   historyPage,
+  stillLabelled,
   usableAccessToken,
 } from '../../../src/connectors/gmail.js';
 import { typeToBringInAs } from '../../../src/domain/item-types.js';
@@ -254,6 +255,72 @@ describe('Capture', () => {
         nextPageToken: 'more',
       });
       expect(historyPage(historyAnswer([], { historyId: '99' }), COCKPIT_LABEL_ID).nextPageToken).toBeNull();
+    });
+  });
+
+  describe('a history page names every conversation whose label it may have taken off or put back', () => {
+    const labelled = ['INBOX', COCKPIT_LABEL_ID];
+    it.each([
+      {
+        situation: 'the label removed',
+        records: [historyRecord('11', { unlabelled: 'm1', threadId: 't-off', with: [COCKPIT_LABEL_ID], labelIds: ['INBOX'] })],
+        changed: ['t-off'],
+      },
+      {
+        situation: 'a labelled message moved to the bin',
+        records: [historyRecord('11', { labelled: 'm1', threadId: 't-bin', with: ['TRASH'], labelIds: ['TRASH', COCKPIT_LABEL_ID] })],
+        changed: ['t-bin'],
+      },
+      {
+        situation: 'a labelled message taken out of the bin',
+        records: [historyRecord('11', { unlabelled: 'm1', threadId: 't-back', with: ['TRASH'], labelIds: labelled })],
+        changed: ['t-back'],
+      },
+      {
+        situation: 'a message deleted for good',
+        records: [historyRecord('11', { deleted: 'm1', threadId: 't-gone' })],
+        changed: ['t-gone'],
+      },
+      {
+        situation: 'the label added again',
+        records: [historyRecord('11', { labelled: 'm1', threadId: 't-again', with: [COCKPIT_LABEL_ID], labelIds: labelled })],
+        changed: ['t-again'],
+      },
+      {
+        situation: 'another label added or removed',
+        records: [
+          historyRecord('11', { labelled: 'm1', threadId: 't-star', with: ['STARRED'], labelIds: ['STARRED', COCKPIT_LABEL_ID] }),
+          historyRecord('12', { unlabelled: 'm1', threadId: 't-star', with: ['UNREAD'], labelIds: labelled }),
+        ],
+        changed: [],
+      },
+      {
+        situation: 'a reply arriving without the label',
+        records: [historyRecord('11', { added: 'm3', threadId: 't-old', labelIds: ['INBOX', 'UNREAD'] })],
+        changed: [],
+      },
+    ])('reads $situation as $changed', ({ records, changed }) => {
+      expect(historyPage(historyAnswer(records), COCKPIT_LABEL_ID).changed).toEqual(changed);
+    });
+  });
+
+  describe('a conversation counts as labelled while a message carrying the label is outside the bin', () => {
+    it.each([
+      { situation: 'one labelled message', messages: [{ labelled: true }], counts: true },
+      { situation: 'the label taken off its only message', messages: [{ labelled: false }], counts: false },
+      { situation: 'its only labelled message in the bin', messages: [{ labelled: true, trashed: true }], counts: false },
+      {
+        situation: 'one labelled message binned and another still labelled',
+        messages: [{ labelled: true, trashed: true }, { labelled: true }],
+        counts: true,
+      },
+      { situation: 'no messages left', messages: [], counts: false },
+    ])('$situation: $counts', ({ messages, counts }) => {
+      const thread = threadAnswer(
+        't',
+        messages.map((one, at) => message('t', { id: `m${at}`, sentAt: '2026-10-01T08:30:00Z', plain: 'x', ...one })),
+      );
+      expect(stillLabelled(thread, COCKPIT_LABEL_ID)).toBe(counts);
     });
   });
 });
