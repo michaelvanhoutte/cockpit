@@ -1,5 +1,5 @@
 import type { DecisionHistoryEntry } from '../../domain/decision-history.js';
-import { renderHistory, renderRecentlyCaptured } from './clean-up-a-note.v9.js';
+import { renderHistory, renderRecentlyCaptured } from './clean-up-a-note.v10.js';
 
 /**
  * The one Item a panel is being chosen for: what was captured, and the two

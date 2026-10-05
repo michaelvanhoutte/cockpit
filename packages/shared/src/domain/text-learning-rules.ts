@@ -1,6 +1,6 @@
 /**
  * The length a title is written towards - shared with the prompt
- * (`clean-up-a-note.v9.ts`, which re-exports it) so the guidance line built
+ * (`clean-up-a-note.v10.ts`, which re-exports it) so the guidance line built
  * from it can never read a different number than the one actually sent to
  * the model.
  */
@@ -8,7 +8,7 @@ export const TITLE_TARGET = 50;
 
 /**
  * The sentences the note-cleanup prompt is built from, each a named constant
- * `clean-up-a-note.v9.ts` imports and interpolates into the spot in the system
+ * `clean-up-a-note.v10.ts` imports and interpolates into the spot in the system
  * prompt it occupies.
  *
  * **Named constants, not an array read by position.** A reorder, insertion or

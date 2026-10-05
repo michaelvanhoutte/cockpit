@@ -81,7 +81,7 @@ ${TITLE_NAMES_THE_WORK} Write it as an instruction - "Run only the impacted CI t
 
 ${TITLE_LENGTH_TARGET_LINE} ${TITLE_LENGTH} characters is only what the form will store; it is not what to write towards.
 
-${MESSAGE_PURPOSE} It is an instruction too: the work the note is asking for, spelled out from what the note carries and nothing more. Where the note records an opinion or an observation rather than asking for something, the instruction is to record it. It is not a summary, not a report, and not a list of fields. Write no headings and no bullet points unless the note itself was a list.
+${MESSAGE_PURPOSE} It is an instruction too: the work the note is asking for, spelled out from what the note carries and nothing more. Where the note records an opinion or an observation rather than asking for something, the instruction is to record it. It is not a summary, not a report, and not a list of fields. The note is Markdown: where it uses bold, italics, links or lists, keep them on the same words in the message, and add none the note does not have. Write no headings and no bullet points unless the note itself was a list.
 
 Name the note's language first, in English, from the note alone - "English", "Dutch", or "English and Dutch" where the note genuinely mixes them. ${LANGUAGE_ANSWER} ${NEVER_TRANSLATE}
 
@@ -151,7 +151,7 @@ const INSTRUCTIONS_WITH_PANELS = instructionsFor(true);
 const INSTRUCTIONS_TEXTS_ONLY = instructionsFor(false);
 
 /**
- * What Cockpit asks Claude for when a note has been captured, version 9.
+ * What Cockpit asks Claude for when a note has been captured, version 10.
  * `v7` ("Learn how you write from the titles you correct", issue 394; "Show
  * what Cockpit is told, and say how you want it changed", issue 398; "Pin an
  * example of how you want a note written", issue 397) added `corrections`,
@@ -160,7 +160,7 @@ const INSTRUCTIONS_TEXTS_ONLY = instructionsFor(false);
  * the text-learning prompt to the last 30 days, and drop rules and pinned
  * examples as inputs", issue 451; `docs/text-learning.md`).
  *
- * **`v9` changes the order and nothing it asks for.** The system prompt is two
+ * **`v9` changed the order and nothing it asked for.** The system prompt is two
  * parts: `instructions`, fixed and first, and `context`, this account's and
  * this call's, after it - so the fixed part is a prefix every call shares and
  * the cache can serve (issue 584). `v8` interleaved the two, which left only
@@ -182,7 +182,7 @@ const INSTRUCTIONS_TEXTS_ONLY = instructionsFor(false);
  * writes them - this prompt learns purely from what this account actually
  * does.
  *
- * Nothing else moves: language, the other readings, the Panel proposal, the
+ * **10 keeps the note's Markdown on the message** - one sentence in the\n * instructions, so a bold name, a link or a list in the note comes back on\n * the same words (issue 756).\n *\n * Nothing else moves: language, the other readings, the Panel proposal, the
  * routing history and the shape of `schema` are `v6`'s.
  *
  * **`routing` is `null` where only the two texts are wanted** - a correction's
@@ -197,7 +197,7 @@ export function buildCleanUpANote(
   corrections: readonly TextCorrectionEntry[],
   stood: WhatStood | null,
 ): {
-  version: 'v9';
+  version: 'v10';
   model: string;
   effort: 'low';
   system: { instructions: string; context: string };
@@ -240,7 +240,7 @@ export function buildCleanUpANote(
       : ["Everything below is this account's own, read fresh for this note.", ...sections].join('\n\n');
 
   return {
-    version: 'v9',
+    version: 'v10',
 
     /**
      * Unchanged since `v1`, which measured a cheaper model handing the

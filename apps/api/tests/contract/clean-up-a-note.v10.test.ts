@@ -2,7 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { afterAll, describe, expect, it } from 'vitest';
 import { ClaudeAiService, type ProposalRead } from '../../src/ai/index.js';
 import { TITLE_LENGTH } from '@cockpit/shared';
-import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v9.js';
+import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v10.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../src/domain/text-corrections.js';
 
@@ -55,8 +55,8 @@ function tallied(name: string): ClaudeAiService {
     spent.output += usage.output_tokens;
   });
 }
-const reading = tallied('clean-up-a-note.v9 on capture');
-const rereading = tallied('clean-up-a-note.v9 texts only');
+const reading = tallied('clean-up-a-note.v10 on capture');
+const rereading = tallied('clean-up-a-note.v10 texts only');
 
 const NO_STOOD: WhatStood | null = null;
 
@@ -248,7 +248,7 @@ describe('Capture', () => {
         expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
         // The cases in this file are only evidence about the version they ran
         // against, so the version is said out loud once.
-        expect(buildCleanUpANote(null, [], NO_STOOD).version).toBe('v9');
+        expect(buildCleanUpANote(null, [], NO_STOOD).version).toBe('v10');
       });
 
       it('does not pad a note that is already shorter than the target', async () => {
@@ -354,6 +354,46 @@ describe('Capture', () => {
       });
     });
 
+    /**
+     * `v10` ("Keep a note's formatting when Cockpit rewrites it", issue 756): a
+     * note is Markdown, and the message keeps what it uses on the same words.
+     * Only the model can prove it, so it is asserted here and nowhere lower.
+     */
+    describe('a note\'s formatting comes back on the same words', () => {
+      it('bolds the same name', async () => {
+        const proposal = await read('Ask **Jan** about the audit');
+
+        expect(proposal.message).toContain('**Jan**');
+      });
+
+      it('keeps a two-item list as a list', async () => {
+        const proposal = await read('- order the new badges\n- book the room for the offsite');
+
+        expect(proposal.message).toMatch(/^\s*[-*] .+\n\s*[-*] /m);
+      });
+
+      it('links the same text to the same address', async () => {
+        const proposal = await read('Read [the doc](https://x.test) before the call');
+
+        expect(proposal.message).toContain('[the doc](https://x.test)');
+      });
+
+      it('keeps an italic word italic', async () => {
+        const proposal = await read('Ask Jan whether the audit is *really* due on Friday');
+
+        expect(proposal.message).toMatch(/(\*really\*|_really_)/);
+      });
+    });
+
+    describe('a note without formatting gets none added', () => {
+      it('comes back with no bold, headings or bullets', async () => {
+        const proposal = await read(
+          'Call Novy about the appointment next week. Not before ten in the morning.',
+        );
+
+        expect(proposal.message).not.toMatch(/\*|^#|^\s*[-*] |__/m);
+      });
+    });
     /**
      * The instruction that is gone ("Propose a title that names the work, not
      * the note", issue 391). `v5` told the model to say that the note does not
@@ -523,7 +563,7 @@ describe('Capture', () => {
    * questions ("Propose where a captured note belongs, without filing it
    * there", issue 298) - the same shape the prompt's own worked example is,
    * deliberately neither the same note nor the same panel name as that
-   * example (`clean-up-a-note.v9.ts`'s last example pairs "Compliance
+   * example (`clean-up-a-note.v10.ts`'s last example pairs "Compliance
    * questions" with the Part 11 audit trail note). A pass on the exact note
    * and panel name the prompt was shown the answer to would prove recall
    * rather than generalisation - the failure this tier exists to catch, per

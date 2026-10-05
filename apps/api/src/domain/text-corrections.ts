@@ -67,7 +67,7 @@ export interface TextCorrectionEntry {
  * Cockpit's own words, which a later edit can leave behind (`command-
  * service.ts`'s `UPDATE` branch rewrites the settled half and never deletes
  * or resets the row). The one definition both `renderOneTextCorrection`
- * (`clean-up-a-note.v9.ts`, which reader-facing text) and the corrected-item
+ * (`clean-up-a-note.v10.ts`, which reader-facing text) and the corrected-item
  * set (`store.ts`, which the "what stood" ratio counts by) read, so the two
  * can never disagree about the same row again.
  */
@@ -83,7 +83,7 @@ export function correctionStillVisible(entry: TextCorrectionEntry): boolean {
  * resubmission of exactly what was already there - a form saved without
  * being touched, a retried command - teaches nothing and would otherwise
  * upsert a row whose proposed and settled halves read identically, which
- * `renderCorrections` (`clean-up-a-note.v9.ts`) would have nothing to show
+ * `renderCorrections` (`clean-up-a-note.v10.ts`) would have nothing to show
  * for.
  *
  * **`null` where *this edit* clears the title to nothing**, checked only
@@ -186,7 +186,7 @@ const STOOD_SAMPLE_LIMIT = 10;
  * editing a proposed text is itself the act of having looked at it, the same
  * reasoning `actedOn`'s own filed-or-dismissed proxy rests on - without this,
  * an Item corrected while still sitting unfiled would be listed in
- * `renderCorrections` (`clean-up-a-note.v9.ts`, which reads every correction
+ * `renderCorrections` (`clean-up-a-note.v10.ts`, which reads every correction
  * unconditionally) while being excluded from this ratio, reading as two
  * sections that disagree about the same Item.
  *
