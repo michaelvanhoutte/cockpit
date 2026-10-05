@@ -58,11 +58,11 @@ Switched on from inside the Car view only, for capturing at night; no other scre
 | Where | Value |
 |---|---|
 | ground (page, shell edge) | `night` `#111216`; the band under the tabs `night-band` `#17181c` |
-| words card, footer controls, Write | Car switch | `night-card` `#1a1b20`, border white at 5% (card) or 10% (controls) |
+| words card, footer controls, Write \| Car switch | `night-card` `#1a1b20`, border white at 5% (card) or 10% (controls) |
 | status line and card text | `night-ink` `#a9acb4`; an error `night-over` `#d0716a` |
 | footer text, Capture heading, tag, switch text | `night-ink-soft` `#868993`; the lit side of the switch is white at 10% with `night-ink` |
 | placeholder and provisional words | `night-faint` `#6b6e78` |
-| round button | `accent-deep` idle and captured, `over-deep` listening, no shadow, brightness 70%, icon `#c9cbd1`; the listening ring is `over` at 15% |
+| round button | `accent-deep` idle and captured, `over-deep` listening, no shadow, brightness 70%, icon `night-icon` `#c9cbd1`; the listening ring is `over` at 15% |
 
 ## Radius
 

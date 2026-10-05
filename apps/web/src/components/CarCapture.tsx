@@ -373,7 +373,7 @@ function Driving({
             aria-disabled={phase === 'capturing' || phase === 'captured' || phase === 'nothing'}
             className={`milled relative flex size-40 items-center justify-center rounded-full ${d(
               'text-white shadow-lg',
-              'text-[#c9cbd1] brightness-[0.7]',
+              'text-night-icon brightness-[0.7]',
             )} ${listening ? 'bg-over-deep' : settled ? 'bg-accent-deep' : d('bg-accent', 'bg-accent-deep')}`}
           >
             {listening ? (

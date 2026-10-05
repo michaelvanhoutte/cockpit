@@ -58,7 +58,7 @@ export function CapturePage() {
       className="well flex min-h-full flex-col px-4 pt-[18px] pb-[14px] sm:px-10 sm:pt-[30px] sm:pb-[22px]"
     >
       <div className="flex items-baseline gap-3">
-        <h1 className="text-xs font-semibold tracking-[0.11em] text-accent-deep uppercase sm:text-[15px]">
+        <h1 data-capture-heading="" className="text-xs font-semibold tracking-[0.11em] text-accent-deep uppercase sm:text-[15px]">
           Capture
         </h1>
         {/* Gone on a phone, where the heading and the box below it already say
@@ -69,6 +69,7 @@ export function CapturePage() {
         <div
           role="group"
           aria-label="Capture view"
+          data-capture-switch=""
           className="ml-auto flex overflow-hidden rounded-md border border-black/10 bg-white text-sm"
         >
           <Link

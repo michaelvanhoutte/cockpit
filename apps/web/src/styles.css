@@ -104,6 +104,7 @@
   --color-night-ink-soft: #868993;
   --color-night-faint: #6b6e78;
   --color-night-over: #d0716a;
+  --color-night-icon: #c9cbd1;
 
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -200,18 +201,18 @@ html[data-car-dark] [data-capture] {
   background-color: var(--color-night);
   box-shadow: none;
 }
-html[data-car-dark] [data-capture] h1 {
+html[data-car-dark] [data-capture-heading] {
   color: var(--color-night-ink-soft);
 }
-html[data-car-dark] [data-capture] [role='group'] {
+html[data-car-dark] [data-capture-switch] {
   background-color: var(--color-night-card);
   border-color: rgb(255 255 255 / 0.1);
 }
-html[data-car-dark] [data-capture] [role='group'] a {
+html[data-car-dark] [data-capture-switch] a {
   color: var(--color-night-ink-soft);
   background-color: transparent;
 }
-html[data-car-dark] [data-capture] [role='group'] a[data-lit] {
+html[data-car-dark] [data-capture-switch] a[data-lit] {
   color: var(--color-night-ink);
   background-color: rgb(255 255 255 / 0.1);
 }
