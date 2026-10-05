@@ -1393,6 +1393,91 @@ describe('Capture', () => {
     });
   });
 
+  describe('what one listening session heard lands in the note once, as the engine’s latest reading of it, whichever way the engine reports it', () => {
+    it.each([
+      ['a reading that grows, as on an Android phone', ['at', 'at a', 'at a dark mode option'], 'at a dark mode option'],
+      ['a reading that corrects an earlier word', ['at a', 'add a dark mode'], 'add a dark mode'],
+      ['phrases that are separate, as at a desk', ['add a', 'dark mode'], 'add a dark mode'],
+    ])('reads once for %s', async (_situation, readings, expected) => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      current().begins();
+
+      current().saysSoFar(...readings);
+
+      expect(box()).toHaveValue(expected);
+    });
+
+    it.each([
+      ['a different last word', ['buy milk', 'buy eggs now'], 'buy milk buy eggs now'],
+      ['the same words with another to follow', ['call mom', 'call dad'], 'call mom call dad'],
+      ['a longer phrase that opens the same', ['i need milk', 'i need to go to the shop'], 'i need milk i need to go to the shop'],
+    ])('keeps both phrases a desktop engine reports separately, with %s', async (_situation, phrases, expected) => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      current().begins();
+
+      current().saysSoFar(...phrases);
+
+      expect(box()).toHaveValue(expected);
+    });
+
+    it('never replaces what an earlier listening session heard with a later session’s reading', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      current().begins();
+      current().saysSoFar('add', 'add a note');
+      current().endsOnItsOwn();
+      current().begins();
+
+      current().saysSoFar('and', 'and another');
+
+      expect(box()).toHaveValue('add a note and another');
+    });
+
+    it('never replaces text that was typed before dictating', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.type(box(), 'Idea:');
+      await user.click(mic());
+      current().begins();
+
+      current().saysSoFar('add', 'add a', 'add a dark mode option');
+
+      expect(box()).toHaveValue('Idea: add a dark mode option');
+    });
+
+    it('does not add the words again when they were typed over while the engine still reported them', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      current().begins();
+      current().saysSoFar('buy', 'buy milk');
+      const heardIt = current();
+
+      await user.type(box(), '!');
+      // The engine's longer reading of those words belongs to a session that was let go.
+      heardIt.saysSoFar('buy milk and eggs');
+
+      expect(box()).toHaveValue('buy milk!');
+    });
+
+    it('keeps the latest reading once when the engine fails part way', async () => {
+      const { engine, current } = anEngine();
+      const user = await thePage({ dictating: { engine } });
+      await user.click(mic());
+      current().begins();
+      current().saysSoFar('call', 'call the', 'call the dentist');
+
+      current().fails('network');
+
+      expect(box()).toHaveValue('call the dentist');
+    });
+  });
+
   describe('the mic shows as listening only once the engine has started, and keeps going until it is tapped off', () => {
     it('is not listening until the engine reports it started, and then is', async () => {
       const { engine, current } = anEngine();
