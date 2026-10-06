@@ -50,7 +50,7 @@ import { useConnections } from '../connections';
 import type { ConnectOutcomeFor, SettingsKey } from '../components/SettingsWindow';
 import { useScrollWhileDraggingAnItem } from '../dragScroll';
 import { useOutbox, useSendingCaptures, useWaitingCaptures } from '../captureOutboxSender';
-import { loadCaptureNote } from '../captureForm';
+import { loadCaptureForms, loadCaptureNote } from '../captureForm';
 import { DeleteQuestion } from '../components/DeleteQuestion';
 
 /** The default theme in the shape a workspace carries it. */
@@ -567,6 +567,7 @@ function TheShell() {
   // Fetched once the shell has painted, so Capture opens on a form already here.
   useEffect(() => {
     loadCaptureNote().catch(() => {});
+    loadCaptureForms().catch(() => {});
   }, []);
 
   /**
@@ -604,7 +605,8 @@ function TheShell() {
     // What was shared into Cockpit and not yet claimed has no owner to keep it
     // for, so the explicit way out empties it whether or not captures wait.
     mutationFn: async () => {
-      await (await import('../shareClaim')).emptyHoldingArea();
+      // Its code fetched now, and never in the way of signing out if that fails.
+      await import('../shareClaim').then((claim) => claim.emptyHoldingArea()).catch(() => {});
       await signOut();
     },
     // `onSettled`, not `onSuccess`. Somebody who asked to sign out on a shared

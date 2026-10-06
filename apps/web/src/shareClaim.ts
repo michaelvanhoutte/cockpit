@@ -13,8 +13,8 @@ const browserArea = async (): Promise<HoldingArea> => (await import('./shares'))
  * Claims what is held, once, where the page is signed in and shows the form.
  * Where storage cannot be read there is nothing to claim.
  *
- * **`taken` clears it once a capture has been made.** The page outlives the
- * form - it stays mounted across Write | Car - so until then a form drawn again
+ * **`taken` clears it once a capture has been made.** Its caller outlives the
+ * form - `CaptureForms` stays mounted across Write | Car - so until then a form drawn again
  * has the share back, and after it a form drawn again does not.
  */
 export function useArrived(

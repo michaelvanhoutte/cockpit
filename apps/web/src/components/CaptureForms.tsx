@@ -5,7 +5,6 @@ import { SHARE_FAILED_MESSAGE } from '@cockpit/shared';
 import { NotSignedIn } from '../api/client';
 import { meQuery } from '../api/queries';
 import { CarCapture, CaptureNote } from '../captureForm';
-import { captureStateFor } from '../pages/CapturePage';
 import { useArrived } from '../shareClaim';
 
 /**
@@ -22,7 +21,16 @@ import { useArrived } from '../shareClaim';
  * entry so Back does not return to it and a reload does not say it again; gone
  * once a capture is made or a share is put on the note.
  */
-export function CaptureForms({ startsIn, inCar }: { startsIn: string | null; inCar: boolean }) {
+export function CaptureForms({
+  startsIn,
+  inCar,
+  carried,
+}: {
+  startsIn: string | null;
+  inCar: boolean;
+  /** The page's navigation state, kept when the signal is taken out of the address. */
+  carried: never;
+}) {
   const arrivedFailed = useRouterState({
     select: (state) => (state.location.search as { share?: unknown }).share === 'failed',
   });
@@ -32,7 +40,7 @@ export function CaptureForms({ startsIn, inCar }: { startsIn: string | null; inC
   useEffect(() => {
     if (!arrivedFailed) return;
     setShareFailed(true);
-    void navigate({ to: pathname as never, search: {} as never, replace: true, state: captureStateFor(startsIn ?? undefined) });
+    void navigate({ to: pathname as never, search: {} as never, replace: true, state: carried });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [arrivedFailed]);
   // Settled, not just stored: the copy of who is signed in can outlive the sign-in.

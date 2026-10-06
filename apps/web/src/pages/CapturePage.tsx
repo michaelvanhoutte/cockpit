@@ -41,10 +41,8 @@ export const captureStateFor = (workspaceId: string | undefined): never =>
  * heading and switch are styled from that flag rather than told, so a car-only
  * look costs the first bundle nothing.
  *
- * **What was shared into Cockpit is claimed here** ("Share photos, files and
- * links into Cockpit from Android's share sheet", issue 789), by the forms below
- * the switch (components/CaptureForms.tsx), which keep the first
- * bundle clear of it.
+ * What was shared into Cockpit is claimed by the forms under the switch
+ * (components/CaptureForms.tsx).
  */
 export function CapturePage() {
   const startsIn = useRouterState({
@@ -98,7 +96,7 @@ export function CapturePage() {
         </div>
       </div>
       <Suspense fallback={null}>
-        <CaptureForms startsIn={startsIn} inCar={inCar} />
+        <CaptureForms startsIn={startsIn} inCar={inCar} carried={carried} />
       </Suspense>
     </section>
   );
