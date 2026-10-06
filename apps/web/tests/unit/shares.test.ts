@@ -2,7 +2,8 @@ import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { IDBFactory } from 'fake-indexeddb';
-import { browserHoldingArea, useArrived, whatArrived } from '../../src/shares';
+import { browserHoldingArea, whatArrived } from '../../src/shares';
+import { useArrived } from '../../src/shareClaim';
 import { aShare, aSharedPhoto as aPhoto, holdAShare, howManyAreHeld } from './support/shares';
 
 /**

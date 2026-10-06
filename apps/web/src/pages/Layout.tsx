@@ -50,7 +50,7 @@ import { useConnections } from '../connections';
 import type { ConnectOutcomeFor, SettingsKey } from '../components/SettingsWindow';
 import { useScrollWhileDraggingAnItem } from '../dragScroll';
 import { useOutbox, useSendingCaptures, useWaitingCaptures } from '../captureOutboxSender';
-import { emptyHoldingArea } from '../shares';
+import { emptyHoldingArea } from '../shareClaim';
 import { loadCaptureNote } from '../captureForm';
 import { DeleteQuestion } from '../components/DeleteQuestion';
 

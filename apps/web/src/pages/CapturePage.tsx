@@ -5,7 +5,7 @@ import { SHARE_FAILED_MESSAGE } from '@cockpit/shared';
 import { NotSignedIn } from '../api/client';
 import { meQuery } from '../api/queries';
 import { CarCapture, CaptureNote } from '../captureForm';
-import { useArrived } from '../shares';
+import { useArrived } from '../shareClaim';
 
 /**
  * What the header's tab and `C` put in the navigation's state to say which
