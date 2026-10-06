@@ -1,3 +1,4 @@
+import { PocCompare, usePocDictation } from './PocDictation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { plainWords, prioritySchema, uuidv7, type ItemType, type Priority, type Workspace } from '@cockpit/shared';
@@ -105,14 +106,18 @@ export function CaptureNote({
    * the engine settles on it, or when dictation stops with it still unsettled.
    */
   const [provisional, setProvisional] = useState('');
+  const pocRef = useRef<ReturnType<typeof usePocDictation> | null>(null);
   const dictation = useDictation({
     ...dictating,
     onPhrase: (text, final, replaces) => {
+      pocRef.current?.heard(text, final, replaces);
       if (final) {
         setMessage((was) => (replaces ? replacePhrase(was, replaces, text) : appendPhrase(was, text)));
       } else setProvisional(text);
     },
   });
+  const poc = usePocDictation(dictation.listening);
+  pocRef.current = poc;
   const shown = appendPhrase(message, provisional);
   /**
    * Whether the note is written in the formatted editor ("Switch the Capture
@@ -656,6 +661,14 @@ export function CaptureNote({
           canFormat={!formattingFailed}
         />
       </div>
+      <PocCompare
+        poc={poc}
+        onUse={(text) => {
+          setProvisional('');
+          setMessage(text);
+          dictation.forgetPhrase();
+        }}
+      />
       {formattingFailed && (
         <p role="alert" className="order-1 pt-1 text-sm text-over sm:order-none">
           Formatting could not be loaded. The note is still here, as Markdown, and still captures.{' '}

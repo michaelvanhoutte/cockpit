@@ -159,6 +159,9 @@ if (running.api) {
         // behind pointing a later run somewhere nobody chose.
         '--var',
         `OIDC_ISSUER:${issuer.origin}`,
+        // THROWAWAY POC: a phone on a tunnel cannot reach the stub issuer, so it signs in as the guest.
+        '--var',
+        'GUEST_SIGN_IN:true',
         '--var',
         'GOOGLE_CLIENT_ID:cockpit-local',
         '--var',

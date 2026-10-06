@@ -349,6 +349,11 @@
     "local": {
       "name": "cockpit-local",
       "vars": {},
+      // THROWAWAY POC: the real Workers AI, so Whisper can be compared. Needs `wrangler login`.
+      "ai": {
+        "binding": "AI",
+        "remote": true
+      },
       "durable_objects": {
         "bindings": [
           {

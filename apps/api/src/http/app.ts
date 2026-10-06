@@ -135,6 +135,7 @@ import {
   type GmailRefusal,
 } from '../connectors/gmail.js';
 import { guestConnectionGate, isTheGuest } from '../auth/guest-connections.js';
+import { compareDictation } from './poc-dictation.js';
 import { fireRoutine, testClaudeCodeConnection } from '../connectors/claude-code.js';
 import { countForGuest, countryOf, referrerHostOf } from '../auth/sign-in-history.js';
 import {
@@ -487,6 +488,9 @@ app.use(`${ADMIN_PREFIX}*`, adminGate());
 
 /** And the guest's refusal of every connection change, behind the same gate (`auth/guest-connections.ts`). */
 app.use('*', guestConnectionGate());
+
+// THROWAWAY POC: compare dictation engines on one recording. Not to be merged.
+app.post('/v1/poc/dictation', (c) => compareDictation(c));
 
 /**
  * What this application used to answer, saying so.
