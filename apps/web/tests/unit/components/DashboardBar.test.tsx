@@ -11,7 +11,7 @@ import type {
 } from '@cockpit/shared';
 import { DashboardBar } from '../../../src/components/DashboardBar';
 import { readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
-import { DashboardFilterBar } from '../../../src/components/DashboardFilterBar';
+import { DashboardFilterBar, filterPills } from '../../../src/components/DashboardFilterBar';
 import {
   NO_DASHBOARD_FILTER,
   readDashboardFilter,
@@ -19,6 +19,7 @@ import {
 } from '../../../src/dashboardFilter';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
+import { A_DESK, A_PHONE, onAScreen } from '../onAScreen';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { DWELL_MS } from '../../../src/switchWhileDragging';
 import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_IS } from '../../../src/whatThingsAre';
@@ -1204,7 +1205,11 @@ describe('Dashboards', () => {
   const id = (name: string) => `ws-work-${name.toLowerCase()}`;
   const BAR = { name: 'Dashboard filter' };
 
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    onAScreen(A_DESK);
+  });
+  afterEach(() => vi.unstubAllGlobals());
 
   describe('a filter is never on out of sight', () => {
     it('opens the filter bar from the funnel on the tab you are on, and closes it clearing the filter', async () => {
@@ -1397,6 +1402,193 @@ describe('Dashboards', () => {
       switchTo(id('Empty b'));
 
       expect(screen.queryByRole('search', BAR)).toBeNull();
+    });
+  });
+
+  describe('on a phone the filter is a summary line and a sheet', () => {
+    const summary = () => screen.getByRole('group', { name: 'Dashboard filter summary', hidden: true });
+    const sheet = () => screen.getByRole('dialog', { name: /^Filter/ });
+    const stored = (name: string) => readDashboardFilter(localStorage, id(name));
+
+    describe('a filtered Dashboard draws the line, or the bar from 768px, and an unfiltered one neither on a phone', () => {
+      it.each([
+        { situation: 'a phone, filtered', width: A_PHONE, filter: { text: 'vat' }, line: true, bar: false },
+        { situation: 'a phone, filtered, as after a reload', width: A_PHONE, filter: { priorities: ['high'] }, line: true, bar: false },
+        { situation: 'a phone, unfiltered', width: A_PHONE, filter: {}, line: false, bar: false },
+        { situation: '768px, filtered', width: 768, filter: { text: 'vat' }, line: false, bar: true },
+        { situation: 'a desk, filtered', width: A_DESK, filter: { text: 'vat' }, line: false, bar: true },
+      ])('$situation', ({ width, filter, line, bar, situation }) => {
+        onAScreen(width);
+        const dashboardId = `ws-work-draws-${situation.replace(/\W+/g, '-')}`;
+        writeDashboardFilter(localStorage, dashboardId, { ...NO_DASHBOARD_FILTER, ...filter } as never);
+        render(<DashboardFilterBar dashboardId={dashboardId} />);
+
+        expect(screen.queryByRole('group', { name: 'Dashboard filter summary' }) !== null).toBe(line);
+        expect(screen.queryByRole('search', BAR) !== null).toBe(bar);
+      });
+    });
+
+    describe('the line names every condition in the bar’s order', () => {
+      it.each([
+        { situation: 'To do, High', filter: { statuses: ['to_do'], priorities: ['high'] }, pills: ['To do', 'High'] },
+        { situation: 'High set before To do still reads Status first', filter: { priorities: ['high'], statuses: ['in_progress'] }, pills: ['In progress', 'High'] },
+        { situation: 'Due this week, or overdue', filter: { due: { window: 'week', orOverdue: true } }, pills: ['Due this week or overdue'] },
+        { situation: 'Due this week alone', filter: { due: { window: 'week', orOverdue: false } }, pills: ['Due this week'] },
+        { situation: 'Overdue', filter: { due: { window: 'overdue', orOverdue: false } }, pills: ['Overdue'] },
+        { situation: 'Containing invoice', filter: { text: ' invoice ' }, pills: ['"invoice"'] },
+        { situation: 'With attachments', filter: { attachments: 'with' }, pills: ['With attachments'] },
+        { situation: 'Without attachments', filter: { attachments: 'without' }, pills: ['Without attachments'] },
+        { situation: 'Agent running', filter: { agentRunning: true }, pills: ['Agent running'] },
+        {
+          situation: 'every condition',
+          filter: {
+            statuses: ['to_do'],
+            priorities: ['none'],
+            due: { window: 'today', orOverdue: false },
+            text: 'x',
+            attachments: 'with',
+            agentRunning: true,
+          },
+          pills: ['To do', 'No priority', 'Due today', '"x"', 'With attachments', 'Agent running'],
+        },
+      ])('$situation', ({ filter, pills }) => {
+        expect(filterPills({ ...NO_DASHBOARD_FILTER, ...filter } as never)).toEqual(pills);
+      });
+
+      it.each([
+        { situation: '2 panels hidden', panelsHidden: 2, said: '· 2 hidden' },
+        { situation: 'none hidden', panelsHidden: 0, said: null },
+      ])('says $situation', ({ panelsHidden, said }) => {
+        onAScreen(A_PHONE);
+        writeDashboardFilter(localStorage, 'ws-work-said-hidden', { ...NO_DASHBOARD_FILTER, text: 'vat' });
+        render(<DashboardFilterBar dashboardId="ws-work-said-hidden" panelsHidden={panelsHidden} />);
+
+        expect(within(summary()).queryByText(/hidden/)?.textContent ?? null).toBe(said);
+        expect(within(summary()).getByText('Edit')).toBeVisible();
+      });
+    });
+
+    describe('the sheet changes the filter as you tap, and closing it keeps what was set', () => {
+      beforeEach(() => onAScreen(A_PHONE));
+
+      it('opens from the line with every condition and focus inside, and stores each tap at once', async () => {
+        const user = userEvent.setup();
+        writeDashboardFilter(localStorage, id('Sheet one'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
+        render(<DashboardFilterBar dashboardId={id('Sheet one')} panelsHidden={3} />);
+
+        await user.click(within(summary()).getByText('Edit'));
+
+        expect(sheet()).toHaveTextContent('3 panels hidden');
+        for (const name of ['Status', 'Priority', 'Attachments']) {
+          expect(within(sheet()).getByRole('group', { name })).toBeVisible();
+        }
+        expect(within(sheet()).getByRole('combobox')).toBeVisible();
+        expect(within(sheet()).getByRole('searchbox', { name: 'Containing' })).toHaveValue('vat');
+        expect(within(sheet()).getByRole('button', { name: 'Agent running' })).toBeVisible();
+        await waitFor(() => expect(sheet().contains(document.activeElement)).toBe(true));
+
+        await user.click(within(within(sheet()).getByRole('group', { name: 'Status' })).getByRole('button', { name: 'In progress' }));
+        expect(stored('Sheet one').statuses).toEqual(['in_progress']);
+        expect(within(summary()).getByText('In progress')).toBeVisible();
+      });
+
+      it.each([
+        { how: 'Done', close: (user: ReturnType<typeof userEvent.setup>) => user.click(within(sheet()).getByRole('button', { name: 'Done' })) },
+        { how: 'Escape', close: (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Escape}') },
+        {
+          how: 'the scrim',
+          close: (user: ReturnType<typeof userEvent.setup>) =>
+            user.click(document.querySelector('[data-state="open"].fixed.inset-0') as HTMLElement),
+        },
+      ])('$how closes it, keeps the filter and puts focus back on the line', async ({ how, close }) => {
+        const user = userEvent.setup();
+        const name = `Sheet close ${how}`;
+        writeDashboardFilter(localStorage, id(name), { ...NO_DASHBOARD_FILTER, priorities: ['high'] });
+        render(<DashboardFilterBar dashboardId={id(name)} />);
+        await user.click(within(summary()).getByText('Edit'));
+        await screen.findByRole('dialog');
+
+        await close(user);
+
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(stored(name).priorities).toEqual(['high']);
+        await waitFor(() => expect(summary().contains(document.activeElement)).toBe(true));
+      });
+
+      it('clears from the sheet and keeps it open, and leaves no line once it is closed', async () => {
+        const user = userEvent.setup();
+        writeDashboardFilter(localStorage, id('Sheet clear'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
+        render(<DashboardFilterBar dashboardId={id('Sheet clear')} />);
+        await user.click(within(summary()).getByText('Edit'));
+
+        await user.click(within(sheet()).getByRole('button', { name: 'Clear the filter' }));
+
+        expect(stored('Sheet clear')).toEqual(NO_DASHBOARD_FILTER);
+        expect(sheet()).toBeVisible();
+        await user.click(within(sheet()).getByRole('button', { name: 'Done' }));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(screen.queryByRole('group', { name: 'Dashboard filter summary' })).toBeNull();
+      });
+
+      it('clears from the × on the line, which goes with it', async () => {
+        const user = userEvent.setup();
+        writeDashboardFilter(localStorage, id('Line clear'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
+        render(<DashboardFilterBar dashboardId={id('Line clear')} />);
+
+        await user.click(within(summary()).getByRole('button', { name: 'Clear the filter' }));
+
+        expect(stored('Line clear')).toEqual(NO_DASHBOARD_FILTER);
+        expect(screen.queryByRole('group', { name: 'Dashboard filter summary' })).toBeNull();
+        expect(screen.queryByRole('dialog')).toBeNull();
+      });
+    });
+
+    describe('the funnel opens the sheet where nothing is set, and clears where something is', () => {
+      beforeEach(() => onAScreen(A_PHONE));
+
+      it('opens the sheet from the funnel, and closing it with nothing set leaves no line', async () => {
+        const { user } = showBar(['Phone funnel'], { openDashboardId: id('Phone funnel'), withFilterBar: true });
+
+        await user.click(await screen.findByRole('button', { name: 'Filter this dashboard' }));
+        expect(sheet()).toBeVisible();
+        expect(screen.queryByRole('search', BAR)).toBeNull();
+
+        await user.click(within(sheet()).getByRole('button', { name: 'Done' }));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(screen.queryByRole('group', { name: 'Dashboard filter summary' })).toBeNull();
+      });
+
+      it('clears from the funnel of a filtered Dashboard, and the line goes', async () => {
+        writeDashboardFilter(localStorage, id('Phone funnel set'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
+        const { user } = showBar(['Phone funnel set'], { openDashboardId: id('Phone funnel set'), withFilterBar: true });
+        expect(await screen.findByRole('group', { name: 'Dashboard filter summary' })).toBeVisible();
+
+        await user.click(await screen.findByRole('button', { name: 'Clear the filter and close it' }));
+
+        expect(stored('Phone funnel set')).toEqual(NO_DASHBOARD_FILTER);
+        expect(screen.queryByRole('group', { name: 'Dashboard filter summary' })).toBeNull();
+      });
+    });
+
+    it('keeps the filter across 768px: the bar when widened with the sheet open, the line when narrowed again', async () => {
+      const user = userEvent.setup();
+      const screenNow = onAScreen(A_PHONE);
+      writeDashboardFilter(localStorage, id('Crossing'), { ...NO_DASHBOARD_FILTER, priorities: ['high'] });
+      render(<DashboardFilterBar dashboardId={id('Crossing')} />);
+      await user.click(within(summary()).getByText('Edit'));
+      expect(sheet()).toBeVisible();
+
+      act(() => screenNow.resize(A_DESK));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(within(screen.getByRole('search', BAR)).getByRole('button', { name: 'High' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+
+      act(() => screenNow.resize(A_PHONE));
+      expect(screen.queryByRole('search', BAR)).toBeNull();
+      expect(within(summary()).getByText('High')).toBeVisible();
+      expect(screen.queryByRole('dialog')).toBeNull();
     });
   });
 

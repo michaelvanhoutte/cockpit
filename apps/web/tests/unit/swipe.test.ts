@@ -3,6 +3,7 @@ import {
   SWIPE_THRESHOLD_PX,
   howFarItHasGone,
   whatTheSwipeIsPromising,
+  whatTheSheetSwipeMeant,
   whatTheSwipeMeant,
 } from '../../src/swipe';
 
@@ -142,6 +143,18 @@ describe('Triage', () => {
       { situation: 'moving straight down', dx: 0, dy: 90, drawn: 0 },
     ])('$situation', ({ dx, dy, drawn }) => {
       expect(howFarItHasGone(dx, dy)).toBe(drawn);
+    });
+  });
+
+  describe('a swipe down on the Dashboard filter sheet closes it, and nothing else does', () => {
+    it.each([
+      { situation: 'straight down, far enough', dx: 0, dy: past, closes: true },
+      { situation: 'down with a little sideways drift', dx: 20, dy: past, closes: true },
+      { situation: 'down, stopped short', dx: 0, dy: short, closes: false },
+      { situation: 'up', dx: 0, dy: -past, closes: false },
+      { situation: 'mostly sideways', dx: past + 40, dy: past, closes: false },
+    ])('$situation', ({ dx, dy, closes }) => {
+      expect(whatTheSheetSwipeMeant(dx, dy)).toBe(closes ? 'close' : null);
     });
   });
 });

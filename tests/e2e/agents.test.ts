@@ -8,6 +8,7 @@ import {
   dashboardBar,
   deleteWorkspace,
   expect,
+  closeTheFilterSheet,
   expectNoSidewaysScroll,
   fileOnto,
   itemRow,
@@ -358,6 +359,8 @@ test.describe('Agents', () => {
       // go the moment the run is over, until × clears it.
       await press(page.getByRole('button', { name: 'Filter this dashboard' }), isMobile);
       await press(page.getByRole('button', { name: 'Agent running' }), isMobile);
+      // A phone's filter is a sheet over the page, which hides the rows from a role query until it is closed.
+      if (isMobile) await closeTheFilterSheet(page);
       await expect(itemRow(page, asked)).toBeVisible();
 
       // Agent finished: Still to do - the chip goes, and the row stays unless filtered.
@@ -367,7 +370,8 @@ test.describe('Agents', () => {
       await press(page.getByRole('button', { name: 'Clear the filter', exact: true }), isMobile);
       await expect(itemRow(page, asked).getByText(/Claude is working/)).toHaveCount(0);
       await expect(itemRow(page, asked)).toBeVisible();
-      await press(page.getByRole('button', { name: 'Clear the filter and close it' }), isMobile);
+      // The bar stays open after ×, so the funnel closes it; a phone's summary went with the ×.
+      if (!isMobile) await press(page.getByRole('button', { name: 'Clear the filter and close it' }), isMobile);
 
       await expectNoSidewaysScroll(page);
       if (!isMobile) {

@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Item, WorkspaceSnapshot } from '@cockpit/shared';
+import { A_DESK, A_PHONE, onAScreen } from '../onAScreen';
 import { allItemsFilterId } from '../../../src/allItemsTab';
 import AllItemsBoard from '../../../src/components/AllItemsBoard';
 import {
@@ -57,10 +58,13 @@ function anItem(id: string, fields: Partial<Item> = {}): Item {
   } as Item;
 }
 
-/** Opens the filter bar the way the tab's funnel does, which is not part of this table. */
-function TheFunnelPressed() {
+/**
+ * Opens the filter bar the way the tab's funnel does, which is not part of this
+ * table - or shuts it, since whether it is open is kept in memory across cases.
+ */
+function TheFunnelPressed({ pressed }: { pressed: boolean }) {
   const [, open] = useFilterBarOpen(allItemsFilterId('ws-work'));
-  useEffect(() => open(true), [open]);
+  useEffect(() => open(pressed), [open, pressed]);
   return null;
 }
 
@@ -70,7 +74,7 @@ function theTable(items: Item[], { barOpen = false } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      {barOpen && <TheFunnelPressed />}
+      <TheFunnelPressed pressed={barOpen} />
       <AllItemsBoard workspaceId="ws-work" />
     </QueryClientProvider>,
   );
@@ -99,9 +103,14 @@ function storedStatuses(...statuses: ('to_do' | 'in_progress' | 'done')[]) {
 const titlesInOrder = () =>
   screen.getAllByRole('row').slice(1).map((row) => within(row).getAllByRole('cell')[0]?.textContent);
 
+beforeEach(() => {
+  onAScreen(A_DESK);
+});
+
 afterEach(() => {
   cleanup();
   browserStore()?.clear();
+  vi.unstubAllGlobals();
 });
 
 describe('Inbox', () => {
@@ -181,6 +190,21 @@ describe('Inbox', () => {
 
       expect(titlesInOrder()).toEqual(['finished']);
       expect(screen.getByRole('heading', { name: /All items\s*1 of 2/ })).toBeVisible();
+    });
+
+    it('gives a phone the same summary and sheet, the sheet offering Done under Status', async () => {
+      onAScreen(A_PHONE);
+      storedStatuses('done');
+      const user = theTable([anItem('open'), anItem('finished', { completedAt: '2026-09-11T09:00:00.000Z' })]);
+      await screen.findByRole('table');
+
+      const line = screen.getByRole('group', { name: 'Dashboard filter summary' });
+      expect(within(line).getByText('Done')).toBeVisible();
+      expect(screen.queryByRole('search', { name: 'Dashboard filter' })).toBeNull();
+
+      await user.click(within(line).getByText('Edit'));
+
+      expect(statusChip('Done')).toHaveAttribute('aria-pressed', 'true');
     });
 
     it('shows a match beyond the first 50 on the first page', async () => {
