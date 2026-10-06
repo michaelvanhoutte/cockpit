@@ -251,13 +251,13 @@ test.describe('Item editing', () => {
       // Years off, so the row says "Due <date>" on both projects whatever day the
       // suite runs: a date within a week is a pill instead, and on a phone it
       // takes the date's place.
-      await dueDateBox(page).fill('2030-09-30');
+      await dueDateBox(page).fill('2099-09-30');
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
 
-      await expect(itemRow(page, marked).getByText('Due Sep 30, 2030')).toBeVisible();
+      await expect(itemRow(page, marked).getByText('Due Sep 30, 2099')).toBeVisible();
 
       await openItem(page, marked, isMobile);
-      await expect(dueDateBox(page)).toHaveValue('2030-09-30');
+      await expect(dueDateBox(page)).toHaveValue('2099-09-30');
       await priorityFlag(page, 'High').click();
       await dueDateBox(page).fill('');
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
@@ -268,7 +268,7 @@ test.describe('Item editing', () => {
       // alone, whether or not the clear actually landed.
       await expect(priorityGroup(page)).toHaveCount(0);
       await expect(itemRow(page, marked).getByLabel('High priority')).toHaveCount(0);
-      await expect(itemRow(page, marked).getByText('Due Sep 30, 2030')).toHaveCount(0);
+      await expect(itemRow(page, marked).getByText('Due Sep 30, 2099')).toHaveCount(0);
 
       // Its type and its status, from the same form ("Change an item's type,
       // and its status, from its form, and see where it is shown", issue 528):

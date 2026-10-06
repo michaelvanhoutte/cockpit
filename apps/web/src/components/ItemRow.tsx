@@ -491,11 +491,10 @@ export function ItemRow({
   /**
    * Whether this is a screen narrower than 768px, where the title line holds
    * only what names the item and the pill and the age give way to it ("Give an
-   * Item row's title the width on a phone", issue 782). Asked of the same
-   * question as the menu's room above, so the app has one line between phone
-   * and desk.
+   * Item row's title the width on a phone", issue 782). The same answer as the
+   * menu's room above, so the app has one line between phone and desk.
    */
-  const onAPhone = !useRoomForTheInbox();
+  const onAPhone = !roomBesideTheMenu;
   /**
    * How near the deadline is, said in words on a pill whose fill gets louder
    * as it closes (`dueDate.ts`'s `deadlineOf`) - the row itself stays as it
@@ -1279,8 +1278,9 @@ export function ItemRow({
                 text itself stays plain; how near it is is the pill. On a phone
                 the pill takes the date's place, and the date only shows where
                 there is no pill - more than a week off. */}
-            {onAPhone && deadlinePill}
-            {dueDateText && !(onAPhone && deadline) && <span className="shrink-0">Due {dueDateText}</span>}
+            {onAPhone && deadlinePill
+              ? deadlinePill
+              : dueDateText && <span className="shrink-0">Due {dueDateText}</span>}
             {/* Cockpit's own proposal, not yet taken - a click is the whole of
                 accepting it, and `title` is where "in your own terms rather
                 than the model's" lives, the reason written for this hover and
