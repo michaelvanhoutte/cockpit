@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Editor,
   commandsCtx,
@@ -90,6 +90,12 @@ export interface RichDescriptionProps {
    * dropped files to the editor, which does nothing with them.
    */
   uploadImage?: UploadImage | undefined;
+  /**
+   * What ends the toolbar's row, and that the row scrolls sideways rather than
+   * wrapping: a phone's page for an Item holds the whole toolbar, with *Source*
+   * at its end, in one row.
+   */
+  endOfToolbar?: ReactNode;
 }
 
 /**
@@ -118,6 +124,7 @@ export default function RichDescription({
   toolbar = true,
   fill = false,
   uploadImage,
+  endOfToolbar,
 }: RichDescriptionProps) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<Editor | null>(null);
@@ -360,7 +367,9 @@ export default function RichDescription({
           // panel - so there is never a second one on the screen to tell it
           // apart from.
           aria-label="Formatting"
-          className="flex flex-wrap gap-1 border-b border-shade/10 px-2 py-1.5"
+          className={`flex gap-1 border-b border-shade/10 px-2 py-1.5 ${
+            endOfToolbar ? 'items-center overflow-x-auto whitespace-nowrap' : 'flex-wrap'
+          }`}
         >
           {(Object.keys(KEY_FOR) as Formatting[]).map((command) => (
             <button
@@ -402,6 +411,7 @@ export default function RichDescription({
               />
             </>
           )}
+          {endOfToolbar}
         </div>
       )}
 
