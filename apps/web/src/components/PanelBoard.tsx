@@ -699,8 +699,11 @@ export function PanelBoard({
     if (scroller && top !== null) {
       // The Dashboard filter bar sticks to the top of the scroller, so the
       // header lands just below it rather than under it.
-      const bar = scroller.querySelector<HTMLElement>('.sticky.top-0');
-      const barHeight = bar && !rowsRef.current?.contains(bar) ? bar.getBoundingClientRect().height : 0;
+      // Panels have sticky headers of their own inside the rows; those are not it.
+      const bar = [...scroller.querySelectorAll<HTMLElement>('.sticky.top-0')].find(
+        (one) => !rowsRef.current?.contains(one),
+      );
+      const barHeight = bar ? bar.getBoundingClientRect().height : 0;
       scroller.scrollTo({
         top: scroller.scrollTop + top - scroller.getBoundingClientRect().top - barHeight,
         behavior: 'smooth',
