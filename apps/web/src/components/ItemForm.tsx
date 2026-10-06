@@ -66,10 +66,14 @@ import {
 import { useScreenWidth } from '../panels/useScreenWidth';
 import { ROOM_FOR_THE_INBOX_PX } from '../roomForTheInbox';
 import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
+import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { useCockpitChanges } from '../useCockpitChanges';
 
 /** The tab's list and its before-and-after, loaded the first time the tab is opened; only the note's check is in the form's own code (issue 690). */
 const WhatCockpitChangedList = lazy(() => import('./WhatCockpitChangedList'));
+
+/** The phone page's chips, loaded only where the form is a page (issue 787). */
+const ItemFormChips = lazy(() => import('./ItemFormChips'));
 
 const DESCRIPTION_LIMIT = 60_000;
 
@@ -312,6 +316,8 @@ function TheForm({
   const onAPage = screenWidth < ROOM_FOR_THE_INBOX_PX;
   /** Whether the attachments' list is open, on a page where it is one line until asked for. */
   const [filesOpen, setFilesOpen] = useState(false);
+  /** The phone page's chips chunk never arrived: the rest of the form stays, and says so. */
+  const [chipsFailed, setChipsFailed] = useState(false);
   /**
    * What is actually drawn - the account's own choice, unless the screen is
    * a page (`onAPage`), which is never docked: "out of scope" has to mean
@@ -1758,6 +1764,8 @@ function TheForm({
                       }
                     >
                       <div className={`flex flex-col gap-3${onAPage ? '' : ' @lg:col-start-1 @lg:row-start-1'}`}>
+                      {!onAPage && (
+                      <>
                       {/* Type and status beside each other above the rest of the short fields (issue 528). */}
                       <div className="grid grid-cols-2 gap-3">
                         <label className="block min-w-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
@@ -1899,6 +1907,33 @@ function TheForm({
                           </div>
                         </div>
                       </div>
+                      </>
+                      )}
+                      {onAPage && chipsFailed && (
+                        <p role="alert" className="text-sm text-over">
+                          The fields could not load. Reload Cockpit to try again.
+                        </p>
+                      )}
+                      {onAPage && !chipsFailed && (
+                        // Chips, one row, each opening its own picker; a choice is held in the draft until Save ("Edit an Item's type, status, priority and due date from chips on a phone", issue 787). Fetched only here, so a desk never loads it.
+                        <WhateverTheQuestionDoes onFailure={() => setChipsFailed(true)}>
+                        <Suspense fallback={<div className="h-9" aria-hidden="true" />}>
+                          <ItemFormChips
+                            typeId={draft.typeId}
+                            status={draft.status}
+                            priority={draft.priority}
+                            dueDate={draft.dueDate}
+                            types={typesOffered(data?.itemTypes ?? [], data?.items ?? [])}
+                            disabled={saving}
+                            onType={(typeId) => setDraft({ ...draft, typeId })}
+                            onStatus={(status) => setDraft({ ...draft, status })}
+                            onPriority={(priority) => setDraft({ ...draft, priority })}
+                            onDueDate={(dueDate) => setDraft({ ...draft, dueDate })}
+                            onAttach={() => attachmentInputRef.current?.click()}
+                          />
+                        </Suspense>
+                        </WhateverTheQuestionDoes>
+                      )}
                       </div>
 
                       {/* Formatted, with the Markdown behind it one button away
@@ -1943,7 +1978,15 @@ function TheForm({
                         ("Attach a file to an item", issue 441) - added by button
                         or drag-and-drop, drawn as a chip, opened or downloaded by
                         a click on it. */}
-                      <div className={onAPage ? undefined : '@lg:col-start-1 @lg:row-start-2 @lg:-mx-1 @lg:min-h-0 @lg:overflow-y-auto @lg:px-1'}>
+                      <div
+                        className={
+                          onAPage
+                            ? anyFiles || attachmentError
+                              ? undefined
+                              : 'hidden'
+                            : '@lg:col-start-1 @lg:row-start-2 @lg:-mx-1 @lg:min-h-0 @lg:overflow-y-auto @lg:px-1'
+                        }
+                      >
                         <p className={`text-xs font-semibold uppercase tracking-wide text-ink-faint${onAPage ? ' sr-only' : ''}`}>
                           Attachments
                         </p>
@@ -1954,7 +1997,7 @@ function TheForm({
                         <div
                           className={`mt-1 flex gap-1.5 rounded-md border border-dashed px-3 py-2 ${
                             onAPage ? 'flex-wrap items-center' : 'flex-col'
-                          } ${filesOver ? 'border-accent bg-accent-tint' : 'border-shade/10'}`}
+                          } ${filesOver ? 'border-accent bg-accent-tint' : 'border-shade/10'}${onAPage && !anyFiles ? ' hidden' : ''}`}
                         >
                           {/* On a page the list is one line until it is asked for. */}
                           {onAPage && attachments.length + pendingAttachments.length > 0 && (
@@ -1974,14 +2017,17 @@ function TheForm({
                           {attachments.length === 0 && pendingAttachments.length === 0 && !onAPage && (
                             <p className="text-sm text-ink-faint">Drag a file here, or</p>
                           )}
-                          <button
-                            type="button"
-                            disabled={saving}
-                            onClick={() => attachmentInputRef.current?.click()}
-                            className={`rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50${onAPage ? '' : ' self-start'}`}
-                          >
-                            Add
-                          </button>
+                          {/* On a page the + Attach chip is the way in. */}
+                          {!onAPage && (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => attachmentInputRef.current?.click()}
+                              className="self-start rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                            >
+                              Add
+                            </button>
+                          )}
                           {onAPage && attachmentChips}
                           <input
                             ref={attachmentInputRef}

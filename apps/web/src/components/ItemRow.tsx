@@ -22,7 +22,7 @@ import { useCommand, useSendCommand } from '../api/queries';
 import { AGENT_BEING_DRAGGED, landAgent, useAgentInTheAir } from '../agentInTheAir';
 import { runChipFor } from '../agentRunChip';
 import { isCutOff } from '../cutOff';
-import { deadlineOf, dueDateLabel, type DeadlineLevel } from '../dueDate';
+import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { landItem, liftItem } from '../itemInTheAir';
 import { HOLD_MS, stillHolding } from '../hold';
@@ -65,19 +65,6 @@ const PRIORITY_MARKS: Record<Priority, { label: string; className: string }> = {
   low: { label: `${PRIORITY_LABELS.low} priority`, className: PRIORITY_FLAG_COLOURS.low },
   normal: { label: `${PRIORITY_LABELS.normal} priority`, className: PRIORITY_FLAG_COLOURS.normal },
   high: { label: `${PRIORITY_LABELS.high} priority`, className: PRIORITY_FLAG_COLOURS.high },
-};
-
-/**
- * What each stage of a deadline's pill looks like: a quiet outline within a
- * week, a soft fill within two days, solid amber on the day, red once passed.
- * The colours are `--color-due-*` and `--color-over-deep` (styles.css); the red
- * is the one the swipe reveal already writes white on.
- */
-const DEADLINE_PILLS: Record<DeadlineLevel, string> = {
-  week: 'border border-due text-due-ink',
-  near: 'bg-due-soft text-due-ink',
-  today: 'bg-due text-due-deep',
-  over: 'bg-over-deep text-white',
 };
 
 /**
