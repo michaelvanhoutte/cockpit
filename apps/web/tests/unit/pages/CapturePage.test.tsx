@@ -199,10 +199,14 @@ describe('Capture', () => {
       await waitFor(() => expect(screen.queryByTestId('on-the-note')).toBeNull());
     });
 
-    it('puts a share on the note once, not again when Write is drawn again after Car', async () => {
+    it.each([
+      { order: 'before it is captured', captured: false, backOnTheNote: true },
+      { order: 'once it is captured', captured: true, backOnTheNote: false },
+    ])('draws a share on the form again after Car and back $order: $backOnTheNote', async ({ captured, backOnTheNote }) => {
       await holdAShare(aShare({ text: 'Worth a read' }));
       const { again } = opened('/capture');
       await screen.findByTestId('on-the-note');
+      if (captured) await userEvent.click(screen.getByRole('button', { name: 'a capture lands' }));
 
       at.pathname = '/capture/car';
       again();
@@ -211,7 +215,7 @@ describe('Capture', () => {
       again();
 
       await screen.findByTestId('the-form');
-      expect(screen.queryByTestId('on-the-note')).toBeNull();
+      await waitFor(() => expect(screen.queryByTestId('on-the-note') !== null).toBe(backOnTheNote));
     });
 
     it('leaves the Car view alone, which has no note to put it on', async () => {

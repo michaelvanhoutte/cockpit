@@ -39,13 +39,11 @@ export interface HoldingArea {
   empty(): Promise<void>;
 }
 
-export const HOLDING_DATABASE = SHARE_HOLDING_DATABASE;
-export const HOLDING_STORE = SHARE_HOLDING_STORE;
 
 /** The browser's own, opened on first use so a browser with no IndexedDB fails on the read. */
 export function browserHoldingArea(): HoldingArea {
   let store: UseStore | null = null;
-  const open = () => (store ??= createStore(HOLDING_DATABASE, HOLDING_STORE));
+  const open = () => (store ??= createStore(SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE));
   return {
     // Both settle on the transaction, not on the request: a clear that aborted
     // must not hand over shares that are still held.
@@ -129,9 +127,9 @@ export function whatArrived(held: readonly unknown[]): Arrived | null {
  * Claims what is held, once, where the page is signed in and shows the form.
  * Where storage cannot be read there is nothing to claim.
  *
- * **`taken` clears it once the note has it.** The page outlives the form - it
- * stays mounted across Write | Car - so a claim left here would be put on the
- * note again each time the form is drawn.
+ * **`taken` clears it once a capture has been made.** The page outlives the
+ * form - it stays mounted across Write | Car - so until then a form drawn again
+ * has the share back, and after it a form drawn again does not.
  */
 export function useArrived(
   claiming: boolean,

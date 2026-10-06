@@ -60,7 +60,7 @@ export function CaptureNote({
   arrived?: Arrived | null | undefined;
   /** Said once `arrived` is on the note, so the page can stop offering it to a form drawn again. */
   onPutOn?: (() => void) | undefined;
-  /** Said when a capture lands. */
+  /** Said when a capture is made on this form. */
   onCaptured?: (() => void) | undefined;
   /** Where speech comes from and where the language is kept: the browser's own, unless a test hands in a fake. */
   dictating?: { engine?: EngineFactory | null; store?: Storage | undefined } | undefined;
@@ -232,7 +232,6 @@ export function CaptureNote({
   useEffect(
     () =>
       outbox.onLanding(({ kind, entry }) => {
-        saidNow.current.onCaptured?.();
         if (kind === 'note' && madeHere.current.has(entry.id) && dockNow.current.openId !== null) {
           dockNow.current.show(entry.id, { keepFocus: true });
         }
@@ -288,7 +287,9 @@ export function CaptureNote({
    * What was shared into Cockpit ("Share photos, files and links into Cockpit
    * from Android's share sheet", issue 789): files wait as chips through the
    * same check a dropped file gets, words go after whatever is already in the
-   * note. Once per claim - a strict-mode second run must not add it again.
+   * note. Once per mount - a strict-mode second run must not add it again; the
+   * page keeps the claim until a capture is made, so a form drawn again before
+   * that (Write, Car, Write) has it back.
    */
   const putOn = useRef<Arrived | null>(null);
   useEffect(() => {
@@ -473,6 +474,9 @@ export function CaptureNote({
     const id = uuidv7();
     // Before the write, since sending starts behind it and can land first.
     madeHere.current.add(id);
+    // Said as it is pressed, not as it lands: the share has done its work then,
+    // and another tab's or an earlier capture's landing is not this one.
+    saidNow.current.onCaptured?.();
     void outbox
       .add({ ...what, id, files: queuedAtSubmit.map(({ id: fileId, file }) => ({ id: fileId, file })) })
       .then(

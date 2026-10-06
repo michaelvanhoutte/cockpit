@@ -134,11 +134,11 @@ export function CapturePage() {
           <CaptureNote
             startsIn={startsIn}
             arrived={arrived}
-            onPutOn={() => {
+            onPutOn={() => setShareFailed(false)}
+            onCaptured={() => {
               taken();
               setShareFailed(false);
             }}
-            onCaptured={() => setShareFailed(false)}
           />
         )}
       </Suspense>

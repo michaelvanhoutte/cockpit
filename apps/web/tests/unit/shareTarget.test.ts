@@ -1,3 +1,4 @@
+import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
 import {
   ATTACHMENT_CONTENT_TYPES,
@@ -7,7 +8,6 @@ import {
   SHARE_HOLDING_STORE,
   SHARE_TARGET_PATH,
 } from '@cockpit/shared';
-import { HOLDING_DATABASE, HOLDING_STORE } from '../../src/shares';
 // The worker's own script, which cannot import anything: loading it is how a
 // test reaches the logic it shares with the worker.
 import '../../public/share-target-sw.js';
@@ -21,6 +21,7 @@ import '../../public/share-target-sw.js';
  */
 interface HeldShare {
   id: string;
+  size: number;
   receivedAt: string;
   title: string;
   text: string;
@@ -38,9 +39,14 @@ const script = (
       ALLOWED_TYPES: string[];
       MAX_FILE_SIZE: number;
       isAShare: (method: string, url: string, origin: string) => boolean;
+      fromAnotherSite: (referrer: string, origin: string) => boolean;
+      MAX_FILES: number;
+      MAX_WORDS: number;
+      MAX_NAME: number;
+      browserStore: { put: (share: HeldShare, limit: number) => Promise<void> };
       receive: (
         form: unknown,
-        store: { put: (share: HeldShare) => Promise<void>; bytesHeld: () => Promise<number> },
+        store: { put: (share: HeldShare, limit: number) => Promise<void> },
         id: string,
         receivedAt: string,
       ) => Promise<string>;
@@ -77,8 +83,10 @@ const holding = (refuses = false, alreadyHeld = 0) => {
   const held: HeldShare[] = [];
   return {
     held,
-    bytesHeld: () => Promise.resolve(alreadyHeld + held.reduce((sum, s) => sum + s.files.reduce((n, f) => n + (f.bytes?.byteLength ?? 0), 0), 0)),
-    put: (share: HeldShare) => (refuses ? Promise.reject(new Error('quota')) : Promise.resolve(void held.push(share))),
+    put: (share: HeldShare, limit: number) =>
+      refuses || alreadyHeld + held.reduce((sum, s) => sum + s.size, 0) + share.size > limit
+        ? Promise.reject(new Error('refused'))
+        : Promise.resolve(void held.push(share)),
   };
 };
 const share = (area: ReturnType<typeof holding>, fields: Parameters<typeof formOf>[0]) =>
@@ -92,9 +100,8 @@ describe('Capture', () => {
       expect(script.FAILED_ADDRESS).toBe(SHARE_FAILED_ADDRESS);
     });
 
-    it('agrees with the page on where shares are held, and with Attachments on what is kept', () => {
+    it('agrees with the shared names for where shares are held, and with Attachments on what is kept', () => {
       expect([script.DATABASE, script.STORE]).toEqual([SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE]);
-      expect([HOLDING_DATABASE, HOLDING_STORE]).toEqual([SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE]);
       expect([...script.ALLOWED_TYPES].sort()).toEqual([...ATTACHMENT_CONTENT_TYPES].sort());
       expect(script.MAX_FILE_SIZE).toBe(MAX_ATTACHMENT_SIZE);
     });
@@ -190,6 +197,54 @@ describe('Capture', () => {
 
       expect(opened).toBe(SHARE_FAILED_ADDRESS);
       expect(area.held).toEqual([]);
+    });
+
+    it('cuts long words and names, and counts them toward what waits', async () => {
+      const area = holding();
+
+      await share(area, { title: 't'.repeat(script.MAX_WORDS + 10), text: 'x'.repeat(script.MAX_WORDS + 10), files: [aFile('n'.repeat(script.MAX_NAME + 10) + '.png', 'image/png')] });
+
+      const kept = area.held[0]!;
+      expect([kept.title.length, kept.text.length, kept.files[0]!.name.length]).toEqual([script.MAX_WORDS, script.MAX_WORDS, script.MAX_NAME]);
+      expect(kept.size).toBe(script.MAX_WORDS * 2 + script.MAX_NAME + 5);
+    });
+
+    it('opens Capture with the "couldn\'t receive" signal for a share of more files than a share may hold', async () => {
+      const area = holding();
+      const files = Array.from({ length: script.MAX_FILES + 1 }, (_, n) => aFile(`${n}.png`, 'image/png'));
+
+      expect(await share(area, { files })).toBe(SHARE_FAILED_ADDRESS);
+      expect(area.held).toEqual([]);
+    });
+
+    it('opens Capture with the "couldn\'t receive" signal where words alone would pass the cap', async () => {
+      const area = holding(false, 4 * MAX_ATTACHMENT_SIZE - 3);
+
+      expect(await share(area, { text: 'abcde' })).toBe(SHARE_FAILED_ADDRESS);
+      expect(area.held).toEqual([]);
+    });
+
+    it.each([
+      { situation: 'a share-sheet launch, which names no page', referrer: '', other: false },
+      { situation: 'the app\'s own page', referrer: 'https://cockpit.test/capture', other: false },
+      { situation: 'a page of another origin', referrer: 'https://evil.test/form', other: true },
+      { situation: 'a referrer that is not an address', referrer: 'not a url', other: true },
+    ])('tells $situation as it is', ({ referrer, other }) => {
+      expect(script.fromAnotherSite(referrer, 'https://cockpit.test')).toBe(other);
+    });
+
+    it('refuses in one step, with what waits counted in the same transaction, a share that would pass the limit', async () => {
+      const share = (id: string, size: number) =>
+        ({ id, size, receivedAt: '', title: '', text: '', url: '', files: [] }) as HeldShare;
+
+      // Raced, as two shares arriving together are: only what fits is kept.
+      const answers = await Promise.allSettled([
+        script.browserStore.put(share('a', 60), 100),
+        script.browserStore.put(share('b', 60), 100),
+        script.browserStore.put(share('c', 30), 100),
+      ]);
+
+      expect(answers.map((a) => a.status)).toEqual(['fulfilled', 'rejected', 'fulfilled']);
     });
   });
 });

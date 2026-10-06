@@ -1884,6 +1884,16 @@ describe('Capture', () => {
       expect(box()).toHaveValue('first\n\nsecond');
     });
 
+    it('does not say a capture was made here for one that lands which was not', async () => {
+      const onCaptured = vi.fn();
+      const page = await thePage({ onCaptured });
+
+      await page.outbox.add({ id: 'earlier', message: 'Made before', typeId: ACTION.id, workspaceId: 'ws-work', decided: false, files: [] });
+      await waitFor(() => expect(sendCommand).toHaveBeenCalled());
+
+      expect(onCaptured).not.toHaveBeenCalled();
+    });
+
     it('refuses a shared file held without its bytes for being over the limit, by name', async () => {
       const huge = { name: 'huge.png', type: 'image/png', size: MAX_ATTACHMENT_SIZE + 1, bytes: null };
       await thePage({ arrived: whatArrived([aShare({ files: [huge] })]) });
@@ -1901,7 +1911,7 @@ describe('Capture', () => {
       expect(onPutOn).toHaveBeenCalledTimes(1);
     });
 
-    it('says a capture has landed, for the page to stop saying a share was lost', async () => {
+    it('says a capture has been made here, for the page to stop saying a share was lost', async () => {
       const onCaptured = vi.fn();
       const user = await thePage({ onCaptured });
 

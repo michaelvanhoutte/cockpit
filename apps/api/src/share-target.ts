@@ -16,5 +16,6 @@ import { SHARE_FAILED_ADDRESS } from '@cockpit/shared';
  */
 export function answerShare(request: Request): Response {
   const address = request.method === 'POST' ? SHARE_FAILED_ADDRESS : '/capture';
-  return Response.redirect(new URL(address, request.url).href, 303);
+  // Relative, so a proxy in front that rewrites the host cannot send the browser to this one.
+  return new Response(null, { status: 303, headers: { location: address } });
 }

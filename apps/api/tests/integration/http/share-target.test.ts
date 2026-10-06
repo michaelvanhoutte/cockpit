@@ -22,14 +22,14 @@ describe('Capture', () => {
       });
 
       expect(answer.status).toBe(303);
-      expect(answer.headers.get('location')).toBe('http://cockpit.test/capture?share=failed');
+      expect(answer.headers.get('location')).toBe('/capture?share=failed');
     });
 
     it('sends a visit by address to Capture, with no signal', async () => {
       const answer = await SELF.fetch('http://cockpit.test/share-target', { redirect: 'manual' });
 
       expect(answer.status).toBe(303);
-      expect(answer.headers.get('location')).toBe('http://cockpit.test/capture');
+      expect(answer.headers.get('location')).toBe('/capture');
     });
   });
 });
