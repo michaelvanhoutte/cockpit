@@ -239,7 +239,7 @@ test.describe('Item editing', () => {
       // Layout, which JSDOM cannot measure: the flag column is always there, so
       // a title is where the others are with or without a level. Asked while
       // neither row has a due date, because a pill is drawn on the title line
-      // and how near a date is depends on the day the suite runs.
+      // at a desk and how near a date is depends on the day the suite runs.
       const left = async (title: string) =>
         Math.round((await itemRow(page, title).getByText(title).boundingBox())!.x);
       expect(await left(marked)).toBe(await left(plain));
@@ -248,13 +248,16 @@ test.describe('Item editing', () => {
       // having been drawn once, and the date goes on the same item.
       await openItem(page, marked, isMobile);
       await expect(priorityFlag(page, 'High')).toHaveAttribute('aria-pressed', 'true');
-      await dueDateBox(page).fill('2026-09-30');
+      // Years off, so the row says "Due <date>" on both projects whatever day the
+      // suite runs: a date within a week is a pill instead, and on a phone it
+      // takes the date's place.
+      await dueDateBox(page).fill('2030-09-30');
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
 
-      await expect(itemRow(page, marked).getByText('Due Sep 30, 2026')).toBeVisible();
+      await expect(itemRow(page, marked).getByText('Due Sep 30, 2030')).toBeVisible();
 
       await openItem(page, marked, isMobile);
-      await expect(dueDateBox(page)).toHaveValue('2026-09-30');
+      await expect(dueDateBox(page)).toHaveValue('2030-09-30');
       await priorityFlag(page, 'High').click();
       await dueDateBox(page).fill('');
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
@@ -265,7 +268,7 @@ test.describe('Item editing', () => {
       // alone, whether or not the clear actually landed.
       await expect(priorityGroup(page)).toHaveCount(0);
       await expect(itemRow(page, marked).getByLabel('High priority')).toHaveCount(0);
-      await expect(itemRow(page, marked).getByText('Due Sep 30, 2026')).toHaveCount(0);
+      await expect(itemRow(page, marked).getByText('Due Sep 30, 2030')).toHaveCount(0);
 
       // Its type and its status, from the same form ("Change an item's type,
       // and its status, from its form, and see where it is shown", issue 528):
