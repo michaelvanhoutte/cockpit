@@ -493,6 +493,20 @@ export function dashboardBar(page: Page): Locator {
   return page.getByRole('navigation', { name: 'Dashboards' });
 }
 
+/** The Dashboard filter's bottom sheet, which is what a phone has in place of the bar. */
+export function filterSheet(page: Page): Locator {
+  return page.getByRole('dialog', { name: /^Filter/ });
+}
+
+/**
+ * Closes the filter sheet from its *Done*, the last button of that name - on All
+ * items the Status group has a *Done* of its own, earlier in the sheet.
+ */
+export async function closeTheFilterSheet(page: Page): Promise<void> {
+  await filterSheet(page).getByRole('button', { name: 'Done', exact: true }).last().tap();
+  await expect(filterSheet(page)).toHaveCount(0);
+}
+
 /**
  * One dashboard's tab in that bar, which is what it is renamed and deleted on.
  * By selector rather than by role for the reason `workspaceTab` gives: a form

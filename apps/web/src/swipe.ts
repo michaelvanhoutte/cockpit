@@ -94,3 +94,15 @@ export function whatTheSwipeMeant(dx: number, dy: number): SwipeMeaning {
 export function howFarItHasGone(dx: number, dy: number): number {
   return Math.abs(dy) >= Math.abs(dx) ? 0 : dx;
 }
+
+/**
+ * Whether a finished swipe on a sheet's grab handle meant *close it* ("Fold the
+ * Dashboard filter bar into a summary line and a sheet on a phone", issue 792).
+ *
+ * The row swipe's own threshold and its own tie-break: mostly sideways means
+ * nothing, so a thumb wandering across the handle does not close the sheet.
+ * Downward only; a swipe up is the sheet already being as high as it goes.
+ */
+export function whatTheSheetSwipeMeant(dx: number, dy: number): 'close' | null {
+  return dy >= SWIPE_THRESHOLD_PX && dy > Math.abs(dx) ? 'close' : null;
+}

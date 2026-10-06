@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { A_DESK, onAScreen } from '../onAScreen';
 import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -516,10 +517,12 @@ function dragColumnLine(at: number, byX: number) {
 
 beforeEach(() => {
   screenIs(1280);
+  onAScreen(A_DESK);
   localStorage.clear();
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
   // `aTabElement` appends straight to `document.body`, outside anything RTL's
   // own cleanup unmounts - so it is not there to leak into the next case.
