@@ -68,7 +68,7 @@ export function useAnUndoIsOffered(): boolean {
  * there is said where the bar uses it, below.
  */
 export const BOTTOM_CENTRE_STRIP =
-  'pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right)_+_var(--docked-form-w,0px))] pb-[calc(1rem_+_var(--edge-bottom)_+_var(--dock-h,0px))] pl-[calc(1rem_+_var(--edge-left))]';
+  'pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pt-4 pr-[calc(1rem_+_var(--edge-right)_+_var(--docked-form-w,0px))] pb-[calc(1rem_+_var(--edge-bottom)_+_var(--dock-h,0px)_+_var(--selection-bar-h,0px))] pl-[calc(1rem_+_var(--edge-left))]';
 
 /**
  * The mounted bar's way of emptying itself, so signing out can reach it.
@@ -214,6 +214,12 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
           // same way it clears a docked form's own width - the two sit at the
           // same edge, and the bar covering a dock tile is not only a swallowed
           // press but the tile going invisible under it.
+          //
+          // **And the selection bar pinned to the screen**,
+          // `--selection-bar-h` (`SelectionBar.tsx`), where the Inbox has no
+          // room beside the dashboards: it holds the same edge, and an offer
+          // drawn over it covers **Move to…**. Unset, so zero, wherever the
+          // bar stays in its own list.
           className={BOTTOM_CENTRE_STRIP}
         >
           <div className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">

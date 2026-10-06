@@ -64,6 +64,7 @@ import {
   writeItemFormDockedWidth,
 } from '../itemFormDockedWidth';
 import { useScreenWidth } from '../panels/useScreenWidth';
+import { ROOM_FOR_THE_INBOX_PX } from '../roomForTheInbox';
 import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
 import { useCockpitChanges } from '../useCockpitChanges';
 
@@ -233,12 +234,6 @@ const RESIZE_CORNER = 16;
  *  the axis that did move. */
 const DEFAULT_SIZE: Size = { width: 896, height: 736 };
 
-/** The narrowest a screen still counts as "a desk", the same breakpoint the
- *  centered dialog's own native resize handle is already gated on, below -
- *  no room to grow into and, for docking, no room to be worth pinning a
- *  panel to the side of at all. */
-const DESKTOP_MIN_WIDTH = 640;
-
 function TheForm({
   itemId,
   workspaceId,
@@ -310,15 +305,20 @@ function TheForm({
   const chosenDocked = presentation === 'docked';
   const screenWidth = useScreenWidth();
   /**
-   * What is actually drawn - the account's own choice, brought inside a
-   * screen that has room for it. Docking is out of scope for a phone by the
-   * issue's own text, but "out of scope" has to mean "falls back to
-   * centered", not "renders anyway": without this, an account docked from a
-   * desktop opened this form on a phone at the docked width's own floor -
-   * 320px, non-modal, the page behind it still interactive - in place of
-   * today's near-full-screen centered dialog (found in review).
+   * Whether the form is a page of its own rather than a window: below the
+   * width at which Capture is a page on a phone (`ROOM_FOR_THE_INBOX_PX`), at
+   * the same address, whatever the account chose.
    */
-  const docked = chosenDocked && screenWidth >= DESKTOP_MIN_WIDTH;
+  const onAPage = screenWidth < ROOM_FOR_THE_INBOX_PX;
+  /** Whether the attachments' list is open, on a page where it is one line until asked for. */
+  const [filesOpen, setFilesOpen] = useState(false);
+  /**
+   * What is actually drawn - the account's own choice, unless the screen is
+   * a page (`onAPage`), which is never docked: "out of scope" has to mean
+   * "not drawn", not "renders anyway" at the docked width's own 320px floor,
+   * non-modal, with the page behind it still interactive (found in review).
+   */
+  const docked = chosenDocked && !onAPage;
 
   /**
    * Flips the account's own choice, and this open form along with it.
@@ -331,20 +331,16 @@ function TheForm({
    */
   const togglePresentation = async () => {
     const was = presentation;
-    // `chosenDocked`, not the viewport-gated `docked`: on a narrow screen
-    // where an already-docked account renders centered, the control still
-    // has to flip the account's real choice back to centered rather than
-    // reading its own fallback rendering as "not docked yet" and asking to
-    // dock what is already docked.
+    // `chosenDocked`, not `docked`: the account's real choice is what flips,
+    // not what this screen happens to draw.
     const next: ItemFormPresentation = chosenDocked ? 'centered' : 'docked';
     setFixedPresentation(next);
     // Docking is the moment "nothing is written until Save" stops being the
     // rule for this form, and there is no Save left to write what is already
-    // typed. Only where it will really be docked - a screen too narrow for it
-    // keeps Save and Cancel, and Cancel must still discard what it says it
-    // does - and only once the choice has been accepted, so a refused one
-    // leaves the centered form's typed text unwritten and its refusal standing.
-    const dockedHere = next === 'docked' && screenWidth >= DESKTOP_MIN_WIDTH;
+    // typed. Only once the choice has been accepted, so a refused one leaves
+    // the centered form's typed text unwritten and its refusal standing. A
+    // page offers no Dock, so there is no narrow screen to refuse it.
+    const dockedHere = next === 'docked';
     try {
       await send({
         name: 'set_item_form_presentation',
@@ -434,6 +430,11 @@ function TheForm({
    * predicts.
    */
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  // The list's line is gone with the last file, so a later file starts folded.
+  const anyFiles = attachments.length + pendingAttachments.length > 0;
+  useEffect(() => {
+    if (!anyFiles) setFilesOpen(false);
+  }, [anyFiles]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   /** A file being dragged over the form anywhere a drop would attach it. */
   const [filesOver, setFilesOver] = useState(false);
@@ -607,7 +608,7 @@ function TheForm({
     // The native corner handle only exists on the centered presentation
     // (`sm:resize`, below) - docked is resized by its own edge handle
     // further down, which does not go through this at all.
-    if (!contentEl || docked) return;
+    if (!contentEl || docked || onAPage) return;
     const measure = (): Size | null => {
       const box = contentEl.getBoundingClientRect();
       return box.width > 0 && box.height > 0
@@ -619,10 +620,9 @@ function TheForm({
     // padding, over nothing else, so a press landing there has this element
     // as its target and nowhere close to the target a press on Cancel or
     // Save would have. `sm:resize` (below) is the only thing that makes the
-    // handle interactive at all, which is why the width check matches its
-    // own breakpoint.
+    // handle interactive at all, and this effect does not run on a page.
     const onDown = (e: MouseEvent) => {
-      if (e.button !== 0 || e.target !== contentEl || window.innerWidth < DESKTOP_MIN_WIDTH) return;
+      if (e.button !== 0 || e.target !== contentEl) return;
       const box = contentEl.getBoundingClientRect();
       const inCorner =
         e.clientX >= box.right - RESIZE_CORNER &&
@@ -655,7 +655,7 @@ function TheForm({
       contentEl.removeEventListener('mousedown', onDown);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [contentEl, docked]);
+  }, [contentEl, docked, onAPage]);
   /**
    * Remembers whatever a drag left `known` holding, on the way out.
    *
@@ -1226,6 +1226,66 @@ function TheForm({
     [],
   );
 
+  /** The attachments as chips, where they are drawn: above Add at a desk, below it on a page (Tab follows the DOM). */
+  const attachmentChips =
+    attachments.length + pendingAttachments.length > 0 && (!onAPage || filesOpen) ? (
+      <div className="flex w-full flex-col gap-1.5">
+        {attachments.map((attachment) => (
+          <div
+            key={attachment.id}
+            className="flex items-center gap-2 rounded-md border border-shade/10 bg-white px-3 py-2 text-sm"
+          >
+            <a
+              href={attachmentUrl(attachment.id)}
+              target="_blank"
+              rel="noreferrer"
+              className="flex min-w-0 flex-1 items-center gap-2"
+            >
+              {attachment.contentType.startsWith('image/') ? (
+                <img
+                  src={attachmentUrl(attachment.id)}
+                  alt={attachment.filename}
+                  className="h-8 w-8 shrink-0 rounded object-cover"
+                />
+              ) : (
+                <span className="shrink-0 text-lg" aria-hidden="true">
+                  📄
+                </span>
+              )}
+              <span className="min-w-0">
+                <span className="block truncate font-medium text-ink">
+                  {attachment.filename}
+                </span>
+                <span className="block text-xs text-ink-faint">
+                  {formatFileSize(attachment.size)}
+                </span>
+              </span>
+            </a>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void removeAttachment(attachment)}
+              title="Remove"
+              aria-label={`Remove ${attachment.filename}`}
+              className="shrink-0 rounded-md border border-shade/10 px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+        {pendingAttachments.map((pending) => (
+          <div
+            key={`pending-${pending.id}`}
+            className="flex items-center gap-2 rounded-md border border-shade/10 px-3 py-2 text-sm text-ink-faint"
+          >
+            <span aria-hidden="true">⏳</span>
+            <span className="min-w-0 flex-1 truncate">{pending.filename}</span>
+            <span>Attaching…</span>
+          </div>
+        ))}
+      </div>
+    ) : null;
+
   return (
     <Dialog.Root
       open
@@ -1358,12 +1418,16 @@ function TheForm({
           // docked presentation matches today's form exactly" - only the
           // positioning, the sizing and the modality below it are its own.
           className={`${
-            docked
+            onAPage
+              ? 'fixed z-floating flex flex-col overflow-hidden bg-surface left-[var(--edge-left)] right-[var(--edge-right)] top-[var(--edge-top)] bottom-[var(--edge-bottom)]'
+              : docked
               ? '@container fixed z-floating right-0 top-0 flex h-full flex-col overflow-hidden rounded-l-lg border border-shade/10 bg-surface p-5 shadow-lg'
               : '@container fixed z-floating left-1/2 top-1/2 flex h-[var(--item-form-h)] max-h-[var(--item-form-max-h)] min-h-[min(18rem,var(--item-form-max-h))] w-[var(--item-form-w)] max-w-[var(--item-form-max-w)] min-w-[min(20rem,var(--item-form-max-w))] -translate-x-1/2 -translate-y-1/2 flex-col resize-none overflow-hidden rounded-lg border border-shade/10 bg-surface p-5 shadow-lg sm:resize'
           }${filesOver ? ' ring-2 ring-accent' : ''}`}
           style={
-            docked
+            onAPage
+              ? undefined
+              : docked
               ? { width: `${dockedWidthPx}px` }
               : remembered
                 ? {
@@ -1392,16 +1456,39 @@ function TheForm({
               dialog", issue 481). Its own row above the title rather than
               floated over a corner, which the title box below would
               otherwise run under - full width, like the row it sits above. */}
-          <div className="flex shrink-0 justify-end">
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() => void togglePresentation()}
-              className="rounded-md border border-shade/10 bg-surface px-2 py-1 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
-            >
-              {chosenDocked ? 'Center' : 'Dock'}
-            </button>
-          </div>
+          {onAPage ? (
+            // ← is Cancel, by the same close; Save is the form's one Save.
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-shade/10 px-2 py-2">
+              <Dialog.Close
+                disabled={saving}
+                aria-label="Cancel"
+                title="Cancel"
+                className="flex size-10 shrink-0 items-center justify-center rounded-md text-xl text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+              >
+                <span aria-hidden="true">←</span>
+              </Dialog.Close>
+              <span className="text-base font-semibold text-ink">Item</span>
+              <button
+                type="button"
+                disabled={!item || saving || tooLong}
+                onClick={() => void save()}
+                className="milled shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
+              >
+                Save
+              </button>
+            </div>
+          ) : (
+            <div className="flex shrink-0 justify-end">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void togglePresentation()}
+                className="rounded-md border border-shade/10 bg-surface px-2 py-1 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
+              >
+                {chosenDocked ? 'Center' : 'Dock'}
+              </button>
+            </div>
+          )}
 
           {/* Said rather than shown. A dialog has to name itself, and this one
               is opened by a row whose label is now the title box directly under
@@ -1412,7 +1499,7 @@ function TheForm({
           <Dialog.Title className="sr-only">{item ? itemLabel(item) : 'Item'}</Dialog.Title>
 
           {!item ? (
-            <p role="alert" className="pt-3 text-sm text-ink-soft">
+            <p role="alert" className={`pt-3 text-sm text-ink-soft${onAPage ? ' px-4' : ''}`}>
               {isLoading || (arriving && isFetching) ? 'Opening…' : 'That item is not here any more.'}
             </p>
           ) : (
@@ -1427,9 +1514,15 @@ function TheForm({
               // `overflow-y-auto` computes `overflow-x` as non-`visible` too,
               // which would otherwise clip a flush `w-full` child's own
               // `focus:ring-2`.
-              <div className="-mx-1 mt-4 flex min-h-0 flex-1 flex-col overflow-y-auto px-1">
+              <div
+                className={
+                  onAPage
+                    ? 'flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-4 pt-3'
+                    : '-mx-1 mt-4 flex min-h-0 flex-1 flex-col overflow-y-auto px-1'
+                }
+              >
                 <label className="block shrink-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
-                  Title
+                  <span className={onAPage ? 'sr-only' : undefined}>Title</span>
                   <input
                     autoFocus={!(openedQuietly && docked)}
                     // Both boxes are closed while a save is in flight, for the
@@ -1443,7 +1536,9 @@ function TheForm({
                     onBlur={() => {
                       if (docked) void commitFields(['title']);
                     }}
-                    className="mt-1 w-full rounded-md border border-shade/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                    className={`w-full rounded-md border border-shade/10 bg-white px-3 py-2 normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 ${
+                      onAPage ? 'text-xl font-semibold' : 'mt-1 text-sm font-normal'
+                    }`}
                   />
                 </label>
 
@@ -1515,7 +1610,9 @@ function TheForm({
                   role="tabpanel"
                   id={`${formId}-item`}
                   aria-labelledby={`${formId}-item-tab`}
-                  className={tab === 'item' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
+                  className={
+                    tab === 'item' ? `flex flex-1 flex-col${onAPage ? '' : ' min-h-0'}` : 'hidden'
+                  }
                 >
                   {/* Said once, where the surprise is, and only where Cockpit
                       changed the title or description: the rest is in the
@@ -1637,7 +1734,7 @@ function TheForm({
                     above) - answering to the box actually being dragged and
                     remembered, not to the viewport, which can stay wide while
                     the box itself is dragged down to its own floor. */}
-                  <div className="mt-4 flex min-h-0 flex-1 flex-col">
+                  <div className={`mt-4 flex flex-1 flex-col${onAPage ? '' : ' min-h-0'}`}>
                     {/* **Three cells written in the order a person reads them -
                       the short fields, the description, then the files - which
                       is also the order Tab and a screen reader take, so what is
@@ -1653,8 +1750,14 @@ function TheForm({
                       rather than being clipped by the dialog's `overflow-hidden`
                       (`-mx-1 … px-1` keeps that scroll from clipping the
                       buttons' `focus:ring-2`). */}
-                    <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(10rem,1fr)_auto] gap-4 @lg:grid-cols-[18rem_minmax(0,1fr)] @lg:grid-rows-[auto_minmax(0,1fr)]">
-                      <div className="flex flex-col gap-3 @lg:col-start-1 @lg:row-start-1">
+                    <div
+                      className={
+                        onAPage
+                          ? 'grid flex-1 grid-cols-1 grid-rows-[auto_minmax(16rem,1fr)_auto] gap-4'
+                          : 'grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(10rem,1fr)_auto] gap-4 @lg:grid-cols-[18rem_minmax(0,1fr)] @lg:grid-rows-[auto_minmax(0,1fr)]'
+                      }
+                    >
+                      <div className={`flex flex-col gap-3${onAPage ? '' : ' @lg:col-start-1 @lg:row-start-1'}`}>
                       {/* Type and status beside each other above the rest of the short fields (issue 528). */}
                       <div className="grid grid-cols-2 gap-3">
                         <label className="block min-w-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
@@ -1807,7 +1910,7 @@ function TheForm({
                         to fit only what it holds (issue 480). */}
                       <div
                         ref={descriptionCell}
-                        className="flex min-h-0 flex-col @lg:col-start-2 @lg:row-span-2 @lg:row-start-1"
+                        className={`flex min-h-0 flex-col${onAPage ? '' : ' @lg:col-start-2 @lg:row-span-2 @lg:row-start-1'}`}
                         // Left for something outside the description - the Source
                         // toggle and the editor trade the cursor between them
                         // without leaving it.
@@ -1832,6 +1935,7 @@ function TheForm({
                           }}
                           uploadImage={uploadImage}
                           editable={!saving}
+                          onAPage={onAPage}
                         />
                       </div>
 
@@ -1839,8 +1943,8 @@ function TheForm({
                         ("Attach a file to an item", issue 441) - added by button
                         or drag-and-drop, drawn as a chip, opened or downloaded by
                         a click on it. */}
-                      <div className="@lg:col-start-1 @lg:row-start-2 @lg:-mx-1 @lg:min-h-0 @lg:overflow-y-auto @lg:px-1">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                      <div className={onAPage ? undefined : '@lg:col-start-1 @lg:row-start-2 @lg:-mx-1 @lg:min-h-0 @lg:overflow-y-auto @lg:px-1'}>
+                        <p className={`text-xs font-semibold uppercase tracking-wide text-ink-faint${onAPage ? ' sr-only' : ''}`}>
                           Attachments
                         </p>
                         {/* Dropped on, a file is attached by the form's own
@@ -1848,74 +1952,37 @@ function TheForm({
                             description text ("Embed an image inline in an
                             item's description", issue 442). */}
                         <div
-                          className={`mt-1 flex flex-col gap-1.5 rounded-md border border-dashed px-3 py-2 ${
-                            filesOver ? 'border-accent bg-accent-tint' : 'border-shade/10'
-                          }`}
+                          className={`mt-1 flex gap-1.5 rounded-md border border-dashed px-3 py-2 ${
+                            onAPage ? 'flex-wrap items-center' : 'flex-col'
+                          } ${filesOver ? 'border-accent bg-accent-tint' : 'border-shade/10'}`}
                         >
-                          {attachments.map((attachment) => (
-                            <div
-                              key={attachment.id}
-                              className="flex items-center gap-2 rounded-md border border-shade/10 bg-white px-3 py-2 text-sm"
+                          {/* On a page the list is one line until it is asked for. */}
+                          {onAPage && attachments.length + pendingAttachments.length > 0 && (
+                            <button
+                              type="button"
+                              aria-expanded={filesOpen}
+                              onClick={() => setFilesOpen((was) => !was)}
+                              className="mr-auto text-sm font-medium text-ink"
                             >
-                              <a
-                                href={attachmentUrl(attachment.id)}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex min-w-0 flex-1 items-center gap-2"
-                              >
-                                {attachment.contentType.startsWith('image/') ? (
-                                  <img
-                                    src={attachmentUrl(attachment.id)}
-                                    alt={attachment.filename}
-                                    className="h-8 w-8 shrink-0 rounded object-cover"
-                                  />
-                                ) : (
-                                  <span className="shrink-0 text-lg" aria-hidden="true">
-                                    📄
-                                  </span>
-                                )}
-                                <span className="min-w-0">
-                                  <span className="block truncate font-medium text-ink">
-                                    {attachment.filename}
-                                  </span>
-                                  <span className="block text-xs text-ink-faint">
-                                    {formatFileSize(attachment.size)}
-                                  </span>
-                                </span>
-                              </a>
-                              <button
-                                type="button"
-                                disabled={saving}
-                                onClick={() => void removeAttachment(attachment)}
-                                title="Remove"
-                                aria-label={`Remove ${attachment.filename}`}
-                                className="shrink-0 rounded-md border border-shade/10 px-2 text-sm text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          ))}
-                          {pendingAttachments.map((pending) => (
-                            <div
-                              key={`pending-${pending.id}`}
-                              className="flex items-center gap-2 rounded-md border border-shade/10 px-3 py-2 text-sm text-ink-faint"
-                            >
-                              <span aria-hidden="true">⏳</span>
-                              <span className="min-w-0 flex-1 truncate">{pending.filename}</span>
-                              <span>Attaching…</span>
-                            </div>
-                          ))}
-                          {attachments.length === 0 && pendingAttachments.length === 0 && (
+                              {attachments.length + pendingAttachments.length === 1
+                                ? '1 file'
+                                : `${attachments.length + pendingAttachments.length} files`}{' '}
+                              <span aria-hidden="true">{filesOpen ? '▴' : '▾'}</span>
+                            </button>
+                          )}
+                          {!onAPage && attachmentChips}
+                          {attachments.length === 0 && pendingAttachments.length === 0 && !onAPage && (
                             <p className="text-sm text-ink-faint">Drag a file here, or</p>
                           )}
                           <button
                             type="button"
                             disabled={saving}
                             onClick={() => attachmentInputRef.current?.click()}
-                            className="self-start rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                            className={`rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50${onAPage ? '' : ' self-start'}`}
                           >
                             Add
                           </button>
+                          {onAPage && attachmentChips}
                           <input
                             ref={attachmentInputRef}
                             type="file"
@@ -2052,45 +2119,47 @@ function TheForm({
           )}
 
           {tooLong && (
-            <p role="alert" className="shrink-0 pt-3 text-sm text-over">
+            <p role="alert" className={`shrink-0 pt-3 text-sm text-over${onAPage ? ' px-4' : ''}`}>
               {overCap === 'title'
                 ? `A title is at most ${TITLE_LENGTH} characters.`
                 : `A description is at most ${DESCRIPTION_LIMIT.toLocaleString()} characters.`}
             </p>
           )}
           {refusal && (
-            <p role="alert" className="shrink-0 pt-3 text-sm text-over">
+            <p role="alert" className={`shrink-0 pt-3 text-sm text-over${onAPage ? ' px-4' : ''}`}>
               {refusal}
             </p>
           )}
 
-          <div className="flex shrink-0 items-center justify-end gap-2 pt-4">
-            {docked ? (
-              // Nothing to save and nothing to discard: each field was written
-              // as it was left (`commitFields`), and closing keeps whatever is
-              // still in a box.
-              <Dialog.Close className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
-                Close
-              </Dialog.Close>
-            ) : (
-              <div className="flex gap-2">
-                <Dialog.Close
-                  disabled={saving}
-                  className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
-                >
-                  Cancel
+          {!onAPage && (
+            <div className="flex shrink-0 items-center justify-end gap-2 pt-4">
+              {docked ? (
+                // Nothing to save and nothing to discard: each field was written
+                // as it was left (`commitFields`), and closing keeps whatever is
+                // still in a box.
+                <Dialog.Close className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
+                  Close
                 </Dialog.Close>
-                <button
-                  type="button"
-                  disabled={!item || saving || tooLong}
-                  onClick={() => void save()}
-                  className="milled shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
-                >
-                  Save
-                </button>
-              </div>
-            )}
-          </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Dialog.Close
+                    disabled={saving}
+                    className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+                  >
+                    Cancel
+                  </Dialog.Close>
+                  <button
+                    type="button"
+                    disabled={!item || saving || tooLong}
+                    onClick={() => void save()}
+                    className="milled shrink-0 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

@@ -1,8 +1,10 @@
 import { DUE_WINDOWS, type DueWindow, type ItemStatus } from '@cockpit/shared';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import {
   NO_DASHBOARD_FILTER,
   isFiltering,
   useDashboardFilter,
+  closeEveryFilterBar,
   useFilterBarOpen,
   type AttachmentsChoice,
   type PriorityChoice,
@@ -10,23 +12,27 @@ import {
 import { isAPeriod } from '../filters';
 import { browserStore } from '../lastVisited';
 import { PRIORITY_LABELS } from '../priority';
+import { useRoomForTheInbox } from '../roomForTheInbox';
 import { WINDOW_LABELS } from './FilterQuestion';
+import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 
-const PRIORITIES: { value: PriorityChoice; label: string }[] = [
+const FilterSummary = lazy(() => import('./FilterSummary'));
+
+export const PRIORITIES: { value: PriorityChoice; label: string }[] = [
   { value: 'high', label: PRIORITY_LABELS.high },
   { value: 'normal', label: PRIORITY_LABELS.normal },
   { value: 'low', label: PRIORITY_LABELS.low },
   { value: 'none', label: 'No priority' },
 ];
 
-const STATUSES: { value: ItemStatus; label: string }[] = [
+export const STATUSES: { value: ItemStatus; label: string }[] = [
   { value: 'to_do', label: 'To do' },
   { value: 'in_progress', label: 'In progress' },
   { value: 'done', label: 'Done' },
 ];
 
-const ATTACHMENTS: { value: AttachmentsChoice; label: string }[] = [
-  { value: 'any', label: 'Any' },
+// Neither pressed is no attachments condition (stored as 'any'), so no button says "Any".
+export const ATTACHMENTS: { value: Exclude<AttachmentsChoice, 'any'>; label: string }[] = [
   { value: 'with', label: 'With' },
   { value: 'without', label: 'Without' },
 ];
@@ -47,15 +53,84 @@ export function FunnelGlyph({ filled = false }: { filled?: boolean }) {
 }
 
 /**
- * The bar under the dashboard bar that sets a Dashboard filter ("Filter a
- * dashboard by priority, due date, text and attachments", issue 633).
+ * Where the Dashboard filter is set ("Filter a dashboard by priority, due date,
+ * text and attachments", issue 633).
  *
- * **A filtered Dashboard always shows it**, whether it was opened or the
- * filter came back from a reload, so a filter is never on out of sight. **×**
- * clears the conditions and keeps the bar open - it is for starting over - and
- * the funnel on the open tab is what clears and closes (`DashboardBar`).
+ * **From 768px (`ROOM_FOR_THE_INBOX`) a bar**; below it a one-line summary and
+ * a bottom sheet holding the same controls ("Fold the Dashboard filter bar into a summary line and a sheet on a phone", issue 792). Which one draws is the
+ * width and nothing else; the filter, and whether the funnel on the tab has
+ * opened it, are the same.
+ *
+ * **A filtered Dashboard always shows it** - the bar, or the summary - whether
+ * it was opened or the filter came back from a reload, so a filter is never on
+ * out of sight.
  */
-export function DashboardFilterBar({
+export function DashboardFilterBar(props: {
+  /** How many Panels the filter hid, said beside the clear control; nothing at 0. */
+  panelsHidden?: number;
+  dashboardId: string;
+  /** Whether to offer *Done*: a dashboard does not, since a finished item is on no dashboard. */
+  withDone?: boolean;
+}) {
+  const room = useRoomForTheInbox();
+  const [, setOpen] = useFilterBarOpen(props.dashboardId);
+  const [failed, setFailed] = useState(false);
+  // Crossing the breakpoint keeps the filter and drops what was open, on every
+  // Dashboard: a sheet has no business surviving as a bar, and a bar not as a
+  // sheet, nor on one the person has switched away from.
+  const was = useRef(room);
+  useEffect(() => {
+    if (was.current === room) return;
+    was.current = room;
+    closeEveryFilterBar();
+  }, [room]);
+  if (room) return <FilterBar {...props} />;
+  // The line is drawn plain while its file is fetched, and for good if that
+  // fails, so a filter is never on out of sight and a failed fetch costs the
+  // sheet and nothing else.
+  if (failed) return <PlainSummary dashboardId={props.dashboardId} />;
+  return (
+    <WhateverTheQuestionDoes
+      onFailure={() => {
+        setOpen(false);
+        setFailed(true);
+      }}
+    >
+      <Suspense fallback={<PlainSummary dashboardId={props.dashboardId} />}>
+        <FilterSummary {...props} />
+      </Suspense>
+    </WhateverTheQuestionDoes>
+  );
+}
+
+/** The summary line without its pills or sheet: that a filter is on, and the way to clear it. */
+function PlainSummary({ dashboardId }: { dashboardId: string }) {
+  const [filter, setFilter] = useDashboardFilter(browserStore(), dashboardId);
+  if (!isFiltering(filter)) return null;
+  return (
+    <div className="sticky top-0 z-20 bg-[var(--ground,var(--color-ground))] pb-2">
+      <div className="flex items-center gap-1 rounded-md border border-shade/10 bg-shade/[0.03] pr-1 text-sm">
+        <span className="flex-1 py-2 pl-3 text-xs text-ink-soft">Filtered</span>
+        <button
+          type="button"
+          aria-label="Clear the filter"
+          className="rounded px-2 py-1 text-ink-soft"
+          onClick={() => setFilter(NO_DASHBOARD_FILTER)}
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The bar under the dashboard bar that sets a Dashboard filter, from 768px.
+ *
+ * **×** clears the conditions and keeps the bar open - it is for starting over
+ * - and the funnel on the open tab is what clears and closes (`DashboardBar`).
+ */
+function FilterBar({
   dashboardId,
   withDone = false,
   panelsHidden = 0,
@@ -73,15 +148,20 @@ export function DashboardFilterBar({
 
   const chip = (on: boolean) =>
     `rounded-full border px-2.5 py-0.5 text-xs ${
-      on ? 'border-accent bg-accent-tint text-ink' : 'border-shade/15 text-ink-soft hover:bg-shade/5'
+      on ? 'border-accent bg-accent text-on-accent' : 'border-shade/15 text-ink-soft hover:bg-shade/5'
     }`;
+
+  // A field that holds a value wears a 2px accent border (the 1px border plus an inset ring, so
+  // the field keeps its size) where an empty one has the plain 1px.
+  const set = (on: boolean) =>
+    `bg-transparent border ${on ? 'border-accent ring-1 ring-inset ring-accent' : 'border-shade/15'}`;
 
   // One filter's chips are joined inside one outline, so where a filter ends is
   // plain without spending width on a label.
   const group = 'inline-flex items-center overflow-hidden rounded-full border border-shade/15';
   const segment = (on: boolean) =>
     `border-l border-shade/15 px-2.5 py-0.5 text-xs first:border-l-0 ${
-      on ? 'bg-accent-tint text-ink' : 'text-ink-soft hover:bg-shade/5'
+      on ? 'bg-accent text-on-accent' : 'text-ink-soft hover:bg-shade/5'
     }`;
 
   return (
@@ -154,7 +234,7 @@ export function DashboardFilterBar({
           <label className="flex items-center gap-1.5">
             <span className="text-ink-soft">Due</span>
             <select
-              className="rounded border border-shade/15 bg-transparent px-1 py-0.5 text-xs"
+              className={`rounded px-1 py-0.5 text-xs ${set(filter.due !== null)}`}
               value={filter.due?.window ?? ''}
               onChange={(event) =>
                 setFilter({
@@ -196,7 +276,7 @@ export function DashboardFilterBar({
           <input
             type="search"
             placeholder="Containing…"
-            className="w-full rounded border border-shade/15 bg-transparent px-2 py-0.5 text-xs"
+            className={`w-full rounded px-2 py-0.5 text-xs ${set(filter.text.trim() !== '')}`}
             value={filter.text}
             onChange={(event) => setFilter({ ...filter, text: event.target.value })}
           />
@@ -214,7 +294,9 @@ export function DashboardFilterBar({
                 type="button"
                 aria-pressed={filter.attachments === value}
                 className={segment(filter.attachments === value)}
-                onClick={() => setFilter({ ...filter, attachments: value })}
+                onClick={() =>
+                  setFilter({ ...filter, attachments: filter.attachments === value ? 'any' : value })
+                }
               >
                 {label}
               </button>

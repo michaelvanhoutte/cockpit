@@ -150,6 +150,18 @@ async function answering(request: APIRequestContext): Promise<boolean> {
 export { expect };
 
 /**
+ * The attachments' list, opened where a phone's page keeps it to one line
+ * (*2 files ▾*) until it is asked for. A window always shows it.
+ */
+export async function openTheFiles(page: Page, isMobile: boolean): Promise<void> {
+  // Only a phone's page folds the list away; the line arrives with the file.
+  if (!isMobile) return;
+  const line = page.getByRole('dialog').getByRole('button', { name: /^\d+ files?/ });
+  await expect(line).toBeVisible();
+  if ((await line.getAttribute('aria-expanded')) === 'false') await press(line, isMobile);
+}
+
+/**
  * Presses a control the way the device under test would. This is not a
  * nicety: Playwright's `click()` dispatches mouse events even on a project
  * with `hasTouch`, so a suite that only clicks proves nothing about touch
@@ -479,6 +491,20 @@ async function dragOnto(page: Page, tab: Locator, onto: Locator, what: string): 
  */
 export function dashboardBar(page: Page): Locator {
   return page.getByRole('navigation', { name: 'Dashboards' });
+}
+
+/** The Dashboard filter's bottom sheet, which is what a phone has in place of the bar. */
+export function filterSheet(page: Page): Locator {
+  return page.getByRole('dialog', { name: /^Filter/ });
+}
+
+/**
+ * Closes the filter sheet from its *Done*, the last button of that name - on All
+ * items the Status group has a *Done* of its own, earlier in the sheet.
+ */
+export async function closeTheFilterSheet(page: Page): Promise<void> {
+  await filterSheet(page).getByRole('button', { name: 'Done', exact: true }).last().tap();
+  await expect(filterSheet(page)).toHaveCount(0);
 }
 
 /**

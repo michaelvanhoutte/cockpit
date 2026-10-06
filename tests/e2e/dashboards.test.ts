@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import {
   capture,
   chooseRowAction,
   chooseTabAction,
+  closeTheFilterSheet,
   dashboardBar,
   dashboardTab,
   dashboardTabs,
   dragDashboardTabOnto,
   expect,
   expectNoSidewaysScroll,
+  filterSheet,
   inbox,
   itemRow,
   makeWorkspace,
@@ -35,7 +37,9 @@ const drawnOnTopAt = (page: Page, x: number, y: number) =>
       const top = document.elementFromPoint(px!, py!);
       document.body.style.pointerEvents = before;
       return {
-        inTheBar: !!top?.closest('[role="search"][aria-label="Dashboard filter"]'),
+        inTheBar: !!top?.closest(
+          '[role="search"][aria-label="Dashboard filter"], [role="group"][aria-label="Dashboard filter summary"]',
+        ),
         role: top?.getAttribute('role') ?? top?.tagName.toLowerCase(),
       };
     },
@@ -296,6 +300,9 @@ test.describe('Dashboards', () => {
         page.getByRole('group', { name: 'Status' }).getByRole('button', { name: 'Done', exact: true }),
         isMobile,
       );
+      // A phone's filter is a sheet over the page, which hides the table from a
+      // role query until it is closed - and closed before the funnel is reachable.
+      if (isMobile) await closeTheFilterSheet(page);
       await expect(row).toBeVisible();
       await expect(page.getByRole('row').filter({ hasNotText: 'Done' })).toHaveCount(1); // the header
       await press(tab.getByRole('button', { name: 'Clear the filter and close it' }), isMobile);
@@ -353,10 +360,77 @@ test.describe('Dashboards', () => {
       await openFirstWorkspace(page, isMobile);
       await makeWorkspace(page, workspace, isMobile);
       await switchTo(page, workspace, isMobile);
+      // **A phone folds the filter into a summary line and a sheet.** Folded into this walk
+      // rather than walked apart, which the Dashboards ceiling leaves no room for: the same
+      // funnel, bar and pinned row. It is F3 because what fits on one line is layout and a
+      // swipe is a touch gesture. Which conditions the line names, in what order, and what
+      // each tap stores is apps/web/tests/unit/components/DashboardBar.test.tsx's.
+      if (isMobile) {
+        await openDashboard(page, 'Dashboard 1', isMobile);
+        await press(dashboardTab(page, 'Dashboard 1').getByRole('button', { name: 'Filter this dashboard' }), isMobile);
+        const sheet = filterSheet(page);
+        await expect(sheet).toBeVisible();
+        // Every condition at once.
+        const within = (group: string, name: string) =>
+          press(sheet.getByRole('group', { name: group }).getByRole('button', { name, exact: true }), isMobile);
+        await within('Status', 'To do');
+        await within('Status', 'In progress');
+        await within('Priority', 'High');
+        await within('Priority', 'Normal');
+        await within('Priority', 'Low');
+        await sheet.getByRole('combobox').selectOption({ label: 'This week' });
+        await sheet.getByRole('searchbox', { name: 'Containing' }).fill('invoice');
+        await within('Attachments', 'With');
+        await press(sheet.getByRole('button', { name: 'Agent running' }), isMobile);
+
+        // **A swipe down on the handle closes it**, and keeps what was set.
+        const box = (await sheet.boundingBox())!;
+        const x = box.x + box.width / 2;
+        const y = box.y + 12;
+        const touch = await page.context().newCDPSession(page);
+        const at = (type: 'touchStart' | 'touchMove' | 'touchEnd', dy: number) =>
+          touch.send('Input.dispatchTouchEvent', {
+            type,
+            touchPoints: type === 'touchEnd' ? [] : [{ x, y: y + dy }],
+          });
+        await at('touchStart', 0);
+        for (const dy of [30, 80, 140]) await at('touchMove', dy);
+        await at('touchEnd', 140);
+        await expect(sheet).toHaveCount(0);
+
+        // **One row, and the rest as +n.** The line is as tall as one pill and
+        // names where the others went.
+        const line = page.getByRole('group', { name: 'Dashboard filter summary' });
+        await expect(line).toBeVisible();
+        await expect(line.getByText(/^\+\d+$/)).toBeVisible();
+        const lineBox = (await line.boundingBox())!;
+        const pill = (await line.getByText('To do', { exact: true }).boundingBox())!;
+        expect(lineBox.height, 'the summary is one row tall').toBeLessThan(pill.height * 2.5);
+        expect(lineBox.x + lineBox.width, 'and inside the screen').toBeLessThanOrEqual(page.viewportSize()!.width);
+        await expectNoSidewaysScroll(page);
+
+        // Kept across a reload, and cleared by its own ×.
+        await page.reload();
+        await expect(line).toBeVisible();
+        await press(line.getByRole('button', { name: 'Clear the filter' }), isMobile);
+        await expect(line).toHaveCount(0);
+      }
+
       await page.setViewportSize({ width: page.viewportSize()!.width, height: 280 });
 
       const scroller = page.locator('[data-drag-scroll="dashboard"]');
-      const bar = page.getByRole('search', { name: 'Dashboard filter' });
+      // A phone pins the one-line summary of a filter that is on; a desk pins the bar.
+      const bar = isMobile
+        ? page.getByRole('group', { name: 'Dashboard filter summary' })
+        : page.getByRole('search', { name: 'Dashboard filter' });
+      // The funnel opens the bar, or on a phone the sheet - where a filter is set
+      // and the sheet closed, since the summary is what stays pinned.
+      const openTheFilter = async (funnelButton: Locator) => {
+        await press(funnelButton, isMobile);
+        if (!isMobile) return;
+        await press(filterSheet(page).getByRole('group', { name: 'Priority' }).getByRole('button', { name: 'High' }), isMobile);
+        await closeTheFilterSheet(page);
+      };
       const scrollTop = () => scroller.evaluate((el) => el.scrollTop);
       const reach = () => scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
       const scrollDown = async (to: 'bottom' | number) => {
@@ -442,7 +516,7 @@ test.describe('Dashboards', () => {
       // **A Dashboard.**
       await expect.poll(reach).toBeGreaterThan(150);
       await scrollDown('bottom');
-      await press(funnel('Filter this dashboard'), isMobile);
+      await openTheFilter(funnel('Filter this dashboard'));
       await expect(bar).toBeVisible();
       await expect.poll(scrollTop, 'opening the bar goes to the top').toBe(0);
 
@@ -454,8 +528,13 @@ test.describe('Dashboards', () => {
       // what is behind it from role queries; paint order exists only in a real
       // layout, hence F3. Item-row submenus take their level from the same
       // `z-floating` the menus do, so they are not walked apart.
-      const drawn = page.locator('[role="search"][aria-label="Dashboard filter"]');
-      const filterButton = (await drawn.locator('button', { hasText: 'High' }).boundingBox())!;
+      // By selector, since an open menu hides the bar from role queries too.
+      const drawn = page.locator(
+        isMobile
+          ? '[role="group"][aria-label="Dashboard filter summary"]'
+          : '[role="search"][aria-label="Dashboard filter"]',
+      );
+      const filterButton = (await drawn.getByText('High', { exact: true }).boundingBox())!;
       if (!isMobile) {
         // A desk's: a phone has no Settings.
         await press(page.getByRole('button', { name: 'Profile' }), isMobile);
@@ -490,8 +569,9 @@ test.describe('Dashboards', () => {
       await page.keyboard.press('Escape');
       await expect(page.getByRole('dialog')).toHaveCount(0);
 
-      // Filtered and scrolled: clearing closes the bar and goes nowhere.
-      await press(bar.getByRole('button', { name: 'High' }), isMobile);
+      // Filtered and scrolled: clearing closes the bar and goes nowhere. A phone
+      // was filtered by opening the sheet above.
+      if (!isMobile) await press(bar.getByRole('button', { name: 'High' }), isMobile);
       await scrollDown(200);
       await press(funnel('Clear the filter and close it'), isMobile);
       await expect(bar).toHaveCount(0);
@@ -503,7 +583,12 @@ test.describe('Dashboards', () => {
       // left; a second is scrolled down; the first's filled funnel comes back
       // to it without taking it to the top.
       await press(funnel('Filter this dashboard'), isMobile);
-      await press(bar.getByRole('button', { name: 'High' }), isMobile);
+      if (isMobile) {
+        await press(filterSheet(page).getByRole('group', { name: 'Priority' }).getByRole('button', { name: 'High' }), isMobile);
+        await closeTheFilterSheet(page);
+      } else {
+        await press(bar.getByRole('button', { name: 'High' }), isMobile);
+      }
       await press(dashboardTab(page, other), isMobile);
       await expect(page.getByRole('heading', { name: other, level: 2 })).toBeVisible();
       await expect.poll(reach).toBeGreaterThan(150);
@@ -523,7 +608,7 @@ test.describe('Dashboards', () => {
       await expect(page).toHaveURL(/\/items$/);
       await expect.poll(reach).toBeGreaterThan(150);
       await scrollDown('bottom');
-      await press(tab.getByRole('button', { name: 'Filter All items' }), isMobile);
+      await openTheFilter(tab.getByRole('button', { name: 'Filter All items' }));
       await expect(bar).toBeVisible();
       await expect.poll(scrollTop, 'opening the bar goes to the top').toBe(0);
       await scrollDown('bottom');

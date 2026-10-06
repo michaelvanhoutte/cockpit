@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
@@ -12,14 +12,18 @@ import type {
 import { DashboardBar } from '../../../src/components/DashboardBar';
 import { readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
 import { DashboardFilterBar } from '../../../src/components/DashboardFilterBar';
+import { filterPills } from '../../../src/components/FilterSummary';
 import {
   NO_DASHBOARD_FILTER,
   readDashboardFilter,
+  useFilterBarOpen,
   writeDashboardFilter,
 } from '../../../src/dashboardFilter';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
+import { A_DESK, A_PHONE, onAScreen } from '../onAScreen';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
+import { setPanelsCollapsed, usePanelsCollapsed } from '../../../src/panelsCollapsed';
 import { DWELL_MS } from '../../../src/switchWhileDragging';
 import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_IS } from '../../../src/whatThingsAre';
 
@@ -139,6 +143,14 @@ function aDashboard(name: string): Dashboard {
     workspaceId: 'ws-work',
     name,
   };
+}
+
+/** What the unavailable *Collapse panels* says beside its name, as the menu's text reads it. */
+const NOT_A_PHONE = 'Only on a phone, where panels are drawn one above the next';
+
+/** The width the bar reads, which is what decides whether this is a phone. */
+function screenIs(width: number) {
+  Object.defineProperty(globalThis, 'innerWidth', { value: width, configurable: true, writable: true });
 }
 
 /** What the bar asks the server for, in the shape both senders take it. */
@@ -562,6 +574,7 @@ describe('Dashboards', () => {
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Edit…',
         'Delete',
+        `Collapse panels${NOT_A_PHONE}`,
         'Show all items',
       ]);
     });
@@ -1204,7 +1217,11 @@ describe('Dashboards', () => {
   const id = (name: string) => `ws-work-${name.toLowerCase()}`;
   const BAR = { name: 'Dashboard filter' };
 
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    onAScreen(A_DESK);
+  });
+  afterEach(() => vi.unstubAllGlobals());
 
   describe('a filter is never on out of sight', () => {
     it('opens the filter bar from the funnel on the tab you are on, and closes it clearing the filter', async () => {
@@ -1306,7 +1323,7 @@ describe('Dashboards', () => {
       expect(group().getAllByRole('button').map((b) => b.textContent)).toEqual(['To do', 'In progress', 'Done']);
     });
 
-    it('reads Status, Priority, Due, Containing, Attachments, Agent running, with Status, Priority and Attachments each one group', () => {
+    it('reads Status, Priority, Due, Containing, Attachments (With, Without, no Any), Agent running, with Status, Priority and Attachments each one group', () => {
       writeDashboardFilter(localStorage, 'order-a', { ...NO_DASHBOARD_FILTER, text: 'x' });
       render(<DashboardFilterBar dashboardId="order-a" />);
       const bar = screen.getByRole('search', BAR);
@@ -1328,6 +1345,30 @@ describe('Dashboards', () => {
       expect(controls[0]!.querySelector('span[aria-hidden="true"]')).toBeNull();
       expect(controls[1]!.querySelector('span[aria-hidden="true"]')).toBeNull();
       expect(controls[5]!.closest('fieldset')).toBeNull();
+      expect(within(controls[4]!).getAllByRole('button').map((b) => b.textContent)).toEqual(['With', 'Without']);
+    });
+
+    it('narrows by attachments only while With or Without is pressed, and pressing the pressed one lets every Item through again', async () => {
+      const { user } = showBar(['Attach one'], { openDashboardId: id('Attach one'), withFilterBar: true });
+      await user.click(await screen.findByRole('button', { name: 'Filter this dashboard' }));
+      const group = within(screen.getByRole('group', { name: 'Attachments' }));
+      const stored = () => readDashboardFilter(localStorage, id('Attach one'));
+
+      await user.click(group.getByRole('button', { name: 'With' }));
+      expect(stored().attachments).toBe('with');
+      expect(group.getByRole('button', { name: 'With' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Clear the filter' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Clear the filter and close it' })).toBeVisible();
+
+      await user.click(group.getByRole('button', { name: 'Without' }));
+      expect(stored().attachments).toBe('without');
+      expect(group.getByRole('button', { name: 'With' })).toHaveAttribute('aria-pressed', 'false');
+      expect(group.getByRole('button', { name: 'Without' })).toHaveAttribute('aria-pressed', 'true');
+
+      await user.click(group.getByRole('button', { name: 'Without' }));
+      expect(stored()).toEqual(NO_DASHBOARD_FILTER);
+      expect(group.getByRole('button', { name: 'Without' })).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'Clear the filter' })).toBeDisabled();
     });
 
     it('carries a filled funnel on a tab filtered by Agent running alone', async () => {
@@ -1376,6 +1417,232 @@ describe('Dashboards', () => {
     });
   });
 
+  describe('on a phone the filter is a summary line and a sheet', () => {
+    const summary = () => screen.getByRole('group', { name: 'Dashboard filter summary', hidden: true });
+    const sheet = () => screen.getByRole('dialog', { name: /^Filter/ });
+    // The phone's half is a chunk of its own, which a draw waits for before it is asked about.
+    const drawn = async (ui: React.ReactElement) => {
+      const drawing = render(ui);
+      await act(async () => {
+        await import('../../../src/components/FilterSummary');
+      });
+      return drawing;
+    };
+    const stored = (name: string) => readDashboardFilter(localStorage, id(name));
+
+    describe('a filtered Dashboard draws the line, or the bar from 768px, and an unfiltered one neither on a phone', () => {
+      it.each([
+        { situation: 'a phone, filtered', width: A_PHONE, filter: { text: 'vat' }, line: true, bar: false },
+        { situation: 'a phone, filtered, as after a reload', width: A_PHONE, filter: { priorities: ['high'] }, line: true, bar: false },
+        { situation: 'a phone, unfiltered', width: A_PHONE, filter: {}, line: false, bar: false },
+        { situation: '768px, filtered', width: 768, filter: { text: 'vat' }, line: false, bar: true },
+        { situation: 'a desk, filtered', width: A_DESK, filter: { text: 'vat' }, line: false, bar: true },
+      ])('$situation', async ({ width, filter, line, bar, situation }) => {
+        onAScreen(width);
+        const dashboardId = `ws-work-draws-${situation.replace(/\W+/g, '-')}`;
+        writeDashboardFilter(localStorage, dashboardId, { ...NO_DASHBOARD_FILTER, ...filter } as never);
+        await drawn(<DashboardFilterBar dashboardId={dashboardId} />);
+
+        expect(screen.queryByRole('group', { name: 'Dashboard filter summary' }) !== null).toBe(line);
+        expect(screen.queryByRole('search', BAR) !== null).toBe(bar);
+      });
+    });
+
+    describe('the line names every condition in the bar’s order', () => {
+      it.each([
+        { situation: 'To do, High', filter: { statuses: ['to_do'], priorities: ['high'] }, pills: ['To do', 'High'] },
+        { situation: 'High set before To do still reads Status first', filter: { priorities: ['high'], statuses: ['in_progress'] }, pills: ['In progress', 'High'] },
+        { situation: 'Due this week, or overdue', filter: { due: { window: 'week', orOverdue: true } }, pills: ['Due this week or overdue'] },
+        { situation: 'Due this week alone', filter: { due: { window: 'week', orOverdue: false } }, pills: ['Due this week'] },
+        { situation: 'Overdue', filter: { due: { window: 'overdue', orOverdue: false } }, pills: ['Overdue'] },
+        { situation: 'Containing invoice', filter: { text: ' invoice ' }, pills: ['"invoice"'] },
+        { situation: 'With attachments', filter: { attachments: 'with' }, pills: ['With attachments'] },
+        { situation: 'Without attachments', filter: { attachments: 'without' }, pills: ['Without attachments'] },
+        { situation: 'Agent running', filter: { agentRunning: true }, pills: ['Agent running'] },
+        {
+          situation: 'every condition',
+          filter: {
+            statuses: ['to_do'],
+            priorities: ['none'],
+            due: { window: 'today', orOverdue: false },
+            text: 'x',
+            attachments: 'with',
+            agentRunning: true,
+          },
+          pills: ['To do', 'No priority', 'Due today', '"x"', 'With attachments', 'Agent running'],
+        },
+      ])('$situation', ({ filter, pills }) => {
+        expect(filterPills({ ...NO_DASHBOARD_FILTER, ...filter } as never)).toEqual(pills);
+      });
+
+      it.each([
+        { situation: '2 panels hidden', panelsHidden: 2, said: '· 2 hidden' },
+        { situation: 'none hidden', panelsHidden: 0, said: null },
+      ])('says $situation', async ({ panelsHidden, said }) => {
+        onAScreen(A_PHONE);
+        writeDashboardFilter(localStorage, 'ws-work-said-hidden', { ...NO_DASHBOARD_FILTER, text: 'vat' });
+        await drawn(<DashboardFilterBar dashboardId="ws-work-said-hidden" panelsHidden={panelsHidden} />);
+
+        expect(within(summary()).queryByText(/hidden/)?.textContent ?? null).toBe(said);
+        expect(within(summary()).getByText('Edit')).toBeVisible();
+      });
+    });
+
+    describe('the sheet changes the filter as you tap, and closing it keeps what was set', () => {
+      beforeEach(() => onAScreen(A_PHONE));
+
+      it('opens from the line with every condition and focus inside, and stores each tap at once', async () => {
+        const user = userEvent.setup();
+        writeDashboardFilter(localStorage, id('Sheet one'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
+        await drawn(<DashboardFilterBar dashboardId={id('Sheet one')} panelsHidden={3} />);
+
+        await user.click(within(summary()).getByText('Edit'));
+
+        expect(sheet()).toHaveTextContent('3 panels hidden');
+        for (const name of ['Status', 'Priority', 'Attachments']) {
+          expect(within(sheet()).getByRole('group', { name })).toBeVisible();
+        }
+        expect(within(sheet()).getByRole('combobox')).toBeVisible();
+        expect(within(sheet()).getByRole('searchbox', { name: 'Containing' })).toHaveValue('vat');
+        expect(within(sheet()).getByRole('button', { name: 'Agent running' })).toBeVisible();
+        await waitFor(() => expect(sheet().contains(document.activeElement)).toBe(true));
+
+        await user.click(within(within(sheet()).getByRole('group', { name: 'Status' })).getByRole('button', { name: 'In progress' }));
+        expect(stored('Sheet one').statuses).toEqual(['in_progress']);
+        expect(within(summary()).getByText('In progress')).toBeVisible();
+      });
+
+      it.each([
+        { how: 'Done', close: (user: ReturnType<typeof userEvent.setup>) => user.click(within(sheet()).getByRole('button', { name: 'Done' })) },
+        { how: 'Escape', close: (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Escape}') },
+        {
+          how: 'the scrim',
+          close: (user: ReturnType<typeof userEvent.setup>) =>
+            user.click(document.querySelector('[data-state="open"].fixed.inset-0') as HTMLElement),
+        },
+      ])('$how closes it, keeps the filter and puts focus back on the line', async ({ how, close }) => {
+        const user = userEvent.setup();
+        const name = `Sheet close ${how}`;
+        writeDashboardFilter(localStorage, id(name), { ...NO_DASHBOARD_FILTER, priorities: ['high'] });
+        await drawn(<DashboardFilterBar dashboardId={id(name)} />);
+        await user.click(within(summary()).getByText('Edit'));
+        await screen.findByRole('dialog');
+
+        await close(user);
+
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(stored(name).priorities).toEqual(['high']);
+        await waitFor(() => expect(summary().contains(document.activeElement)).toBe(true));
+      });
+
+      it('clears from the sheet and keeps it open, and leaves no line once it is closed', async () => {
+        const user = userEvent.setup();
+        writeDashboardFilter(localStorage, id('Sheet clear'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
+        await drawn(<DashboardFilterBar dashboardId={id('Sheet clear')} />);
+        await user.click(within(summary()).getByText('Edit'));
+
+        await user.click(within(sheet()).getByRole('button', { name: 'Clear the filter' }));
+
+        expect(stored('Sheet clear')).toEqual(NO_DASHBOARD_FILTER);
+        expect(sheet()).toBeVisible();
+        await user.click(within(sheet()).getByRole('button', { name: 'Done' }));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(screen.queryByRole('group', { name: 'Dashboard filter summary' })).toBeNull();
+      });
+
+      it('clears from the × on the line, which goes with it', async () => {
+        const user = userEvent.setup();
+        writeDashboardFilter(localStorage, id('Line clear'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
+        await drawn(<DashboardFilterBar dashboardId={id('Line clear')} />);
+
+        await user.click(within(summary()).getByRole('button', { name: 'Clear the filter' }));
+
+        expect(stored('Line clear')).toEqual(NO_DASHBOARD_FILTER);
+        expect(screen.queryByRole('group', { name: 'Dashboard filter summary' })).toBeNull();
+        expect(screen.queryByRole('dialog')).toBeNull();
+      });
+    });
+
+    describe('the funnel opens the sheet where nothing is set, and clears where something is', () => {
+      beforeEach(() => onAScreen(A_PHONE));
+
+      it('opens the sheet from the funnel, and closing it with nothing set leaves no line', async () => {
+        const { user } = showBar(['Phone funnel'], { openDashboardId: id('Phone funnel'), withFilterBar: true });
+
+        await user.click(await screen.findByRole('button', { name: 'Filter this dashboard' }));
+        expect(sheet()).toBeVisible();
+        expect(screen.queryByRole('search', BAR)).toBeNull();
+
+        await user.click(within(sheet()).getByRole('button', { name: 'Done' }));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(screen.queryByRole('group', { name: 'Dashboard filter summary' })).toBeNull();
+      });
+
+      it('clears from the funnel of a filtered Dashboard, and the line goes', async () => {
+        writeDashboardFilter(localStorage, id('Phone funnel set'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
+        const { user } = showBar(['Phone funnel set'], { openDashboardId: id('Phone funnel set'), withFilterBar: true });
+        expect(await screen.findByRole('group', { name: 'Dashboard filter summary' })).toBeVisible();
+
+        await user.click(await screen.findByRole('button', { name: 'Clear the filter and close it' }));
+
+        expect(stored('Phone funnel set')).toEqual(NO_DASHBOARD_FILTER);
+        expect(screen.queryByRole('group', { name: 'Dashboard filter summary' })).toBeNull();
+      });
+    });
+
+    it('closes a bar left open on another Dashboard when 768px is crossed, so no sheet opens by itself on return', async () => {
+      const screenNow = onAScreen(A_DESK);
+      const { rerender } = await drawn(<DashboardFilterBar dashboardId={id('Away a')} />);
+      const bar = renderHook(() => useFilterBarOpen(id('Away a')));
+      act(() => bar.result.current[1](true));
+      rerender(<DashboardFilterBar dashboardId={id('Away b')} />);
+      act(() => screenNow.resize(A_PHONE));
+      rerender(<DashboardFilterBar dashboardId={id('Away a')} />);
+      await act(async () => {});
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('keeps the "+n" when a pill is added to a line that was already cut short', async () => {
+      // Every pill 100px wide on a 300px strip: two fit beside the "+n" whatever is set.
+      const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 100 } as DOMRect);
+      const room = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300);
+      try {
+        onAScreen(A_PHONE);
+        writeDashboardFilter(localStorage, id('Cut'), { ...NO_DASHBOARD_FILTER, priorities: ['high', 'low', 'none'] });
+        await drawn(<DashboardFilterBar dashboardId={id('Cut')} />);
+        expect(within(summary()).getByText('+1')).toBeVisible();
+        const user = userEvent.setup();
+        await user.click(within(summary()).getByText('Edit'));
+        await user.click(within(sheet()).getByRole('button', { name: 'Normal' }));
+        expect(within(summary()).getByText('+2')).toBeInTheDocument();
+      } finally {
+        rect.mockRestore();
+        room.mockRestore();
+      }
+    });
+
+    it('keeps the filter across 768px: the bar when widened with the sheet open, the line when narrowed again', async () => {
+      const user = userEvent.setup();
+      const screenNow = onAScreen(A_PHONE);
+      writeDashboardFilter(localStorage, id('Crossing'), { ...NO_DASHBOARD_FILTER, priorities: ['high'] });
+      await drawn(<DashboardFilterBar dashboardId={id('Crossing')} />);
+      await user.click(within(summary()).getByText('Edit'));
+      expect(sheet()).toBeVisible();
+
+      act(() => screenNow.resize(A_DESK));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(within(screen.getByRole('search', BAR)).getByRole('button', { name: 'High' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+
+      act(() => screenNow.resize(A_PHONE));
+      expect(screen.queryByRole('search', BAR)).toBeNull();
+      expect(within(summary()).getByText('High')).toBeVisible();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
+
   describe('while filtered, nothing about the arrangement can change', () => {
     it('says why a panel cannot be added', async () => {
       const open = id('Locked one');
@@ -1394,6 +1661,79 @@ describe('Dashboards', () => {
       const add = await screen.findByRole('button', { name: '+ Panel' });
       expect(add).toBeDisabled();
       expect(add).toHaveAttribute('title', expect.stringContaining('Clear the dashboard filter'));
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('the dashboard’s menu collapses every panel to its header, on a phone', () => {
+    const OPEN = 'ws-work-research';
+    const panels = [aPanel('Falcon', OPEN)];
+    const menu = async (extra: Parameters<typeof showBar>[1] = {}) => {
+      const shown = showBar(['Dashboard 1', 'Research'], {
+        openDashboardId: OPEN,
+        panels,
+        ...extra,
+      });
+      await shown.user.click(await screen.findByRole('button', { name: 'Actions for Research' }));
+      return shown;
+    };
+    const collapsed = () => renderHook(() => usePanelsCollapsed(OPEN)).result.current.collapsed;
+    const phone = () => {
+      screenIs(390);
+    };
+
+    beforeEach(() => screenIs(1280));
+    afterEach(() => {
+      act(() => setPanelsCollapsed(null));
+      screenIs(1024);
+    });
+
+    it('offers Collapse panels while open, and Open panels while collapsed', async () => {
+      phone();
+      const { user } = await menu();
+      await user.click(await screen.findByRole('menuitem', { name: 'Collapse panels' }));
+      expect(collapsed()).toBe(true);
+
+      await user.click(screen.getByRole('button', { name: 'Actions for Research' }));
+      expect(screen.queryByRole('menuitem', { name: 'Collapse panels' })).toBeNull();
+      await user.click(await screen.findByRole('menuitem', { name: 'Open panels' }));
+
+      expect(collapsed()).toBe(false);
+    });
+
+    it.each([
+      {
+        situation: 'a screen from 480 px up',
+        width: 480,
+        panelsHeld: panels,
+        said: 'Collapse panels: Only on a phone, where panels are drawn one above the next',
+      },
+      {
+        situation: 'a dashboard with no panels, on a phone',
+        width: 390,
+        panelsHeld: [] as Panel[],
+        said: 'Collapse panels: This dashboard has no panels',
+      },
+    ])('stays on the menu but unavailable, saying why, on $situation', async ({ width, panelsHeld, said }) => {
+      screenIs(width);
+      const { user } = await menu({ panels: panelsHeld });
+
+      const entry = await screen.findByRole('menuitem', { name: said });
+      expect(entry).toHaveAttribute('aria-disabled', 'true');
+      await user.click(entry);
+
+      expect(collapsed()).toBe(false);
+    });
+
+    it('is offered on the open dashboard alone, not on another dashboard’s tab', async () => {
+      phone();
+      showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN, panels });
+
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Dashboard 1' }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Edit…' })).toBeVisible();
+      expect(screen.queryByRole('menuitem', { name: /Collapse panels/ })).toBeNull();
     });
   });
 });
