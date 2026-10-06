@@ -273,7 +273,7 @@ export function ItemRow({
 
   /** To do, In progress or Done ("Mark an item In progress, and see since when", issue 568). Done never reaches this row - `stillOpen`, `filing.ts`. */
   const status = itemStatus(item);
-  /** Whether the Status submenu has room beside the menu; watched, so a window resized under an open menu is answered. */
+  /** Whether this is a desk-width screen (768px and up): where the Status submenu has room beside the menu, and the row's phone layout's switch (`onAPhone`). Watched, so a window resized under an open menu is answered. */
   const roomBesideTheMenu = useRoomForTheInbox();
 
   /**
@@ -488,6 +488,27 @@ export function ItemRow({
    * stays ordinary, however overdue.
    */
   const deadline = deadlineOf(item.dueDate, Date.now());
+  /**
+   * Whether this is a screen narrower than 768px, where the title line holds
+   * only what names the item and the pill and the age give way to it ("Give an
+   * Item row's title the width on a phone", issue 782). The same answer as the
+   * menu's room above, so the app has one line between phone and desk.
+   */
+  const onAPhone = !roomBesideTheMenu;
+  /**
+   * How near the deadline is, said in words on a pill whose fill gets louder
+   * as it closes (`dueDate.ts`'s `deadlineOf`) - the row itself stays as it
+   * is. Nothing while it is over a week off. Words as well as colour, so it
+   * reads without telling the colours apart. Built once so the title line and
+   * the line under it draw the same pill.
+   */
+  const deadlinePill = deadline && (
+    <span
+      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium leading-none ${DEADLINE_PILLS[deadline.level]}`}
+    >
+      {deadline.label}
+    </span>
+  );
 
   /**
    * The finger resting on this row, waiting to become a selection ("Start a
@@ -1020,7 +1041,7 @@ export function ItemRow({
       // which can say it in words.
       //
       // **The row's own colour says only whether it is picked.** How near its
-      // deadline is belongs to the pill on the title line, which is why an
+      // deadline is belongs to the pill, which is why an
       // overdue row is no longer filled red. The row being shown in a docked
       // form is ringed instead, and named to assistive tech.
       aria-current={dock.openId === item.id ? 'true' : undefined}
@@ -1092,17 +1113,9 @@ export function ItemRow({
             >
               {label}
             </span>
-            {/* How near the deadline is, said in words on a pill whose fill gets
-                louder as it closes (`dueDate.ts`'s `deadlineOf`) - the row
-                itself stays as it is. Nothing while it is over a week off. Words
-                as well as colour, so it reads without telling the colours apart. */}
-            {deadline && (
-              <span
-                className={`shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium leading-none ${DEADLINE_PILLS[deadline.level]}`}
-              >
-                {deadline.label}
-              </span>
-            )}
+            {/* The pill sits here on a desk, and under the title on a phone, where
+                the title needs the width (`deadlinePill` above). */}
+            {!onAPhone && deadlinePill}
             {/* Every other live Panel or Filter this Item shows on, straight
                 after its title ("Say which other panels an item is also in,
                 after its title", issue 466) - absent wherever `alsoIn` is
@@ -1262,9 +1275,12 @@ export function ItemRow({
             )}
             {/* The due date, when one is set - nothing drawn for an item with
                 none, the same convention priority's own mark follows. The
-                text itself stays plain; how near it is is the pill on the
-                title line. */}
-            {dueDateText && <span className="shrink-0">Due {dueDateText}</span>}
+                text itself stays plain; how near it is is the pill. On a phone
+                the pill takes the date's place, and the date only shows where
+                there is no pill - more than a week off. */}
+            {onAPhone && deadlinePill
+              ? deadlinePill
+              : dueDateText && <span className="shrink-0">Due {dueDateText}</span>}
             {/* Cockpit's own proposal, not yet taken - a click is the whole of
                 accepting it, and `title` is where "in your own terms rather
                 than the model's" lives, the reason written for this hover and
@@ -1299,8 +1315,9 @@ export function ItemRow({
 
         {/* How long it has waited. Tabular figures so the column does not shuffle
             sideways as the numbers change under it, and `title` because `14d` is
-            short enough to be worth spelling out on hover. */}
-        {waited && (
+            short enough to be worth spelling out on hover. Not drawn on a phone,
+            where the width is the title's. */}
+        {waited && !onAPhone && (
           <span className="shrink-0 text-xs tabular-nums text-ink-faint" title={`Waiting ${waited}`}>
             {waited}
           </span>

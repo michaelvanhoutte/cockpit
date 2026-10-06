@@ -257,6 +257,23 @@ async function hoverLabel(
   await user.hover(label);
 }
 
+/**
+ * Answers the row's one question about the screen - whether it is 768px or
+ * wider (`roomForTheInbox.ts`) - as a screen of this width would. jsdom has no
+ * `matchMedia`, which the app reads as a phone, so a test about either shape
+ * says which it is on.
+ */
+function onAScreen(width: number) {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: width >= Number(/min-width: (\d+)px/.exec(query)?.[1]),
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }));
+}
+const A_PHONE = 390;
+const A_DESK = 1280;
+
 describe('Triage', () => {
   describe("an item's menu offers only what the app does, for that row's own item", () => {
     it('Dismiss', async () => {
@@ -634,6 +651,10 @@ describe('Triage', () => {
 
 describe('Triage', () => {
   describe('an Inbox row says where it came from and how long it has waited', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
     it('carries neither the mark nor the word the status had', () => {
       mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
       render(<ItemRow item={anItem({})} workspaceId="ws-work" />);
@@ -667,6 +688,7 @@ describe('Triage', () => {
       // arithmetic itself is proved without one in tests/unit/waited.test.ts.
       vi.useFakeTimers();
       vi.setSystemTime(Date.parse('2026-08-26T10:00:00.000Z'));
+      onAScreen(A_DESK);
       try {
         mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
         render(<ItemRow item={anItem({ createdAt })} workspaceId="ws-work" />);
@@ -676,6 +698,26 @@ describe('Triage', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  describe('on a phone, a row does not say how long it has waited', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    });
+
+    it.each([
+      { situation: 'a phone', width: A_PHONE, shows: false },
+      { situation: 'a desk', width: A_DESK, shows: true },
+    ])('an item sitting for days on $situation', ({ width, shows }) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.parse('2026-08-26T10:00:00.000Z'));
+      onAScreen(width);
+      mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+      render(<ItemRow item={anItem({ createdAt: '2026-08-12T10:00:00.000Z' })} workspaceId="ws-work" />);
+
+      expect(screen.queryByText('14d') !== null).toBe(shows);
     });
   });
 });
@@ -1513,6 +1555,63 @@ describe('Triage', () => {
       });
 
       expect(screen.getByRole('listitem').className).toContain('bg-accent-tint');
+    });
+  });
+
+  /**
+   * Which line carries the deadline is a branch on the screen's width ("Give
+   * an Item row's title the width on a phone", issue 782): the pill's own
+   * words and colours are the rule above, run on either line.
+   */
+  describe('on a phone, a row says how near its deadline is under its title, in place of the date', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    });
+
+    /** The title's own line, and the line of source and date under it. */
+    const lines = () => {
+      const title = screen.getByText('Make appointment with Novy').parentElement as HTMLElement;
+      const meta = screen.getByText(/Own/).parentElement as HTMLElement;
+      return { title, meta };
+    };
+
+    it.each([
+      { situation: 'overdue 2 days', dueDate: '2026-09-15', pill: 'Overdue 2d', date: false },
+      { situation: 'due today', dueDate: '2026-09-17', pill: 'Due today', date: false },
+      { situation: 'due within a week', dueDate: '2026-09-22', pill: 'Due in 5d', date: false },
+      { situation: 'due more than a week off', dueDate: '2026-09-30', pill: null, date: true },
+      { situation: 'without a due date', dueDate: null, pill: null, date: false },
+    ])('an item $situation, on a phone', ({ dueDate, pill, date }) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-09-17T12:00:00'));
+      onAScreen(A_PHONE);
+      aRow({ item: anItem({ dueDate }) });
+
+      const { title, meta } = lines();
+      expect(within(title).queryByText(/^(Due|Overdue)/)).toBeNull();
+      if (pill) expect(within(meta).getByText(pill)).toBeInTheDocument();
+      else expect(within(meta).queryByText(/^(Due in|Due today|Due tomorrow|Overdue)/)).toBeNull();
+      expect(within(meta).queryByText(/^Due .*2026/) !== null).toBe(date);
+      // Said once: the pill is the date's replacement, not a second mention.
+      expect(screen.queryAllByText(/^(Due|Overdue)/)).toHaveLength(pill || date ? 1 : 0);
+    });
+
+    it.each([
+      { situation: 'overdue 2 days', dueDate: '2026-09-15', pill: 'Overdue 2d', date: true },
+      { situation: 'due within a week', dueDate: '2026-09-22', pill: 'Due in 5d', date: true },
+      { situation: 'due more than a week off', dueDate: '2026-09-30', pill: null, date: true },
+    ])('an item $situation, on a desk, keeps the pill beside its title and the date under it', ({ dueDate, pill, date }) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-09-17T12:00:00'));
+      onAScreen(A_DESK);
+      aRow({ item: anItem({ dueDate }) });
+
+      const { title, meta } = lines();
+      if (pill) expect(within(title).getByText(pill)).toBeInTheDocument();
+      else expect(within(title).queryByText(/^(Due|Overdue)/)).toBeNull();
+      expect(within(meta).queryByText(/^(Due in|Due today|Due tomorrow|Overdue)/)).toBeNull();
+      expect(within(meta).queryByText(/^Due .*2026/) !== null).toBe(date);
     });
   });
 });
