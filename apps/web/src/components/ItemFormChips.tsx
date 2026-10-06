@@ -73,7 +73,7 @@ export default function ItemFormChips(props: ItemFormChipsProps) {
           disabled={disabled}
           className={`${CHIP} ${SET} bg-accent-tint text-accent-deep`}
         >
-          <span className="truncate">{type?.name ?? 'No type'}</span>
+          <span className="truncate">{type?.name ?? (typeId === null ? 'No type' : 'Type')}</span>
         </DropdownMenu.Trigger>
         <MenuContent align="start">
           {/* Only while the item has none: nothing sets a type to none. */}
@@ -135,14 +135,22 @@ export default function ItemFormChips(props: ItemFormChipsProps) {
           )}
         </DropdownMenu.Trigger>
         <MenuContent align="start">
-          {/* Pressing the ticked level clears it, as pressing the lit flag does at a desk. */}
+          <DropdownMenu.Item
+            role="menuitemradio"
+            aria-checked={priority === null}
+            className={menuItemSplitClass}
+            onSelect={() => props.onPriority(null)}
+          >
+            <span>No priority</span>
+            <Ticked on={priority === null} />
+          </DropdownMenu.Item>
           {prioritySchema.options.map((level) => (
             <DropdownMenu.Item
               key={level}
               role="menuitemradio"
               aria-checked={level === priority}
               className={menuItemSplitClass}
-              onSelect={() => props.onPriority(level === priority ? null : level)}
+              onSelect={() => props.onPriority(level)}
             >
               <span>{PRIORITY_LABELS[level]}</span>
               <Ticked on={level === priority} />
@@ -189,8 +197,9 @@ export default function ItemFormChips(props: ItemFormChipsProps) {
               <input
                 type="date"
                 value={dueDate ?? ''}
+                // Held, not chosen: a typed date reports a whole value after its first digit, so the popover stays open until it is dismissed.
                 onChange={(e) => {
-                  if (e.target.value) chooseDue(e.target.value);
+                  if (e.target.value) props.onDueDate(e.target.value);
                 }}
                 className="mt-1 h-9 w-full rounded-md border border-shade/10 bg-white px-3 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
               />

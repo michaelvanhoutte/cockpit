@@ -66,6 +66,7 @@ import {
 import { useScreenWidth } from '../panels/useScreenWidth';
 import { ROOM_FOR_THE_INBOX_PX } from '../roomForTheInbox';
 import { PRIORITY_FLAG_COLOURS, PRIORITY_LABELS } from '../priority';
+import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { useCockpitChanges } from '../useCockpitChanges';
 
 /** The tab's list and its before-and-after, loaded the first time the tab is opened; only the note's check is in the form's own code (issue 690). */
@@ -315,6 +316,8 @@ function TheForm({
   const onAPage = screenWidth < ROOM_FOR_THE_INBOX_PX;
   /** Whether the attachments' list is open, on a page where it is one line until asked for. */
   const [filesOpen, setFilesOpen] = useState(false);
+  /** The phone page's chips chunk never arrived: the rest of the form stays, and says so. */
+  const [chipsFailed, setChipsFailed] = useState(false);
   /**
    * What is actually drawn - the account's own choice, unless the screen is
    * a page (`onAPage`), which is never docked: "out of scope" has to mean
@@ -1906,8 +1909,14 @@ function TheForm({
                       </div>
                       </>
                       )}
-                      {onAPage && (
+                      {onAPage && chipsFailed && (
+                        <p role="alert" className="text-sm text-over">
+                          The fields could not load. Close this and open it again.
+                        </p>
+                      )}
+                      {onAPage && !chipsFailed && (
                         // Chips, one row, each opening its own picker; a choice is held in the draft until Save ("Edit an Item's type, status, priority and due date from chips on a phone", issue 787). Fetched only here, so a desk never loads it.
+                        <WhateverTheQuestionDoes onFailure={() => setChipsFailed(true)}>
                         <Suspense fallback={<div className="h-9" aria-hidden="true" />}>
                           <ItemFormChips
                             typeId={draft.typeId}
@@ -1923,6 +1932,7 @@ function TheForm({
                             onAttach={() => attachmentInputRef.current?.click()}
                           />
                         </Suspense>
+                        </WhateverTheQuestionDoes>
                       )}
                       </div>
 

@@ -51,6 +51,13 @@ async function togglePriority(page: Page, level: string, isMobile: boolean): Pro
   await press(page.getByRole('menuitemradio', { name: level, exact: true }), isMobile);
 }
 
+/** Priority set to none, as the device draws it: the lit flag pressed again at a desk, *No priority* in the chip's picker on a phone. */
+async function clearPriority(page: Page, level: string, isMobile: boolean): Promise<void> {
+  if (!isMobile) return togglePriority(page, level, isMobile);
+  await press(chips(page).nth(2), isMobile);
+  await press(page.getByRole('menuitemradio', { name: 'No priority', exact: true }), isMobile);
+}
+
 async function expectPriority(page: Page, level: string, isMobile: boolean): Promise<void> {
   if (isMobile) await expect(chips(page).nth(2)).toHaveAccessibleName(`${level} priority`);
   else await expect(priorityFlag(page, level)).toHaveAttribute('aria-pressed', 'true');
@@ -320,7 +327,7 @@ test.describe('Item editing', () => {
       await openItem(page, marked, isMobile);
       if (isMobile) await expect(chips(page).nth(3)).toHaveText('Due Sep 30, 2099');
       else await expect(dueDateBox(page)).toHaveValue('2099-09-30');
-      await togglePriority(page, 'High', isMobile);
+      await clearPriority(page, 'High', isMobile);
       if (isMobile) {
         await press(chips(page).nth(3), isMobile);
         await press(page.getByRole('button', { name: 'Clear' }), isMobile);

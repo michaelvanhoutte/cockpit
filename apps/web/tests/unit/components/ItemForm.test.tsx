@@ -1298,9 +1298,9 @@ describe('Item editing', () => {
         asks: { name: 'set_priority', payload: { priority: 'high' } },
       },
       {
-        situation: 'the ticked priority level again',
+        situation: 'No priority, on an item that has one',
         over: { priority: 'normal' as const },
-        choose: (user: User) => pick(user, 'Normal priority', 'Normal'),
+        choose: (user: User) => pick(user, 'Normal priority', 'No priority'),
         asks: { name: 'set_priority', payload: { priority: null } },
       },
     ])('$situation is sent on Save, and not before', async ({ over, choose, asks }) => {
@@ -1364,6 +1364,20 @@ describe('Item editing', () => {
         await saved(user);
 
         expect(sent()[0]).toMatchObject({ name: 'set_due_date', payload: { dueDate: '2099-09-30' } });
+      });
+    });
+
+    it('Due, a picked date, leaves the picker open for the rest of a typed one', async () => {
+      await atWidth(390, async () => {
+        const user = await theForm();
+
+        await user.click(await screen.findByRole('button', { name: 'Due date' }));
+        fireEvent.change(await screen.findByLabelText('Pick a date'), { target: { value: '0002-09-18' } });
+
+        expect(screen.getByLabelText('Pick a date')).toBeVisible();
+        fireEvent.change(screen.getByLabelText('Pick a date'), { target: { value: '2099-09-18' } });
+        await saved(user);
+        expect(sent()[0]).toMatchObject({ payload: { dueDate: '2099-09-18' } });
       });
     });
 
