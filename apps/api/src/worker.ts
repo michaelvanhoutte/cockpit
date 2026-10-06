@@ -16,19 +16,22 @@ import application from './index.js';
 import type { Env } from './env.js';
 import { consent } from './mcp/consent.js';
 import { asReachedAt, oauthHelpersFor, providerFor } from './mcp/oauth.js';
+import { SHARE_TARGET_PATH } from '@cockpit/shared';
+import { answerShare } from './share-target.js';
 import { AUTHORIZE_PATH, isAnsweredByTheAuthorizationServer } from './mcp/paths.js';
 
 export type { AppType } from './index.js';
 export { AccountStore } from './accounts/store.js';
 
 /**
- * Three doors, decided by path before anything else runs ("Connect Claude to
+ * Four doors, decided by path before anything else runs ("Connect Claude to
  * Cockpit, and capture an item from it", issue 599):
  *
  * | Path | Answered by | Admitted by |
  * |---|---|---|
  * | `/mcp`, `/oauth/token`, `/oauth/register`, `/.well-known/oauth-*` | the OAuth library | an access token it issued, or the protocol's own checks |
  * | `/oauth/authorize` | the consent page (`mcp/consent.ts`) | a Google sign-in, read by the page |
+ * | `/share-target` | a redirect to Capture (`share-target.ts`) | nothing: it reads nothing |
  * | everything else | the application (`http/app.ts`) | the sign-in gate (`auth/gate.ts`) |
  *
  * **In front of the gate rather than behind it**, so a session cookie never
@@ -41,6 +44,7 @@ export default {
       return providerFor(env).fetch(asReachedAt(request, env), env, ctx as never);
     }
     if (pathname === AUTHORIZE_PATH) return consent.fetch(request, env, ctx);
+    if (pathname === SHARE_TARGET_PATH) return answerShare(request);
     // The library's helpers, for the admin routes that revoke somebody's
     // apps when their access goes (`mcp/revoke.ts`).
     env.OAUTH_PROVIDER ??= oauthHelpersFor(env);

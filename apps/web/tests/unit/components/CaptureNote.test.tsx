@@ -31,6 +31,8 @@ import {
   type EngineFactory,
 } from '../../../src/dictation';
 import { anEngine } from '../support/speech';
+import { whatArrived, type Arrived } from '../../../src/shares';
+import { aShare, aSharedPhoto } from '../support/shares';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
@@ -163,6 +165,7 @@ async function thePage({
   store = browserOutboxStore(),
   dictating,
   language,
+  arrived,
 }: {
   /**
    * Null for an account that has not answered what types it has, and
@@ -185,6 +188,8 @@ async function thePage({
   dictating?: { engine?: EngineFactory | null; store?: Storage | undefined };
   /** The language stored on this device before the page opens. */
   language?: string;
+  /** What the share sheet handed over, as the page claimed it. */
+  arrived?: Arrived | null;
 } = {}) {
   held.types = types;
   held.items = items;
@@ -226,7 +231,7 @@ async function thePage({
   const page = render(
     <QueryClientProvider client={client}>
       <OutboxProvider value={outbox}>
-        <CaptureNote startsIn={startsIn} dictating={dictating} />
+        <CaptureNote startsIn={startsIn} dictating={dictating} arrived={arrived} />
       </OutboxProvider>
     </QueryClientProvider>,
   );
@@ -1836,6 +1841,52 @@ describe('Capture', () => {
       ['Linux', 'Mozilla/5.0 (X11; Linux x86_64) Firefox/131.0', 'Ctrl V'],
     ])('on %s it says %s', (_keyboard, userAgent, key) => {
       expect(pasteKeyFor(userAgent)).toBe(key);
+    });
+  });
+
+  /**
+   * "Share photos, files and links into Cockpit from Android's share sheet",
+   * issue 789. The page claims what the share sheet handed over and gives it to
+   * the form (tests/unit/pages/CapturePage.test.tsx); what is held becomes
+   * `arrived` through `whatArrived`, as here.
+   */
+  describe('the Capture page puts what was shared on the note', () => {
+    it('queues a shared photo as a chip, with Where on Any workspace', async () => {
+      await thePage({ arrived: whatArrived([aShare({ files: [aSharedPhoto()] })]) });
+
+      expect(await screen.findByText('photo.png')).toBeVisible();
+      expect(chip('Any workspace')).toHaveAttribute('aria-pressed', 'true');
+      expect(uploadAttachment).not.toHaveBeenCalled();
+    });
+
+    it('puts a shared text and link in the note, text first', async () => {
+      await thePage({
+        arrived: whatArrived([aShare({ text: 'Worth a read', url: 'https://example.com/a' })]),
+      });
+
+      expect(await waitFor(() => box())).toHaveValue('Worth a read\nhttps://example.com/a');
+    });
+
+    it('puts two shares on the one note, with the files of both', async () => {
+      await thePage({
+        arrived: whatArrived([
+          aShare({ id: 'a', text: 'first', files: [aSharedPhoto('one.png')] }),
+          aShare({ id: 'b', receivedAt: '2026-10-06T09:00:00.000Z', text: 'second', files: [aSharedPhoto('two.png')] }),
+        ]),
+      });
+
+      expect(await screen.findByText('one.png')).toBeVisible();
+      expect(screen.getByText('two.png')).toBeVisible();
+      expect(box()).toHaveValue('first\n\nsecond');
+    });
+
+    it('refuses a shared file the Attachment rules refuse as it refuses a dropped one, and queues the rest', async () => {
+      const notes = { ...aSharedPhoto('notes.txt'), type: 'text/plain' };
+      await thePage({ arrived: whatArrived([aShare({ files: [notes, aSharedPhoto()] })]) });
+
+      expect(await screen.findByText('photo.png')).toBeVisible();
+      expect(screen.getByRole('alert')).toHaveTextContent('"notes.txt" is not a kind of file Cockpit accepts.');
+      expect(screen.queryByText('notes.txt')).toBeNull();
     });
   });
 });

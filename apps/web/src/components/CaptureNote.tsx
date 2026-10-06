@@ -9,6 +9,7 @@ import { howLongAgo, useCapture } from '../capture';
 import { stateOf, whatGoesBack, type EntryState, type OutboxEntry } from '../captureOutbox';
 import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
 import { useDockedItem } from '../itemForm';
+import type { Arrived } from '../shares';
 import { NO_TYPES, typesOffered } from '../itemTypes';
 import { LazyRichDescription, NewerVersionIfStale, WhateverTheEditorDoes } from '../description/lazyEditor';
 import { dueDateLabel } from '../dueDate';
@@ -49,9 +50,12 @@ import {
  */
 export function CaptureNote({
   startsIn,
+  arrived,
   dictating,
 }: {
   startsIn: string | null;
+  /** What the share sheet handed over, claimed by the page: put on the note once, as if typed and dropped here. */
+  arrived?: Arrived | null | undefined;
   /** Where speech comes from and where the language is kept: the browser's own, unless a test hands in a fake. */
   dictating?: { engine?: EngineFactory | null; store?: Storage | undefined } | undefined;
 }) {
@@ -269,6 +273,20 @@ export function CaptureNote({
     if (accepted.length === 0) return;
     setQueued((was) => [...was, ...accepted.map(toQueued)]);
   };
+
+  /**
+   * What was shared into Cockpit ("Share photos, files and links into Cockpit
+   * from Android's share sheet", issue 789): files wait as chips through the
+   * same check a dropped file gets, words go after whatever is already in the
+   * note. Once per claim - a strict-mode second run must not add it again.
+   */
+  const putOn = useRef<Arrived | null>(null);
+  useEffect(() => {
+    if (!arrived || putOn.current === arrived) return;
+    putOn.current = arrived;
+    if (arrived.message) setMessage((was) => (was.trim() ? `${was}\n${arrived.message}` : arrived.message));
+    if (arrived.files.length > 0) queueFiles(arrived.files);
+  }, [arrived]);
 
   /**
    * **Put back**: a refused capture's note and files return to the box, and

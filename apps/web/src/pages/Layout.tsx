@@ -50,6 +50,7 @@ import { useConnections } from '../connections';
 import type { ConnectOutcomeFor, SettingsKey } from '../components/SettingsWindow';
 import { useScrollWhileDraggingAnItem } from '../dragScroll';
 import { useOutbox, useSendingCaptures, useWaitingCaptures } from '../captureOutboxSender';
+import { emptyHoldingArea } from '../shares';
 import { loadCaptureNote } from '../captureForm';
 import { DeleteQuestion } from '../components/DeleteQuestion';
 
@@ -601,7 +602,12 @@ function TheShell() {
   }, [signedOut, navigate]);
 
   const leave = useMutation({
-    mutationFn: signOut,
+    // What was shared into Cockpit and not yet claimed has no owner to keep it
+    // for, so the explicit way out empties it whether or not captures wait.
+    mutationFn: async () => {
+      await emptyHoldingArea();
+      await signOut();
+    },
     // `onSettled`, not `onSuccess`. Somebody who asked to sign out on a shared
     // machine has to end up signed out of *this browser* whether or not the
     // request reached the server - and if it did not, the sign-in it failed to
