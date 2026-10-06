@@ -2381,16 +2381,24 @@ describe('Onboarding', () => {
       });
 
       it('leaves out a heading the Dashboard filter has emptied', async () => {
-        filterTheDashboard({ text: 'bart' });
+        // Anna is on To read alone, so Project Falcon is left with nothing.
+        filterTheDashboard({ text: 'anna' });
         aGroupedBoard('panel');
 
         await screen.findByRole('region', { name: 'Due soon' });
 
-        expect(groupsOf('Due soon').map((group) => group.heading)).toEqual([
-          'Project Falcon · Today1',
-          'To read · Research1',
-        ]);
-        expect(groupsOf('Due soon').flatMap((group) => group.rows)).toEqual(['Reply to Bart', 'Reply to Bart']);
+        expect(groupsOf('Due soon')).toEqual([{ heading: 'To read · Research1', rows: ['Call Anna'] }]);
+      });
+
+      it('draws the one list, and says nothing of a grouping, where a copy restored from this browser carries none', async () => {
+        // What a stored copy from before the grouping holds: nothing re-validates
+        // it on the way back out of the browser's storage (`persistence.tsx`).
+        aGroupedBoard(undefined as unknown as FilterGrouping);
+
+        const due = await screen.findByRole('region', { name: 'Due soon' });
+
+        expect(groupsOf('Due soon')).toEqual([]);
+        expect(within(due).getByRole('img', { name: 'Shows due today or overdue' })).toBeVisible();
       });
 
       it('says what it is grouped by in the funnel beside its name', async () => {
@@ -2405,7 +2413,7 @@ describe('Onboarding', () => {
     });
 
     describe('it asks for the grouping beside the conditions and saves both at once', () => {
-      const GROUP_BY = 'What the items are grouped under';
+      const GROUP_BY = 'Group by';
 
       it('opens on none, and on the grouping the Filter already has', async () => {
         const { user } = showBoard({

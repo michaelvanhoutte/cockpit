@@ -1143,7 +1143,9 @@ export function ItemList({
               </ul>
             )}
           </>
-        ) : groups ? (
+        ) : groups && groups.length > 0 ? (
+          // Rows that land under no heading still draw, flat, rather than
+          // leaving a well empty under a count saying there are some.
           <ul ref={rows}>
             {groups.map((group) => (
               <li key={group.key}>

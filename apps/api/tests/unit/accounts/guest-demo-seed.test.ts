@@ -429,8 +429,8 @@ describe('Accounts', () => {
       inbox,
       dashboards: [{ name: 'Day to day', rows: panels.map((row) => ({ panels: row })) }],
     });
-    const filter = (name: string, conditions: unknown[], match = 'all'): SeedPanel =>
-      ({ name, filter: { match, conditions } }) as SeedPanel;
+    const filter = (name: string, conditions: unknown[], match = 'all', groupBy = 'none'): SeedPanel =>
+      ({ name, filter: { match, groupBy, conditions } }) as SeedPanel;
 
     it.each([
       {
@@ -493,6 +493,15 @@ describe('Accounts', () => {
           ]),
         ],
         says: 'the Filter "Either"',
+      },
+      {
+        why: 'a filter is grouped in a way the app would read as None',
+        demo: [
+          workspace('Personal', [
+            [filter('Grouped', [{ field: 'dueDate', window: 'week', orOverdue: true }], 'all', 'panels')],
+          ]),
+        ],
+        says: 'the Filter "Grouped"',
       },
     ])('refuses a dataset where $why', ({ demo, says }) => {
       expect(() => checkedGuestDemo(demo)).toThrow(says);

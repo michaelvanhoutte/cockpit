@@ -1163,7 +1163,7 @@ test.describe('Panels', () => {
       await choosePanelAction(page, gathering, 'Filter…', isMobile);
       await press(
         page
-          .getByRole('radiogroup', { name: 'What the items are grouped under' })
+          .getByRole('radiogroup', { name: 'Group by' })
           .getByText('Panel', { exact: true }),
         isMobile,
       );

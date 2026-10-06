@@ -3,6 +3,7 @@ import type {
   DueCondition,
   Filing,
   FilterCondition,
+  FilterGrouping,
   FilterMatch,
   Item,
   ItemType,
@@ -715,6 +716,11 @@ describe('Panels', () => {
       { situation: 'by Panel, set to any', groupBy: 'panel' as const, conditions: [due('week'), priority('high')], match: 'any' as const, reads: 'Any of: Due this week or overdue; Priority is High; grouped by Panel' },
     ])('ends with the grouping where there is one, grouped $situation', ({ conditions, match, groupBy, reads }) => {
       expect(saysWhatItShows(conditions, [], [], match, groupBy)).toBe(reads);
+    });
+
+    it('adds nothing for a grouping that never reached the schema, as a copy restored from this browser holds', () => {
+      const restored = undefined as unknown as FilterGrouping;
+      expect(saysWhatItShows([due('week')], [], [], 'all', restored)).toBe('Due this week or overdue');
     });
   });
 

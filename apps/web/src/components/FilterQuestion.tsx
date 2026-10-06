@@ -16,7 +16,7 @@ import {
   type Panel,
   type Priority,
 } from '@cockpit/shared';
-import { isAPeriod } from '../filters';
+import { GROUPING_NAMES, isAPeriod } from '../filters';
 import { MenuContent, menuItemClass } from './Menu';
 import { Segmented } from './Segmented';
 import { NO_TYPES } from '../itemTypes';
@@ -208,9 +208,11 @@ function FilterQuestion({
             )}
 
             <div className="flex items-center gap-3 pt-4">
-              <span className="text-sm text-ink-soft">Group by</span>
+              {/* The words on screen are the choice's name, so a screen reader and
+                  a voice command both find it by what is seen. */}
+              <span aria-hidden="true" className="text-sm text-ink-soft">Group by</span>
               <Segmented
-                label="What the items are grouped under"
+                label="Group by"
                 name="filter-group-by"
                 options={FILTER_GROUPINGS.map((value) => ({ value, label: GROUPING_LABELS[value] }))}
                 value={groupBy}
@@ -246,12 +248,8 @@ function FilterQuestion({
   );
 }
 
-/** What each grouping is called on the *Group by* choice. */
-const GROUPING_LABELS: Record<FilterGrouping, string> = {
-  none: 'None',
-  dashboard: 'Dashboard',
-  panel: 'Panel',
-};
+/** What each grouping is called on the *Group by* choice: the funnel's own names, and *None*. */
+const GROUPING_LABELS: Record<FilterGrouping, string> = { none: 'None', ...GROUPING_NAMES };
 
 /** What the two ways of combining the rows are called on the switch. */
 const MATCH_LABELS: Record<FilterMatch, string> = {

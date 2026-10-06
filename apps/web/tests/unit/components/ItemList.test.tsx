@@ -733,6 +733,15 @@ describe('Panels', () => {
       expect(within(dashboardHeading!).getByText('Today')).toBeVisible();
       expect(within(dashboardHeading!).queryByText(/·/)).toBeNull();
     });
+
+    it('draws its rows as the one list where no heading holds them, rather than an empty well', async () => {
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+
+      await showList({ panelId: FILTER_ID, gathered: true, groups: [] });
+
+      expect(screen.queryByRole('heading', { level: 4 })).toBeNull();
+      expect(screen.getByText(BART.title)).toBeInTheDocument();
+    });
   });
 
   describe('what just happened can be put back, until the offer runs out', () => {

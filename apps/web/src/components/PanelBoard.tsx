@@ -30,7 +30,7 @@ import { useCommand } from '../api/queries';
 import { scrollWhileDragging } from '../dragScroll';
 import { itemsOnPanel } from '../filing';
 import { groupFilterRows } from '../filterGroups';
-import { dayOf, filtersUsingPanel, itemsMatchingFilter, joinedBy } from '../filters';
+import { dayOf, filtersUsingPanel, isGrouped, itemsMatchingFilter, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
 import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, matchesDashboardFilter, useDashboardFilter } from '../dashboardFilter';
 import { DashboardFilterBar } from './DashboardFilterBar';
@@ -412,9 +412,9 @@ export function PanelBoard({
    */
   const groupsOf = (panel: Panel) => {
     const groupBy = panelGathers(panel) ? (panel.filter ?? NO_CONDITIONS).groupBy : 'none';
-    return groupBy === 'none'
-      ? undefined
-      : groupFilterRows(shows.get(panel.id)!, groupBy, filings, panelsInWorkspace, dashboards, layouts);
+    return isGrouped(groupBy)
+      ? groupFilterRows(shows.get(panel.id)!, groupBy, filings, panelsInWorkspace, dashboards, layouts)
+      : undefined;
   };
   const hidden = filteringOn
     ? new Set(panels.filter((panel) => shows.get(panel.id)!.length === 0).map((panel) => panel.id))
