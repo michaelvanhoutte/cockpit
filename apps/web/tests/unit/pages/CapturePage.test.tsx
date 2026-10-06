@@ -1,7 +1,9 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useEffect } from 'react';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NotSignedIn } from '../../../src/api/client';
 import { CapturePage } from '../../../src/pages/CapturePage';
@@ -37,7 +39,15 @@ vi.mock('../../../src/api/queries', () => ({
   },
 }));
 
+const navigated = vi.hoisted(() => vi.fn());
+
 vi.mock('@tanstack/react-router', () => ({
+  // Takes effect on the mocked address as the router's would.
+  useNavigate: () => (args: { search: Record<string, unknown> }) => {
+    navigated(args);
+    at.search = args.search;
+    return Promise.resolve();
+  },
   useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
     select({ location: { state: at.state, pathname: at.pathname, search: at.search } }),
   Link: ({
@@ -61,13 +71,23 @@ vi.mock('../../../src/components/CaptureNote', () => ({
   CaptureNote: ({
     startsIn,
     arrived,
+    onPutOn,
+    onCaptured,
   }: {
     startsIn: string | null;
     arrived?: { message: string; files: File[] } | null;
+    onPutOn?: () => void;
+    onCaptured?: () => void;
   }) => {
     drawn.startsIn = startsIn;
+    // As the form does once it has put what it was handed on the note.
+    useEffect(() => {
+      if (arrived) onPutOn?.();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [arrived]);
     return (
       <div data-testid="the-form">
+        <button onClick={onCaptured}>a capture lands</button>
         {arrived && <p data-testid="on-the-note">{[arrived.message, ...arrived.files.map((f) => f.name)].join(' + ')}</p>}
       </div>
     );
@@ -89,6 +109,13 @@ const opened = (pathname: string, state: Record<string, unknown> = {}, search: R
   );
   return {
     client,
+    /** The page drawn again over the same session, at whatever the mocked address now says. */
+    again: () =>
+      page.rerender(
+        <QueryClientProvider client={client}>
+          <CapturePage />
+        </QueryClientProvider>,
+      ),
   };
 };
 beforeEach(() => {
@@ -172,6 +199,21 @@ describe('Capture', () => {
       await waitFor(() => expect(screen.queryByTestId('on-the-note')).toBeNull());
     });
 
+    it('puts a share on the note once, not again when Write is drawn again after Car', async () => {
+      await holdAShare(aShare({ text: 'Worth a read' }));
+      const { again } = opened('/capture');
+      await screen.findByTestId('on-the-note');
+
+      at.pathname = '/capture/car';
+      again();
+      await screen.findByTestId('the-car-view');
+      at.pathname = '/capture';
+      again();
+
+      await screen.findByTestId('the-form');
+      expect(screen.queryByTestId('on-the-note')).toBeNull();
+    });
+
     it('leaves the Car view alone, which has no note to put it on', async () => {
       await holdAShare(aShare({ text: 'Worth a read' }));
 
@@ -240,6 +282,37 @@ describe('Capture', () => {
 
       await screen.findByTestId('the-form');
       expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('takes the signal out of the address, replacing the entry, and keeps saying it', async () => {
+      navigated.mockClear();
+      const { again } = opened('/capture', { captureFrom: 'ws-work' }, { share: 'failed' });
+      await screen.findByRole('alert');
+
+      await waitFor(() => expect(navigated).toHaveBeenCalledWith(expect.objectContaining({ to: '/capture', search: {}, replace: true })));
+      again();
+
+      expect(screen.getByRole('alert')).toBeVisible();
+    });
+
+    it('stops saying it once a share is put on the note', async () => {
+      await holdAShare(aShare({ text: 'Worth a read' }));
+
+      opened('/capture', {}, { share: 'failed' });
+
+      await screen.findByTestId('on-the-note');
+      await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    });
+
+    it.each([
+      { situation: 'a capture lands', then: async () => userEvent.click(screen.getByRole('button', { name: 'a capture lands' })) },
+    ])('stops saying it once $situation', async ({ then }) => {
+      opened('/capture', {}, { share: 'failed' });
+      await screen.findByRole('alert');
+
+      await then();
+
+      await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
     });
   });
 });

@@ -1,3 +1,4 @@
+import { SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE } from '@cockpit/shared';
 import type { Page } from '@playwright/test';
 import {
   captureBox,
@@ -207,22 +208,22 @@ test.describe('Capture', () => {
       // through to an Item with the photo as its Attachment.
       const shared = uniqueTitle('Shared from the gallery');
       await page.evaluate(
-        ({ note, png }) =>
+        ({ note, png, database, store }) =>
           new Promise<void>((resolve, reject) => {
-            const opening = indexedDB.open('cockpit-shares');
-            opening.onupgradeneeded = () => opening.result.createObjectStore('held');
+            const opening = indexedDB.open(database);
+            opening.onupgradeneeded = () => opening.result.createObjectStore(store);
             opening.onerror = () => reject(opening.error);
             opening.onsuccess = () => {
               const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0)).buffer;
-              const writing = opening.result.transaction('held', 'readwrite');
-              writing.objectStore('held').put(
+              const writing = opening.result.transaction(store, 'readwrite');
+              writing.objectStore(store).put(
                 {
                   id: 'a-share',
                   receivedAt: new Date().toISOString(),
                   title: '',
                   text: note,
                   url: '',
-                  files: [{ name: 'sunset.png', type: 'image/png', bytes }],
+                  files: [{ name: 'sunset.png', type: 'image/png', size: bytes.byteLength, bytes }],
                 },
                 'a-share',
               );
@@ -230,7 +231,7 @@ test.describe('Capture', () => {
               writing.onerror = () => reject(writing.error);
             };
           }),
-        { note: shared, png: A_PNG_BASE64 },
+        { note: shared, png: A_PNG_BASE64, database: SHARE_HOLDING_DATABASE, store: SHARE_HOLDING_STORE },
       );
       await page.goto('/capture');
       await expect(page.getByText('sunset.png')).toBeVisible();

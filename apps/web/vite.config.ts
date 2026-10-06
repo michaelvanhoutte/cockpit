@@ -93,6 +93,10 @@ export default defineConfig({
           // A static page, not the shell's: answered from the network so a
           // changed policy is read at once rather than after the next update.
           /^\/privacy(\.html)?([?#]|$)/,
+          // The share address, which the Worker answers with a redirect; the
+          // service worker's own handling is of the POST. Anchored so the
+          // script beside it is not caught.
+          /^\/share-target([?#]|$)/,
         ],
         // Kept out of the precache for the same reason.
         globIgnores: ['**/privacy.html'],
@@ -116,7 +120,8 @@ export default defineConfig({
       '/oauth': apiProxy,
       // What the installed app's share sheet posts to when the service worker
       // did not take it (apps/api/src/worker.ts); dev registers no worker.
-      '/share-target': apiProxy,
+      // Anchored: a bare prefix would also catch share-target-sw.js.
+      '^/share-target([?]|$)': apiProxy,
       '/.well-known/oauth-': apiProxy,
     },
   },

@@ -162,8 +162,6 @@ The service worker refuses to intercept the same prefixes
 forwards them (`server.proxy` there): **for this application's own prefixes the
 three lists must be kept in sync.**
 
-**`/share-target` is in the first and the third and deliberately not in the denylist**: the service worker answers a POST to it itself.
-
 **They are not the same list, and the difference is load-bearing.** The denylist
 also carries `/cdn-cgi/`, which must never appear in `run_worker_first`: it is Cloudflare's,
 answered at the edge before assets or the Worker see it. Leaving it out of the

@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { IDBFactory } from 'fake-indexeddb';
 import { browserHoldingArea, useArrived, whatArrived } from '../../src/shares';
@@ -27,6 +27,8 @@ describe('Capture', () => {
     it.each([
       { situation: 'text and a link', share: { text: 'Worth a read', url: 'https://example.com/a' }, note: 'Worth a read\nhttps://example.com/a' },
       { situation: 'a title, text and a link', share: { title: 'A page', text: 'Worth a read', url: 'https://example.com/a' }, note: 'A page\nWorth a read\nhttps://example.com/a' },
+      { situation: 'a link that begins as another link in the text does', share: { text: 'Worth a read https://example.com/page2', url: 'https://example.com/page' }, note: 'Worth a read https://example.com/page2\nhttps://example.com/page' },
+      { situation: 'text that is a word of the title', share: { title: 'Great article about X', text: 'X' }, note: 'Great article about X\nX' },
       { situation: 'a link the text already holds', share: { text: 'Worth a read https://example.com/a', url: 'https://example.com/a' }, note: 'Worth a read https://example.com/a' },
     ])('puts $situation in the note, text first', ({ share, note }) => {
       expect(whatArrived([aShare(share)])?.message).toBe(note);
@@ -67,7 +69,40 @@ describe('Capture', () => {
       const { result } = renderHook(() => useArrived(true, area));
 
       // Past the claim, which a refusal answers by finding nothing.
-      await waitFor(() => expect(result.current).toBeNull());
+      await waitFor(() => expect(result.current.arrived).toBeNull());
+    });
+
+    it('keeps a file the Attachment rules refuse, without its bytes, to be refused as a drop is', () => {
+      const arrived = whatArrived([aShare({ files: [{ name: 'huge.png', type: 'image/png', size: 30_000_000, bytes: null }] })]);
+
+      expect(arrived?.files.map((f) => [f.name, f.size])).toEqual([['huge.png', 30_000_000]]);
+    });
+  });
+
+  describe('a share is never lost to signing in, and signing out removes it', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it('hands over nothing, and keeps what is held, where the clear is aborted', async () => {
+      await holdAShare(aShare({ text: 'Worth a read' }));
+      vi.spyOn(IDBObjectStore.prototype, 'clear').mockImplementation(function (this: IDBObjectStore) {
+        this.transaction.abort();
+        return undefined as never;
+      });
+
+      await expect(browserHoldingArea().takeAll()).rejects.toBeDefined();
+
+      vi.restoreAllMocks();
+      expect(await howManyAreHeld()).toBe(1);
+    });
+
+    it('settles, as a refusal, where emptying is aborted, so signing out is not left waiting', async () => {
+      await holdAShare(aShare());
+      vi.spyOn(IDBObjectStore.prototype, 'clear').mockImplementation(function (this: IDBObjectStore) {
+        this.transaction.abort();
+        return undefined as never;
+      });
+
+      await expect(browserHoldingArea().empty()).rejects.toBeDefined();
     });
   });
 });

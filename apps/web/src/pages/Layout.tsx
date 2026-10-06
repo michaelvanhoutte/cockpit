@@ -613,9 +613,11 @@ function TheShell() {
     // request reached the server - and if it did not, the sign-in it failed to
     // end expires on its own.
     //
-    // Emptying what the browser holds is not done here but on the logon page,
-    // which is the one screen with none of this mounted to write it back out
-    // again; the reason is worth reading there before moving it.
+    // Emptying the stored copy and what else the browser holds of the session
+    // is not done here but on the logon page, which is the one screen with none
+    // of this mounted to write it back out again; the reason is worth reading
+    // there before moving it. The shares held on the device are the exception,
+    // emptied above: nothing mounted writes them back.
     onSettled: () => navigate({ to: '/signin' }),
   });
 

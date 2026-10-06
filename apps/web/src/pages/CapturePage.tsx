@@ -1,5 +1,5 @@
-import { Suspense } from 'react';
-import { Link, useRouterState } from '@tanstack/react-router';
+import { Suspense, useEffect, useState } from 'react';
+import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { SHARE_FAILED_MESSAGE } from '@cockpit/shared';
 import { NotSignedIn } from '../api/client';
@@ -57,13 +57,27 @@ export function CapturePage() {
     select: (state) => (state.location.state as CaptureState).captureFrom ?? null,
   });
   const inCar = useRouterState({ select: (state) => state.location.pathname === '/capture/car' });
-  const shareFailed = useRouterState({
+  const arrivedFailed = useRouterState({
     select: (state) => (state.location.search as { share?: unknown }).share === 'failed',
   });
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const navigate = useNavigate();
+  /**
+   * Said once on arrival and then taken out of the address, replacing the entry
+   * so Back does not return to it and a reload does not say it again; gone once
+   * a capture lands or a share is put on the note.
+   */
+  const [shareFailed, setShareFailed] = useState(false);
+  useEffect(() => {
+    if (!arrivedFailed) return;
+    setShareFailed(true);
+    void navigate({ to: pathname as never, search: {} as never, replace: true, state: captureStateFor(startsIn ?? undefined) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arrivedFailed]);
   // Settled, not just stored: the copy of who is signed in can outlive the sign-in.
   const { data: me, error: sessionFailure, isFetching } = useQuery(meQuery);
   const signedIn = Boolean(me) && !isFetching && !(sessionFailure instanceof NotSignedIn);
-  const arrived = useArrived(signedIn && !inCar);
+  const { arrived, taken } = useArrived(signedIn && !inCar);
   // Carried over the switch, so Where still starts on the workspace you came from.
   const carried = captureStateFor(startsIn ?? undefined);
 
@@ -116,7 +130,17 @@ export function CapturePage() {
         </p>
       )}
       <Suspense fallback={null}>
-        {inCar ? <CarCapture /> : <CaptureNote startsIn={startsIn} arrived={arrived} />}
+        {inCar ? <CarCapture /> : (
+          <CaptureNote
+            startsIn={startsIn}
+            arrived={arrived}
+            onPutOn={() => {
+              taken();
+              setShareFailed(false);
+            }}
+            onCaptured={() => setShareFailed(false)}
+          />
+        )}
       </Suspense>
     </section>
   );

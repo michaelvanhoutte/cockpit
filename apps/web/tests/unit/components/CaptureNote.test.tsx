@@ -166,6 +166,8 @@ async function thePage({
   dictating,
   language,
   arrived,
+  onPutOn,
+  onCaptured,
 }: {
   /**
    * Null for an account that has not answered what types it has, and
@@ -190,6 +192,8 @@ async function thePage({
   language?: string;
   /** What the share sheet handed over, as the page claimed it. */
   arrived?: Arrived | null;
+  onPutOn?: () => void;
+  onCaptured?: () => void;
 } = {}) {
   held.types = types;
   held.items = items;
@@ -231,7 +235,7 @@ async function thePage({
   const page = render(
     <QueryClientProvider client={client}>
       <OutboxProvider value={outbox}>
-        <CaptureNote startsIn={startsIn} dictating={dictating} arrived={arrived} />
+        <CaptureNote startsIn={startsIn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} />
       </OutboxProvider>
     </QueryClientProvider>,
   );
@@ -1878,6 +1882,33 @@ describe('Capture', () => {
       expect(await screen.findByText('one.png')).toBeVisible();
       expect(screen.getByText('two.png')).toBeVisible();
       expect(box()).toHaveValue('first\n\nsecond');
+    });
+
+    it('refuses a shared file held without its bytes for being over the limit, by name', async () => {
+      const huge = { name: 'huge.png', type: 'image/png', size: MAX_ATTACHMENT_SIZE + 1, bytes: null };
+      await thePage({ arrived: whatArrived([aShare({ files: [huge] })]) });
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('"huge.png" is over the 25 MB limit.');
+      expect(screen.queryByText('huge.png')).toBeNull();
+    });
+
+    it('says it has put what was shared on the note, once', async () => {
+      const onPutOn = vi.fn();
+
+      await thePage({ arrived: whatArrived([aShare({ text: 'Worth a read' })]), onPutOn });
+
+      await waitFor(() => expect(box()).toHaveValue('Worth a read'));
+      expect(onPutOn).toHaveBeenCalledTimes(1);
+    });
+
+    it('says a capture has landed, for the page to stop saying a share was lost', async () => {
+      const onCaptured = vi.fn();
+      const user = await thePage({ onCaptured });
+
+      await user.type(box(), 'Ask Ada');
+      await user.click(screen.getByRole('button', { name: 'Capture' }));
+
+      await waitFor(() => expect(onCaptured).toHaveBeenCalled());
     });
 
     it('refuses a shared file the Attachment rules refuse as it refuses a dropped one, and queues the rest', async () => {

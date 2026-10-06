@@ -51,11 +51,17 @@ import {
 export function CaptureNote({
   startsIn,
   arrived,
+  onPutOn,
+  onCaptured,
   dictating,
 }: {
   startsIn: string | null;
   /** What the share sheet handed over, claimed by the page: put on the note once, as if typed and dropped here. */
   arrived?: Arrived | null | undefined;
+  /** Said once `arrived` is on the note, so the page can stop offering it to a form drawn again. */
+  onPutOn?: (() => void) | undefined;
+  /** Said when a capture lands. */
+  onCaptured?: (() => void) | undefined;
   /** Where speech comes from and where the language is kept: the browser's own, unless a test hands in a fake. */
   dictating?: { engine?: EngineFactory | null; store?: Storage | undefined } | undefined;
 }) {
@@ -216,6 +222,9 @@ export function CaptureNote({
    * for a note captured here, not for an older one the outbox happens to send
    * while this is open.
    */
+  // What the page asked to be told, read when it happens rather than when drawn.
+  const saidNow = useRef({ onPutOn, onCaptured });
+  saidNow.current = { onPutOn, onCaptured };
   const dock = useDockedItem();
   const dockNow = useRef(dock);
   dockNow.current = dock;
@@ -223,6 +232,7 @@ export function CaptureNote({
   useEffect(
     () =>
       outbox.onLanding(({ kind, entry }) => {
+        saidNow.current.onCaptured?.();
         if (kind === 'note' && madeHere.current.has(entry.id) && dockNow.current.openId !== null) {
           dockNow.current.show(entry.id, { keepFocus: true });
         }
@@ -286,6 +296,7 @@ export function CaptureNote({
     putOn.current = arrived;
     if (arrived.message) setMessage((was) => (was.trim() ? `${was}\n${arrived.message}` : arrived.message));
     if (arrived.files.length > 0) queueFiles(arrived.files);
+    saidNow.current.onPutOn?.();
   }, [arrived]);
 
   /**
