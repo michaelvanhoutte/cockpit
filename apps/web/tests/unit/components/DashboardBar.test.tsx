@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
@@ -20,6 +20,7 @@ import {
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
+import { setPanelsCollapsed, usePanelsCollapsed } from '../../../src/panelsCollapsed';
 import { DWELL_MS } from '../../../src/switchWhileDragging';
 import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_IS } from '../../../src/whatThingsAre';
 
@@ -139,6 +140,14 @@ function aDashboard(name: string): Dashboard {
     workspaceId: 'ws-work',
     name,
   };
+}
+
+/** What the unavailable *Collapse panels* says beside its name, as the menu's text reads it. */
+const NOT_A_PHONE = 'Only on a phone, where panels are drawn one above the next';
+
+/** The width the bar reads, which is what decides whether this is a phone. */
+function screenIs(width: number) {
+  Object.defineProperty(globalThis, 'innerWidth', { value: width, configurable: true, writable: true });
 }
 
 /** What the bar asks the server for, in the shape both senders take it. */
@@ -562,6 +571,7 @@ describe('Dashboards', () => {
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Edit…',
         'Delete',
+        `Collapse panels${NOT_A_PHONE}`,
         'Show all items',
       ]);
     });
@@ -1394,6 +1404,79 @@ describe('Dashboards', () => {
       const add = await screen.findByRole('button', { name: '+ Panel' });
       expect(add).toBeDisabled();
       expect(add).toHaveAttribute('title', expect.stringContaining('Clear the dashboard filter'));
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('the dashboard’s menu collapses every panel to its header, on a phone', () => {
+    const OPEN = 'ws-work-research';
+    const panels = [aPanel('Falcon', OPEN)];
+    const menu = async (extra: Parameters<typeof showBar>[1] = {}) => {
+      const shown = showBar(['Dashboard 1', 'Research'], {
+        openDashboardId: OPEN,
+        panels,
+        ...extra,
+      });
+      await shown.user.click(await screen.findByRole('button', { name: 'Actions for Research' }));
+      return shown;
+    };
+    const collapsed = () => renderHook(() => usePanelsCollapsed(OPEN)).result.current.collapsed;
+    const phone = () => {
+      screenIs(390);
+    };
+
+    beforeEach(() => screenIs(1280));
+    afterEach(() => {
+      act(() => setPanelsCollapsed(null));
+      screenIs(1024);
+    });
+
+    it('offers Collapse panels while open, and Open panels while collapsed', async () => {
+      phone();
+      const { user } = await menu();
+      await user.click(await screen.findByRole('menuitem', { name: 'Collapse panels' }));
+      expect(collapsed()).toBe(true);
+
+      await user.click(screen.getByRole('button', { name: 'Actions for Research' }));
+      expect(screen.queryByRole('menuitem', { name: 'Collapse panels' })).toBeNull();
+      await user.click(await screen.findByRole('menuitem', { name: 'Open panels' }));
+
+      expect(collapsed()).toBe(false);
+    });
+
+    it.each([
+      {
+        situation: 'a screen from 480 px up',
+        width: 480,
+        panelsHeld: panels,
+        said: 'Collapse panels: Only on a phone, where panels are drawn one above the next',
+      },
+      {
+        situation: 'a dashboard with no panels, on a phone',
+        width: 390,
+        panelsHeld: [] as Panel[],
+        said: 'Collapse panels: This dashboard has no panels',
+      },
+    ])('stays on the menu but unavailable, saying why, on $situation', async ({ width, panelsHeld, said }) => {
+      screenIs(width);
+      const { user } = await menu({ panels: panelsHeld });
+
+      const entry = await screen.findByRole('menuitem', { name: said });
+      expect(entry).toHaveAttribute('aria-disabled', 'true');
+      await user.click(entry);
+
+      expect(collapsed()).toBe(false);
+    });
+
+    it('is offered on the open dashboard alone, not on another dashboard’s tab', async () => {
+      phone();
+      showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN, panels });
+
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Dashboard 1' }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Edit…' })).toBeVisible();
+      expect(screen.queryByRole('menuitem', { name: /Collapse panels/ })).toBeNull();
     });
   });
 });

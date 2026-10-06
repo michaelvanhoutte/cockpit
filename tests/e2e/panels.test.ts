@@ -300,7 +300,7 @@ test.describe('Panels', () => {
     }) => {
       // Desktop only: arranging a dashboard is a pointer gesture.
       test.skip(isMobile, 'arranging a dashboard is a pointer gesture');
-      await ownDashboard(page, isMobile);
+      const here = await ownDashboard(page, isMobile);
       const first = uniqueTitle('Project Falcon');
       const second = uniqueTitle('To read');
       const third = uniqueTitle('People');
@@ -358,6 +358,46 @@ test.describe('Panels', () => {
       await expect(page.getByTestId('row-line')).toHaveCount(0);
       await expect(page.getByTestId('column-line')).toHaveCount(0);
       await expectNoSidewaysScroll(page);
+
+      // A phone's Panels collapse to their headers on a double-tap, and a tap on
+      // the last one opens them all with its header at the top of the screen.
+      // A window short enough that the opened board scrolls past it, because
+      // where a header lands only exists with real layout.
+      await page.setViewportSize({ width: 420, height: 240 });
+      const lastPanel = (await panelsOnScreen(page)).at(-1)!;
+      const lastHeader = page.getByRole('region', { name: lastPanel }).locator('header');
+      const itemListOf = (name: string) =>
+        page.getByRole('region', { name }).locator('[data-drag-scroll="panel"]');
+      await page.getByRole('region', { name: first }).locator('header').dblclick();
+      await expect(itemListOf(first)).toBeHidden();
+      await expect(itemListOf(lastPanel)).toBeHidden();
+      await lastHeader.click();
+      await expect(itemListOf(first)).toBeVisible();
+      await expect(itemListOf(lastPanel)).toBeVisible();
+      const scroller = page.locator('[data-drag-scroll="dashboard"]');
+      await expect
+        .poll(async () => {
+          const [header, top] = await Promise.all([lastHeader.boundingBox(), scroller.boundingBox()]);
+          return Math.abs(header!.y - top!.y) < 2;
+        })
+        .toBe(true);
+
+      // The menu does the same without the gesture, and says why it cannot
+      // from a wider screen. Nothing is remembered across a reload.
+      const dashboardMenu = page.getByRole('button', { name: `Actions for ${here}` });
+      await dashboardMenu.click();
+      await page.getByRole('menuitem', { name: 'Collapse panels' }).click();
+      await expect(itemListOf(first)).toBeHidden();
+      await page.reload();
+      await expect(itemListOf(first)).toBeVisible();
+      await page.setViewportSize({ width: 480, height: 800 });
+      await dashboardMenu.click();
+      await expect(page.getByRole('menuitem', { name: /^Collapse panels: / })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
+      await page.keyboard.press('Escape');
+      await page.setViewportSize({ width: 420, height: 800 });
 
       // Back on the first screen it is the arrangement just made, and it is
       // still there after a reload.
