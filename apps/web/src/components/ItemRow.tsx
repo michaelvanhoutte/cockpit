@@ -273,7 +273,7 @@ export function ItemRow({
 
   /** To do, In progress or Done ("Mark an item In progress, and see since when", issue 568). Done never reaches this row - `stillOpen`, `filing.ts`. */
   const status = itemStatus(item);
-  /** Whether the Status submenu has room beside the menu; watched, so a window resized under an open menu is answered. */
+  /** Whether this is a desk-width screen (768px and up): where the Status submenu has room beside the menu, and the row's phone layout's switch (`onAPhone`). Watched, so a window resized under an open menu is answered. */
   const roomBesideTheMenu = useRoomForTheInbox();
 
   /**
