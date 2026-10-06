@@ -43,9 +43,14 @@ export interface DescriptionBoxProps {
   resetKey?: string | number;
   /** Where an image put into the formatted view is uploaded (`RichDescription`). */
   uploadImage?: (file: File) => Promise<string>;
+  /**
+   * On a phone's page for an Item: no heading, and *Source* in the toolbar's
+   * own row, which scrolls sideways, rather than in a line of its own.
+   */
+  onAPage?: boolean;
 }
 
-export function DescriptionBox({ value, onChange, editable, resetKey, uploadImage }: DescriptionBoxProps) {
+export function DescriptionBox({ value, onChange, editable, resetKey, uploadImage, onAPage = false }: DescriptionBoxProps) {
   const [view, setView] = useState<View>('formatted');
   const [failed, setFailed] = useState(false);
   /**
@@ -70,25 +75,35 @@ export function DescriptionBox({ value, onChange, editable, resetKey, uploadImag
 
   const showing: View = failed ? 'source' : view;
 
+  const toggle = failed ? null : (
+    <button
+      type="button"
+      onClick={() => {
+        if (view === 'source') setGeneration((was) => was + 1);
+        setView(view === 'formatted' ? 'source' : 'formatted');
+      }}
+      className="shrink-0 rounded px-2 py-0.5 text-xs font-medium text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
+    >
+      {view === 'formatted' ? 'Source' : 'Formatted'}
+    </button>
+  );
+  /** Where the toolbar is not drawn - the source view, and the editor still on its way - *Source* has a row of its own. */
+  const rowOfItsOwn = onAPage && toggle && (
+    <div className="flex shrink-0 justify-end">{toggle}</div>
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
-          Description
-        </span>
-        {!failed && (
-          <button
-            type="button"
-            onClick={() => {
-              if (view === 'source') setGeneration((was) => was + 1);
-              setView(view === 'formatted' ? 'source' : 'formatted');
-            }}
-            className="rounded px-2 py-0.5 text-xs font-medium text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
-          >
-            {view === 'formatted' ? 'Source' : 'Formatted'}
-          </button>
-        )}
-      </div>
+      {onAPage ? (
+        showing === 'source' && rowOfItsOwn
+      ) : (
+        <div className="flex shrink-0 items-center justify-between gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+            Description
+          </span>
+          {toggle}
+        </div>
+      )}
 
       {showing === 'source' ? (
         <textarea
@@ -114,13 +129,21 @@ export function DescriptionBox({ value, onChange, editable, resetKey, uploadImag
         // carry on its own rather than drawing two.
         <div className="mt-1 flex min-h-0 flex-1 flex-col rounded-md border border-shade/10 bg-white focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40">
           <WhateverTheEditorDoes onFailure={() => setFailed(true)}>
-            <Suspense fallback={<Arriving value={value} />}>
+            <Suspense
+              fallback={
+                <>
+                  {rowOfItsOwn}
+                  <Arriving value={value} />
+                </>
+              }
+            >
               <LazyRichDescription
                 key={generation}
                 initial={value}
                 onChange={onChange}
                 editable={editable}
                 uploadImage={uploadImage}
+                endOfToolbar={onAPage ? toggle : undefined}
                 fill
               />
             </Suspense>

@@ -1074,6 +1074,119 @@ describe('Item editing', () => {
     });
   });
 
+  /**
+   * The window's width is what makes the form a page, read at the width
+   * Capture becomes a page at (`ROOM_FOR_THE_INBOX_PX`), so each case sets it.
+   */
+  async function atWidth<T>(width: number, run: () => Promise<T>): Promise<T> {
+    const original = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+    try {
+      return await run();
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: original });
+    }
+  }
+
+  describe('on a phone, an Item’s form is a page of its own, saved from its header', () => {
+    it.each([
+      { situation: '390px wide', width: 390, presentation: 'centered', page: true },
+      { situation: '767px wide', width: 767, presentation: 'centered', page: true },
+      { situation: '768px wide', width: 768, presentation: 'centered', page: false },
+      { situation: 'an account that docks the form, at 390px', width: 390, presentation: 'docked', page: true },
+    ] as const)('$situation', async ({ width, presentation, page }) => {
+      await atWidth(width, async () => {
+        held.itemFormPresentation = presentation;
+        await theForm();
+
+        const present = (name: string) => screen.queryByRole('button', { name }) !== null;
+        // ← is the form's Cancel on a page; the window has the word, and Dock.
+        // Named Cancel either way, so the same close is reached by the same name; what
+        // is drawn is the arrow on a page and the word in the window.
+        expect(screen.getByRole('button', { name: 'Cancel' })).toHaveTextContent(page ? '←' : 'Cancel');
+        expect(present('Dock') || present('Center')).toBe(!page);
+        expect(screen.getByRole('dialog')).toHaveClass(page ? 'top-[var(--edge-top)]' : 'left-1/2');
+        // One Save, in the header on a page and in the footer in the window.
+        expect(screen.getAllByRole('button', { name: 'Save' })).toHaveLength(1);
+        expect(screen.queryByText('Item', { selector: 'span' }) !== null).toBe(page);
+      });
+    });
+  });
+
+  describe('← on the page closes it and keeps nothing typed', () => {
+    it('a title typed, then ←, sends nothing and closes the form', async () => {
+      await atWidth(390, async () => {
+        const user = await theForm();
+        await user.type(titleBox(), ' now');
+
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        expect(held.send).not.toHaveBeenCalled();
+        expect(held.close).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('a title typed, then Save in the header, sends only the title', async () => {
+      await atWidth(390, async () => {
+        const user = await theForm();
+        await user.type(titleBox(), ' now');
+
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(sent()).toEqual([expect.objectContaining({ name: 'set_title' })]);
+      });
+    });
+  });
+
+  describe('the attachments are one line until opened', () => {
+    const lineOfFiles = () => screen.queryByRole('button', { name: /^\d+ files?/ });
+
+    it('with no files there is no list line, only the attach control', async () => {
+      await atWidth(390, async () => {
+        await theForm();
+
+        expect(lineOfFiles()).toBeNull();
+        expect(screen.getByRole('button', { name: 'Add' })).toBeVisible();
+      });
+    });
+
+    it('two files read “2 files”, collapsed, and pressing it lists both', async () => {
+      await atWidth(390, async () => {
+        held.attachments = [anAttachment(), anAttachment({ id: 'attachment-2', filename: 'scan.pdf' })];
+        const user = await theForm();
+
+        expect(lineOfFiles()).toHaveTextContent('2 files');
+        expect(screen.queryByText('receipt.png')).toBeNull();
+
+        await user.click(lineOfFiles()!);
+
+        expect(screen.getByText('receipt.png')).toBeVisible();
+        expect(screen.getByText('scan.pdf')).toBeVisible();
+        // Drawn under Add, so Tab reaches Add before the list.
+        expect(
+          screen.getByRole('button', { name: 'Add' }).compareDocumentPosition(screen.getByText('receipt.png')) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+      });
+    });
+
+    it('a file added while collapsed raises the count', async () => {
+      await atWidth(390, async () => {
+        held.attachments = [anAttachment()];
+        const user = await theForm();
+        expect(lineOfFiles()).toHaveTextContent('1 file');
+
+        const upload = heldUpload();
+
+        await user.upload(screen.getByLabelText('Files to attach'), aPhoto());
+
+        expect(lineOfFiles()).toHaveTextContent('2 files');
+        await upload.land();
+      });
+    });
+  });
+
   describe('a text too long to store is refused before it is sent', () => {
     it.each([
       { situation: 'a title over the cap', box: 'Title', typed: 'x'.repeat(201) },
@@ -1855,27 +1968,6 @@ describe('Item editing', () => {
       expect(descriptionBox()).toHaveValue('Tolerances');
     });
 
-    // Phone is its own, separate discussion, by the issue's own text - but
-    // "out of scope" has to mean "falls back to centered" rather than
-    // "renders the docked layout anyway" (found in review: a fixed-width
-    // panel with no scrim, on a screen too narrow to spare the room).
-    it('renders centered on a screen too narrow to dock, though the account is still docked', async () => {
-      const original = window.innerWidth;
-      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 });
-      try {
-        held.itemFormPresentation = 'docked';
-        await theForm();
-
-        expect(screen.getByRole('dialog')).toHaveClass('left-1/2');
-        // The control still names the account's real choice, not what a
-        // narrow screen happens to be falling back to - pressing it has to
-        // go on undocking the account rather than "docking" what already is.
-        expect(centerButton()).toBeVisible();
-      } finally {
-        Object.defineProperty(window, 'innerWidth', { configurable: true, value: original });
-      }
-    });
-
     it('docking sends the choice account-wide, and switches this open form at once', async () => {
       const user = await theForm();
 
@@ -2198,26 +2290,6 @@ describe('Item editing', () => {
 
       cleanup();
       expect(cleared()).toBe('');
-    });
-
-    // Docking is refused a screen too narrow for it (the form stays centered,
-    // with Save and Cancel), so there is no Save left over that writes twice.
-    it('writes nothing on Dock where the screen is too narrow for it to dock, and keeps Save', async () => {
-      const original = window.innerWidth;
-      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 });
-      try {
-        const user = await theForm();
-        await user.type(titleBox(), ' now');
-
-        await user.click(screen.getByRole('button', { name: 'Dock' }));
-
-        await waitFor(() =>
-          expect(sent().map((change) => change.name)).toEqual(['set_item_form_presentation']),
-        );
-        expect(screen.getByRole('button', { name: 'Save' })).toBeVisible();
-      } finally {
-        Object.defineProperty(window, 'innerWidth', { configurable: true, value: original });
-      }
     });
 
     it('writes nothing on Dock when the choice itself is refused, and keeps saying so', async () => {

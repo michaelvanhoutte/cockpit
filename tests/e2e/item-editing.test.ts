@@ -14,6 +14,7 @@ import {
   makeWorkspace,
   openDashboard,
   openInbox,
+  openTheFiles,
   press,
   switchTo,
   test,
@@ -156,6 +157,46 @@ test.describe('Item editing', () => {
       await expect(titleBox(page)).toHaveValue(named);
       await theEditorIsThere(page);
       await expect(descriptionBox(page)).toHaveText('Tolerances, and the sign-off date');
+
+      // On a phone the form is a page of its own, and only a browser can say
+      // that it fills the screen, keeps its toolbar on one row, and leaves the
+      // header on screen when the keyboard takes the height.
+      if (isMobile) {
+        const screen = page.viewportSize()!;
+        const pageBox = (await form(page).boundingBox())!;
+        expect(pageBox.width).toBe(screen.width);
+        expect(pageBox.height).toBe(screen.height);
+
+        // The description is the tallest field: it takes the height that is left.
+        const heightOf = async (locator: Locator) => (await locator.boundingBox())!.height;
+        const description = await heightOf(descriptionBox(page).locator('xpath=ancestor::*[contains(@class,"rounded-md")][1]'));
+        for (const field of [titleBox(page), form(page).getByLabel('Type'), dueDateBox(page)]) {
+          expect(description).toBeGreaterThan(await heightOf(field));
+        }
+
+        // The keyboard takes the height, and a narrow handset the width: the
+        // screen shortened to 400px with the caret in the description leaves
+        // Save and the description on it, and the toolbar - one row, with
+        // Source at its end - is scrolled sideways rather than wrapped.
+        await page.setViewportSize({ width: 320, height: 400 });
+        await putTheCaretInTheDescription(page, isMobile);
+        await expect(form(page).getByRole('button', { name: 'Save' })).toBeInViewport();
+        await expect(descriptionBox(page)).toBeInViewport();
+        const toolbar = form(page).getByRole('toolbar', { name: 'Formatting' });
+        const tops = await toolbar.getByRole('button').evaluateAll((buttons) =>
+          buttons.map((button) => Math.round(button.getBoundingClientRect().top)),
+        );
+        expect(tops.length).toBeGreaterThan(5);
+        expect(new Set(tops).size).toBe(1);
+        expect(await toolbar.evaluate((row) => row.scrollWidth > row.clientWidth)).toBe(true);
+        await toolbar.getByRole('button', { name: 'Source' }).scrollIntoViewIfNeeded();
+        await page.setViewportSize(screen);
+
+        // The browser's back closes the page, and the row is under it.
+        await page.goBack();
+        await expect(titleBox(page)).toHaveCount(0);
+        await expect(itemRow(page, named)).toBeVisible();
+      }
     });
 
     test('throws away what was typed when the form is cancelled', async ({ page, isMobile }) => {
@@ -336,6 +377,7 @@ test.describe('Item editing', () => {
       expect((await uploaded).status()).toBe(201);
 
       // A thumbnail for an image, per the issue's own chip rule.
+      await openTheFiles(page, isMobile);
       await expect(form(page).getByRole('img', { name: 'receipt.png' })).toBeVisible();
 
       const [popup] = await Promise.all([
@@ -354,6 +396,17 @@ test.describe('Item editing', () => {
       await press(form(page).getByRole('button', { name: 'Remove receipt.png' }), isMobile);
       expect((await removed).status()).toBe(200);
       await expect(form(page).getByText('receipt.png')).toHaveCount(0);
+
+      // On a phone the line went with the file; the next one starts folded.
+      if (isMobile) {
+        const again = uploadResponse(page);
+        await attachmentInput(page).setInputFiles({ name: 'second.png', mimeType: 'image/png', buffer: A_PNG });
+        expect((await again).status()).toBe(201);
+        await expect(form(page).getByRole('button', { name: /^1 file/ })).toHaveAttribute('aria-expanded', 'false');
+        await openTheFiles(page, isMobile);
+        await press(form(page).getByRole('button', { name: 'Remove second.png' }), isMobile);
+        await expect(form(page).getByText('second.png')).toHaveCount(0);
+      }
 
       // Removal is sent the moment it happens, not batched into Save - so a
       // Save pressed afterwards, with nothing else changed, has nothing to
@@ -419,6 +472,7 @@ test.describe('Item editing', () => {
       await dropOnTheDescription(page, { name: 'photo.png', mimeType: 'image/png', base64: A_PNG.toString('base64') });
 
       await expect(descriptionBox(page).getByRole('status')).toHaveText('Uploading photo.png…');
+      await openTheFiles(page, isMobile);
       await expect(form(page).getByText('Attaching…')).toBeVisible();
       release();
       expect((await uploaded).status()).toBe(201);
@@ -426,6 +480,7 @@ test.describe('Item editing', () => {
       const inTheText = descriptionBox(page).getByRole('img', { name: 'photo.png' });
       await expect(inTheText).toBeVisible();
       await expect(descriptionBox(page).getByRole('status')).toHaveCount(0);
+      await openTheFiles(page, isMobile);
       await expect(form(page).getByRole('link', { name: /photo\.png/ })).toBeVisible();
 
       await show(page, 'Source', isMobile);
@@ -968,7 +1023,7 @@ test.describe('Item editing', () => {
    * it docked (found in review).
    */
   test.describe('the form can be docked to the side of the screen, an account-wide choice', () => {
-    test('docks flush to the side, leaves the page beside it whole and clickable, is remembered on reopening, and falls back to centered on a window too narrow for it', async ({
+    test('docks flush to the side, leaves the page beside it whole and clickable, is remembered on reopening, and falls back to a page of its own on a window too narrow for it', async ({
       page,
       isMobile,
     }) => {
@@ -1065,26 +1120,24 @@ test.describe('Item editing', () => {
         const reopened = (await form(page).boundingBox())!;
         expect(Math.round(reopened.width)).toBe(Math.round(narrowed.width));
 
-        // **"Out of scope" for a phone means "falls back to centered", not
-        // "renders anyway"** (found in review, on the pull request itself): a
-        // jsdom unit test proved the class name changes, but a docked
-        // account's own form actually redrawing itself once the window it is
-        // open in gets too narrow is a real window and a real layout.
-        // Narrowed live, with the form already open - the same reactive width
-        // the docked resize clamp answers to, not only a fresh open's read
-        // of it.
+        // **Out of scope for a phone means the form falls back to its page**
+        // (found in review, on the pull request itself): a jsdom unit test
+        // proved the class name changes, but a docked account's own form
+        // actually redrawing itself once the window it is open in gets too
+        // narrow is a real window and a real layout. Narrowed live, with the
+        // form already open - the same reactive width the docked resize clamp
+        // answers to, not only a fresh open's read of it.
         await page.setViewportSize({ width: 375, height: 700 });
-        // Polled rather than read once: falling back to centered swaps the
-        // dialog's own modal and non-modal content, which is drawn afresh a
-        // beat after the resize rather than in the same frame.
+        // Polled rather than read once: falling back swaps the dialog's own
+        // modal and non-modal content, which is drawn afresh a beat after the
+        // resize rather than in the same frame.
         await expect(async () => {
           const narrow = await form(page).boundingBox();
           expect(narrow, 'the form is drawn').not.toBeNull();
-          expect(Math.round(narrow!.x + narrow!.width), 'no longer flush against the edge').not.toBe(375);
+          expect(Math.round(narrow!.width), 'the page fills the window').toBe(375);
         }).toPass();
-        // The account is still docked - only what is drawn fell back - so the
-        // control still offers to undock it, not to dock what already is.
-        await expect(form(page).getByRole('button', { name: 'Center' })).toBeVisible();
+        // A page has no Dock or Center, whatever the account chose.
+        await expect(form(page).getByRole('button', { name: 'Center' })).toHaveCount(0);
 
         // Centered by hand on a window with room again, and the page has the
         // whole of it back.
