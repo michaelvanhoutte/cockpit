@@ -93,10 +93,17 @@ export default defineConfig({
           // A static page, not the shell's: answered from the network so a
           // changed policy is read at once rather than after the next update.
           /^\/privacy(\.html)?([?#]|$)/,
+          // The share address, which the Worker answers with a redirect; the
+          // service worker's own handling is of the POST. Anchored so the
+          // script beside it is not caught.
+          /^\/share-target([?#]|$)/,
         ],
         // Kept out of the precache for the same reason.
         globIgnores: ['**/privacy.html'],
         runtimeCaching: [],
+        // The share target's handler (public/share-target-sw.js), run by the
+        // generated worker so the update lifecycle above stays the plugin's own.
+        importScripts: ['share-target-sw.js'],
       },
       manifest,
     }),
@@ -111,6 +118,10 @@ export default defineConfig({
       // exchange, and the two discovery documents.
       '/mcp': apiProxy,
       '/oauth': apiProxy,
+      // What the installed app's share sheet posts to when the service worker
+      // did not take it (apps/api/src/worker.ts); dev registers no worker.
+      // Anchored: a bare prefix would also catch share-target-sw.js.
+      '^/share-target([?]|$)': apiProxy,
       '/.well-known/oauth-': apiProxy,
     },
   },

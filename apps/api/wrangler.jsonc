@@ -14,7 +14,10 @@
   // last four are what an MCP client reaches ("Connect Claude to Cockpit, and
   // capture an item from it", issue 599): the endpoint, the consent page and
   // token exchange under `/oauth/`, and the discovery documents, which would
-  // otherwise be answered with the app's own page and a 200.
+  // otherwise be answered with the app's own page and a 200. `/share-target` is
+  // the installed app's share address, reaching the Worker only when the service
+  // worker did not take the share (src/share-target.ts); it is in the
+  // service worker's denylist too, so a visit by address reaches the Worker.
   //
   // The service worker refuses to intercept these same prefixes
   // (navigateFallbackDenylist in apps/web/vite.config.ts) — add a prefix to one
@@ -41,7 +44,8 @@
       "/mcp",
       "/mcp/*",
       "/oauth/*",
-      "/.well-known/oauth-*"
+      "/.well-known/oauth-*",
+      "/share-target"
     ]
   },
 

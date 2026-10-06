@@ -21,3 +21,8 @@ export const loadCarCapture = () => import('./components/CarCapture');
 export const CarCapture = lazy(() => loadCarCapture().then((view) => ({ default: view.CarCapture })));
 
 export const CaptureNote = lazy(() => loadCaptureNote().then((form) => ({ default: form.CaptureNote })));
+
+/** Both sides of the Capture page's switch (components/CaptureForms.tsx), fetched the same way. */
+export const loadCaptureForms = () => import('./components/CaptureForms');
+
+export const CaptureForms = lazy(() => loadCaptureForms().then((forms) => ({ default: forms.CaptureForms })));

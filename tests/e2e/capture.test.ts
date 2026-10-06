@@ -1,3 +1,4 @@
+import { SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE } from '@cockpit/shared';
 import type { Page } from '@playwright/test';
 import {
   captureBox,
@@ -8,10 +9,15 @@ import {
   itemRow,
   openCapture,
   openInbox,
+  openTheFiles,
   press,
   test,
   uniqueTitle,
 } from './support/app';
+
+/** A minimal, valid 1x1 PNG. */
+const A_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
 /**
  * F3, because the capture control is reached by a tap on a 480px screen and by
@@ -193,6 +199,70 @@ test.describe('Capture', () => {
       await press(itemRow(page, driven).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Move to this workspace' }), isMobile);
       await expect(itemRow(page, driven).getByText('Any workspace')).toHaveCount(0);
+
+      // What the phone's share sheet handed to the installed app ("Share photos,
+      // files and links into Cockpit from Android's share sheet", issue 789).
+      // The sheet is outside any browser and this stack's Vite registers no
+      // service worker, so the share is put in the holding area the way the
+      // worker's script writes it, and Capture opened as the worker opens it.
+      // Only a browser proves the page claims it, queues the file and sends it
+      // through to an Item with the photo as its Attachment.
+      const shared = uniqueTitle('Shared from the gallery');
+      await page.evaluate(
+        ({ note, png, database, store }) =>
+          new Promise<void>((resolve, reject) => {
+            const opening = indexedDB.open(database);
+            opening.onupgradeneeded = () => opening.result.createObjectStore(store);
+            opening.onerror = () => reject(opening.error);
+            opening.onsuccess = () => {
+              const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0)).buffer;
+              const writing = opening.result.transaction(store, 'readwrite');
+              writing.objectStore(store).put(
+                {
+                  id: 'a-share',
+                  receivedAt: new Date().toISOString(),
+                  title: '',
+                  text: note,
+                  url: '',
+                  files: [{ name: 'sunset.png', type: 'image/png', size: bytes.byteLength, bytes }],
+                },
+                'a-share',
+              );
+              writing.oncomplete = () => resolve();
+              writing.onerror = () => reject(writing.error);
+            };
+          }),
+        { note: shared, png: A_PNG_BASE64, database: SHARE_HOLDING_DATABASE, store: SHARE_HOLDING_STORE },
+      );
+      await page.goto('/capture');
+      await expect(page.getByText('sunset.png')).toBeVisible();
+      await expect(captureBox(page)).toHaveValue(shared);
+      await expect(page.getByRole('button', { name: 'Any workspace' })).toHaveAttribute('aria-pressed', 'true');
+      // The photo uploads once the note has landed: leaving before it answers
+      // cuts the upload off, and the retry comes after this walk has looked.
+      const uploaded = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          /\/v1\/items\/[^/]+\/attachments$/.test(new URL(response.url()).pathname),
+      );
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
+      await expect(page.getByRole('region', { name: 'Just captured' }).getByText(shared)).toBeVisible();
+      expect((await uploaded).status()).toBe(201);
+
+      // Claimed, so opening Capture again finds nothing of it.
+      await page.goto('/capture');
+      await expect(captureBox(page)).toHaveValue('');
+      await expect(page.getByText('sunset.png')).toHaveCount(0);
+
+      await openInbox(page, isMobile);
+      await press(itemRow(page, shared).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Move to this workspace' }), isMobile);
+      await press(itemRow(page, shared).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
+      await openTheFiles(page, isMobile);
+      await expect(page.getByRole('dialog').getByRole('img', { name: 'sunset.png' })).toBeVisible({
+        timeout: 15_000,
+      });
     });
   });
 

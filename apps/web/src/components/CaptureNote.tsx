@@ -9,6 +9,7 @@ import { howLongAgo, useCapture } from '../capture';
 import { stateOf, whatGoesBack, type EntryState, type OutboxEntry } from '../captureOutbox';
 import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
 import { useDockedItem } from '../itemForm';
+import type { Arrived } from '../shares';
 import { NO_TYPES, typesOffered } from '../itemTypes';
 import { LazyRichDescription, NewerVersionIfStale, WhateverTheEditorDoes } from '../description/lazyEditor';
 import { dueDateLabel } from '../dueDate';
@@ -49,9 +50,18 @@ import {
  */
 export function CaptureNote({
   startsIn,
+  arrived,
+  onPutOn,
+  onCaptured,
   dictating,
 }: {
   startsIn: string | null;
+  /** What the share sheet handed over, claimed by the page: put on the note once, as if typed and dropped here. */
+  arrived?: Arrived | null | undefined;
+  /** Said once `arrived` is on the note, so the page can stop offering it to a form drawn again. */
+  onPutOn?: (() => void) | undefined;
+  /** Said when a capture is made on this form. */
+  onCaptured?: (() => void) | undefined;
   /** Where speech comes from and where the language is kept: the browser's own, unless a test hands in a fake. */
   dictating?: { engine?: EngineFactory | null; store?: Storage | undefined } | undefined;
 }) {
@@ -212,6 +222,9 @@ export function CaptureNote({
    * for a note captured here, not for an older one the outbox happens to send
    * while this is open.
    */
+  // What the page asked to be told, read when it happens rather than when drawn.
+  const saidNow = useRef({ onPutOn, onCaptured });
+  saidNow.current = { onPutOn, onCaptured };
   const dock = useDockedItem();
   const dockNow = useRef(dock);
   dockNow.current = dock;
@@ -269,6 +282,23 @@ export function CaptureNote({
     if (accepted.length === 0) return;
     setQueued((was) => [...was, ...accepted.map(toQueued)]);
   };
+
+  /**
+   * What was shared into Cockpit ("Share photos, files and links into Cockpit
+   * from Android's share sheet", issue 789): files wait as chips through the
+   * same check a dropped file gets, words go after whatever is already in the
+   * note. Once per mount - a strict-mode second run must not add it again; the
+   * page keeps the claim until a capture is made, so a form drawn again before
+   * that (Write, Car, Write) has it back.
+   */
+  const putOn = useRef<Arrived | null>(null);
+  useEffect(() => {
+    if (!arrived || putOn.current === arrived) return;
+    putOn.current = arrived;
+    if (arrived.message) setMessage((was) => (was.trim() ? `${was}\n${arrived.message}` : arrived.message));
+    if (arrived.files.length > 0) queueFiles(arrived.files);
+    saidNow.current.onPutOn?.();
+  }, [arrived]);
 
   /**
    * **Put back**: a refused capture's note and files return to the box, and
@@ -444,6 +474,9 @@ export function CaptureNote({
     const id = uuidv7();
     // Before the write, since sending starts behind it and can land first.
     madeHere.current.add(id);
+    // Said as it is pressed, not as it lands: the share has done its work then,
+    // and another tab's or an earlier capture's landing is not this one.
+    saidNow.current.onCaptured?.();
     void outbox
       .add({ ...what, id, files: queuedAtSubmit.map(({ id: fileId, file }) => ({ id: fileId, file })) })
       .then(

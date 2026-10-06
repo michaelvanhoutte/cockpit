@@ -1141,3 +1141,15 @@ describe('Sign-in', () => {
     });
   });
 });
+
+describe('Capture', () => {
+  describe('a share the app cannot receive says so', () => {
+    it('says it could not receive what was shared where the address carries the signal', async () => {
+      await open('/capture?share=failed', [work, personal]);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        "Couldn't receive what you shared — update Cockpit and share again.",
+      );
+    });
+  });
+});

@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import { Link, useRouterState } from '@tanstack/react-router';
-import { CarCapture, CaptureNote } from '../captureForm';
+import { CaptureForms } from '../captureForm';
 
 /**
  * What the header's tab and `C` put in the navigation's state to say which
@@ -40,6 +40,9 @@ export const captureStateFor = (workspaceId: string | undefined): never =>
  * Car view"): it flags the document while shown dark, and this page's ground,
  * heading and switch are styled from that flag rather than told, so a car-only
  * look costs the first bundle nothing.
+ *
+ * What was shared into Cockpit is claimed by the forms under the switch
+ * (components/CaptureForms.tsx).
  */
 export function CapturePage() {
   const startsIn = useRouterState({
@@ -93,7 +96,7 @@ export function CapturePage() {
         </div>
       </div>
       <Suspense fallback={null}>
-        {inCar ? <CarCapture /> : <CaptureNote startsIn={startsIn} />}
+        <CaptureForms startsIn={startsIn} inCar={inCar} carried={carried} />
       </Suspense>
     </section>
   );

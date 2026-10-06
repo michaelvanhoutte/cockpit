@@ -14,6 +14,7 @@ import {
   type Sender,
 } from '../../../src/captureOutboxSender';
 import { Layout } from '../../../src/pages/Layout';
+import { aShare, holdAShare, howManyAreHeld } from '../support/shares';
 
 /**
  * F1: where Capture is in the header, and what it opens. That the page it opens
@@ -477,6 +478,22 @@ describe('Offline', () => {
 
       await waitFor(() => expect(signOut).toHaveBeenCalled());
       expect(await store.all()).toEqual([]);
+    });
+  });
+});
+
+describe('Capture', () => {
+  describe('a share is never lost to signing in, and signing out removes it', () => {
+    it('empties the shares held on this device when somebody signs out', async () => {
+      await holdAShare(aShare({ text: 'Worth a read' }));
+      await theShell();
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByRole('button', { name: 'Profile' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Sign out' }));
+
+      await waitFor(() => expect(signOut).toHaveBeenCalled());
+      expect(await howManyAreHeld()).toBe(0);
     });
   });
 });
