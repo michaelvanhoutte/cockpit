@@ -3535,4 +3535,30 @@ describe('Dashboards', () => {
       }
     });
   });
+
+  describe('a jump leaves the Panel’s header in view, below the Dashboard filter bar that sticks to the top', () => {
+    it('scrolls to the header minus the height of the bar, and to the header alone with no bar', () => {
+      screenIs(1280);
+      const result = listed();
+      showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
+      const scroller = screen.getByRole('region', { name: 'To read' }).closest<HTMLElement>('body > div')!;
+      scroller.setAttribute('data-drag-scroll', 'dashboard');
+      scroller.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+      const scrollTo = vi.fn();
+      scroller.scrollTo = scrollTo as unknown as typeof scroller.scrollTo;
+      const header = screen.getByRole('region', { name: 'To read' }).closest('[data-panel-cell]')!.querySelector('header')!;
+      header.getBoundingClientRect = () => ({ top: 500 }) as DOMRect;
+
+      act(() => result.current!.jumpTo('reading'));
+      expect(scrollTo).toHaveBeenLastCalledWith(expect.objectContaining({ top: 400 }));
+
+      const bar = document.createElement('div');
+      bar.className = 'sticky top-0 z-20';
+      bar.getBoundingClientRect = () => ({ height: 56 }) as DOMRect;
+      scroller.appendChild(bar);
+
+      act(() => result.current!.jumpTo('reading'));
+      expect(scrollTo).toHaveBeenLastCalledWith(expect.objectContaining({ top: 344 }));
+    });
+  });
 });

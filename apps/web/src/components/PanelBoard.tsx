@@ -697,8 +697,12 @@ export function PanelBoard({
     const scroller = dashboardScroller();
     const top = headerTop(panelId);
     if (scroller && top !== null) {
+      // The Dashboard filter bar sticks to the top of the scroller, so the
+      // header lands just below it rather than under it.
+      const bar = scroller.querySelector<HTMLElement>('.sticky.top-0');
+      const barHeight = bar && !rowsRef.current?.contains(bar) ? bar.getBoundingClientRect().height : 0;
       scroller.scrollTo({
-        top: scroller.scrollTop + top - scroller.getBoundingClientRect().top,
+        top: scroller.scrollTop + top - scroller.getBoundingClientRect().top - barHeight,
         behavior: 'smooth',
       });
     }
