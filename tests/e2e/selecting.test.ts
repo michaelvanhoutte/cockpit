@@ -173,6 +173,13 @@ test.describe('Selection', () => {
       const titles = [uniqueTitle('Reply to Bart'), uniqueTitle('Renew the domain')];
       await goToTheInbox(page, isMobile);
       for (const title of titles) await capture(page, title, isMobile);
+      // Cut short before the filing rather than after it, so as little as
+      // possible stands between the undo offer appearing and it being read
+      // below: it goes after ten seconds.
+      if (isMobile) {
+        const { width } = page.viewportSize()!;
+        await page.setViewportSize({ width, height: 320 });
+      }
 
       await startSelecting(page, titles[0]!, isMobile);
       await addToSelection(page, titles[1]!, isMobile);
@@ -184,11 +191,7 @@ test.describe('Selection', () => {
       await goToTheDashboard(page, dashboard, isMobile);
       const onThePanel = page.getByRole('region', { name: panel });
       await expect(onThePanel.getByText(titles[0]!)).toBeVisible();
-      if (isMobile) {
-        const { width } = page.viewportSize()!;
-        await page.setViewportSize({ width, height: 320 });
-        await onThePanel.getByText(titles[0]!).scrollIntoViewIfNeeded();
-      }
+      if (isMobile) await onThePanel.getByText(titles[0]!).scrollIntoViewIfNeeded();
       await startSelecting(page, titles[0]!, isMobile);
 
       await expect(onThePanel.getByText('1 selected')).toBeInViewport();
