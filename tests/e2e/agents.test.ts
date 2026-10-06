@@ -282,7 +282,10 @@ test.describe('Agents', () => {
         expect(await seen(), 'the far row never scrolled into view').toBe(true);
         const at = await farRow.boundingBox();
         if (!at) throw new Error('the far row is not on screen');
-        await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2, { steps: 8 });
+        // At the row's right end, out from under the undo toast that the filing
+        // above leaves at the bottom centre: with the Panel list taking the
+        // dashboard's right edge, the row's middle sits behind the toast.
+        await page.mouse.move(at.x + at.width - 30, at.y + at.height / 2, { steps: 8 });
         // Only the row under the pointer is lit; every other row that takes it is merely tinted.
         await expect(farRow).toHaveAttribute('data-agent-target', '');
         await expect(itemRow(page, asked)).not.toHaveAttribute('data-agent-target', '');

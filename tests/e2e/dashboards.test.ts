@@ -616,4 +616,86 @@ test.describe('Dashboards', () => {
       await expectPinned();
     });
   });
+  test.describe('a Dashboard’s Panels are listed at its right, and a click brings one to the top', () => {
+    /**
+     * F3, because where a header lands is layout and a scroll position, which
+     * jsdom has neither of; what the list holds, its controls and the key are
+     * apps/web/tests/unit (components/PanelList, panelList, pages/Layout). One
+     * walk: a Dashboard too tall for the window, the list open, then the key and
+     * a reload.
+     */
+    test('scrolls a Panel’s header to the top, as far as the page allows for one too low, and keeps the list collapsed across a reload', async ({
+      page,
+      isMobile,
+    }) => {
+      const workspace = uniqueTitle('Bookkeeping');
+      await openFirstWorkspace(page, isMobile);
+      await makeWorkspace(page, workspace, isMobile);
+      await switchTo(page, workspace, isMobile);
+      await openDashboard(page, 'Dashboard 1', isMobile);
+      const list = page.getByRole('complementary', { name: 'Panels' });
+      const strip = page.getByRole('button', { name: 'Open the Panel list' });
+      // A phone keeps collapse-and-jump, so there is nothing to walk.
+      if (isMobile) {
+        await expect(page.getByRole('region', { name: 'Panel 1' })).toBeVisible();
+        await expect(list).toHaveCount(0);
+        await expect(strip).toHaveCount(0);
+        return;
+      }
+
+      const [, , workspaceId, , dashboardId] = new URL(page.url()).pathname.split('/');
+      for (let at = 0; at < 9; at += 1) {
+        const sent = await page.request.post('/v1/commands/add_panel', {
+          data: {
+            commandId: randomUUID(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            dashboardId,
+            panelId: randomUUID(),
+            name: `Extra ${at}`,
+          },
+        });
+        expect(sent.ok(), `add_panel from outside failed: ${sent.status()} ${await sent.text()}`).toBe(true);
+      }
+      await page.setViewportSize({ width: 1280, height: 520 });
+      await page.reload();
+
+      const scroller = page.locator('[data-drag-scroll="dashboard"]');
+      const headerOf = (name: string) => page.getByRole('region', { name }).locator('header');
+      const scrollTop = () => scroller.evaluate((el) => el.scrollTop);
+      const reach = () => scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
+      const entry = (name: string) => list.getByRole('button', { name: new RegExp(`^${name}`) });
+      await expect(list).toBeVisible();
+      await expect(list.getByRole('heading', { name: 'Panels' })).toBeVisible();
+      await expect(entry('Extra 8')).toBeVisible();
+      await expect.poll(reach, 'the Dashboard is taller than the window').toBeGreaterThan(150);
+      // The list takes its width from the Panels: it is beside the scroller, not over it.
+      const listBox = (await list.boundingBox())!;
+      const scrollerBox = (await scroller.boundingBox())!;
+      expect(listBox.x).toBeGreaterThanOrEqual(scrollerBox.x + scrollerBox.width - 1);
+
+      // **A Panel that can reach the top.**
+      await press(entry('Extra 3'), isMobile);
+      await expect
+        .poll(async () => Math.abs((await headerOf('Extra 3').boundingBox())!.y - (await scroller.boundingBox())!.y))
+        .toBeLessThan(2);
+      await expectNoSidewaysScroll(page);
+
+      // **One too low to**: as far as the page goes, and no further.
+      await press(entry('Extra 8'), isMobile);
+      await expect.poll(async () => (await reach()) - (await scrollTop())).toBeLessThan(2);
+      expect((await headerOf('Extra 8').boundingBox())!.y, 'short of the top').toBeGreaterThan(scrollerBox.y + 2);
+      await expectNoSidewaysScroll(page);
+
+      // **P collapses it to the strip, and a reload keeps it so.**
+      await page.keyboard.press('p');
+      await expect(list).toHaveCount(0);
+      await expect(strip).toBeVisible();
+      await page.reload();
+      await expect(strip).toBeVisible();
+      await expect(list).toHaveCount(0);
+      await press(strip, isMobile);
+      await expect(list).toBeVisible();
+    });
+  });
 });

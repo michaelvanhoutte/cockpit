@@ -55,6 +55,10 @@ import { MovePanelToDashboardPicker } from './MovePanelToDashboardPicker';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { forgetPanelsCollapsed, usePanelsCollapsed } from '../panelsCollapsed';
 import { PANEL_GAP, PanelCard } from './PanelCard';
+import { publishPanelList, withdrawPanelList } from '../panelList';
+
+/** How long a Panel stays outlined after the list jumps to it, in milliseconds. */
+const JUMP_OUTLINE_MS = 1200;
 
 /** How close two taps on a header are to be a double-tap, in milliseconds. */
 const DOUBLE_TAP_MS = 350;
@@ -691,6 +695,67 @@ export function PanelBoard({
     const header = rowsRef.current?.querySelector(`[data-panel-cell="${panelId}"] header`);
     return header ? header.getBoundingClientRect().top : null;
   };
+
+  /**
+   * The Panel list's jump ("Show a Dashboard's Panels in a collapsible column
+   * at its right, and jump to one", issue 803): this Panel's header to the top
+   * of the Dashboard, and the Panel outlined for a moment so the eye finds it.
+   * Held through a ref so what is published is one function for the board's
+   * whole life, and a republish never looks like a change.
+   */
+  const jumpRef = useRef<(panelId: string) => void>(() => undefined);
+  const outlined = useRef<{ cell: HTMLElement; timer: number } | null>(null);
+  jumpRef.current = (panelId) => {
+    const cell = rowsRef.current?.querySelector<HTMLElement>(`[data-panel-cell="${panelId}"]`);
+    if (!cell) return;
+    const scroller = dashboardScroller();
+    const top = headerTop(panelId);
+    if (scroller && top !== null) {
+      // The Dashboard filter bar sticks to the top of the scroller, so the
+      // header lands just below it rather than under it.
+      // Panels have sticky headers of their own inside the rows; those are not it.
+      const bar = [...scroller.querySelectorAll<HTMLElement>('.sticky.top-0')].find(
+        (one) => !rowsRef.current?.contains(one),
+      );
+      const barHeight = bar ? bar.getBoundingClientRect().height : 0;
+      scroller.scrollTo({
+        top: scroller.scrollTop + top - scroller.getBoundingClientRect().top - barHeight,
+        behavior: 'smooth',
+      });
+    }
+    if (outlined.current) {
+      window.clearTimeout(outlined.current.timer);
+      outlined.current.cell.removeAttribute('data-jumped-to');
+    }
+    cell.setAttribute('data-jumped-to', '');
+    outlined.current = {
+      cell,
+      timer: window.setTimeout(() => cell.removeAttribute('data-jumped-to'), JUMP_OUTLINE_MS),
+    };
+  };
+  const [jumpTo] = useState(() => (panelId: string) => jumpRef.current(panelId));
+  const listed = drawn.map(({ row }) =>
+    row.cells.map((cell) => {
+      const panel = panels.find((one) => one.id === cell.panelId);
+      return {
+        panelId: cell.panelId,
+        title: panel?.name ?? '',
+        count: panel && panelHoldsText(panel) ? null : (shows.get(cell.panelId)?.length ?? 0),
+      };
+    }),
+  );
+  // After every render, which the publication itself drops when nothing it
+  // says has changed; withdrawn only when the board leaves.
+  useEffect(() => {
+    publishPanelList({ dashboardId: dashboard.id, rows: listed, jumpTo });
+  });
+  useEffect(() => () => withdrawPanelList(jumpTo), [jumpTo]);
+  useEffect(
+    () => () => {
+      if (outlined.current) window.clearTimeout(outlined.current.timer);
+    },
+    [],
+  );
 
   /** Notes where the header is now, for the board about to change shape around it. */
   const anchorOn = (panelId: string) => {

@@ -162,7 +162,7 @@
     {
       "key": "Dashboards",
       "label": "Dashboards",
-      "browserWalks": 5,
+      "browserWalks": 6,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/api/src/domain/dashboards.ts",
@@ -185,7 +185,9 @@
         "apps/web/src/components/Menu.tsx",
         "apps/web/src/components/DeleteQuestion.tsx",
         "apps/web/src/roomForTheInbox.ts",
-        "apps/web/src/inboxWidth.ts"
+        "apps/web/src/inboxWidth.ts",
+        "apps/web/src/panelList.ts",
+        "apps/web/src/components/PanelList.tsx"
       ]
     },
     {

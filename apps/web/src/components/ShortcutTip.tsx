@@ -1,6 +1,7 @@
 import { AGENT_DOCK_KEY } from '../agentDockHidden';
 import { CAPTURE_KEY } from '../captureShortcut';
 import { INBOX_KEY } from '../inboxCollapsed';
+import { PANEL_LIST_KEY } from '../panelList';
 import type { TipControl } from '../shortcutTip';
 import { BOTTOM_CENTRE_STRIP, useAnUndoIsOffered } from '../undo';
 
@@ -8,6 +9,7 @@ import { BOTTOM_CENTRE_STRIP, useAnUndoIsOffered } from '../undo';
 export const TIPS: Record<TipControl, string> = {
   capture: `Tip: press ${CAPTURE_KEY.toUpperCase()} to capture from anywhere`,
   inbox: `Tip: press ${INBOX_KEY.toUpperCase()} to collapse or open the Inbox`,
+  panels: `Tip: press ${PANEL_LIST_KEY.toUpperCase()} to collapse or open the Panel list`,
   dock: `Tip: press ${AGENT_DOCK_KEY.toUpperCase()} to hide or show the agents’ dock`,
 };
 
