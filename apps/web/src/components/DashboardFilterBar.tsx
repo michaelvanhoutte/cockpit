@@ -76,9 +76,10 @@ export function DashboardFilterBar({
       on ? 'border-accent bg-accent text-on-accent' : 'border-shade/15 text-ink-soft hover:bg-shade/5'
     }`;
 
-  // A field that holds a value wears a 2px accent border where an empty one has the plain 1px.
+  // A field that holds a value wears a 2px accent border (the 1px border plus an inset ring, so
+  // the field keeps its size) where an empty one has the plain 1px.
   const set = (on: boolean) =>
-    `bg-transparent ${on ? 'border-2 border-accent' : 'border border-shade/15'}`;
+    `bg-transparent border ${on ? 'border-accent ring-1 ring-inset ring-accent' : 'border-shade/15'}`;
 
   // One filter's chips are joined inside one outline, so where a filter ends is
   // plain without spending width on a label.
