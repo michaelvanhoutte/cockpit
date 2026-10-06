@@ -1,18 +1,17 @@
 import { useLayoutEffect, useRef } from 'react';
+import { useRoomForTheInbox } from '../roomForTheInbox';
 
 /**
  * What is picked out of a list, and what can be done with it ("Select several
  * items, and file them all in one go", issue 169).
  *
- * **It belongs to the list, not to the screen, from 768px up.** A dashboard
- * draws several panels at once there, so a bar laid over the window could not
- * say which list it was about - where this one is is the answer. Narrower, it
- * is laid over the foot of the screen instead (below), which says nothing
- * wrong: only one list holds a selection at a time.
+ * **It belongs to the list, not to the screen, wherever the Inbox has room
+ * beside the dashboards.** A dashboard draws several panels at once there, so
+ * a bar laid over the window could not say which list it was about - where
+ * this one is is the answer. Narrower, it is laid over the foot of the screen
+ * instead (below), which says nothing wrong: only one list holds a selection at
+ * a time (`useOnlyOneListSelecting`).
  */
-
-/** Where the bar is pinned: under 768px, the Inbox's own threshold (`roomForTheInbox.ts`). */
-const PINNED = '(width < 768px)';
 export function SelectionBar({
   count,
   filing,
@@ -30,46 +29,31 @@ export function SelectionBar({
   onClear: () => void;
 }) {
   const bar = useRef<HTMLDivElement>(null);
+  /** Pinned to the screen exactly where the Inbox gets a screen of its own. */
+  const pinned = !useRoomForTheInbox();
 
   /**
-   * Publishes the bar's height as `--selection-bar-h` for as long as it is
-   * pinned to the screen, so the undo offer lifts above it the way it lifts
-   * above the agents' dock (`AgentDock.tsx` does the same with `--dock-h`).
-   * Read only while the bar is `fixed`: at 768px and wider it stays in its list
-   * and nothing sits on the screen's edge. Watched rather than read once,
-   * since a refusal line makes it taller and the window crossing 768px changes
-   * whether it is pinned at all; and guarded for a test runner, which has no
-   * layout engine to observe with.
+   * Publishes the bar's height as `--selection-bar-h` while it is pinned, so
+   * the undo offer lifts above it the way it lifts above the agents' dock
+   * (`AgentDock.tsx` does the same with `--dock-h`). Less the safe-area edge,
+   * which the bar's own padding holds and the offer adds again. Observed rather
+   * than read once, since a refusal line makes it taller; guarded for a test
+   * runner, which has no layout engine to observe with.
    */
   useLayoutEffect(() => {
     const el = bar.current;
-    if (!el) return;
+    if (!el || !pinned) return;
     const root = document.documentElement;
-    const publish = () => {
-      if (getComputedStyle(el).position === 'fixed') {
-        // Less the safe-area edge, which the bar's own padding already holds
-        // and whatever stacks on this adds again.
-        root.style.setProperty(
-          '--selection-bar-h',
-          `calc(${el.offsetHeight}px - var(--edge-bottom))`,
-        );
-      } else {
-        root.style.removeProperty('--selection-bar-h');
-      }
-    };
+    const publish = () =>
+      root.style.setProperty('--selection-bar-h', `calc(${el.offsetHeight}px - var(--edge-bottom))`);
     publish();
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(publish) : null;
     observer?.observe(el);
-    // Crossing the width can leave the bar's size as it was, which the
-    // observer would not report.
-    const width = globalThis.matchMedia?.(PINNED);
-    width?.addEventListener('change', publish);
     return () => {
       observer?.disconnect();
-      width?.removeEventListener('change', publish);
       root.style.removeProperty('--selection-bar-h');
     };
-  }, []);
+  }, [pinned]);
 
   return (
     // **Stuck to the foot of the list, not placed after it.** A panel's rows
@@ -79,26 +63,31 @@ export function SelectionBar({
     // costs nothing and reads the same. Opaque for the same reason: rows pass
     // underneath it.
     //
-    // **Below 768px, stuck to the screen instead** - the width under which
-    // the Inbox gets a screen of its own (`roomForTheInbox.ts`). There the page
-    // scrolls as well as the panel, so a panel taller than what is left of the
-    // screen puts its own foot, and the bar with it, below the fold. Only one
-    // list holds a selection at a time (`useOnlyOneListSelecting`), so a bar
-    // over the screen is still unambiguously that list's. The placeholder left
-    // in the list, as tall as the bar, is so its last row can still be scrolled
-    // clear of it.
+    // **Pinned to the screen's foot where the Inbox has no room beside the
+    // dashboards.** There the page scrolls as well as the panel, so a panel
+    // taller than what is left of the screen puts its own foot, and the bar
+    // with it, below the fold. What stays in the list is a placeholder as tall
+    // as the bar, so its last row can still be scrolled clear of it.
     //
-    // **The placeholder's level is the bar's**: it is a stacking context, so
-    // what is inside cannot rise above it. Pinned, it is `z-20`, over the
-    // board's own `z-10` handles drawn after it - a row's seam crossing the
-    // screen's foot would otherwise take the tap meant for **Move to…** - and
-    // still below `z-floating` ("Elevation", docs/design-system.md), so menus
-    // and the move picker draw over it, the undo offer (`undo.tsx`) over both.
-    //
-    // `max-[768px]` rather than `max-md`, which is in rems and so moves with
-    // the browser's font size, where the Inbox's own width does not.
-    <div className="sticky bottom-0 z-10 max-[768px]:z-20 max-[768px]:h-[calc(var(--selection-bar-h,3rem)_+_var(--edge-bottom))]">
-      <div ref={bar} className="border-t border-shade/5 bg-accent-tint px-4 py-2 max-[768px]:fixed max-[768px]:inset-x-0 max-[768px]:bottom-[var(--dock-h,0px)] max-[768px]:pr-[calc(1rem_+_var(--edge-right))] max-[768px]:pb-[calc(0.5rem_+_var(--edge-bottom))] max-[768px]:pl-[calc(1rem_+_var(--edge-left))] max-[768px]:shadow-lg">
+    // **`z-20` on the placeholder, which is the bar's level**: it is a stacking
+    // context, so what is inside cannot rise above it. That is over the board's
+    // own `z-10` row seams and grips drawn after it, which would otherwise take
+    // a tap meant for the bar, and below `z-floating` ("Elevation",
+    // docs/design-system.md), so menus and the move picker draw over it and the
+    // undo offer (`undo.tsx`) over both.
+    <div
+      className={`sticky bottom-0 z-20 ${
+        pinned ? 'h-[calc(var(--selection-bar-h,3rem)_+_var(--edge-bottom))]' : ''
+      }`}
+    >
+      <div
+        ref={bar}
+        className={`border-t border-shade/5 bg-accent-tint px-4 py-2 ${
+          pinned
+            ? 'fixed inset-x-0 bottom-0 pr-[calc(1rem_+_var(--edge-right))] pb-[calc(0.5rem_+_var(--edge-bottom))] pl-[calc(1rem_+_var(--edge-left))] shadow-lg'
+            : ''
+        }`}
+      >
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium tabular-nums text-accent-deep">
             {count} selected

@@ -216,9 +216,10 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
           // press but the tile going invisible under it.
           //
           // **And the selection bar pinned to the screen**,
-          // `--selection-bar-h` (`SelectionBar.tsx`), below 768px: it holds
-          // the same edge, and an offer drawn over it covers **Move to…**.
-          // Unset, so zero, wherever the bar stays in its own list.
+          // `--selection-bar-h` (`SelectionBar.tsx`), where the Inbox has no
+          // room beside the dashboards: it holds the same edge, and an offer
+          // drawn over it covers **Move to…**. Unset, so zero, wherever the
+          // bar stays in its own list.
           className={BOTTOM_CENTRE_STRIP}
         >
           <div className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
