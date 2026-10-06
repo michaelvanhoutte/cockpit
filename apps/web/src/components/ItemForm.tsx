@@ -1911,7 +1911,7 @@ function TheForm({
                       )}
                       {onAPage && chipsFailed && (
                         <p role="alert" className="text-sm text-over">
-                          The fields could not load. Close this and open it again.
+                          The fields could not load. Reload Cockpit to try again.
                         </p>
                       )}
                       {onAPage && !chipsFailed && (
