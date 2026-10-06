@@ -11,6 +11,10 @@ import { useServerEvents } from '../api/useServerEvents';
 // around itself in WorkspaceTabs.tsx - since the dock is not what the shell
 // has to paint first.
 const AgentDock = lazy(() => import('../components/AgentDock'));
+// And the Panel list column, which holds the drag half of rearranging a
+// Dashboard; its published store (panelList.ts) stays in the bundle, since the
+// board feeds it.
+const PanelList = lazy(() => import('../components/PanelList'));
 // Out of the initial bundle too: Settings and Platform settings, and what they
 // hold, are fetched when first opened, and each section when it is first shown
 // (components/SettingsWindow.tsx).
@@ -46,7 +50,6 @@ import {
 } from '../inboxCollapsed';
 import { readAgentDockHidden, togglesTheAgentDock, writeAgentDockHidden } from '../agentDockHidden';
 import { useRoomForTheInbox } from '../roomForTheInbox';
-import { PanelList } from '../components/PanelList';
 import { usePanelListCollapsed, usePanelListing } from '../panelList';
 import { useConnections } from '../connections';
 import type { ConnectOutcomeFor, SettingsKey } from '../components/SettingsWindow';
@@ -1174,11 +1177,13 @@ function TheShell() {
           <Outlet />
         </div>
         {showsPanelList && (
-          <PanelList
-            listing={panelListing}
-            collapsed={panelListCollapsed}
-            onCollapse={collapsePanelList}
-          />
+          <Suspense fallback={null}>
+            <PanelList
+              listing={panelListing}
+              collapsed={panelListCollapsed}
+              onCollapse={collapsePanelList}
+            />
+          </Suspense>
         )}
       </main>
 

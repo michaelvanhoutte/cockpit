@@ -253,3 +253,5 @@ export function PanelList({
     </aside>
   );
 }
+
+export default PanelList;

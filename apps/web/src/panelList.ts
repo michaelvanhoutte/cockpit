@@ -144,14 +144,11 @@ const announce = () => listeners.forEach((listener) => listener());
  * should redraw only when the list changed.
  */
 export function publishPanelList(next: PanelListing): void {
+  // The functions drop out of the JSON; rrange is made with jumpTo, by the same board.
   const same =
     published !== null &&
-    published.dashboardId === next.dashboardId &&
     published.jumpTo === next.jumpTo &&
-    published.arrange === next.arrange &&
-    published.arrangeable === next.arrangeable &&
-    JSON.stringify(published.rows) === JSON.stringify(next.rows) &&
-    JSON.stringify(published.arrangement) === JSON.stringify(next.arrangement);
+    JSON.stringify(published) === JSON.stringify(next);
   if (same) return;
   published = next;
   announce();
