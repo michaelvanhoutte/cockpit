@@ -21,3 +21,12 @@ export const loadCarCapture = () => import('./components/CarCapture');
 export const CarCapture = lazy(() => loadCarCapture().then((view) => ({ default: view.CarCapture })));
 
 export const CaptureNote = lazy(() => loadCaptureNote().then((form) => ({ default: form.CaptureNote })));
+
+/**
+ * Both sides of the Capture page's switch and what was shared into Cockpit
+ * ("Share photos, files and links into Cockpit from Android's share sheet",
+ * issue 789), fetched the same way, so the first bundle carries none of it.
+ */
+export const loadCaptureForms = () => import('./components/CaptureForms');
+
+export const CaptureForms = lazy(() => loadCaptureForms().then((forms) => ({ default: forms.CaptureForms })));

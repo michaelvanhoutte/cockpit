@@ -50,7 +50,6 @@ import { useConnections } from '../connections';
 import type { ConnectOutcomeFor, SettingsKey } from '../components/SettingsWindow';
 import { useScrollWhileDraggingAnItem } from '../dragScroll';
 import { useOutbox, useSendingCaptures, useWaitingCaptures } from '../captureOutboxSender';
-import { emptyHoldingArea } from '../shareClaim';
 import { loadCaptureNote } from '../captureForm';
 import { DeleteQuestion } from '../components/DeleteQuestion';
 
@@ -605,7 +604,7 @@ function TheShell() {
     // What was shared into Cockpit and not yet claimed has no owner to keep it
     // for, so the explicit way out empties it whether or not captures wait.
     mutationFn: async () => {
-      await emptyHoldingArea();
+      await (await import('../shareClaim')).emptyHoldingArea();
       await signOut();
     },
     // `onSettled`, not `onSuccess`. Somebody who asked to sign out on a shared

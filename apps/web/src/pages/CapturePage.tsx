@@ -1,11 +1,6 @@
-import { Suspense, useEffect, useState } from 'react';
-import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import { SHARE_FAILED_MESSAGE } from '@cockpit/shared';
-import { NotSignedIn } from '../api/client';
-import { meQuery } from '../api/queries';
-import { CarCapture, CaptureNote } from '../captureForm';
-import { useArrived } from '../shareClaim';
+import { Suspense } from 'react';
+import { Link, useRouterState } from '@tanstack/react-router';
+import { CaptureForms } from '../captureForm';
 
 /**
  * What the header's tab and `C` put in the navigation's state to say which
@@ -47,37 +42,15 @@ export const captureStateFor = (workspaceId: string | undefined): never =>
  * look costs the first bundle nothing.
  *
  * **What was shared into Cockpit is claimed here** ("Share photos, files and
- * links into Cockpit from Android's share sheet", issue 789), by the Write form
- * and only once the sign-in is known to hold: a share made while signed out, or
- * with the sign-in expired, stays held until this page is reached signed in. A
- * share the Worker had to turn away arrives as `?share=failed` and is said here.
+ * links into Cockpit from Android's share sheet", issue 789), by the forms below
+ * the switch (components/CaptureForms.tsx), which keep the first
+ * bundle clear of it.
  */
 export function CapturePage() {
   const startsIn = useRouterState({
     select: (state) => (state.location.state as CaptureState).captureFrom ?? null,
   });
   const inCar = useRouterState({ select: (state) => state.location.pathname === '/capture/car' });
-  const arrivedFailed = useRouterState({
-    select: (state) => (state.location.search as { share?: unknown }).share === 'failed',
-  });
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const navigate = useNavigate();
-  /**
-   * Said once on arrival and then taken out of the address, replacing the entry
-   * so Back does not return to it and a reload does not say it again; gone once
-   * a capture lands or a share is put on the note.
-   */
-  const [shareFailed, setShareFailed] = useState(false);
-  useEffect(() => {
-    if (!arrivedFailed) return;
-    setShareFailed(true);
-    void navigate({ to: pathname as never, search: {} as never, replace: true, state: captureStateFor(startsIn ?? undefined) });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arrivedFailed]);
-  // Settled, not just stored: the copy of who is signed in can outlive the sign-in.
-  const { data: me, error: sessionFailure, isFetching } = useQuery(meQuery);
-  const signedIn = Boolean(me) && !isFetching && !(sessionFailure instanceof NotSignedIn);
-  const { arrived, taken } = useArrived(signedIn && !inCar);
   // Carried over the switch, so Where still starts on the workspace you came from.
   const carried = captureStateFor(startsIn ?? undefined);
 
@@ -124,23 +97,8 @@ export function CapturePage() {
           </Link>
         </div>
       </div>
-      {shareFailed && (
-        <p role="alert" data-share-failed="" className="mt-3 text-sm text-over">
-          {SHARE_FAILED_MESSAGE}
-        </p>
-      )}
       <Suspense fallback={null}>
-        {inCar ? <CarCapture /> : (
-          <CaptureNote
-            startsIn={startsIn}
-            arrived={arrived}
-            onPutOn={() => setShareFailed(false)}
-            onCaptured={() => {
-              taken();
-              setShareFailed(false);
-            }}
-          />
-        )}
+        <CaptureForms startsIn={startsIn} inCar={inCar} />
       </Suspense>
     </section>
   );

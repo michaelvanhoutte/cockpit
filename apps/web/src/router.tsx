@@ -10,7 +10,7 @@ import { NotSignedIn } from './api/client';
 import { snapshotQuery, workspacesQuery } from './api/queries';
 import { setAllItemsTab } from './allItemsTab';
 import { connectionsSearch } from './connections';
-import { loadCaptureNote, loadCarCapture } from './captureForm';
+import { loadCaptureForms, loadCaptureNote, loadCarCapture } from './captureForm';
 import { itemFormSearch } from './itemForm';
 import {
   INBOX,
@@ -364,7 +364,8 @@ const capturing =
 const captureRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/capture',
-  beforeLoad: capturing(loadCaptureNote),
+  // With the forms around it, which hold both sides of the switch.
+  beforeLoad: capturing(() => Promise.all([loadCaptureForms(), loadCaptureNote()])),
   component: CapturePage,
 });
 
@@ -377,7 +378,7 @@ const captureRoute = createRoute({
 const captureCarRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/capture/car',
-  beforeLoad: capturing(loadCarCapture),
+  beforeLoad: capturing(() => Promise.all([loadCaptureForms(), loadCarCapture()])),
   component: CapturePage,
 });
 
