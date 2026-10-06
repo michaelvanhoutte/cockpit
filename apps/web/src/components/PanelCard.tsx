@@ -180,11 +180,6 @@ export function PanelCard({
       // list inside it goes down into it ("Cockpit Shell Explorations",
       // artboard 2c).
       //
-      // `@container` so what is inside can be drawn to the panel's own width
-      // rather than the screen's - the header does, below. It has to be here
-      // rather than on the header, because a container query asks about an
-      // *ancestor*: on the header it would size the header's contents and not
-      // the header itself.
       // Lifted, and saying so: the panel in the air is drawn back and outlined
       // in its slot while the board moves it about. Without it the gesture had
       // no sign at all that anything had been picked up.
@@ -195,344 +190,351 @@ export function PanelCard({
       // old height regardless - nothing to shrink into, and nothing to scroll
       // ("A Panel doesn't shrink or scroll to fit a shorter dashboard row",
       // issue 432).
-      className={`@container flex min-h-0 min-w-0 flex-col border border-dotted border-shade/15 ${
+      className={`flex min-h-0 min-w-0 flex-col border border-dotted border-shade/15 ${
         lifted ? 'rounded-lg opacity-40 outline-2 outline-dashed outline-accent' : 'rounded-sm'
       }`}
     >
-      <SurfaceMenu
-        label={`Actions for ${panel.name}`}
-        // Shut while the name is being edited in place, on this same header:
-        // a right-click or the menu key would otherwise fight the rename box
-        // for them instead of letting you select or paste into it.
-        disabled={isRenaming}
-        // Nothing to build while the menu is shut for it: the entries below
-        // are closures over this render's props, allocated for a menu that
-        // cannot open until the rename that disabled it ends and this
-        // component renders again anyway.
-        entries={
-          isRenaming
-            ? []
-            : [
-                { label: 'Rename', onSelect: onStartRenaming },
-                // Only on a panel of text. A panel of items has no text to
-                // lock, and an entry that means nothing where it is offered is
-                // worse than one that is not there - the menu's own rule keeps
-                // an *unavailable* entry visible, and this one is not
-                // unavailable, it is about something else entirely.
-                //
-                // Named for what choosing it gives you rather than for the
-                // state it leaves behind, which is how every other entry here
-                // reads.
-                ...(text
-                  ? [
-                      {
-                        label: panel.readOnly ? 'Allow editing' : 'Make read-only',
-                        keepsFocus: true,
-                        onSelect: () => onReadOnlyChange(!panel.readOnly),
-                      },
-                      {
-                        // What the same characters are drawn as. Named for what
-                        // choosing it gives you, like the entry above it.
-                        label: panel.format === 'rich' ? 'Use plain text' : 'Use rich text',
-                        keepsFocus: true,
-                        onSelect: () =>
-                          onFormatChange(panel.format === 'rich' ? 'plain' : 'rich'),
-                      },
-                    ]
-                  : []),
-                // Only on a Filter, for the reason the two entries above are
-                // only on a panel of text: a panel with nothing to gather has
-                // no conditions for this to be about.
-                ...(filter ? [{ label: 'Filter…', onSelect: onFilter }] : []),
-                // Not on a Panel of text, which has no rows.
-                ...(panelTakesItems(panel) || filter ? [{ label: 'Sort…', onSelect: onSort }] : []),
-                {
-                  label: 'Move to another dashboard',
-                  unavailable: dashboardFiltered
-                    ? 'Clear the dashboard filter to move a panel'
-                    : canMoveToAnotherDashboard
-                      ? undefined
-                      : 'This workspace has no other dashboard',
-                  onSelect: onMoveToAnotherDashboard,
-                },
-                { label: 'Delete', destructive: true, onSelect: onDelete },
-              ]
-        }
-      >
-        <header
-          // The handle, and a pointer gesture rather than the browser's own
-          // drag-and-drop.
-          //
-          // **The browser's drag gives a frozen picture of the panel**, which is
-          // the one thing this gesture must not do: the panels move as the
-          // pointer does, so what is under the hand has to be the board itself.
-          // It also drew the two gestures on this screen from one mechanism -
-          // an item being filed onto a panel is a drag too - and every target
-          // had to ask which of them was in the air. Items keep the browser's
-          // drag; a panel is moved with the pointer, and the two can no longer
-          // be mistaken for each other.
-          onPointerDown={(event) => {
-            // The primary button of a mouse only, the same guard `tabDrag.ts`
-            // uses for the same reason: a right-click opens the panel's own
-            // menu (`SurfaceMenu`, above), and a touch is what rests a finger to
-            // open it too - a drag is absent on a touchscreen, so leaving a
-            // touch press here would take the header's own `onPointerDown`
-            // ahead of Radix's, in the one child-before-slot order `asChild`
-            // composes them in, and its `preventDefault` would reach Radix's
-            // long-press timer already told the gesture was spoken for.
-            if (!onPickUp || event.button !== 0 || event.pointerType !== 'mouse') return;
-            // Not while it is being renamed, and not on the rename form's own
-            // controls: an emptied rename box is still an open one, and
-            // selecting what you typed, or pressing Save or Cancel, must not
-            // carry the panel off.
-            if (isRenaming) return;
-            if ((event.target as Element).closest?.('button, input, form')) return;
-            // **And only for a press that really landed in this header.** A
-            // chosen menu entry is drawn in a portal on the body, but a React
-            // event bubbles through the component tree rather than the DOM
-            // one - so choosing Delete arrives here, nowhere near the
-            // header, and the `preventDefault` below took the press away from
-            // the menu. The menu then sat open over a modal overlay with
-            // nothing else on the page reachable. `contains` is what tells
-            // the two apart; an Item's row asks the same question for the
-            // same reason (`RowForm.tsx`, `wasOnTheRow`).
-            if (!event.currentTarget.contains(event.target as Node)) return;
-            // Otherwise the browser starts a text selection across whatever the
-            // drag passes over.
-            event.preventDefault();
-            onPickUp(event.pointerId);
-          }}
-          // Reachable by keyboard whenever the menu might open from it, so the
-          // browser's own menu key has a target to fire on - the same reason
-          // a tab's own `Link` needs no such thing itself: it is focusable
-          // already. Taken back out of the tab order during a rename, when
-          // the input inside already is the thing to reach.
-          //
-          // The menu key that gives every other keyboard a way in does not
-          // exist on macOS, and this header activates nothing on Enter the
-          // way a tab's `Link` does - so without `opensOnKey` a keyboard-only
-          // Mac user has no way to reach a panel's menu at all (found in
-          // review). `role="group"` (below) is not a widget role, so a
-          // screen reader's own activation gesture - VoiceOver's VO+Space,
-          // which sends no `keydown` `opensOnKey` could read - needs
-          // `opensOnActivate` to reach the same menu (found in review, on
-          // the first fix).
-          tabIndex={isRenaming ? -1 : 0}
-          onKeyDown={opensOnKey(isRenaming)}
-          onClick={opensOnActivate(isRenaming)}
-          // A tab's own accessible name and role are its `Link`'s, free; a
-          // header has neither on its own. The visible button below now
-          // carries an `aria-label` of its own, but the header is still its
-          // own independent way into the same menu - right-click and the
-          // menu key both land here, not on the button - so it keeps a name
-          // of its own too. `role="group"` is what makes saying so
-          // legal: a bare header, nested in a section, computes to ARIA's
-          // `generic` - the one role a name is prohibited on (WAI-ARIA 1.2
-          // §5.2.8.6) - and `button` very nearly replaced it (found in
-          // review), which fixes that only by pruning every child of
-          // whatever carries it: the heading, the count and the read-only
-          // word below would all have gone the same way the name was
-          // dropped before. `group` names the header without hiding what is
-          // inside it. All three go with the tab order, for the same reason:
-          // a control a rename box is standing in for is not one.
-          role={isRenaming ? undefined : 'group'}
-          aria-haspopup={isRenaming ? undefined : 'menu'}
-          aria-label={isRenaming ? undefined : `Actions for ${panel.name}`}
-          // On the sheet rather than on the list: no fill, no rule under it, and
-          // the space above it is what separates one panel from the one above.
-          //
-          // Drawn to the panel's own width rather than the screen's, because that
-          // is what it has to fit in: three panels across a laptop's dashboard are
-          // narrower than one panel on a phone, and a layout made for a wide screen
-          // is squeezed rather than cut off - so the app's tightest headers are on
-          // its widest screens.
-          //
-          // The margin closes with the count (below), at the same width and for
-          // the same reason: a panel this narrow is spending real width on
-          // padding alone, and it is spending it on its own name. It stops
-          // matching the rows underneath there, which carry `px-4` of their
-          // own - a fair trade at a width where those rows are showing two
-          // characters of a title.
-          // `cursor-grab` because the header is the handle and nothing else says
-          // so; `touch-none` is deliberately absent, so a finger still scrolls
-          // the page and the drag stays the pointer gesture the menu's own
-          // Move entries are the alternative to.
-          //
-          // The focus ring is drawn inward (a negative offset) rather than
-          // the app's usual outward one: a control the width of its own row,
-          // right at the panel's edge, would otherwise have the ring itself
-          // clipped by the sheet around it.
-          //
-          // `group` so the button below can read *this* element's own
-          // `data-state` - Radix writes that here, on the `ContextMenu.Trigger`,
-          // never on the button (`SurfaceMenuButton`'s own doc comment).
-          //
-          // `relative` for that same button: it is positioned absolute
-          // (below) rather than laid out in this flex row, which is what it
-          // takes for the button not to change this element's own height
-          // (found bisecting a real CI-only regression - see the button's
-          // own comment).
-          className={`group relative flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
-            isRenaming || !onPickUp ? '' : 'cursor-grab active:cursor-grabbing'
-          }`}
+      {/* `@container` so the header can be drawn to the panel's own width
+          rather than the screen's. On a wrapper because a container query asks
+          about an *ancestor*, and around the header alone because a container
+          is a containing block for `fixed`: on the whole panel it would trap
+          the selection bar a narrow screen pins to its foot (`SelectionBar.tsx`). */}
+      <div className="@container">
+        <SurfaceMenu
+          label={`Actions for ${panel.name}`}
+          // Shut while the name is being edited in place, on this same header:
+          // a right-click or the menu key would otherwise fight the rename box
+          // for them instead of letting you select or paste into it.
+          disabled={isRenaming}
+          // Nothing to build while the menu is shut for it: the entries below
+          // are closures over this render's props, allocated for a menu that
+          // cannot open until the rename that disabled it ends and this
+          // component renders again anyway.
+          entries={
+            isRenaming
+              ? []
+              : [
+                  { label: 'Rename', onSelect: onStartRenaming },
+                  // Only on a panel of text. A panel of items has no text to
+                  // lock, and an entry that means nothing where it is offered is
+                  // worse than one that is not there - the menu's own rule keeps
+                  // an *unavailable* entry visible, and this one is not
+                  // unavailable, it is about something else entirely.
+                  //
+                  // Named for what choosing it gives you rather than for the
+                  // state it leaves behind, which is how every other entry here
+                  // reads.
+                  ...(text
+                    ? [
+                        {
+                          label: panel.readOnly ? 'Allow editing' : 'Make read-only',
+                          keepsFocus: true,
+                          onSelect: () => onReadOnlyChange(!panel.readOnly),
+                        },
+                        {
+                          // What the same characters are drawn as. Named for what
+                          // choosing it gives you, like the entry above it.
+                          label: panel.format === 'rich' ? 'Use plain text' : 'Use rich text',
+                          keepsFocus: true,
+                          onSelect: () =>
+                            onFormatChange(panel.format === 'rich' ? 'plain' : 'rich'),
+                        },
+                      ]
+                    : []),
+                  // Only on a Filter, for the reason the two entries above are
+                  // only on a panel of text: a panel with nothing to gather has
+                  // no conditions for this to be about.
+                  ...(filter ? [{ label: 'Filter…', onSelect: onFilter }] : []),
+                  // Not on a Panel of text, which has no rows.
+                  ...(panelTakesItems(panel) || filter ? [{ label: 'Sort…', onSelect: onSort }] : []),
+                  {
+                    label: 'Move to another dashboard',
+                    unavailable: dashboardFiltered
+                      ? 'Clear the dashboard filter to move a panel'
+                      : canMoveToAnotherDashboard
+                        ? undefined
+                        : 'This workspace has no other dashboard',
+                    onSelect: onMoveToAnotherDashboard,
+                  },
+                  { label: 'Delete', destructive: true, onSelect: onDelete },
+                ]
+          }
         >
-          {isRenaming ? (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                onRename();
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') onStopRenaming();
-              }}
-              className="flex min-w-0 flex-1 items-center gap-2"
-            >
-              <input
-                value={renaming}
-                onChange={(e) => onRenamingChange(e.target.value)}
-                aria-label={`New name for ${panel.name}`}
-                maxLength={60}
-                autoFocus
-                className="min-w-0 flex-1 rounded-md border border-shade/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-              />
-              <button
-                type="submit"
-                disabled={busy}
-                className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
+          <header
+            // The handle, and a pointer gesture rather than the browser's own
+            // drag-and-drop.
+            //
+            // **The browser's drag gives a frozen picture of the panel**, which is
+            // the one thing this gesture must not do: the panels move as the
+            // pointer does, so what is under the hand has to be the board itself.
+            // It also drew the two gestures on this screen from one mechanism -
+            // an item being filed onto a panel is a drag too - and every target
+            // had to ask which of them was in the air. Items keep the browser's
+            // drag; a panel is moved with the pointer, and the two can no longer
+            // be mistaken for each other.
+            onPointerDown={(event) => {
+              // The primary button of a mouse only, the same guard `tabDrag.ts`
+              // uses for the same reason: a right-click opens the panel's own
+              // menu (`SurfaceMenu`, above), and a touch is what rests a finger to
+              // open it too - a drag is absent on a touchscreen, so leaving a
+              // touch press here would take the header's own `onPointerDown`
+              // ahead of Radix's, in the one child-before-slot order `asChild`
+              // composes them in, and its `preventDefault` would reach Radix's
+              // long-press timer already told the gesture was spoken for.
+              if (!onPickUp || event.button !== 0 || event.pointerType !== 'mouse') return;
+              // Not while it is being renamed, and not on the rename form's own
+              // controls: an emptied rename box is still an open one, and
+              // selecting what you typed, or pressing Save or Cancel, must not
+              // carry the panel off.
+              if (isRenaming) return;
+              if ((event.target as Element).closest?.('button, input, form')) return;
+              // **And only for a press that really landed in this header.** A
+              // chosen menu entry is drawn in a portal on the body, but a React
+              // event bubbles through the component tree rather than the DOM
+              // one - so choosing Delete arrives here, nowhere near the
+              // header, and the `preventDefault` below took the press away from
+              // the menu. The menu then sat open over a modal overlay with
+              // nothing else on the page reachable. `contains` is what tells
+              // the two apart; an Item's row asks the same question for the
+              // same reason (`RowForm.tsx`, `wasOnTheRow`).
+              if (!event.currentTarget.contains(event.target as Node)) return;
+              // Otherwise the browser starts a text selection across whatever the
+              // drag passes over.
+              event.preventDefault();
+              onPickUp(event.pointerId);
+            }}
+            // Reachable by keyboard whenever the menu might open from it, so the
+            // browser's own menu key has a target to fire on - the same reason
+            // a tab's own `Link` needs no such thing itself: it is focusable
+            // already. Taken back out of the tab order during a rename, when
+            // the input inside already is the thing to reach.
+            //
+            // The menu key that gives every other keyboard a way in does not
+            // exist on macOS, and this header activates nothing on Enter the
+            // way a tab's `Link` does - so without `opensOnKey` a keyboard-only
+            // Mac user has no way to reach a panel's menu at all (found in
+            // review). `role="group"` (below) is not a widget role, so a
+            // screen reader's own activation gesture - VoiceOver's VO+Space,
+            // which sends no `keydown` `opensOnKey` could read - needs
+            // `opensOnActivate` to reach the same menu (found in review, on
+            // the first fix).
+            tabIndex={isRenaming ? -1 : 0}
+            onKeyDown={opensOnKey(isRenaming)}
+            onClick={opensOnActivate(isRenaming)}
+            // A tab's own accessible name and role are its `Link`'s, free; a
+            // header has neither on its own. The visible button below now
+            // carries an `aria-label` of its own, but the header is still its
+            // own independent way into the same menu - right-click and the
+            // menu key both land here, not on the button - so it keeps a name
+            // of its own too. `role="group"` is what makes saying so
+            // legal: a bare header, nested in a section, computes to ARIA's
+            // `generic` - the one role a name is prohibited on (WAI-ARIA 1.2
+            // §5.2.8.6) - and `button` very nearly replaced it (found in
+            // review), which fixes that only by pruning every child of
+            // whatever carries it: the heading, the count and the read-only
+            // word below would all have gone the same way the name was
+            // dropped before. `group` names the header without hiding what is
+            // inside it. All three go with the tab order, for the same reason:
+            // a control a rename box is standing in for is not one.
+            role={isRenaming ? undefined : 'group'}
+            aria-haspopup={isRenaming ? undefined : 'menu'}
+            aria-label={isRenaming ? undefined : `Actions for ${panel.name}`}
+            // On the sheet rather than on the list: no fill, no rule under it, and
+            // the space above it is what separates one panel from the one above.
+            //
+            // Drawn to the panel's own width rather than the screen's, because that
+            // is what it has to fit in: three panels across a laptop's dashboard are
+            // narrower than one panel on a phone, and a layout made for a wide screen
+            // is squeezed rather than cut off - so the app's tightest headers are on
+            // its widest screens.
+            //
+            // The margin closes with the count (below), at the same width and for
+            // the same reason: a panel this narrow is spending real width on
+            // padding alone, and it is spending it on its own name. It stops
+            // matching the rows underneath there, which carry `px-4` of their
+            // own - a fair trade at a width where those rows are showing two
+            // characters of a title.
+            // `cursor-grab` because the header is the handle and nothing else says
+            // so; `touch-none` is deliberately absent, so a finger still scrolls
+            // the page and the drag stays the pointer gesture the menu's own
+            // Move entries are the alternative to.
+            //
+            // The focus ring is drawn inward (a negative offset) rather than
+            // the app's usual outward one: a control the width of its own row,
+            // right at the panel's edge, would otherwise have the ring itself
+            // clipped by the sheet around it.
+            //
+            // `group` so the button below can read *this* element's own
+            // `data-state` - Radix writes that here, on the `ContextMenu.Trigger`,
+            // never on the button (`SurfaceMenuButton`'s own doc comment).
+            //
+            // `relative` for that same button: it is positioned absolute
+            // (below) rather than laid out in this flex row, which is what it
+            // takes for the button not to change this element's own height
+            // (found bisecting a real CI-only regression - see the button's
+            // own comment).
+            className={`group relative flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
+              isRenaming || !onPickUp ? '' : 'cursor-grab active:cursor-grabbing'
+            }`}
+          >
+            {isRenaming ? (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  onRename();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') onStopRenaming();
+                }}
+                className="flex min-w-0 flex-1 items-center gap-2"
               >
-                Save
-              </button>
-              <button
-                type="button"
-                onClick={onStopRenaming}
-                className="shrink-0 rounded-md border border-shade/10 px-2 py-1 text-xs hover:bg-accent-tint hover:text-accent-deep"
-              >
-                Cancel
-              </button>
-            </form>
-          ) : (
-            <>
-              <div className="flex min-w-0 flex-1 items-center gap-2 pr-11">
-                {/* The same heading the Inbox's carries in the band above it
-                  (components/InboxPanel.tsx): small, uppercase and in the accent,
-                  because a header on the sheet has no fill or rule to say it is a
-                  header and the letterform has to do it alone. */}
-                <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep">
-                  {panel.name}
-                </h3>
-                {/* That this panel gathers rather than holds, and what it
-                    gathers, in the one place somebody looking at the rows
-                    would ask: hovering reads the conditions back as a
-                    sentence, so the question does not have to be reopened to
-                    find out what it says.
+                <input
+                  value={renaming}
+                  onChange={(e) => onRenamingChange(e.target.value)}
+                  aria-label={`New name for ${panel.name}`}
+                  maxLength={60}
+                  autoFocus
+                  className="min-w-0 flex-1 rounded-md border border-shade/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                />
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={onStopRenaming}
+                  className="shrink-0 rounded-md border border-shade/10 px-2 py-1 text-xs hover:bg-accent-tint hover:text-accent-deep"
+                >
+                  Cancel
+                </button>
+              </form>
+            ) : (
+              <>
+                <div className="flex min-w-0 flex-1 items-center gap-2 pr-11">
+                  {/* The same heading the Inbox's carries in the band above it
+                    (components/InboxPanel.tsx): small, uppercase and in the accent,
+                    because a header on the sheet has no fill or rule to say it is a
+                    header and the letterform has to do it alone. */}
+                  <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep">
+                    {panel.name}
+                  </h3>
+                  {/* That this panel gathers rather than holds, and what it
+                      gathers, in the one place somebody looking at the rows
+                      would ask: hovering reads the conditions back as a
+                      sentence, so the question does not have to be reopened to
+                      find out what it says.
 
-                    It stays at every width, where the count goes, for the
-                    reason the read-only word does: nothing else on the panel
-                    repeats it. */}
-                {shows && (
-                  <span
-                    role="img"
-                    aria-label={`Shows ${shows.toLowerCase()}`}
-                    title={shows}
-                    className="shrink-0 text-ink-faint"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-                      <path
-                        d="M1 1.5h10L7.2 6.1v4.2L4.8 11V6.1z"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.2"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </span>
-                )}
-                {/* That the rows go by a sort rather than the order somebody
-                    dragged them into, which is also why a row cannot be dragged
-                    to a new place here: hovering reads the sort back. Only
-                    while sorted, and kept at every width for the funnel's
-                    reason. */}
-                {sortedAs && (
-                  <span
-                    role="img"
-                    aria-label={sortedAs}
-                    title={sortedAs}
-                    className="shrink-0 text-ink-faint"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-                      <path
-                        d="M3.5 1.5v9M1.5 8.5l2 2 2-2M7 2.5h4M7 5.5h3M7 8.5h2"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </span>
-                )}
-                {/* How much is on it, said the way the Inbox says it - until the
-                  panel is too narrow to say both, and then this is the one
-                  that goes: the count is the one thing the list underneath
-                  already shows, where the name is this header's only word.
+                      It stays at every width, where the count goes, for the
+                      reason the read-only word does: nothing else on the panel
+                      repeats it. */}
+                  {shows && (
+                    <span
+                      role="img"
+                      aria-label={`Shows ${shows.toLowerCase()}`}
+                      title={shows}
+                      className="shrink-0 text-ink-faint"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                        <path
+                          d="M1 1.5h10L7.2 6.1v4.2L4.8 11V6.1z"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.2"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  )}
+                  {/* That the rows go by a sort rather than the order somebody
+                      dragged them into, which is also why a row cannot be dragged
+                      to a new place here: hovering reads the sort back. Only
+                      while sorted, and kept at every width for the funnel's
+                      reason. */}
+                  {sortedAs && (
+                    <span
+                      role="img"
+                      aria-label={sortedAs}
+                      title={sortedAs}
+                      className="shrink-0 text-ink-faint"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                        <path
+                          d="M3.5 1.5v9M1.5 8.5l2 2 2-2M7 2.5h4M7 5.5h3M7 8.5h2"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  )}
+                  {/* How much is on it, said the way the Inbox says it - until the
+                    panel is too narrow to say both, and then this is the one
+                    that goes: the count is the one thing the list underneath
+                    already shows, where the name is this header's only word.
 
-                  Two hundred pixels because that is roughly where it stops
-                  paying for itself: the padding still takes some of it, and
-                  the count another seventeen, so below this the name is being
-                  truncated to make room for a number the list underneath
-                  spells out. */}
-                {/* How much is on it, which a panel of text has no answer to:
-                  it holds no items, and drawing a nought beside its name would
-                  be reporting on something it is not. */}
-                {!text && (
-                  <span className="shrink-0 text-xs tabular-nums text-ink-faint @max-[200px]:hidden">
-                    {items.length}
-                  </span>
-                )}
-                {/* That the text is read rather than written in, said out loud
-                  because nothing else on the panel says it: a box with no
-                  cursor in it looks exactly like one nobody has clicked yet.
+                    Two hundred pixels because that is roughly where it stops
+                    paying for itself: the padding still takes some of it, and
+                    the count another seventeen, so below this the name is being
+                    truncated to make room for a number the list underneath
+                    spells out. */}
+                  {/* How much is on it, which a panel of text has no answer to:
+                    it holds no items, and drawing a nought beside its name would
+                    be reporting on something it is not. */}
+                  {!text && (
+                    <span className="shrink-0 text-xs tabular-nums text-ink-faint @max-[200px]:hidden">
+                      {items.length}
+                    </span>
+                  )}
+                  {/* That the text is read rather than written in, said out loud
+                    because nothing else on the panel says it: a box with no
+                    cursor in it looks exactly like one nobody has clicked yet.
 
-                  **It stays at every width, where the count goes.** The count
-                  may go because the list underneath spells it out; nothing
-                  repeats this. A panel squeezed under two hundred pixels that
-                  dropped it would show prose, no cursor and no reason - and
-                  the name being truncated to keep it is the better trade,
-                  a truncated name still being recognisable. */}
-                {text && panel.readOnly && (
-                  <span className="shrink-0 text-xs font-normal normal-case tracking-normal text-ink-faint">
-                    read-only
-                  </span>
-                )}
-              </div>
-              {/* The button `SurfaceMenu`'s own doc comment explains: a
-                  panel's header is also its drag handle, so right-click and
-                  the menu key answer a target mostly asked to do something
-                  else, and this is what a pointer or a touchscreen actually
-                  reaches for.
+                    **It stays at every width, where the count goes.** The count
+                    may go because the list underneath spells it out; nothing
+                    repeats this. A panel squeezed under two hundred pixels that
+                    dropped it would show prose, no cursor and no reason - and
+                    the name being truncated to keep it is the better trade,
+                    a truncated name still being recognisable. */}
+                  {text && panel.readOnly && (
+                    <span className="shrink-0 text-xs font-normal normal-case tracking-normal text-ink-faint">
+                      read-only
+                    </span>
+                  )}
+                </div>
+                {/* The button `SurfaceMenu`'s own doc comment explains: a
+                    panel's header is also its drag handle, so right-click and
+                    the menu key answer a target mostly asked to do something
+                    else, and this is what a pointer or a touchscreen actually
+                    reaches for.
 
-                  **Positioned absolute, not laid out in the flex row.** It
-                  used to be a flex sibling, which stretched the header from
-                  36px to 56px to fit its own 36px - taller than the row's
-                  own `min-height:160px` floor ever left room to notice by
-                  eye, but tall enough to push every row below it down by
-                  that much. `filing.test.ts`'s cross-panel drag walks read a
-                  target row's centre and drop there; CI (never this file's
-                  own local runs) put that centre inside the *next* panel's
-                  header often enough to fail two of them four times running,
-                  bisected on CI itself by removing the button, then by
-                  keeping it but pinning the header back to 36px this way
-                  (found in review of the PR this shipped in). The name and
-                  count reserve the same 44px with `pr-11` on the div beside
-                  this, so the button never sits over truncatable text. */}
-              <SurfaceMenuButton
-                label={`Actions for ${panel.name}`}
-                className="absolute top-1/2 right-2 -translate-y-1/2"
-              />
-            </>
-          )}
-        </header>
-      </SurfaceMenu>
+                    **Positioned absolute, not laid out in the flex row.** It
+                    used to be a flex sibling, which stretched the header from
+                    36px to 56px to fit its own 36px - taller than the row's
+                    own `min-height:160px` floor ever left room to notice by
+                    eye, but tall enough to push every row below it down by
+                    that much. `filing.test.ts`'s cross-panel drag walks read a
+                    target row's centre and drop there; CI (never this file's
+                    own local runs) put that centre inside the *next* panel's
+                    header often enough to fail two of them four times running,
+                    bisected on CI itself by removing the button, then by
+                    keeping it but pinning the header back to 36px this way
+                    (found in review of the PR this shipped in). The name and
+                    count reserve the same 44px with `pr-11` on the div beside
+                    this, so the button never sits over truncatable text. */}
+                <SurfaceMenuButton
+                  label={`Actions for ${panel.name}`}
+                  className="absolute top-1/2 right-2 -translate-y-1/2"
+                />
+              </>
+            )}
+          </header>
+        </SurfaceMenu>
+      </div>
 
       {/* A fixed row rather than the well's own first row: `ItemList`'s empty
           state fills the well exactly (`min-h-full`, "tall enough to be
