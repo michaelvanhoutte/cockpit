@@ -35,6 +35,8 @@ import { CommandRefused } from '../../../src/api/client';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { setPanelsCollapsed } from '../../../src/panelsCollapsed';
 import { useCommand } from '../../../src/api/queries';
+import { usePanelListing } from '../../../src/panelList';
+import { renderHook } from '@testing-library/react';
 
 /**
  * F1: what is under test is the board's own behaviour - what it sends, which
@@ -3412,6 +3414,125 @@ describe('Panels', () => {
 
       expect(handleOf('To read').className).toContain('touch-manipulation');
       expect(handleOf('To read').className).not.toContain('touch-none');
+    });
+  });
+});
+
+describe('Dashboards', () => {
+  /** What the board hands the Panel list, read the way the shell reads it. */
+  function listed() {
+    const { result } = renderHook(() => usePanelListing());
+    return result;
+  }
+  /** Each row as the titles and counts the list would draw, `-` where there is no count. */
+  const namesIn = (result: ReturnType<typeof listed>) =>
+    result.current?.rows.map((row) => row.map((entry) => `${entry.title} ${entry.count ?? '-'}`));
+
+  describe('the Panel list names each Panel the board draws, in reading order, with the count the board shows', () => {
+    const ID = (n: number) => `11111111-1111-7111-8111-00000000000${n}`;
+    const four = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id) => aPanel(id, `Panel ${id}`));
+    const rowsOfOneTwoAndFour: Layout = {
+      id: 'laptop',
+      tenantId: 'tenant',
+      dashboardId: 'today',
+      rows: [
+        { height: null, cells: [{ panelId: 'a', span: 12 }] },
+        {
+          height: null,
+          cells: [
+            { panelId: 'b', span: 6 },
+            { panelId: 'c', span: 6 },
+          ],
+        },
+        { height: null, cells: ['d', 'e', 'f', 'g'].map((panelId) => ({ panelId, span: 3 })) },
+      ],
+    };
+
+    it('lists the Panels row by row, left to right, and a Panel of text without a count', () => {
+      screenIs(1280);
+      const result = listed();
+      showBoard({
+        panels: [...four.slice(0, 2), aPanelOfText('c', 'Panel c'), ...four.slice(3)],
+        layouts: [rowsOfOneTwoAndFour],
+        items: [anItem(ID(1), 'One'), anItem(ID(2), 'Two')],
+        filings: [
+          { panelId: 'b', itemId: ID(1), position: 0 },
+          { panelId: 'b', itemId: ID(2), position: 1 },
+        ],
+      });
+
+      expect(namesIn(result)).toEqual([
+        ['Panel a 0'],
+        ['Panel b 2', 'Panel c -'],
+        ['Panel d 0', 'Panel e 0', 'Panel f 0', 'Panel g 0'],
+      ]);
+    });
+
+    it('lists only the Panels a filtered Dashboard draws, each with its matching count', () => {
+      screenIs(1280);
+      const result = listed();
+      filterTheDashboard({ text: 'vat' });
+      showBoard({
+        panels: [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read'), aPanelOfText('notes', 'Notes')],
+        items: [anItem(ID(1), 'VAT return'), anItem(ID(2), 'VAT refund'), anItem(ID(3), 'Pay the rent')],
+        filings: [
+          { panelId: 'falcon', itemId: ID(1), position: 0 },
+          { panelId: 'falcon', itemId: ID(2), position: 1 },
+          { panelId: 'falcon', itemId: ID(3), position: 2 },
+        ],
+      });
+
+      expect(namesIn(result)).toEqual([['Project Falcon 2']]);
+    });
+
+    it('follows a Panel added, renamed or deleted, as the next snapshot says', () => {
+      screenIs(1280);
+      const result = listed();
+      const { redrawnWith } = showBoard({ panels: [aPanel('falcon', 'Project Falcon')] });
+      expect(namesIn(result)).toEqual([['Project Falcon 0']]);
+
+      redrawnWith([aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read')]);
+      expect(namesIn(result)).toEqual([['Project Falcon 0', 'To read 0']]);
+
+      redrawnWith([aPanel('falcon', 'Falcon, renamed'), aPanel('reading', 'To read')]);
+      expect(namesIn(result)).toEqual([['Falcon, renamed 0', 'To read 0']]);
+
+      redrawnWith([aPanel('reading', 'To read')]);
+      expect(namesIn(result)).toEqual([['To read 0']]);
+    });
+
+    it('says nothing once the board has left, rather than listing Panels that are gone', () => {
+      screenIs(1280);
+      const result = listed();
+      const { unmount } = showBoard();
+      expect(result.current).not.toBeNull();
+
+      unmount();
+
+      expect(result.current).toBeNull();
+    });
+  });
+
+  describe('a click on a Panel in the list outlines that Panel briefly', () => {
+    it('outlines the Panel it names, and only that one, until the moment is over', () => {
+      vi.useFakeTimers();
+      try {
+        screenIs(1280);
+        const result = listed();
+        showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
+        const cellOf = (name: string) => screen.getByRole('region', { name }).closest('[data-panel-cell]')!;
+
+        act(() => result.current!.jumpTo('reading'));
+
+        expect(cellOf('To read')).toHaveAttribute('data-jumped-to');
+        expect(cellOf('Project Falcon')).not.toHaveAttribute('data-jumped-to');
+
+        act(() => void vi.advanceTimersByTime(5000));
+
+        expect(cellOf('To read')).not.toHaveAttribute('data-jumped-to');
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

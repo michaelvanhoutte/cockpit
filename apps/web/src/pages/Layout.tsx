@@ -46,6 +46,8 @@ import {
 } from '../inboxCollapsed';
 import { readAgentDockHidden, togglesTheAgentDock, writeAgentDockHidden } from '../agentDockHidden';
 import { useRoomForTheInbox } from '../roomForTheInbox';
+import { PanelList } from '../components/PanelList';
+import { usePanelListCollapsed, usePanelListing } from '../panelList';
 import { useConnections } from '../connections';
 import type { ConnectOutcomeFor, SettingsKey } from '../components/SettingsWindow';
 import { useScrollWhileDraggingAnItem } from '../dragScroll';
@@ -232,6 +234,18 @@ function TheShell() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [roomForTheInbox, inWorkspace, collapseInbox]);
+
+  /**
+   * The Panel list at the right of a Dashboard ("Show a Dashboard's Panels in a
+   * collapsible column at its right, and jump to one", issue 803): drawn where
+   * the Inbox has room and a Dashboard is open - *All items* has no Panels to
+   * list. What it lists is what the open board publishes, held back until it is
+   * this Dashboard's own so a switch never shows the one just left.
+   */
+  const showsPanelList = roomForTheInbox && params.dashboardId !== undefined && !onAllItems;
+  const [panelListCollapsed, collapsePanelList] = usePanelListCollapsed(browserStore(), showsPanelList);
+  const published = usePanelListing();
+  const panelListing = published?.dashboardId === params.dashboardId ? published : null;
 
   /**
    * Whether the agents' dock is hidden ("Keep your agents in a dock, and
@@ -1159,6 +1173,13 @@ function TheShell() {
         <div data-drag-scroll="dashboard" className="min-w-0 flex-1 overflow-y-auto pb-[var(--edge-bottom)]">
           <Outlet />
         </div>
+        {showsPanelList && (
+          <PanelList
+            listing={panelListing}
+            collapsed={panelListCollapsed}
+            onCollapse={collapsePanelList}
+          />
+        )}
       </main>
 
       {/* The dock: every Agent, reachable from whichever Dashboard is open

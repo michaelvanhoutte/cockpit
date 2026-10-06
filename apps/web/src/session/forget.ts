@@ -5,6 +5,7 @@ import { forgetItemFormSize } from '../itemFormSize';
 import { forgetItemFormDockedWidth } from '../itemFormDockedWidth';
 import { forgetInboxWidth } from '../inboxWidth';
 import { forgetInboxCollapsed } from '../inboxCollapsed';
+import { forgetPanelListCollapsed } from '../panelList';
 import { forgetEveryDashboardFilter } from '../dashboardFilter';
 import { forgetEveryAllItemsTab } from '../allItemsTab';
 import { forgetAgentDockHidden } from '../agentDockHidden';
@@ -63,6 +64,7 @@ export async function forgetEverything(queryClient: QueryClient): Promise<void> 
   forgetItemFormDockedWidth(browserStore());
   forgetInboxWidth(browserStore());
   forgetInboxCollapsed(browserStore());
+  forgetPanelListCollapsed(browserStore());
   forgetEveryDashboardFilter(browserStore());
   forgetAgentDockHidden(browserStore());
   forgetEveryAllItemsTab(browserStore());

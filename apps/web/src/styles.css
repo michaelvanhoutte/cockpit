@@ -340,6 +340,14 @@ html[data-car-dark] [data-capture-switch] a[data-lit] {
     inset 0 0 0 1px rgb(22 24 29 / 0.09);
 }
 
+/*
+ * The Panel the Panel list has just jumped to (`PanelBoard`): outlined in the
+ * accent for a moment, outside its box so nothing around it moves.
+ */
+[data-panel-cell][data-jumped-to] {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
 
 /*
  * The top bar and the agents' dock: the same soft graphite gradient in every

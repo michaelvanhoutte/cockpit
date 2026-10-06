@@ -28,6 +28,9 @@ let openWorkspaceId: string | undefined;
 /** The dashboard the router says is open; the dock is drawn only on one. */
 let openDashboardId: string | undefined;
 
+/** The address the router says is open, which is what tells a Dashboard from *All items*. */
+let pathname = '/w/a-workspace';
+
 /** What the address carries after the path; the Teams sign-in return sets it. */
 let searchParams: Record<string, string> = {};
 
@@ -41,6 +44,7 @@ afterEach(() => {
   openWorkspaceId = undefined;
   openDashboardId = undefined;
   searchParams = {};
+  pathname = '/w/a-workspace';
   navigations.length = 0;
   localStorage.clear();
 });
@@ -77,7 +81,7 @@ vi.mock('@tanstack/react-router', () => ({
   // Read by the shell to know whether Capture is the page you are on. These
   // cases are inside a workspace, which is never that page.
   useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
-    select({ location: { pathname: '/w/a-workspace' } }),
+    select({ location: { pathname } }),
 }));
 
 // Drawn once a dashboard is open, and about the Inbox rather than the chrome
@@ -598,6 +602,94 @@ describe('Agents', () => {
       await user.click(await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` }));
 
       expect(screen.queryByRole('menuitem', { name: /agents’ dock/ })).toBeNull();
+    });
+  });
+});
+
+describe('Dashboards', () => {
+  describe('the Panel list is drawn at the right of a Dashboard wherever the Inbox has room, and nowhere else', () => {
+    const shell = () =>
+      render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <Layout />
+        </QueryClientProvider>,
+      );
+    const list = () => screen.queryByRole('complementary', { name: 'Panels' });
+    const strip = () => screen.queryByRole('button', { name: 'Open the Panel list' });
+    const openADashboard = () => {
+      openWorkspaceId = 'ws-markup';
+      openDashboardId = 'dash-1';
+    };
+    const onADesk = (matches: boolean) =>
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches,
+        media: query,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      }));
+
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('is drawn open on a Dashboard at a desk', async () => {
+      onADesk(true);
+      openADashboard();
+      shell();
+
+      expect(await screen.findByRole('complementary', { name: 'Panels' })).toBeInTheDocument();
+      expect(strip()).toBeNull();
+    });
+
+    it.each([
+      { situation: 'a phone', desk: false, path: '/w/a-workspace', dashboard: true },
+      { situation: 'the All items tab', desk: true, path: '/w/a-workspace/items', dashboard: false },
+    ])('is not drawn on $situation', async ({ desk, path, dashboard }) => {
+      onADesk(desk);
+      openWorkspaceId = 'ws-markup';
+      if (dashboard) openDashboardId = 'dash-1';
+      pathname = path;
+      shell();
+      await screen.findByRole('button', { name: `Actions for ${A_NAME_THAT_LOOKS_LIKE_MARKUP}` });
+
+      expect(list()).toBeNull();
+      expect(strip()).toBeNull();
+    });
+
+    it('collapses and opens on P, and is still collapsed when the page is loaded again', async () => {
+      onADesk(true);
+      openADashboard();
+      const user = userEvent.setup();
+      const first = shell();
+      await screen.findByRole('complementary', { name: 'Panels' });
+
+      await user.keyboard('p');
+      expect(list()).toBeNull();
+      expect(strip()).not.toBeNull();
+      first.unmount();
+
+      shell();
+      expect(await screen.findByRole('button', { name: 'Open the Panel list' })).toBeInTheDocument();
+      await user.keyboard('p');
+      expect(await screen.findByRole('complementary', { name: 'Panels' })).toBeInTheDocument();
+    });
+
+    it('leaves the Inbox to I, and the list to P', async () => {
+      onADesk(true);
+      openADashboard();
+      const user = userEvent.setup();
+      shell();
+      await screen.findByRole('complementary', { name: 'Panels' });
+
+      await user.keyboard('i');
+
+      expect(list()).not.toBeNull();
+      expect(localStorage.getItem('cockpit.inbox-collapsed')).toBe('1');
+      expect(localStorage.getItem('cockpit.panel-list-collapsed')).toBeNull();
+
+      await user.keyboard('p');
+
+      expect(list()).toBeNull();
+      expect(localStorage.getItem('cockpit.inbox-collapsed')).toBe('1');
+      expect(localStorage.getItem('cockpit.panel-list-collapsed')).toBe('1');
     });
   });
 });
