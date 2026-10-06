@@ -1306,7 +1306,7 @@ describe('Dashboards', () => {
       expect(group().getAllByRole('button').map((b) => b.textContent)).toEqual(['To do', 'In progress', 'Done']);
     });
 
-    it('reads Status, Priority, Due, Containing, Attachments, Agent running, with Status, Priority and Attachments each one group', () => {
+    it('reads Status, Priority, Due, Containing, Attachments (With, Without, no Any), Agent running, with Status, Priority and Attachments each one group', () => {
       writeDashboardFilter(localStorage, 'order-a', { ...NO_DASHBOARD_FILTER, text: 'x' });
       render(<DashboardFilterBar dashboardId="order-a" />);
       const bar = screen.getByRole('search', BAR);
@@ -1328,6 +1328,30 @@ describe('Dashboards', () => {
       expect(controls[0]!.querySelector('span[aria-hidden="true"]')).toBeNull();
       expect(controls[1]!.querySelector('span[aria-hidden="true"]')).toBeNull();
       expect(controls[5]!.closest('fieldset')).toBeNull();
+      expect(within(controls[4]!).getAllByRole('button').map((b) => b.textContent)).toEqual(['With', 'Without']);
+    });
+
+    it('narrows by attachments only while With or Without is pressed, and pressing the pressed one lets every Item through again', async () => {
+      const { user } = showBar(['Attach one'], { openDashboardId: id('Attach one'), withFilterBar: true });
+      await user.click(await screen.findByRole('button', { name: 'Filter this dashboard' }));
+      const group = within(screen.getByRole('group', { name: 'Attachments' }));
+      const stored = () => readDashboardFilter(localStorage, id('Attach one'));
+
+      await user.click(group.getByRole('button', { name: 'With' }));
+      expect(stored().attachments).toBe('with');
+      expect(group.getByRole('button', { name: 'With' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Clear the filter' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Clear the filter and close it' })).toBeVisible();
+
+      await user.click(group.getByRole('button', { name: 'Without' }));
+      expect(stored().attachments).toBe('without');
+      expect(group.getByRole('button', { name: 'With' })).toHaveAttribute('aria-pressed', 'false');
+      expect(group.getByRole('button', { name: 'Without' })).toHaveAttribute('aria-pressed', 'true');
+
+      await user.click(group.getByRole('button', { name: 'Without' }));
+      expect(stored()).toEqual(NO_DASHBOARD_FILTER);
+      expect(group.getByRole('button', { name: 'Without' })).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'Clear the filter' })).toBeDisabled();
     });
 
     it('carries a filled funnel on a tab filtered by Agent running alone', async () => {
