@@ -14,6 +14,7 @@ import type {
   Dashboard,
   Filing,
   FilterCondition,
+  FilterGrouping,
   FilterMatch,
   AgentRun,
   Attachment,
@@ -28,7 +29,8 @@ import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { scrollWhileDragging } from '../dragScroll';
 import { itemsOnPanel } from '../filing';
-import { dayOf, filtersUsingPanel, itemsMatchingFilter, joinedBy } from '../filters';
+import { groupFilterRows } from '../filterGroups';
+import { dayOf, filtersUsingPanel, isGrouped, itemsMatchingFilter, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
 import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, matchesDashboardFilter, useDashboardFilter } from '../dashboardFilter';
 import { DashboardFilterBar } from './DashboardFilterBar';
@@ -402,6 +404,18 @@ export function PanelBoard({
    * back.
    */
   const shows = new Map(panels.map((panel) => [panel.id, itemsOf(panel)]));
+  /**
+   * A Filter's rows under a heading each, where it is grouped ("Group a Filter
+   * panel's items by the Dashboard or Panel they are filed on", issue 805):
+   * worked out from what the Filter shows, so the Dashboard filter has already
+   * narrowed every group and one it empties is not drawn.
+   */
+  const groupsOf = (panel: Panel) => {
+    const groupBy = panelGathers(panel) ? (panel.filter ?? NO_CONDITIONS).groupBy : 'none';
+    return isGrouped(groupBy)
+      ? groupFilterRows(shows.get(panel.id)!, groupBy, filings, panelsInWorkspace, dashboards, layouts)
+      : undefined;
+  };
   const hidden = filteringOn
     ? new Set(panels.filter((panel) => shows.get(panel.id)!.length === 0).map((panel) => panel.id))
     : null;
@@ -1038,7 +1052,12 @@ export function PanelBoard({
    * Closed only once it lands, the way the rename is: a refusal leaves the
    * question up with the rows still in it rather than losing what was chosen.
    */
-  const setFilter = (panelId: string, conditions: FilterCondition[], match: FilterMatch) => {
+  const setFilter = (
+    panelId: string,
+    conditions: FilterCondition[],
+    match: FilterMatch,
+    groupBy: FilterGrouping,
+  ) => {
     command.mutate(
       {
         name: 'set_panel_filter',
@@ -1049,6 +1068,7 @@ export function PanelBoard({
           panelId,
           conditions,
           match,
+          groupBy,
         },
       },
       { onSuccess: () => setFiltering(null) },
@@ -1266,6 +1286,7 @@ export function PanelBoard({
                           workspaceId={workspaceId}
                           dashboardFiltered={filteringOn}
                           items={shows.get(panel.id) ?? []}
+                          groups={groupsOf(panel)}
                           itemTypes={itemTypes}
                           panelsInWorkspace={panelsInWorkspace}
                           renaming={renaming?.id === panel.id ? renaming.name : null}
@@ -1391,9 +1412,10 @@ export function PanelBoard({
               panelName={beingFiltered.name}
               conditions={(beingFiltered.filter ?? NO_CONDITIONS).conditions}
               match={(beingFiltered.filter ?? NO_CONDITIONS).match}
+              groupBy={(beingFiltered.filter ?? NO_CONDITIONS).groupBy}
               itemTypes={itemTypes}
               panels={panelsInWorkspace}
-              onSave={(conditions, match) => setFilter(beingFiltered.id, conditions, match)}
+              onSave={(conditions, match, groupBy) => setFilter(beingFiltered.id, conditions, match, groupBy)}
               onCancel={() => {
                 setFiltering(null);
                 command.reset();

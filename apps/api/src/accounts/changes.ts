@@ -5,6 +5,7 @@ import {
   GRID_COLUMNS,
   MOST_ACROSS,
   demoAddress,
+  filterGroupingSchema,
   filterMatchSchema,
   panelFilterSchema,
   themeOf,
@@ -3642,14 +3643,15 @@ export function checkedGuestDemo(demo: readonly SeedWorkspace[]): readonly SeedW
           panelNames.add(folded);
           // A Filter the app cannot read draws as one with nothing chosen
           // (`panelFilterFrom`), one with no conditions demonstrates nothing,
-          // and a `match` it cannot read is quietly All - each a typo here
-          // rather than a choice.
+          // and a `match` or `groupBy` it cannot read is quietly All or None -
+          // each a typo here rather than a choice.
           if (isFilter(panel)) {
             const read = panelFilterSchema.safeParse(panel.filter);
             if (
               !read.success ||
               read.data.conditions.length === 0 ||
-              !filterMatchSchema.safeParse(panel.filter.match).success
+              !filterMatchSchema.safeParse(panel.filter.match).success ||
+              !filterGroupingSchema.safeParse(panel.filter.groupBy).success
             ) {
               wrong(`the Filter "${panel.name}" has no conditions the app can read`);
             }

@@ -3,6 +3,7 @@ import type {
   DueCondition,
   Filing,
   FilterCondition,
+  FilterGrouping,
   FilterMatch,
   Item,
   ItemType,
@@ -98,7 +99,7 @@ function aPanel(id: string, kind: Panel['kind'] = 'items'): Panel {
     format: 'plain',
     body: '',
     readOnly: false,
-    filter: kind === 'filter' ? { conditions: [], match: 'all' } : null,
+    filter: kind === 'filter' ? { conditions: [], match: 'all', groupBy: 'none' } : null,
     sort: null,
   };
 }
@@ -131,7 +132,7 @@ function shown(
     match?: FilterMatch;
   } = {},
 ): string[] {
-  return itemsMatchingFilter(items, filings, panels, itemTypes, { conditions, match }, on).map(
+  return itemsMatchingFilter(items, filings, panels, itemTypes, { conditions, match, groupBy: 'none' }, on).map(
     (item) => item.id,
   );
 }
@@ -707,13 +708,27 @@ describe('Panels', () => {
     ])('reads any, with $situation', ({ conditions, itemTypes, reads }) => {
       expect(saysWhatItShows(conditions, itemTypes, [], 'any')).toBe(reads);
     });
+
+    it.each([
+      { situation: 'by Panel', groupBy: 'panel' as const, conditions: [due('week')], match: 'all' as const, reads: 'Due this week or overdue; grouped by Panel' },
+      { situation: 'by Dashboard', groupBy: 'dashboard' as const, conditions: [due('week')], match: 'all' as const, reads: 'Due this week or overdue; grouped by Dashboard' },
+      { situation: 'by nothing, which adds nothing', groupBy: 'none' as const, conditions: [due('week')], match: 'all' as const, reads: 'Due this week or overdue' },
+      { situation: 'by Panel, set to any', groupBy: 'panel' as const, conditions: [due('week'), priority('high')], match: 'any' as const, reads: 'Any of: Due this week or overdue; Priority is High; grouped by Panel' },
+    ])('ends with the grouping where there is one, grouped $situation', ({ conditions, match, groupBy, reads }) => {
+      expect(saysWhatItShows(conditions, [], [], match, groupBy)).toBe(reads);
+    });
+
+    it('adds nothing for a grouping it does not know, rather than naming one', () => {
+      const unknown = 'type' as unknown as FilterGrouping;
+      expect(saysWhatItShows([due('week')], [], [], 'all', unknown)).toBe('Due this week or overdue');
+    });
   });
 
   describe('deleting a Panel is asked about wherever a live Filter of its Workspace looks at it', () => {
     /** A Filter, gathering by these Panel ids unless a case says otherwise. */
     function aFilterOnPanels(id: string, ...values: string[]): Panel {
       const condition: FilterCondition = { field: 'panel', values };
-      return { ...aPanel(id, 'filter'), filter: { conditions: [condition], match: 'all' as const } };
+      return { ...aPanel(id, 'filter'), filter: { conditions: [condition], match: 'all' as const, groupBy: 'none' as const } };
     }
     const notes = aPanel('notes');
 
@@ -766,13 +781,13 @@ describe('Panels', () => {
     ])('names a Filter that, losing its only live Panel and $situation', ({ others, match, leftEmpty }) => {
       const gathers = {
         ...aPanel('due', 'filter'),
-        filter: { conditions: [{ field: 'panel' as const, values: ['wiki'] }, ...others], match },
+        filter: { conditions: [{ field: 'panel' as const, values: ['wiki'] }, ...others], match, groupBy: 'none' as const },
       };
       expect(filtersUsingPanel('wiki', [FALCON, gathers])).toEqual([{ filter: gathers, leftEmpty }]);
     });
 
     it('never names a Filter that does not condition on this Panel at all', () => {
-      const other = { ...aPanel('over', 'filter'), filter: { conditions: [due('today')], match: 'all' as const } };
+      const other = { ...aPanel('over', 'filter'), filter: { conditions: [due('today')], match: 'all' as const, groupBy: 'none' as const } };
       expect(filtersUsingPanel('wiki', [FALCON, other])).toEqual([]);
     });
 
@@ -819,7 +834,7 @@ describe('Panels', () => {
 
     it('names a Filter the item matches, alongside a Panel it is filed on', () => {
       const today = aPanel('today');
-      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')], match: 'all' as const } };
+      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')], match: 'all' as const, groupBy: 'none' as const } };
       const item = anItem('a', { dueDate: TODAY });
 
       expect(
@@ -829,10 +844,10 @@ describe('Panels', () => {
 
     it('drawn on a Filter itself, names the Panels filed on and every other Filter matched, never itself', () => {
       const today = aPanel('today');
-      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')], match: 'all' as const } };
+      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')], match: 'all' as const, groupBy: 'none' as const } };
       const highPriority = {
         ...aPanel('high-priority', 'filter'),
-        filter: { conditions: [{ field: 'priority' as const, values: ['high'] as Priority[] }], match: 'all' as const },
+        filter: { conditions: [{ field: 'priority' as const, values: ['high'] as Priority[] }], match: 'all' as const, groupBy: 'none' as const },
       };
       const item = anItem('a', { dueDate: TODAY, priority: 'high' });
       const panels = [today, dueSoon, highPriority];
@@ -864,7 +879,7 @@ describe('Panels', () => {
       // The Filter is found after the filed Panel (`panelAndFilterIdsByItem`
       // walks filings before Filters), and still reads before it here,
       // because both are read back in `panelsInWorkspace`'s own order.
-      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')], match: 'all' as const } };
+      const dueSoon = { ...aPanel('due-soon', 'filter'), filter: { conditions: [due('today')], match: 'all' as const, groupBy: 'none' as const } };
       const today = aPanel('today');
       const item = anItem('a', { dueDate: TODAY });
       const panels = [dueSoon, today];
@@ -883,7 +898,7 @@ describe('Panels', () => {
     const dueSoon = {
       ...aPanel('due-soon', 'filter'),
       name: 'Due soon',
-      filter: { conditions: [due('today')], match: 'all' as const },
+      filter: { conditions: [due('today')], match: 'all' as const, groupBy: 'none' as const },
     };
 
     it('names the one panel an item is filed on', () => {

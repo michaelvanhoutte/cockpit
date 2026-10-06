@@ -1151,6 +1151,38 @@ test.describe('Panels', () => {
       );
       await expect(page.getByRole('menuitem', { name: 'Move to…' })).toBeVisible();
       await expect(page.getByRole('menuitem', { name: 'Remove from this panel' })).toHaveCount(0);
+      await page.keyboard.press('Escape');
+
+      // **Then grouped by Panel** ("Group a Filter panel's items by the Dashboard
+      // or Panel they are filed on", issue 805): chosen in the question, saved
+      // with the conditions, and drawn again after a reload - which only holds
+      // with the question, the store and the drawing tied together. The Panel's
+      // name comes first and its Dashboard's after, and the row sits under it
+      // without an "also in" for the Panel it is filed on.
+      const grouped = answerTo(page, 'set_panel_filter');
+      await choosePanelAction(page, gathering, 'Filter…', isMobile);
+      await press(
+        page
+          .getByRole('radiogroup', { name: 'Group by' })
+          .getByText('Panel', { exact: true }),
+        isMobile,
+      );
+      await press(page.getByRole('dialog').getByRole('button', { name: 'Save' }), isMobile);
+      expect((await grouped).status()).toBe(200);
+
+      const underWork = () =>
+        filter.getByRole('heading', { level: 4 }).filter({ hasText: work }).locator('xpath=..');
+      await expect(underWork()).toContainText(`· ${here}`);
+      await expect(underWork().getByRole('listitem').filter({ hasText: chase })).toHaveCount(1);
+      // Never its own heading's Panel: what it still says is the other device's
+      // Filter, which gathers it from the one shared database too.
+      await expect(underWork().getByText(new RegExp(`^also in .*${work}`))).toHaveCount(0);
+      await expect(
+        filter.getByRole('img', { name: 'Shows due today or overdue; grouped by panel' }),
+      ).toBeVisible();
+
+      await page.reload();
+      await expect(underWork().getByRole('listitem').filter({ hasText: chase })).toHaveCount(1);
     });
   });
 });

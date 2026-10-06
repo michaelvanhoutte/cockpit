@@ -3,18 +3,20 @@ import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   DUE_WINDOWS,
+  FILTER_GROUPINGS,
   FILTER_MATCHES,
   panelTakesItems,
   prioritySchema,
   type DueCondition,
   type DueWindow,
   type FilterCondition,
+  type FilterGrouping,
   type FilterMatch,
   type ItemType,
   type Panel,
   type Priority,
 } from '@cockpit/shared';
-import { isAPeriod } from '../filters';
+import { GROUPING_NAMES, isAPeriod } from '../filters';
 import { MenuContent, menuItemClass } from './Menu';
 import { Segmented } from './Segmented';
 import { NO_TYPES } from '../itemTypes';
@@ -57,6 +59,7 @@ function FilterQuestion({
   panelName,
   conditions,
   match: initialMatch,
+  groupBy: initialGroupBy,
   itemTypes,
   panels,
   open,
@@ -71,6 +74,8 @@ function FilterQuestion({
   conditions: readonly FilterCondition[];
   /** Whether the Filter needs all of them or any one, which the switch opens on. */
   match: FilterMatch;
+  /** What the Filter's rows are grouped under, which the *Group by* choice opens on. */
+  groupBy: FilterGrouping;
   /** The account's live Types, what a Type condition offers to choose from. */
   itemTypes: readonly ItemType[];
   /**
@@ -82,7 +87,7 @@ function FilterQuestion({
    */
   panels: readonly Panel[];
   open: boolean;
-  onSave: (conditions: FilterCondition[], match: FilterMatch) => void;
+  onSave: (conditions: FilterCondition[], match: FilterMatch, groupBy: FilterGrouping) => void;
   onCancel: () => void;
   refusal?: string | null;
   busy?: boolean;
@@ -108,6 +113,8 @@ function FilterQuestion({
    * chosen is still what saves.
    */
   const [match, setMatch] = useState<FilterMatch>(initialMatch);
+  /** What the rows are grouped under, saved with the conditions ("Group a Filter panel's items by the Dashboard or Panel they are filed on", issue 805). */
+  const [groupBy, setGroupBy] = useState<FilterGrouping>(initialGroupBy);
   // With fewer than two rows the two answers are the same one, and the question
   // reads as it always did.
   const several = rows.length >= 2;
@@ -147,7 +154,7 @@ function FilterQuestion({
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              onSave(rows, match);
+              onSave(rows, match, groupBy);
             }}
             className="pt-4"
           >
@@ -200,6 +207,19 @@ function FilterQuestion({
               </DropdownMenu.Root>
             )}
 
+            <div className="flex items-center gap-3 pt-4">
+              {/* The words on screen are the choice's name, so a screen reader and
+                  a voice command both find it by what is seen. */}
+              <span aria-hidden="true" className="text-sm text-ink-soft">Group by</span>
+              <Segmented
+                label="Group by"
+                name="filter-group-by"
+                options={FILTER_GROUPINGS.map((value) => ({ value, label: GROUPING_LABELS[value] }))}
+                value={groupBy}
+                onChange={setGroupBy}
+              />
+            </div>
+
             {refusal && (
               <p role="alert" className="pt-3 text-sm text-over">
                 {refusal}
@@ -227,6 +247,9 @@ function FilterQuestion({
     </Dialog.Root>
   );
 }
+
+/** What each grouping is called on the *Group by* choice: the funnel's own names, and *None*. */
+const GROUPING_LABELS: Record<FilterGrouping, string> = { none: 'None', ...GROUPING_NAMES };
 
 /** What the two ways of combining the rows are called on the switch. */
 const MATCH_LABELS: Record<FilterMatch, string> = {

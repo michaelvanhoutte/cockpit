@@ -123,13 +123,14 @@ const PRIORITY_HIGH_OR_NORMAL = { field: 'priority', values: ['high', 'normal'] 
 /** A Type condition: matches an item of the seeded workspace's Task type. */
 const TYPE_TASK = { field: 'type', values: [TASK_TYPE_ID] };
 
-/** A save carrying `match` only where one is given: leaving it out is what a client from before it existed sends. */
-function setFilter(panelId: string, conditions: unknown[], match?: unknown) {
+/** A save carrying `match` and `groupBy` only where given: leaving them out is what a client from before they existed sends. */
+function setFilter(panelId: string, conditions: unknown[], match?: unknown, groupBy?: unknown) {
   return send('set_panel_filter', {
     workspaceId: WORKSPACE_ID,
     panelId,
     conditions,
     ...(match === undefined ? {} : { match }),
+    ...(groupBy === undefined ? {} : { groupBy }),
   });
 }
 
@@ -855,15 +856,15 @@ describe('Panels', () => {
     it('arrives with nothing chosen, and keeps what was chosen for it', async () => {
       const { panelId } = await aFilter();
 
-      expect(await panelNow(panelId)).toMatchObject({ kind: 'filter', filter: { conditions: [], match: 'all' } });
+      expect(await panelNow(panelId)).toMatchObject({ kind: 'filter', filter: { conditions: [], match: 'all', groupBy: 'none' } });
 
       expect((await setFilter(panelId, [DUE_TODAY])).status).toBe(200);
-      expect((await panelNow(panelId)).filter).toEqual({ conditions: [DUE_TODAY], match: 'all' });
+      expect((await panelNow(panelId)).filter).toEqual({ conditions: [DUE_TODAY], match: 'all', groupBy: 'none' });
 
       // Saved whole, so taking the last one out puts it back to saying nothing
       // has been chosen rather than leaving the old answer standing.
       expect((await setFilter(panelId, [])).status).toBe(200);
-      expect((await panelNow(panelId)).filter).toEqual({ conditions: [], match: 'all' });
+      expect((await panelNow(panelId)).filter).toEqual({ conditions: [], match: 'all', groupBy: 'none' });
     });
 
     it('accepts a Priority, a Type and a Panel condition beside a Due date one', async () => {
@@ -882,7 +883,7 @@ describe('Panels', () => {
       ];
 
       expect((await setFilter(panelId, conditions)).status).toBe(200);
-      expect((await panelNow(panelId)).filter).toEqual({ conditions, match: 'all' });
+      expect((await panelNow(panelId)).filter).toEqual({ conditions, match: 'all', groupBy: 'none' });
     });
 
     it('keeps whether an item has to meet all of its conditions or any one, and a save without it means all', async () => {
@@ -890,12 +891,12 @@ describe('Panels', () => {
       const conditions = [DUE_TODAY, PRIORITY_HIGH_OR_NORMAL];
 
       expect((await setFilter(panelId, conditions, 'any')).status).toBe(200);
-      expect((await panelNow(panelId)).filter).toEqual({ conditions, match: 'any' });
+      expect((await panelNow(panelId)).filter).toEqual({ conditions, match: 'any', groupBy: 'none' });
 
       // A stale tab or a queued change saves the whole Filter without the
       // setting: the later whole save stands, and it stands as all.
       expect((await setFilter(panelId, conditions)).status).toBe(200);
-      expect((await panelNow(panelId)).filter).toEqual({ conditions, match: 'all' });
+      expect((await panelNow(panelId)).filter).toEqual({ conditions, match: 'all', groupBy: 'none' });
     });
 
     it('refuses a setting that is neither all nor any, and stores nothing of it', async () => {
@@ -903,7 +904,30 @@ describe('Panels', () => {
 
       expect((await setFilter(panelId, [DUE_TODAY], 'either')).status).toBe(400);
 
-      expect((await panelNow(panelId)).filter).toEqual({ conditions: [], match: 'all' });
+      expect((await panelNow(panelId)).filter).toEqual({ conditions: [], match: 'all', groupBy: 'none' });
+    });
+
+    it.each([
+      { situation: 'saved grouped by Dashboard', save: ['dashboard'], reads: 'dashboard' },
+      { situation: 'saved grouped by Panel, then saved again with none given by a stale tab', save: ['panel', undefined], reads: 'none' },
+    ])('keeps the grouping it was $situation, for every device', async ({ save, reads }) => {
+      const { panelId } = await aFilter();
+      const conditions = [DUE_TODAY];
+
+      for (const groupBy of save) {
+        expect((await setFilter(panelId, conditions, 'any', groupBy)).status).toBe(200);
+      }
+
+      expect((await panelNow(panelId)).filter).toEqual({ conditions, match: 'any', groupBy: reads });
+    });
+
+    it('refuses a grouping nothing knows about, and the stored grouping stays as it was', async () => {
+      const { panelId } = await aFilter();
+      expect((await setFilter(panelId, [DUE_TODAY], 'all', 'panel')).status).toBe(200);
+
+      expect((await setFilter(panelId, [DUE_TODAY], 'all', 'priority')).status).toBe(400);
+
+      expect((await panelNow(panelId)).filter).toEqual({ conditions: [DUE_TODAY], match: 'all', groupBy: 'panel' });
     });
 
     it('still refuses a field twice where the filter is set to any', async () => {
@@ -926,7 +950,7 @@ describe('Panels', () => {
         ),
       );
 
-      expect((await panelNow(panelId)).filter).toEqual({ conditions: [DUE_TODAY], match: 'all' });
+      expect((await panelNow(panelId)).filter).toEqual({ conditions: [DUE_TODAY], match: 'all', groupBy: 'none' });
     });
 
     it('shows nothing chosen where what is stored cannot be read, and the workspace still opens', async () => {
@@ -937,7 +961,7 @@ describe('Panels', () => {
         sql.exec('UPDATE panels SET filter_conditions = ? WHERE id = ?', '{not json', panelId),
       );
 
-      expect(await panelNow(panelId)).toMatchObject({ kind: 'filter', filter: { conditions: [], match: 'all' } });
+      expect(await panelNow(panelId)).toMatchObject({ kind: 'filter', filter: { conditions: [], match: 'all', groupBy: 'none' } });
     });
 
     it.each([
@@ -1009,7 +1033,7 @@ describe('Panels', () => {
       // And nothing of it is stored: a refusal that half-landed would leave a
       // panel gathering something nobody asked for.
       expect((await panelNow(panelId)).filter).toEqual(
-        (await panelNow(panelId)).kind === 'filter' ? { conditions: [], match: 'all' } : null,
+        (await panelNow(panelId)).kind === 'filter' ? { conditions: [], match: 'all', groupBy: 'none' } : null,
       );
     });
 

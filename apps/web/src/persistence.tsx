@@ -29,6 +29,11 @@ export const persister: Persister = {
 export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * `v13` because a Filter panel gained its grouping ("Group a Filter panel's
+ * items by the Dashboard or Panel they are filed on", issue 805). A restored
+ * Filter from before it would answer `undefined` where the type says a
+ * grouping, and the Filter question opens on what it is handed.
+ *
  * `v12` because a Dashboard keeps one Layout and the account no Screen sizes
  * ("Convert every Dashboard to its widest Layout and retire Screen sizes",
  * issue 713). A copy from before it holds every Layout a Dashboard had, and the
@@ -96,7 +101,7 @@ export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * the right way round: a cold open is a moment, a shell painted from a shape
  * the code no longer expects is a week.
  */
-export const CACHE_BUSTER = 'v12';
+export const CACHE_BUSTER = 'v13';
 
 /**
  * What is worth keeping on disk, which is everything the app paints itself from

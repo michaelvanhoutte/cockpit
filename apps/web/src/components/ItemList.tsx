@@ -30,6 +30,7 @@ import {
   orderWithItemAt,
 } from '../filing';
 import { alsoShownOn, dayOf, panelAndFilterIdsByItem } from '../filters';
+import type { FilterGroup } from '../filterGroups';
 import { useFilteredDashboardIds } from '../dashboardFilter';
 import { useOpenItem } from '../itemForm';
 import { browserStore } from '../lastVisited';
@@ -98,6 +99,7 @@ export function ItemList({
   panelId = null,
   gathered = false,
   sorted = false,
+  groups,
   /** What the list says when it holds nothing. */
   emptyMessage,
   fillsTheRestOfItsColumn = false,
@@ -133,6 +135,14 @@ export function ItemList({
    * top of the order you set, and drawn where the sort puts it.
    */
   sorted?: boolean;
+  /**
+   * A gathered list's rows under a heading each, in the order given ("Group a
+   * Filter panel's items by the Dashboard or Panel they are filed on", issue
+   * 805). `items` is still the one distinct list - what is picked, counted and
+   * kept in step with the snapshot - and this is only how it is drawn, so an
+   * Item under two headings is one row picked in both.
+   */
+  groups?: readonly FilterGroup[] | undefined;
   emptyMessage: string;
   /**
    * That this list sits under other things in a column, and is to be as tall as
@@ -991,6 +1001,82 @@ export function ItemList({
       ? command.error.message
       : null;
 
+  /**
+   * One row of the list. `alsoNotIn` is the Panel a grouped Filter's heading is,
+   * which the row has no need to say it is also in ("Group a Filter panel's items
+   * by the Dashboard or Panel they are filed on", issue 805).
+   */
+  const rowFor = (item: Item, alsoNotIn: string | null = null) => (
+    <ItemRow
+      item={item}
+      itemType={typeOf(types, item)}
+      workspaceId={workspaceId}
+      selecting={{
+        picked: selection.picked.has(item.id),
+        revealed: picked.length > 0,
+        onPick: (withShift) => pick(item, withShift),
+        onEndSelection: stopSelecting,
+      }}
+      onMoveTo={(from) => {
+        openedFrom.current = from;
+        command.reset();
+        setMoving(item);
+      }}
+      onOpen={() => openItem(item.id)}
+      // The one you are looking at, which is the same move the
+      // picker makes with this workspace's Inbox chosen - the row
+      // decides whether to offer it at all.
+      onMoveHere={() => move(item, null, 0, workspaceId)}
+      alsoIn={alsoShownOn(item.id, alsoInByItem, data?.panels ?? [], panelId, alsoNotIn)}
+      mayBeADuplicate={flagged.has(item.id)}
+      onSettleNotADuplicate={flagged.has(item.id)
+        ? settleNotADuplicateFor(item)
+        : undefined}
+      {...(panelId
+        ? {
+            onAddTo: (from: HTMLElement | null) => {
+              openedFrom.current = from;
+              command.reset();
+              setAdding(item);
+            },
+            // Nothing to remove from a panel the row was never
+            // filed onto: what would take it off a Filter is the
+            // Item ceasing to match, or leaving the panel it
+            // really is filed on.
+            ...(gathered ? {} : { onRemoveFromHere: () => removeFromHere(item, panelId) }),
+            ...(offeredAgents && openDashboardId
+              ? {
+                  agentsHere: {
+                    offered: offeredAgents,
+                    run: runsByItem.get(item.id),
+                    start: (agent: Agent,prompt?: string) =>
+                      startAgent
+                        .mutateAsync({
+                          itemId: item.id,
+                          start: {
+                            commandId: uuidv7(),
+                            issuedAt: new Date().toISOString(),
+                            runId: uuidv7(),
+                            agentId: agent.id,
+                            dashboardId: openDashboardId,
+                            ...(prompt ? { prompt } : {}),
+                          },
+                        })
+                        .then(() => undefined),
+                  },
+                }
+              : {}),
+          }
+        : {
+            // A proposal is only ever drawn in the Inbox: it is what a
+            // filed Item's routing already answered, and there is
+            // nothing left here for one to be a proposal *for*.
+            routingProposal: routingProposalFor(item),
+            onAcceptRouting: acceptRoutingFor(item),
+          })}
+    />
+  );
+
   return (
     <>
       {/* A refusal from a gesture that opened nothing: a drop, or a step move.
@@ -1057,79 +1143,36 @@ export function ItemList({
               </ul>
             )}
           </>
+        ) : groups && groups.length > 0 ? (
+          // Rows that land under no heading still draw, flat, rather than
+          // leaving a well empty under a count saying there are some.
+          <ul ref={rows}>
+            {groups.map((group) => (
+              <li key={group.key}>
+                {/* Sticks to the top of the Panel while its own rows scroll under
+                    it, and goes when the next heading arrives: the heading is
+                    inside the group it belongs to, so it is bounded by it. */}
+                <h4 className="sticky top-0 z-[1] flex items-baseline justify-between gap-2 border-b border-shade/10 bg-surface px-4 pb-1 pt-2.5 text-xs font-medium tracking-wide text-ink-faint">
+                  <span className="min-w-0 truncate">
+                    <span className="font-semibold uppercase text-ink-soft">{group.name}</span>
+                    {group.dashboardName !== null && <span> · {group.dashboardName}</span>}
+                  </span>
+                  <span className="shrink-0 tabular-nums">{group.items.length}</span>
+                </h4>
+                <ul>
+                  {group.items.map((item) => (
+                    <Fragment key={item.id}>{rowFor(item, group.panelId)}</Fragment>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
         ) : (
           <ul ref={rows}>
             {items.map((item, at) => (
               <Fragment key={item.id}>
                 {landingAt === at && <Landing />}
-                <ItemRow
-                  item={item}
-                  itemType={typeOf(types, item)}
-                  workspaceId={workspaceId}
-                  selecting={{
-                    picked: selection.picked.has(item.id),
-                    revealed: picked.length > 0,
-                    onPick: (withShift) => pick(item, withShift),
-                    onEndSelection: stopSelecting,
-                  }}
-                  onMoveTo={(from) => {
-                    openedFrom.current = from;
-                    command.reset();
-                    setMoving(item);
-                  }}
-                  onOpen={() => openItem(item.id)}
-                  // The one you are looking at, which is the same move the
-                  // picker makes with this workspace's Inbox chosen - the row
-                  // decides whether to offer it at all.
-                  onMoveHere={() => move(item, null, 0, workspaceId)}
-                  alsoIn={alsoShownOn(item.id, alsoInByItem, data?.panels ?? [], panelId)}
-                  mayBeADuplicate={flagged.has(item.id)}
-                  onSettleNotADuplicate={flagged.has(item.id)
-                    ? settleNotADuplicateFor(item)
-                    : undefined}
-                  {...(panelId
-                    ? {
-                        onAddTo: (from: HTMLElement | null) => {
-                          openedFrom.current = from;
-                          command.reset();
-                          setAdding(item);
-                        },
-                        // Nothing to remove from a panel the row was never
-                        // filed onto: what would take it off a Filter is the
-                        // Item ceasing to match, or leaving the panel it
-                        // really is filed on.
-                        ...(gathered ? {} : { onRemoveFromHere: () => removeFromHere(item, panelId) }),
-                        ...(offeredAgents && openDashboardId
-                          ? {
-                              agentsHere: {
-                                offered: offeredAgents,
-                                run: runsByItem.get(item.id),
-                                start: (agent: Agent,prompt?: string) =>
-                                  startAgent
-                                    .mutateAsync({
-                                      itemId: item.id,
-                                      start: {
-                                        commandId: uuidv7(),
-                                        issuedAt: new Date().toISOString(),
-                                        runId: uuidv7(),
-                                        agentId: agent.id,
-                                        dashboardId: openDashboardId,
-                                        ...(prompt ? { prompt } : {}),
-                                      },
-                                    })
-                                    .then(() => undefined),
-                              },
-                            }
-                          : {}),
-                      }
-                    : {
-                        // A proposal is only ever drawn in the Inbox: it is what a
-                        // filed Item's routing already answered, and there is
-                        // nothing left here for one to be a proposal *for*.
-                        routingProposal: routingProposalFor(item),
-                        onAcceptRouting: acceptRoutingFor(item),
-                      })}
-                />
+                {rowFor(item)}
               </Fragment>
             ))}
             {landingAt === items.length && <Landing />}

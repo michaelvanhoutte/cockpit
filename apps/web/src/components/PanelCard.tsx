@@ -10,6 +10,7 @@ import {
 } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { saysWhatItShows } from '../filters';
+import type { FilterGroup } from '../filterGroups';
 import { saysHowItIsSorted, sortOf } from '../sorting';
 import { ItemList } from './ItemList';
 import { PanelAddItemForm } from './PanelAddItemForm';
@@ -75,6 +76,12 @@ export interface PanelCardProps {
   workspaceId: string;
   /** What is filed on this panel, in order. */
   items: readonly Item[];
+  /**
+   * A Filter's rows under a heading each, when it is grouped ("Group a Filter
+   * panel's items by the Dashboard or Panel they are filed on", issue 805).
+   * Absent where the Filter is not, and on every other Panel.
+   */
+  groups?: readonly FilterGroup[] | undefined;
   /** The account's live Types - what a Filter's funnel reads a Type condition's values back against. */
   itemTypes: readonly ItemType[];
   /** The workspace's own Panels - what a Filter's funnel reads a Panel condition's values back against. */
@@ -150,6 +157,7 @@ export function PanelCard({
   panel,
   workspaceId,
   items,
+  groups,
   itemTypes,
   panelsInWorkspace,
   renaming,
@@ -178,7 +186,7 @@ export function PanelCard({
   const filter = panelGathers(panel) ? (panel.filter ?? NO_CONDITIONS) : null;
   /** What the funnel reads back on hover, and the whole of what a Filter's state is. */
   const shows = filter
-    ? saysWhatItShows(filter.conditions, itemTypes, panelsInWorkspace, filter.match)
+    ? saysWhatItShows(filter.conditions, itemTypes, panelsInWorkspace, filter.match, filter.groupBy)
     : null;
   /**
    * How a Panel is sorted, read back as a sentence by the mark beside its name
@@ -637,6 +645,7 @@ export function PanelCard({
           <ItemList
             workspaceId={workspaceId}
             items={items}
+            groups={groups}
             openDashboardId={panel.dashboardId}
             panelId={panel.id}
             // A Filter's rows are gathered rather than filed, so nothing is

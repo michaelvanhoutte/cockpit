@@ -10,6 +10,7 @@ import type {
   Dashboard,
   Filing,
   FilterCondition,
+  FilterGrouping,
   FilterMatch,
   Item,
   ItemType,
@@ -125,8 +126,9 @@ function aFilter(
   name: string,
   conditions: FilterCondition[] = [],
   match: FilterMatch = 'all',
+  groupBy: FilterGrouping = 'none',
 ): Panel {
-  return { ...aPanel(id, name), kind: 'filter', filter: { conditions, match } };
+  return { ...aPanel(id, name), kind: 'filter', filter: { conditions, match, groupBy } };
 }
 
 const PRIORITY_HIGH: FilterCondition = { field: 'priority', values: ['high'] };
@@ -2307,6 +2309,182 @@ describe('Onboarding', () => {
 
         const due = await screen.findByRole('region', { name: 'Due soon' });
         expect(within(due).getByText(/Reply to Bart/)).toBeVisible();
+      });
+    });
+
+    describe('it can draw its items under a heading per Dashboard or per Panel', () => {
+      const ID = (n: number) => `11111111-1111-7111-8111-00000000000${n}`;
+      const bart = { ...anItem(ID(1), 'Reply to Bart'), dueDate: TODAY };
+      const anna = { ...anItem(ID(2), 'Call Anna'), dueDate: TODAY };
+      const falcon = aPanel('falcon', 'Project Falcon');
+      const reading = { ...aPanel('reading', 'To read'), dashboardId: 'research' };
+      /** Bart is filed on both Panels, Anna on the one on the other Dashboard. */
+      const FILED = [
+        { panelId: 'falcon', itemId: bart.id, position: 0 },
+        { panelId: 'reading', itemId: bart.id, position: 0 },
+        { panelId: 'reading', itemId: anna.id, position: 1 },
+      ];
+      function aGroupedBoard(groupBy: FilterGrouping, more: Parameters<typeof showBoard>[0] = {}) {
+        const gathers = aFilter('due', 'Due soon', [DUE_TODAY], 'all', groupBy);
+        return showBoard({
+          panels: [falcon, gathers],
+          panelsInWorkspace: [falcon, reading, gathers],
+          dashboards: [DASHBOARD, RESEARCH],
+          items: [bart, anna],
+          filings: FILED,
+          ...more,
+        });
+      }
+      /** The headings a Filter draws as their text, each with the titles of the rows under it. */
+      function groupsOf(panelName: string) {
+        const region = screen.getByRole('region', { name: panelName });
+        return within(region)
+          .queryAllByRole('heading', { level: 4 })
+          .map((heading) => ({
+            heading: heading.textContent,
+            rows: within(heading.parentElement!)
+              .getAllByRole('listitem')
+              .map((row) => (row.textContent ?? '').replace(/.*(Reply to Bart|Call Anna).*/, '$1')),
+          }));
+      }
+
+      it.each([
+        {
+          situation: 'nothing, which is the one list it always was',
+          groupBy: 'none' as const,
+          groups: [],
+        },
+        {
+          situation: 'Panel, the Panel first and its Dashboard after',
+          groupBy: 'panel' as const,
+          groups: [
+            { heading: 'Project Falcon · Today1', rows: ['Reply to Bart'] },
+            { heading: 'To read · Research2', rows: ['Reply to Bart', 'Call Anna'] },
+          ],
+        },
+        {
+          situation: 'Dashboard',
+          groupBy: 'dashboard' as const,
+          groups: [
+            { heading: 'Today1', rows: ['Reply to Bart'] },
+            { heading: 'Research2', rows: ['Reply to Bart', 'Call Anna'] },
+          ],
+        },
+      ])('grouped by $situation, counting the Items once however many headings hold them', async ({ groupBy, groups }) => {
+        aGroupedBoard(groupBy);
+
+        await screen.findByRole('region', { name: 'Due soon' });
+
+        expect(groupsOf('Due soon')).toEqual(groups);
+        // Two Items, though Bart is under both headings.
+        expect(within(handleOf('Due soon')).getByText('2')).toBeVisible();
+      });
+
+      it('leaves out a heading the Dashboard filter has emptied', async () => {
+        // Anna is on To read alone, so Project Falcon is left with nothing.
+        filterTheDashboard({ text: 'anna' });
+        aGroupedBoard('panel');
+
+        await screen.findByRole('region', { name: 'Due soon' });
+
+        expect(groupsOf('Due soon')).toEqual([{ heading: 'To read · Research1', rows: ['Call Anna'] }]);
+      });
+
+      it('draws the one list, and says nothing of a grouping, where a copy restored from this browser carries none', async () => {
+        // What a stored copy from before the grouping holds - no `groupBy` at all,
+        // which nothing re-validates on the way back out of the browser's
+        // storage (`persistence.tsx`). Built whole, since `aFilter` would
+        // default the missing grouping to none and prove nothing.
+        const restored = {
+          ...aFilter('due', 'Due soon', [DUE_TODAY]),
+          filter: { conditions: [DUE_TODAY], match: 'all' },
+        } as Panel;
+        showBoard({
+          panels: [falcon, restored],
+          panelsInWorkspace: [falcon, reading, restored],
+          dashboards: [DASHBOARD, RESEARCH],
+          items: [bart, anna],
+          filings: FILED,
+        });
+
+        const due = await screen.findByRole('region', { name: 'Due soon' });
+
+        expect(groupsOf('Due soon')).toEqual([]);
+        expect(within(due).getByRole('img', { name: 'Shows due today or overdue' })).toBeVisible();
+      });
+
+      it('says what it is grouped by in the funnel beside its name', async () => {
+        aGroupedBoard('panel');
+
+        const due = await screen.findByRole('region', { name: 'Due soon' });
+
+        expect(
+          within(due).getByRole('img', { name: 'Shows due today or overdue; grouped by panel' }),
+        ).toBeVisible();
+      });
+    });
+
+    describe('it asks for the grouping beside the conditions and saves both at once', () => {
+      const GROUP_BY = 'Group by';
+
+      it('opens on none, and on the grouping the Filter already has', async () => {
+        const { user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [DUE_TODAY]), aFilter('other', 'Other', [DUE_TODAY], 'all', 'panel')],
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        expect(await screen.findByRole('radio', { name: 'None' })).toBeChecked();
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+        await waitFor(() => expect(screen.queryByRole('radiogroup', { name: GROUP_BY })).toBeNull());
+
+        await choose(user, 'Other', 'Filter…');
+        expect(await screen.findByRole('radio', { name: 'Panel' })).toBeChecked();
+      });
+
+      it('sends the grouping with the conditions', async () => {
+        const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon', [DUE_TODAY], 'any')] });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await user.click(await screen.findByRole('radio', { name: 'Dashboard' }));
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(mutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: 'set_panel_filter',
+            payload: expect.objectContaining({ conditions: [DUE_TODAY], match: 'any', groupBy: 'dashboard' }),
+          }),
+          expect.anything(),
+        );
+      });
+
+      it('saves nothing where it is cancelled, and opens again on what is stored', async () => {
+        const { mutate, user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [DUE_TODAY], 'all', 'panel')],
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await user.click(await screen.findByRole('radio', { name: 'Dashboard' }));
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+        await waitFor(() => expect(screen.queryByRole('radiogroup', { name: GROUP_BY })).toBeNull());
+        await choose(user, 'Due soon', 'Filter…');
+
+        expect(mutate).not.toHaveBeenCalled();
+        expect(await screen.findByRole('radio', { name: 'Panel' })).toBeChecked();
+      });
+
+      it('stays open with the grouping still chosen where the save is refused', async () => {
+        const { user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [DUE_TODAY])],
+          error: new CommandRefused(409, 'that did not save'),
+          variables: { name: 'set_panel_filter', payload: { panelId: 'due' } },
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await user.click(await screen.findByRole('radio', { name: 'Dashboard' }));
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(screen.getByRole('alert')).toHaveTextContent('that did not save');
+        expect(screen.getByRole('radio', { name: 'Dashboard' })).toBeChecked();
       });
     });
 

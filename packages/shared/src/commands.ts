@@ -24,6 +24,7 @@ import { itemFormPresentationSchema } from './domain/item-form-presentation.js';
 import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
 import {
   filterConditionSchema,
+  filterGroupingSchema,
   filterMatchSchema,
   panelSortSchema,
   panelFormatSchema,
@@ -230,6 +231,14 @@ export const setPanelFilterSchema = commandEnvelopeSchema
      * Filter back to what it always meant, the later whole save standing.
      */
     match: filterMatchSchema.default('all'),
+    /**
+     * What the Filter's rows are grouped under ("Group a Filter panel's items by
+     * the Dashboard or Panel they are filed on", issue 805). Left out means
+     * `none`, for the reason `match` above gives. A grouping the contract does
+     * not name is refused rather than defaulted: a save is the one place a
+     * value is chosen, so reading it back as something else would hide the bug.
+     */
+    groupBy: filterGroupingSchema.default('none'),
   })
   // A field already on the Filter is not offered a second time in the
   // question ("Filter a Filter panel by priority and type", issue 464); this

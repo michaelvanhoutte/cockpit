@@ -15,6 +15,7 @@ import { CommandRefused } from '../../../src/api/client';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { landItem, liftItem } from '../../../src/itemInTheAir';
 import { ItemList } from '../../../src/components/ItemList';
+import type { FilterGroup } from '../../../src/filterGroups';
 import { UndoWhatJustHappened } from '../../../src/undo';
 
 /**
@@ -248,12 +249,14 @@ async function showList({
   panelId = null as string | null,
   gathered = false,
   sorted = false,
+  groups = undefined as FilterGroup[] | undefined,
 }: {
   items?: Item[];
   openDashboardId?: string | null;
   panelId?: string | null;
   gathered?: boolean;
   sorted?: boolean;
+  groups?: FilterGroup[] | undefined;
 } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -266,6 +269,7 @@ async function showList({
           panelId={panelId}
           gathered={gathered}
           sorted={sorted}
+          groups={groups}
           emptyMessage="Nothing to deal with."
         />
       </UndoWhatJustHappened>
@@ -620,7 +624,7 @@ describe('Panels', () => {
           format: 'plain' as const,
           body: '',
           readOnly: false,
-          filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }], match: 'all' as const },
+          filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }], match: 'all' as const, groupBy: 'none' as const },
           sort: null,
         },
       ];
@@ -641,7 +645,7 @@ describe('Panels', () => {
         format: 'plain' as const,
         body: '',
         readOnly: false,
-        filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }], match: 'all' as const },
+        filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }], match: 'all' as const, groupBy: 'none' as const },
         sort: null,
       };
       held.panels = [...held.panels, gathers];
@@ -659,6 +663,84 @@ describe('Panels', () => {
       await showList();
 
       expect(screen.queryByText(/^also in/)).toBeNull();
+    });
+  });
+
+  /**
+   * "Group a Filter panel's items by the Dashboard or Panel they are filed on"
+   * (issue 805): which groups there are is `filterGroups.test.ts`'s; what is
+   * asked here is that a row under a heading is told the right answer for where
+   * it is drawn, which only a list reading the snapshot can decide.
+   */
+  describe('a row under a Panel heading names only the other Panels its item is filed on', () => {
+    const FILTER_ID = 'p-gather';
+    const under = (name: string, panelId: string | null): FilterGroup => ({
+      key: panelId ?? name,
+      name,
+      dashboardName: panelId === null ? null : TODAY.name,
+      panelId,
+      items: [BART],
+    });
+
+    it.each([
+      {
+        situation: 'filed on Falcon and Anna, under Falcon',
+        filings: [
+          { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+          { panelId: 'p-anna', itemId: BART.id, position: 0 },
+        ],
+        heading: under('Falcon', 'p-falcon'),
+        line: 'also in Anna',
+      },
+      {
+        situation: 'filed on Falcon alone, under Falcon',
+        filings: [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }],
+        heading: under('Falcon', 'p-falcon'),
+        line: null,
+      },
+      {
+        situation: 'filed on Falcon and Anna, under a Dashboard heading',
+        filings: [
+          { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+          { panelId: 'p-anna', itemId: BART.id, position: 0 },
+        ],
+        heading: under('Today', null),
+        line: 'also in Falcon, Anna',
+      },
+    ])('says $line for an item $situation', async ({ filings, heading, line }) => {
+      held.panels = [...held.panels, { ...aPanel(FILTER_ID, TODAY.id, 'Needs filing'), kind: 'filter' as const }];
+      held.filings = filings;
+
+      await showList({ panelId: FILTER_ID, gathered: true, groups: [heading] });
+
+      if (line === null) expect(screen.queryByText(/^also in/)).toBeNull();
+      else expect(screen.getByText(line)).toBeInTheDocument();
+    });
+
+    it('draws a heading per group with its own count, the Panel first and its Dashboard after', async () => {
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+
+      await showList({
+        panelId: FILTER_ID,
+        gathered: true,
+        groups: [under('Falcon', 'p-falcon'), under('Today', null)],
+      });
+
+      const [panelHeading, dashboardHeading] = screen.getAllByRole('heading', { level: 4 });
+      expect(within(panelHeading!).getByText('Falcon')).toBeVisible();
+      expect(within(panelHeading!).getByText('· Today')).toBeVisible();
+      expect(within(panelHeading!).getByText('1')).toBeVisible();
+      expect(within(dashboardHeading!).getByText('Today')).toBeVisible();
+      expect(within(dashboardHeading!).queryByText(/·/)).toBeNull();
+    });
+
+    it('draws its rows as the one list where no heading holds them, rather than an empty well', async () => {
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+
+      await showList({ panelId: FILTER_ID, gathered: true, groups: [] });
+
+      expect(screen.queryByRole('heading', { level: 4 })).toBeNull();
+      expect(screen.getByText(BART.title)).toBeInTheDocument();
     });
   });
 
