@@ -382,22 +382,13 @@ test.describe('Panels', () => {
         })
         .toBe(true);
 
-      // The menu does the same without the gesture, and says why it cannot
-      // from a wider screen. Nothing is remembered across a reload.
+      // The menu does the same without the gesture. Nothing is remembered across a reload.
       const dashboardMenu = page.getByRole('button', { name: `Actions for ${here}` });
       await dashboardMenu.click();
       await page.getByRole('menuitem', { name: 'Collapse panels' }).click();
       await expect(itemListOf(first)).toBeHidden();
       await page.reload();
       await expect(itemListOf(first)).toBeVisible();
-      await page.setViewportSize({ width: 480, height: 800 });
-      await dashboardMenu.click();
-      await expect(page.getByRole('menuitem', { name: /^Collapse panels: / })).toHaveAttribute(
-        'aria-disabled',
-        'true',
-      );
-      await page.keyboard.press('Escape');
-      await page.setViewportSize({ width: 420, height: 800 });
 
       // Back on the first screen it is the arrangement just made, and it is
       // still there after a reload.

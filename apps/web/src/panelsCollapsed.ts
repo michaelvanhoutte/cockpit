@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 /**
  * Whether the open Dashboard's Panels are collapsed to their headers on a phone
@@ -26,6 +26,8 @@ function set(next: string | null) {
   listeners.forEach((listener) => listener());
 }
 
+const openPanels = () => set(null);
+
 /** Whether this Dashboard's Panels are collapsed, and the two ways to change it. */
 export function usePanelsCollapsed(dashboardId: string | null) {
   const on = useSyncExternalStore(
@@ -33,11 +35,8 @@ export function usePanelsCollapsed(dashboardId: string | null) {
     () => collapsedOn,
     () => null,
   );
-  return {
-    collapsed: dashboardId !== null && on === dashboardId,
-    collapse: () => set(dashboardId),
-    open: () => set(null),
-  };
+  const collapse = useCallback(() => set(dashboardId), [dashboardId]);
+  return { collapsed: dashboardId !== null && on === dashboardId, collapse, open: openPanels };
 }
 
 /** Forgets it, but only if it is this Dashboard's: the board leaving must not open the one that replaced it. */

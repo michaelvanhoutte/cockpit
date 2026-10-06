@@ -170,7 +170,8 @@ export function PanelBoard({
    * would write the shrunken one back as if it were the person's.
    */
   const filteringOn = isFiltering(dashboardFilter);
-  const arrangeable = !isPhoneWidth(screenWidth) && !filteringOn;
+  const phone = isPhoneWidth(screenWidth);
+  const arrangeable = !phone && !filteringOn;
   const command = useCommand();
   const queryClient = useQueryClient();
 
@@ -258,7 +259,6 @@ export function PanelBoard({
    * size is set against what is in the Panels, so a line being dragged
    * collapses nothing.
    */
-  const phone = isPhoneWidth(screenWidth);
   /**
    * **And on a phone, every Panel is its header alone for as long as the person
    * asks** - a double-tap on a header, or *Collapse panels* on the Dashboard's
@@ -273,14 +273,17 @@ export function PanelBoard({
   // Widening past the phone line opens every Panel, rather than leaving it
   // remembered for the next time the window narrows; leaving the board
   // forgets it, so coming back to this Dashboard opens every Panel too.
+  const { open: openPanels } = asked;
   useEffect(() => {
-    if (!phone) asked.open();
-    // `asked` is rebuilt every render; the phone line is what this is about.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phone]);
+    if (!phone) openPanels();
+  }, [phone, openPanels]);
   useEffect(() => () => forgetPanelsCollapsed(dashboard.id), [dashboard.id]);
   /** The last tap on a header, so a second one close behind it is a double-tap. */
-  const lastTap = useRef<{ at: number; opened: boolean } | null>(null);
+  const lastTap = useRef<{ at: number; opened: boolean; panelId: string } | null>(null);
+  /** Whether the last layout had the Panels collapsed by the person, so an opening of any kind can be told from a drag ending. */
+  const wasCollapsedOnPhone = useRef(false);
+  /** Where the Dashboard is to be scrolled once its room has been taken away. */
+  const scrollOnceSettled = useRef<number | null>(null);
   /**
    * The header that must stay where it is while the board changes shape: the
    * Panel and where its top was the moment before - grabbed when the board
@@ -698,13 +701,15 @@ export function PanelBoard({
    */
   const tappedHeader = (panelId: string, at: number) => {
     const before = lastTap.current;
-    const second = before !== null && at - before.at < DOUBLE_TAP_MS;
+    // A double-tap is two taps on one header, close together.
+    const second = before !== null && before.panelId === panelId && at - before.at < DOUBLE_TAP_MS;
     if (collapsedOnPhone) {
-      lastTap.current = { at, opened: true };
+      lastTap.current = { at, opened: true, panelId };
       anchorAtTop(panelId);
       asked.open();
       return;
     }
+    // The second half of the double-tap that just opened the board.
     if (second && before.opened) {
       lastTap.current = null;
       return;
@@ -716,7 +721,7 @@ export function PanelBoard({
       asked.collapse();
       return;
     }
-    lastTap.current = { at, opened: false };
+    lastTap.current = { at, opened: false, panelId };
   };
 
   /**
@@ -729,24 +734,32 @@ export function PanelBoard({
   useLayoutEffect(() => {
     const held = anchor.current;
     anchor.current = null;
-    if (!held) return;
-    const now = headerTop(held.panelId);
-    if (now === null) return;
+    // **Opened by the person, by any route**: the room above the board was
+    // only there to hold a header in place while it was collapsed, so it goes.
+    // A drag ending keeps it, which is what holds the dropped Panel.
+    const openedByPerson = wasCollapsedOnPhone.current && !collapsedOnPhone;
+    wasCollapsedOnPhone.current = collapsedOnPhone;
     const scroller = rowsRef.current?.closest<HTMLElement>('[data-drag-scroll="dashboard"]');
-    // **Opened to put a header at the top**: the room above the board was only
-    // there to hold a header in place while it was collapsed, so it goes, and
-    // the header is wanted where it will be once it has.
-    if (held.toTop && scroller) {
+    const now = held ? headerTop(held.panelId) : null;
+    if (held?.toTop && scroller && now !== null) {
+      // Wanted where the header will be once the room has gone; scrolled to
+      // only once it has, since a margin still applied clamps the scroll.
       const next = anchored({
         wanted: held.top,
         now: now - room,
         scrollTop: scroller.scrollTop,
         maxScrollTop: scroller.scrollHeight - scroller.clientHeight - room,
       });
-      scroller.scrollTop = next.scrollTop;
+      if (room === 0) scroller.scrollTop = next.scrollTop;
+      else scrollOnceSettled.current = next.scrollTop;
       setRoom(0);
       return;
     }
+    if (openedByPerson) {
+      setRoom(0);
+      return;
+    }
+    if (!held || now === null) return;
     const next = anchored({
       wanted: held.top,
       now,
@@ -761,6 +774,15 @@ export function PanelBoard({
     // with; the room it reads is whatever the last of them left.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collapsed]);
+
+  // The scroll that had to wait for the room to go.
+  useLayoutEffect(() => {
+    const target = scrollOnceSettled.current;
+    if (target === null) return;
+    scrollOnceSettled.current = null;
+    const scroller = rowsRef.current?.closest<HTMLElement>('[data-drag-scroll="dashboard"]');
+    if (scroller) scroller.scrollTop = target;
+  }, [room]);
 
   /**
    * Picks a panel up. Nothing is sent; the board just starts drawing it moved.

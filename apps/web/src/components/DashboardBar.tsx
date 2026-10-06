@@ -436,9 +436,9 @@ export function DashboardBar({
    */
   const phone = isPhoneWidth(useScreenWidth());
   const asked = usePanelsCollapsed(openDashboardId);
-  const panelsOnOpenDashboard = (data?.panels ?? []).filter(
+  const openDashboardHasPanels = (data?.panels ?? []).some(
     (panel) => panel.dashboardId === openDashboardId,
-  ).length;
+  );
   const collapseEntry = (dashboard: Dashboard): MenuEntry[] =>
     dashboard.id !== openDashboardId
       ? []
@@ -451,7 +451,7 @@ export function DashboardBar({
               keepsFocus: true,
               unavailable: !phone
                 ? 'Only on a phone, where panels are drawn one above the next'
-                : panelsOnOpenDashboard === 0
+                : !openDashboardHasPanels
                   ? 'This dashboard has no panels'
                   : undefined,
               onSelect: asked.collapse,
