@@ -71,6 +71,9 @@ import { useCockpitChanges } from '../useCockpitChanges';
 /** The tab's list and its before-and-after, loaded the first time the tab is opened; only the note's check is in the form's own code (issue 690). */
 const WhatCockpitChangedList = lazy(() => import('./WhatCockpitChangedList'));
 
+/** The phone page's chips, loaded only where the form is a page (issue 787). */
+const ItemFormChips = lazy(() => import('./ItemFormChips'));
+
 const DESCRIPTION_LIMIT = 60_000;
 
 /** The form's tabs, left to right; the last is always there, whether or not Cockpit has changed anything. */
@@ -1758,6 +1761,8 @@ function TheForm({
                       }
                     >
                       <div className={`flex flex-col gap-3${onAPage ? '' : ' @lg:col-start-1 @lg:row-start-1'}`}>
+                      {!onAPage && (
+                      <>
                       {/* Type and status beside each other above the rest of the short fields (issue 528). */}
                       <div className="grid grid-cols-2 gap-3">
                         <label className="block min-w-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
@@ -1899,6 +1904,26 @@ function TheForm({
                           </div>
                         </div>
                       </div>
+                      </>
+                      )}
+                      {onAPage && (
+                        // Chips, one row, each opening its own picker; a choice is held in the draft until Save ("Edit an Item's type, status, priority and due date from chips on a phone", issue 787). Fetched only here, so a desk never loads it.
+                        <Suspense fallback={<div className="h-9" aria-hidden="true" />}>
+                          <ItemFormChips
+                            typeId={draft.typeId}
+                            status={draft.status}
+                            priority={draft.priority}
+                            dueDate={draft.dueDate}
+                            types={typesOffered(data?.itemTypes ?? [], data?.items ?? [])}
+                            disabled={saving}
+                            onType={(typeId) => setDraft({ ...draft, typeId })}
+                            onStatus={(status) => setDraft({ ...draft, status })}
+                            onPriority={(priority) => setDraft({ ...draft, priority })}
+                            onDueDate={(dueDate) => setDraft({ ...draft, dueDate })}
+                            onAttach={() => attachmentInputRef.current?.click()}
+                          />
+                        </Suspense>
+                      )}
                       </div>
 
                       {/* Formatted, with the Markdown behind it one button away
@@ -1943,7 +1968,15 @@ function TheForm({
                         ("Attach a file to an item", issue 441) - added by button
                         or drag-and-drop, drawn as a chip, opened or downloaded by
                         a click on it. */}
-                      <div className={onAPage ? undefined : '@lg:col-start-1 @lg:row-start-2 @lg:-mx-1 @lg:min-h-0 @lg:overflow-y-auto @lg:px-1'}>
+                      <div
+                        className={
+                          onAPage
+                            ? anyFiles || attachmentError
+                              ? undefined
+                              : 'hidden'
+                            : '@lg:col-start-1 @lg:row-start-2 @lg:-mx-1 @lg:min-h-0 @lg:overflow-y-auto @lg:px-1'
+                        }
+                      >
                         <p className={`text-xs font-semibold uppercase tracking-wide text-ink-faint${onAPage ? ' sr-only' : ''}`}>
                           Attachments
                         </p>
@@ -1954,7 +1987,7 @@ function TheForm({
                         <div
                           className={`mt-1 flex gap-1.5 rounded-md border border-dashed px-3 py-2 ${
                             onAPage ? 'flex-wrap items-center' : 'flex-col'
-                          } ${filesOver ? 'border-accent bg-accent-tint' : 'border-shade/10'}`}
+                          } ${filesOver ? 'border-accent bg-accent-tint' : 'border-shade/10'}${onAPage && !anyFiles ? ' hidden' : ''}`}
                         >
                           {/* On a page the list is one line until it is asked for. */}
                           {onAPage && attachments.length + pendingAttachments.length > 0 && (
@@ -1974,14 +2007,17 @@ function TheForm({
                           {attachments.length === 0 && pendingAttachments.length === 0 && !onAPage && (
                             <p className="text-sm text-ink-faint">Drag a file here, or</p>
                           )}
-                          <button
-                            type="button"
-                            disabled={saving}
-                            onClick={() => attachmentInputRef.current?.click()}
-                            className={`rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50${onAPage ? '' : ' self-start'}`}
-                          >
-                            Add
-                          </button>
+                          {/* On a page the + Attach chip is the way in. */}
+                          {!onAPage && (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => attachmentInputRef.current?.click()}
+                              className="self-start rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint disabled:opacity-50"
+                            >
+                              Add
+                            </button>
+                          )}
                           {onAPage && attachmentChips}
                           <input
                             ref={attachmentInputRef}

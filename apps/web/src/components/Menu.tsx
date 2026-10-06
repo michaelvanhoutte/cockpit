@@ -190,14 +190,17 @@ export function SurfaceMenuButton({
 export function MenuContent({
   children,
   onCloseAutoFocus,
+  align = 'end',
 }: {
   children: React.ReactNode;
   onCloseAutoFocus?: (event: Event) => void;
+  /** Which edge of the control the panel lines up with: a chip at the start of a row opens from its own left. */
+  align?: 'start' | 'end';
 }) {
   return (
     <DropdownMenu.Portal>
       <DropdownMenu.Content
-        align="end"
+        align={align}
         sideOffset={4}
         onCloseAutoFocus={onCloseAutoFocus}
         className="z-floating min-w-44 rounded-md border border-shade/10 bg-surface p-1 shadow-lg"

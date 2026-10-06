@@ -16,6 +16,7 @@ import type {
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../../../src/api/client';
 import { DUE_DATE_SETTLES_MS, ItemForm, whatChanged } from '../../../src/components/ItemForm';
 import { DESCRIPTION_TEXT_CLASS } from '../../../src/description/textClass';
+import { DEADLINE_PILLS, dueDateLabel } from '../../../src/dueDate';
 import { dueSevenDaysOut, dueToday, dueTomorrow } from '../../../src/dueDateShortcuts';
 import { THE_BAR_LASTS_MS, UndoWhatJustHappened } from '../../../src/undo';
 
@@ -1142,12 +1143,13 @@ describe('Item editing', () => {
   describe('the attachments are one line until opened', () => {
     const lineOfFiles = () => screen.queryByRole('button', { name: /^\d+ files?/ });
 
-    it('with no files there is no list line, only the attach control', async () => {
+    it('with no files there is no list line and no box, only the + Attach chip', async () => {
       await atWidth(390, async () => {
         await theForm();
 
         expect(lineOfFiles()).toBeNull();
-        expect(screen.getByRole('button', { name: 'Add' })).toBeVisible();
+        expect(await screen.findByRole('button', { name: '+ Attach' })).toBeVisible();
+        expect(screen.queryByRole('button', { name: 'Add' })).toBeNull();
       });
     });
 
@@ -1163,10 +1165,11 @@ describe('Item editing', () => {
 
         expect(screen.getByText('receipt.png')).toBeVisible();
         expect(screen.getByText('scan.pdf')).toBeVisible();
-        // Drawn under Add, so Tab reaches Add before the list.
+        // Drawn under the chips, so Tab reaches + Attach before the list.
         expect(
-          screen.getByRole('button', { name: 'Add' }).compareDocumentPosition(screen.getByText('receipt.png')) &
-            Node.DOCUMENT_POSITION_FOLLOWING,
+          (await screen.findByRole('button', { name: '+ Attach' })).compareDocumentPosition(
+            screen.getByText('receipt.png'),
+          ) & Node.DOCUMENT_POSITION_FOLLOWING,
         ).toBeTruthy();
       });
     });
@@ -1182,6 +1185,228 @@ describe('Item editing', () => {
         await user.upload(screen.getByLabelText('Files to attach'), aPhoto());
 
         expect(lineOfFiles()).toHaveTextContent('2 files');
+        await upload.land();
+      });
+    });
+  });
+
+  describe('on a phone, an Item’s fields are chips that say what is set', () => {
+    const TASK = aType('task', 'Task');
+    const IDEA = aType('idea', 'Idea');
+    /** A week or more off, so the chip reads the date and not a pill. */
+    const FAR = '2026-09-30';
+    const THE_DAY = new Date('2026-09-18T09:00:00.000Z');
+
+    it.each([
+      { situation: 'no priority', over: {}, name: 'Priority', outline: true },
+      { situation: 'priority high', over: { priority: 'high' as const }, name: 'High priority', outline: false },
+      { situation: 'no due date', over: {}, name: 'Due date', outline: true },
+      { situation: 'a due date over a week off', over: { dueDate: FAR }, name: `Due ${dueDateLabel(FAR)}`, outline: false },
+    ])('$situation', async ({ over, name, outline }) => {
+      await atWidth(390, async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(THE_DAY);
+        try {
+          await theForm(anItem(over));
+
+          const chip = await screen.findByRole('button', { name });
+          // Outline when nothing is set, a fill when it is.
+          expect(chip.className.includes('border-shade/20')).toBe(outline);
+          if ('priority' in over) expect(chip).toHaveClass('bg-priority-high');
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    });
+
+    it.each([
+      { situation: 'due today', dueDate: '2026-09-18', label: 'Due today', level: 'today' as const },
+      { situation: 'due in two days', dueDate: '2026-09-20', label: 'Due in 2d', level: 'near' as const },
+      { situation: 'a week out', dueDate: '2026-09-25', label: 'Due in 7d', level: 'week' as const },
+      { situation: 'passed', dueDate: '2026-09-15', label: 'Overdue 3d', level: 'over' as const },
+    ])('a due date $situation reads as the row’s pill does, in its words and colour', async ({ dueDate, label, level }) => {
+      await atWidth(390, async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(THE_DAY);
+        try {
+          await theForm(anItem({ dueDate }));
+
+          const chip = await screen.findByRole('button', { name: label });
+          for (const colour of DEADLINE_PILLS[level].split(' ')) expect(chip).toHaveClass(colour);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    });
+
+    it('names the Type, and To do, In progress or Done', async () => {
+      await atWidth(390, async () => {
+        held.itemTypes = [TASK, IDEA];
+        await theForm(anItem({ typeId: 'idea', startedAt: '2026-09-01T08:00:00.000Z' }));
+
+        expect(await screen.findByRole('button', { name: 'Idea' })).toBeVisible();
+        expect(screen.getByRole('button', { name: 'In progress' })).toBeVisible();
+      });
+    });
+
+    it('at 768px they are today’s controls, with no chips', async () => {
+      await atWidth(768, async () => {
+        await theForm();
+
+        expect(screen.getByLabelText('Type')).toBeVisible();
+        expect(screen.getByLabelText('Due date')).toBeVisible();
+        expect(screen.getByRole('button', { name: 'High priority' })).toBeVisible();
+        expect(screen.queryByRole('button', { name: '+ Attach' })).toBeNull();
+      });
+    });
+  });
+
+  describe('on a phone, a chip’s choice is saved with the rest', () => {
+    const TASK = aType('task', 'Task');
+    const IDEA = aType('idea', 'Idea');
+    const THE_DAY = new Date('2026-09-18T09:00:00.000Z');
+    type User = ReturnType<typeof userEvent.setup>;
+
+    /** The picker the chip opens, then one entry of it. */
+    async function pick(user: User, chip: string | RegExp, entry: string | RegExp) {
+      await user.click(await screen.findByRole('button', { name: chip }));
+      await user.click(await screen.findByRole('menuitemradio', { name: entry }));
+    }
+
+    async function saved(user: User) {
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+    }
+
+    it.each([
+      {
+        situation: 'another Type',
+        over: { typeId: 'task' },
+        choose: (user: User) => pick(user, 'Task', 'Idea'),
+        asks: { name: 'set_item_type', payload: { typeId: 'idea' } },
+      },
+      {
+        situation: 'In progress',
+        over: {},
+        choose: (user: User) => pick(user, 'To do', 'In progress'),
+        asks: { name: 'set_started', payload: { started: true } },
+      },
+      {
+        situation: 'a priority level',
+        over: {},
+        choose: (user: User) => pick(user, 'Priority', 'High'),
+        asks: { name: 'set_priority', payload: { priority: 'high' } },
+      },
+      {
+        situation: 'the ticked priority level again',
+        over: { priority: 'normal' as const },
+        choose: (user: User) => pick(user, 'Normal priority', 'Normal'),
+        asks: { name: 'set_priority', payload: { priority: null } },
+      },
+    ])('$situation is sent on Save, and not before', async ({ over, choose, asks }) => {
+      await atWidth(390, async () => {
+        held.itemTypes = [TASK, IDEA];
+        const user = await theForm(anItem(over));
+
+        await choose(user);
+        expect(held.send).not.toHaveBeenCalled();
+        await saved(user);
+
+        expect(sent().map((change) => change.name)).toEqual([asks.name]);
+        expect(sent()[0]).toMatchObject({ payload: asks.payload });
+      });
+    });
+
+    it('ticks the current Status, and the current Type', async () => {
+      await atWidth(390, async () => {
+        held.itemTypes = [TASK, IDEA];
+        const user = await theForm(anItem({ typeId: 'idea', startedAt: '2026-09-01T08:00:00.000Z' }));
+
+        await user.click(await screen.findByRole('button', { name: 'In progress' }));
+        expect(await screen.findByRole('menuitemradio', { name: 'In progress' })).toHaveAttribute('aria-checked', 'true');
+        expect(screen.getByRole('menuitemradio', { name: 'To do' })).toHaveAttribute('aria-checked', 'false');
+        await user.keyboard('{Escape}');
+
+        await user.click(screen.getByRole('button', { name: 'Idea' }));
+        expect(await screen.findByRole('menuitemradio', { name: 'Idea' })).toHaveAttribute('aria-checked', 'true');
+      });
+    });
+
+    it.each([
+      { situation: 'Today', entry: 'Today', day: dueToday },
+      { situation: 'Tomorrow', entry: 'Tomorrow', day: dueTomorrow },
+      { situation: '+7d', entry: '+7d', day: dueSevenDaysOut },
+    ])('Due, $situation, sends that date counted from the clock', async ({ entry, day }) => {
+      await atWidth(390, async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(THE_DAY);
+        try {
+          const user = await theForm();
+
+          await user.click(await screen.findByRole('button', { name: 'Due date' }));
+          await user.click(await screen.findByRole('button', { name: entry }));
+          await saved(user);
+
+          expect(sent().map((change) => change.name)).toEqual(['set_due_date']);
+          expect(sent()[0]).toMatchObject({ payload: { dueDate: day(THE_DAY) } });
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    });
+
+    it('Due, a picked date, sends that date', async () => {
+      await atWidth(390, async () => {
+        const user = await theForm();
+
+        await user.click(await screen.findByRole('button', { name: 'Due date' }));
+        fireEvent.change(await screen.findByLabelText('Pick a date'), { target: { value: '2099-09-30' } });
+        await saved(user);
+
+        expect(sent()[0]).toMatchObject({ name: 'set_due_date', payload: { dueDate: '2099-09-30' } });
+      });
+    });
+
+    it('Due, Clear, clears the date', async () => {
+      await atWidth(390, async () => {
+        const user = await theForm(anItem({ dueDate: '2099-09-30' }));
+
+        await user.click(await screen.findByRole('button', { name: /^Due / }));
+        await user.click(await screen.findByRole('button', { name: 'Clear' }));
+        await saved(user);
+
+        expect(sent().map((change) => change.name)).toEqual(['set_due_date']);
+        expect(sent()[0]).toMatchObject({ payload: { dueDate: null } });
+      });
+    });
+
+    it('a chip changed, then ←, sends nothing', async () => {
+      await atWidth(390, async () => {
+        const user = await theForm();
+
+        await pick(user, 'Priority', 'High');
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        expect(held.send).not.toHaveBeenCalled();
+        expect(held.close).toHaveBeenCalledTimes(1);
+      });
+    });
+  });
+
+  describe('on a phone, + Attach opens the file picker', () => {
+    it('a file chosen joins the attachments line', async () => {
+      await atWidth(390, async () => {
+        const user = await theForm();
+        const upload = heldUpload();
+        const picker = screen.getByLabelText('Files to attach');
+        const opened = vi.fn();
+        picker.addEventListener('click', opened);
+
+        await user.click(await screen.findByRole('button', { name: '+ Attach' }));
+        expect(opened).toHaveBeenCalledTimes(1);
+        await user.upload(picker, aPhoto());
+
+        expect(screen.getByRole('button', { name: /^1 file/ })).toBeVisible();
         await upload.land();
       });
     });

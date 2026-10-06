@@ -162,6 +162,35 @@ export async function openTheFiles(page: Page, isMobile: boolean): Promise<void>
 }
 
 /**
+ * An open Item form's status, set through what its device draws: a chip and its
+ * picker on a phone's page, the box at a desk. Held until Save either way.
+ */
+export async function setFormStatus(
+  page: Page,
+  status: 'to_do' | 'in_progress' | 'done',
+  isMobile: boolean,
+): Promise<void> {
+  const form = page.getByRole('dialog');
+  if (!isMobile) {
+    await form.getByLabel('Status').selectOption(status);
+    return;
+  }
+  const name = { to_do: 'To do', in_progress: 'In progress', done: 'Done' }[status];
+  await press(form.getByRole('group', { name: 'Fields' }).getByRole('button').nth(1), isMobile);
+  await press(page.getByRole('menuitemradio', { name, exact: true }), isMobile);
+}
+
+/** An open Item form's due date (`YYYY-MM-DD`), through the box at a desk and the Due chip's date picker on a phone. */
+export async function setFormDueDate(page: Page, day: string, isMobile: boolean): Promise<void> {
+  if (!isMobile) {
+    await page.getByRole('dialog').getByLabel('Due date').fill(day);
+    return;
+  }
+  await press(page.getByRole('dialog').getByRole('button', { name: /^Due/ }), isMobile);
+  await page.getByLabel('Pick a date').fill(day);
+}
+
+/**
  * Presses a control the way the device under test would. This is not a
  * nicety: Playwright's `click()` dispatches mouse events even on a project
  * with `hasTouch`, so a suite that only clicks proves nothing about touch

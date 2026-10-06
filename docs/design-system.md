@@ -55,6 +55,10 @@ A Workspace is never assigned colours outside this table: a stored set that is n
 - **Milled** — a control that reads as a surface rather than a filled rectangle: a faint vertical gradient over whatever background colour it already has, and a one-pixel highlight along its top edge. Additive: it paints over a control's own Tailwind background colour rather than replacing it, meant to be felt rather than seen.
 - **Elevation** — a two-step shadow scale (`panel`, `raised`) for what genuinely floats: a dialog, a menu, the row lifted under a drag. A Panel itself is not elevated — its list is sunk (`well`, above) rather than raised, so nothing on a Dashboard advances towards you. Floating layers stack in one order: page content, then pinned bars (the Dashboard filter bar, the selection bar), then menus, submenus and dialogs with their dimming (`z-floating`), then the undo toast and the "Updating" notice. A new pinned element goes below `z-floating`; a new floating layer takes it.
 
+## Field chips
+
+On an Item's phone page the fields are one wrapping row of pill chips, 36px tall so a thumb hits them, 8px apart. **A field with nothing set is an outline in `ink-faint` carrying its own name**, so the row reads as what can still be set; **a set one is filled and says its value**: Type in `accent-tint` with `accent-deep` text, Status in a faint shade with `ink`, Priority in its own `priority-*` fill with white text, and Due as the row's deadline pill (the same fills as above, a plain shade when the date is over a week off). **+ Attach** is always an outline. A chip opens its picker as a menu with the current choice ticked; Due opens a small sheet of *Today*, *Tomorrow*, *+7d*, the date picker and *Clear*.
+
 ## The dark Car view
 
 Switched on from inside the Car view only, for capturing at night; no other screen has a dark appearance. **Dimmed, not inverted**: a near-black ground, grey text, each surface one notch lighter. The top bar is unchanged. The tokens are `night*` in `styles.css`; every text is at least 4.5:1 on what it is drawn on (held by a test), except the set-apart placeholder and provisional words at 3:1.

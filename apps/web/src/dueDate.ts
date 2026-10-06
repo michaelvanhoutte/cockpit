@@ -23,6 +23,19 @@ export const DEADLINE_SHOWS_WITHIN_DAYS = 7;
 const DAY_MS = 86_400_000;
 
 /**
+ * What each stage of a deadline's pill looks like: a quiet outline within a
+ * week, a soft fill within two days, solid amber on the day, red once passed.
+ * The colours are `--color-due-*` and `--color-over-deep` (styles.css); the red
+ * is the one the swipe reveal already writes white on.
+ */
+export const DEADLINE_PILLS: Record<DeadlineLevel, string> = {
+  week: 'border border-due text-due-ink',
+  near: 'bg-due-soft text-due-ink',
+  today: 'bg-due text-due-deep',
+  over: 'bg-over-deep text-white',
+};
+
+/**
  * The pill for a due date, or `null` while it is further off than a week, for
  * no due date, and for anything that is not really a date. Counted in the
  * viewer's own calendar days, the way the Filter's own due-date windows are

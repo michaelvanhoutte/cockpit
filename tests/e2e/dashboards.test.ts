@@ -16,6 +16,7 @@ import {
   openDashboard,
   openFirstWorkspace,
   press,
+  setFormStatus,
   switchTo,
   test,
   uniqueTitle,
@@ -262,7 +263,7 @@ test.describe('Dashboards', () => {
       await capture(page, finished, isMobile);
       await press(itemRow(page, finished).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
-      await page.getByRole('dialog').getByLabel('Status').selectOption('done');
+      await setFormStatus(page, 'done', isMobile);
       await press(page.getByRole('dialog').getByRole('button', { name: 'Save' }), isMobile);
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await expect(itemRow(page, finished)).toHaveCount(0);
@@ -303,7 +304,7 @@ test.describe('Dashboards', () => {
 
       // The row opens its form, and the Status control reopens the item.
       await press(row.getByRole('button', { name: finished }), isMobile);
-      await page.getByRole('dialog').getByLabel('Status').selectOption('to_do');
+      await setFormStatus(page, 'to_do', isMobile);
       await press(page.getByRole('dialog').getByRole('button', { name: 'Save' }), isMobile);
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await expect(row).toContainText('To do');
