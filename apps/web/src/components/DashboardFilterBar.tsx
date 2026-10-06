@@ -25,8 +25,8 @@ const STATUSES: { value: ItemStatus; label: string }[] = [
   { value: 'done', label: 'Done' },
 ];
 
-const ATTACHMENTS: { value: AttachmentsChoice; label: string }[] = [
-  { value: 'any', label: 'Any' },
+// Neither pressed is no attachments condition (stored as 'any'), so no button says "Any".
+const ATTACHMENTS: { value: Exclude<AttachmentsChoice, 'any'>; label: string }[] = [
   { value: 'with', label: 'With' },
   { value: 'without', label: 'Without' },
 ];
@@ -73,15 +73,19 @@ export function DashboardFilterBar({
 
   const chip = (on: boolean) =>
     `rounded-full border px-2.5 py-0.5 text-xs ${
-      on ? 'border-accent bg-accent-tint text-ink' : 'border-shade/15 text-ink-soft hover:bg-shade/5'
+      on ? 'border-accent bg-accent text-on-accent' : 'border-shade/15 text-ink-soft hover:bg-shade/5'
     }`;
+
+  // A field that holds a value wears a 2px accent border where an empty one has the plain 1px.
+  const set = (on: boolean) =>
+    `bg-transparent ${on ? 'border-2 border-accent' : 'border border-shade/15'}`;
 
   // One filter's chips are joined inside one outline, so where a filter ends is
   // plain without spending width on a label.
   const group = 'inline-flex items-center overflow-hidden rounded-full border border-shade/15';
   const segment = (on: boolean) =>
     `border-l border-shade/15 px-2.5 py-0.5 text-xs first:border-l-0 ${
-      on ? 'bg-accent-tint text-ink' : 'text-ink-soft hover:bg-shade/5'
+      on ? 'bg-accent text-on-accent' : 'text-ink-soft hover:bg-shade/5'
     }`;
 
   return (
@@ -154,7 +158,7 @@ export function DashboardFilterBar({
           <label className="flex items-center gap-1.5">
             <span className="text-ink-soft">Due</span>
             <select
-              className="rounded border border-shade/15 bg-transparent px-1 py-0.5 text-xs"
+              className={`rounded px-1 py-0.5 text-xs ${set(filter.due !== null)}`}
               value={filter.due?.window ?? ''}
               onChange={(event) =>
                 setFilter({
@@ -196,7 +200,7 @@ export function DashboardFilterBar({
           <input
             type="search"
             placeholder="Containing…"
-            className="w-full rounded border border-shade/15 bg-transparent px-2 py-0.5 text-xs"
+            className={`w-full rounded px-2 py-0.5 text-xs ${set(filter.text.trim() !== '')}`}
             value={filter.text}
             onChange={(event) => setFilter({ ...filter, text: event.target.value })}
           />
@@ -214,7 +218,9 @@ export function DashboardFilterBar({
                 type="button"
                 aria-pressed={filter.attachments === value}
                 className={segment(filter.attachments === value)}
-                onClick={() => setFilter({ ...filter, attachments: value })}
+                onClick={() =>
+                  setFilter({ ...filter, attachments: filter.attachments === value ? 'any' : value })
+                }
               >
                 {label}
               </button>
