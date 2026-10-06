@@ -300,7 +300,7 @@ test.describe('Panels', () => {
     }) => {
       // Desktop only: arranging a dashboard is a pointer gesture.
       test.skip(isMobile, 'arranging a dashboard is a pointer gesture');
-      await ownDashboard(page, isMobile);
+      const here = await ownDashboard(page, isMobile);
       const first = uniqueTitle('Project Falcon');
       const second = uniqueTitle('To read');
       const third = uniqueTitle('People');
@@ -358,6 +358,52 @@ test.describe('Panels', () => {
       await expect(page.getByTestId('row-line')).toHaveCount(0);
       await expect(page.getByTestId('column-line')).toHaveCount(0);
       await expectNoSidewaysScroll(page);
+
+      // A phone's Panels collapse to their headers on a double-tap, and a tap on
+      // the last one opens them all with its header at the top of the screen.
+      // A window short enough that the opened board scrolls past it, because
+      // where a header lands only exists with real layout.
+      await page.setViewportSize({ width: 420, height: 240 });
+      const lastPanel = (await panelsOnScreen(page)).at(-1)!;
+      const lastHeader = page.getByRole('region', { name: lastPanel }).locator('header');
+      const itemListOf = (name: string) =>
+        page.getByRole('region', { name }).locator('[data-drag-scroll="panel"]');
+      await page.getByRole('region', { name: first }).locator('header').dblclick();
+      await expect(itemListOf(first)).toBeHidden();
+      await expect(itemListOf(lastPanel)).toBeHidden();
+      await lastHeader.click();
+      await expect(itemListOf(first)).toBeVisible();
+      await expect(itemListOf(lastPanel)).toBeVisible();
+      const scroller = page.locator('[data-drag-scroll="dashboard"]');
+      await expect
+        .poll(async () => {
+          const [header, top] = await Promise.all([lastHeader.boundingBox(), scroller.boundingBox()]);
+          return Math.abs(header!.y - top!.y) < 2;
+        })
+        .toBe(true);
+
+      // The menu does the same without the gesture. Nothing is remembered across a reload.
+      const dashboardMenu = page.getByRole('button', { name: `Actions for ${here}` });
+      await dashboardMenu.click();
+      await page.getByRole('menuitem', { name: 'Collapse panels' }).click();
+      await expect(itemListOf(first)).toBeHidden();
+      // Opened from the menu, nothing is left over from the collapse: the first
+      // row sits right under the bar again, with no gap above it.
+      await dashboardMenu.click();
+      await page.getByRole('menuitem', { name: 'Open panels' }).click();
+      await expect(itemListOf(first)).toBeVisible();
+      const firstRow = page.locator('main [data-panel-row]').first();
+      await expect
+        .poll(async () => {
+          const [row, top] = await Promise.all([firstRow.boundingBox(), scroller.boundingBox()]);
+          return row!.y - top!.y - (await scroller.evaluate((box) => -box.scrollTop));
+        })
+        .toBeLessThan(40);
+      await dashboardMenu.click();
+      await page.getByRole('menuitem', { name: 'Collapse panels' }).click();
+      await expect(itemListOf(first)).toBeHidden();
+      await page.reload();
+      await expect(itemListOf(first)).toBeVisible();
 
       // Back on the first screen it is the arrangement just made, and it is
       // still there after a reload.

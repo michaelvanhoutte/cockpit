@@ -32,6 +32,7 @@ import {
 } from '../../../src/whatThingsAre';
 import { CommandRefused } from '../../../src/api/client';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
+import { setPanelsCollapsed } from '../../../src/panelsCollapsed';
 import { useCommand } from '../../../src/api/queries';
 
 /**
@@ -3188,6 +3189,226 @@ describe('Panels', () => {
 
       expect(screen.getByRole('region', { name: 'Project Falcon' }).className).not.toContain('opacity-40');
       expect(grips()).toHaveLength(3);
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('on a phone every panel collapses to its header on a double-tap, and a tap opens them again', () => {
+    const BART = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
+    const board = (extra: Parameters<typeof showBoard>[0] = {}) =>
+      showBoard({
+        panels: [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read')],
+        items: [BART],
+        filings: [{ panelId: 'falcon', itemId: BART.id, position: 0 }],
+        ...extra,
+      });
+    /** A press and release on a header, `at` milliseconds on the page's own clock. */
+    const tap = (target: Element, at: number, { pressFor = 40 } = {}) => {
+      const down = createEvent.pointerDown(target, { button: 0, pointerId: 1, pointerType: 'touch' });
+      Object.defineProperty(down, 'timeStamp', { value: at });
+      fireEvent(target, down);
+      const up = createEvent.pointerUp(target, { button: 0, pointerId: 1, pointerType: 'touch' });
+      Object.defineProperty(up, 'timeStamp', { value: at + pressFor });
+      fireEvent(target, up);
+    };
+    const doubleTap = (name: string, at = 1000) => {
+      tap(handleOf(name), at);
+      tap(handleOf(name), at + 150);
+    };
+    // Read off the page rather than the accessibility tree, which an open
+    // menu empties of everything behind it.
+    const itemsShown = () =>
+      [...document.querySelectorAll('[data-item-row]')].filter(
+        (row) => !row.closest('[style*="display: none"]'),
+      ).length;
+    const everyPanelIsItsHeaderAlone = (panelsDrawn = 2) => {
+      expect(itemsShown()).toBe(0);
+      expect(document.querySelectorAll('[data-panel-cell] h3')).toHaveLength(panelsDrawn);
+    };
+    const everyPanelIsOpen = () => expect(itemsShown()).toBe(1);
+
+    beforeEach(() => screenIs(390));
+    afterEach(() => act(() => setPanelsCollapsed(null)));
+
+    it.each([
+      {
+        situation: 'a double-tap on a panel’s header',
+        collapse: () => doubleTap('To read'),
+      },
+      {
+        situation: 'collapsing from the dashboard’s menu',
+        collapse: () => act(() => setPanelsCollapsed('today')),
+      },
+    ])('draws every panel as its header alone on $situation', ({ collapse }) => {
+      board();
+      everyPanelIsOpen();
+
+      collapse();
+
+      everyPanelIsItsHeaderAlone();
+    });
+
+    it('draws a filtered dashboard’s panels as their headers alone the same way', () => {
+      writeDashboardFilter(localStorage, 'today', { ...NO_DASHBOARD_FILTER, text: 'bart' });
+      board();
+      everyPanelIsOpen();
+
+      doubleTap('Project Falcon');
+
+      // Only the panel with a matching item is drawn while filtered.
+      everyPanelIsItsHeaderAlone(1);
+    });
+
+    it.each([
+      { situation: 'a single tap', taps: [0] },
+      { situation: 'two taps too far apart to be one gesture', taps: [0, 800] },
+    ])('collapses nothing on $situation on an open header', ({ taps }) => {
+      board();
+
+      for (const at of taps) tap(handleOf('To read'), 1000 + at);
+
+      everyPanelIsOpen();
+    });
+
+    it('collapses nothing for a press that is held, which is the menu’s long press', () => {
+      board();
+
+      tap(handleOf('To read'), 1000, { pressFor: 700 });
+      tap(handleOf('To read'), 1150, { pressFor: 700 });
+
+      everyPanelIsOpen();
+    });
+
+    it('opens the panel’s menu, and collapses nothing, on a double-tap of its menu button', () => {
+      board();
+      const button = within(screen.getByRole('region', { name: 'To read' })).getByRole('button', {
+        name: 'Actions for To read',
+      });
+
+      tap(button, 1000);
+      tap(button, 1150);
+      fireEvent.click(button, { detail: 2 });
+
+      everyPanelIsOpen();
+    });
+
+    it.each([
+      { situation: 'a tap', taps: [0] },
+      { situation: 'a double-tap, the second tap not collapsing it again', taps: [0, 150] },
+    ])('opens every panel on $situation on a collapsed header, and leaves them open', ({ taps }) => {
+      board();
+      act(() => setPanelsCollapsed('today'));
+
+      for (const at of taps) tap(handleOf('To read'), 5000 + at);
+
+      everyPanelIsOpen();
+    });
+
+    it('leaves the board collapsed when the panel’s own menu is what is pressed', async () => {
+      board();
+      act(() => setPanelsCollapsed('today'));
+      const button = within(screen.getByRole('region', { name: 'To read' })).getByRole('button', {
+        name: 'Actions for To read',
+      });
+
+      tap(button, 5000);
+      fireEvent.click(button, { detail: 1 });
+      await screen.findByRole('menuitem', { name: 'Rename' });
+
+      everyPanelIsItsHeaderAlone();
+    });
+
+    it('opens its menu on a right-click of a collapsed header, and stays collapsed', async () => {
+      board();
+      act(() => setPanelsCollapsed('today'));
+
+      fireEvent.contextMenu(handleOf('To read'));
+
+      expect(await screen.findByRole('menuitem', { name: 'Rename' })).toBeVisible();
+      everyPanelIsItsHeaderAlone();
+    });
+
+    it('opens every panel from the dashboard’s menu without anything being tapped', () => {
+      board();
+      act(() => setPanelsCollapsed('today'));
+      everyPanelIsItsHeaderAlone();
+
+      act(() => setPanelsCollapsed(null));
+
+      everyPanelIsOpen();
+    });
+
+    it('does not remember it: another dashboard opens every panel, and so does coming back', () => {
+      const first = board();
+      doubleTap('To read');
+      everyPanelIsItsHeaderAlone();
+
+      first.unmount();
+      board();
+
+      everyPanelIsOpen();
+    });
+
+    it('opens every panel when the window widens past the phone', () => {
+      board();
+      doubleTap('To read');
+      everyPanelIsItsHeaderAlone();
+
+      act(() => {
+        screenIs(480);
+        window.dispatchEvent(new Event('resize'));
+      });
+
+      everyPanelIsOpen();
+      act(() => {
+        screenIs(390);
+        window.dispatchEvent(new Event('resize'));
+      });
+      everyPanelIsOpen();
+    });
+
+    it('collapses nothing for quick taps on two different headers', () => {
+      board();
+
+      tap(handleOf('Project Falcon'), 1000);
+      tap(handleOf('To read'), 1100);
+
+      everyPanelIsOpen();
+    });
+
+    it('leaves the board open after an opening double-tap, even when its second tap lands on another header', () => {
+      board();
+      act(() => setPanelsCollapsed('today'));
+
+      tap(handleOf('Project Falcon'), 5000);
+      tap(handleOf('To read'), 5100);
+
+      everyPanelIsOpen();
+    });
+
+    it('collapses nothing from 480 px up, on a double-click or on a double-tap', () => {
+      screenIs(1280);
+      board();
+
+      fireEvent.doubleClick(handleOf('To read'));
+      doubleTap('To read');
+
+      everyPanelIsOpen();
+    });
+
+    it('keeps the header a tap leaves on the page free to be dragged on a wider screen', () => {
+      screenIs(1280);
+      board({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
+
+      expect(handleOf('To read').className).not.toContain('touch-manipulation');
+    });
+
+    it('stops a double-tap zooming the page on a phone’s header, leaving the finger to scroll', () => {
+      board();
+
+      expect(handleOf('To read').className).toContain('touch-manipulation');
+      expect(handleOf('To read').className).not.toContain('touch-none');
     });
   });
 });

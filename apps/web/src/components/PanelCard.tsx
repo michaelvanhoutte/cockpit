@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import {
   NO_CONDITIONS,
   panelGathers,
@@ -50,6 +51,23 @@ import {
  * ("Cockpit Shell Explorations", artboard 2c).
  */
 export const PANEL_GAP = 4;
+
+/** The longest a press may last and still be a tap; the menu's long press is longer. */
+const TAP_MS = 400;
+/** How far a press may wander, in pixels, and still be a tap rather than a scroll. */
+const TAP_SLOP = 10;
+
+/**
+ * Whether the event is on one of the header's own controls, or did not land in
+ * the header at all: a menu entry is drawn in a portal, but a React event
+ * bubbles through the component tree to here.
+ */
+function onControl(event: React.PointerEvent<HTMLElement>): boolean {
+  const target = event.target as Element;
+  return (
+    !event.currentTarget.contains(target) || !!target.closest?.('button, input, form')
+  );
+}
 
 export interface PanelCardProps {
   panel: Panel;
@@ -117,6 +135,12 @@ export interface PanelCardProps {
    * no handle, with no grab and no cursor saying there is one.
    */
   onPickUp: ((pointerId: number) => void) | null;
+  /**
+   * A tap on the header outside its controls - null where taps mean nothing (a
+   * screen wider than a phone). Reported with the event's time, so the board
+   * can tell a double-tap from two taps.
+   */
+  onTap?: ((at: number) => void) | null;
   /** Why the last change to this panel did not happen, if it did not. */
   refusal: string | null;
   busy: boolean;
@@ -144,6 +168,7 @@ export function PanelCard({
   lifted,
   collapsed = false,
   onPickUp,
+  onTap = null,
   refusal,
   busy,
 }: PanelCardProps) {
@@ -166,6 +191,8 @@ export function PanelCard({
   // open to being asked at all, whether the header is a tab stop or a name
   // and a role, whether a plain click starts a drag or does nothing.
   const isRenaming = renaming !== null;
+  /** Where and when the press on this header that might be a tap began. */
+  const pressed = useRef<{ at: number; x: number; y: number } | null>(null);
 
   return (
     <section
@@ -273,6 +300,10 @@ export function PanelCard({
             // drag; a panel is moved with the pointer, and the two can no longer
             // be mistaken for each other.
             onPointerDown={(event) => {
+              pressed.current =
+                onTap && !isRenaming && event.button === 0 && !onControl(event)
+                  ? { at: event.timeStamp, x: event.clientX, y: event.clientY }
+                  : null;
               // The primary button of a mouse only, the same guard `tabDrag.ts`
               // uses for the same reason: a right-click opens the panel's own
               // menu (`SurfaceMenu`, above), and a touch is what rests a finger to
@@ -302,6 +333,20 @@ export function PanelCard({
               // drag passes over.
               event.preventDefault();
               onPickUp(event.pointerId);
+            }}
+            // **A tap is a quick press that stayed put**: a longer one is the
+            // menu's own long press, and one that moved is a scroll. Neither is
+            // this's, and the menu's button is never the header's.
+            onPointerUp={(event) => {
+              const press = pressed.current;
+              pressed.current = null;
+              if (!onTap || !press || isRenaming || onControl(event)) return;
+              if (event.timeStamp - press.at > TAP_MS) return;
+              if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > TAP_SLOP) return;
+              onTap(event.timeStamp);
+            }}
+            onPointerCancel={() => {
+              pressed.current = null;
             }}
             // Reachable by keyboard whenever the menu might open from it, so the
             // browser's own menu key has a target to fire on - the same reason
@@ -373,9 +418,14 @@ export function PanelCard({
             // takes for the button not to change this element's own height
             // (found bisecting a real CI-only regression - see the button's
             // own comment).
+            //
+            // `touch-manipulation` where a double-tap means something, so the
+            // browser does not zoom on it and wait to see whether one is coming;
+            // a finger still scrolls the page and still rests to open the menu.
+            // `select-none` there too, since a double-tap on a title selects it.
             className={`group relative flex items-center gap-2 px-4 pt-3 pb-2 @max-[200px]:px-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
               isRenaming || !onPickUp ? '' : 'cursor-grab active:cursor-grabbing'
-            }`}
+            } ${onTap && !isRenaming ? 'touch-manipulation select-none' : ''}`}
           >
             {isRenaming ? (
               <form
