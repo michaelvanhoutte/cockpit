@@ -39,6 +39,7 @@ describe('Panels', () => {
       expect(panelFilterFrom(panelFilterAsStored([DUE_TODAY]))).toEqual({
         conditions: [DUE_TODAY],
         match: 'all',
+        groupBy: 'none',
       });
     });
 
@@ -50,7 +51,7 @@ describe('Panels', () => {
       // affects", issue 465).
       expect(
         panelFilterFrom(panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH, TYPE_OKR, PANEL_Q3])),
-      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH, TYPE_OKR, PANEL_Q3], match: 'all' });
+      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH, TYPE_OKR, PANEL_Q3], match: 'all', groupBy: 'none' });
     });
 
     it('is not a filter at all where nothing was stored', () => {
@@ -69,7 +70,7 @@ describe('Panels', () => {
       const week = { field: 'dueDate', window: 'week', orOverdue: false } as const;
       expect(
         panelFilterFrom(panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH, week])),
-      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH], match: 'all' });
+      ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH], match: 'all', groupBy: 'none' });
     });
 
     it.each([
@@ -93,6 +94,7 @@ describe('Panels', () => {
       expect(panelFilterFrom('{"conditions":[{"field":"dueDate","window":"week"}]}')).toEqual({
         conditions: [{ field: 'dueDate', window: 'week', orOverdue: true }],
         match: 'all',
+        groupBy: 'none',
       });
     });
   });
@@ -125,11 +127,45 @@ describe('Panels', () => {
       expect(panelFilterFrom(stored)).toEqual({
         conditions: [DUE_TODAY, PRIORITY_HIGH],
         match: reads,
+        groupBy: 'none',
       });
     });
 
     it('is written as all where no setting is given', () => {
       expect(panelFilterFrom(panelFilterAsStored([DUE_TODAY]))?.match).toBe('all');
+    });
+  });
+
+  describe('the grouping a filter was saved with reads back as it was, and anything it cannot read is none', () => {
+    it.each([
+      {
+        situation: 'saved grouped by Panel',
+        stored: panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH], 'any', 'panel'),
+        reads: { match: 'any', groupBy: 'panel' },
+      },
+      {
+        situation: 'saved grouped by Dashboard',
+        stored: panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH], 'all', 'dashboard'),
+        reads: { match: 'all', groupBy: 'dashboard' },
+      },
+      {
+        situation: 'stored before grouping existed',
+        stored: JSON.stringify({ conditions: [DUE_TODAY, PRIORITY_HIGH], match: 'any' }),
+        reads: { match: 'any', groupBy: 'none' },
+      },
+      {
+        situation: 'holding a grouping this release does not know',
+        stored: JSON.stringify({ conditions: [DUE_TODAY, PRIORITY_HIGH], match: 'any', groupBy: 'type' }),
+        reads: { match: 'any', groupBy: 'none' },
+      },
+    ])('reads $situation, conditions and how they combine intact', ({ stored, reads }) => {
+      // The conditions surviving is the point of the last row: a grouping a
+      // later release wrote costs the grouping alone, never an empty Filter.
+      expect(panelFilterFrom(stored)).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH], ...reads });
+    });
+
+    it('is written as none where no grouping is given', () => {
+      expect(panelFilterFrom(panelFilterAsStored([DUE_TODAY]))?.groupBy).toBe('none');
     });
   });
 

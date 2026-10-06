@@ -261,25 +261,41 @@ export const filterMatchSchema = z.enum(FILTER_MATCHES);
 export type FilterMatch = z.infer<typeof filterMatchSchema>;
 
 /**
- * What a Filter shows: its conditions, and whether an Item has to meet all of
- * them or any one (`FilterMatch`). Sets of conditions joined by *or*, for
- * *(A and B) or C*, are a decided design and not built (`docs/ideas.md`).
+ * What a Filter's rows are grouped under ("Group a Filter panel's items by the
+ * Dashboard or Panel they are filed on", issue 805): nothing, which is the one
+ * flat list a Filter always drew, a heading per Dashboard, or a heading per
+ * Panel of items.
+ *
+ * **`none` is what every stored Filter without a setting reads as**, and what a
+ * save carrying none writes, for the reason `FilterMatch` gives: a stale tab
+ * saving a Filter without one puts it back to the flat list.
+ */
+export const FILTER_GROUPINGS = ['none', 'dashboard', 'panel'] as const;
+export const filterGroupingSchema = z.enum(FILTER_GROUPINGS);
+export type FilterGrouping = z.infer<typeof filterGroupingSchema>;
+
+/**
+ * What a Filter shows: its conditions, whether an Item has to meet all of them
+ * or any one (`FilterMatch`), and what its rows are grouped under
+ * (`FilterGrouping`). Sets of conditions joined by *or*, for *(A and B) or C*,
+ * are a decided design and not built (`docs/ideas.md`).
  *
  * An object rather than a bare array, so a Filter can grow a setting of its own
  * without every stored one having to be re-read as something else.
  *
- * **A `match` nobody wrote reads as `all`, never as an empty Filter**: the
- * catch is on the one field, so a value this release cannot read costs the
- * setting alone and leaves the conditions intact.
+ * **A `match` or `groupBy` nobody wrote reads as `all` and `none`, never as an
+ * empty Filter**: the catch is on each field, so a value this release cannot
+ * read costs the setting alone and leaves the conditions intact.
  */
 export const panelFilterSchema = z.object({
   conditions: z.array(filterConditionSchema).default([]),
   match: filterMatchSchema.catch('all'),
+  groupBy: filterGroupingSchema.catch('none'),
 });
 export type PanelFilter = z.infer<typeof panelFilterSchema>;
 
 /** A Filter with nothing chosen yet — what a new one is, and what an unreadable one reads as. */
-export const NO_CONDITIONS: PanelFilter = { conditions: [], match: 'all' };
+export const NO_CONDITIONS: PanelFilter = { conditions: [], match: 'all', groupBy: 'none' };
 
 /**
  * What a stored Filter says, from the text the column holds.
@@ -306,7 +322,11 @@ export function panelFilterFrom(stored: string | null): PanelFilter | null {
   try {
     const read = panelFilterSchema.safeParse(JSON.parse(stored));
     if (!read.success) return NO_CONDITIONS;
-    return { conditions: uniqueByField(read.data.conditions), match: read.data.match };
+    return {
+      conditions: uniqueByField(read.data.conditions),
+      match: read.data.match,
+      groupBy: read.data.groupBy,
+    };
   } catch {
     return NO_CONDITIONS;
   }
@@ -326,8 +346,9 @@ function uniqueByField(conditions: readonly FilterCondition[]): FilterCondition[
 export function panelFilterAsStored(
   conditions: readonly FilterCondition[],
   match: FilterMatch = 'all',
+  groupBy: FilterGrouping = 'none',
 ): string {
-  return JSON.stringify({ conditions, match });
+  return JSON.stringify({ conditions, match, groupBy });
 }
 
 /**

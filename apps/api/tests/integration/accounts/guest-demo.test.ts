@@ -271,6 +271,7 @@ describe('Accounts', () => {
       );
       expect(filters.find((panel) => panel.name === "This week's priorities")!.filter).toEqual({
         match: 'all',
+        groupBy: 'none',
         conditions: [
           { field: 'dueDate', window: 'week', orOverdue: true },
           { field: 'priority', values: ['high'] },

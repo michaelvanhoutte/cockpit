@@ -3,6 +3,7 @@ import type {
   Dashboard,
   Filing,
   FilterCondition,
+  FilterGrouping,
   FilterMatch,
   Item,
   ItemType,
@@ -357,11 +358,17 @@ export function alsoShownOn(
   byItem: ReadonlyMap<string, ReadonlySet<string>>,
   panelsInWorkspace: readonly Panel[],
   drawnPanelId: string | null,
+  /**
+   * The Panel a grouped Filter's heading is, left out as well: a row under
+   * *Customers* has no need to say it is also in Customers ("Group a Filter
+   * panel's items by the Dashboard or Panel they are filed on", issue 805).
+   */
+  headingPanelId: string | null = null,
 ): string[] {
   const ids = byItem.get(itemId) ?? EMPTY_IDS;
   if (ids.size === 0) return [];
   return panelsInWorkspace
-    .filter((panel) => panel.id !== drawnPanelId && ids.has(panel.id))
+    .filter((panel) => panel.id !== drawnPanelId && panel.id !== headingPanelId && ids.has(panel.id))
     .map((panel) => panel.name);
 }
 
@@ -414,13 +421,20 @@ export function saysWhatItShows(
   itemTypes: readonly ItemType[] = [],
   panels: readonly Panel[] = [],
   match: FilterMatch = 'all',
+  groupBy: FilterGrouping = 'none',
 ): string {
   if (conditions.length === 0) return 'Nothing chosen yet';
   const parts = conditions.map((condition) => sentenceFor(condition, itemTypes, panels));
   // One condition reads the same either way, so it carries no prefix.
-  if (match === 'any' && parts.length > 1) return `Any of: ${parts.join('; ')}`;
-  return parts.join(' and ');
+  const rule = match === 'any' && parts.length > 1 ? `Any of: ${parts.join('; ')}` : parts.join(' and ');
+  return groupBy === 'none' ? rule : `${rule}; grouped by ${GROUPING_NAMES[groupBy]}`;
 }
+
+/** What a grouping is called, in the funnel's sentence and the Filter question alike ("Group a Filter panel's items by the Dashboard or Panel they are filed on", issue 805). */
+export const GROUPING_NAMES: Record<Exclude<FilterGrouping, 'none'>, string> = {
+  dashboard: 'Dashboard',
+  panel: 'Panel',
+};
 
 function sentenceFor(
   condition: FilterCondition,
