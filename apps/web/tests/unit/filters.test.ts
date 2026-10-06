@@ -718,9 +718,9 @@ describe('Panels', () => {
       expect(saysWhatItShows(conditions, [], [], match, groupBy)).toBe(reads);
     });
 
-    it('adds nothing for a grouping that never reached the schema, as a copy restored from this browser holds', () => {
-      const restored = undefined as unknown as FilterGrouping;
-      expect(saysWhatItShows([due('week')], [], [], 'all', restored)).toBe('Due this week or overdue');
+    it('adds nothing for a grouping it does not know, rather than naming one', () => {
+      const unknown = 'type' as unknown as FilterGrouping;
+      expect(saysWhatItShows([due('week')], [], [], 'all', unknown)).toBe('Due this week or overdue');
     });
   });
 

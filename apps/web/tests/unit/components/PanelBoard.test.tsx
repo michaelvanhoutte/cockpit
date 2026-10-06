@@ -2391,9 +2391,21 @@ describe('Onboarding', () => {
       });
 
       it('draws the one list, and says nothing of a grouping, where a copy restored from this browser carries none', async () => {
-        // What a stored copy from before the grouping holds: nothing re-validates
-        // it on the way back out of the browser's storage (`persistence.tsx`).
-        aGroupedBoard(undefined as unknown as FilterGrouping);
+        // What a stored copy from before the grouping holds - no `groupBy` at all,
+        // which nothing re-validates on the way back out of the browser's
+        // storage (`persistence.tsx`). Built whole, since `aFilter` would
+        // default the missing grouping to none and prove nothing.
+        const restored = {
+          ...aFilter('due', 'Due soon', [DUE_TODAY]),
+          filter: { conditions: [DUE_TODAY], match: 'all' },
+        } as Panel;
+        showBoard({
+          panels: [falcon, restored],
+          panelsInWorkspace: [falcon, reading, restored],
+          dashboards: [DASHBOARD, RESEARCH],
+          items: [bart, anna],
+          filings: FILED,
+        });
 
         const due = await screen.findByRole('region', { name: 'Due soon' });
 
