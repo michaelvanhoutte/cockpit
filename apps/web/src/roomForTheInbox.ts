@@ -18,7 +18,9 @@ import { useSyncExternalStore } from 'react';
  * A browser with no `matchMedia` at all answers "no room", which is the phone
  * shape - the one that works everywhere - rather than a crash.
  */
-export const ROOM_FOR_THE_INBOX = '(min-width: 768px)';
+export const ROOM_FOR_THE_INBOX_PX = 768;
+
+export const ROOM_FOR_THE_INBOX = `(min-width: ${ROOM_FOR_THE_INBOX_PX}px)`;
 
 function theQuestion(): MediaQueryList | null {
   try {
