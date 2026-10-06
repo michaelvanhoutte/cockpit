@@ -73,6 +73,8 @@ A Dashboard has one arrangement, its Layout, and **nothing on screen offers a ch
 
 **Below 480 px, a phone, no Layout is read**: the Dashboard is drawn one Panel across, and every gesture that rearranges (drag, row and divider sizing) is absent. The Layout is kept for a wider screen.
 
+**On a phone, a Dashboard collapses to its Panels' headers**, so a Panel far down it is in view at once and one tap away. A double-tap on a header, or **Collapse panels** on the Dashboard's **…**, draws every Panel as its header alone — as during a Panel drag — and the **…** then offers **Open panels**. While collapsed, a tap on a header outside its menu button opens every Panel and scrolls so that Panel's header sits at the top of the screen, as far as the page can scroll; **Open panels** opens them without scrolling. A Panel's menu still opens from its button, a long press or a right-click. Collapsed is not remembered: switching Dashboard, going to the Inbox, widening past 480 px or reloading opens every Panel. From 480 px up a double-click does nothing, and **Collapse panels** stays on the menu, unavailable, saying it is for a phone; on a Dashboard with no Panels it says there are none.
+
 **Changing the arrangement changes the Layout drawn, and asks nothing.** Dragging a Panel goes into it, whatever screen you are on.
 
 **A Dashboard that has never been arranged is drawn to fit the screen it is on**: the Panels in the order they were added, on rows of a count that keeps a Panel worth reading — one across on a phone, three on a laptop, four on anything wider. It has no Layout at all, and the first move records one from what was drawn.

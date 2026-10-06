@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { uuidv7, type Dashboard, type PanelKind, type WorkspaceSnapshot } from '@cockpit/shared';
+import { isPhoneWidth, uuidv7, type Dashboard, type PanelKind, type WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { refusalFrom, snapshotQuery, useCommand, useSendCommand } from '../api/queries';
 import {
@@ -11,6 +11,8 @@ import {
   useFilterBarOpen,
   useFilteredDashboardIds,
 } from '../dashboardFilter';
+import { usePanelsCollapsed } from '../panelsCollapsed';
+import { useScreenWidth } from '../panels/useScreenWidth';
 import { allItemsFilterId, setAllItemsTab, useAllItemsTab } from '../allItemsTab';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { browserStore } from '../lastVisited';
@@ -427,6 +429,35 @@ export function DashboardBar({
     }
   };
 
+  /**
+   * Collapsing the open Dashboard's Panels to their headers, which is a phone's
+   * ("Collapse every Panel to its header on a phone", issue 784). Always on the
+   * menu, and says why it cannot be chosen instead of going away.
+   */
+  const phone = isPhoneWidth(useScreenWidth());
+  const asked = usePanelsCollapsed(openDashboardId);
+  const openDashboardHasPanels = (data?.panels ?? []).some(
+    (panel) => panel.dashboardId === openDashboardId,
+  );
+  const collapseEntry = (dashboard: Dashboard): MenuEntry[] =>
+    dashboard.id !== openDashboardId
+      ? []
+      : asked.collapsed && phone
+        ? [{ label: 'Open panels', separatorBefore: true, keepsFocus: true, onSelect: asked.open }]
+        : [
+            {
+              label: 'Collapse panels',
+              separatorBefore: true,
+              keepsFocus: true,
+              unavailable: !phone
+                ? 'Only on a phone, where panels are drawn one above the next'
+                : !openDashboardHasPanels
+                  ? 'This dashboard has no panels'
+                  : undefined,
+              onSelect: asked.collapse,
+            },
+          ];
+
   const entriesFor = (dashboard: Dashboard): MenuEntry[] => [
     {
       label: 'Edit…',
@@ -449,6 +480,7 @@ export function DashboardBar({
         setDeleting(dashboard.id);
       },
     },
+    ...collapseEntry(dashboard),
     // The workspace's, not the dashboard's: offered from any dashboard so the
     // tab can be found where a person is already looking.
     {
