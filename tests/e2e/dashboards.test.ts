@@ -344,73 +344,6 @@ test.describe('Dashboards', () => {
     });
   });
 
-  test.describe('a phone folds the filter into a summary line and a sheet', () => {
-    // A thumb and a screen 480px wide: the desk keeps its bar, which the walks above prove.
-    test.skip(({ isMobile }) => !isMobile, 'the summary line and the sheet are the phone’s');
-
-    /**
-     * F3, because what fits on one line is layout and a swipe is a touch
-     * gesture, neither of which jsdom has. Which conditions the line names, in
-     * what order, and what each tap stores is
-     * apps/web/tests/unit/components/DashboardBar.test.tsx's.
-     */
-    test('keeps every condition on one row ending in +n, and closes the sheet with a swipe down', async ({ page, isMobile }) => {
-      const workspace = uniqueTitle('Bookkeeping');
-      await openFirstWorkspace(page, isMobile);
-      await makeWorkspace(page, workspace, isMobile);
-      await switchTo(page, workspace, isMobile);
-      await openDashboard(page, 'Dashboard 1', isMobile);
-
-      await press(dashboardTab(page, 'Dashboard 1').getByRole('button', { name: 'Filter this dashboard' }), isMobile);
-      const sheet = filterSheet(page);
-      await expect(sheet).toBeVisible();
-      // Every condition at once.
-      const within = (group: string, name: string) =>
-        press(sheet.getByRole('group', { name: group }).getByRole('button', { name, exact: true }), isMobile);
-      await within('Status', 'To do');
-      await within('Status', 'In progress');
-      await within('Priority', 'High');
-      await within('Priority', 'Normal');
-      await within('Priority', 'Low');
-      await sheet.getByRole('combobox').selectOption({ label: 'This week' });
-      await sheet.getByRole('searchbox', { name: 'Containing' }).fill('invoice');
-      await within('Attachments', 'With');
-      await press(sheet.getByRole('button', { name: 'Agent running' }), isMobile);
-
-      // **A swipe down on the handle closes it**, and keeps what was set.
-      const box = (await sheet.boundingBox())!;
-      const x = box.x + box.width / 2;
-      const y = box.y + 12;
-      const touch = await page.context().newCDPSession(page);
-      const at = (type: 'touchStart' | 'touchMove' | 'touchEnd', dy: number) =>
-        touch.send('Input.dispatchTouchEvent', {
-          type,
-          touchPoints: type === 'touchEnd' ? [] : [{ x, y: y + dy }],
-        });
-      await at('touchStart', 0);
-      for (const dy of [30, 80, 140]) await at('touchMove', dy);
-      await at('touchEnd', 140);
-      await expect(sheet).toHaveCount(0);
-
-      // **One row, and the rest as +n.** The line is as tall as one pill and
-      // names where the others went.
-      const line = page.getByRole('group', { name: 'Dashboard filter summary' });
-      await expect(line).toBeVisible();
-      await expect(line.getByText(/^\+\d+$/)).toBeVisible();
-      const lineBox = (await line.boundingBox())!;
-      const pill = (await line.getByText('To do', { exact: true }).boundingBox())!;
-      expect(lineBox.height, 'the summary is one row tall').toBeLessThan(pill.height * 2.5);
-      expect(lineBox.x + lineBox.width, 'and inside the screen').toBeLessThanOrEqual(page.viewportSize()!.width);
-      await expectNoSidewaysScroll(page);
-
-      // Kept across a reload, and cleared by its own ×.
-      await page.reload();
-      await expect(line).toBeVisible();
-      await press(line.getByRole('button', { name: 'Clear the filter' }), isMobile);
-      await expect(line).toHaveCount(0);
-    });
-  });
-
   test.describe('an open filter bar stays in view, and opening it starts from the top', () => {
     /**
      * F3, because a pinned bar and a scroll position exist only where something
@@ -427,6 +360,62 @@ test.describe('Dashboards', () => {
       await openFirstWorkspace(page, isMobile);
       await makeWorkspace(page, workspace, isMobile);
       await switchTo(page, workspace, isMobile);
+      // **A phone folds the filter into a summary line and a sheet.** Folded into this walk
+      // rather than walked apart, which the Dashboards ceiling leaves no room for: the same
+      // funnel, bar and pinned row. It is F3 because what fits on one line is layout and a
+      // swipe is a touch gesture. Which conditions the line names, in what order, and what
+      // each tap stores is apps/web/tests/unit/components/DashboardBar.test.tsx's.
+      if (isMobile) {
+        await openDashboard(page, 'Dashboard 1', isMobile);
+        await press(dashboardTab(page, 'Dashboard 1').getByRole('button', { name: 'Filter this dashboard' }), isMobile);
+        const sheet = filterSheet(page);
+        await expect(sheet).toBeVisible();
+        // Every condition at once.
+        const within = (group: string, name: string) =>
+          press(sheet.getByRole('group', { name: group }).getByRole('button', { name, exact: true }), isMobile);
+        await within('Status', 'To do');
+        await within('Status', 'In progress');
+        await within('Priority', 'High');
+        await within('Priority', 'Normal');
+        await within('Priority', 'Low');
+        await sheet.getByRole('combobox').selectOption({ label: 'This week' });
+        await sheet.getByRole('searchbox', { name: 'Containing' }).fill('invoice');
+        await within('Attachments', 'With');
+        await press(sheet.getByRole('button', { name: 'Agent running' }), isMobile);
+
+        // **A swipe down on the handle closes it**, and keeps what was set.
+        const box = (await sheet.boundingBox())!;
+        const x = box.x + box.width / 2;
+        const y = box.y + 12;
+        const touch = await page.context().newCDPSession(page);
+        const at = (type: 'touchStart' | 'touchMove' | 'touchEnd', dy: number) =>
+          touch.send('Input.dispatchTouchEvent', {
+            type,
+            touchPoints: type === 'touchEnd' ? [] : [{ x, y: y + dy }],
+          });
+        await at('touchStart', 0);
+        for (const dy of [30, 80, 140]) await at('touchMove', dy);
+        await at('touchEnd', 140);
+        await expect(sheet).toHaveCount(0);
+
+        // **One row, and the rest as +n.** The line is as tall as one pill and
+        // names where the others went.
+        const line = page.getByRole('group', { name: 'Dashboard filter summary' });
+        await expect(line).toBeVisible();
+        await expect(line.getByText(/^\+\d+$/)).toBeVisible();
+        const lineBox = (await line.boundingBox())!;
+        const pill = (await line.getByText('To do', { exact: true }).boundingBox())!;
+        expect(lineBox.height, 'the summary is one row tall').toBeLessThan(pill.height * 2.5);
+        expect(lineBox.x + lineBox.width, 'and inside the screen').toBeLessThanOrEqual(page.viewportSize()!.width);
+        await expectNoSidewaysScroll(page);
+
+        // Kept across a reload, and cleared by its own ×.
+        await page.reload();
+        await expect(line).toBeVisible();
+        await press(line.getByRole('button', { name: 'Clear the filter' }), isMobile);
+        await expect(line).toHaveCount(0);
+      }
+
       await page.setViewportSize({ width: page.viewportSize()!.width, height: 280 });
 
       const scroller = page.locator('[data-drag-scroll="dashboard"]');

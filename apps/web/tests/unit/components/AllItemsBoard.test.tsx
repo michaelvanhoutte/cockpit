@@ -198,7 +198,7 @@ describe('Inbox', () => {
       const user = theTable([anItem('open'), anItem('finished', { completedAt: '2026-09-11T09:00:00.000Z' })]);
       await screen.findByRole('table');
 
-      const line = screen.getByRole('group', { name: 'Dashboard filter summary' });
+      const line = await screen.findByRole('group', { name: 'Dashboard filter summary' });
       expect(within(line).getByText('Done')).toBeVisible();
       expect(screen.queryByRole('search', { name: 'Dashboard filter' })).toBeNull();
 

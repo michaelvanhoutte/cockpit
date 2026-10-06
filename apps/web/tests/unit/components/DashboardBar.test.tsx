@@ -1408,6 +1408,14 @@ describe('Dashboards', () => {
   describe('on a phone the filter is a summary line and a sheet', () => {
     const summary = () => screen.getByRole('group', { name: 'Dashboard filter summary', hidden: true });
     const sheet = () => screen.getByRole('dialog', { name: /^Filter/ });
+    // The phone's half is a chunk of its own, which a draw waits for before it is asked about.
+    const drawn = async (ui: React.ReactElement) => {
+      const drawing = render(ui);
+      await act(async () => {
+        await import('../../../src/components/FilterSummary');
+      });
+      return drawing;
+    };
     const stored = (name: string) => readDashboardFilter(localStorage, id(name));
 
     describe('a filtered Dashboard draws the line, or the bar from 768px, and an unfiltered one neither on a phone', () => {
@@ -1417,11 +1425,11 @@ describe('Dashboards', () => {
         { situation: 'a phone, unfiltered', width: A_PHONE, filter: {}, line: false, bar: false },
         { situation: '768px, filtered', width: 768, filter: { text: 'vat' }, line: false, bar: true },
         { situation: 'a desk, filtered', width: A_DESK, filter: { text: 'vat' }, line: false, bar: true },
-      ])('$situation', ({ width, filter, line, bar, situation }) => {
+      ])('$situation', async ({ width, filter, line, bar, situation }) => {
         onAScreen(width);
         const dashboardId = `ws-work-draws-${situation.replace(/\W+/g, '-')}`;
         writeDashboardFilter(localStorage, dashboardId, { ...NO_DASHBOARD_FILTER, ...filter } as never);
-        render(<DashboardFilterBar dashboardId={dashboardId} />);
+        await drawn(<DashboardFilterBar dashboardId={dashboardId} />);
 
         expect(screen.queryByRole('group', { name: 'Dashboard filter summary' }) !== null).toBe(line);
         expect(screen.queryByRole('search', BAR) !== null).toBe(bar);
@@ -1458,10 +1466,10 @@ describe('Dashboards', () => {
       it.each([
         { situation: '2 panels hidden', panelsHidden: 2, said: '· 2 hidden' },
         { situation: 'none hidden', panelsHidden: 0, said: null },
-      ])('says $situation', ({ panelsHidden, said }) => {
+      ])('says $situation', async ({ panelsHidden, said }) => {
         onAScreen(A_PHONE);
         writeDashboardFilter(localStorage, 'ws-work-said-hidden', { ...NO_DASHBOARD_FILTER, text: 'vat' });
-        render(<DashboardFilterBar dashboardId="ws-work-said-hidden" panelsHidden={panelsHidden} />);
+        await drawn(<DashboardFilterBar dashboardId="ws-work-said-hidden" panelsHidden={panelsHidden} />);
 
         expect(within(summary()).queryByText(/hidden/)?.textContent ?? null).toBe(said);
         expect(within(summary()).getByText('Edit')).toBeVisible();
@@ -1474,7 +1482,7 @@ describe('Dashboards', () => {
       it('opens from the line with every condition and focus inside, and stores each tap at once', async () => {
         const user = userEvent.setup();
         writeDashboardFilter(localStorage, id('Sheet one'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
-        render(<DashboardFilterBar dashboardId={id('Sheet one')} panelsHidden={3} />);
+        await drawn(<DashboardFilterBar dashboardId={id('Sheet one')} panelsHidden={3} />);
 
         await user.click(within(summary()).getByText('Edit'));
 
@@ -1504,7 +1512,7 @@ describe('Dashboards', () => {
         const user = userEvent.setup();
         const name = `Sheet close ${how}`;
         writeDashboardFilter(localStorage, id(name), { ...NO_DASHBOARD_FILTER, priorities: ['high'] });
-        render(<DashboardFilterBar dashboardId={id(name)} />);
+        await drawn(<DashboardFilterBar dashboardId={id(name)} />);
         await user.click(within(summary()).getByText('Edit'));
         await screen.findByRole('dialog');
 
@@ -1518,7 +1526,7 @@ describe('Dashboards', () => {
       it('clears from the sheet and keeps it open, and leaves no line once it is closed', async () => {
         const user = userEvent.setup();
         writeDashboardFilter(localStorage, id('Sheet clear'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
-        render(<DashboardFilterBar dashboardId={id('Sheet clear')} />);
+        await drawn(<DashboardFilterBar dashboardId={id('Sheet clear')} />);
         await user.click(within(summary()).getByText('Edit'));
 
         await user.click(within(sheet()).getByRole('button', { name: 'Clear the filter' }));
@@ -1533,7 +1541,7 @@ describe('Dashboards', () => {
       it('clears from the × on the line, which goes with it', async () => {
         const user = userEvent.setup();
         writeDashboardFilter(localStorage, id('Line clear'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
-        render(<DashboardFilterBar dashboardId={id('Line clear')} />);
+        await drawn(<DashboardFilterBar dashboardId={id('Line clear')} />);
 
         await user.click(within(summary()).getByRole('button', { name: 'Clear the filter' }));
 
@@ -1574,7 +1582,7 @@ describe('Dashboards', () => {
       const user = userEvent.setup();
       const screenNow = onAScreen(A_PHONE);
       writeDashboardFilter(localStorage, id('Crossing'), { ...NO_DASHBOARD_FILTER, priorities: ['high'] });
-      render(<DashboardFilterBar dashboardId={id('Crossing')} />);
+      await drawn(<DashboardFilterBar dashboardId={id('Crossing')} />);
       await user.click(within(summary()).getByText('Edit'));
       expect(sheet()).toBeVisible();
 
