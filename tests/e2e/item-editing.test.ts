@@ -16,6 +16,8 @@ import {
   openInbox,
   openTheFiles,
   press,
+  setFormDueDate,
+  setFormStatus,
   switchTo,
   test,
   uniqueTitle,
@@ -36,6 +38,30 @@ const priorityGroup = (page: Page) => form(page).getByRole('group', { name: 'Pri
 const priorityFlag = (page: Page, level: string) =>
   form(page).getByRole('button', { name: `${level} priority` });
 const dueDateBox = (page: Page) => form(page).getByLabel('Due date');
+/** On a phone's page the short fields are one row of chips: Type, Status, Priority, Due, + Attach. */
+const chips = (page: Page) => form(page).getByRole('group', { name: 'Fields' }).getByRole('button');
+
+/** A level toggled, as the device draws it: the flag at a desk, the Priority chip and its picker on a phone. */
+async function togglePriority(page: Page, level: string, isMobile: boolean): Promise<void> {
+  if (!isMobile) {
+    await priorityFlag(page, level).click();
+    return;
+  }
+  await press(chips(page).nth(2), isMobile);
+  await press(page.getByRole('menuitemradio', { name: level, exact: true }), isMobile);
+}
+
+/** Priority set to none, as the device draws it: the lit flag pressed again at a desk, *No priority* in the chip's picker on a phone. */
+async function clearPriority(page: Page, level: string, isMobile: boolean): Promise<void> {
+  if (!isMobile) return togglePriority(page, level, isMobile);
+  await press(chips(page).nth(2), isMobile);
+  await press(page.getByRole('menuitemradio', { name: 'No priority', exact: true }), isMobile);
+}
+
+async function expectPriority(page: Page, level: string, isMobile: boolean): Promise<void> {
+  if (isMobile) await expect(chips(page).nth(2)).toHaveAccessibleName(`${level} priority`);
+  else await expect(priorityFlag(page, level)).toHaveAttribute('aria-pressed', 'true');
+}
 
 /**
  * The description's editor is fetched behind the form (architecture,
@@ -132,7 +158,8 @@ test.describe('Item editing', () => {
       // holds, never whether the other one is out of sight (found by the
       // review on this pull request, which is why this is here rather than in
       // a walk of its own).
-      const files = form(page).getByText('Attachments', { exact: true });
+      // The description stands for the panel: the attachments cell is not drawn on a phone's page while nothing is attached.
+      const files = descriptionBox(page);
       await expect(files).toBeVisible();
       await press(form(page).getByRole('tab', { name: 'Details' }), isMobile);
       await expect(form(page).getByRole('tabpanel').getByText(thought)).toBeVisible();
@@ -170,7 +197,7 @@ test.describe('Item editing', () => {
         // The description is the tallest field: it takes the height that is left.
         const heightOf = async (locator: Locator) => (await locator.boundingBox())!.height;
         const description = await heightOf(descriptionBox(page).locator('xpath=ancestor::*[contains(@class,"rounded-md")][1]'));
-        for (const field of [titleBox(page), form(page).getByLabel('Type'), dueDateBox(page)]) {
+        for (const field of [titleBox(page), chips(page).first()]) {
           expect(description).toBeGreaterThan(await heightOf(field));
         }
 
@@ -272,7 +299,7 @@ test.describe('Item editing', () => {
       await capture(page, marked, isMobile);
 
       await openItem(page, marked, isMobile);
-      await priorityFlag(page, 'High').click();
+      await togglePriority(page, 'High', isMobile);
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
 
       await expect(itemRow(page, marked).getByLabel('High priority')).toBeVisible();
@@ -288,26 +315,32 @@ test.describe('Item editing', () => {
       // The level is still there on the way back in, held rather than only
       // having been drawn once, and the date goes on the same item.
       await openItem(page, marked, isMobile);
-      await expect(priorityFlag(page, 'High')).toHaveAttribute('aria-pressed', 'true');
+      await expectPriority(page, 'High', isMobile);
       // Years off, so the row says "Due <date>" on both projects whatever day the
       // suite runs: a date within a week is a pill instead, and on a phone it
       // takes the date's place.
-      await dueDateBox(page).fill('2099-09-30');
+      await setFormDueDate(page, '2099-09-30', isMobile);
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
 
       await expect(itemRow(page, marked).getByText('Due Sep 30, 2099')).toBeVisible();
 
       await openItem(page, marked, isMobile);
-      await expect(dueDateBox(page)).toHaveValue('2099-09-30');
-      await priorityFlag(page, 'High').click();
-      await dueDateBox(page).fill('');
+      if (isMobile) await expect(chips(page).nth(3)).toHaveText('Due Sep 30, 2099');
+      else await expect(dueDateBox(page)).toHaveValue('2099-09-30');
+      await clearPriority(page, 'High', isMobile);
+      if (isMobile) {
+        await press(chips(page).nth(3), isMobile);
+        await press(page.getByRole('button', { name: 'Clear' }), isMobile);
+      } else {
+        await dueDateBox(page).fill('');
+      }
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
 
       // The dialog gone first, the same as the cancel walk above asserts -
       // otherwise the list sits behind Radix's aria-hidden while the dialog
       // is still up mid-save, and the row would read as unmarked from that
       // alone, whether or not the clear actually landed.
-      await expect(priorityGroup(page)).toHaveCount(0);
+      await expect(form(page)).toHaveCount(0);
       await expect(itemRow(page, marked).getByLabel('High priority')).toHaveCount(0);
       await expect(itemRow(page, marked).getByText('Due Sep 30, 2099')).toHaveCount(0);
 
@@ -316,21 +349,31 @@ test.describe('Item editing', () => {
       // the type is still the one picked on the way back in, the Inbox is where
       // Details says it is shown, and finishing it takes it off the list.
       await openItem(page, marked, isMobile);
-      const types = form(page).getByLabel('Type');
-      const other = await types.locator('option:not(:checked)').first().getAttribute('value');
-      await types.selectOption(other!);
+      // The Type picked is what the chip, or the box, reads on the way back in.
+      let other: string;
+      if (isMobile) {
+        await press(chips(page).first(), isMobile);
+        const another = page.locator('[role="menuitemradio"][aria-checked="false"]').first();
+        other = (await another.textContent())!.trim();
+        await press(another, isMobile);
+      } else {
+        const types = form(page).getByLabel('Type');
+        other = (await types.locator('option:not(:checked)').first().getAttribute('value'))!;
+        await types.selectOption(other);
+      }
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
-      await expect(priorityGroup(page)).toHaveCount(0);
+      await expect(form(page)).toHaveCount(0);
 
       await openItem(page, marked, isMobile);
-      await expect(form(page).getByLabel('Type')).toHaveValue(other!);
+      if (isMobile) await expect(chips(page).first()).toHaveText(other);
+      else await expect(form(page).getByLabel('Type')).toHaveValue(other);
       await press(form(page).getByRole('tab', { name: 'Details' }), isMobile);
       await expect(form(page).getByText('Shown on')).toBeVisible();
       await expect(form(page).getByText('Inbox', { exact: true })).toBeVisible();
       await press(form(page).getByRole('tab', { name: 'Item' }), isMobile);
-      await form(page).getByLabel('Status').selectOption('done');
+      await setFormStatus(page, 'done', isMobile);
       await press(form(page).getByRole('button', { name: 'Save' }), isMobile);
-      await expect(priorityGroup(page)).toHaveCount(0);
+      await expect(form(page)).toHaveCount(0);
       await expect(itemRow(page, marked)).toHaveCount(0);
     });
   });

@@ -15,6 +15,7 @@ import {
   itemsOn,
   openDashboard,
   press,
+  setFormDueDate,
   signIn,
   test,
   uniqueTitle,
@@ -1099,7 +1100,7 @@ test.describe('Panels', () => {
       await capture(page, chase, isMobile);
       await press(itemRow(page, chase).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
-      await page.getByRole('dialog').getByLabel('Due date').fill(today());
+      await setFormDueDate(page, today(), isMobile);
       await press(page.getByRole('dialog').getByRole('button', { name: 'Save' }), isMobile);
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await fileOnto(page, chase, work, isMobile);
