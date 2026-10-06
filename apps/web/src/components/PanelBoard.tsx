@@ -253,13 +253,6 @@ export function PanelBoard({
   /** Whether what is in hand is the whole row `draggingNow` is on, for the same reason `draggingNow` is a ref. */
   const draggingRowNow = useRef(false);
   /**
-   * **Every Panel is its header alone while one is in the air**, so the whole
-   * arrangement is in view at once and a Panel can be taken to any row without
-   * riding the edge-scroll past screens of Items. Only a Panel drag does it: a
-   * size is set against what is in the Panels, so a line being dragged
-   * collapses nothing.
-   */
-  /**
    * **And on a phone, every Panel is its header alone for as long as the person
    * asks** - a double-tap on a header, or *Collapse panels* on the Dashboard's
    * "…" ("Collapse every Panel to its header on a phone", issue 784), so a
@@ -269,6 +262,13 @@ export function PanelBoard({
    */
   const asked = usePanelsCollapsed(dashboard.id);
   const collapsedOnPhone = phone && asked.collapsed;
+  /**
+   * **Every Panel is its header alone while one is in the air**, so the whole
+   * arrangement is in view at once and a Panel can be taken to any row without
+   * riding the edge-scroll past screens of Items. Only a Panel drag does it: a
+   * size is set against what is in the Panels, so a line being dragged
+   * collapses nothing.
+   */
   const collapsed = dragging !== null || collapsedOnPhone;
   // Widening past the phone line opens every Panel, rather than leaving it
   // remembered for the next time the window narrows; leaving the board
@@ -282,8 +282,6 @@ export function PanelBoard({
   const lastTap = useRef<{ at: number; opened: boolean; panelId: string } | null>(null);
   /** Whether the last layout had the Panels collapsed by the person, so an opening of any kind can be told from a drag ending. */
   const wasCollapsedOnPhone = useRef(false);
-  /** Where the Dashboard is to be scrolled once its room has been taken away. */
-  const scrollOnceSettled = useRef<number | null>(null);
   /**
    * The header that must stay where it is while the board changes shape: the
    * Panel and where its top was the moment before - grabbed when the board
@@ -670,6 +668,10 @@ export function PanelBoard({
     propose(withRowHeight(shown, rowIndex, null));
   };
 
+  /** The scrolling box the Dashboard is drawn in, which the board's own scrolling is done on. */
+  const dashboardScroller = () =>
+    rowsRef.current?.closest<HTMLElement>('[data-drag-scroll="dashboard"]') ?? null;
+
   /** Where a Panel's header is on the page, or null where it is not drawn. */
   const headerTop = (panelId: string): number | null => {
     const header = rowsRef.current?.querySelector(`[data-panel-cell="${panelId}"] header`);
@@ -688,8 +690,11 @@ export function PanelBoard({
    * Panel is short of the top.
    */
   const anchorAtTop = (panelId: string) => {
-    const scroller = rowsRef.current?.closest<HTMLElement>('[data-drag-scroll="dashboard"]');
-    anchor.current = { panelId, top: scroller?.getBoundingClientRect().top ?? 0, toTop: true };
+    anchor.current = {
+      panelId,
+      top: dashboardScroller()?.getBoundingClientRect().top ?? 0,
+      toTop: true,
+    };
   };
 
   /**
@@ -701,16 +706,18 @@ export function PanelBoard({
    */
   const tappedHeader = (panelId: string, at: number) => {
     const before = lastTap.current;
+    const close = before !== null && at - before.at < DOUBLE_TAP_MS;
     // A double-tap is two taps on one header, close together.
-    const second = before !== null && before.panelId === panelId && at - before.at < DOUBLE_TAP_MS;
+    const second = close && before.panelId === panelId;
     if (collapsedOnPhone) {
       lastTap.current = { at, opened: true, panelId };
       anchorAtTop(panelId);
       asked.open();
       return;
     }
-    // The second half of the double-tap that just opened the board.
-    if (second && before.opened) {
+    // The second half of the double-tap that just opened the board, on
+    // whichever header it lands: the first tap moved the page under the finger.
+    if (close && before.opened) {
       lastTap.current = null;
       return;
     }
@@ -739,26 +746,27 @@ export function PanelBoard({
     // A drag ending keeps it, which is what holds the dropped Panel.
     const openedByPerson = wasCollapsedOnPhone.current && !collapsedOnPhone;
     wasCollapsedOnPhone.current = collapsedOnPhone;
-    const scroller = rowsRef.current?.closest<HTMLElement>('[data-drag-scroll="dashboard"]');
+    const scroller = dashboardScroller();
+    if (openedByPerson && scroller && rowsRef.current) {
+      // The room goes now, in the page itself, so what is measured and scrolled
+      // next already reflects it; the scroll takes back what it moved, so what
+      // was on screen stays put unless a header is wanted at the top.
+      const was = scroller.scrollTop;
+      rowsRef.current.style.marginTop = '';
+      setRoom(0);
+      scroller.scrollTop = was - room;
+      const top = held?.toTop ? headerTop(held.panelId) : null;
+      if (held && top !== null) {
+        scroller.scrollTop = anchored({
+          wanted: held.top,
+          now: top,
+          scrollTop: scroller.scrollTop,
+          maxScrollTop: scroller.scrollHeight - scroller.clientHeight,
+        }).scrollTop;
+      }
+      return;
+    }
     const now = held ? headerTop(held.panelId) : null;
-    if (held?.toTop && scroller && now !== null) {
-      // Wanted where the header will be once the room has gone; scrolled to
-      // only once it has, since a margin still applied clamps the scroll.
-      const next = anchored({
-        wanted: held.top,
-        now: now - room,
-        scrollTop: scroller.scrollTop,
-        maxScrollTop: scroller.scrollHeight - scroller.clientHeight - room,
-      });
-      if (room === 0) scroller.scrollTop = next.scrollTop;
-      else scrollOnceSettled.current = next.scrollTop;
-      setRoom(0);
-      return;
-    }
-    if (openedByPerson) {
-      setRoom(0);
-      return;
-    }
     if (!held || now === null) return;
     const next = anchored({
       wanted: held.top,
@@ -774,15 +782,6 @@ export function PanelBoard({
     // with; the room it reads is whatever the last of them left.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collapsed]);
-
-  // The scroll that had to wait for the room to go.
-  useLayoutEffect(() => {
-    const target = scrollOnceSettled.current;
-    if (target === null) return;
-    scrollOnceSettled.current = null;
-    const scroller = rowsRef.current?.closest<HTMLElement>('[data-drag-scroll="dashboard"]');
-    if (scroller) scroller.scrollTop = target;
-  }, [room]);
 
   /**
    * Picks a panel up. Nothing is sent; the board just starts drawing it moved.

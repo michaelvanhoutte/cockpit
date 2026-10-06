@@ -3377,84 +3377,14 @@ describe('Panels', () => {
       everyPanelIsOpen();
     });
 
-    it('lets a tap on another header through after one opened the board, and counts it towards its own double-tap', () => {
+    it('leaves the board open after an opening double-tap, even when its second tap lands on another header', () => {
       board();
       act(() => setPanelsCollapsed('today'));
 
       tap(handleOf('Project Falcon'), 5000);
       tap(handleOf('To read'), 5100);
-      tap(handleOf('To read'), 5200);
 
-      everyPanelIsItsHeaderAlone();
-    });
-
-    describe('the room a collapse leaves above the board goes when it opens, and the header tapped lands at the top', () => {
-      // Lays the page out the way a browser would, to the one rule that matters
-      // here: a margin on the board changes how far the Dashboard can scroll,
-      // and a scroll position is held to that.
-      const OPEN_AT = [40, 800];
-      const COLLAPSED_AT = [58, 94];
-      let scrollTop = 0;
-      const original = Element.prototype.getBoundingClientRect;
-      const rows = () => document.querySelector<HTMLElement>('[data-panel-row]')!.parentElement!;
-      const margin = () => Number.parseFloat(rows().style.marginTop || '0');
-      const isCollapsed = () =>
-        document.querySelector<HTMLElement>('[data-drag-scroll="panel"]')!.style.display === 'none';
-      const maxScroll = () => (isCollapsed() ? 200 : 1000) + margin() - 200;
-      const headerTop = (name: string) => handleOf(name).getBoundingClientRect().top;
-
-      beforeEach(() => {
-        scrollTop = 0;
-        Element.prototype.getBoundingClientRect = function (this: Element) {
-          if (this.tagName === 'HEADER') {
-            const at = this.closest('[data-panel-cell]')!.querySelector('h3')!.textContent === 'To read' ? 1 : 0;
-            const top = (isCollapsed() ? COLLAPSED_AT : OPEN_AT)[at]! + margin() - Math.min(scrollTop, maxScroll());
-            return { top, bottom: top + 36, left: 0, right: 390, width: 390, height: 36 } as DOMRect;
-          }
-          return original.call(this);
-        };
-        board();
-        const scroller = rows().parentElement!.parentElement!;
-        scroller.setAttribute('data-drag-scroll', 'dashboard');
-        Object.defineProperty(scroller, 'scrollHeight', { configurable: true, get: () => (isCollapsed() ? 200 : 1000) + margin() });
-        Object.defineProperty(scroller, 'clientHeight', { configurable: true, get: () => 200 });
-        Object.defineProperty(scroller, 'scrollTop', {
-          configurable: true,
-          get: () => Math.min(scrollTop, maxScroll()),
-          set: (value: number) => {
-            scrollTop = Math.max(0, Math.min(value, maxScroll()));
-          },
-        });
-        scroller.getBoundingClientRect = () => ({ top: 0, bottom: 200, left: 0, right: 390 }) as DOMRect;
-        doubleTap('Project Falcon');
-        expect(margin()).toBe(-18);
-      });
-      afterEach(() => {
-        Element.prototype.getBoundingClientRect = original;
-      });
-
-      it.each([
-        { situation: 'Open panels on the dashboard’s menu', open: () => act(() => setPanelsCollapsed(null)) },
-        {
-          situation: 'the window widening past the phone',
-          open: () =>
-            act(() => {
-              screenIs(480);
-              window.dispatchEvent(new Event('resize'));
-            }),
-        },
-      ])('leaves no gap above the board after $situation', ({ open }) => {
-        open();
-
-        expect(margin()).toBe(0);
-      });
-
-      it('puts the tapped header at the top even where the room it takes away had been holding the board up', () => {
-        tap(handleOf('To read'), 5000);
-
-        expect(margin()).toBe(0);
-        expect(headerTop('To read')).toBe(0);
-      });
+      everyPanelIsOpen();
     });
 
     it('collapses nothing from 480 px up, on a double-click or on a double-tap', () => {

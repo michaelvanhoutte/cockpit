@@ -387,6 +387,21 @@ test.describe('Panels', () => {
       await dashboardMenu.click();
       await page.getByRole('menuitem', { name: 'Collapse panels' }).click();
       await expect(itemListOf(first)).toBeHidden();
+      // Opened from the menu, nothing is left over from the collapse: the first
+      // row sits right under the bar again, with no gap above it.
+      await dashboardMenu.click();
+      await page.getByRole('menuitem', { name: 'Open panels' }).click();
+      await expect(itemListOf(first)).toBeVisible();
+      const firstRow = page.locator('main [data-panel-row]').first();
+      await expect
+        .poll(async () => {
+          const [row, top] = await Promise.all([firstRow.boundingBox(), scroller.boundingBox()]);
+          return row!.y - top!.y - (await scroller.evaluate((box) => -box.scrollTop));
+        })
+        .toBeLessThan(40);
+      await dashboardMenu.click();
+      await page.getByRole('menuitem', { name: 'Collapse panels' }).click();
+      await expect(itemListOf(first)).toBeHidden();
       await page.reload();
       await expect(itemListOf(first)).toBeVisible();
 
