@@ -744,10 +744,24 @@ export function PanelBoard({
       };
     }),
   );
+  // A drop in the list goes through the board's own send, so it is compared
+  // with what was last sent and saved into the Layout on screen like a board
+  // drag ("Rearrange a Dashboard by dragging Panels in its panel list", issue
+  // 804). Held through a ref for the same reason as `jumpTo`.
+  const arrangeRef = useRef<(next: LayoutRow[]) => void>(() => undefined);
+  arrangeRef.current = propose;
+  const [arrange] = useState(() => (next: LayoutRow[]) => arrangeRef.current(next));
   // After every render, which the publication itself drops when nothing it
   // says has changed; withdrawn only when the board leaves.
   useEffect(() => {
-    publishPanelList({ dashboardId: dashboard.id, rows: listed, jumpTo });
+    publishPanelList({
+      dashboardId: dashboard.id,
+      rows: listed,
+      jumpTo,
+      arrangeable,
+      arrangement: shown,
+      arrange,
+    });
   });
   useEffect(() => () => withdrawPanelList(jumpTo), [jumpTo]);
   useEffect(
