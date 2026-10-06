@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { LayoutRow } from '@cockpit/shared';
 import { isTypedInto, somethingIsOpenOverThePage } from './inboxCollapsed';
 import type { KeyPress } from './inboxCollapsed';
 
@@ -13,6 +14,12 @@ import type { KeyPress } from './inboxCollapsed';
  * choice about the chrome. A browser that refuses the write still collapses
  * for this visit: the caller holds the state, this only remembers it.
  */
+
+/**
+ * What an entry carries while it is dragged. Its own type, so an Item dragged
+ * over the list (`ITEM_BEING_DRAGGED`) is not mistaken for a Panel.
+ */
+export const PANEL_BEING_DRAGGED = 'application/x-cockpit-panel';
 
 /** The key that toggles the list, named in both of its controls' tooltips. */
 export const PANEL_LIST_KEY = 'p';
@@ -111,6 +118,19 @@ export type PanelListing = {
   dashboardId: string;
   rows: readonly (readonly PanelListEntry[])[];
   jumpTo: (panelId: string) => void;
+  /**
+   * Whether the board can be rearranged at all: not filtered, not a phone.
+   * Where it cannot, entries are not picked up.
+   */
+  arrangeable: boolean;
+  /**
+   * The whole stored arrangement, which a drop is worked out against. Not
+   * `rows`: that is only the Panels drawn, and the board's own arrangement
+   * rules take every cell.
+   */
+  arrangement: readonly LayoutRow[];
+  /** Hands a drop to the board's own send, which compares it with what was last sent and saves it into the Layout on screen. */
+  arrange: (next: LayoutRow[]) => void;
 };
 
 let published: PanelListing | null = null;
@@ -128,7 +148,10 @@ export function publishPanelList(next: PanelListing): void {
     published !== null &&
     published.dashboardId === next.dashboardId &&
     published.jumpTo === next.jumpTo &&
-    JSON.stringify(published.rows) === JSON.stringify(next.rows);
+    published.arrange === next.arrange &&
+    published.arrangeable === next.arrangeable &&
+    JSON.stringify(published.rows) === JSON.stringify(next.rows) &&
+    JSON.stringify(published.arrangement) === JSON.stringify(next.arrangement);
   if (same) return;
   published = next;
   announce();
