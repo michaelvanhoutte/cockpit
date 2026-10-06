@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
@@ -11,10 +11,12 @@ import type {
 } from '@cockpit/shared';
 import { DashboardBar } from '../../../src/components/DashboardBar';
 import { readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
-import { DashboardFilterBar, filterPills } from '../../../src/components/DashboardFilterBar';
+import { DashboardFilterBar } from '../../../src/components/DashboardFilterBar';
+import { filterPills } from '../../../src/components/FilterSummary';
 import {
   NO_DASHBOARD_FILTER,
   readDashboardFilter,
+  useFilterBarOpen,
   writeDashboardFilter,
 } from '../../../src/dashboardFilter';
 import { CommandRefused } from '../../../src/api/client';
@@ -1576,6 +1578,37 @@ describe('Dashboards', () => {
         expect(stored('Phone funnel set')).toEqual(NO_DASHBOARD_FILTER);
         expect(screen.queryByRole('group', { name: 'Dashboard filter summary' })).toBeNull();
       });
+    });
+
+    it('closes a bar left open on another Dashboard when 768px is crossed, so no sheet opens by itself on return', async () => {
+      const screenNow = onAScreen(A_DESK);
+      const { rerender } = await drawn(<DashboardFilterBar dashboardId={id('Away a')} />);
+      const bar = renderHook(() => useFilterBarOpen(id('Away a')));
+      act(() => bar.result.current[1](true));
+      rerender(<DashboardFilterBar dashboardId={id('Away b')} />);
+      act(() => screenNow.resize(A_PHONE));
+      rerender(<DashboardFilterBar dashboardId={id('Away a')} />);
+      await act(async () => {});
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('keeps the "+n" when a pill is added to a line that was already cut short', async () => {
+      // Every pill 100px wide on a 300px strip: two fit beside the "+n" whatever is set.
+      const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 100 } as DOMRect);
+      const room = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300);
+      try {
+        onAScreen(A_PHONE);
+        writeDashboardFilter(localStorage, id('Cut'), { ...NO_DASHBOARD_FILTER, priorities: ['high', 'low', 'none'] });
+        await drawn(<DashboardFilterBar dashboardId={id('Cut')} />);
+        expect(within(summary()).getByText('+1')).toBeVisible();
+        const user = userEvent.setup();
+        await user.click(within(summary()).getByText('Edit'));
+        await user.click(within(sheet()).getByRole('button', { name: 'Normal' }));
+        expect(within(summary()).getByText('+2')).toBeInTheDocument();
+      } finally {
+        rect.mockRestore();
+        room.mockRestore();
+      }
     });
 
     it('keeps the filter across 768px: the bar when widened with the sheet open, the line when narrowed again', async () => {

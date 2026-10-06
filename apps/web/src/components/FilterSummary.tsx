@@ -9,9 +9,34 @@ import {
 } from '../dashboardFilter';
 import { browserStore } from '../lastVisited';
 import { whatTheSheetSwipeMeant } from '../swipe';
-import { FilterControls, filterPills, hiddenWords } from './DashboardFilterBar';
+import { DUE_WINDOWS, type DueWindow } from '@cockpit/shared';
+import { isAPeriod } from '../filters';
+import { WINDOW_LABELS } from './FilterQuestion';
+import { ATTACHMENTS, PRIORITIES, STATUSES } from './DashboardFilterBar';
 
 // The phone's half of the filter, apart from the bar so a desk never fetches it.
+
+/**
+ * One pill's words per condition set, in the bar's order: Status, Priority,
+ * Due, Containing, Attachments, Agent running. What the phone's summary line
+ * says in place of the bar.
+ */
+export function filterPills(filter: DashboardFilter): string[] {
+  const pills: string[] = [];
+  for (const { value, label } of STATUSES) if (filter.statuses.includes(value)) pills.push(label);
+  for (const { value, label } of PRIORITIES) if (filter.priorities.includes(value)) pills.push(label);
+  if (filter.due) {
+    const { window, orOverdue } = filter.due;
+    if (window === 'overdue') pills.push('Overdue');
+    else if (window === 'none') pills.push('No due date');
+    else pills.push(`Due ${WINDOW_LABELS[window].toLowerCase()}${orOverdue ? ' or overdue' : ''}`);
+  }
+  if (filter.text.trim() !== '') pills.push(`"${filter.text.trim()}"`);
+  if (filter.attachments === 'with') pills.push('With attachments');
+  if (filter.attachments === 'without') pills.push('Without attachments');
+  if (filter.agentRunning) pills.push('Agent running');
+  return pills;
+}
 
 /** Room kept at the end of the pills for "+n" when some do not fit. */
 const ROOM_FOR_THE_MORE = 40;
@@ -62,6 +87,9 @@ export default function FilterSummary({
   const strip = useRef<HTMLSpanElement>(null);
   const widths = useRef(new Map<string, number>());
   const [fit, setFit] = useState(pills.length);
+  // A re-draw once the widths are read: `fit` can come out as it was, which
+  // alone would leave the render before the reading showing every pill.
+  const [, read] = useState(0);
   const words = pills.join('\n');
   const measured = pills.every((pill) => widths.current.has(pill));
   useLayoutEffect(() => {
@@ -78,6 +106,7 @@ export default function FilterSummary({
       }
       // Only the pills now on show are kept, so typing in Containing does not grow the map.
       for (const key of widths.current.keys()) if (!pills.includes(key)) widths.current.delete(key);
+      if (pills.every((pill) => widths.current.has(pill))) read((n) => n + 1);
     }
     place();
     const watch = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
@@ -224,7 +253,7 @@ function FilterSheet({
           <Dialog.Title className="text-base font-semibold">
             Filter
             {panelsHidden > 0 && (
-              <span className="font-normal text-ink-soft">{' '}· {hiddenWords(panelsHidden)}</span>
+              <span className="font-normal text-ink-soft">{' '}· {panelsHidden === 1 ? '1 panel hidden' : `${panelsHidden} panels hidden`}</span>
             )}
           </Dialog.Title>
           <button
@@ -240,7 +269,7 @@ function FilterSheet({
         </div>
       </div>
       <div className="flex flex-col gap-4 overflow-y-auto px-4 pb-4 pt-1">
-        <FilterControls filter={filter} setFilter={setFilter} withDone={withDone} sheet />
+        <SheetControls filter={filter} setFilter={setFilter} withDone={withDone} />
       </div>
       <div className="px-4">
         <button
@@ -252,5 +281,146 @@ function FilterSheet({
         </button>
       </div>
     </Dialog.Content>
+  );
+}
+
+/** The conditions as rows, each with its label in a fixed column and its options wrapping. */
+function SheetControls({
+  filter,
+  setFilter,
+  withDone,
+}: {
+  filter: DashboardFilter;
+  setFilter: (next: DashboardFilter) => void;
+  withDone: boolean;
+}) {
+  const row = (label: string, control: React.ReactNode) => (
+    <div className="flex items-start gap-3">
+      <span className="w-24 shrink-0 pt-1.5 text-sm text-ink-soft" aria-hidden="true">
+        {label}
+      </span>
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">{control}</div>
+    </div>
+  );
+  const option = (on: boolean) =>
+    `whitespace-nowrap rounded-full border px-3 py-1.5 text-sm ${
+      on ? 'border-accent bg-accent text-on-accent' : 'border-shade/15 text-ink-soft hover:bg-shade/5'
+    }`;
+  // A field that holds a value wears a 2px accent border, as the bar's does.
+  const field = (on: boolean) =>
+    `rounded bg-transparent border px-2 py-1.5 text-sm ${
+      on ? 'border-accent ring-1 ring-inset ring-accent' : 'border-shade/15'
+    }`;
+  const toggle = <T extends string>(
+    legend: string,
+    options: { value: T; label: string }[],
+    chosen: (value: T) => boolean,
+    press: (value: T) => void,
+  ) =>
+    row(
+      legend,
+      <fieldset className="flex flex-wrap items-center gap-1.5">
+        <legend className="sr-only">{legend}</legend>
+        {options.map(({ value, label }) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={chosen(value)}
+            className={option(chosen(value))}
+            onClick={() => press(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </fieldset>,
+    );
+  const without = <T,>(list: T[], value: T) => (list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
+
+  return (
+    <>
+      {toggle(
+        'Status',
+        STATUSES.filter(({ value }) => withDone || value !== 'done'),
+        (v) => filter.statuses.includes(v),
+        (v) => setFilter({ ...filter, statuses: without(filter.statuses, v) }),
+      )}
+      {toggle(
+        'Priority',
+        PRIORITIES,
+        (v) => filter.priorities.includes(v),
+        (v) => setFilter({ ...filter, priorities: without(filter.priorities, v) }),
+      )}
+      {row(
+        'Due',
+        <div className="flex items-center gap-1.5">
+          <label className="flex items-center gap-1.5">
+            <span className="sr-only">Due</span>
+            <select
+              className={field(filter.due !== null)}
+              value={filter.due?.window ?? ''}
+              onChange={(event) =>
+                setFilter({
+                  ...filter,
+                  due: event.target.value
+                    ? { window: event.target.value as DueWindow, orOverdue: filter.due?.orOverdue ?? true }
+                    : null,
+                })
+              }
+            >
+              <option value="">Any time</option>
+              {DUE_WINDOWS.map((window) => (
+                <option key={window} value={window}>
+                  {WINDOW_LABELS[window]}
+                </option>
+              ))}
+            </select>
+          </label>
+          {filter.due && isAPeriod(filter.due.window) && (
+            <label className="flex items-center gap-1 text-sm text-ink-soft">
+              <input
+                type="checkbox"
+                checked={filter.due.orOverdue}
+                onChange={(event) =>
+                  filter.due &&
+                  setFilter({ ...filter, due: { ...filter.due, orOverdue: event.target.checked } })
+                }
+              />
+              or overdue
+            </label>
+          )}
+        </div>,
+      )}
+      {row(
+        'Containing',
+        <label className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span className="sr-only">Containing</span>
+          <input
+            type="search"
+            placeholder="Containing…"
+            className={`w-full ${field(filter.text.trim() !== '')}`}
+            value={filter.text}
+            onChange={(event) => setFilter({ ...filter, text: event.target.value })}
+          />
+        </label>,
+      )}
+      {toggle(
+        'Attachments',
+        ATTACHMENTS,
+        (v) => filter.attachments === v,
+        (v) => setFilter({ ...filter, attachments: filter.attachments === v ? 'any' : v }),
+      )}
+      {row(
+        'Agent',
+        <button
+          type="button"
+          aria-pressed={filter.agentRunning}
+          title="Only Items with an agent started on them, a refused start included"
+          className={option(filter.agentRunning)}
+          onClick={() => setFilter({ ...filter, agentRunning: !filter.agentRunning })}
+        >
+          Agent running
+        </button>,
+      )}
+    </>
   );
 }

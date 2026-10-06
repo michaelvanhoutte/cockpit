@@ -278,6 +278,14 @@ const barOpenOn = new Set<string>();
 let barVersion = 0;
 const barReaders = new Set<() => void>();
 
+/** Shuts every Dashboard's bar or sheet: what crossing 768px does, to the ones not on screen too. */
+export function closeEveryFilterBar() {
+  if (barOpenOn.size === 0) return;
+  barOpenOn.clear();
+  barVersion += 1;
+  for (const tell of barReaders) tell();
+}
+
 export function useFilterBarOpen(dashboardId: string | null): [boolean, (open: boolean) => void] {
   useSyncExternalStore(
     (onChange) => {
