@@ -258,6 +258,17 @@ describe('Dashboards', () => {
     });
   });
 
+  describe('a hold the browser never ends is let go when the board changes under it', () => {
+    it('clears the held entry and New row when the arrangement changes mid-drag, as a drag whose source was redrawn does', async () => {
+      const { container, rerender } = await holding('Four', aListing(three));
+      expect(newRow(container)).not.toBeNull();
+
+      rerender(<PanelList listing={aListing([[['Four', 4]], [['One', 1]]])} collapsed={false} onCollapse={vi.fn()} />);
+
+      expect(newRow(container)).toBeNull();
+      expect(entry('Four').style.opacity).toBe('');
+    });
+  });
   describe('only a Panel from the list is taken, and only where the board can be rearranged', () => {
     it('cannot pick an entry up on a Dashboard that is not arrangeable', () => {
       const { container } = drawn(aListing(three, vi.fn(), { arrangeable: false }));

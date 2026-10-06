@@ -60,6 +60,17 @@ export function PanelList({
   const [over, setOver] = useState<Over | null>(null);
   const pickedUp = useRef<number | null>(null);
   useEffect(() => () => window.clearTimeout(pickedUp.current ?? undefined), []);
+  // A drag whose source was redrawn out from under it (another tab moved a
+  // Panel, or the window shrank past the phone line) never sends dragend, so
+  // what was held would stay held; the board changing is the other way to know.
+  const board = listing
+    ? `${listing.dashboardId}|${listing.arrangeable}|${JSON.stringify(listing.arrangement)}`
+    : null;
+  useEffect(() => {
+    window.clearTimeout(pickedUp.current ?? undefined);
+    setHeld(null);
+    setOver(null);
+  }, [board]);
 
   const rows = listing?.rows ?? [];
   const count = listing ? rows.reduce((sum, row) => sum + row.length, 0) : null;
