@@ -14,6 +14,7 @@ import {
   makeWorkspace,
   openDashboard,
   openInbox,
+  openTheFiles,
   press,
   switchTo,
   test,
@@ -64,18 +65,6 @@ async function theEditorIsThere(page: Page): Promise<void> {
 async function putTheCaretInTheDescription(page: Page, isMobile: boolean): Promise<void> {
   await press(descriptionBox(page), isMobile);
   await descriptionBox(page).press('ControlOrMeta+a');
-}
-
-/**
- * The attachments' list, opened where a phone's page keeps it to one line
- * (*2 files ▾*) until it is asked for. A window always shows it.
- */
-async function openTheFiles(page: Page, isMobile: boolean): Promise<void> {
-  // Only a phone's page folds the list away; the line arrives with the file.
-  if (!isMobile) return;
-  const line = form(page).getByRole('button', { name: /^\d+ files?/ });
-  await expect(line).toBeVisible();
-  if ((await line.getAttribute('aria-expanded')) === 'false') await press(line, isMobile);
 }
 
 /**
@@ -404,6 +393,17 @@ test.describe('Item editing', () => {
       await press(form(page).getByRole('button', { name: 'Remove receipt.png' }), isMobile);
       expect((await removed).status()).toBe(200);
       await expect(form(page).getByText('receipt.png')).toHaveCount(0);
+
+      // On a phone the line went with the file; the next one starts folded.
+      if (isMobile) {
+        const again = uploadResponse(page);
+        await attachmentInput(page).setInputFiles({ name: 'second.png', mimeType: 'image/png', buffer: A_PNG });
+        expect((await again).status()).toBe(201);
+        await expect(form(page).getByRole('button', { name: /^1 file/ })).toHaveAttribute('aria-expanded', 'false');
+        await openTheFiles(page, isMobile);
+        await press(form(page).getByRole('button', { name: 'Remove second.png' }), isMobile);
+        await expect(form(page).getByText('second.png')).toHaveCount(0);
+      }
 
       // Removal is sent the moment it happens, not batched into Save - so a
       // Save pressed afterwards, with nothing else changed, has nothing to

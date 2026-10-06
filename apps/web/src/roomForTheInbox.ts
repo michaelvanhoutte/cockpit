@@ -1,5 +1,8 @@
 import { useSyncExternalStore } from 'react';
 
+/** The width, in pixels, `ROOM_FOR_THE_INBOX` asks for. Read from `window.innerWidth` where a component needs it as a number (the item form's page). */
+export const ROOM_FOR_THE_INBOX_PX = 768;
+
 /**
  * Whether there is room to show the Inbox beside the dashboards rather than
  * instead of them ("Show the Inbox beside the dashboards instead of as a tab",
@@ -18,8 +21,6 @@ import { useSyncExternalStore } from 'react';
  * A browser with no `matchMedia` at all answers "no room", which is the phone
  * shape - the one that works everywhere - rather than a crash.
  */
-export const ROOM_FOR_THE_INBOX_PX = 768;
-
 export const ROOM_FOR_THE_INBOX = `(min-width: ${ROOM_FOR_THE_INBOX_PX}px)`;
 
 function theQuestion(): MediaQueryList | null {

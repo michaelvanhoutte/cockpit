@@ -1163,6 +1163,11 @@ describe('Item editing', () => {
 
         expect(screen.getByText('receipt.png')).toBeVisible();
         expect(screen.getByText('scan.pdf')).toBeVisible();
+        // Drawn under Add, so Tab reaches Add before the list.
+        expect(
+          screen.getByRole('button', { name: 'Add' }).compareDocumentPosition(screen.getByText('receipt.png')) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
       });
     });
 
