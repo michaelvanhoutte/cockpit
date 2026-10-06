@@ -237,8 +237,16 @@ test.describe('Capture', () => {
       await expect(page.getByText('sunset.png')).toBeVisible();
       await expect(captureBox(page)).toHaveValue(shared);
       await expect(page.getByRole('button', { name: 'Any workspace' })).toHaveAttribute('aria-pressed', 'true');
+      // The photo uploads once the note has landed: leaving before it answers
+      // cuts the upload off, and the retry comes after this walk has looked.
+      const uploaded = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          /\/v1\/items\/[^/]+\/attachments$/.test(new URL(response.url()).pathname),
+      );
       await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(page.getByRole('region', { name: 'Just captured' }).getByText(shared)).toBeVisible();
+      expect((await uploaded).status()).toBe(201);
 
       // Claimed, so opening Capture again finds nothing of it.
       await page.goto('/capture');
