@@ -129,6 +129,10 @@ test.describe('Selection', () => {
       await expect(inbox(page).getByText('2 selected')).toBeVisible();
       await addToSelection(page, third, isMobile, true);
       await expect(inbox(page).getByText('3 selected')).toBeVisible();
+      // On a phone the Inbox is a screen of its own, and the bar is held to the
+      // screen there too.
+      await expect(inbox(page).getByText('3 selected')).toBeInViewport();
+      await expect(inbox(page).getByRole('button', { name: 'Move to…' })).toBeInViewport();
 
       await page.getByRole('button', { name: 'Move to…' }).click();
       const picker = page.getByRole('dialog');
@@ -156,20 +160,26 @@ test.describe('Selection', () => {
     });
 
     test('keeps the bar in view when the panel’s rows scroll', async ({ page, isMobile }) => {
-      // Found by looking rather than by running anything: a panel's rows scroll
-      // inside a box of a fixed height, so a bar placed below them is one you
-      // have to scroll to - and what scrolls it away is the row you just
-      // picked. Only true in a browser, because nothing below it lays anything
-      // out.
+      // A panel's rows scroll inside a box of a fixed height, so a bar placed
+      // below them is one you have to scroll to - and what scrolls it away is
+      // the row you just picked. Only true in a browser, because nothing below
+      // it lays anything out.
       //
-      // **Desktop alone, and it is the same rule either way.** The bar sticks
-      // to the foot of whatever box the list is drawn in; proving that twice
-      // would be the same CSS against a second width.
-      test.skip(isMobile, 'the same stickiness, against a second width');
-
-      const { panel } = await ownDashboardWithAPanel(page, isMobile);
+      // **On a phone the page scrolls too**, so the bar is held to the screen
+      // rather than to the panel: a panel taller than what is left of the
+      // screen otherwise puts the bar below the fold. The screen is cut short
+      // here to make the panel that tall.
+      const { dashboard, panel } = await ownDashboardWithAPanel(page, isMobile);
       const titles = [uniqueTitle('Reply to Bart'), uniqueTitle('Renew the domain')];
+      await goToTheInbox(page, isMobile);
       for (const title of titles) await capture(page, title, isMobile);
+      // Cut short before the filing rather than after it, so as little as
+      // possible stands between the undo offer appearing and it being read
+      // below: it goes after ten seconds.
+      if (isMobile) {
+        const { width } = page.viewportSize()!;
+        await page.setViewportSize({ width, height: 320 });
+      }
 
       await startSelecting(page, titles[0]!, isMobile);
       await addToSelection(page, titles[1]!, isMobile);
@@ -178,12 +188,35 @@ test.describe('Selection', () => {
       await picker.getByRole('button', { name: panel, exact: true }).click();
       await expect(picker).toHaveCount(0);
 
+      await goToTheDashboard(page, dashboard, isMobile);
       const onThePanel = page.getByRole('region', { name: panel });
       await expect(onThePanel.getByText(titles[0]!)).toBeVisible();
-      await startSelecting(page, titles[0]!, false);
+      if (isMobile) await onThePanel.getByText(titles[0]!).scrollIntoViewIfNeeded();
+      await startSelecting(page, titles[0]!, isMobile);
 
       await expect(onThePanel.getByText('1 selected')).toBeInViewport();
       await expect(onThePanel.getByRole('button', { name: 'Move to…' })).toBeInViewport();
+      if (!isMobile) return;
+
+      // The filing above is still on offer to undo, drawn at the same edge:
+      // the bar's actions and the offer must not cover one another. Read
+      // before anything slow, since the offer goes after ten seconds.
+      const moveTo = onThePanel.getByRole('button', { name: 'Move to…' });
+      const undo = page.getByRole('button', { name: 'Undo' });
+      await expect(undo).toBeVisible();
+      const offer = (await undo.locator('..').boundingBox())!;
+      const actions = (await moveTo.boundingBox())!;
+      expect(offer.y + offer.height).toBeLessThanOrEqual(actions.y);
+
+      // Scrolled as far as it goes, the last row clears the bar rather than
+      // ending under it.
+      const lastRow = itemRow(page, titles[1]!);
+      await lastRow.evaluate((row) => {
+        for (let up: Element | null = row; up; up = up.parentElement) up.scrollTop = up.scrollHeight;
+      });
+      const row = (await lastRow.boundingBox())!;
+      const bar = (await onThePanel.getByText('1 selected').locator('xpath=../..').boundingBox())!;
+      expect(row.y + row.height).toBeLessThanOrEqual(bar.y);
     });
   });
 

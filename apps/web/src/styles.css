@@ -294,7 +294,7 @@ html[data-car-dark] [data-capture-switch] a[data-lit] {
 /*
  * The stacking level of everything that floats over the page: menus,
  * submenus, dialogs and the dimming behind them. Above the pinned bars (the
- * Dashboard filter bar is z-20, the selection bar z-10) and below the undo
+ * Dashboard filter bar and the selection bar, both z-20) and below the undo
  * toast and the "Updating" notice (z-50). Radix copies a menu's level onto its
  * positioning wrapper, so it goes on the content, not a wrapper.
  */
