@@ -1810,6 +1810,23 @@ describe('Connector management', () => {
       expect(await broughtInto()).toEqual(['thread-000', 'thread-001']);
       expect(gmailCalls.some((call) => call.startsWith('threads/thread-003'))).toBe(false);
     });
+
+    it('a check reading the position when the switch lands records none, so the star counts from its own check', async () => {
+      mailboxWith(1);
+      whileGmailIsAsked(
+        (call) => call === 'profile',
+        async () => {
+          expect(await switchTo('star')).toBe(200);
+        },
+      );
+      await connect();
+
+      await checksSettle();
+
+      expect(gmailCalls.filter((call) => call.startsWith('threads?'))).toEqual([]);
+      expect(await broughtInto()).toEqual([]);
+      expect(await rowOf()).toMatchObject({ follows: 'star', failingBecause: null, lastTestedAt: expect.any(String) });
+    });
   });
 
   describe('a missing label called Cockpit fails only a connection following the label', () => {

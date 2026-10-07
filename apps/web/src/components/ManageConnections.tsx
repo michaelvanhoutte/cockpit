@@ -187,7 +187,7 @@ export default function ManageConnections({
   const [claudeCodeMessage, setClaudeCodeMessage] = useState<string | null>(null);
   const [gmailSteps, setGmailSteps] = useState(false);
   const gmailOpenedFrom = useRef<HTMLElement | null>(null);
-  /** The Gmail row whose mark is being changed (issue 824). */
+  /** The Gmail row whose mark is being changed ("Change what a Gmail connection follows, without reconnecting", issue 824). */
   const [changingFollows, setChangingFollows] = useState<SourceAccount | null>(null);
   const followsOpenedFrom = useRef<HTMLElement | null>(null);
   const askedFrom = useRef<HTMLElement | null>(null);

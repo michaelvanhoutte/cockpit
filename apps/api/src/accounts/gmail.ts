@@ -120,14 +120,25 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
         .where(and(eq(gmailChecks.tenantId, accountName), eq(gmailChecks.sourceAccountId, sourceAccountId)))
         .get() ?? null,
 
-    startListing: (sourceAccountId, historyId, at) => {
+    // An insert, so asked first: a run that read the position across a switch
+    // would otherwise restore the one the switch dropped.
+    startListing: (connection, historyId, at) => {
+      if (!stillConnected(connection)) return false;
       db.insert(gmailChecks)
-        .values({ sourceAccountId, tenantId: accountName, historyId, pageToken: null, startedAt: at, listedAt: null })
+        .values({
+          sourceAccountId: connection.id,
+          tenantId: accountName,
+          historyId,
+          pageToken: null,
+          startedAt: at,
+          listedAt: null,
+        })
         .onConflictDoUpdate({
           target: gmailChecks.sourceAccountId,
           set: { historyId, pageToken: null, startedAt: at, listedAt: null },
         })
         .run();
+      return true;
     },
 
     pageListed: (sourceAccountId, nextPageToken, at) => {
@@ -321,9 +332,12 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
       });
     },
 
-    failing: (sourceAccountId, reason, at) => {
+    // Likewise: a label run's "no label" is not said of a connection switched
+    // to the star meanwhile.
+    failing: (connection, reason, at) => {
+      if (!stillConnected(connection)) return;
       db.insert(connectionFailures)
-        .values({ sourceAccountId, tenantId: accountName, reason, failedAt: at })
+        .values({ sourceAccountId: connection.id, tenantId: accountName, reason, failedAt: at })
         .onConflictDoUpdate({ target: connectionFailures.sourceAccountId, set: { reason, failedAt: at } })
         .run();
     },
