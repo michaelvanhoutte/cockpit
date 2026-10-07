@@ -145,6 +145,41 @@ test.describe('Connector management', () => {
       await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
       await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
 
+      // By star ("Connect Gmail by star, and bring in conversations starred
+      // from then on", issue 822): the steps drop creating the label, and a
+      // conversation starred after connecting becomes a Task.
+      const askedOf = async (email: string) =>
+        (await (await fetch(`${issuer}/gmail-stub/asked?email=${encodeURIComponent(email)}`)).json()) as string[];
+      const askedBefore = (await askedOf('michael@example.com')).length;
+      await press(page.getByRole('dialog').getByRole('button', { name: 'Connect Gmail' }), isMobile);
+      const byStar = page.getByRole('dialog', { name: /^Connect Gmail to / });
+      await press(byStar.getByText('Starred (flagged in Outlook)'), isMobile);
+      await expect(byStar.getByText(/Create a label called Cockpit/)).toHaveCount(0);
+      await press(byStar.getByRole('button', { name: 'Sign in with Google' }), isMobile);
+      await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
+      const backByStar = page.getByRole('dialog', { name: 'Settings' });
+      await expect(backByStar.getByText(/^Connected\. Conversations you star or flag from now on/)).toBeVisible();
+      await expect(backByStar.getByText(/^Gmail · starred/)).toBeVisible();
+
+      // Starred once the check connecting started has read where the mailbox
+      // stands, so the star comes after it. The next check is five minutes
+      // out; connecting a second mailbox checks every connection at once.
+      await expect.poll(async () => (await askedOf('michael@example.com')).slice(askedBefore)).toContain('profile');
+      await fetch(`${issuer}/gmail-stub/star?email=michael%40example.com&subject=Flagged%20in%20Outlook`, { method: 'POST' });
+      await press(backByStar.getByRole('button', { name: 'Connect Gmail' }), isMobile);
+      await press(page.getByRole('button', { name: 'Sign in with Google' }), isMobile);
+      await press(page.getByRole('link', { name: 'ada@example.com', exact: true }), isMobile);
+      await closeSettings(page, isMobile);
+      await expect(page.getByText('Flagged in Outlook')).toBeVisible();
+
+      const starred = await openSettings(page, 'Connections', isMobile);
+      await expect(starred.getByText(/^Gmail · starred · last checked /)).toBeVisible();
+      for (const address of ['michael@example.com', 'ada@example.com']) {
+        await chooseRowAction(page, address, 'Disconnect', isMobile);
+        await press(page.getByRole('button', { name: `Yes, disconnect ${address}` }), isMobile);
+      }
+      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+
       await closeSettings(page, isMobile);
       await deleteWorkspace(page, workspace, isMobile);
     });

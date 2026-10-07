@@ -69,9 +69,10 @@ function granted(refreshToken: string): Grant {
 async function startConnecting(
   workspaceId: string,
   session: string,
+  choosing = '',
 ): Promise<{ asked: URL; attempt: string }> {
   const res = await SELF.fetch(
-    `http://cockpit.test/v1/workspaces/${workspaceId}/connections/gmail/connect`,
+    `http://cockpit.test/v1/workspaces/${workspaceId}/connections/gmail/connect${choosing}`,
     { redirect: 'manual', headers: { cookie: session } },
   );
   expect(res.status).toBe(302);
@@ -95,10 +96,11 @@ async function connect(
   who: { email: string; subject: string },
   grant: Grant = granted(`refresh-${who.subject}`),
   workspaceId = WORKSPACE_ID,
+  choosing = '',
 ): Promise<Response> {
   await issuerIsReachable();
   const session = await signInAs(USER_ID);
-  const { asked, attempt } = await startConnecting(workspaceId, session);
+  const { asked, attempt } = await startConnecting(workspaceId, session, choosing);
   issuerWillIdentify({ ...who, nonce: asked.searchParams.get('nonce')! }, 'a-code', grant);
   return comeBack(
     { code: 'a-code', state: asked.searchParams.get('state')! },
@@ -109,11 +111,12 @@ async function connect(
 async function listed(
   workspaceId = WORKSPACE_ID,
   userId = USER_ID,
-): Promise<{ id: string; displayName: string; connectorId: string }[]> {
+): Promise<{ id: string; displayName: string; connectorId: string; follows?: string }[]> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/connections`, {}, userId);
   expect(res.status).toBe(200);
-  return ((await res.json()) as { sourceAccounts: { id: string; displayName: string; connectorId: string }[] })
-    .sourceAccounts;
+  return (
+    (await res.json()) as { sourceAccounts: { id: string; displayName: string; connectorId: string; follows?: string }[] }
+  ).sourceAccounts;
 }
 
 function disconnect(sourceAccountId: string, commandId: string, workspaceId = WORKSPACE_ID): Promise<Response> {
@@ -213,6 +216,29 @@ describe('Connector management', () => {
         `/w/${WORKSPACE_ID}?connections=gmail-connected`,
         `/w/${WORKSPACE_ID}?connections=gmail-connected`,
       ]);
+      expect(await storedRows()).toHaveLength(1);
+    });
+  });
+
+  /** "Connect Gmail by star, and bring in conversations starred from then on", issue 822. */
+  describe('a Gmail connection follows the one mark chosen to connect it, the label where none was chosen', () => {
+    it.each([
+      { situation: 'by star', choosing: '?follows=star', follows: 'star', told: 'gmail-star-connected' },
+      { situation: 'by label', choosing: '?follows=label', follows: 'label', told: 'gmail-connected' },
+      { situation: 'choosing nothing', choosing: '', follows: 'label', told: 'gmail-connected' },
+      { situation: 'choosing a mark there is not', choosing: '?follows=flag', follows: 'label', told: 'gmail-connected' },
+    ])('connected $situation, the row follows the $follows', async ({ choosing, follows, told }) => {
+      const back = await connect(ANNA, granted('a-refresh-token'), WORKSPACE_ID, choosing);
+
+      expect(back.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=${told}`);
+      expect(await listed()).toMatchObject([{ connectorId: 'gmail', follows }]);
+    });
+
+    it('connecting the same mailbox again follows the mark chosen the second time', async () => {
+      await connect(ANNA, granted('the-first-refresh-token'), WORKSPACE_ID, '?follows=star');
+      await connect(ANNA, granted('the-second-refresh-token'));
+
+      expect(await listed()).toMatchObject([{ follows: 'label' }]);
       expect(await storedRows()).toHaveLength(1);
     });
   });

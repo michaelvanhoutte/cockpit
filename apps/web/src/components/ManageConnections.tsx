@@ -103,11 +103,14 @@ function rowDetail(account: SourceAccount): string {
   // The label is fixed, and the row says so ("Connect a Gmail account to a
   // workspace, and disconnect it", issue 724) - and when the mailbox was last
   // checked, once it has been ("Bring in the conversations already labelled
-  // Cockpit as tasks", issue 725).
+  // Cockpit as tasks", issue 725) - or that it follows the star instead
+  // ("Connect Gmail by star, and bring in conversations starred from then
+  // on", issue 822).
   if (account.connectorId === GMAIL) {
+    const follows = account.follows === 'star' ? 'Gmail · starred' : 'Gmail · label Cockpit';
     return account.lastTestedAt
-      ? `Gmail · label Cockpit · last checked ${new Date(account.lastTestedAt).toLocaleString()}`
-      : 'Gmail · label Cockpit';
+      ? `${follows} · last checked ${new Date(account.lastTestedAt).toLocaleString()}`
+      : follows;
   }
   return account.lastTestedAt
     ? `${connectorNamed(account.connectorId)} · last worked ${new Date(account.lastTestedAt).toLocaleString()}`
@@ -270,6 +273,12 @@ export default function ManageConnections({
       {outcome === 'gmail-connected' && (
         <p role="status" className="pt-3 text-sm text-ink-soft">
           Connected. Conversations labelled Cockpit arrive in this workspace’s Inbox within a minute.
+        </p>
+      )}
+      {outcome === 'gmail-star-connected' && (
+        <p role="status" className="pt-3 text-sm text-ink-soft">
+          Connected. Conversations you star or flag from now on arrive in this workspace’s Inbox within a few
+          minutes.
         </p>
       )}
       {outcome === 'cancelled' && (

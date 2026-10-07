@@ -127,13 +127,17 @@ export async function startStubIssuer({ port, seedPath }) {
    * position on. `POST /gmail-stub/unlabel?email=&thread=` takes the label
    * off one, `/gmail-stub/trash?email=&thread=` moves it to the bin, and
    * `/gmail-stub/label?email=&thread=` puts the label back ("Close a Gmail
-   * task when its label comes off", issue 727).
+   * task when its label comes off", issue 727). `POST
+   * /gmail-stub/star?email=&subject=&text=` stars a new conversation, as
+   * flagging it in Outlook does ("Connect Gmail by star, and bring in
+   * conversations starred from then on", issue 822).
    */
   function actInMailbox(action, url, response) {
     const email = url.searchParams.get('email') ?? '';
     const mailbox = heldMailbox(email);
     const cockpit = mailbox.labels.find((label) => label.name === 'Cockpit');
-    if (!cockpit) return json(response, { error: 'that mailbox has no label called Cockpit' }, 409);
+    // Starring needs no label, as a mailbox followed by star needs none.
+    if (!cockpit && action !== 'star') return json(response, { error: 'that mailbox has no label called Cockpit' }, 409);
     mailbox.historyId += 1;
     const at = String(mailbox.historyId);
     const messageOf = (id, threadId, labelIds, subject, from, words) => ({
@@ -176,21 +180,22 @@ export async function startStubIssuer({ port, seedPath }) {
       }
       return json(response, { thread: thread.id, historyId: at });
     }
-    if (action === 'label') {
+    if (action === 'label' || action === 'star') {
+      const mark = action === 'star' ? 'STARRED' : cockpit.id;
       const id = `18f0a1b2c3d4e${at}`;
       const message = messageOf(
         id,
         id,
-        ['INBOX', cockpit.id],
-        url.searchParams.get('subject') ?? 'Labelled just now',
+        ['INBOX', mark],
+        url.searchParams.get('subject') ?? (action === 'star' ? 'Starred just now' : 'Labelled just now'),
         'Anna Peeters <anna@example.com>',
-        url.searchParams.get('text') ?? 'Labelled Cockpit a moment ago.',
+        url.searchParams.get('text') ?? (action === 'star' ? 'Starred a moment ago.' : 'Labelled Cockpit a moment ago.'),
       );
       mailbox.threads.push({ id, historyId: at, messages: [message] });
       mailbox.history.push({
         id: at,
         messages: [{ id, threadId: id }],
-        labelsAdded: [{ message: { id, threadId: id, labelIds: message.labelIds }, labelIds: [cockpit.id] }],
+        labelsAdded: [{ message: { id, threadId: id, labelIds: message.labelIds }, labelIds: [mark] }],
       });
       return json(response, { thread: id, historyId: at });
     }
@@ -293,7 +298,7 @@ export async function startStubIssuer({ port, seedPath }) {
     }
 
     if (url.pathname.startsWith('/gmail/v1/users/me/')) return gmail(url, request, response);
-    const acting = url.pathname.match(/^\/gmail-stub\/(label|unlabel|trash|reply)$/);
+    const acting = url.pathname.match(/^\/gmail-stub\/(label|unlabel|trash|reply|star)$/);
     if (acting && request.method === 'POST') return actInMailbox(acting[1], url, response);
     // What a walk reads back of a conversation Cockpit changed (issue 728):
     // whether it is labelled Cockpit now, and every change Cockpit asked for.
@@ -308,6 +313,11 @@ export async function startStubIssuer({ port, seedPath }) {
       });
     }
     if (url.pathname === '/gmail-stub/modified') return json(response, modifications);
+    // Every call Gmail was asked of one mailbox, oldest first - so a walk can
+    // wait for a check to have read the mailbox's position before acting.
+    if (url.pathname === '/gmail-stub/asked') {
+      return json(response, heldMailbox(url.searchParams.get('email') ?? '').asked);
+    }
 
     if (url.pathname === '/authorize') return authorize(url, response);
     if (url.pathname === '/authorize/pick') return pick(url, response);
@@ -438,6 +448,7 @@ export async function startStubIssuer({ port, seedPath }) {
     if (!email) return json(response, { error: { code: 401, message: 'Invalid Credentials' } }, 401);
     const path = url.pathname.slice('/gmail/v1/users/me/'.length);
     const mailbox = heldMailbox(email);
+    mailbox.asked.push(path);
     if (path === 'labels') return json(response, { labels: mailbox.labels });
     if (path === 'profile') {
       return json(response, { emailAddress: email, messagesTotal: 3, threadsTotal: 3, historyId: String(mailbox.historyId) });
@@ -643,6 +654,8 @@ export function stubMailbox(email) {
     // Gmail's position in the mailbox, and what changed at each one since.
     historyId: 1000,
     history: [],
+    // Every path Gmail was asked for, oldest first (`/gmail-stub/asked`).
+    asked: [],
     threads: [
       {
         id: '18f0a1b2c3d4e5f1',

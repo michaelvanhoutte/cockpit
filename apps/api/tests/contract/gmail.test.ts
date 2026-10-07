@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { cockpitLabelIn, conversationFrom, conversationPage, historyPage, labelChange, stillLabelled } from '../../src/connectors/gmail.js';
+import {
+  STARRED,
+  cockpitLabelIn,
+  conversationFrom,
+  conversationPage,
+  historyPage,
+  labelChange,
+  stillLabelled,
+} from '../../src/connectors/gmail.js';
 import { historyAnswer, historyRecord, labelsAnswer, modifyAnswer, plainThread, profileAnswer, threadsPage } from '../gmail-payloads.js';
 
 /**
@@ -129,6 +137,20 @@ describe.skipIf(!provisioned)('Capture', () => {
         headers: { authorization: `Bearer ${await signedIn()}` },
       });
       expect(answer.status, 'Gmail no longer answers 404 to a position it does not keep').toBe(404);
+    });
+
+    // What a connection following the star reads ("Connect Gmail by star,
+    // and bring in conversations starred from then on", issue 822): the same
+    // history, restricted to Gmail's own label for the star.
+    it('lists what changed since a history position, restricted to the star', async () => {
+      const { historyId } = await gmail('profile');
+      const query = new URLSearchParams({ startHistoryId: String(historyId), labelId: STARRED, maxResults: '1' });
+      for (const type of ['messageAdded', 'messageDeleted', 'labelAdded', 'labelRemoved']) query.append('historyTypes', type);
+
+      const live = await gmail(`history?${query}`);
+
+      expect(missingFrom(live, historyAnswer([]), ['historyId'])).toEqual([]);
+      expect(historyPage(live, STARRED).gained).toEqual([]);
     });
 
     it('lists the conversations carrying the label, a page at a time, and reads one whole', async () => {

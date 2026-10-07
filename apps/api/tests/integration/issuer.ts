@@ -406,7 +406,15 @@ async function answered(url: URL, init?: RequestInit): Promise<Response> {
     });
   }
   if (path === 'threads') {
-    const labelled = mailbox.threads.filter((thread) => thread.labelled);
+    // Starred conversations are those with a message carrying the star; the
+    // label's are the ones a case says are labelled.
+    const labelled = mailbox.threads.filter((thread) =>
+      url.searchParams.get('labelIds') === 'STARRED'
+        ? ((thread.answer as { messages?: { labelIds?: string[] }[] }).messages ?? []).some((message) =>
+            (message.labelIds ?? []).includes('STARRED'),
+          )
+        : thread.labelled,
+    );
     const from = Number(url.searchParams.get('pageToken') ?? 0);
     const size = Number(url.searchParams.get('maxResults') ?? 100);
     const page = labelled.slice(from, from + size);

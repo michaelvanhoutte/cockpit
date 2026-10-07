@@ -1,17 +1,5 @@
 {
   "enabledPlugins": {
     "mattpocock-skills@claude-plugins-official": true
-  },
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node -e \"console.log(JSON.stringify({hookSpecificOutput:{hookEventName:'SessionStart',sessionTitle:'POC rename '+new Date().toISOString().slice(11,16)}}))\""
-          }
-        ]
-      }
-    ]
   }
 }

@@ -14,6 +14,7 @@ import {
   AGENT_ENGINES,
   AGENT_RUN_STATUSES,
   associationKindSchema,
+  GMAIL_MARKS,
   GRID_COLUMNS,
   ITEM_FORM_PRESENTATIONS,
   ITEM_TYPE_COLORS,
@@ -28,6 +29,7 @@ import type {
   AgentEngine,
   AgentRunStatus,
   AssociationKind,
+  GmailMark,
   ItemFormPresentation,
   ItemReading,
   PanelFormat,
@@ -1601,6 +1603,14 @@ export const connectorAccounts = sqliteTable(
      * every existing row simply takes as NULL.
      */
     lastTestedAt: text('last_tested_at'),
+    /**
+     * The one mark a Gmail connection follows, label or star ("Connect Gmail
+     * by star, and bring in conversations starred from then on", issue 822).
+     * Defaulted to the label, which is what every connection made before the
+     * star followed; read for Gmail alone, and the default on every other
+     * connector's row means nothing.
+     */
+    follows: text('follows').notNull().default('label').$type<GmailMark>(),
   },
   (t) => [
     // What the window reads: one Workspace's accounts, oldest first.
@@ -1618,6 +1628,7 @@ export const connectorAccounts = sqliteTable(
     ),
     check('connector_accounts_connected_at_is_timestamp', isTimestamp('connected_at')),
     check('connector_accounts_updated_at_is_timestamp', isTimestamp('updated_at')),
+    check('connector_accounts_follows_is_mark', oneOf('follows', GMAIL_MARKS)),
   ],
 );
 
@@ -1767,11 +1778,19 @@ export const gmailConversations = sqliteTable(
      * the listing did not find, and is read to see whether it is done.
      */
     listedIn: text('listed_in'),
+    /**
+     * The mark the conversation came in under, label or star ("Connect Gmail
+     * by star, and bring in conversations starred from then on", issue 822) -
+     * the label for every link made before the star existed. Only the links
+     * under the mark their connection follows now are kept in step with it.
+     */
+    mark: text('mark').notNull().default('label').$type<GmailMark>(),
   },
   (t) => [
     primaryKey({ columns: [t.workspaceId, t.mailboxKey, t.threadId] }),
     uniqueIndex('gmail_conversations_one_per_item').on(t.itemId),
     check('gmail_conversations_label_wanted_is_flag', sql.raw('label_wanted IS NULL OR label_wanted IN (0, 1)')),
+    check('gmail_conversations_mark_is_mark', oneOf('mark', GMAIL_MARKS)),
     check('gmail_conversations_linked_at_is_timestamp', isTimestamp('linked_at')),
   ],
 );

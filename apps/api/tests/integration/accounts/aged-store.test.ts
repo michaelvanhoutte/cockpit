@@ -423,6 +423,27 @@ const rowsFor: {
                   NULL, 'What it said.', 'pn-before', 'because', 'rewritten', 'proposed in English', ?)`,
     params: (name) => [name, AT],
   },
+  {
+    // A Gmail connection beside the Teams one, so `0056-gmail-followed-mark`
+    // meets one that followed the label before there was anything else to
+    // follow ("Connect Gmail by star, and bring in conversations starred
+    // from then on", issue 822).
+    table: 'connector_accounts',
+    sql: `INSERT INTO connector_accounts
+            (id, tenant_id, workspace_id, connector_id, external_account_key,
+             display_name, encrypted_credential, credential_nonce, connected_at, updated_at)
+          VALUES ('cn-gmail-before', ?, 'ws-before', 'gmail', 'google-somebody',
+                  'somebody@example.com', 'c2VhbGVk', 'bm9uY2UtMTItYnl0', ?, ?)`,
+    params: (name) => [name, AT, AT],
+  },
+  {
+    // The table `0054-gmail-conversations` creates: the conversation the
+    // connection above brought in, for the same change to meet.
+    table: 'gmail_conversations',
+    sql: `INSERT INTO gmail_conversations (tenant_id, workspace_id, mailbox_key, thread_id, item_id, label_wanted, linked_at)
+          VALUES (?, 'ws-before', 'google-somebody', 'thread-before', 'it-before', 0, ?)`,
+    params: (name) => [name, AT],
+  },
 ];
 
 /**
@@ -1684,6 +1705,35 @@ describe('What Cockpit changed', () => {
       const read = await storeNamed(name).rewriteHistoryForItem(name, 'it-before');
 
       expect(read.status === 'ok' ? read.value : []).toEqual([expect.objectContaining({ looksAt: null })]);
+    });
+  });
+});
+
+describe('Connector management', () => {
+  /**
+   * `0056-gmail-followed-mark` ("Connect Gmail by star, and bring in
+   * conversations starred from then on", issue 822) meets a Gmail connection
+   * and a conversation it brought in from before the star existed.
+   */
+  describe('every Gmail connection and conversation stored before the star follows the label', () => {
+    it('reads the label for each, and changes nothing else either holds', async () => {
+      const name = 'aged-store-before-the-star';
+      await agedTo(name, justBefore('0056-gmail-followed-mark'));
+      await fillWithWhatIsAlreadyThere(name);
+      const held = () =>
+        inStoreAsItIs(name, (sql) => ({
+          connections: sql.exec('SELECT * FROM connector_accounts ORDER BY id').toArray(),
+          links: sql.exec('SELECT * FROM gmail_conversations').toArray(),
+        }));
+      const before = await held();
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const after = await held();
+      expect(before.connections.map((row) => row.connector_id)).toEqual(['teams', 'gmail']);
+      expect(before.links).toHaveLength(1);
+      expect(after.connections).toEqual(before.connections.map((row) => ({ ...row, follows: 'label' })));
+      expect(after.links).toEqual(before.links.map((row) => ({ ...row, mark: 'label' })));
     });
   });
 });

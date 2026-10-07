@@ -11,6 +11,7 @@ describe('Connector management', () => {
     it.each([
       { situation: 'connected to Microsoft Teams', connections: 'connected', keeps: 'connected' },
       { situation: 'connected to Gmail', connections: 'gmail-connected', keeps: 'gmail-connected' },
+      { situation: 'connected to Gmail by star', connections: 'gmail-star-connected', keeps: 'gmail-star-connected' },
       { situation: 'refused', connections: 'refused', keeps: 'refused' },
       { situation: 'cancelled on the consent screen', connections: 'cancelled', keeps: 'cancelled' },
       {

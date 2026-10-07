@@ -14,7 +14,8 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
  * **It went through, or it did not**, which is the whole contract with the
  * callback routes (`apps/api/src/http/app.ts`, `backToConnections`) - Gmail's
  * going through having a value of its own, since what it says next differs
- * ("Connect a Gmail account to a workspace, and disconnect it", issue 724).
+ * ("Connect a Gmail account to a workspace, and disconnect it", issue 724), and by star
+ * one of its own again (issue 822).
  * Why it did not is in the Worker's log, and here only where the person can
  * act on it: they cancelled, or Google's consent screen left the Gmail
  * permission unticked or handed no refresh token. Anything else is `refused`.
@@ -22,6 +23,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 export type ConnectOutcome =
   | 'connected'
   | 'gmail-connected'
+  | 'gmail-star-connected'
   | 'refused'
   | 'cancelled'
   | 'gmail-permission-missing'
@@ -30,6 +32,7 @@ export type ConnectOutcome =
 const OUTCOMES: readonly unknown[] = [
   'connected',
   'gmail-connected',
+  'gmail-star-connected',
   'refused',
   'cancelled',
   'gmail-permission-missing',

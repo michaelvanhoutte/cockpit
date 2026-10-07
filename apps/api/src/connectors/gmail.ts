@@ -196,6 +196,14 @@ export function credentialRefreshed(
 export const COCKPIT_LABEL = 'Cockpit';
 
 /**
+ * Gmail's own label for a starred message, which is what Outlook's flag for
+ * follow-up sets - the label a connection following the star reads its
+ * history by ("Connect Gmail by star, and bring in conversations starred from
+ * then on", issue 822).
+ */
+export const STARRED = 'STARRED';
+
+/**
  * The id of the mailbox's label called Cockpit, from Gmail's list of labels -
  * or null where there is none. Gmail keeps label names unique whatever their
  * case, so `cockpit` is the same label.

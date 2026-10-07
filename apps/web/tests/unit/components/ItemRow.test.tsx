@@ -1624,28 +1624,10 @@ describe('Capture', () => {
    * against a real store in
    * apps/api/tests/integration/http/panel-items.test.ts.
    */
-  describe('a row says when it belongs to no workspace yet', () => {
-    it.each([
-      { situation: 'belonging to no workspace yet', decided: false, marked: true },
-      { situation: 'belonging to this one', decided: true, marked: false },
-    ])('$situation', ({ decided, marked }) => {
-      aRow({ item: anItem({ workspaceDecided: decided }) });
+  it('a row says nothing about which workspace it belongs to, even belonging to none yet', () => {
+    aRow({ item: anItem({ workspaceDecided: false }) });
 
-      expect(screen.queryByText('Any workspace') !== null).toBe(marked);
-    });
-
-    /**
-     * A snapshot stored before the field existed is rehydrated without being
-     * parsed again, so the field can simply be missing - and missing has to
-     * read as *belongs here*. The other way round would put every item an old
-     * copy holds into every workspace's Inbox at once.
-     */
-    it('takes an item from before the field as belonging where it is', () => {
-      const { workspaceDecided: _, ...older } = anItem();
-      aRow({ item: older as Item });
-
-      expect(screen.queryByText('Any workspace')).toBeNull();
-    });
+    expect(screen.queryByText('Any workspace')).toBeNull();
   });
 
   describe('the workspace you are looking at is one press away, and only where there is a question', () => {
@@ -1659,6 +1641,23 @@ describe('Capture', () => {
       await user.click(screen.getByLabelText('Item actions'));
 
       expect(screen.queryByText('Move to this workspace') !== null).toBe(offered);
+    });
+
+    /**
+     * A snapshot stored before the field existed is rehydrated without being
+     * parsed again, so the field can simply be missing - and missing has to
+     * read as *belongs here*. The other way round would put every item an old
+     * copy holds into every workspace's Inbox at once.
+     */
+    it('takes an item from before the field as belonging where it is', async () => {
+      const user = userEvent.setup();
+      const { workspaceDecided: _, ...older } = anItem();
+      aRow({ item: older as Item, onMoveHere: vi.fn() });
+
+      await user.click(screen.getByLabelText('Item actions'));
+
+      expect(screen.getAllByRole('menuitem')).not.toHaveLength(0);
+      expect(screen.queryByText('Move to this workspace')).toBeNull();
     });
 
     it('asks for it when it is chosen', async () => {

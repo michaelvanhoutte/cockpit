@@ -126,9 +126,10 @@ describe('Dashboards', () => {
       await user.click(hide);
       expect(onHide).toHaveBeenLastCalledWith(true);
 
-      expect(strip()).toHaveAttribute('title', 'Go to panel (G)');
+      expect(strip()).toHaveAttribute('title', 'Go to panel: G on this Dashboard, Shift+G on its Workspace');
       expect(strip()).toHaveTextContent('Go to panel');
       expect(strip()).toHaveTextContent('G');
+      expect(strip()).toHaveTextContent('⇧G');
       await user.click(strip()!);
       expect(onHide).toHaveBeenLastCalledWith(false);
       expect(shownList()).not.toBeNull();
@@ -138,8 +139,10 @@ describe('Dashboards', () => {
       render(<Held listing={three()} startsHidden={false} />);
 
       expect(shownList()).toHaveTextContent('Enter');
-      expect(shownList()).toHaveTextContent('Space');
       expect(shownList()).toHaveTextContent('Esc');
+      expect(shownList()).toHaveTextContent('⇧G');
+      expect(shownList()).not.toHaveTextContent('Space');
+      expect(shownList()).not.toHaveTextContent('1 2 3');
     });
 
     it('wears the attribute that earns a mouse click the shortcut tip', () => {
@@ -151,8 +154,96 @@ describe('Dashboards', () => {
     });
   });
 
-  describe('G shows and hides Go to panel from anywhere on the page, and P does nothing', () => {
-    it('shows the strip’s column on G, hides it on G, and ignores P and a G typed into a field', async () => {
+  describe('G and Shift+G show Go to panel on a scope with the cursor in the box, and the same key hides it', () => {
+    const chosen = () =>
+      within(screen.getByRole('group', { name: 'Search in' }))
+        .getAllByRole('button')
+        .filter((button) => button.getAttribute('aria-pressed') === 'true')
+        .map((button) => button.textContent);
+
+    it.each([
+      { situation: 'G', keys: 'g', reach: wide(), scope: 'Dashboard' },
+      { situation: 'Shift+G on a Workspace with two Dashboards', keys: '{Shift>}G{/Shift}', reach: wide(), scope: 'Workspace' },
+      { situation: 'Shift+G on a Workspace with one Dashboard', keys: '{Shift>}G{/Shift}', reach: aReach(), scope: 'Dashboard' },
+    ])('shows it on the scope $scope for $situation, the cursor in the box, nothing highlighted', async ({ keys, reach, scope }) => {
+      const user = userEvent.setup();
+      render(<Held listing={three()} reach={reach} />);
+
+      await user.keyboard(keys);
+
+      expect(shownList()).not.toBeNull();
+      expect(chosen()).toEqual([scope]);
+      expect(search()).toHaveFocus();
+      expect(highlighted()).toEqual([]);
+    });
+
+    it('keeps Workspace unavailable where its Workspace has one Dashboard', async () => {
+      const user = userEvent.setup();
+      render(<Held listing={three()} />);
+
+      await user.keyboard('{Shift>}G{/Shift}');
+
+      expect(screen.getByRole('button', { name: 'Workspace' })).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('hides on the key of the scope it is open on, from the page, and ignores P', async () => {
+      const user = userEvent.setup();
+      render(<Held listing={three()} reach={wide()} />);
+
+      await user.keyboard('p');
+      expect(shownList()).toBeNull();
+
+      await user.keyboard('g');
+      await user.click(document.body);
+      await user.keyboard('g');
+      expect(shownList()).toBeNull();
+
+      await user.keyboard('{Shift>}G{/Shift}');
+      await user.click(document.body);
+      await user.keyboard('{Shift>}G{/Shift}');
+      expect(shownList()).toBeNull();
+    });
+
+    it('switches scope on the other key from the page, keeping what was typed', async () => {
+      const user = userEvent.setup();
+      const reach = wide();
+      render(<Held listing={three()} reach={reach} />);
+      await user.keyboard('g');
+      await user.keyboard('adm');
+      await user.click(document.body);
+
+      await user.keyboard('{Shift>}G{/Shift}');
+
+      expect(chosen()).toEqual(['Workspace']);
+      expect(search()).toHaveValue('adm');
+      expect(search()).toHaveFocus();
+      expect(reach.ask).toHaveBeenLastCalledWith(2);
+
+      await user.click(document.body);
+      await user.keyboard('g');
+      expect(chosen()).toEqual(['Dashboard']);
+      expect(search()).toHaveValue('adm');
+    });
+
+    it('takes G and Shift+G as letters in the box, and the column stays on its scope', async () => {
+      const user = userEvent.setup();
+      render(<Held listing={aListing([[['Budget', 1], ['Other', 2]]])} reach={wide()} />);
+      await user.keyboard('g');
+
+      await user.keyboard('gG');
+
+      expect(search()).toHaveValue('gG');
+      expect(shownList()).not.toBeNull();
+      expect(chosen()).toEqual(['Dashboard']);
+    });
+
+    it.each([
+      { situation: 'typing in a field elsewhere', keys: 'g', field: true },
+      { situation: 'a window open over the page', keys: 'g', field: false, dialog: true },
+      { situation: 'Ctrl held', keys: '{Control>}g{/Control}', field: false },
+      { situation: 'Alt held', keys: '{Alt>}g{/Alt}', field: false },
+      { situation: '⌘ held', keys: '{Meta>}g{/Meta}', field: false },
+    ])('does nothing for $situation', async ({ keys, field, dialog }) => {
       const user = userEvent.setup();
       render(
         <>
@@ -160,47 +251,42 @@ describe('Dashboards', () => {
           <Held listing={three()} />
         </>,
       );
-      expect(shownList()).toBeNull();
+      const covering = dialog ? document.body.appendChild(document.createElement('div')) : null;
+      covering?.setAttribute('role', 'dialog');
+      if (field) await user.click(screen.getByRole('textbox', { name: 'A box' }));
 
-      await user.keyboard('p');
-      expect(shownList()).toBeNull();
+      await user.keyboard(keys);
+      covering?.remove();
 
-      await user.keyboard('g');
-      expect(shownList()).not.toBeNull();
-
-      await user.keyboard('g');
-      expect(shownList()).toBeNull();
-
-      await user.type(screen.getByRole('textbox', { name: 'A box' }), 'g');
       expect(shownList()).toBeNull();
     });
 
-    it('does nothing under a window, or with a modifier held', async () => {
+    it('puts the cursor in the box on a click on the column outside its controls, so 1, 2 and 3 are letters and no scope', async () => {
       const user = userEvent.setup();
-      render(<Held listing={three()} />);
+      render(<Held listing={three()} reach={wide()} startsHidden={false} />);
+      await user.click(shownList()!.querySelector('[tabindex="-1"]') as HTMLElement);
 
-      const dialog = document.body.appendChild(document.createElement('div'));
-      dialog.setAttribute('role', 'dialog');
-      await user.keyboard('g');
-      dialog.remove();
-      await user.keyboard('{Control>}g{/Control}');
+      expect(search()).toHaveFocus();
+      await user.keyboard('123');
 
-      expect(shownList()).toBeNull();
+      expect(chosen()).toEqual(['Dashboard']);
+      expect(search()).toHaveValue('123');
     });
   });
 
-  describe('shown by G, the list takes the keys and the highlight moves the board to that Panel', () => {
-    it('highlights the first entry, and ↓ and ↑ move the highlight and ask the board to jump', async () => {
+  describe('typing narrows the list at once, ↓ starts the highlight, and Enter takes the highlight or the top match', () => {
+    it('highlights the first entry on the first ↓, then ↓ and ↑ move it and ask the board to jump', async () => {
       const user = userEvent.setup();
       const jumpTo = vi.fn();
       render(<Held listing={three(jumpTo)} />);
 
       await user.keyboard('g');
-      expect(highlighted()).toEqual(['One1']);
+      expect(highlighted()).toEqual([]);
+      expect(jumpTo).not.toHaveBeenCalled();
 
       await user.keyboard('{ArrowDown}');
-      expect(highlighted()).toEqual(['Two2']);
-      expect(jumpTo).toHaveBeenLastCalledWith('id-Two');
+      expect(highlighted()).toEqual(['One1']);
+      expect(jumpTo).toHaveBeenLastCalledWith('id-One');
 
       await user.keyboard('{ArrowDown}{ArrowDown}');
       expect(highlighted()).toEqual(['Three3']);
@@ -212,8 +298,9 @@ describe('Dashboards', () => {
     });
 
     it.each([
-      { situation: '↑ on the first', keys: '{ArrowUp}', stays: 'One1' },
-      { situation: '↓ on the last', keys: '{ArrowDown}{ArrowDown}{ArrowDown}', stays: 'Three3' },
+      { situation: '↑ with nothing highlighted', keys: '{ArrowUp}', stays: [] },
+      { situation: '↑ on the first', keys: '{ArrowDown}{ArrowUp}', stays: ['One1'] },
+      { situation: '↓ on the last', keys: '{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}', stays: ['Three3'] },
     ])('$situation stays where it is', async ({ keys, stays }) => {
       const user = userEvent.setup();
       render(<Held listing={three()} />);
@@ -221,41 +308,80 @@ describe('Dashboards', () => {
       await user.keyboard('g');
       await user.keyboard(keys);
 
-      expect(highlighted()).toEqual([stays]);
+      expect(highlighted()).toEqual(stays);
     });
 
-    it('goes to the highlighted Panel on Enter and ends the mode, hiding the column G showed', async () => {
-      const user = userEvent.setup();
-      const jumpTo = vi.fn();
-      render(<Held listing={three(jumpTo)} />);
-
-      await user.keyboard('g{ArrowDown}');
-      jumpTo.mockClear();
-      await user.keyboard('{Enter}');
-
-      expect(jumpTo).toHaveBeenCalledExactlyOnceWith('id-Two');
-      expect(shownList()).toBeNull();
-    });
-
-    it('goes to the Panel a click names, and ends the mode, leaving a column that was already shown', async () => {
-      const user = userEvent.setup();
-      const jumpTo = vi.fn();
-      render(<Held listing={three(jumpTo)} startsHidden={false} />);
-
-      await user.click(entry('Three'));
-
-      expect(jumpTo).toHaveBeenCalledExactlyOnceWith('id-Three');
-      expect(highlighted()).toEqual([]);
-      expect(shownList()).not.toBeNull();
-    });
-
-    it('hides the column on a click when G showed it, without restoring the scroll', async () => {
+    it('goes to the top match on Enter with nothing highlighted, and ends the mode, hiding the column', async () => {
       const user = userEvent.setup();
       const jumpTo = vi.fn();
       render(<Held listing={three(jumpTo)} />);
 
       await user.keyboard('g');
+      await user.keyboard('tw{Enter}');
+
+      expect(jumpTo).toHaveBeenCalledExactlyOnceWith('id-Two');
+      expect(shownList()).toBeNull();
+    });
+
+    it('goes to the highlighted Panel on Enter, not the top match', async () => {
+      const user = userEvent.setup();
+      const jumpTo = vi.fn();
+      render(<Held listing={aListing([[['Admin', 1], ['Adm two', 2], ['Other', 3]]], jumpTo)} />);
+
+      await user.keyboard('g');
+      await user.keyboard('adm{ArrowDown}{ArrowDown}');
+      jumpTo.mockClear();
+      await user.keyboard('{Enter}');
+
+      expect(jumpTo).toHaveBeenCalledExactlyOnceWith('id-Adm two');
+    });
+
+    it('does nothing on Enter where nothing matches, and the column stays', async () => {
+      const user = userEvent.setup();
+      const jumpTo = vi.fn();
+      render(<Held listing={three(jumpTo)} />);
+
+      await user.keyboard('g');
+      await user.keyboard('zzz{Enter}');
+
+      expect(jumpTo).not.toHaveBeenCalled();
+      expect(shownList()).not.toBeNull();
+    });
+
+    it('takes a Space in the box as a space in the search', async () => {
+      const user = userEvent.setup();
+      render(<Held listing={aListing([[['Big one', 1], ['Bigger', 2]]])} />);
+
+      await user.keyboard('g');
+      await user.keyboard('big o');
+
+      expect(search()).toHaveValue('big o');
+      expect(screen.getAllByRole('listitem').map((row) => row.textContent)).toEqual(['Big one1']);
+    });
+
+    it.each([
+      { situation: 'a click', hidden: false },
+      { situation: 'a click on a column G showed', hidden: true },
+    ])('goes to the Panel $situation names, hides the column and leaves the screen there', async ({ hidden }) => {
+      const user = userEvent.setup();
+      const jumpTo = vi.fn();
+      render(<Held listing={three(jumpTo)} startsHidden={hidden} />);
+
+      if (hidden) await user.keyboard('g');
       await user.click(entry('Three'));
+
+      expect(jumpTo).toHaveBeenCalledExactlyOnceWith('id-Three');
+      expect(shownList()).toBeNull();
+    });
+
+    it('hides the column that the strip opened on Enter', async () => {
+      const user = userEvent.setup();
+      const jumpTo = vi.fn();
+      render(<Held listing={three(jumpTo)} />);
+
+      await user.click(strip()!);
+      await user.click(search());
+      await user.keyboard('thr{Enter}');
 
       expect(jumpTo).toHaveBeenCalledExactlyOnceWith('id-Three');
       expect(shownList()).toBeNull();
@@ -268,7 +394,7 @@ describe('Dashboards', () => {
       try {
         render(<Held listing={three()} />);
 
-        await user.keyboard('g{ArrowDown}');
+        await user.keyboard('g{ArrowDown}{ArrowDown}');
 
         expect(scrollIntoView).toHaveBeenLastCalledWith({ block: 'nearest' });
         expect(scrollIntoView.mock.contexts.at(-1)).toBe(entry('Two'));
@@ -280,69 +406,35 @@ describe('Dashboards', () => {
   });
 
   describe('the search narrows the list by Panel name', () => {
-    it('takes the cursor on Space, narrows as you type in any capitalisation, and highlights the first match', async () => {
+    it('narrows as you type in any capitalisation, with nothing highlighted until ↓', async () => {
       const user = userEvent.setup();
       render(<Held listing={three()} />);
-      await user.keyboard('g{ArrowDown}');
+      await user.keyboard('g');
 
-      await user.keyboard(' ');
-      expect(search()).toHaveFocus();
       await user.keyboard('TH');
 
       expect(screen.getAllByRole('button').map((button) => button.textContent)).toContain('Three3');
       expect(screen.queryByRole('button', { name: /^One/ })).toBeNull();
       expect(screen.queryByRole('button', { name: /^Two/ })).toBeNull();
+      expect(highlighted()).toEqual([]);
+      await user.keyboard('{ArrowDown}');
       expect(highlighted()).toEqual(['Three3']);
-    });
-
-    it('takes a g typed in the box as a letter, and the column stays', async () => {
-      const user = userEvent.setup();
-      render(<Held listing={aListing([[['Budget', 1], ['Other', 2]]])} />);
-      await user.keyboard('g ');
-
-      await user.keyboard('g');
-
-      expect(search()).toHaveValue('g');
-      expect(shownList()).not.toBeNull();
-      expect(highlighted()).toEqual(['Budget1']);
     });
 
     it('says so when nothing matches', async () => {
       const user = userEvent.setup();
       render(<Held listing={three()} />);
 
-      await user.keyboard('g ');
+      await user.keyboard('g');
       await user.keyboard('zzz');
 
       expect(screen.getByText('No Panel matches.')).toBeInTheDocument();
     });
 
-    it('clears on Esc in the box and hands the keys back to the list, and every G starts empty', async () => {
-      const user = userEvent.setup();
-      const jumpTo = vi.fn();
-      render(<Held listing={three(jumpTo)} />);
-      await user.keyboard('g ');
-      await user.keyboard('tw');
-      expect(screen.queryByRole('button', { name: /^One/ })).toBeNull();
-
-      await user.keyboard('{Escape}');
-
-      expect(search()).toHaveValue('');
-      expect(shownList()).not.toBeNull();
-      expect(screen.getByRole('button', { name: /^One/ })).toBeInTheDocument();
-      expect(shownList()!.contains(document.activeElement)).toBe(true);
-      expect(search()).not.toHaveFocus();
-
-      await user.keyboard(' tw{Enter}');
-      expect(jumpTo).toHaveBeenLastCalledWith('id-Two');
-      await user.keyboard('g');
-      expect(search()).toHaveValue('');
-    });
-
     it('starts every G with an empty search, whatever was left in the box', async () => {
       const user = userEvent.setup();
       render(<Held listing={three()} />);
-      await user.keyboard('g ');
+      await user.keyboard('g');
       await user.keyboard('tw');
       await user.click(document.body);
       expect(search()).toHaveValue('tw');
@@ -353,13 +445,26 @@ describe('Dashboards', () => {
       expect(search()).toHaveValue('');
       expect(screen.getByRole('button', { name: /^One/ })).toBeInTheDocument();
     });
+
+    it('keeps the text and the scope when the box is clicked into again', async () => {
+      const user = userEvent.setup();
+      render(<Held listing={three()} reach={wide()} />);
+      await user.keyboard('{Shift>}G{/Shift}');
+      await user.keyboard('pap');
+      await user.click(document.body);
+
+      await user.click(search());
+
+      expect(search()).toHaveValue('pap');
+      expect(screen.getByRole('button', { name: 'Workspace' })).toHaveAttribute('aria-pressed', 'true');
+    });
   });
 
-  describe('Esc and G put the Dashboard back where G was pressed', () => {
+  describe('Esc puts the Dashboard back where the mode began and hides the column, whatever opened it', () => {
     /** A board whose jump moves the scroller, as the real one does. */
     const jumping = () => three(vi.fn(() => void (scroller.scrollTop = 900)));
 
-    it('restores the scroll from before G and hides the column on Esc, after moving about', async () => {
+    it('restores the scroll from before G and hides the column on Esc from the box, after moving about', async () => {
       const user = userEvent.setup();
       render(<Held listing={jumping()} />);
 
@@ -371,7 +476,7 @@ describe('Dashboards', () => {
       expect(shownList()).toBeNull();
     });
 
-    it('keeps a column that was already shown, shown, on Esc from the list, and puts the scroll back', async () => {
+    it('restores the scroll and hides a column opened with «, clicked into, on Esc', async () => {
       const user = userEvent.setup();
       render(<Held listing={jumping()} startsHidden={false} />);
 
@@ -381,21 +486,23 @@ describe('Dashboards', () => {
       await user.keyboard('{Escape}');
 
       expect(scroller.scrollTop).toBe(120);
-      expect(shownList()).not.toBeNull();
-    });
-
-    it('restores the scroll and hides the column on G from the list', async () => {
-      const user = userEvent.setup();
-      render(<Held listing={jumping()} />);
-
-      await user.keyboard('g{ArrowDown}');
-      expect(scroller.scrollTop).toBe(900);
-      await user.keyboard('g');
-
-      expect(scroller.scrollTop).toBe(120);
       expect(shownList()).toBeNull();
     });
+
+    it('hides the column on Esc, and clears the search for the next time', async () => {
+      const user = userEvent.setup();
+      render(<Held listing={jumping()} startsHidden={false} />);
+      await user.click(search());
+      await user.keyboard('tw');
+
+      await user.keyboard('{Escape}');
+      expect(shownList()).toBeNull();
+
+      await user.click(strip()!);
+      expect(search()).toHaveValue('');
+    });
   });
+
 
   describe('a Panel the Dashboard filter hides is listed, and going to it clears the filter', () => {
     const filter: DashboardFilter = { ...readDashboardFilter(undefined, 'today'), text: 'vat' };
@@ -416,8 +523,9 @@ describe('Dashboards', () => {
       writeDashboardFilter(localStorage, 'today', filter);
       const jumpTo = vi.fn();
       const { rerender } = render(<Held listing={withAHiddenOne(jumpTo)} />);
-      await user.keyboard('g{ArrowDown}');
-      expect(jumpTo).not.toHaveBeenCalled();
+      await user.keyboard('g{ArrowDown}{ArrowDown}');
+      expect(jumpTo).not.toHaveBeenCalledWith('id-Hidden');
+      jumpTo.mockClear();
 
       await user.keyboard('{Enter}');
 
@@ -432,7 +540,8 @@ describe('Dashboards', () => {
       writeDashboardFilter(localStorage, 'today', filter);
       const jumpTo = vi.fn();
       const { rerender } = render(<Held listing={withAHiddenOne(jumpTo)} />);
-      await user.keyboard('g{ArrowDown}{Enter}');
+      await user.keyboard('g{ArrowDown}{ArrowDown}{Enter}');
+      jumpTo.mockClear();
 
       await user.keyboard('g');
       rerender(<Held listing={aListing([[['Drawn', 2], ['Hidden', 5]]], jumpTo)} startsHidden={false} />);
@@ -506,26 +615,35 @@ describe('Dashboards', () => {
     const headings = (level: number) =>
       screen.queryAllByRole('heading', { level }).map((heading) => heading.textContent);
     const calls = (go: Reach['go']) => vi.mocked(go).mock.calls.map(([to, how]) => [to.dashboardId, how]);
+    /** G, then a click on All: the one scope with no key of its own. */
+    const openAll = async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.keyboard('g');
+      await user.click(screen.getByRole('button', { name: 'All' }));
+    };
 
     describe('the scope is chosen by its key or the switch, and one that adds nothing is unavailable', () => {
-      it('shows the scope on the switch for 1, 2 and 3, asks the reach to read it, and starts every G on Dashboard', async () => {
+      it('shows the chosen scope on the switch, asks the reach to read it, and starts every G on Dashboard', async () => {
         const user = userEvent.setup();
         const reach = wide();
         render(<Held listing={todays()} reach={reach} />);
 
         await user.keyboard('g');
         expect(pressed()).toEqual(['Dashboard']);
-        await user.keyboard('2');
+        await user.click(document.body);
+        await user.keyboard('{Shift>}G{/Shift}');
         expect(pressed()).toEqual(['Workspace']);
         expect(headings(4)).toEqual(['Today', 'Research']);
         expect(reach.ask).toHaveBeenLastCalledWith(2);
-        await user.keyboard('3');
+        await user.click(screen.getByRole('button', { name: 'All' }));
         expect(pressed()).toEqual(['All']);
         expect(reach.ask).toHaveBeenLastCalledWith(3);
-        await user.keyboard('1');
+        await user.click(document.body);
+        await user.keyboard('g');
         expect(pressed()).toEqual(['Dashboard']);
+        expect(reach.ask).toHaveBeenLastCalledWith(1);
 
-        await user.keyboard('3{Enter}');
+        await user.click(screen.getByRole('button', { name: 'All' }));
+        await user.keyboard('{Enter}');
         await user.keyboard('g');
         expect(pressed()).toEqual(['Dashboard']);
         expect(reach.ask).toHaveBeenLastCalledWith(1);
@@ -535,38 +653,37 @@ describe('Dashboards', () => {
         const user = userEvent.setup();
         const reach = wide();
         render(<Held listing={todays()} reach={reach} />);
-        await user.keyboard('g');
-        await user.keyboard('3');
+        await openAll(user);
         expect(reach.ask).toHaveBeenLastCalledWith(3);
 
         await user.click(screen.getByRole('button', { name: 'Hide Go to panel' }));
         expect(reach.ask).toHaveBeenLastCalledWith(1);
       });
 
-      it('chooses the scope from a click and the list keeps the keys', async () => {
+      it('chooses the scope from a click and the box keeps the keys', async () => {
         const user = userEvent.setup();
         render(<Held listing={todays()} reach={wide()} />);
         await user.keyboard('g');
 
         await user.click(screen.getByRole('button', { name: 'All' }));
         expect(pressed()).toEqual(['All']);
+        expect(search()).toHaveFocus();
         await user.keyboard('{ArrowDown}');
 
-        expect(highlighted()).toEqual(['Two2']);
+        expect(highlighted()).toEqual(['One1']);
       });
 
       it.each([
-        { situation: 'a Workspace with one Dashboard', key: '2', unavailable: 'Workspace', reason: 'Only one Dashboard in this Workspace' },
-        { situation: 'an account with one Workspace', key: '3', unavailable: 'All', reason: 'Only one Workspace' },
-      ])('leaves $situation visible, unavailable and saying why, and its key does nothing', async ({ key, unavailable, reason }) => {
+        { situation: 'a Workspace with one Dashboard', open: '{Shift>}G{/Shift}', unavailable: 'Workspace', reason: 'Only one Dashboard in this Workspace' },
+        { situation: 'an account with one Workspace', open: 'g', unavailable: 'All', reason: 'Only one Workspace' },
+      ])('leaves $situation visible, unavailable and saying why, and a click does nothing', async ({ open, unavailable, reason }) => {
         const user = userEvent.setup();
         render(<Held listing={todays()} />);
-        await user.keyboard('g');
+        await user.keyboard(open);
 
         const segment = screen.getByRole('button', { name: unavailable });
         expect(segment).toHaveAttribute('aria-disabled', 'true');
         expect(segment).toHaveAttribute('title', reason);
-        await user.keyboard(key);
         await user.click(segment);
 
         expect(pressed()).toEqual(['Dashboard']);
@@ -575,9 +692,9 @@ describe('Dashboards', () => {
       it('names each key in its tooltip', () => {
         render(<Held listing={todays()} reach={wide()} startsHidden={false} />);
 
-        expect(screen.getByRole('button', { name: 'Dashboard' })).toHaveAttribute('title', 'Search this Dashboard (1)');
-        expect(screen.getByRole('button', { name: 'Workspace' })).toHaveAttribute('title', 'Search every Dashboard of Work (2)');
-        expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('title', 'Search every Workspace (3)');
+        expect(screen.getByRole('button', { name: 'Dashboard' })).toHaveAttribute('title', 'Search this Dashboard (G)');
+        expect(screen.getByRole('button', { name: 'Workspace' })).toHaveAttribute('title', 'Search every Dashboard of Work (Shift+G)');
+        expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('title', 'Search every Workspace');
       });
     });
 
@@ -585,7 +702,7 @@ describe('Dashboards', () => {
       it('draws a pinned heading per Dashboard over its indented Panels, in Workspace', async () => {
         const user = userEvent.setup();
         render(<Held listing={todays()} reach={wide()} />);
-        await user.keyboard('g2');
+        await user.keyboard('{Shift>}G{/Shift}');
 
         expect(headings(4)).toEqual(['Today', 'Research']);
         expect(headings(3)).toEqual([]);
@@ -602,7 +719,7 @@ describe('Dashboards', () => {
       it('draws a pinned heading per Workspace with its colour, above its Dashboards, in All', async () => {
         const user = userEvent.setup();
         render(<Held listing={todays()} reach={wide()} />);
-        await user.keyboard('g3');
+        await openAll(user);
 
         expect(headings(3)).toEqual(['Work', 'Home']);
         expect(headings(4)).toEqual(['Today', 'Research', 'Chores']);
@@ -617,15 +734,16 @@ describe('Dashboards', () => {
 
     describe('the search matches a name at every level of the scope', () => {
       it.each([
-        { situation: 'a Dashboard’s name in Workspace', keys: '2 research', shown: ['Papers4', 'Notes'] },
-        { situation: 'a Workspace’s name in All', keys: '3 home', shown: ['Bins0'] },
-        { situation: 'a Panel’s own name in All', keys: '3 papers', shown: ['Papers4'] },
-      ])('keeps every Panel under $situation', async ({ keys, shown }) => {
+        { situation: 'a Dashboard’s name in Workspace', open: '{Shift>}G{/Shift}', typed: 'research', shown: ['Papers4', 'Notes'] },
+        { situation: 'a Workspace’s name in All', open: 'all', typed: 'home', shown: ['Bins0'] },
+        { situation: 'a Panel’s own name in All', open: 'all', typed: 'papers', shown: ['Papers4'] },
+      ])('keeps every Panel under $situation', async ({ open, typed, shown }) => {
         const user = userEvent.setup();
         render(<Held listing={todays()} reach={wide()} />);
-        await user.keyboard('g');
+        if (open === 'all') await openAll(user);
+        else await user.keyboard(open);
 
-        await user.keyboard(keys);
+        await user.keyboard(typed);
 
         expect(
           within(shownList()!)
@@ -638,7 +756,8 @@ describe('Dashboards', () => {
         const user = userEvent.setup();
         render(<Held listing={todays()} reach={wide()} />);
 
-        await user.keyboard('g today');
+        await user.keyboard('g');
+        await user.keyboard('today');
 
         expect(screen.getByText('No Panel matches.')).toBeInTheDocument();
       });
@@ -651,7 +770,7 @@ describe('Dashboards', () => {
         const jumpTo = vi.fn();
         const { rerender } = render(<Held listing={todays()} reach={reach} />);
 
-        await user.keyboard('g2{ArrowDown}{ArrowDown}');
+        await user.keyboard('{Shift>}G{/Shift}{ArrowDown}{ArrowDown}{ArrowDown}');
 
         expect(highlighted()).toEqual(['Papers4']);
         expect(calls(reach.go)).toEqual([['research', 'push']]);
@@ -665,7 +784,8 @@ describe('Dashboards', () => {
         const reach = wide();
         render(<Held listing={todays()} reach={reach} />);
 
-        await user.keyboard('g3{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}');
+        await openAll(user);
+        await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}');
 
         expect(highlighted()).toEqual(['Bins0']);
         // Papers to Notes stays on Research, which moves nothing.
@@ -691,8 +811,8 @@ describe('Dashboards', () => {
         const jumpTo = vi.fn();
         render(<Held listing={researchs(jumpTo)} reach={reach} />);
 
-        await user.keyboard('g2');
-        await user.keyboard('{ArrowDown}');
+        await user.keyboard('{Shift>}G{/Shift}');
+        await user.keyboard('{ArrowDown}{ArrowDown}');
 
         expect(jumpTo).toHaveBeenLastCalledWith('id-Notes');
         expect(reach.go).not.toHaveBeenCalled();
@@ -702,7 +822,7 @@ describe('Dashboards', () => {
         const user = userEvent.setup();
         const reach = wide();
         const { rerender } = render(<Held listing={todays()} reach={reach} />);
-        await user.keyboard('g2{ArrowDown}{ArrowDown}');
+        await user.keyboard('{Shift>}G{/Shift}{ArrowDown}{ArrowDown}{ArrowDown}');
         rerender(<Held listing={researchs()} reach={reach} />);
         scroller.scrollTop = 900;
 
@@ -720,7 +840,7 @@ describe('Dashboards', () => {
         const reach = wide();
         const jumpTo = vi.fn();
         const { rerender } = render(<Held listing={todays()} reach={reach} />);
-        await user.keyboard('g2{ArrowDown}{ArrowDown}');
+        await user.keyboard('{Shift>}G{/Shift}{ArrowDown}{ArrowDown}{ArrowDown}');
 
         await user.keyboard('{Enter}');
         rerender(<Held listing={researchs(jumpTo)} reach={reach} />);
@@ -735,7 +855,7 @@ describe('Dashboards', () => {
         const reach = wide();
         render(<Held listing={todays()} reach={reach} />);
 
-        await user.keyboard('g2{ArrowDown}{ArrowDown}{ArrowUp}{Enter}');
+        await user.keyboard('{Shift>}G{/Shift}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowUp}{Enter}');
 
         expect(calls(reach.go)).toEqual([['research', 'push'], ['today', 'replace'], ['today', 'back']]);
       });
@@ -745,8 +865,8 @@ describe('Dashboards', () => {
         const reach = wide();
         render(<Held listing={todays()} reach={reach} />);
 
-        await user.keyboard('g2{ArrowDown}{ArrowDown}{Enter}');
-        await user.keyboard('g2{ArrowDown}{ArrowDown}{ArrowDown}');
+        await user.keyboard('{Shift>}G{/Shift}{ArrowDown}{ArrowDown}{ArrowDown}{Enter}');
+        await user.keyboard('{Shift>}G{/Shift}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}');
 
         expect(calls(reach.go).map(([, how]) => how)).toEqual(['push', 'push']);
       });
@@ -768,7 +888,7 @@ describe('Dashboards', () => {
         const user = userEvent.setup();
         render(<Held listing={todays()} reach={hiding()} />);
 
-        await user.keyboard('g2');
+        await user.keyboard('{Shift>}G{/Shift}');
 
         expect(entry('Papers')).toHaveTextContent('filtered');
         expect(entry('Notes')).not.toHaveTextContent('filtered');
@@ -782,7 +902,7 @@ describe('Dashboards', () => {
         writeDashboardFilter(localStorage, 'research', { ...readDashboardFilter(undefined, 'research'), text: 'zzz' });
         const { rerender } = render(<Held listing={todays()} reach={reach} />);
 
-        await user.keyboard('g2{ArrowDown}{ArrowDown}{Enter}');
+        await user.keyboard('{Shift>}G{/Shift}{ArrowDown}{ArrowDown}{ArrowDown}{Enter}');
 
         expect(readDashboardFilter(localStorage, 'research').text).toBe('');
         expect(readDashboardFilter(localStorage, 'today').text).toBe('one');
@@ -798,7 +918,7 @@ describe('Dashboards', () => {
         writeDashboardFilter(localStorage, 'research', { ...readDashboardFilter(undefined, 'research'), text: 'zzz' });
         const { rerender } = render(<Held listing={todays()} reach={reach} />);
 
-        await user.keyboard('g2{ArrowDown}{ArrowDown}');
+        await user.keyboard('{Shift>}G{/Shift}{ArrowDown}{ArrowDown}{ArrowDown}');
         rerender(<Held listing={researchs(jumpTo, true)} reach={reach} />);
 
         expect(calls(reach.go)).toEqual([['research', 'push']]);
@@ -811,7 +931,7 @@ describe('Dashboards', () => {
       it('moves the highlight to the entry now in the place of one deleted, and to the new last when the last go', async () => {
         const user = userEvent.setup();
         const { rerender } = render(<Held listing={todays()} reach={wide()} />);
-        await user.keyboard('g2{ArrowDown}{ArrowDown}');
+        await user.keyboard('{Shift>}G{/Shift}{ArrowDown}{ArrowDown}{ArrowDown}');
         expect(highlighted()).toEqual(['Papers4']);
 
         const withoutPapers = wide({
@@ -843,7 +963,7 @@ describe('Dashboards', () => {
         const reach = wide({ workspaces: [WORK(), aWorkspace('home', 'Home', [], { state, dashboards: [] })] });
         render(<Held listing={todays()} reach={reach} />);
 
-        await user.keyboard('g3');
+        await openAll(user);
 
         expect(headings(3)).toEqual(['Work', 'Home']);
         expect(screen.getByText(line)).toBeInTheDocument();

@@ -681,13 +681,14 @@ test.describe('Dashboards', () => {
       const scrollerBox = (await scroller.boundingBox())!;
       expect(listBox.x).toBeGreaterThanOrEqual(scrollerBox.x + scrollerBox.width - 1);
 
-      // **Going to a Panel with the keys**: G has the first entry highlighted, ↓
-      // moves to the one named, Enter goes and hides the list again.
+      // **Going to a Panel with the keys**: G has nothing highlighted, the first ↓
+      // highlights the first entry and the rest move to the one named, Enter goes
+      // and hides the list again.
       const goTo = async (name: string) => {
         const titles = await list.getByRole('listitem').allInnerTexts();
         const at = titles.findIndex((title) => title.startsWith(name));
         expect(at, `${name} is listed`).toBeGreaterThan(-1);
-        for (let step = 0; step < at; step += 1) await page.keyboard.press('ArrowDown');
+        for (let step = 0; step <= at; step += 1) await page.keyboard.press('ArrowDown');
         await page.keyboard.press('Enter');
       };
 
@@ -699,7 +700,7 @@ test.describe('Dashboards', () => {
       await expectNoSidewaysScroll(page);
 
       // **One too low to**: as far as the page goes, and no further. Enter hid the
-      // list G showed, so G shows it again.
+      // list, so G shows it again.
       await expect(list).toHaveCount(0);
       await page.keyboard.press('g');
       await expect(list).toBeVisible();
@@ -753,8 +754,7 @@ test.describe('Dashboards', () => {
       expect(scrolledTo, 'the Dashboard is scrolled before G').toBeGreaterThan(50);
 
       // ↓ onto the other Dashboard's Panel shows that Dashboard, its header at the top; Esc is back where G was pressed.
-      await page.keyboard.press('g');
-      await page.keyboard.press('2');
+      await page.keyboard.press('Shift+G');
       const pinned = list.getByRole('heading', { name: elsewhere, level: 4 });
       await expect(pinned).toBeVisible();
       const under = (name: string) =>
@@ -763,7 +763,7 @@ test.describe('Dashboards', () => {
       const titles = await under(elsewhere).allInnerTexts();
       const lowDown = titles.findIndex((title) => title.startsWith('Elsewhere 2'));
       expect(lowDown, 'a Panel low on the other Dashboard is listed').toBeGreaterThan(-1);
-      for (let step = 0; step < before + lowDown; step += 1) await page.keyboard.press('ArrowDown');
+      for (let step = 0; step <= before + lowDown; step += 1) await page.keyboard.press('ArrowDown');
       await expect(page).toHaveURL(new RegExp(`/d/${elsewhereId}$`));
       await expect
         .poll(async () => Math.abs((await headerOf('Elsewhere 2').boundingBox())!.y - (await scroller.boundingBox())!.y))
@@ -780,8 +780,7 @@ test.describe('Dashboards', () => {
       };
       const abroad = known.workspaces.find((one) => one.id !== workspaceId)!;
       await page.keyboard.press('g');
-      await page.keyboard.press('3');
-      await page.keyboard.press(' ');
+      await list.getByRole('button', { name: 'All' }).click();
       await page.keyboard.type(abroad.name);
       await page.keyboard.press('ArrowDown');
       await expect(page).toHaveURL(new RegExp(`/w/${abroad.id}/d/`));

@@ -21,6 +21,7 @@ import {
   agentEngineSchema,
 } from './domain/agent.js';
 import { itemFormPresentationSchema } from './domain/item-form-presentation.js';
+import { gmailMarkSchema } from './domain/source-account.js';
 import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
 import {
   filterConditionSchema,
@@ -721,6 +722,12 @@ export const connectSourceAccountSchema = commandEnvelopeSchema.extend({
   /** The credential as it is stored: sealed bytes, and the nonce they were sealed under. */
   sealedCredential: z.string().min(1),
   credentialNonce: z.string().min(1),
+  /**
+   * What a Gmail connection follows, as chosen in the Connect window ("Connect
+   * Gmail by star, and bring in conversations starred from then on", issue
+   * 822) - the label where it is absent. Read for Gmail alone.
+   */
+  follows: gmailMarkSchema.optional(),
 });
 export type ConnectSourceAccountCommand = z.infer<typeof connectSourceAccountSchema>;
 

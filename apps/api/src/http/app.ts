@@ -245,7 +245,7 @@ function gmailCallbackUrl(c: Context): string {
 function backToConnections(
   c: Context,
   workspaceId: string | undefined,
-  outcome: 'connected' | 'gmail-connected' | NotConnected,
+  outcome: 'connected' | 'gmail-connected' | 'gmail-star-connected' | NotConnected,
 ) {
   if (!workspaceId) return c.redirect('/', 302);
   return c.redirect(
@@ -1785,7 +1785,7 @@ const routes = app
       })),
     );
     const text = agentMessageFor(
-      { message: toFire.message },
+      { name: toFire.name, message: toFire.message },
       {
         attachments,
         title: toFire.item.title,
@@ -2378,6 +2378,10 @@ const routes = app
    * in every other respect: behind the gate, the Workspace and account
    * carried in the attempt cookie, refused before anybody leaves where the
    * Workspace is gone or the environment cannot connect.
+   *
+   * **`?follows=star` connects it by star** ("Connect Gmail by star, and bring
+   * in conversations starred from then on", issue 822), carried in the cookie
+   * beside the Workspace; anything else is the label.
    */
   .get('/v1/workspaces/:workspaceId/connections/gmail/connect', async (c) => {
     const workspaceId = c.req.param('workspaceId');
@@ -2396,6 +2400,7 @@ const routes = app
         workspaceId,
         accountName: c.get('visitor').accountName,
         connectorId: GMAIL,
+        follows: c.req.query('follows') === 'star' ? ('star' as const) : ('label' as const),
       };
       rememberConnectAttempt(c, attempt);
       return c.redirect(
@@ -2465,8 +2470,9 @@ const routes = app
         externalAccountKey: mailbox.key,
         displayName: mailbox.address,
         ...(await seal(kept.credential, needed.key)),
+        follows: attempt!.follows ?? 'label',
       });
-      return backToConnections(c, attempt!.workspaceId, 'gmail-connected');
+      return backToConnections(c, attempt!.workspaceId, attempt!.follows === 'star' ? 'gmail-star-connected' : 'gmail-connected');
     } catch (error) {
       return refuseConnection(c, attempt!.workspaceId, 'the connection could not be finished', error);
     }

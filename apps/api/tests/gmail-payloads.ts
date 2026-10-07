@@ -21,6 +21,9 @@
 /** The id Gmail gives a label somebody made, as it names the first one. */
 export const COCKPIT_LABEL_ID = 'Label_3409857126543';
 
+/** Gmail's own label for a starred message (issue 822). */
+export const STARRED = 'STARRED';
+
 /** What a body is sent as: UTF-8, base64 in its URL-safe alphabet, unpadded. */
 export function bodyData(text: string): string {
   const bytes = new TextEncoder().encode(text);
@@ -74,6 +77,8 @@ interface MessageOptions {
   readonly subject?: string;
   readonly from?: string;
   readonly labelled?: boolean;
+  /** Starred, as Outlook's flag for follow-up stars it (issue 822). */
+  readonly starred?: boolean;
   /** In the bin, which keeps whatever labels the message had. */
   readonly trashed?: boolean;
   /** The parts of the message: one plain text, one HTML, or both as multipart/alternative. */
@@ -128,6 +133,7 @@ export function message(threadId: string, options: MessageOptions) {
     labelIds: [
       ...(options.trashed ? ['TRASH', 'UNREAD'] : ['INBOX', 'UNREAD']),
       ...(options.labelled === false ? [] : [COCKPIT_LABEL_ID]),
+      ...(options.starred ? [STARRED] : []),
     ],
     snippet: (options.plain ?? '').slice(0, 100),
     sizeEstimate: 4096,
@@ -156,14 +162,14 @@ export function modifyAnswer(thread: unknown) {
   return { id, historyId, messages: messages.map((one) => ({ id: one.id, threadId: one.threadId, labelIds: one.labelIds })) };
 }
 
-/** The commonest conversation: one labelled plain-text message - or that message unlabelled, or in the bin. */
+/** The commonest conversation: one labelled plain-text message - or that message unlabelled, starred, or in the bin. */
 export function plainThread(
   id: string,
   subject = `About ${id}`,
   text = `The text of ${id}.`,
-  { labelled = true, trashed = false }: { labelled?: boolean; trashed?: boolean } = {},
+  { labelled = true, starred = false, trashed = false }: { labelled?: boolean; starred?: boolean; trashed?: boolean } = {},
 ) {
-  return threadAnswer(id, [message(id, { id, sentAt: '2026-10-01T08:30:00Z', subject, plain: text, labelled, trashed })]);
+  return threadAnswer(id, [message(id, { id, sentAt: '2026-10-01T08:30:00Z', subject, plain: text, labelled, starred, trashed })]);
 }
 
 /** What one history record says happened to one message. */
