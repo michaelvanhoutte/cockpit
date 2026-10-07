@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 /**
  * "Tell a mouse user the key when they click what a key also does" (issue
  * 708): a click on Capture, the Inbox's collapse control or handle, the Panel
- * list's, the agents' dock's hide control or strip, or the funnel on a Dashboard's tab names the key that does the same.
+ * list's, the agents' dock's hide control or strip, or the funnel on a
+ * Dashboard's tab names the key that does the same.
  *
  * **Shown and forgotten**: nothing is stored, so a tip shows on every click.
  * It listens for clicks only, so a key press never shows one and never has to

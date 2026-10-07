@@ -31,13 +31,20 @@ export function whatFDoes(open: boolean, filtering: boolean): 'open' | 'focus' |
   return open ? 'close' : 'open';
 }
 
-/** Whose *Containing…* field has been asked for the cursor, until it takes it. */
-let wanted: string | null = null;
+/** How long a request for the cursor waits for its bar to be drawn. */
+export const FOCUS_WAIT_MS = 1000;
+
+/**
+ * Whose *Containing…* field has been asked for the cursor, until it takes it.
+ * A request outlives its press only briefly: a bar that appears seconds later
+ * (a page still loading) must not pull the cursor from wherever it has gone.
+ */
+let wanted: { filterId: string; at: number } | null = null;
 const takers = new Set<() => void>();
 
 /** Asks the bar of this filter to put the cursor in *Containing…*, as soon as it is drawn. */
 export function askForTheContainingField(filterId: string): void {
-  wanted = filterId;
+  wanted = { filterId, at: Date.now() };
   for (const take of takers) take();
 }
 
@@ -48,7 +55,12 @@ export function askForTheContainingField(filterId: string): void {
 export function useContainingFieldFocus(filterId: string, field: { current: HTMLInputElement | null }) {
   useEffect(() => {
     const take = () => {
-      if (wanted !== filterId || !field.current) return;
+      if (!wanted || wanted.filterId !== filterId) return;
+      if (Date.now() - wanted.at > FOCUS_WAIT_MS) {
+        wanted = null;
+        return;
+      }
+      if (!field.current) return;
       wanted = null;
       field.current.focus();
     };
