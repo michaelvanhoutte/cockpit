@@ -98,8 +98,9 @@
    * this small.
    */
   --color-over-deep: #a04a43;
-  /* over / over-deep where they are text (an error line, a failed chip): the second, the first in dark. */
-  --color-over-ink: #a04a43;
+  /* over / over-deep where they are text (an error line; a failed chip): the same in light, lifted in dark where the fills stay. */
+  --color-over-ink: #bf5d55;
+  --color-over-deep-ink: #a04a43;
   /* What dims the page behind a dialog, and the well the agents' dock sinks into. */
   --color-scrim: #16181d;
   /* A toast or tooltip: dark in either appearance, with white written on it. */
@@ -327,6 +328,7 @@ html[data-app-dark] {
   --color-due-ink: #e8c08a;
   --color-over: #e0867f;
   --color-over-ink: #e0867f;
+  --color-over-deep-ink: #e0867f;
   --color-status-reference: #6f7280;
 
   --shadow-panel: 0 0 0 1px rgb(255 255 255 / 0.08), 0 6px 16px rgb(0 0 0 / 0.4);

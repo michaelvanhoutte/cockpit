@@ -75,7 +75,7 @@ The whole app, logon page included, when the device is set to dark or the choice
 | `shade` (hairlines, hover fills) | `#e4e5ea`, used at low alpha as in light |
 | `scrim` (behind a dialog, and the dock's well) | black, where light is `#16181d`; `bg-shade` is never a scrim |
 | `toast` (undo bar, shortcut tip, white written on it) | `#34363e`, where light is `#3a3f4b` |
-| `over-ink` (an error as text) | `#e0867f`; `over` and `over-deep` stay as fills under white |
+| `over-ink`, `over-deep-ink` (an error as text; a failed chip) | both `#e0867f`, where light is `over` and `over-deep` unchanged |
 | `due-soft`, `due-ink` | `#4a3519`, `#e8c08a`; `due` and `due-deep` unchanged |
 | `cat-*` and `cat-*-tint` | the `-light` set as text on a near-black tint (`slate` `#252b35` through `grey` `#2a2c31`) |
 

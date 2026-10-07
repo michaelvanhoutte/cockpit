@@ -72,6 +72,7 @@ describe('Appearance', () => {
       { pill: 'an error line on the page', text: 'over-ink', on: page },
       { pill: 'an error line on a dialog', text: 'over-ink', on: surface },
       { pill: 'an error line in a well', text: 'over-ink', on: well },
+      { pill: 'a failed chip', text: 'over-deep-ink', on: page },
     ])('$pill', ({ text, on }) => {
       // `over-deep` carries white (`on-accent` is white in either appearance); the rest carry their ink.
       expect(contrast(text === 'on-accent' ? '#ffffff' : dark(text), on)).toBeGreaterThanOrEqual(4.5);

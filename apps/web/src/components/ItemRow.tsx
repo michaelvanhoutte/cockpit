@@ -1217,7 +1217,7 @@ export function ItemRow({
                 <span
                   title={chip.hint ?? undefined}
                   className={`shrink-0 rounded-full px-1.5 ${
-                    chip.trouble ? 'bg-over/15 text-over-ink' : 'bg-accent-tint text-accent-deep'
+                    chip.trouble ? 'bg-over/15 text-over-deep-ink' : 'bg-accent-tint text-accent-deep'
                   }`}
                 >
                   {chip.agent} · {chip.text}

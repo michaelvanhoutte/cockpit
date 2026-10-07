@@ -37,7 +37,7 @@ export default defineConfig({
       transformIndexHtml: (html) =>
         html.replace(
           '<!--appearance-boot-->',
-          `<script>${readFileSync(fileURLToPath(new URL('./src/appearanceBoot.js', import.meta.url)), 'utf8')
+          () => `<script>${readFileSync(fileURLToPath(new URL('./src/appearanceBoot.js', import.meta.url)), 'utf8')
             .replace(/\/\*[\s\S]*?\*\//, '')
             .trim()}</script>`,
         ),

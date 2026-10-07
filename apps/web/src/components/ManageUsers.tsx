@@ -545,7 +545,7 @@ function AddSomebody() {
       </label>
       <button
         type="submit"
-        className="rounded bg-toast px-3 py-1.5 text-sm text-white disabled:opacity-40"
+        className="rounded bg-scrim/80 px-3 py-1.5 text-sm text-white disabled:opacity-40"
         disabled={adding.isPending || name.trim() === '' || email.trim() === ''}
       >
         {adding.isPending ? 'Adding…' : 'Add'}
