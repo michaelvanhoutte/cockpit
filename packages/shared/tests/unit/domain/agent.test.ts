@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { AGENT_PREAMBLE, agentMessageFor, agentsShownOnDashboard } from '../../../src/domain/agent.js';
 import type { Agent } from '../../../src/domain/agent.js';
 
-const sent = (rest: string) => `${AGENT_PREAMBLE}
+/** The preamble as an Agent named "Scope it" sends it for an item of this title. */
+const opening = (title: string) =>
+  `${AGENT_PREAMBLE} Begin your first reply with this line, exactly: Scope it: ${title}`;
+
+const sent = (rest: string, title: string) => `${opening(title)}
 
 ${rest}`;
 
@@ -66,22 +70,48 @@ describe('Agents', () => {
         expected: 'Ship $& now',
       },
     ])('$situation', ({ template, item, prompt, expected }) => {
-      expect(agentMessageFor(agent({ message: template }), item, prompt)).toBe(sent(expected));
+      expect(agentMessageFor(agent({ message: template }), item, prompt)).toBe(sent(expected, item.title));
     });
   });
 
-  describe('every start tells Claude the message is its whole task, whatever the template says', () => {
+  describe('every start tells Claude the message is its whole task and to open its first reply with the agent’s name and the item’s title, whatever the template says', () => {
     const item = { title: 'Chase the invoice', description: null, link: 'https://cockpit.test/i/9' };
 
     it.each([
-      { situation: 'a template of only the item’s words', template: '{title}' },
-      { situation: 'a template naming a skill', template: '/scoping {title}\n\n{description}' },
-      { situation: 'a template with {prompt}', template: '{prompt}\n\n{title}' },
-    ])('$situation', ({ template }) => {
-      const message = agentMessageFor(agent({ message: template }), item, 'Be brief');
+      { situation: 'a template of only the item’s words', template: '{title}', item },
+      { situation: 'a template naming a skill', template: '/scoping {title}\n\n{description}', item },
+      { situation: 'a template with {prompt}', template: '{prompt}\n\n{title}', item },
+      {
+        situation: 'an item with no description',
+        template: '{description}',
+        item: { ...item, description: null },
+      },
+      {
+        situation: 'a title that looks like a placeholder, which appears as typed',
+        template: '{title}',
+        item: { ...item, title: 'Fix {description} bug' },
+      },
+      {
+        situation: 'a title that looks like a $-pattern, which appears as typed',
+        template: '{title}',
+        item: { ...item, title: 'Ship $& now' },
+      },
+    ])('$situation', ({ template, item: one }) => {
+      const message = agentMessageFor(agent({ message: template }), one, 'Be brief');
 
-      expect(message.startsWith(`${AGENT_PREAMBLE}\n\n`)).toBe(true);
-      expect(message).toContain('Chase the invoice');
+      expect(message.startsWith(`${opening(one.title)}\n\n`) || message === opening(one.title)).toBe(true);
+    });
+
+    it('names the item alone for an agent deleted since the start was recorded', () => {
+      const message = agentMessageFor(agent({ name: '' }), item);
+
+      expect(message.startsWith(`${AGENT_PREAMBLE} Begin your first reply with this line, exactly: Chase the invoice`)).toBe(true);
+    });
+
+    it('names the agent as it is called, not as a placeholder', () => {
+      const message = agentMessageFor(agent({ name: 'Ship $& {title}' }), item);
+
+      expect(message.startsWith(`${AGENT_PREAMBLE} Begin your first reply with this line, exactly: Ship $& {title}: Chase the invoice`)).toBe(true);
     });
 
     it('puts the preamble first, the filled template next and the attachments last', () => {
@@ -92,7 +122,7 @@ describe('Agents', () => {
 
       expect(message).toBe(
         [
-          AGENT_PREAMBLE,
+          opening('Chase the invoice'),
           'Chase the invoice',
           'Attachments - download each link and read the file. A link works for an hour, without signing in.\n- x.mp4 - not readable by Claude',
         ].join('\n\n'),
@@ -100,7 +130,7 @@ describe('Agents', () => {
     });
 
     it('is still the preamble for an item whose template fills to nothing', () => {
-      expect(agentMessageFor(agent({ message: '{description}' }), item)).toBe(AGENT_PREAMBLE);
+      expect(agentMessageFor(agent({ message: '{description}' }), item)).toBe(opening('Chase the invoice'));
     });
   });
 
@@ -193,7 +223,7 @@ describe('Agents', () => {
           link: 'https://cockpit.test/i/7',
           attachments,
         }),
-      ).toBe(sent(expected));
+      ).toBe(sent(expected, 'Chase the invoice'));
     });
   });
 

@@ -22,6 +22,8 @@ export interface AgentRunToFire {
   sourceAccountId: string;
   sealedCredential: string;
   credentialNonce: string;
+  /** The Agent's name as stored now, so a renamed Agent is named by its new name. */
+  name: string;
   message: string;
   item: { title: string; description: string | null; sourceLink: string | null };
   /** Every file on the Item, oldest first, for the message to link (issue 573). */
