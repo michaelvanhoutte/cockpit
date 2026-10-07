@@ -395,8 +395,7 @@ async function bringInStarred(
     }
     // Lapsed: the full reconcile, from a fresh position.
     startListing(host, connection, await positionNow(mailbox), at);
-    progress = host.progress(connection.id);
-    if (!progress) throw new ConnectionChanged('the connection was disconnected');
+    progress = host.progress(connection.id)!;
   }
 
   while (!progress.listedAt) {
