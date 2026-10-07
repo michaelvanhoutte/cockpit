@@ -141,6 +141,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     GMAIL_CONVERSATIONS_LISTED_IN,
     GMAIL_FOLLOWED_MARK,
     gettingStarted(accountId),
+    END_RUNS_ON_CLOSED_ITEMS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -151,6 +152,71 @@ export function accountChanges(accountId: string): readonly Change[] {
     guestDemoSeed(accountId),
   ];
 }
+
+/**
+ * Ends every run still open on an Item that is Done or dismissed ("End the
+ * agent runs left open on Items already done or dismissed", issue 834). Once
+ * an Item's Status ends its run ("End an Item's agent run from its Status",
+ * issue 833) nothing else could end these, and their chips would stay.
+ *
+ * **Stamped with when the Item was closed**: its completion or its dismissal,
+ * the earlier where it has both, and the run's own start where the Item was
+ * closed before the run began, so no run ends before it started. Compared by
+ * `julianday` rather than as text, since two valid timestamps of different
+ * precision sort wrongly by bytes. Every value written is one the
+ * `agent_runs_ended_at_is_timestamp` CHECK already accepts: `started_at` is
+ * held by its own CHECK, `deleted_at` likewise, and `completed_at` is only
+ * ever a change's validated `issuedAt` or the CHECKed `updated_at` that
+ * `0007-item-completed-at` copied. Setting `ended_at` takes a run out of
+ * `agent_runs_one_open_per_item`, so the index cannot refuse it.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `UPDATE` that stamps an end time, and only on a run
+ *   that had none. `pnpm backup:export` runs before the deploy that carries it.
+ * - **If it stops halfway:** it cannot. One statement, committed with the
+ *   record that it ran in one `transactionSync` (store.ts), so either every
+ *   matching run is ended or none is.
+ * - **The second time it runs:** it finds no open run on a closed Item and
+ *   changes nothing.
+ * - **Rows that already break the new rule:** they are the ones it targets.
+ *   A run already ended keeps its end, and a run on an open Item stays open.
+ * - **What is in each environment:** real runs in staging and production,
+ *   ended in place on each account's first open after the deploy.
+ * - **The windows it can be interrupted in.** *Before it runs*: the store is
+ *   unchanged and the older code still serves. *After it*: the code that ends
+ *   a run from the Item's Status serves. Each account applies it on its own
+ *   first request, so no account is half-migrated.
+ * - **Rolled back after it has run:** the older release reads these runs as
+ *   ended, which is what its own **Agent finished** would have recorded.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const END_RUNS_ON_CLOSED_ITEMS: Change = {
+  name: '0058-end-runs-on-closed-items',
+  statements: [
+    {
+      sql: `UPDATE agent_runs
+               SET ended_at = CASE
+                                WHEN julianday(closed.at) < julianday(agent_runs.started_at)
+                                  THEN agent_runs.started_at
+                                ELSE closed.at
+                              END
+              FROM (SELECT id,
+                           CASE
+                             WHEN completed_at IS NULL THEN deleted_at
+                             WHEN deleted_at IS NULL THEN completed_at
+                             WHEN julianday(deleted_at) < julianday(completed_at) THEN deleted_at
+                             ELSE completed_at
+                           END AS at
+                      FROM items
+                     WHERE completed_at IS NOT NULL OR deleted_at IS NOT NULL) AS closed
+             WHERE closed.id = agent_runs.item_id
+               AND agent_runs.ended_at IS NULL`,
+    },
+  ],
+};
 
 /**
  * Every Dashboard keeps the one Layout made for its widest Screen size, and

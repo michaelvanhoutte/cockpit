@@ -1771,3 +1771,147 @@ describe('Workspace management', () => {
     });
   });
 });
+
+describe('Agents', () => {
+  /**
+   * `0058-end-runs-on-closed-items` ("End the agent runs left open on Items
+   * already done or dismissed", issue 834). Integration because it is the
+   * store's own change, run against rows written before it existed - which no
+   * request can arrange now that an Item's Status ends its run.
+   */
+  const RUN_STARTED = '2026-09-01T10:00:00.000Z';
+  const CLOSED = '2026-09-01T11:00:00.000Z';
+  const LATER_STILL = '2026-09-01T12:00:00.000Z';
+  const ENDED_BEFORE = '2026-09-01T10:30:00.000Z';
+  const BEFORE_THE_RUN = '2026-09-01T09:00:00.000Z';
+
+  const situations = [
+    {
+      situation: 'a run on a Done Item ends at its completion',
+      done: CLOSED,
+      dismissed: null,
+      ended: null,
+      expected: CLOSED,
+    },
+    {
+      situation: 'a run on a dismissed Item ends at the dismissal',
+      done: null,
+      dismissed: CLOSED,
+      ended: null,
+      expected: CLOSED,
+    },
+    {
+      situation: 'a run on an Item dismissed and later done ends at the dismissal',
+      done: LATER_STILL,
+      dismissed: CLOSED,
+      ended: null,
+      expected: CLOSED,
+    },
+    {
+      // Two precisions, so the later of the two sorts first as text; the
+      // earlier moment still wins.
+      situation: 'a run on an Item done and a moment later dismissed ends at the completion',
+      done: '2026-09-01T11:00:05Z',
+      dismissed: '2026-09-01T11:00:05.500Z',
+      ended: null,
+      expected: '2026-09-01T11:00:05Z',
+    },
+    {
+      situation: 'a run on an Item closed before the run started ends at its start',
+      done: BEFORE_THE_RUN,
+      dismissed: null,
+      ended: null,
+      expected: RUN_STARTED,
+    },
+    {
+      situation: 'a run on an open Item stays open',
+      done: null,
+      dismissed: null,
+      ended: null,
+      expected: null,
+    },
+    {
+      situation: 'a run already ended on a Done Item keeps its end',
+      done: CLOSED,
+      dismissed: null,
+      ended: ENDED_BEFORE,
+      expected: ENDED_BEFORE,
+    },
+  ];
+
+  /** Every run the store holds, by its Item, with when it ended. */
+  const runsIn = (name: string) =>
+    inStoreAsItIs(name, (sql) =>
+      sql
+        .exec<{ item_id: string; ended_at: string | null }>(
+          'SELECT item_id, ended_at FROM agent_runs ORDER BY item_id',
+        )
+        .toArray(),
+    );
+
+  /** A store from just before the change, holding one Item and one run per situation. */
+  async function storeWithRunsLeftOpen(name: string): Promise<void> {
+    await agedTo(name, justBefore('0058-end-runs-on-closed-items'));
+    await fillWithWhatIsAlreadyThere(name);
+    await inStoreAsItIs(name, (sql) => {
+      situations.forEach((s, nth) => {
+        sql.exec(
+          `INSERT INTO items (id, tenant_id, workspace_id, source, title, status, unseen,
+                              completed_at, deleted_at, created_at, updated_at)
+             VALUES (?, ?, 'ws-before', 'internal', ?, 'task', 0, ?, ?, ?, ?)`,
+          `it-run-${nth}`,
+          name,
+          s.situation,
+          s.done,
+          s.dismissed,
+          AT,
+          AT,
+        );
+        sql.exec(
+          `INSERT INTO agent_runs (id, tenant_id, workspace_id, item_id, agent_id, status, started_at, ended_at)
+             VALUES (?, ?, 'ws-before', ?, 'ag-before', 'working', ?, ?)`,
+          `run-${nth}`,
+          name,
+          `it-run-${nth}`,
+          RUN_STARTED,
+          s.ended,
+        );
+      });
+    });
+  }
+
+  describe('every run left open on a closed Item ends, stamped when its Item was closed', () => {
+    it('ends each as its situation says, and leaves the rest alone', async () => {
+      const name = 'aged-store-runs-left-open';
+      await storeWithRunsLeftOpen(name);
+
+      // Opening the store is what applies it, as the first request of the day
+      // does for a real account.
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const ended = new Map((await runsIn(name)).map((run) => [run.item_id, run.ended_at]));
+      // Compared whole, so every situation that is wrong shows at once.
+      expect(situations.map((s, nth) => ({ situation: s.situation, ended: ended.get(`it-run-${nth}`) }))).toEqual(
+        situations.map((s) => ({ situation: s.situation, ended: s.expected })),
+      );
+    });
+  });
+
+  describe('ending the runs left open a second time changes nothing', () => {
+    it('leaves every run as the first time left it', async () => {
+      const name = 'aged-store-runs-left-open-twice';
+      await storeWithRunsLeftOpen(name);
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      const once = await runsIn(name);
+
+      // Run again over the store it has already been applied to, which the
+      // store itself never does - so this asks the statement, not the record.
+      const change = accountChanges(name).find((update) => update.name === '0058-end-runs-on-closed-items');
+      await inStoreAsItIs(name, (sql) => {
+        for (const statement of change!.statements) sql.exec(statement.sql, ...(statement.params ?? []));
+      });
+
+      expect(await runsIn(name)).toEqual(once);
+    });
+  });
+});
