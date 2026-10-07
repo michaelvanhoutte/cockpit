@@ -80,6 +80,9 @@ The whole app, logon page included, when the device is set to dark or the choice
 | `cat-*` and `cat-*-tint` | the `-light` set as text on a near-black tint (`slate` `#252b35` through `grey` `#2a2c31`) |
 
 **The Workspace's accent is computed against that page** (`shellColours`, `packages/shared`), not stated per theme. The band (`bar`), top bar and dot are the Workspace's own in both appearances. Accent as text (`accent-deep`) is the tint mixed 45% towards white, and the selected fill (`accent-tint`) is the tint at 22% over the page; the mix holds 4.5:1 on the page, a dialog, both wells and the fill in all eight themes, so none has a hand-set value. The fill of the tint, its ink (`onAccent`) and the hover are as in light.
+
+**Settings on a phone is a full screen, not a window**: below 640px the modal fills the screen inside the safe areas, its sections a scrolling row across the top beside Close, and its content below; from 640px it is the centred window with the sections down the left. On a phone it holds *Appearance* alone.
+
 ## The dark Car view
 
 Switched on from inside the Car view, for capturing at night, and independent of the app's own appearance above. **Dimmed, not inverted**: a near-black ground, grey text, each surface one notch lighter. The top bar is unchanged. The tokens are `night*` in `styles.css`; every text is at least 4.5:1 on what it is drawn on (held by a test), except the set-apart placeholder and provisional words at 3:1.

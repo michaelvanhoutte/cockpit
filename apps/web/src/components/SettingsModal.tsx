@@ -64,10 +64,10 @@ export function SettingsModal({
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed z-floating left-1/2 top-1/2 flex h-[min(40rem,calc(100dvh-4rem))] w-[min(56rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-shade/10 bg-surface shadow-lg"
+          className="fixed inset-0 z-floating flex flex-col overflow-hidden bg-surface pb-[var(--edge-bottom)] pt-[var(--edge-top)] sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-[min(40rem,calc(100dvh-4rem))] sm:w-[min(56rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:flex-row sm:rounded-lg sm:border sm:border-shade/10 sm:p-0 sm:shadow-lg"
         >
-          <nav aria-label={title} className="flex w-48 shrink-0 flex-col gap-1 border-r border-shade/10 p-3">
-            <Dialog.Title className="px-2 pb-2 text-base font-semibold">{title}</Dialog.Title>
+          <nav aria-label={title} className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-shade/10 p-3 sm:w-48 sm:flex-col sm:items-stretch sm:overflow-visible sm:border-b-0 sm:border-r">
+            <Dialog.Title className="px-2 text-base font-semibold sm:pb-2">{title}</Dialog.Title>
             {sections.map((section) => {
               const here = section.key === current?.key;
               return (
@@ -77,7 +77,7 @@ export function SettingsModal({
                   type="button"
                   aria-current={here ? 'true' : undefined}
                   onClick={() => setPicked(section.key)}
-                  className={`rounded-md px-2 py-1.5 text-left text-sm ${
+                  className={`shrink-0 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm ${
                     here ? 'bg-accent-tint text-accent-deep' : 'text-ink-soft hover:bg-accent-tint/60'
                   }`}
                 >
@@ -87,7 +87,7 @@ export function SettingsModal({
             })}
             <Dialog.Close
               disabled={held}
-              className="mt-auto rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint disabled:opacity-50"
+              className="ml-auto shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint disabled:opacity-50 sm:ml-0 sm:mt-auto"
             >
               Close
             </Dialog.Close>

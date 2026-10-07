@@ -10,7 +10,7 @@ import boot from '../../src/appearanceBoot.js?raw';
 function pageOpenedWith({ stored, device }: { stored?: string | undefined; device: 'dark' | 'light' }) {
   const flags = new Set<string>();
   let onDeviceChange: (() => void) | undefined;
-  const windowListeners: Record<string, (event: { key: string | null }) => void> = {};
+  const windowListeners: Record<string, (event: { key?: string | null; detail?: string | null }) => void> = {};
   const query = {
     matches: device === 'dark',
     addEventListener: (_: string, listener: () => void) => (onDeviceChange = listener),
@@ -30,7 +30,7 @@ function pageOpenedWith({ stored, device }: { stored?: string | undefined; devic
         return value;
       },
     },
-    addEventListener: (type: string, listener: (event: { key: string | null }) => void) => (windowListeners[type] = listener),
+    addEventListener: (type: string, listener: (event: { key?: string | null; detail?: string | null }) => void) => (windowListeners[type] = listener),
   };
   new Function('window', boot)(fakeWindow);
   return {
@@ -43,6 +43,7 @@ function pageOpenedWith({ stored, device }: { stored?: string | undefined; devic
       value = next;
       windowListeners['storage']?.({ key: 'cockpit.appearance' });
     },
+    thisTabChooses: (choice: 'light' | 'dark' | null) => windowListeners['cockpit:appearance']?.({ detail: choice }),
   };
 }
 
@@ -85,6 +86,25 @@ describe('Appearance', () => {
 
       page.otherTabStores(next);
       expect(page.dark()).toBe(dark);
+    });
+
+    it.each([
+      { situation: 'this tab chooses Dark on a light device', device: 'light', choice: 'dark', dark: true },
+      { situation: 'this tab chooses Light on a dark device', device: 'dark', choice: 'light', dark: false },
+      { situation: 'this tab chooses Match device on a dark device', device: 'dark', choice: null, dark: true },
+    ] as const)('$situation, even where storage refuses', ({ device, choice, dark }) => {
+      const page = pageOpenedWith({ stored: 'unavailable', device });
+
+      page.thisTabChooses(choice);
+      expect(page.dark()).toBe(dark);
+    });
+
+    it('goes back to what storage says once another tab stores a choice', () => {
+      const page = pageOpenedWith({ device: 'light' });
+
+      page.thisTabChooses('dark');
+      page.otherTabStores('light');
+      expect(page.dark()).toBe(false);
     });
   });
 });

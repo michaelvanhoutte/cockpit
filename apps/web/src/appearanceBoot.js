@@ -7,7 +7,7 @@
  * The stored choice (`cockpit.appearance`: `light` or `dark`, absent for Match
  * device, anything else treated as absent) wins over the device's colour scheme.
  * The same script follows both while the page is open: the device switching, and
- * another tab storing a different choice. It is plain ES5 and takes the window as
+ * another tab storing a different choice, or this tab announcing its own. It is plain ES5 and takes the window as
  * its argument so a test can hand it a fake one (tests/unit/appearanceBoot.test.ts).
  */
 (function (win) {
@@ -19,12 +19,16 @@
   } catch (e) {
     device = null;
   }
+  var chosen;
   function dark() {
     var stored = null;
-    try {
-      stored = win.localStorage.getItem(KEY);
-    } catch (e) {
-      stored = null;
+    if (chosen !== undefined) stored = chosen;
+    else {
+      try {
+        stored = win.localStorage.getItem(KEY);
+      } catch (e) {
+        stored = null;
+      }
     }
     return stored === 'dark' || (stored !== 'light' && !!device && device.matches);
   }
@@ -36,6 +40,16 @@
   flag();
   if (device) device.addEventListener('change', flag);
   win.addEventListener('storage', function (event) {
-    if (event.key === KEY || event.key === null) flag();
+    if (event.key === KEY || event.key === null) {
+      chosen = undefined;
+      flag();
+    }
+  });
+  // This tab's own choice (Settings, Appearance): a `storage` event does not
+  // fire in the tab that wrote, and storage may refuse the write, so the choice
+  // arrives here as well. `detail` is `light`, `dark`, or null for Match device.
+  win.addEventListener('cockpit:appearance', function (event) {
+    chosen = event.detail;
+    flag();
   });
 })(window);

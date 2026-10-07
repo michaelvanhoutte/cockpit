@@ -10,9 +10,10 @@ import { SettingsModal } from './SettingsModal';
 const ManageTypes = lazy(() => import('./ManageTypes'));
 const ManageConnections = lazy(() => import('./ManageConnections'));
 const ManageConnectedApps = lazy(() => import('./ManageConnectedApps'));
+const ManageAppearance = lazy(() => import('./ManageAppearance'));
 
 /** The sections of Settings, in the order they are listed. */
-export type SettingsKey = 'types' | 'connections' | 'agents' | 'mcp';
+export type SettingsKey = 'types' | 'connections' | 'agents' | 'mcp' | 'appearance';
 
 /** How a trip out to Microsoft or Google ended, and the workspace it was made from. */
 export interface ConnectOutcomeFor {
@@ -35,6 +36,7 @@ export default function SettingsWindow({
   startsIn,
   outcome,
   guest,
+  onlyAppearance,
   onClose,
   returnFocusTo,
 }: {
@@ -46,16 +48,19 @@ export default function SettingsWindow({
   outcome?: ConnectOutcomeFor | undefined;
   /** The shared guest, who is offered no connection to make (issue 772). */
   guest?: boolean | undefined;
+  /** On a phone, which holds Appearance and nothing else: the rest of Settings is for a desk. */
+  onlyAppearance?: boolean | undefined;
   onClose: () => void;
   returnFocusTo?: HTMLElement | null | undefined;
 }) {
+  const appearance = { key: 'appearance', label: 'Appearance', content: <ManageAppearance /> };
   return (
     <SettingsModal
       title="Settings"
       initial={on}
       onClose={onClose}
       returnFocusTo={returnFocusTo}
-      sections={[
+      sections={onlyAppearance ? [appearance] : [
         { key: 'types', label: 'Types', content: <ManageTypes open onClose={onClose} /> },
         {
           key: 'connections',
@@ -68,6 +73,7 @@ export default function SettingsWindow({
           content: <ConnectionsOf connectors={AGENTS} startsIn={startsIn} guest={guest} onClose={onClose} />,
         },
         { key: 'mcp', label: 'MCP', content: <ManageConnectedApps open onClose={onClose} /> },
+        appearance,
       ]}
     />
   );

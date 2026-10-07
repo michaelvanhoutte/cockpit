@@ -205,19 +205,40 @@ describe('Across the app', () => {
     afterEach(() => vi.unstubAllGlobals());
 
     it.each([
-      { situation: 'a desk-sized screen', desk: true, offered: true },
-      { situation: 'a phone-width screen', desk: false, offered: false },
-    ])('offers Settings… on the profile menu on $situation: $offered', async ({ desk, offered }) => {
+      { situation: 'a desk-sized screen', desk: true },
+      { situation: 'a phone-width screen', desk: false },
+    ])('offers Settings… on the profile menu on $situation', async ({ desk }) => {
       onADesk(desk);
       const user = userEvent.setup();
       shell();
 
       await user.click(await screen.findByRole('button', { name: 'Profile' }));
-      // Awaited on something that is always there, so the absent case is a
-      // menu that has finished opening rather than one that has not started.
-      expect(await screen.findByRole('menuitem', { name: 'Sign out' })).toBeVisible();
 
-      expect(screen.queryByRole('menuitem', { name: 'Settings…' }) !== null).toBe(offered);
+      expect(await screen.findByRole('menuitem', { name: 'Settings…' })).toBeVisible();
+    });
+
+    it('opens on Appearance alone on a phone-width screen, and on Types with Appearance after MCP at a desk', async () => {
+      const user = userEvent.setup();
+      const sections = async (desk: boolean) => {
+        onADesk(desk);
+        const { unmount } = shell();
+        await user.click(await screen.findByRole('button', { name: 'Profile' }));
+        await user.click(await screen.findByRole('menuitem', { name: 'Settings…' }));
+        const settings = await screen.findByRole('dialog', { name: 'Settings' });
+        const listed = within(settings)
+          .getAllByRole('button')
+          .map((entry) => entry.textContent)
+          .filter((name) => name !== 'Close');
+        const current = settings.querySelector('[aria-current="true"]')?.textContent;
+        unmount();
+        return { listed, current };
+      };
+
+      expect(await sections(false)).toEqual({ listed: ['Appearance'], current: 'Appearance' });
+      expect(await sections(true)).toEqual({
+        listed: ['Types', 'Connections', 'Agent settings', 'MCP', 'Appearance'],
+        current: 'Types',
+      });
     });
 
     it('puts Settings… between who you are and Sign out', async () => {
