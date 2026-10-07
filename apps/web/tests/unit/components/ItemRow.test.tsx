@@ -1624,14 +1624,23 @@ describe('Capture', () => {
    * against a real store in
    * apps/api/tests/integration/http/panel-items.test.ts.
    */
-  describe('a row says nothing about which workspace it belongs to', () => {
-    it.each([
-      { situation: 'belonging to no workspace yet', decided: false },
-      { situation: 'belonging to this one', decided: true },
-    ])('$situation', ({ decided }) => {
-      aRow({ item: anItem({ workspaceDecided: decided }) });
+  it('a row says nothing about which workspace it belongs to, even belonging to none yet', () => {
+    aRow({ item: anItem({ workspaceDecided: false }) });
 
-      expect(screen.queryByText('Any workspace')).toBeNull();
+    expect(screen.queryByText('Any workspace')).toBeNull();
+  });
+
+  describe('the workspace you are looking at is one press away, and only where there is a question', () => {
+    it.each([
+      { situation: 'belonging to no workspace yet', decided: false, offered: true },
+      { situation: 'belonging to this one already', decided: true, offered: false },
+    ])('$situation', async ({ decided, offered }) => {
+      const user = userEvent.setup();
+      aRow({ item: anItem({ workspaceDecided: decided }), onMoveHere: vi.fn() });
+
+      await user.click(screen.getByLabelText('Item actions'));
+
+      expect(screen.queryByText('Move to this workspace') !== null).toBe(offered);
     });
 
     /**
@@ -1647,21 +1656,8 @@ describe('Capture', () => {
 
       await user.click(screen.getByLabelText('Item actions'));
 
+      expect(screen.getAllByRole('menuitem')).not.toHaveLength(0);
       expect(screen.queryByText('Move to this workspace')).toBeNull();
-    });
-  });
-
-  describe('the workspace you are looking at is one press away, and only where there is a question', () => {
-    it.each([
-      { situation: 'belonging to no workspace yet', decided: false, offered: true },
-      { situation: 'belonging to this one already', decided: true, offered: false },
-    ])('$situation', async ({ decided, offered }) => {
-      const user = userEvent.setup();
-      aRow({ item: anItem({ workspaceDecided: decided }), onMoveHere: vi.fn() });
-
-      await user.click(screen.getByLabelText('Item actions'));
-
-      expect(screen.queryByText('Move to this workspace') !== null).toBe(offered);
     });
 
     it('asks for it when it is chosen', async () => {
