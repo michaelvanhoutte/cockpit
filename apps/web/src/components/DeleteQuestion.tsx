@@ -73,7 +73,7 @@ export function DeleteQuestion({
   return (
     <AlertDialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && onCancel()}>
       <AlertDialog.Portal>
-        <AlertDialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
+        <AlertDialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <AlertDialog.Content
           // The question is the whole of what is being said, so there is no
           // separate description to point at. Radix asks for the attribute to
@@ -88,7 +88,7 @@ export function DeleteQuestion({
         >
           <AlertDialog.Title className="text-base font-semibold">{question}</AlertDialog.Title>
           {refusal && (
-            <p role="alert" className="pt-3 text-sm text-over">
+            <p role="alert" className="pt-3 text-sm text-over-ink">
               {refusal}
             </p>
           )}

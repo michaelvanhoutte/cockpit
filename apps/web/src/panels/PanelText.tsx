@@ -141,7 +141,7 @@ export function PanelText({ panel, workspaceId }: { panel: Panel; workspaceId: s
           refusals are drawn: a change that did not reach the server says so
           without taking away what somebody has typed. */}
       {refusal && (
-        <p role="alert" className="px-4 pt-3 text-sm text-over">
+        <p role="alert" className="px-4 pt-3 text-sm text-over-ink">
           {refusal}
         </p>
       )}

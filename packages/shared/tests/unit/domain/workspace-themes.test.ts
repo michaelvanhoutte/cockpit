@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DARK_GROUND, paintedWorkspace, shellColours } from '../../../src/domain/workspace-shell.js';
 import { DEFAULT_WORKSPACE_THEME, WORKSPACE_THEMES, isPaletteTheme, themeOf } from '../../../src/domain/workspace-themes.js';
 
 /** WCAG relative luminance of a `#rrggbb`. */
@@ -23,6 +24,19 @@ const towardsWhite = (hex: string, white: number) =>
     .map((i) => Math.round(Number.parseInt(hex.slice(i, i + 2), 16) * (1 - white) + 255 * white))
     .map((v) => v.toString(16).padStart(2, '0'))
     .join('');
+
+/** A colour mixed towards black by the given share of black, as #rrggbb. */
+const towardsBlack = (hex: string, black: number) =>
+  '#' +
+  [1, 3, 5]
+    .map((i) => Math.round(Number.parseInt(hex.slice(i, i + 2), 16) * (1 - black)))
+    .map((v) => v.toString(16).padStart(2, '0'))
+    .join('');
+
+/** The dark appearance's surface and sunk wells (styles.css, `html[data-app-dark]`). */
+const DARK_SURFACE = '#24252b';
+const DARK_WELL = towardsBlack(DARK_GROUND, 0.28);
+const DARK_INBOX_WELL = towardsBlack(DARK_GROUND, 0.18);
 
 /** What text drawn on the band is: styles.css's `--color-chrome-ink`. */
 const NEAR_WHITE = '#f2f1f8';
@@ -73,6 +87,31 @@ describe('Workspace management', () => {
         expect(contrast(towardsWhite(theme.tint, 0.3), theme.header)).toBeGreaterThanOrEqual(3);
       });
     });
+
+    // In dark the accent as text and the selected fill are the shell's own
+    // computation (shellColours), so what is held is what it sets.
+    describe.each(WORKSPACE_THEMES.map((theme) => [theme.name, shellColours(paintedWorkspace({ color: theme.tint, bar: theme.bar, ground: theme.ground, header: theme.header }), 'dark')] as const))(
+      '%s stays readable in dark',
+      (_name, dark) => {
+        it.each([
+          { surface: 'the page', behind: DARK_GROUND },
+          { surface: 'a dialog', behind: DARK_SURFACE },
+          { surface: 'a list’s well', behind: DARK_WELL },
+          { surface: 'the Inbox’s well', behind: DARK_INBOX_WELL },
+          { surface: 'the selected fill', behind: dark.accentTint },
+        ])('as accent text on $surface', ({ behind }) => {
+          expect(contrast(dark.accentDeep, behind)).toBeGreaterThanOrEqual(4.5);
+        });
+        it('as button text on a fill of the workspace colour', () => {
+          expect(contrast(dark.onAccent, dark.accent)).toBeGreaterThanOrEqual(4.5);
+        });
+        it('as the soft accent text on a toast', () => {
+          // Written by the undo toast over `--color-toast`, a mix of the tint 55% over white.
+          const soft = towardsWhite(dark.accent, 0.45);
+          expect(contrast(soft, '#34363e')).toBeGreaterThanOrEqual(4.5);
+        });
+      },
+    );
 
     it.each([
       { situation: 'the five light colours', names: ['Amber', 'Olive', 'Cyan', 'Teal', 'Terracotta'], text: '#16181d' },

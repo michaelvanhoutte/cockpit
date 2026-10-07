@@ -15,6 +15,7 @@ export * from './domain/source-account.js';
 export * from './domain/starting.js';
 export * from './domain/text-learning-rules.js';
 export * from './domain/workspace-themes.js';
+export * from './domain/workspace-shell.js';
 export * from './commands.js';
 export * from './api/snapshot.js';
 export * from './api/events.js';

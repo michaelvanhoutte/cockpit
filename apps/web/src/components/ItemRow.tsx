@@ -1194,7 +1194,7 @@ export function ItemRow({
                 <span
                   title={chip.hint ?? undefined}
                   className={`shrink-0 rounded-full px-1.5 ${
-                    chip.trouble ? 'bg-over/15 text-over-deep' : 'bg-accent-tint text-accent-deep'
+                    chip.trouble ? 'bg-over/15 text-over-deep-ink' : 'bg-accent-tint text-accent-deep'
                   }`}
                 >
                   {chip.agent} · {chip.text}
@@ -1260,7 +1260,7 @@ export function ItemRow({
               refused with - kept to this row, and gone with the next start.
               One refused from the prompt box is said there instead. */}
           {startRefusal && !asking && (
-            <span role="alert" className="block text-xs text-over-deep">
+            <span role="alert" className="block text-xs text-over-ink">
               {startRefusal}
             </span>
           )}
@@ -1394,7 +1394,7 @@ function WhatLettingGoWouldDo({ across }: { across: number }) {
             // stretch of the gesture this whole band exists to cover.
             filing
             ? 'bg-accent-soft/45 text-accent-deep'
-            : 'bg-over/25 text-over-deep'
+            : 'bg-over/25 text-over-ink'
       }`}
       style={{ width: `${Math.abs(across)}px` }}
     >

@@ -463,6 +463,13 @@
       ]
     },
     {
+      "key": "Appearance",
+      "label": "Appearance",
+      "browserWalks": 1,
+      "parent": "Across the app",
+      "sourcePatterns": ["apps/web/src/appearance.ts", "packages/shared/src/domain/workspace-shell.ts"]
+    },
+    {
       "key": "Updating",
       "label": "Updating",
       "parent": "Across the app",

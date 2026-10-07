@@ -119,7 +119,7 @@ function Gate({
       >
         {nothingNew ? (
           <>
-            <h2 className="text-base font-semibold text-over">{"Cockpit couldn't update"}</h2>
+            <h2 className="text-base font-semibold text-over-ink">{"Cockpit couldn't update"}</h2>
             <p className="mt-1 text-sm text-ink-soft">
               The version being served is older than the data it reads, and there is nothing newer
               to fetch. It has to be rebuilt or redeployed.
@@ -127,7 +127,7 @@ function Gate({
           </>
         ) : (
           <>
-            {/* `text-ink`, not the `text-over` the failure screen uses: this is
+            {/* `text-ink`, not the `text-over-ink` the failure screen uses: this is
                 the app doing what it should, not something going wrong. */}
             <h2 className="text-base font-semibold text-ink">Updating Cockpit</h2>
             <p className="mt-1 text-sm text-ink-soft">
@@ -230,7 +230,7 @@ function NewVersion({
           : 'Save what you are writing, then continue to load it. Nothing on screen is lost until you do.'}
       </p>
       {failed && (
-        <p role="alert" className="mt-2 text-sm text-over">
+        <p role="alert" className="mt-2 text-sm text-over-ink">
           Could not load the new version. Try again.
         </p>
       )}

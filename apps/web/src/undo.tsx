@@ -222,7 +222,7 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
           // bar stays in its own list.
           className={BOTTOM_CENTRE_STRIP}
         >
-          <div className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
+          <div className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-toast px-4 py-2.5 text-sm text-white shadow-lg">
             <span className="min-w-0 flex-1 truncate">{failure ?? held.what}</span>
             <button
               type="button"

@@ -135,7 +135,7 @@ function FilterQuestion({
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <Dialog.Content
           onCloseAutoFocus={(event) => {
             if (!returnFocusTo) return;
@@ -221,7 +221,7 @@ function FilterQuestion({
             </div>
 
             {refusal && (
-              <p role="alert" className="pt-3 text-sm text-over">
+              <p role="alert" className="pt-3 text-sm text-over-ink">
                 {refusal}
               </p>
             )}

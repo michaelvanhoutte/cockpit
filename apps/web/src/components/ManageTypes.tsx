@@ -370,7 +370,7 @@ export function ManageTypes({
           </button>
         </div>
         {refusalFor('create_item_type') && (
-          <p role="alert" className="text-sm text-over">
+          <p role="alert" className="text-sm text-over-ink">
             {refusalFor('create_item_type')}
           </p>
         )}
@@ -446,7 +446,7 @@ export function ManageTypes({
                   read: the row has already gone back, and without a word that
                   reads as the drag having missed. */}
               {refusalFor('reorder_item_types', type.id) && (
-                <p role="alert" className="pt-2 text-sm text-over">
+                <p role="alert" className="pt-2 text-sm text-over-ink">
                   {refusalFor('reorder_item_types', type.id)}
                 </p>
               )}

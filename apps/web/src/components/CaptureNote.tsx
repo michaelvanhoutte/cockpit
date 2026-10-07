@@ -690,7 +690,7 @@ export function CaptureNote({
         />
       </div>
       {formattingFailed && (
-        <p role="alert" className="order-1 pt-1 text-sm text-over sm:order-none">
+        <p role="alert" className="order-1 pt-1 text-sm text-over-ink sm:order-none">
           Formatting could not be loaded. The note is still here, as Markdown, and still captures.{' '}
           <NewerVersionIfStale />
         </p>
@@ -763,7 +763,7 @@ export function CaptureNote({
         />
       </div>
       {queueError && (
-        <p role="alert" className="order-1 pt-1 text-sm text-over sm:order-none">
+        <p role="alert" className="order-1 pt-1 text-sm text-over-ink sm:order-none">
           {queueError}
         </p>
       )}
@@ -833,7 +833,7 @@ export function CaptureNote({
       </div>
 
       {refused && (
-        <p role="alert" className="order-3 pt-2 text-sm text-over sm:order-none">
+        <p role="alert" className="order-3 pt-2 text-sm text-over-ink sm:order-none">
           {refused}
         </p>
       )}
@@ -1088,7 +1088,7 @@ function PriorityAndDue({
       </div>
     </div>
     {dictation.error && (
-      <p role="alert" className="px-3 pb-2 text-sm text-over">
+      <p role="alert" className="px-3 pb-2 text-sm text-over-ink">
         {dictation.error}
       </p>
     )}
@@ -1322,7 +1322,7 @@ function CapturedRow({
       </span>
       {state && !state.waiting && (
         <span className="flex w-full items-center gap-2 pl-4 text-xs sm:pl-4">
-          <span className="min-w-0 flex-1 text-over">Not sent: {state.notSent}</span>
+          <span className="min-w-0 flex-1 text-over-ink">Not sent: {state.notSent}</span>
           {onPutBack && (
             <button
               type="button"

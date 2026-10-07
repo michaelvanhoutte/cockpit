@@ -3,7 +3,8 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ADMIN, GUEST_USER_ID, DEFAULT_WORKSPACE_THEME, ON_ACCENT_LIGHT, isPaletteTheme, themeOf, uuidv7 } from '@cockpit/shared';
+import { ADMIN, GUEST_USER_ID, paintedWorkspace, shellColours, uuidv7 } from '@cockpit/shared';
+import { useAppearance } from '../appearance';
 import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, refusalFrom, snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
 import { useServerEvents } from '../api/useServerEvents';
@@ -57,52 +58,12 @@ import { useOutbox, useSendingCaptures, useWaitingCaptures } from '../captureOut
 import { loadCaptureForms, loadCaptureNote } from '../captureForm';
 import { DeleteQuestion } from '../components/DeleteQuestion';
 
-/** The default theme in the shape a workspace carries it. */
-const DEFAULT_WORKSPACE_THEME_COLORS = {
-  color: DEFAULT_WORKSPACE_THEME.tint,
-  bar: DEFAULT_WORKSPACE_THEME.bar,
-  ground: DEFAULT_WORKSPACE_THEME.ground,
-  header: DEFAULT_WORKSPACE_THEME.header,
-  deep: DEFAULT_WORKSPACE_THEME.deep,
-  onAccent: DEFAULT_WORKSPACE_THEME.onAccent,
-};
-
 /**
  * The id of the Inbox's heading, which is in the band while the column it names
  * is in the page below. Fixed rather than generated, because the two are in
  * different components and only one of them can own a `useId`.
  */
 const INBOX_HEADING = 'the-inbox';
-
-/** What the shell paints from: the four colors a workspace stores, and the deep accent its theme gives them. */
-type Painted = typeof DEFAULT_WORKSPACE_THEME_COLORS;
-
-/**
- * What to paint a workspace in: its own four colors where they are a theme the
- * palette actually has, and otherwise the theme its tint belongs to.
- *
- * **The fallback is not decoration.** A workspace stores its surfaces resolved
- * rather than as a theme name, so a copy of one held from before the palette
- * changed carries the surfaces of the old palette - and the app paints from the
- * stored copy before the read behind it lands, which offline is a while. Under
- * the near-black chrome the text on it is a fixed light set, so those old pale
- * surfaces are not merely the wrong shade: they are a bar whose own text cannot
- * be read on it. Falling back to the tint's theme closes that window, and
- * closes the same hole for a workspace wearing a tint the palette never had.
- *
- * The tint itself is never overridden. It is the one color a person already
- * recognises in the tabs, and it is what the fallback is looked up by.
- */
-function paint(
-  workspace: { color: string; bar: string; ground: string; header: string } | undefined,
-): Painted {
-  if (!workspace) return DEFAULT_WORKSPACE_THEME_COLORS;
-  const { color, bar, ground, header } = workspace;
-  const theme = themeOf(color);
-  const { deep, onAccent } = theme;
-  if (isPaletteTheme({ tint: color, bar, ground, header })) return { ...workspace, deep, onAccent };
-  return { color, bar: theme.bar, ground: theme.ground, header: theme.header, deep, onAccent };
-}
 
 /** What the profile control shows in place of a photograph nobody has set. */
 function initialOf(name: string | undefined): string {
@@ -722,7 +683,8 @@ function TheShell() {
    * which is in no workspace on purpose - it falls back to the default theme
    * rather than to nothing, so the app is never unpainted.
    */
-  const theme = paint(active);
+  const appearance = useAppearance();
+  const theme = shellColours(paintedWorkspace(active), appearance);
 
   return (
     <div
@@ -743,20 +705,21 @@ function TheShell() {
           // of opening as a dialog", issue 481).
           paddingRight: 'var(--docked-form-w, 0px)',
           '--ground': theme.ground,
-          '--tint': theme.color,
+          '--tint': theme.tint,
           // The accent follows the workspace, for everything below. Menus and
           // dialogs are portalled to the body, outside this element, so they
-          // keep the default theme's accent. The deep shade is where the tint is text; the soft
+          // keep the default theme's accent. All of it, the page included, is
+          // computed for the appearance (`shellColours`, shared). The deep shade is where the tint is text; the soft
           // and the wash are mixed from the tint, so there is nothing more to
           // design per theme. The ink on a fill of the tint is the theme's
           // `onAccent`; under the pointer that fill goes darker where the ink
           // is white, and lighter where it is dark.
-          '--color-accent': theme.color,
-          '--color-accent-deep': theme.deep,
+          '--color-accent': theme.accent,
+          '--color-accent-deep': theme.accentDeep,
           '--color-on-accent': theme.onAccent,
-          '--color-accent-hover': theme.onAccent === ON_ACCENT_LIGHT ? theme.deep : `color-mix(in srgb, ${theme.color} 85%, white)`,
-          '--color-accent-soft': `color-mix(in srgb, ${theme.color} 55%, white)`,
-          '--color-accent-tint': `color-mix(in srgb, ${theme.color} 14%, white)`,
+          '--color-accent-hover': theme.accentHover,
+          '--color-accent-soft': theme.accentSoft,
+          '--color-accent-tint': theme.accentTint,
         } as React.CSSProperties
       }
     >
@@ -785,7 +748,7 @@ function TheShell() {
         style={{
           // Under the gradient, so the top bar is a colour to anything that reads one.
           backgroundColor: theme.header,
-          borderTopColor: theme.color,
+          borderTopColor: theme.tint,
           borderTopWidth: 3,
           borderTopStyle: 'solid',
           paddingInline: 'var(--edge-left) var(--edge-right)',
@@ -814,7 +777,7 @@ function TheShell() {
               next. The workspaces are what the bar is for, so the wordmark is
               what gives way; the logon page still says whose app this is. */}
           <span className="hidden shrink-0 items-center gap-2 pb-2 text-lg font-semibold tracking-tight text-chrome-ink sm:flex">
-            <Logo tint={theme.color} />
+            <Logo tint={theme.tint} />
             Cockpit
           </span>
 
@@ -883,7 +846,7 @@ function TheShell() {
                   onCapture
                     ? ({
                         backgroundColor: theme.bar,
-                        '--tab-mark': litForChrome(theme.color),
+                        '--tab-mark': litForChrome(theme.tint),
                       } as React.CSSProperties)
                     : undefined
                 }
@@ -1054,7 +1017,7 @@ function TheShell() {
             )}
             <DashboardBar
               workspaceId={params.workspaceId}
-              tint={theme.color}
+              tint={theme.tint}
               ground={theme.ground}
               openDashboardId={params.dashboardId ?? null}
               allItemsOpen={onAllItems}

@@ -1252,7 +1252,7 @@ export function PanelBoard({
       {/* Only the arrangement's. A refused add or rename is said where the
           name still is - in the dialog, or in the panel's own header. */}
       {refusalFor('save_layout') && (
-        <p role="alert" className="px-4 py-2 text-sm text-over">
+        <p role="alert" className="px-4 py-2 text-sm text-over-ink">
           {refusalFor('save_layout')}
         </p>
       )}

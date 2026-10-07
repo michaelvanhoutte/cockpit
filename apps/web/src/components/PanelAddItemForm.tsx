@@ -180,7 +180,7 @@ export function PanelAddItemForm({
         <p className="basis-full text-sm text-ink-faint">{NO_TYPES}</p>
       )}
       {refused && (
-        <p role="alert" className="basis-full text-sm text-over">
+        <p role="alert" className="basis-full text-sm text-over-ink">
           {refused}
         </p>
       )}

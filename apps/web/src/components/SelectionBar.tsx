@@ -115,7 +115,7 @@ export function SelectionBar({
           happened. What is left is still picked, so this sits above the ticks
           it is about. */}
         {refusal && (
-          <p role="alert" className="pt-1 text-sm text-over">
+          <p role="alert" className="pt-1 text-sm text-over-ink">
             {refusal}
           </p>
         )}
