@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="surface">#F2202124</color>
+    <color name="ink">#ECEAF0</color>
+    <color name="ink_quiet">#A9A6AE</color>
+    <color name="divider">#26FFFFFF</color>
+    <color name="button">#24FFFFFF</color>
+</resources>

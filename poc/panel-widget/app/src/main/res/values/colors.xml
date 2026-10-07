@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="surface">#F2FFFFFF</color>
+    <color name="ink">#1C1B1F</color>
+    <color name="ink_quiet">#6B6870</color>
+    <color name="divider">#1F000000</color>
+    <color name="button">#14000000</color>
+    <color name="amber">#D97706</color>
+    <color name="amber_soft">#33D97706</color>
+    <color name="red">#DC2626</color>
+    <color name="on_solid">#FFFFFF</color>
+    <color name="tint_violet">#7C5CFF</color>
+    <color name="tint_teal">#0D9488</color>
+</resources>
