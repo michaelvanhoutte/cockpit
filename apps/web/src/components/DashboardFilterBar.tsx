@@ -10,11 +10,10 @@ import {
   type PriorityChoice,
 } from '../dashboardFilter';
 import { useContainingFieldFocus } from '../filterKey';
-import { isAPeriod } from '../filters';
+import { WINDOW_LABELS, isAPeriod } from '../filters';
 import { browserStore } from '../lastVisited';
 import { PRIORITY_LABELS } from '../priority';
 import { useRoomForTheInbox } from '../roomForTheInbox';
-import { WINDOW_LABELS } from './FilterQuestion';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 
 const FilterSummary = lazy(() => import('./FilterSummary'));
