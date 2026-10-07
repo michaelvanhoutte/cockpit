@@ -40,6 +40,7 @@ const held = vi.hoisted(() => ({
   dashboards: [] as { id: string; name: string }[],
   duplicates: [] as PossibleDuplicate[],
   attachments: [] as Attachment[],
+  agentRuns: [] as { id: string; itemId: string }[],
   itemFormPresentation: 'centered' as 'centered' | 'docked',
   send: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
   close: vi.fn(),
@@ -177,6 +178,7 @@ vi.mock('../../../src/api/queries', () => ({
         dashboards: held.dashboards,
         duplicates: held.duplicates,
         attachments: held.attachments,
+        agentRuns: held.agentRuns,
         itemFormPresentation: held.itemFormPresentation,
       } as unknown as WorkspaceSnapshot;
     },
@@ -303,6 +305,7 @@ beforeEach(() => {
   held.gate = undefined;
   held.filings = [];
   held.itemTypes = [];
+  held.agentRuns = [];
   held.panels = [];
   held.dashboards = [];
   held.duplicates = [];
@@ -2719,6 +2722,25 @@ describe('Item editing', () => {
 
         await waitFor(() => expect(sent()[0]).toMatchObject({ name: 'set_done', payload: { done: false } }));
         await waitFor(() => expect(screen.getByLabelText('Status')).toHaveValue('to_do'));
+      });
+
+      it('undoes Done naming the run it ended, and names none where the item had no run', async () => {
+        const RUN = '018f0000-0000-7000-8000-000000000071';
+        for (const [run, named] of [[{ id: RUN, itemId: 'item-1' }, RUN], [undefined, undefined]] as const) {
+          held.agentRuns = run ? [run] : [];
+          held.send.mockClear();
+          const user = await dockedForm(anItem(), true);
+
+          await user.selectOptions(screen.getByLabelText('Status'), 'Done');
+          await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_done']));
+          const undo = await screen.findByText('Undo');
+          held.send.mockClear();
+          fireEvent.click(undo);
+
+          await waitFor(() => expect(sent()[0]).toMatchObject({ name: 'set_done', payload: { done: false } }));
+          expect((sent()[0] as unknown as { payload: { reopensRunId?: string } }).payload.reopensRunId).toBe(named);
+          cleanup();
+        }
       });
 
       it('starts an item at once, and undoes it to To do', async () => {
