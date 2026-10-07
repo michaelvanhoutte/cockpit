@@ -440,6 +440,12 @@ export const panelSchema = z.object({
   /** Whether that text is read rather than written in — a property of the Panel, not of the viewer (architecture.md §4.4). */
   readOnly: z.boolean().default(false),
   /**
+   * Whether a Panel of items is kept out of routing proposals ("Keep a Panel
+   * out of proposals with Never propose", issue 848). A copy from before this
+   * existed reads as unflagged.
+   */
+  neverPropose: z.boolean().default(false),
+  /**
    * What a Filter gathers, and null on every other Panel — the field the wire's
    * `kind` of `filter` is derived from (`STORED_PANEL_KINDS` above). Permissive
    * like `kind`: a copy kept by a browser from before this existed reads as a

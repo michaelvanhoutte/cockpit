@@ -49,6 +49,7 @@ const panel = (id: string, name: string, dashboardId: string, over: Partial<Pane
   format: 'plain',
   body: '',
   readOnly: false,
+  neverPropose: false,
   filter: null,
   sort: null,
   ...over,

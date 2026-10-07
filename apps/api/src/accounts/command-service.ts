@@ -477,6 +477,18 @@ function refuseUnlessAFilter(panel: { name: string; kind: PanelKind }) {
 }
 
 /**
+ * Refuses a panel nothing is filed onto where Never propose is being set
+ * ("Keep a Panel out of proposals with Never propose", issue 848): a panel of
+ * text or a Filter is never proposed anyway. The fifth of the same family.
+ */
+function refuseUnlessTakesItems(panel: { name: string; kind: PanelKind }) {
+  if (panelTakesItems(panel)) return;
+  throw new PanelHoldsSomethingElseError(
+    panelGathers(panel) ? `${panel.name} is a filter, which nothing is filed onto` : `${panel.name} holds text, not items`,
+  );
+}
+
+/**
  * Refuses a sort for a panel with no rows to sort, and Manual for a Filter
  * ("Sort a panel of items by the fields you choose", issue 526; "Choose how a
  * Filter's rows are sorted", issue 527). A panel of text has no rows; a
@@ -547,7 +559,9 @@ function liveDestinationPanel(
 ): { id: string; kind: PanelKind } | null {
   if (!getWorkspace(db, tenantId, workspaceId)) return null;
   const panel = getPanel(db, tenantId, panelId);
-  if (!panel || !panelTakesItems(panel)) return null;
+  // A panel flagged Never propose is checked here, freshly, for the reason
+  // a deleted one is: it may have been flagged since the prompt was built.
+  if (!panel || !panelTakesItems(panel) || panel.neverPropose) return null;
   if (!getDashboard(db, tenantId, workspaceId, panel.dashboardId)) return null;
   return panel;
 }
@@ -1104,6 +1118,23 @@ export function runCommand<N extends CommandName>(
       db.transaction((tx) => {
         tx.update(panels)
           .set({ readOnly: cmd.readOnly })
+          .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_panel_never_propose': {
+      const cmd = payload as CommandPayload<'set_panel_never_propose'>;
+      const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      // Nothing is filed onto a panel of text or a Filter, so nothing proposes
+      // one, and a flag nobody reads is a state to explain later.
+      refuseUnlessTakesItems(panel);
+      db.transaction((tx) => {
+        // The flag alone. A proposal already naming this panel is left stored:
+        // the browser hides its chip, and the next refresh overwrites it.
+        tx.update(panels)
+          .set({ neverPropose: cmd.neverPropose })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
         tx.insert(commands).values(commandRow).run();

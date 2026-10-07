@@ -197,6 +197,13 @@ export const setPanelReadOnlySchema = commandEnvelopeSchema.extend({
 });
 export type SetPanelReadOnlyCommand = z.infer<typeof setPanelReadOnlySchema>;
 
+/** set_panel_never_propose — whether a Panel of items is kept out of routing proposals ("Keep a Panel out of proposals with Never propose", issue 848). */
+export const setPanelNeverProposeSchema = commandEnvelopeSchema.extend({
+  panelId: z.uuid(),
+  neverPropose: z.boolean(),
+});
+export type SetPanelNeverProposeCommand = z.infer<typeof setPanelNeverProposeSchema>;
+
 /** set_panel_format — how a Panel of text's words are drawn, not what they are (architecture.md §4.4). */
 export const setPanelFormatSchema = commandEnvelopeSchema.extend({
   panelId: z.uuid(),
@@ -794,6 +801,7 @@ export const commandSchemas = {
   move_panel_to_dashboard: movePanelToDashboardSchema,
   set_panel_text: setPanelTextSchema,
   set_panel_read_only: setPanelReadOnlySchema,
+  set_panel_never_propose: setPanelNeverProposeSchema,
   set_panel_format: setPanelFormatSchema,
   set_panel_filter: setPanelFilterSchema,
   set_panel_sort: setPanelSortSchema,

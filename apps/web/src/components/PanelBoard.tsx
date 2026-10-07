@@ -440,6 +440,7 @@ export function PanelBoard({
       | 'delete_panel'
       | 'save_layout'
       | 'set_panel_read_only'
+      | 'set_panel_never_propose'
       | 'set_panel_format'
       | 'set_panel_filter'
       | 'set_panel_sort'
@@ -1089,6 +1090,25 @@ export function PanelBoard({
   };
 
   /**
+   * Keep a panel of items out of routing proposals, or let it back in ("Keep
+   * a Panel out of proposals with Never propose", issue 848). No `onSuccess`,
+   * for `setReadOnly`'s reason: the re-read snapshot is what redraws the tick,
+   * and what hides an Inbox chip naming this panel.
+   */
+  const setNeverPropose = (panelId: string, neverPropose: boolean) => {
+    command.mutate({
+      name: 'set_panel_never_propose',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId,
+        panelId,
+        neverPropose,
+      },
+    });
+  };
+
+  /**
    * What a panel of text's words are drawn as. Nothing is converted: the same
    * Markdown is stored either way, so this only changes how it is read.
    */
@@ -1384,6 +1404,7 @@ export function PanelBoard({
                             setMovingPanel(panel.id);
                           }}
                           onReadOnlyChange={(readOnly) => setReadOnly(panel.id, readOnly)}
+                          onNeverProposeChange={(neverPropose) => setNeverPropose(panel.id, neverPropose)}
                           onFormatChange={(format) => setFormat(panel.id, format)}
                           onFilter={(openedFrom) => {
                             command.reset();
@@ -1415,6 +1436,7 @@ export function PanelBoard({
                             refusalFor('rename_panel', panel.id) ??
                             refusalFor('delete_panel', panel.id) ??
                             refusalFor('set_panel_read_only', panel.id) ??
+                            refusalFor('set_panel_never_propose', panel.id) ??
                             refusalFor('set_panel_format', panel.id) ??
                             refusalFor('move_panel_to_dashboard', panel.id) ??
                             // Only where the question is shut: while it is

@@ -99,6 +99,7 @@ function aPanel(id: string, kind: Panel['kind'] = 'items'): Panel {
     format: 'plain',
     body: '',
     readOnly: false,
+    neverPropose: false,
     filter: kind === 'filter' ? { conditions: [], match: 'all', groupBy: 'none' } : null,
     sort: null,
   };

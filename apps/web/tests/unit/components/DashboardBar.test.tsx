@@ -168,6 +168,7 @@ function aPanel(name: string, dashboardId: string): Panel {
     format: 'plain',
     body: '',
     readOnly: false,
+    neverPropose: false,
     filter: null,
     sort: null,
   };

@@ -4,6 +4,7 @@ import type { CommandName } from '@cockpit/shared';
 import {
   ADA,
   capture,
+  captureBox,
   choosePanelAction,
   dashboardBar,
   dashboardTab,
@@ -14,9 +15,11 @@ import {
   itemRow,
   itemsOn,
   openDashboard,
+  pastCapture,
   press,
   setFormDueDate,
   signIn,
+  switchTo,
   test,
   uniqueTitle,
 } from './support/app';
@@ -1068,6 +1071,41 @@ function today(): string {
 }
 
 test.describe('Panels', () => {
+  /**
+   * "Keep a Panel out of proposals with Never propose" (issue 848). In the
+   * guest's account, because it is the one that arrives with proposals: the
+   * model is never reached in this tier. Each project flags a different panel,
+   * so the two running at once on one account never meet. What is proposed,
+   * learned from and refused is apps/api/tests/integration/http/note-cleanup.test.ts;
+   * that the chip is hidden from the snapshot, and the menu entry, are
+   * apps/web/tests/unit/components/{ItemList,PanelBoard}.test.tsx.
+   */
+  test.describe('a panel flagged Never propose is no longer suggested in the Inbox', () => {
+    test('takes the suggestion naming it off its Inbox row', async ({ page, isMobile }) => {
+      const [panel, row] = isMobile
+        ? ['Admin & money', 'Look into a cheaper energy tariff']
+        : ['Errands', "Mum's birthday on the 24th - present?"];
+      const suggestion = `→ Day to day ▸ ${panel}`;
+      await page.goto('/signin');
+      await press(page.getByRole('link', { name: 'Continue as guest' }), isMobile);
+      await dashboardBar(page).or(captureBox(page)).first().waitFor({ state: 'visible' });
+      await pastCapture(page, isMobile);
+      await switchTo(page, 'Personal', isMobile);
+      if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      await expect(inbox(page).getByRole('listitem').filter({ hasText: row })).toContainText(suggestion);
+
+      if (isMobile) await openDashboard(page, 'Day to day', isMobile);
+      const answered = answerTo(page, 'set_panel_never_propose');
+      await choosePanelAction(page, panel, 'Never propose', isMobile);
+      expect((await answered).status()).toBe(200);
+
+      if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      const stillThere = inbox(page).getByRole('listitem').filter({ hasText: row });
+      await expect(stillThere).toBeVisible();
+      await expect(stillThere).not.toContainText(suggestion);
+    });
+  });
+
   test.describe('a filter gathers what is filed elsewhere and due in the window it was given', () => {
     test('shows an item filed on another panel once it is told to show what is due today', async ({
       page,

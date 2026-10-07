@@ -687,7 +687,11 @@ export async function choosePanelAction(
   } else {
     await header.click({ button: 'right' });
   }
-  await press(page.getByRole('menuitem', { name: entry }), isMobile);
+  // A setting's entry is a checkbox entry (`Never propose`), the rest actions.
+  await press(
+    page.getByRole('menuitem', { name: entry }).or(page.getByRole('menuitemcheckbox', { name: entry })),
+    isMobile,
+  );
 }
 
 /**

@@ -91,6 +91,7 @@ function aPanel(id: string, name: string): Panel {
     format: 'plain',
     body: '',
     readOnly: false,
+    neverPropose: false,
     filter: null,
     sort: null,
   };
@@ -108,6 +109,7 @@ function aPanelOfText(
     format: holding.format ?? 'plain',
     body: holding.body ?? '',
     readOnly: holding.readOnly ?? false,
+    neverPropose: false,
   };
 }
 
@@ -1752,6 +1754,48 @@ describe('Panels', () => {
       openMenu('What matters');
       expect(await screen.findByRole('menuitem', { name: 'Make read-only' })).toBeInTheDocument();
       expect(screen.getByRole('menuitem', { name: 'Use rich text' })).toBeInTheDocument();
+    });
+  });
+
+  /** "Keep a Panel out of proposals with Never propose" (issue 848). */
+  describe('Never propose is offered on a panel of items, ticked while it is set', () => {
+    it.each([
+      { situation: 'setting it', set: false, sends: true },
+      { situation: 'clearing it', set: true, sends: false },
+    ])('$situation from the menu, which says whether it is on', async ({ set, sends }) => {
+      const { mutate, user } = showBoard({
+        panels: [{ ...aPanel('falcon', 'Project Falcon'), neverPropose: set }],
+      });
+
+      openMenu('Project Falcon');
+      const entry = await screen.findByRole('menuitemcheckbox', { name: 'Never propose' });
+      expect(entry).toHaveAttribute('aria-checked', String(set));
+      await user.click(entry);
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_panel_never_propose',
+          payload: expect.objectContaining({ panelId: 'falcon', neverPropose: sends }),
+        }),
+      );
+    });
+
+    it.each([
+      { situation: 'a panel of text', panel: aPanelOfText('words', 'What matters') },
+      {
+        situation: 'a filter',
+        panel: {
+          ...aPanel('due', 'What matters'),
+          kind: 'filter' as const,
+          filter: { conditions: [], match: 'all' as const, groupBy: 'none' as const },
+        },
+      },
+    ])('is not offered on $situation', async ({ panel }) => {
+      showBoard({ panels: [panel] });
+
+      openMenu('What matters');
+      expect(await screen.findByRole('menuitem', { name: 'Rename' })).toBeInTheDocument();
+      expect(screen.queryByRole('menuitemcheckbox', { name: 'Never propose' })).toBeNull();
     });
   });
 
