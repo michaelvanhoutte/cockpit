@@ -61,9 +61,28 @@ A Workspace is never assigned colours outside this table: a stored set that is n
 
 On an Item's phone page the fields are one wrapping row of pill chips, 36px tall so a thumb hits them, 8px apart. **A field with nothing set is an outline in `ink-faint` carrying its own name**, so the row reads as what can still be set; **a set one is filled and says its value**: Type in `accent-tint` with `accent-deep` text, Status in a faint shade with `ink`, Priority in its own `priority-*` fill with white text, and Due as the row's deadline pill (the same fills as above, a plain shade when the date is over a week off). **+ Attach** is always an outline. A chip opens its picker as a menu with the current choice ticked; Due opens a small sheet of *Today*, *Tomorrow*, *+7d*, the date picker and *Clear*.
 
+## The dark appearance
+
+The whole app, logon page included, when the device is set to dark or the choice stored on this device (`cockpit.appearance`: `light` or `dark`, absent for Match device) says so. **Dimmed, not inverted**, like the Car view's night: a near-black page, grey ink, each surface one notch lighter, the wells sunk below the page. The top bar and the agents' dock are graphite already and unchanged. The same names take a second set of values under `html[data-app-dark]` in `styles.css`; **a new colour is light until it is given a value there**. Every text below is at least 4.5:1 on what it is drawn on, held by `workspace-themes.test.ts` (the accent) and `appearanceTokens.test.ts` (the rest).
+
+| Name | Dark value |
+|---|---|
+| `ground` (page; the logon page and the shell) | `#1b1c21`, the same in every Workspace |
+| `surface` (dialogs, menus, cards) | `#24252b` |
+| `field` (inputs, opaque white in light) | `#141519` |
+| wells | the page mixed towards black: 72% for a list (`well`), 82% for the Inbox (`well-inbox`), the edge a faint white ring in place of the dark one |
+| `ink-strong`, `ink`, `ink-soft`, `ink-faint` | `#e4e5ea`, `#c2c5cd`, `#9a9eaa`, `#8a8e9a` |
+| `shade` (hairlines, hover fills) | `#e4e5ea`, used at low alpha as in light |
+| `scrim` (behind a dialog, and the dock's well) | black, where light is `#16181d`; `bg-shade` is never a scrim |
+| `toast` (undo bar, shortcut tip, white written on it) | `#34363e`, where light is `#3a3f4b` |
+| `over-ink` (an error as text) | `#e0867f`; `over` and `over-deep` stay as fills under white |
+| `due-soft`, `due-ink` | `#4a3519`, `#e8c08a`; `due` and `due-deep` unchanged |
+| `cat-*` and `cat-*-tint` | the `-light` set as text on a near-black tint (`slate` `#252b35` through `grey` `#2a2c31`) |
+
+**The Workspace's accent is computed against that page** (`shellColours`, `packages/shared`), not stated per theme. The band (`bar`), top bar and dot are the Workspace's own in both appearances. Accent as text (`accent-deep`) is the tint mixed 45% towards white, and the selected fill (`accent-tint`) is the tint at 22% over the page; the mix holds 4.5:1 on the page, a dialog, both wells and the fill in all eight themes, so none has a hand-set value. The fill of the tint, its ink (`onAccent`) and the hover are as in light.
 ## The dark Car view
 
-Switched on from inside the Car view only, for capturing at night; no other screen has a dark appearance. **Dimmed, not inverted**: a near-black ground, grey text, each surface one notch lighter. The top bar is unchanged. The tokens are `night*` in `styles.css`; every text is at least 4.5:1 on what it is drawn on (held by a test), except the set-apart placeholder and provisional words at 3:1.
+Switched on from inside the Car view, for capturing at night, and independent of the app's own appearance above. **Dimmed, not inverted**: a near-black ground, grey text, each surface one notch lighter. The top bar is unchanged. The tokens are `night*` in `styles.css`; every text is at least 4.5:1 on what it is drawn on (held by a test), except the set-apart placeholder and provisional words at 3:1.
 
 | Where | Value |
 |---|---|

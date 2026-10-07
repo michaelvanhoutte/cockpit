@@ -98,6 +98,12 @@
    * this small.
    */
   --color-over-deep: #a04a43;
+  /* over / over-deep where they are text (an error line, a failed chip): the second, the first in dark. */
+  --color-over-ink: #a04a43;
+  /* What dims the page behind a dialog, and the well the agents' dock sinks into. */
+  --color-scrim: #16181d;
+  /* A toast or tooltip: dark in either appearance, with white written on it. */
+  --color-toast: #3a3f4b;
 
   /*
    * What an item is doing, as a color. The dot on a row is the scannable half
@@ -279,6 +285,74 @@ html[data-car-dark] [data-capture-switch] a[data-lit] {
 }
 
 /*
+ * The dark appearance ("Paint the whole app dark when the device is set to
+ * dark", issue 843): the same names with a second set of values, keyed on the
+ * flag appearanceBoot.js puts on the document. Dimmed, not inverted, like the
+ * Car view's night: a near-black page, a surface one notch lighter, grey ink,
+ * the wells sunk darker than the page. The top bar and the agents' dock are
+ * graphite already and stay. The shell sets the Workspace's own accent
+ * (shellColours, shared); the `accent-*` values here are the default theme's,
+ * for what is drawn outside the shell. **A new colour is light until it is
+ * given a value here**, and a test holds the ink pairs to 4.5:1.
+ */
+html[data-app-dark] {
+  color-scheme: dark;
+  --color-ink-strong: #e4e5ea;
+  --color-ink: #c2c5cd;
+  --color-ink-soft: #9a9eaa;
+  --color-ink-faint: #8a8e9a;
+  --color-surface: #24252b;
+  --color-ground: #1b1c21;
+  --color-field: #141519;
+  --color-shade: #e4e5ea;
+  --color-scrim: #000000;
+  --color-toast: #34363e;
+
+  --color-cat-slate: #93a6c2;
+  --color-cat-slate-tint: #252b35;
+  --color-cat-teal: #5fc0d3;
+  --color-cat-teal-tint: #1c2f34;
+  --color-cat-amber: #e3a752;
+  --color-cat-amber-tint: #352a1b;
+  --color-cat-green: #4ad6a0;
+  --color-cat-green-tint: #1a3029;
+  --color-cat-violet: #b09af8;
+  --color-cat-violet-tint: #2a2540;
+  --color-cat-grey: #a7b0be;
+  --color-cat-grey-tint: #2a2c31;
+
+  --color-accent-deep: #b0a9d6;
+  --color-accent-tint: #2d2b42;
+  --color-due-soft: #4a3519;
+  --color-due-ink: #e8c08a;
+  --color-over: #e0867f;
+  --color-over-ink: #e0867f;
+  --color-status-reference: #6f7280;
+
+  --shadow-panel: 0 0 0 1px rgb(255 255 255 / 0.08), 0 6px 16px rgb(0 0 0 / 0.4);
+  --shadow-raised: 0 0 0 1px rgb(255 255 255 / 0.1), 0 12px 28px rgb(0 0 0 / 0.55);
+  --shadow-field: inset 0 1px 2px rgb(0 0 0 / 0.35);
+}
+html[data-app-dark] .well {
+  background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 72%, black);
+  box-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 0.5),
+    inset 0 0 0 1px rgb(255 255 255 / 0.04);
+}
+html[data-app-dark] .well-fill {
+  background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 72%, black);
+}
+html[data-app-dark] .well-inbox {
+  background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 82%, black);
+  box-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 0.55),
+    inset 0 0 0 1px rgb(255 255 255 / 0.06);
+}
+html[data-app-dark] .milled {
+  background-image: linear-gradient(rgb(255 255 255 / 0.05), rgb(255 255 255 / 0));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+}
+/*
  * A control that reads as a surface rather than as a filled rectangle: a very
  * faint vertical gradient over whatever background color it already has, and a
  * one-pixel highlight along its top edge where light would catch it.
@@ -328,6 +402,11 @@ html[data-car-dark] [data-capture-switch] a[data-lit] {
   box-shadow:
     inset 0 1px 3px rgb(22 24 29 / 0.14),
     inset 0 0 0 1px rgb(22 24 29 / 0.07);
+}
+
+/* A heading pinned over a well's entries: the well's fill, without its hollow. */
+@utility well-fill {
+  background-color: color-mix(in srgb, var(--ground, var(--color-ground)) 40%, white);
 }
 
 /*

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { DEFAULT_WORKSPACE_THEME } from '@cockpit/shared';
+import { usePageGround } from '../appearance';
 import { guestSignInPath, SIGN_IN_PATH } from '../api/client';
 import { forgetEverything } from '../session/forget';
 import { creditLine } from '../credit';
@@ -27,6 +27,7 @@ import { creditLine } from '../credit';
  * screen is that nothing of the last person is still on it.
  */
 export function LogonPage() {
+  const ground = usePageGround();
   const queryClient = useQueryClient();
 
   /**
@@ -50,7 +51,7 @@ export function LogonPage() {
   return (
     <div
       className="flex min-h-dvh flex-col items-center justify-center px-4"
-      style={{ backgroundColor: DEFAULT_WORKSPACE_THEME.ground }}
+      style={{ backgroundColor: ground }}
     >
       <main className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-panel">
         <h1 className="text-xl font-semibold tracking-tight">Cockpit</h1>

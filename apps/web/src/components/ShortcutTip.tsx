@@ -29,7 +29,7 @@ export function ShortcutTip({ control, onDismiss }: { control: TipControl; onDis
         // very click that showed this) would read a press here as one outside
         // it and close: the tip must never get in the way.
         onPointerDown={(event) => event.stopPropagation()}
-        className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg"
+        className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-toast px-4 py-2.5 text-sm text-white shadow-lg"
       >
         <span className="min-w-0 flex-1">{TIPS[control]}</span>
         <button

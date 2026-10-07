@@ -248,7 +248,7 @@ export const menuItemSplitClass =
   'flex cursor-default items-center justify-between gap-6 rounded px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-accent-tint data-[highlighted]:text-accent-deep';
 
 /** An entry that deletes something, which is the one kind that is coloured. */
-export const destructiveItemClass =`${menuItemClass} text-over data-[highlighted]:bg-over/10 data-[highlighted]:text-over`;
+export const destructiveItemClass =`${menuItemClass} text-over-ink data-[highlighted]:bg-over/10 data-[highlighted]:text-over-ink`;
 
 /**
  * An entry that cannot be chosen. It stays visible, reachable and says why,

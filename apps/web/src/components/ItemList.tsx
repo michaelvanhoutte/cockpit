@@ -1083,7 +1083,7 @@ export function ItemList({
           The picker says its own, so this is only for the changes made without
           one - which used to fail in silence. */}
       {refusal && !moving && !adding && !asking && (
-        <p role="alert" className="px-4 py-2 text-sm text-over">
+        <p role="alert" className="px-4 py-2 text-sm text-over-ink">
           {refusal}
         </p>
       )}

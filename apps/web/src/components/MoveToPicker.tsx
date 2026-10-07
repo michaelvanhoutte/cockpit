@@ -265,7 +265,7 @@ function MoveToPicker({
       onOpenChange={(nowOpen) => !nowOpen && !busy && !making && onCancel()}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <Dialog.Content
           ref={contentRef}
           // Escape in the name field closes the field and leaves the picker.
@@ -296,7 +296,7 @@ function MoveToPicker({
           </Dialog.Title>
 
           {refusal && (
-            <p role="alert" className="pt-3 text-sm text-over">
+            <p role="alert" className="pt-3 text-sm text-over-ink">
               {refusal}
             </p>
           )}
@@ -444,7 +444,7 @@ function MoveToPicker({
                       </button>
                     </div>
                     {namingRefusal && (
-                      <p role="alert" className="pt-1 text-sm text-over">
+                      <p role="alert" className="pt-1 text-sm text-over-ink">
                         {namingRefusal}
                       </p>
                     )}

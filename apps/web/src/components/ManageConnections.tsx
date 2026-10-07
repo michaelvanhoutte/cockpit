@@ -287,7 +287,7 @@ export default function ManageConnections({
         </p>
       )}
       {outcome && REFUSED_BECAUSE[outcome] && (
-        <p role="alert" className="pt-3 text-sm text-over">
+        <p role="alert" className="pt-3 text-sm text-over-ink">
           {REFUSED_BECAUSE[outcome]}
         </p>
       )}
@@ -307,7 +307,7 @@ export default function ManageConnections({
                       until one starts again ("Drop an agent on an item to
                       start a Claude Code session on it", issue 571). */}
                   {account.failingBecause && (
-                    <p className="text-sm text-over-deep">Failing: {account.failingBecause}</p>
+                    <p className="text-sm text-over-ink">Failing: {account.failingBecause}</p>
                   )}
                 </div>
                 {!guest && <RowMenu
@@ -392,7 +392,7 @@ export default function ManageConnections({
           <p className="px-4 py-4 text-sm text-ink-faint">Nothing connected yet. Add one below.</p>
         )}
         {claudeCodeMessage && (
-          <p role="alert" className="px-4 py-2 text-sm text-over">
+          <p role="alert" className="px-4 py-2 text-sm text-over-ink">
             {claudeCodeMessage}
           </p>
         )}

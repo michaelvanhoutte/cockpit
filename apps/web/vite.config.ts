@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -28,6 +30,18 @@ export default defineConfig({
   // several KB back.
   build: { minify: 'terser' },
   plugins: [
+    // Writes src/appearanceBoot.js into the document's head, inline, so a dark
+    // device paints dark from the first frame (and the bundle stays as it was).
+    {
+      name: 'appearance-boot',
+      transformIndexHtml: (html) =>
+        html.replace(
+          '<!--appearance-boot-->',
+          `<script>${readFileSync(fileURLToPath(new URL('./src/appearanceBoot.js', import.meta.url)), 'utf8')
+            .replace(/\/\*[\s\S]*?\*\//, '')
+            .trim()}</script>`,
+        ),
+    },
     react(),
     tailwindcss(),
     VitePWA({

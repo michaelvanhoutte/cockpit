@@ -49,7 +49,7 @@ export function SmartRefinementsWindow({
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <Dialog.Content
           onCloseAutoFocus={(event) => {
             if (!returnFocusTo) return;
@@ -122,7 +122,7 @@ export function SmartRefinementsWindow({
                             {entry.looksAt ? WHY[entry.looksAt] : ''}
                           </td>
                           <td
-                            className={`py-2 ${entry.status === 'failed' ? 'text-over' : canOpen ? 'text-ink' : 'text-ink-faint'}`}
+                            className={`py-2 ${entry.status === 'failed' ? 'text-over-ink' : canOpen ? 'text-ink' : 'text-ink-faint'}`}
                           >
                             {whatHappened(entry, changed)}
                           </td>

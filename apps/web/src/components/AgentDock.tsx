@@ -279,7 +279,7 @@ export function AgentDock({
               ▼
             </button>
           )}
-          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto rounded-lg bg-shade/25 px-2 py-1.5 shadow-dock-well">
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto rounded-lg bg-scrim/25 px-2 py-1.5 shadow-dock-well">
             <span className="shrink-0 text-xs font-semibold uppercase tracking-[0.11em] text-chrome-ink-faint">
               Agents
             </span>

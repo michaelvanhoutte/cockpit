@@ -89,7 +89,7 @@ export function NameQuestion({
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && !busy && onCancel()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <Dialog.Content
           // Only where there is nothing to describe it with: the prop is how
           // Radix is told the omission is deliberate, and passing it beside a
@@ -137,7 +137,7 @@ export function NameQuestion({
             {alsoAsks}
 
             {refusal && (
-              <p role="alert" className="pt-3 text-sm text-over">
+              <p role="alert" className="pt-3 text-sm text-over-ink">
                 {refusal}
               </p>
             )}

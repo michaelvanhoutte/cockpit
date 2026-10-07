@@ -96,7 +96,7 @@ export function ConnectClaudeCode({
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && close()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <Dialog.Content
           onCloseAutoFocus={(event) => {
             if (!returnFocusTo) return;
@@ -185,7 +185,7 @@ export function ConnectClaudeCode({
               </ol>
 
               {refusal && (
-                <p role="alert" className="pt-3 text-sm text-over">
+                <p role="alert" className="pt-3 text-sm text-over-ink">
                   {refusal}
                 </p>
               )}
@@ -253,7 +253,7 @@ function ReportingBack({
   return (
     <li>
       <p>5. So an item says when Claude is waiting on you, add these hooks to the repository's .claude/settings.json:</p>
-      {error && !data && <p className="pt-1 text-sm text-over">The hooks could not be read. Close this and try again.</p>}
+      {error && !data && <p className="pt-1 text-sm text-over-ink">The hooks could not be read. Close this and try again.</p>}
       {data && (
         <div className="mt-1 flex flex-col gap-2">
           <div className="flex items-start gap-2">

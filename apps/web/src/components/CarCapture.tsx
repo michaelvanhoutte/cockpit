@@ -418,7 +418,7 @@ function Driving({
           role="status"
           className={`mt-6 text-center text-2xl leading-snug font-medium ${
             phase === 'idle' && why
-              ? d('text-over-deep', 'text-night-over')
+              ? d('text-over-ink', 'text-night-over')
               : d('text-ink', 'text-night-ink')
           }`}
         >

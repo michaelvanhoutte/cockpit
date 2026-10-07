@@ -1,8 +1,8 @@
 import {
-  DEFAULT_WORKSPACE_THEME,
   DEMO_PAGES,
   type DemoPage as DemoPageName,
 } from "@cockpit/shared";
+import { usePageGround } from "../appearance";
 
 /**
  * What the guest demo opens in place of a source ("Seed Gmail and Teams in the
@@ -33,13 +33,14 @@ const WORDS: Record<DemoPageName, { heading: string; body: string }> = {
 };
 
 export function DemoPage({ page }: { page: string }) {
+  const ground = usePageGround();
   const words = (DEMO_PAGES as readonly string[]).includes(page)
     ? WORDS[page as DemoPageName]
     : null;
   return (
     <div
       className="flex min-h-dvh flex-col items-center justify-center px-4"
-      style={{ backgroundColor: DEFAULT_WORKSPACE_THEME.ground }}
+      style={{ backgroundColor: ground }}
     >
       <main className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-panel">
         <h1 className="text-xl font-semibold tracking-tight">

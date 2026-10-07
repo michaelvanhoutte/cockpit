@@ -418,7 +418,7 @@ export default function RichDescription({
       {imageTrouble && (
         <p
           role="alert"
-          className="border-b border-shade/10 px-2.5 py-1.5 text-xs font-normal normal-case tracking-normal text-over"
+          className="border-b border-shade/10 px-2.5 py-1.5 text-xs font-normal normal-case tracking-normal text-over-ink"
         >
           {imageTrouble}
         </p>
@@ -450,7 +450,7 @@ export default function RichDescription({
           {asking.refused && (
             <p
               role="alert"
-              className="w-full text-xs font-normal normal-case tracking-normal text-over"
+              className="w-full text-xs font-normal normal-case tracking-normal text-over-ink"
             >
               A link can only go to a web address or an email address.
             </p>

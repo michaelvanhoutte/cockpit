@@ -1316,7 +1316,7 @@ function TheForm({
             the browser for the reason the form's own drop is. */}
         {!docked && (
           <Dialog.Overlay
-            className="fixed inset-0 z-floating bg-shade/30"
+            className="fixed inset-0 z-floating bg-scrim/30"
             onDragOver={(event) => {
               if (takesFiles(event)) event.preventDefault();
             }}
@@ -1910,7 +1910,7 @@ function TheForm({
                       </>
                       )}
                       {onAPage && chipsFailed && (
-                        <p role="alert" className="text-sm text-over">
+                        <p role="alert" className="text-sm text-over-ink">
                           The fields could not load. Reload Cockpit to try again.
                         </p>
                       )}
@@ -2044,7 +2044,7 @@ function TheForm({
                           />
                         </div>
                         {attachmentError && (
-                          <p role="alert" className="mt-1 text-sm text-over">
+                          <p role="alert" className="mt-1 text-sm text-over-ink">
                             {attachmentError}
                           </p>
                         )}
@@ -2165,14 +2165,14 @@ function TheForm({
           )}
 
           {tooLong && (
-            <p role="alert" className={`shrink-0 pt-3 text-sm text-over${onAPage ? ' px-4' : ''}`}>
+            <p role="alert" className={`shrink-0 pt-3 text-sm text-over-ink${onAPage ? ' px-4' : ''}`}>
               {overCap === 'title'
                 ? `A title is at most ${TITLE_LENGTH} characters.`
                 : `A description is at most ${DESCRIPTION_LIMIT.toLocaleString()} characters.`}
             </p>
           )}
           {refusal && (
-            <p role="alert" className={`shrink-0 pt-3 text-sm text-over${onAPage ? ' px-4' : ''}`}>
+            <p role="alert" className={`shrink-0 pt-3 text-sm text-over-ink${onAPage ? ' px-4' : ''}`}>
               {refusal}
             </p>
           )}

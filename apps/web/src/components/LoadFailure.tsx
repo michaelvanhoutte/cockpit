@@ -79,7 +79,7 @@ export function LoadFailure({ error, onRetry, surroundings }: Props) {
       className="rounded-lg bg-surface p-4 shadow-panel"
       data-failure={reason}
     >
-      <h2 className="text-base font-semibold text-over">{headline}</h2>
+      <h2 className="text-base font-semibold text-over-ink">{headline}</h2>
       <p className="mt-1 text-sm text-ink-soft">{detail}</p>
       {action === 'logon' && (
         <button

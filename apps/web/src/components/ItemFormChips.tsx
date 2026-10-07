@@ -208,7 +208,7 @@ export default function ItemFormChips(props: ItemFormChipsProps) {
               <button
                 type="button"
                 onClick={() => chooseDue(null)}
-                className="h-9 rounded-md text-sm text-over hover:bg-over/10"
+                className="h-9 rounded-md text-sm text-over-ink hover:bg-over/10"
               >
                 Clear
               </button>

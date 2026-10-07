@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { DEFAULT_WORKSPACE_THEME, uuidv7 } from '@cockpit/shared';
+import { uuidv7 } from '@cockpit/shared';
+import { usePageGround } from '../appearance';
 import { CommandRefused, NotSignedIn } from '../api/client';
 import { meQuery, useCommand } from '../api/queries';
 
@@ -22,6 +23,7 @@ import { meQuery, useCommand } from '../api/queries';
  * are none and the box to type a name into is right under it.
  */
 export function FirstWorkspacePage() {
+  const ground = usePageGround();
   const [name, setName] = useState('');
   const command = useCommand();
   const navigate = useNavigate();
@@ -97,7 +99,7 @@ export function FirstWorkspacePage() {
   return (
     <div
       className="flex min-h-dvh flex-col items-center justify-center px-4"
-      style={{ backgroundColor: DEFAULT_WORKSPACE_THEME.ground }}
+      style={{ backgroundColor: ground }}
     >
       <main className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-panel">
         <h1 className="text-xl font-semibold tracking-tight">Cockpit</h1>
@@ -123,7 +125,7 @@ export function FirstWorkspacePage() {
             New workspace
           </button>
           {refusal && (
-            <p role="alert" className="text-sm text-over">
+            <p role="alert" className="text-sm text-over-ink">
               {refusal}
             </p>
           )}

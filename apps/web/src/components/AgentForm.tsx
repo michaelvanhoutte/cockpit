@@ -64,7 +64,7 @@ export function AgentForm({
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <Dialog.Content
           aria-describedby={undefined}
           onCloseAutoFocus={(event) => {
@@ -157,7 +157,7 @@ export function AgentForm({
             </label>
 
             {refusal && (
-              <p role="alert" className="pt-3 text-sm text-over">
+              <p role="alert" className="pt-3 text-sm text-over-ink">
                 {refusal}
               </p>
             )}
