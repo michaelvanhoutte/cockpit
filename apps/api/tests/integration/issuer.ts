@@ -429,7 +429,9 @@ async function answered(url: URL, init?: RequestInit): Promise<Response> {
     const change = JSON.parse(String(init.body)) as { addLabelIds?: string[]; removeLabelIds?: string[] };
     gmailModifies.push({ threadId: modified.id, ...change });
     modified.answer = labelsChanged(modified.answer, change);
-    modified.labelled = (change.addLabelIds ?? []).length > 0 ? true : (change.removeLabelIds ?? []).length > 0 ? false : modified.labelled;
+    // Starring and unstarring leave whether it is labelled as it was.
+    const labels = (ids: string[] | undefined) => (ids ?? []).filter((id) => id !== 'STARRED');
+    modified.labelled = labels(change.addLabelIds).length > 0 ? true : labels(change.removeLabelIds).length > 0 ? false : modified.labelled;
     return Response.json(modifyAnswer(modified.answer));
   }
   const thread = mailbox.threads.find((one) => path === `threads/${one.id}`);

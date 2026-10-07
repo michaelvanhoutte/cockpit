@@ -6,11 +6,12 @@ import { connectorAccounts, gmailConversations } from './schema.js';
 /**
  * What a person's change to an Item asks of a source that mirrors its open
  * state ("Take the Cockpit label off in Gmail when its task is done in
- * Cockpit", issue 728) - today Gmail's `Cockpit` label, which is on exactly
- * while the Item is open.
+ * Cockpit", issue 728) - today the mark a Gmail connection follows, the
+ * `Cockpit` label or the star ("Keep a starred Gmail task in step with its
+ * star, both ways", issue 823), which is on exactly while the Item is open.
  *
  * **Wanted state, not an event**: the link records what Cockpit wants the
- * label to be until Gmail confirms it, written in the same transaction as the
+ * mark to be until Gmail confirms it, written in the same transaction as the
  * Item, so a run that stops before pushing it leaves it waiting rather than
  * lost. Each check pushes every one still waiting before reading what Gmail
  * changed, and a change still waiting wins over Gmail's (`gmailChangeApplies`,
@@ -19,14 +20,14 @@ import { connectorAccounts, gmailConversations } from './schema.js';
 
 type InATransaction = Parameters<Parameters<AccountDb['transaction']>[0]>[0];
 
-/** Open is neither done nor dismissed: what the label stands for. */
+/** Open is neither done nor dismissed: what the label or the star stands for. */
 export function isOpen(item: { completedAt: string | null; deletedAt: string | null }): boolean {
   return item.completedAt === null && item.deletedAt === null;
 }
 
 /**
  * Records the open state an Item has just moved to as wanted of its
- * conversation's label - where it moved at all, and only while its mailbox
+ * conversation's mark - where it moved at all, and only while its mailbox
  * is still connected to the Item's Workspace, since disconnecting stops the
  * mirroring.
  */
@@ -44,9 +45,6 @@ export function wantOpenStateMirrored(
       and(
         eq(gmailConversations.tenantId, tenantId),
         eq(gmailConversations.itemId, before.id),
-        // The label alone is kept in step: an Item that came in by star
-        // changes nothing in Gmail, so nothing waits to reach it (issue 822).
-        eq(gmailConversations.mark, 'label'),
         exists(
           tx
             .select({ id: connectorAccounts.id })
@@ -57,7 +55,8 @@ export function wantOpenStateMirrored(
                 eq(connectorAccounts.connectorId, GMAIL),
                 eq(connectorAccounts.workspaceId, gmailConversations.workspaceId),
                 eq(connectorAccounts.externalAccountKey, gmailConversations.mailboxKey),
-                // Only under the mark the connection follows now (issue 822).
+                // Only under the mark the connection follows now (issue 822):
+                // the label or the star, whichever brought the Item in.
                 eq(connectorAccounts.follows, gmailConversations.mark),
               ),
             ),
