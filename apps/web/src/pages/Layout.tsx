@@ -1181,6 +1181,7 @@ function TheShell() {
               listing={panelListing}
               collapsed={panelListCollapsed}
               onCollapse={collapsePanelList}
+              rowWidth={availableRowWidth}
             />
           </Suspense>
         )}

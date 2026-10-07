@@ -5,6 +5,7 @@ import { isTypedInto, somethingIsOpenOverThePage } from '../inboxCollapsed';
 import { browserStore } from '../lastVisited';
 import { PANEL_LIST_KEY, togglesThePanelList } from '../panelList';
 import type { PanelListEntry, PanelListing } from '../panelList';
+import { usePanelListWidth } from '../panelListWidth';
 import { useReach } from '../panelReach';
 import type { Reach, ReachDashboard, ReachWorkspace, Scope } from '../panelReach';
 
@@ -75,12 +76,16 @@ export function PanelList({
   collapsed,
   onCollapse,
   reach,
+  rowWidth,
 }: {
   listing: PanelListing | null;
   collapsed: boolean;
   onCollapse: (collapsed: boolean) => void;
   reach: Reach;
+  /** The row the column shares with the Dashboard, a third of which is the widest it goes. */
+  rowWidth: number;
 }) {
+  const resize = usePanelListWidth(browserStore(), rowWidth);
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<Scope>(1);
   const [at, setAt] = useState(0);
@@ -411,7 +416,23 @@ export function PanelList({
   const noMatch = scope === 1 ? total > 0 && flat.length === 0 : needle !== '' && flat.length === 0 && sections.length === 0;
 
   return (
-    <aside aria-labelledby={HEADING_ID} className="well flex w-56 shrink-0 flex-col pb-[var(--edge-bottom)]">
+    <aside
+      ref={resize.column}
+      aria-labelledby={HEADING_ID}
+      className="well relative flex shrink-0 flex-col pb-[var(--edge-bottom)]"
+      style={{ width: resize.width }}
+    >
+      {/* The column's left edge is where it is resized from, reaching over the seam as the Inbox's does. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Drag to resize Go to panel, double-click to reset its width"
+        onPointerDown={resize.onPointerDown}
+        onDoubleClick={resize.reset}
+        className="group absolute inset-y-0 -left-2 z-10 w-3 cursor-col-resize touch-none"
+      >
+        <div className="absolute inset-y-2 left-1/2 w-[2px] -translate-x-1/2 rounded-full bg-accent opacity-0 transition-opacity group-hover:opacity-60 group-active:opacity-100" />
+      </div>
       <div
         ref={listRef}
         tabIndex={-1}

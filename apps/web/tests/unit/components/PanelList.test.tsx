@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { PanelList } from '../../../src/components/PanelList';
@@ -74,12 +74,13 @@ function aReach(over: Partial<Reach> = {}): Reach {
 const wide = (over: Partial<Reach> = {}) => aReach({ workspaceId: 'work', workspaces: [WORK(), HOME()], ...over });
 
 /** The column with its shown-or-hidden held the way the shell holds it. */
-function Held({ listing, startsHidden = true, onHide, reach = aReach() }: { listing: PanelListing | null; startsHidden?: boolean; onHide?: (hidden: boolean) => void; reach?: Reach }) {
+function Held({ listing, startsHidden = true, onHide, reach = aReach(), rowWidth = 1200 }: { listing: PanelListing | null; startsHidden?: boolean; onHide?: (hidden: boolean) => void; reach?: Reach; rowWidth?: number }) {
   const [hidden, setHidden] = useState(startsHidden);
   return (
     <PanelList
       listing={listing}
       reach={reach}
+      rowWidth={rowWidth}
       collapsed={hidden}
       onCollapse={(next) => {
         onHide?.(next);
@@ -848,6 +849,113 @@ describe('Dashboards', () => {
         expect(screen.getByText(line)).toBeInTheDocument();
         expect(entry('Papers')).toBeInTheDocument();
       });
+    });
+  });
+  describe('the column is resized by dragging its left edge, and a double-click puts it back', () => {
+    const edge = () => screen.getByRole('separator', { name: /resize Go to panel/ });
+    const drawnWidth = () => shownList()!.style.width;
+
+    /** jsdom lays nothing out, so the column reports the width it was last drawn at. */
+    function measured() {
+      return vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        return { width: parseFloat(this.style.width) || 0 } as DOMRect;
+      });
+    }
+
+    function drag(from: number, to: number) {
+      fireEvent.pointerDown(edge(), { pointerId: 1, button: 0, clientX: from });
+      fireEvent.pointerMove(window, { pointerId: 1, clientX: to });
+      fireEvent.pointerUp(window, { pointerId: 1, clientX: to });
+    }
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('draws at 224px until dragged', () => {
+      render(<Held listing={three()} startsHidden={false} />);
+      expect(drawnWidth()).toBe('224px');
+    });
+
+    it.each([
+      { situation: 'dragging the edge left widens it as the pointer goes', to: 700, width: '324px' },
+      { situation: 'dragging it right narrows it, but never under 224px', to: 900, width: '224px' },
+      { situation: 'dragging far left stops at a third of the row', to: -500, width: '400px' },
+    ])('$situation', ({ to, width }) => {
+      measured();
+      render(<Held listing={three()} startsHidden={false} rowWidth={1200} />);
+      drag(800, to);
+      expect(drawnWidth()).toBe(width);
+    });
+
+    it('keeps 224px in a row so narrow that a third of it is less', () => {
+      measured();
+      render(<Held listing={three()} startsHidden={false} rowWidth={600} />);
+      drag(800, 100);
+      expect(drawnWidth()).toBe('224px');
+    });
+
+    it('follows the pointer while the drag is still held', () => {
+      measured();
+      render(<Held listing={three()} startsHidden={false} />);
+      fireEvent.pointerDown(edge(), { pointerId: 1, button: 0, clientX: 800 });
+      fireEvent.pointerMove(window, { pointerId: 1, clientX: 750 });
+      expect(drawnWidth()).toBe('274px');
+      fireEvent.pointerUp(window, { pointerId: 1, clientX: 750 });
+    });
+
+    it('puts the width back on Escape in the middle of a drag, remembering nothing', () => {
+      measured();
+      render(<Held listing={three()} startsHidden={false} />);
+      fireEvent.pointerDown(edge(), { pointerId: 1, button: 0, clientX: 800 });
+      fireEvent.pointerMove(window, { pointerId: 1, clientX: 700 });
+      fireEvent.keyDown(window, { key: 'Escape' });
+      fireEvent.pointerUp(window, { pointerId: 1, clientX: 700 });
+      expect(drawnWidth()).toBe('224px');
+      expect(localStorage.getItem('cockpit.panel-list-width')).toBeNull();
+    });
+
+    it('goes back to 224px on a double-click on the edge', () => {
+      measured();
+      render(<Held listing={three()} startsHidden={false} />);
+      drag(800, 650);
+      expect(drawnWidth()).toBe('374px');
+      fireEvent.doubleClick(edge());
+      expect(drawnWidth()).toBe('224px');
+      expect(localStorage.getItem('cockpit.panel-list-width')).toBeNull();
+    });
+
+    it('is drawn at the same width after a reload, and the hidden strip has no edge and keeps its own width', async () => {
+      measured();
+      const first = render(<Held listing={three()} startsHidden={false} />);
+      drag(800, 650);
+      first.unmount();
+
+      render(<Held listing={three()} startsHidden={false} />);
+      expect(drawnWidth()).toBe('374px');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Hide Go to panel' }));
+      expect(screen.queryByRole('separator')).toBeNull();
+      expect(strip()!.className).toContain('w-8');
+      expect(strip()!.style.width).toBe('');
+    });
+
+    it('draws a stored width wider than the row allows at what the row allows, and keeps the stored one', () => {
+      localStorage.setItem('cockpit.panel-list-width', '700');
+      const narrow = render(<Held listing={three()} startsHidden={false} rowWidth={900} />);
+      expect(drawnWidth()).toBe('300px');
+      narrow.unmount();
+
+      render(<Held listing={three()} startsHidden={false} rowWidth={3000} />);
+      expect(drawnWidth()).toBe('700px');
+    });
+
+    it('still changes for this visit where the browser refuses the write', () => {
+      measured();
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('refused');
+      });
+      render(<Held listing={three()} startsHidden={false} />);
+      drag(800, 700);
+      expect(drawnWidth()).toBe('324px');
     });
   });
 });

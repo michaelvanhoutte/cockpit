@@ -20,6 +20,18 @@ export const PANEL_LIST_KEY = 'g';
 
 const KEY = 'cockpit.panel-list-collapsed';
 
+/** Where the dragged width is kept; read and written by `panelListWidth.ts`, which only the column loads. */
+export const PANEL_LIST_WIDTH_KEY = 'cockpit.panel-list-width';
+
+/** Called from `session/forget.ts`: the width a drag last left the column at. */
+export function forgetPanelListWidth(store: Storage | undefined): void {
+  try {
+    store?.removeItem(PANEL_LIST_WIDTH_KEY);
+  } catch {
+    // A browser that refuses storage remembered nothing to forget.
+  }
+}
+
 /** Hidden unless the stored value says it was shown. */
 export function readPanelListCollapsed(store: Storage | undefined): boolean {
   try {
