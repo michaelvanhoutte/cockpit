@@ -165,10 +165,13 @@ export function accountChanges(accountId: string): readonly Change[] {
  * `julianday` rather than as text, since two valid timestamps of different
  * precision sort wrongly by bytes. Every value written is one the
  * `agent_runs_ended_at_is_timestamp` CHECK already accepts: `started_at` is
- * held by its own CHECK, `deleted_at` likewise, and `completed_at` is only
- * ever a change's validated `issuedAt` or the CHECKed `updated_at` that
- * `0007-item-completed-at` copied. Setting `ended_at` takes a run out of
- * `agent_runs_one_open_per_item`, so the index cannot refuse it.
+ * held by its own CHECK, `deleted_at` likewise, and `completed_at` carries
+ * none but is only ever written with the same value into the CHECKed
+ * `updated_at` (`applySetDone`), or copied from it by `0007-item-completed-at`.
+ * A writer that sets it alone has to keep to that format, or this statement
+ * fails on any account not yet opened since and that account will not open.
+ * Setting `ended_at` takes a run out of `agent_runs_one_open_per_item`, so the
+ * index cannot refuse it.
  *
  * Its failure modes, per the `scoping` skill:
  *
@@ -189,7 +192,11 @@ export function accountChanges(accountId: string): readonly Change[] {
  *   a run from the Item's Status serves. Each account applies it on its own
  *   first request, so no account is half-migrated.
  * - **Rolled back after it has run:** the older release reads these runs as
- *   ended, which is what its own **Agent finished** would have recorded.
+ *   ended, which is what its own **Agent finished** would have recorded. It
+ *   is a one-shot backfill (docs/deployment.md, "Migrations and rollback"):
+ *   a run left open on an Item closed while that older release serves is not
+ *   ended once the newer one is back, and is repaired by another change
+ *   carrying the same statement.
  * - **A backup restored from before it:** the restore replays the recorded
  *   changes, so this one applies the next time the account is opened.
  */
