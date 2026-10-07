@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import {
   THE_BAR_LASTS_MS,
   UndoWhatJustHappened,
   forgetWhatJustHappened,
   useUndo,
 } from '../../src/undo';
+import type { Undoable } from '../../src/undo';
 
 /**
  * F1: the bar's own behaviour - what it offers, what pressing it runs, and when
@@ -233,6 +234,70 @@ describe('Triage', () => {
       await press('Undo');
 
       expect(bar()).toHaveTextContent('that item is no longer there');
+    });
+  });
+});
+
+describe('Triage', () => {
+  describe('the bar after an item is moved onto a panel can take you to it or add it to a second one', () => {
+    /** A screen with a control that offers the given change as it is. */
+    function Offering({ change }: { change: Undoable }) {
+      const offerToUndo = useUndo();
+      return (
+        <button type="button" onClick={() => offerToUndo(change)}>
+          Move
+        </button>
+      );
+    }
+    const offer = async (change: Undoable) => {
+      render(
+        <UndoWhatJustHappened>
+          <Offering change={change} />
+        </UndoWhatJustHappened>,
+      );
+      await press('Move');
+    };
+
+    it.each([{ entry: 'Show' }, { entry: 'Also show on…' }])(
+      '$entry runs what it was given and takes the bar away',
+      async ({ entry }) => {
+        const show = vi.fn();
+        const alsoShowOn = vi.fn();
+        await offer({ what: 'moved', undo: () => Promise.resolve(), show, alsoShowOn });
+
+        await press(entry);
+
+        expect(entry === 'Show' ? show : alsoShowOn).toHaveBeenCalledOnce();
+        expect(entry === 'Show' ? alsoShowOn : show).not.toHaveBeenCalled();
+        expect(bar()).toBeNull();
+      },
+    );
+
+    it('offers no Undo where nothing can be put back, and still goes in its own time', async () => {
+      await offer({ what: 'moved', show: () => {}, alsoShowOn: () => {} });
+
+      expect(within(bar()!).getAllByRole('button').map((button) => button.textContent)).toEqual([
+        'Show',
+        'Also show on…',
+      ]);
+
+      act(() => void vi.advanceTimersByTime(THE_BAR_LASTS_MS));
+
+      expect(bar()).toBeNull();
+    });
+
+    it('cuts the title short and never the destination', async () => {
+      await offer({
+        what: '“Look into a chemistry thing” moved to Admin & money',
+        split: { title: '“Look into a chemistry thing”', rest: ' moved to Admin & money' },
+        undo: () => Promise.resolve(),
+      });
+
+      const [title, rest] = bar()!.querySelectorAll('span > span');
+      expect(title).toHaveClass('truncate');
+      expect(rest).toHaveClass('shrink-0');
+      expect(rest).toHaveTextContent('moved to Admin & money');
+      expect(rest).not.toHaveClass('truncate');
     });
   });
 });

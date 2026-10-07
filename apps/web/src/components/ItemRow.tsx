@@ -856,6 +856,9 @@ export function ItemRow({
       // What a list measures when it works out where a dragged row would land,
       // so the line drawn between rows is not counted as one of them.
       data-item-row=""
+      // Which Item this is, for Show on the undo bar to find the row it
+      // highlights (`PanelBoard`).
+      data-item-id={item.id}
       {...swipe}
       // The whole row, rather than a grip on it: a row is a card, and what a
       // person aims at when moving one is the card. It is what makes a mouse

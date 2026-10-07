@@ -21,9 +21,12 @@ import type {
 import { PanelBoard } from '../../../src/components/PanelBoard';
 import {
   NO_DASHBOARD_FILTER,
+  isFiltering,
+  readDashboardFilter,
   writeDashboardFilter,
   type DashboardFilter,
 } from '../../../src/dashboardFilter';
+import { askToShow } from '../../../src/showItem';
 import { dayOf } from '../../../src/filters';
 import { QUIET } from '../../../src/panels/PanelText';
 import {
@@ -3782,6 +3785,84 @@ describe('Dashboards', () => {
 
       act(() => result.current!.jumpTo('reading'));
       expect(scrollTo).toHaveBeenLastCalledWith(expect.objectContaining({ top: 344 }));
+    });
+  });
+});
+
+describe('Dashboards', () => {
+  describe('Show on the undo bar brings the screen to an item, where it was moved to', () => {
+    const ID = (n: number) => `11111111-1111-7111-8111-00000000000${n}`;
+    const vat = anItem(ID(1), 'VAT return');
+    const rent = anItem(ID(2), 'Pay the rent');
+    const FILED = [
+      { panelId: 'falcon', itemId: ID(1), position: 0 },
+      { panelId: 'falcon', itemId: ID(2), position: 1 },
+    ];
+    const rowOf = (title: string) => screen.getByText(title).closest<HTMLElement>('[data-item-id]')!;
+    const cellOf = (name: string) => screen.getByRole('region', { name }).closest('[data-panel-cell]')!;
+    const show = (itemId: string, panelId = 'falcon', dashboardId = DASHBOARD.id) =>
+      act(() => askToShow({ dashboardId, panelId, itemId }));
+
+    beforeEach(() => {
+      screenIs(1280);
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      localStorage.clear();
+    });
+
+    it('jumps to the panel and highlights the item’s row for a moment', () => {
+      showBoard({ items: [vat, rent], filings: FILED, layouts: [aLayout('laptop', ['falcon', 'reading'])] });
+
+      show(ID(2));
+
+      expect(cellOf('Project Falcon')).toHaveAttribute('data-jumped-to');
+      expect(rowOf('Pay the rent')).toHaveAttribute('data-shown');
+      expect(rowOf('VAT return')).not.toHaveAttribute('data-shown');
+
+      act(() => void vi.advanceTimersByTime(5000));
+
+      expect(rowOf('Pay the rent')).not.toHaveAttribute('data-shown');
+    });
+
+    it('clears a dashboard filter that hides the row first, the way going to a panel does', () => {
+      filterTheDashboard({ text: 'vat' });
+      showBoard({ items: [vat, rent], filings: FILED });
+      expect(screen.queryByText('Pay the rent')).toBeNull();
+
+      show(ID(2));
+
+      expect(isFiltering(readDashboardFilter(localStorage, DASHBOARD.id))).toBe(false);
+      expect(rowOf('Pay the rent')).toHaveAttribute('data-shown');
+    });
+
+    it('clears a dashboard filter that hides the whole panel, whether or not the item is still on it', () => {
+      filterTheDashboard({ text: 'vat' });
+      showBoard({ items: [vat], filings: [FILED[0]!] });
+
+      show(ID(2), 'reading');
+
+      expect(isFiltering(readDashboardFilter(localStorage, DASHBOARD.id))).toBe(false);
+      expect(cellOf('To read')).toHaveAttribute('data-jumped-to');
+    });
+
+    it('jumps to the panel with nothing highlighted where the item has been moved off it meanwhile', () => {
+      showBoard({ items: [vat, rent], filings: [FILED[0]!] });
+
+      show(ID(2));
+
+      expect(cellOf('Project Falcon')).toHaveAttribute('data-jumped-to');
+      expect(document.querySelector('[data-shown]')).toBeNull();
+    });
+
+    it('waits for the dashboard it names, and does nothing to this one', () => {
+      showBoard({ items: [vat, rent], filings: FILED });
+
+      show(ID(2), 'falcon', 'some-other-dashboard');
+
+      expect(document.querySelector('[data-shown]')).toBeNull();
+      expect(document.querySelector('[data-jumped-to]')).toBeNull();
     });
   });
 });

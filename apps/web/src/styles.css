@@ -353,6 +353,17 @@ html[data-car-dark] [data-capture-switch] a[data-lit] {
 }
 
 /*
+ * The row Show on the undo bar has just brought the screen to (`PanelBoard`):
+ * outlined in the accent and tinted for a moment, inside its box so the Panel's
+ * edge does not clip it. The Panel around it carries `data-jumped-to` as well.
+ */
+[data-item-id][data-shown] {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+  background-color: var(--color-accent-tint);
+}
+
+/*
  * The top bar and the agents' dock: the same soft graphite gradient in every
  * workspace. `NEUTRAL_HEADER` (shared) is its top, which is what the strip
  * under a phone's status bar is painted with.

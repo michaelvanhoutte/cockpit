@@ -658,3 +658,81 @@ test.describe('Panels', () => {
     });
   });
 });
+
+/**
+ * F3: the bar after a filing offers to show the item where it went, and to show
+ * it on a second panel as well ("Show and Also show on… in the undo bar after
+ * moving an Item", issue 849). What the bar offers for which move, which panels
+ * the picker leaves out and where Show asks to go are apps/web/tests/unit's;
+ * that the screen really follows is only true in a browser.
+ */
+test.describe('Triage', () => {
+  /** A dashboard of this walk's own with one panel on it, left open. */
+  async function anotherDashboardWithAPanel(page: Page, isMobile: boolean) {
+    const dashboard = uniqueTitle('Later');
+    const panel = uniqueTitle('Errands');
+    await press(page.getByRole('button', { name: 'Add a dashboard' }), isMobile);
+    await page.getByLabel('Name of the new dashboard').fill(dashboard);
+    await page.getByLabel('Name of the new dashboard').press('Enter');
+    await expect(dashboardBar(page).getByRole('link', { name: dashboard })).toBeVisible();
+    await press(page.getByRole('button', { name: '+ Panel' }), isMobile);
+    await page.getByLabel('Name of the new panel').fill(panel);
+    await page.getByLabel('Name of the new panel').press('Enter');
+    await expect(page.getByRole('region', { name: panel })).toBeVisible();
+    return { dashboard, panel };
+  }
+
+  test.describe('Also show on… from the bar adds the item to a second panel without leaving where you are', () => {
+    test('files it, adds it to another panel from the bar, and the Inbox stays on screen', async ({
+      page,
+      isMobile,
+    }) => {
+      const { dashboard, panel } = await ownDashboardWithAPanel(page, isMobile);
+      const second = uniqueTitle('Errands');
+      await press(page.getByRole('button', { name: '+ Panel' }), isMobile);
+      await page.getByLabel('Name of the new panel').fill(second);
+      await page.getByLabel('Name of the new panel').press('Enter');
+      await expect(page.getByRole('region', { name: second })).toBeVisible();
+      const title = uniqueTitle('Look into a chemistry thing');
+
+      await goToTheInbox(page, isMobile);
+      await capture(page, title, isMobile);
+      await fileOnto(page, title, panel, isMobile);
+      const offer = page.getByRole('status');
+      await press(offer.getByRole('button', { name: 'Also show on…' }), isMobile);
+      const picker = page.getByRole('dialog');
+      await expect(picker.getByRole('button', { name: panel, exact: true })).toHaveCount(0);
+      const added = answerTo(page, 'add_item_to_panel');
+      await press(picker.getByRole('button', { name: second, exact: true }), isMobile);
+      await added;
+
+      await expect(picker).toHaveCount(0);
+      await expect(inbox(page)).toBeVisible();
+      await expect(offer).toContainText(`added to ${second}`);
+      await goToTheDashboard(page, dashboard, isMobile);
+      await expect(page.getByRole('region', { name: panel }).getByText(title)).toBeVisible();
+      await expect(page.getByRole('region', { name: second }).getByText(title)).toBeVisible();
+    });
+  });
+
+  test.describe('Show goes to the item where it was moved', () => {
+    test('opens the dashboard of the panel it was filed onto, with the item’s row highlighted', async ({
+      page,
+      isMobile,
+    }) => {
+      const { dashboard } = await ownDashboardWithAPanel(page, isMobile);
+      const later = await anotherDashboardWithAPanel(page, isMobile);
+      const title = uniqueTitle('Look into a chemistry thing');
+      await goToTheDashboard(page, dashboard, isMobile);
+
+      await goToTheInbox(page, isMobile);
+      await capture(page, title, isMobile);
+      await fileOnto(page, title, later.panel, isMobile);
+      await press(page.getByRole('status').getByRole('button', { name: 'Show', exact: true }), isMobile);
+
+      await expect(page.getByRole('heading', { name: later.dashboard, level: 2 })).toBeVisible();
+      await expect(itemRow(page, title)).toHaveAttribute('data-shown', '');
+      await expect(page.getByRole('status')).toHaveCount(0);
+    });
+  });
+});

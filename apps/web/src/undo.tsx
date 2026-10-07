@@ -30,8 +30,27 @@ export const THE_BAR_LASTS_MS = 10_000;
 export interface Undoable {
   /** What just happened, in one line: "Reply to Bart moved to Falcon". */
   what: string;
-  /** Puts it back. Throwing is how it reports that it could not. */
-  undo: () => Promise<unknown>;
+  /**
+   * Puts it back. Throwing is how it reports that it could not. **Absent where
+   * the change cannot be put back** - an undecided Item's move, which decides
+   * its Workspace - and the bar then offers only what show and lsoShowOn
+   * give, for as long as it would have offered Undo.
+   */
+  undo?: () => Promise<unknown>;
+  /**
+   * Takes the person to what the change made (an Item moved onto a Panel:
+   * "Show and Also show on… in the undo bar after moving an Item", issue 849).
+   * Pressing it ends the offer, as Undo does.
+   */
+  show?: () => void;
+  /** Opens the picker for putting the same thing on a second Panel; pressing it ends the offer. */
+  alsoShowOn?: () => void;
+  /**
+   * what in two parts, so that a title too long for the bar is the part cut
+   * short and the destination after it is always whole: "Look into a che…"
+   * moved to Admin & money.
+   */
+  split?: { title: string; rest: string };
 }
 
 const Remembering = createContext<((change: Undoable) => void) | null>(null);
@@ -89,6 +108,10 @@ export function forgetWhatJustHappened(): void {
  * The bar, and what it is holding. Wraps the shell, so a change made in the
  * Inbox column and one made on a panel are both offered back in the same place.
  */
+/** A button on the bar. */
+const BAR_BUTTON =
+  'pointer-events-auto shrink-0 rounded px-2 py-1 font-medium text-accent-soft hover:bg-white/10';
+
 export function UndoWhatJustHappened({ children }: { children: React.ReactNode }) {
   const [held, setHeld] = useState<Undoable | null>(null);
   /**
@@ -150,8 +173,14 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
     };
   }, [forget]);
 
+  /** Show and Also show on… end the offer and then act, so the bar is not left over what they open. */
+  const leaveFor = (go: () => void) => {
+    forget();
+    go();
+  };
+
   const putItBack = async () => {
-    if (!held || undoing) return;
+    if (!held?.undo || undoing) return;
     // **The clock stops while the undo is in flight.** Without this the bar can
     // reach ten seconds mid-request and unmount, and the failure that arrives a
     // moment later is written to something nothing is drawing - so a slow undo
@@ -222,19 +251,40 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
           // bar stays in its own list.
           className={BOTTOM_CENTRE_STRIP}
         >
-          <div className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
-            <span className="min-w-0 flex-1 truncate">{failure ?? held.what}</span>
-            <button
-              type="button"
-              disabled={undoing}
-              onClick={() => void putItBack()}
-              // `pointer-events-auto` again, rather than relying on it
-              // inheriting from the bar's own container above: this is the
-              // element a click actually has to land on.
-              className="pointer-events-auto shrink-0 rounded px-2 py-1 font-medium text-accent-soft hover:bg-white/10 disabled:opacity-50"
-            >
-              Undo
-            </button>
+          <div className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-ink px-4 py-2.5 text-sm text-white shadow-lg">
+            {held.split && !failure ? (
+              <span className="flex min-w-[min(14rem,100%)] flex-1" title={held.what}>
+                <span className="min-w-0 truncate">{held.split.title}</span>
+                <span className="shrink-0 whitespace-pre">{held.split.rest}</span>
+              </span>
+            ) : (
+              <span className="min-w-[min(14rem,100%)] flex-1 truncate">{failure ?? held.what}</span>
+            )}
+            <div className="ml-auto flex shrink-0 items-center">
+              {!failure && held.show && (
+                <button type="button" onClick={() => leaveFor(held.show!)} className={BAR_BUTTON}>
+                  Show
+                </button>
+              )}
+              {!failure && held.alsoShowOn && (
+                <button type="button" onClick={() => leaveFor(held.alsoShowOn!)} className={BAR_BUTTON}>
+                  Also show on…
+                </button>
+              )}
+              {held.undo && (
+                <button
+                  type="button"
+                  disabled={undoing}
+                  onClick={() => void putItBack()}
+                  // `pointer-events-auto` again, rather than relying on it
+                  // inheriting from the bar's own container above: this is the
+                  // element a click actually has to land on.
+                  className={BAR_BUTTON + ' disabled:opacity-50'}
+                >
+                  Undo
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
