@@ -530,6 +530,18 @@ describe('Dashboards', () => {
         expect(reach.ask).toHaveBeenLastCalledWith(1);
       });
 
+      it('stops asking for other Workspaces once the column is hidden from its own button', async () => {
+        const user = userEvent.setup();
+        const reach = wide();
+        render(<Held listing={todays()} reach={reach} />);
+        await user.keyboard('g');
+        await user.keyboard('3');
+        expect(reach.ask).toHaveBeenLastCalledWith(3);
+
+        await user.click(screen.getByRole('button', { name: 'Hide Go to panel' }));
+        expect(reach.ask).toHaveBeenLastCalledWith(1);
+      });
+
       it('chooses the scope from a click and the list keeps the keys', async () => {
         const user = userEvent.setup();
         render(<Held listing={todays()} reach={wide()} />);

@@ -175,6 +175,8 @@ export function PanelList({
     if (!collapsed) return;
     start.current = null;
     setActive(false);
+    // Hidden, it asks for no other Workspace's snapshot any more.
+    setScope(1);
   }, [collapsed]);
 
   useEffect(() => {
