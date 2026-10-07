@@ -1249,17 +1249,6 @@ export function ItemRow({
                 Open ↗
               </a>
             )}
-            {/* That this row is not this workspace's own ("Capture something
-                before you know which workspace it belongs to", issue 165). Said
-                in words rather than as a colour or an icon, because it is the one
-                thing about the row a reader cannot infer from where they are
-                looking: every other row in this Inbox belongs here and this one
-                is in every Inbox at once. */}
-            {undecided && (
-              <span className="shrink-0 rounded-full bg-accent-tint px-1.5 text-accent-deep">
-                Any workspace
-              </span>
-            )}
             {/* The due date, when one is set - nothing drawn for an item with
                 none, the same convention priority's own mark follows. The
                 text itself stays plain; how near it is is the pill. On a phone

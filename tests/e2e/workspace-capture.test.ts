@@ -136,12 +136,11 @@ test.describe('Capture', () => {
       const note = uniqueTitle('Where does this go');
       await captureWithoutAWorkspace(page, note, isMobile);
 
-      // In the workspace it was captured from, marked as not that workspace's
-      // own. Captured *from* it because that is where this walk had open when
-      // it went to the page (apps/web/src/lastVisited.ts).
+      // In the workspace it was captured from. Captured *from* it because that
+      // is where this walk had open when it went to the page
+      // (apps/web/src/lastVisited.ts).
       await openTheInboxOf(page, CAPTURED_FROM, isMobile);
       await expect(itemRow(page, note)).toBeVisible();
-      await expect(itemRow(page, note).getByText('Any workspace')).toBeVisible();
       await expectNoSidewaysScroll(page);
 
       // And in another workspace, which is the whole point of it.
@@ -157,7 +156,12 @@ test.describe('Capture', () => {
       // Said here, it belongs here - and it stops being everybody's.
       await press(itemRow(page, note).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Move to this workspace' }), isMobile);
-      await expect(itemRow(page, note).getByText('Any workspace')).toHaveCount(0);
+      // Waited for, so the move has landed before the Inbox is left: a row that
+      // belongs here no longer offers to be moved here.
+      await press(itemRow(page, note).getByRole('button', { name: 'Item actions' }), isMobile);
+      await expect(page.getByRole('menuitem', { name: 'Move to…' })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Move to this workspace' })).toHaveCount(0);
+      await page.keyboard.press('Escape');
 
       // Waited for here too, for a different reason: what follows is a
       // negative assertion, and one of those is answered by any moment the
@@ -192,7 +196,8 @@ test.describe('Capture', () => {
       await openTheInboxOf(page, ELSEWHERE, isMobile);
       await expect(itemRow(page, note)).toBeVisible();
       // Somebody said where it belongs, so it is not waiting in everybody's.
-      await expect(itemRow(page, note).getByText('Any workspace')).toHaveCount(0);
+      await openTheInboxOf(page, CAPTURED_FROM, isMobile);
+      await expect(inbox(page).getByText(note)).toHaveCount(0);
     });
 
   });
@@ -214,7 +219,9 @@ test.describe('Capture', () => {
       await capture(page, note, isMobile);
 
       await expect(itemRow(page, note)).toBeVisible();
-      await expect(itemRow(page, note).getByText('Any workspace')).toHaveCount(0);
+      // Its own, so not waiting in every workspace's Inbox.
+      await openTheInboxOf(page, ELSEWHERE, isMobile);
+      await expect(inbox(page).getByText(note)).toHaveCount(0);
 
       // And `C` does the same at a desk, with the note in the Inbox beside the
       // window before it closes and Escape putting you back where you were. A

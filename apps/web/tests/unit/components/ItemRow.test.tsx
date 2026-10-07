@@ -1624,14 +1624,14 @@ describe('Capture', () => {
    * against a real store in
    * apps/api/tests/integration/http/panel-items.test.ts.
    */
-  describe('a row says when it belongs to no workspace yet', () => {
+  describe('a row says nothing about which workspace it belongs to', () => {
     it.each([
-      { situation: 'belonging to no workspace yet', decided: false, marked: true },
-      { situation: 'belonging to this one', decided: true, marked: false },
-    ])('$situation', ({ decided, marked }) => {
+      { situation: 'belonging to no workspace yet', decided: false },
+      { situation: 'belonging to this one', decided: true },
+    ])('$situation', ({ decided }) => {
       aRow({ item: anItem({ workspaceDecided: decided }) });
 
-      expect(screen.queryByText('Any workspace') !== null).toBe(marked);
+      expect(screen.queryByText('Any workspace')).toBeNull();
     });
 
     /**
@@ -1640,11 +1640,14 @@ describe('Capture', () => {
      * read as *belongs here*. The other way round would put every item an old
      * copy holds into every workspace's Inbox at once.
      */
-    it('takes an item from before the field as belonging where it is', () => {
+    it('takes an item from before the field as belonging where it is', async () => {
+      const user = userEvent.setup();
       const { workspaceDecided: _, ...older } = anItem();
-      aRow({ item: older as Item });
+      aRow({ item: older as Item, onMoveHere: vi.fn() });
 
-      expect(screen.queryByText('Any workspace')).toBeNull();
+      await user.click(screen.getByLabelText('Item actions'));
+
+      expect(screen.queryByText('Move to this workspace')).toBeNull();
     });
   });
 

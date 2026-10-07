@@ -194,11 +194,15 @@ test.describe('Capture', () => {
       await expect(page.getByText('Captured', { exact: true })).toBeVisible();
       await openInbox(page, isMobile);
       await expect(itemRow(page, driven)).toBeVisible();
-      // Put somewhere, because a note on *Any workspace* waits in every Inbox of
-      // the one account all specs share, and would turn up in their counts.
+      // Put somewhere, because a note without a workspace waits in every Inbox
+      // of the one account all specs share, and would turn up in their counts.
       await press(itemRow(page, driven).getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Move to this workspace' }), isMobile);
-      await expect(itemRow(page, driven).getByText('Any workspace')).toHaveCount(0);
+      // Moved once a row that belongs here no longer offers to be moved here.
+      await press(itemRow(page, driven).getByRole('button', { name: 'Item actions' }), isMobile);
+      await expect(page.getByRole('menuitem', { name: 'Move to…' })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Move to this workspace' })).toHaveCount(0);
+      await page.keyboard.press('Escape');
 
       // What the phone's share sheet handed to the installed app ("Share photos,
       // files and links into Cockpit from Android's share sheet", issue 789).
