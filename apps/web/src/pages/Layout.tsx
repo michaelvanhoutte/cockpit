@@ -245,7 +245,7 @@ function TheShell() {
    * this Dashboard's own so a switch never shows the one just left.
    */
   const showsPanelList = roomForTheInbox && params.dashboardId !== undefined && !onAllItems;
-  const [panelListCollapsed, collapsePanelList] = usePanelListCollapsed(browserStore(), showsPanelList);
+  const [panelListCollapsed, collapsePanelList] = usePanelListCollapsed(browserStore());
   const published = usePanelListing();
   const panelListing = published?.dashboardId === params.dashboardId ? published : null;
 

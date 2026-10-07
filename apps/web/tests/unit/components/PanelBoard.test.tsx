@@ -3646,7 +3646,7 @@ describe('Dashboards', () => {
       ]);
     });
 
-    it('lists only the Panels a filtered Dashboard draws, each with its matching count', () => {
+    it('lists every Panel of a filtered Dashboard, marking those it leaves undrawn, each with its matching count', () => {
       screenIs(1280);
       const result = listed();
       filterTheDashboard({ text: 'vat' });
@@ -3660,7 +3660,8 @@ describe('Dashboards', () => {
         ],
       });
 
-      expect(namesIn(result)).toEqual([['Project Falcon 2']]);
+      expect(namesIn(result)).toEqual([['Project Falcon 2', 'To read 0', 'Notes -']]);
+      expect(result.current?.rows.flat().map((entry) => entry.hidden)).toEqual([false, true, true]);
     });
 
     it('follows a Panel added, renamed or deleted, as the next snapshot says', () => {
