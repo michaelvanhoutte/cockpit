@@ -261,15 +261,16 @@ describe('Dashboards', () => {
       expect(shownList()).toBeNull();
     });
 
-    it('does nothing for 1, 2 and 3 from the list', async () => {
+    it('puts the cursor in the box on a click on the column outside its controls, so 1, 2 and 3 are letters and no scope', async () => {
       const user = userEvent.setup();
       render(<Held listing={three()} reach={wide()} startsHidden={false} />);
       await user.click(shownList()!.querySelector('[tabindex="-1"]') as HTMLElement);
 
+      expect(search()).toHaveFocus();
       await user.keyboard('123');
 
       expect(chosen()).toEqual(['Dashboard']);
-      expect(search()).toHaveValue('');
+      expect(search()).toHaveValue('123');
     });
   });
 
@@ -659,7 +660,7 @@ describe('Dashboards', () => {
         expect(reach.ask).toHaveBeenLastCalledWith(1);
       });
 
-      it('chooses the scope from a click and the list keeps the keys', async () => {
+      it('chooses the scope from a click and the box keeps the keys', async () => {
         const user = userEvent.setup();
         render(<Held listing={todays()} reach={wide()} />);
         await user.keyboard('g');

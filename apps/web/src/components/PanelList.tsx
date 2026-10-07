@@ -442,8 +442,10 @@ export function PanelList({
         ref={listRef}
         tabIndex={-1}
         onKeyDown={onListKey}
-        onFocus={() => {
+        onFocus={(event) => {
           if (!start.current) enter(false, scope, true);
+          // The box is where the keys go: a click on the column outside its controls puts the cursor there.
+          if (event.target === event.currentTarget) searchRef.current?.focus();
         }}
         onBlur={(event) => {
           // Clicking away from the column ends the mode where you are.
