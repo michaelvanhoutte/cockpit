@@ -10,8 +10,7 @@ import {
 import { browserStore } from '../lastVisited';
 import { whatTheSheetSwipeMeant } from '../swipe';
 import { DUE_WINDOWS, type DueWindow } from '@cockpit/shared';
-import { isAPeriod } from '../filters';
-import { WINDOW_LABELS } from './FilterQuestion';
+import { WINDOW_LABELS, isAPeriod } from '../filters';
 import { ATTACHMENTS, PRIORITIES, STATUSES } from './DashboardFilterBar';
 
 // The phone's half of the filter, apart from the bar so a desk never fetches it.

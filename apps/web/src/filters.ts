@@ -372,6 +372,21 @@ export function alsoShownOn(
     .map((panel) => panel.name);
 }
 
+/**
+ * What each window is called on a form, in the order a form offers them. Kept
+ * out of the lazy-loaded `FilterQuestion.tsx`, because the Dashboard filter bar
+ * draws them on first paint and importing them from there would put the whole
+ * question in the initial bundle.
+ */
+export const WINDOW_LABELS: Record<DueWindow, string> = {
+  overdue: 'Overdue',
+  today: 'Today',
+  week: 'This week',
+  month: 'This month',
+  quarter: 'This quarter',
+  none: 'Not set',
+};
+
 const WINDOW_READS: Record<DueWindow, string> = {
   overdue: 'Overdue',
   today: 'Due today',

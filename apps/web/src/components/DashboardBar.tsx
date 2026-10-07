@@ -16,6 +16,7 @@ import { useScreenWidth } from '../panels/useScreenWidth';
 import { allItemsFilterId, setAllItemsTab, useAllItemsTab } from '../allItemsTab';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { browserStore } from '../lastVisited';
+import { FILTER_KEY, askForTheContainingField, useFilterKey, whatFDoes } from '../filterKey';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { keepingTheOpenItem } from '../itemForm';
 import { useTabDrag } from '../tabDrag';
@@ -87,6 +88,26 @@ export function DashboardBar({
   // Read off the filter itself rather than the list of tabs, which waits on the
   // snapshot: the controls below are locked from the first paint.
   const openIsFiltered = isFiltering(openFilter);
+
+  // F: the bar of whichever page is on screen, at a desk only - a phone has
+  // the summary line and a sheet, and no keyboard to open them with.
+  const filterId = allItemsOpen ? allItemsFilterId(workspaceId) : openDashboardId;
+  useFilterKey(roomForTheInbox && !!filterId, () => {
+    if (!filterId) return;
+    const on = allItemsOpen
+      ? { open: allItemsBarOpen, filtering: allItemsFiltered, setOpen: setAllItemsBarOpen }
+      : { open: filterBarOpen, filtering: openIsFiltered, setOpen: setFilterBarOpen };
+    const does = whatFDoes(on.open, on.filtering);
+    if (does === 'close') {
+      on.setOpen(false);
+      return;
+    }
+    if (does === 'open') {
+      on.setOpen(true);
+      scrollDashboardToTop();
+    }
+    askForTheContainingField(filterId);
+  });
 
   const command = useCommand();
   /**
@@ -770,7 +791,8 @@ function FilterFunnel({
     <span
       role={pressable ? 'button' : 'img'}
       aria-label={label}
-      title={label}
+      title={pressable && !barOpen && !filtered ? `${label} (${FILTER_KEY.toUpperCase()})` : label}
+      data-shortcut-tip={pressable ? 'filter' : undefined}
       className={`inline-flex rounded p-0.5 ${filtered ? 'text-accent' : 'text-ink-faint hover:text-ink'} ${
         pressable ? 'cursor-pointer hover:bg-shade/8' : ''
       }`}

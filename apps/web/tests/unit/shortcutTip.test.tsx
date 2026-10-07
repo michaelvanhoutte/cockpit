@@ -4,6 +4,7 @@ import { TIP_ATTRIBUTE, TIP_MS, tipForClick, useShortcutTip } from '../../src/sh
 import { ShortcutTip, TIPS } from '../../src/components/ShortcutTip';
 import { opensCapture } from '../../src/captureShortcut';
 import { somethingIsOpenOverThePage, togglesTheInbox } from '../../src/inboxCollapsed';
+import { pressesFilterKey } from '../../src/filterKey';
 import { togglesTheAgentDock } from '../../src/agentDockHidden';
 import { UndoWhatJustHappened, useUndo } from '../../src/undo';
 
@@ -34,6 +35,7 @@ describe('Shortcuts', () => {
       { situation: 'the collapsed Panel list\u2019s strip', tip: 'panels', says: 'Tip: press P to collapse or open the Panel list' },
       { situation: 'the dock\u2019s hide control', tip: 'dock', says: 'Tip: press A to hide or show the agents\u2019 dock' },
       { situation: 'the dock\u2019s show strip', tip: 'dock', says: 'Tip: press A to hide or show the agents\u2019 dock' },
+      { situation: 'the funnel on a Dashboard’s tab', tip: 'filter', says: 'Tip: press F to filter' },
       { situation: 'anything else', tip: undefined, says: null },
     ])('$situation', ({ tip, says }) => {
       const earned = tipForClick(mouse(control(tip)));
@@ -104,6 +106,7 @@ describe('Shortcuts', () => {
       expect(opensCapture(new KeyboardEvent('keydown', { key: 'c' }))).toBe(true);
       expect(togglesTheInbox(press('i'), covered)).toBe(true);
       expect(togglesTheAgentDock(press('a'), covered)).toBe(true);
+      expect(pressesFilterKey(press('f'), covered)).toBe(true);
       unmount();
     });
 

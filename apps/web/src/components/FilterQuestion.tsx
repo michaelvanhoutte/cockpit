@@ -16,7 +16,7 @@ import {
   type Panel,
   type Priority,
 } from '@cockpit/shared';
-import { GROUPING_NAMES, isAPeriod } from '../filters';
+import { GROUPING_NAMES, WINDOW_LABELS, isAPeriod } from '../filters';
 import { MenuContent, menuItemClass } from './Menu';
 import { Segmented } from './Segmented';
 import { NO_TYPES } from '../itemTypes';
@@ -385,16 +385,6 @@ function StatusConditionRow({ at, onRemove }: { at: number; onRemove: () => void
     </div>
   );
 }
-
-/** What each window is called on the form, in the order the question offers them. */
-export const WINDOW_LABELS: Record<DueWindow, string> = {
-  overdue: 'Overdue',
-  today: 'Today',
-  week: 'This week',
-  month: 'This month',
-  quarter: 'This quarter',
-  none: 'Not set',
-};
 
 /**
  * One Due date row: which window, and whether it also takes in what is already
