@@ -2315,24 +2315,19 @@ describe('Agents', () => {
       expect(screen.queryByRole('menuitem', { name: /^Start/ })).toBeNull();
     });
 
-    it('keeps the session link and both Agent finished entries in the Agent group while a run is open', async () => {
+    it('offers the session link, and no Agent finished entry, while a run is open', async () => {
       const user = userEvent.setup();
       aRow({ onMoveTo: () => {}, agentsHere: { offered: [SCOPE_IT], run: aRun(), start: vi.fn() } });
 
       await user.click(screen.getByLabelText('Item actions'));
       await screen.findAllByRole('menuitem');
-      const menu = screen.getByRole('menu');
-      const order = Array.from(menu.querySelectorAll('[role="menuitem"], [role="separator"]')).map((node) =>
-        node.getAttribute('role') === 'separator' ? '---' : (node.textContent ?? ''),
-      );
+      const names = screen.getAllByRole('menuitem').map((node) => node.textContent ?? '');
 
-      expect(order.slice(order.indexOf('Move to…') + 1, order.indexOf('Move to…') + 6)).toEqual([
-        '---',
-        'Open the Claude session ↗',
-        'Agent finished: Done',
-        'Agent finished: Still to do',
-        '---',
-      ]);
+      expect(screen.getByRole('menuitem', { name: 'Open the Claude session ↗' })).toHaveAttribute(
+        'href',
+        'https://claude.ai/code/session_01',
+      );
+      expect(names.filter((name) => /Agent finished/.test(name))).toEqual([]);
     });
 
     it.each([
@@ -2348,24 +2343,20 @@ describe('Agents', () => {
     });
 
     it.each([
-      { situation: 'Done', entry: 'Agent finished: Done', outcome: 'done', offersUndo: true },
-      { situation: 'Still to do', entry: 'Agent finished: Still to do', outcome: 'still_to_do', offersUndo: false },
-    ])('ends the run for Agent finished: $situation', async ({ entry, outcome, offersUndo }) => {
+      { situation: 'the row’s ✓', run: aRun(), act: (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Mark done' })), name: 'set_done', turned: { done: false }, named: aRun().id },
+      { situation: 'Status ▸ Done', run: aRun(), act: (user: ReturnType<typeof userEvent.setup>) => chooseStatus(user, 'Done'), name: 'set_done', turned: { done: false }, named: aRun().id },
+      { situation: 'Dismiss', run: aRun(), act: (user: ReturnType<typeof userEvent.setup>) => choose(user, 'Dismiss'), name: 'set_dismissed', turned: { dismissed: false }, named: aRun().id },
+      { situation: 'the ✓ on a row with no run', run: undefined, act: (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Mark done' })), name: 'set_done', turned: { done: false }, named: undefined },
+    ])('Undo after $situation names the run it ended: $named', async ({ run, act, name, turned, named }) => {
       const user = userEvent.setup();
-      const { mutate } = aRow({ settles: true, agentsHere: { offered: [SCOPE_IT], run: aRun(), start: vi.fn() } });
+      const { send } = aRow({ settles: true, agentsHere: { offered: [SCOPE_IT], run, start: vi.fn() } });
 
-      await user.click(screen.getByLabelText('Item actions'));
-      expect(screen.getByRole('menuitem', { name: 'Open the Claude session ↗' })).toHaveAttribute(
-        'href',
-        'https://claude.ai/code/session_01',
-      );
-      await user.click(screen.getByRole('menuitem', { name: entry }));
+      await act(user);
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
 
-      expect(mutate.mock.calls[0]![0]).toMatchObject({
-        name: 'finish_agent_run',
-        payload: { itemId: 'item-1', runId: aRun().id, outcome },
-      });
-      expect(screen.queryByRole('button', { name: 'Undo' }) !== null).toBe(offersUndo);
+      const sent = send.mock.calls[0]![0] as { name: string; payload: Record<string, unknown> };
+      expect(sent).toMatchObject({ name, payload: { itemId: 'item-1', ...turned } });
+      expect(sent.payload.reopensRunId).toBe(named);
     });
   });
 

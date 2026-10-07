@@ -49,6 +49,8 @@ const nextId = () => {
   return `018f0000-0000-7000-8000-${String(seq).padStart(12, '0')}`;
 };
 const AT = '2026-09-28T10:00:00.000Z';
+/** A moment this many seconds after the start, for changes that must come later than it. */
+const later = (seconds: number) => new Date(Date.parse(AT) + seconds * 1000).toISOString();
 
 type Answer = { status: number; body?: unknown } | 'timeout';
 
@@ -56,6 +58,8 @@ type Answer = { status: number; body?: unknown } | 'timeout';
 const claude = {
   answer: { status: 200, body: { claude_code_session_url: SESSION_URL } } as Answer,
   fired: [] as { headers: Headers; text: string }[],
+  /** While set, Claude does not answer until it is released: a start still on its way. */
+  hold: null as Promise<void> | null,
 };
 
 function claudeOnTheNetwork() {
@@ -64,6 +68,7 @@ function claudeOnTheNetwork() {
     if (!url.startsWith('https://api.anthropic.com/')) throw new Error(`nothing in a test may reach ${url}`);
     const sent = JSON.parse(String(init?.body ?? '{}')) as { text?: string };
     claude.fired.push({ headers: new Headers(init?.headers), text: sent.text ?? '' });
+    if (claude.hold) await claude.hold;
     if (claude.answer === 'timeout') throw new DOMException('The operation timed out.', 'TimeoutError');
     return new Response(claude.answer.body === undefined ? null : JSON.stringify(claude.answer.body), {
       status: claude.answer.status,
@@ -72,13 +77,18 @@ function claudeOnTheNetwork() {
   });
 }
 
-async function postChange<N extends CommandName>(name: N, payload: Omit<CommandPayload<N>, 'commandId' | 'issuedAt'>, userId = USER_ID) {
+async function postChange<N extends CommandName>(
+  name: N,
+  payload: Omit<CommandPayload<N>, 'commandId' | 'issuedAt'>,
+  userId = USER_ID,
+  issuedAt = AT,
+) {
   return asUser(
     `http://cockpit.test/v1/commands/${name}`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ commandId: nextId(), issuedAt: AT, ...payload }),
+      body: JSON.stringify({ commandId: nextId(), issuedAt, ...payload }),
     },
     userId,
   );
@@ -146,7 +156,7 @@ async function anItem(message: string, panelId: string | null, workspaceId = WOR
 function start(
   itemId: string,
   agentId: string,
-  options: { commandId?: string; workspaceId?: string; dashboardId?: string; userId?: string } = {},
+  options: { commandId?: string; issuedAt?: string; workspaceId?: string; dashboardId?: string; userId?: string } = {},
 ) {
   return asUser(
     `http://cockpit.test/v1/workspaces/${options.workspaceId ?? WORKSPACE_ID}/items/${itemId}/agent-runs`,
@@ -155,7 +165,7 @@ function start(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         commandId: options.commandId ?? nextId(),
-        issuedAt: AT,
+        issuedAt: options.issuedAt ?? AT,
         runId: nextId(),
         agentId,
         dashboardId: options.dashboardId ?? DASHBOARD_ID,
@@ -166,6 +176,35 @@ function start(
 }
 
 let panelId: string;
+
+async function aWorkingRun(agentId?: string, inPanel = panelId) {
+  const agent = agentId ?? (await anAgent());
+  const itemId = await anItem('Chase the invoice', inPanel);
+  await start(itemId, agent);
+  return { agentId: agent, itemId, run: (await runOn(itemId))! };
+}
+
+async function isDone(itemId: string): Promise<boolean> {
+  return inTheStore(
+    (sql) => sql.exec<{ completed_at: string | null }>('SELECT completed_at FROM items WHERE id = ?', itemId).one().completed_at !== null,
+  );
+}
+
+async function endedAt(runId: string): Promise<string | null> {
+  return inTheStore((sql) =>
+    sql.exec<{ ended_at: string | null }>('SELECT ended_at FROM agent_runs WHERE id = ?', runId).one().ended_at,
+  );
+}
+
+/** Every run on an item as stored, open or ended, oldest first. */
+async function allRuns(itemId: string) {
+  return inTheStore((sql) => [
+    ...sql.exec<{ id: string; status: string; session_url: string | null; reason: string | null; ended_at: string | null }>(
+      'SELECT id, status, session_url, reason, ended_at FROM agent_runs WHERE item_id = ? ORDER BY started_at, id',
+      itemId,
+    ),
+  ]);
+}
 
 beforeEach(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
@@ -180,6 +219,7 @@ beforeEach(async () => {
   claudeOnTheNetwork();
   await connectClaudeCode();
   claude.fired = [];
+  claude.hold = null;
   panelId = await aPanel();
 });
 
@@ -397,24 +437,11 @@ describe('Agents', () => {
     });
   });
 
-  describe('saying the agent finished ends the run and settles the item', () => {
-    async function aWorkingRun() {
-      const agentId = await anAgent();
-      const itemId = await anItem('Chase the invoice', panelId);
-      await start(itemId, agentId);
-      return { agentId, itemId, run: (await runOn(itemId))! };
-    }
-
-    async function endedAt(runId: string): Promise<string | null> {
-      return inTheStore((sql) =>
-        sql.exec<{ ended_at: string | null }>('SELECT ended_at FROM agent_runs WHERE id = ?', runId).one().ended_at,
-      );
-    }
-
+  describe('the old Agent finished is still accepted, for tabs on the previous build', () => {
     it.each([
       { situation: 'Done', outcome: 'done' as const, item: { done: true, started: true } },
       { situation: 'Still to do', outcome: 'still_to_do' as const, item: { done: false, started: false } },
-    ])('ends it and settles the item for Agent finished: $situation', async ({ outcome, item }) => {
+    ])('ends the run and settles the item for Agent finished: $situation', async ({ outcome, item }) => {
       const { itemId, run } = await aWorkingRun();
 
       const res = await postChange('finish_agent_run', { workspaceId: WORKSPACE_ID, runId: run.id, itemId, outcome });
@@ -430,26 +457,233 @@ describe('Agents', () => {
       );
       expect({ done: stored.completed_at !== null, started: stored.started_at !== null }).toEqual(item);
     });
+  });
 
-    it('lets Done be undone, the way marking it done is', async () => {
-      const { itemId, run } = await aWorkingRun();
-      await postChange('finish_agent_run', { workspaceId: WORKSPACE_ID, runId: run.id, itemId, outcome: 'done' });
+  describe('changing an item’s Status ends its agent run', () => {
+    it.each([
+      { situation: 'an In progress item with a working run', answer: { status: 200, body: { claude_code_session_url: SESSION_URL } } as Answer, holding: false },
+      { situation: 'an item whose run is starting', answer: { status: 200, body: { claude_code_session_url: SESSION_URL } } as Answer, holding: true },
+      { situation: 'an item whose run Claude refused', answer: { status: 401, body: { type: 'error' } } as Answer, holding: false },
+    ])('Done on $situation ends the run', async ({ answer, holding }) => {
+      const itemId = await anItem('Chase the invoice', panelId);
+      claude.answer = answer;
+      let release = () => {};
+      if (holding) claude.hold = new Promise<void>((resolve) => (release = resolve));
+      const starting = start(itemId, await anAgent());
+      if (holding) await vi.waitFor(async () => expect((await runOn(itemId))?.status).toBe('starting'));
+      else await starting;
 
-      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId, done: false });
+      const res = await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId, done: true }, USER_ID, later(1));
+      release();
+      await starting;
 
-      expect((await snapshot()).items.some((candidate) => candidate.id === itemId)).toBe(true);
+      expect(res.status).toBe(200);
+      expect((await allRuns(itemId)).map((run) => run.ended_at)).toEqual([later(1)]);
     });
 
-    it('stops showing a run once its item is marked done from its own menu, and shows it again on undo', async () => {
-      const { itemId } = await aWorkingRun();
+    it('ends no run, and writes none, for Done on an item with none', async () => {
+      const itemId = await anItem('Chase the invoice', panelId);
 
-      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId, done: true });
+      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId, done: true }, USER_ID, later(1));
+
+      expect(await allRuns(itemId)).toEqual([]);
+    });
+
+    it('ends the run when an item goes from In progress to To do', async () => {
+      const { itemId, run } = await aWorkingRun();
+
+      await postChange('set_started', { workspaceId: WORKSPACE_ID, itemId, started: false }, USER_ID, later(1));
+
+      expect(await endedAt(run.id)).toBe(later(1));
+    });
+
+    it('leaves the run open when an item with an open run is set In progress', async () => {
+      const { itemId, run } = await aWorkingRun(await anAgent({ startsInProgress: false }));
+
+      await postChange('set_started', { workspaceId: WORKSPACE_ID, itemId, started: true }, USER_ID, later(1));
+
+      expect(await endedAt(run.id)).toBeNull();
+    });
+
+    it('ends the run of a dismissed item', async () => {
+      const { itemId, run } = await aWorkingRun();
+
+      await postChange('set_dismissed', { workspaceId: WORKSPACE_ID, itemId, dismissed: true }, USER_ID, later(1));
+
+      expect(await endedAt(run.id)).toBe(later(1));
+    });
+
+    it.each([
+      { situation: 'Done', name: 'set_done' as const, payload: { done: true } },
+      { situation: 'Dismiss', name: 'set_dismissed' as const, payload: { dismissed: true } },
+    ])('leaves the run open when $situation is older than the item’s last change', async ({ name, payload }) => {
+      const { itemId, run } = await aWorkingRun();
+      await postChange('set_priority', { workspaceId: WORKSPACE_ID, itemId, priority: 'high' }, USER_ID, later(5));
+
+      const res = await postChange(name, { workspaceId: WORKSPACE_ID, itemId, ...payload } as never, USER_ID, later(1));
+
+      expect(await res.json()).toMatchObject({ applied: false });
+      expect(await endedAt(run.id)).toBeNull();
+    });
+  });
+
+  describe('Undo after Done or Dismiss brings back the run that change ended', () => {
+    it.each([
+      { situation: 'Done', closes: { name: 'set_done' as const, payload: { done: true } }, undoes: { name: 'set_done' as const, payload: { done: false } } },
+      {
+        situation: 'Dismiss',
+        closes: { name: 'set_dismissed' as const, payload: { dismissed: true } },
+        undoes: { name: 'set_dismissed' as const, payload: { dismissed: false } },
+      },
+    ])('Undo of $situation naming the run reopens it with its link and status', async ({ closes, undoes }) => {
+      const { itemId, run } = await aWorkingRun();
+      await postChange(closes.name, { workspaceId: WORKSPACE_ID, itemId, ...closes.payload } as never, USER_ID, later(1));
       expect(await runOn(itemId)).toBeUndefined();
 
-      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId, done: false });
-      expect(await runOn(itemId)).toMatchObject({ status: 'working' });
+      await postChange(
+        undoes.name,
+        { workspaceId: WORKSPACE_ID, itemId, ...undoes.payload, reopensRunId: run.id } as never,
+        USER_ID,
+        later(2),
+      );
+
+      expect(await runOn(itemId)).toMatchObject({ id: run.id, status: 'working', sessionUrl: SESSION_URL });
     });
 
+    it('leaves the run ended for a plain Status To do on a Done item, which names no run', async () => {
+      const { itemId, run } = await aWorkingRun();
+      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId, done: true }, USER_ID, later(1));
+
+      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId, done: false }, USER_ID, later(2));
+
+      expect(await endedAt(run.id)).toBe(later(1));
+      expect(await isDone(itemId)).toBe(false);
+    });
+
+    it('leaves a run To do ended earlier ended, though the Undo of a later Done names it', async () => {
+      const { itemId, run } = await aWorkingRun();
+      await postChange('set_started', { workspaceId: WORKSPACE_ID, itemId, started: false }, USER_ID, later(1));
+      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId, done: true }, USER_ID, later(2));
+
+      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId, done: false, reopensRunId: run.id }, USER_ID, later(3));
+
+      expect(await endedAt(run.id)).toBe(later(1));
+    });
+
+    it('leaves the old run ended and the new one open when another run has started since', async () => {
+      const { itemId, run } = await aWorkingRun();
+      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId, done: true }, USER_ID, later(1));
+      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId, done: false }, USER_ID, later(2));
+      await start(itemId, await anAgent(), { issuedAt: later(3) });
+      const newer = (await runOn(itemId))!;
+
+      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId, done: false, reopensRunId: run.id }, USER_ID, later(4));
+
+      expect({ old: await endedAt(run.id), newer: await endedAt(newer.id) }).toEqual({ old: later(1), newer: null });
+    });
+
+    it('leaves a run on another item untouched, though the item is reopened', async () => {
+      const mine = await aWorkingRun();
+      const theirs = await aWorkingRun(undefined, await aPanel());
+      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId: mine.itemId, done: true }, USER_ID, later(1));
+      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId: theirs.itemId, done: true }, USER_ID, later(1));
+
+      await postChange(
+        'set_done',
+        { workspaceId: WORKSPACE_ID, itemId: mine.itemId, done: false, reopensRunId: theirs.run.id },
+        USER_ID,
+        later(2),
+      );
+
+      expect(await isDone(mine.itemId)).toBe(false);
+      expect({ mine: await endedAt(mine.run.id), theirs: await endedAt(theirs.run.id) }).toEqual({
+        mine: later(1),
+        theirs: later(1),
+      });
+    });
+
+    it('leaves a run in another workspace untouched, though the item is reopened', async () => {
+      const mine = await aWorkingRun();
+      const atlasPanel = await aPanel(ATLAS, `${ATLAS}-dashboard-1`);
+      const inAtlas = await anItem('In Atlas', atlasPanel, ATLAS);
+      const atlasRunId = nextId();
+      await inTheStore((sql) =>
+        sql.exec(
+          `INSERT INTO agent_runs (id, tenant_id, workspace_id, item_id, agent_id, status, started_at, ended_at)
+           SELECT ?, tenant_id, workspace_id, id, 'agent-1', 'working', ?, ? FROM items WHERE id = ?`,
+          atlasRunId,
+          AT,
+          later(1),
+          inAtlas,
+        ),
+      );
+      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId: mine.itemId, done: true }, USER_ID, later(1));
+
+      await postChange(
+        'set_done',
+        { workspaceId: WORKSPACE_ID, itemId: mine.itemId, done: false, reopensRunId: atlasRunId },
+        USER_ID,
+        later(2),
+      );
+
+      expect(await isDone(mine.itemId)).toBe(false);
+      expect(await endedAt(atlasRunId)).toBe(later(1));
+    });
+
+    it('changes nothing, the run included, when the Undo is older than the item’s last change', async () => {
+      const { itemId, run } = await aWorkingRun();
+      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId, done: true }, USER_ID, later(5));
+
+      const res = await postChange(
+        'set_done',
+        { workspaceId: WORKSPACE_ID, itemId, done: false, reopensRunId: run.id },
+        USER_ID,
+        later(2),
+      );
+
+      expect(await res.json()).toMatchObject({ applied: false });
+      expect(await endedAt(run.id)).toBe(later(5));
+    });
+  });
+
+  describe('Claude’s answer to a start is recorded on a run that has since ended', () => {
+    async function endedWhileStarting(answer: Answer) {
+      const itemId = await anItem('Chase the invoice', panelId);
+      claude.answer = answer;
+      let release = () => {};
+      claude.hold = new Promise<void>((resolve) => (release = resolve));
+      const starting = start(itemId, await anAgent());
+      await vi.waitFor(async () => expect((await runOn(itemId))?.status).toBe('starting'));
+      const run = (await runOn(itemId))!;
+      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId, done: true }, USER_ID, later(1));
+      release();
+      await starting;
+      return { itemId, run };
+    }
+
+    it('stores the link and status, leaves the run ended and the item Done, and gives the link back on Undo', async () => {
+      const { itemId, run } = await endedWhileStarting({ status: 200, body: { claude_code_session_url: SESSION_URL } });
+
+      expect((await allRuns(itemId))[0]).toMatchObject({ status: 'working', session_url: SESSION_URL, ended_at: later(1) });
+      expect(await isDone(itemId)).toBe(true);
+
+      await postChange('set_done', { workspaceId: WORKSPACE_ID, itemId, done: false, reopensRunId: run.id }, USER_ID, later(2));
+
+      expect(await runOn(itemId)).toMatchObject({ id: run.id, status: 'working', sessionUrl: SESSION_URL });
+    });
+
+    it('stores the reason when Claude refuses, and leaves the run ended', async () => {
+      const { itemId } = await endedWhileStarting({ status: 401, body: { type: 'error' } });
+
+      expect((await allRuns(itemId))[0]).toMatchObject({
+        status: 'failed',
+        reason: 'The token is wrong or was revoked.',
+        ended_at: later(1),
+      });
+    });
+  });
+
+  describe('a run outlives its Agent', () => {
     it('keeps the link of a run whose agent was deleted, naming no agent', async () => {
       const { agentId, itemId } = await aWorkingRun();
 

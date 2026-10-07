@@ -13,9 +13,10 @@ import { z } from 'zod';
  * | `unknown` | Claude's answer never arrived, so the session may exist |
  * | `failed` | Claude refused, so there is no session |
  *
- * **A run is open until somebody says the agent finished**, whatever its
- * status - except `failed`, which a new start ends by itself, since nothing
- * is running to be started twice.
+ * **A run is open until the Item's Status ends it** (Done, To do or
+ * Dismiss; an Undo of Done or Dismiss reopens it), whatever its status -
+ * except `failed`, which a new start ends by itself, since nothing is
+ * running to be started twice.
  */
 export const AGENT_RUN_STATUSES = ['starting', 'working', 'link_lost', 'unknown', 'failed'] as const;
 export const agentRunStatusSchema = z.enum(AGENT_RUN_STATUSES);

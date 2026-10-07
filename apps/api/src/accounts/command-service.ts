@@ -1,4 +1,4 @@
-import { and, eq, exists, inArray, notExists, sql } from 'drizzle-orm';
+import { and, eq, exists, inArray, isNull, notExists, sql } from 'drizzle-orm';
 import {
   CLAUDE_CODE,
   GMAIL,
@@ -38,6 +38,7 @@ import {
   claudeCodeConnectionOf,
   commandAlreadyApplied,
   getAgent,
+  anotherRunStartedSince,
   getAgentRun,
   getAttachment,
   getDashboard,
@@ -733,6 +734,44 @@ function forTheLog<N extends CommandName>(name: N, payload: CommandPayload<N>): 
   const { sealedCredential: _sealed, credentialNonce: _nonce, ...rest } =
     payload as CommandPayload<'connect_source_account'>;
   return rest;
+}
+
+/**
+ * Ends the Item's open run, if it has one, in the transaction of the change
+ * that ends it: Done, To do or Dismiss ("End an Item's agent run from its
+ * Status", issue 833). Whatever the run's state - starting, working, waiting
+ * on you or refused - and nothing where there is none.
+ */
+function endTheOpenRun(tx: InATransaction, tenantId: string, itemId: string, at: string): void {
+  tx.update(agentRuns)
+    .set({ endedAt: at })
+    .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.itemId, itemId), isNull(agentRuns.endedAt)))
+    .run();
+}
+
+/**
+ * The run an undo names and may have back, or null.
+ *
+ * **Only the run the undone change ended**: its end is the very moment the
+ * Item was closed (`closedAt`), so a run To do ended earlier, or one a Done
+ * never touched, stays ended. Only if the Item is open afterwards, and nothing
+ * else has run on it since - a plain Status To do on a Done Item names no run
+ * and so revives none.
+ */
+function runToReopen(
+  db: AccountDb,
+  tenantId: string,
+  cmd: { workspaceId: string; itemId: string; reopensRunId?: string | undefined },
+  closedAt: string | null,
+  after: { completedAt: string | null; deletedAt: string | null },
+): string | null {
+  if (!cmd.reopensRunId || closedAt === null || after.completedAt !== null || after.deletedAt !== null) return null;
+  const run = getAgentRun(db, tenantId, cmd.reopensRunId);
+  if (!run || run.itemId !== cmd.itemId || run.workspaceId !== cmd.workspaceId) return null;
+  if (run.endedAt !== closedAt) return null;
+  if (openAgentRunOn(db, tenantId, cmd.itemId)) return null;
+  if (anotherRunStartedSince(db, tenantId, cmd.itemId, run.id, run.endedAt)) return null;
+  return run.id;
 }
 
 /**
@@ -2201,6 +2240,8 @@ export function runCommand<N extends CommandName>(
             .set(asStored(updated))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
+          // To do ends the run; In progress leaves it open.
+          if (!cmd.started) endTheOpenRun(tx, tenantId, cmd.itemId, cmd.issuedAt);
           tx.insert(commands).values(commandRow).run();
         });
       }
@@ -2273,8 +2314,10 @@ export function runCommand<N extends CommandName>(
         throw new AgentRunNotFoundError(cmd.runId);
       }
       // Settled once: Claude answers a start once, so a second answer for the
-      // same run is a replay of the first rather than news.
-      if (run.status !== 'starting' || run.endedAt !== null) {
+      // same run is a replay of the first rather than news. An answer arriving
+      // after the run ended is still recorded on it - link, status, reason - so
+      // a run an Undo reopens has its session; it just starts nothing below.
+      if (run.status !== 'starting') {
         db.insert(commands).values(commandRow).run();
         applied = false;
         break;
@@ -2294,7 +2337,12 @@ export function runCommand<N extends CommandName>(
       // that then says "Agent finished" would take that as older than the
       // start, and last-write-wins would drop it.
       const started =
-        accepted && agent?.startsInProgress && item && couldStillBeActedOn(item) && item.completedAt === null
+        accepted &&
+        run.endedAt === null &&
+        agent?.startsInProgress &&
+        item &&
+        couldStillBeActedOn(item) &&
+        item.completedAt === null
           ? applySetStarted(item, { ...cmd, issuedAt: run.startedAt, started: true })
           : null;
       db.transaction((tx) => {
@@ -2462,6 +2510,12 @@ export function runCommand<N extends CommandName>(
         recordedCorrection =
           correction !== null &&
           (existing.textsSettledAt === null || textCorrectionExistsFor(db, tenantId, correction.itemId));
+        const reopened =
+          name === 'set_done' && !(cmd as CommandPayload<'set_done'>).done
+            ? runToReopen(db, tenantId, cmd, existing.completedAt, updated)
+            : name === 'set_dismissed' && !(cmd as CommandPayload<'set_dismissed'>).dismissed
+              ? runToReopen(db, tenantId, cmd, existing.deletedAt, updated)
+              : null;
         db.transaction((tx) => {
           tx.update(items)
             // Both source columns, as the capture above (`asStored`, domain/items.ts).
@@ -2469,6 +2523,19 @@ export function runCommand<N extends CommandName>(
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
           if (!fromTheSource) wantOpenStateMirrored(tx, tenantId, existing, updated);
+          // The Item's Status is what ends a run, in the one transaction as the
+          // change; an Undo that names a run it ended brings it back.
+          if (
+            (name === 'set_done' && (cmd as CommandPayload<'set_done'>).done) ||
+            (name === 'set_dismissed' && (cmd as CommandPayload<'set_dismissed'>).dismissed)
+          ) {
+            endTheOpenRun(tx, tenantId, cmd.itemId, cmd.issuedAt);
+          } else if (reopened) {
+            tx.update(agentRuns)
+              .set({ endedAt: null })
+              .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.id, reopened)))
+              .run();
+          }
           if (correction) {
             if (existing.textsSettledAt === null) {
               // The true first edit, and the only moment `existing.title`/

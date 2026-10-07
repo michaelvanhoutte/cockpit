@@ -631,6 +631,30 @@ describe('Capture', () => {
       },
     );
 
+    it('the label taken off a task whose agent is working ends its run, as marking it done does', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      const item = (await itemFor('thread-000'))!;
+      await inTheStore((sql) =>
+        sql.exec(
+          `INSERT INTO agent_runs (id, tenant_id, workspace_id, item_id, agent_id, status, started_at)
+           SELECT 'run-1', tenant_id, workspace_id, id, 'agent-1', 'working', '2026-09-28T10:00:00.000Z' FROM items WHERE id = ?`,
+          item.id,
+        ),
+      );
+
+      nowIs('thread-000', 'unlabelled');
+      historySays([labelOff('thread-000')]);
+      await aCheckRuns();
+
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'done' });
+      const [run] = await inTheStore((sql) => [
+        ...sql.exec<{ ended_at: string | null }>("SELECT ended_at FROM agent_runs WHERE id = 'run-1'"),
+      ]);
+      expect(run!.ended_at).not.toBeNull();
+    });
+
     it('the label taken off a conversation that never had an Item makes nothing, and reads nothing', async () => {
       mailboxWith(1);
       await connect();
