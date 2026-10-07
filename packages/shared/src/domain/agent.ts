@@ -137,9 +137,12 @@ export const AGENT_PREAMBLE = [
  * name>: <item title>`, so a session in Claude Code can be told from the rest
  * ("Open each Agent session by naming the Agent and the item", issue 835).
  * Built by concatenation: the name and title are inserted exactly as typed.
+ * An Agent deleted since the start was recorded has no name, so the line is
+ * the title alone.
  */
 export function agentPreambleFor(agentName: string, itemTitle: string): string {
-  return AGENT_PREAMBLE + ' Begin your first reply with this line, exactly: ' + agentName + ': ' + itemTitle;
+  const line = agentName === '' ? itemTitle : agentName + ': ' + itemTitle;
+  return AGENT_PREAMBLE + ' Begin your first reply with this line, exactly: ' + line;
 }
 
 /** What a new Agent's template starts as: the instruction to work the Item, then the Item's words. */

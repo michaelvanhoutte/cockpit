@@ -102,6 +102,12 @@ describe('Agents', () => {
       expect(message.startsWith(`${opening(one.title)}\n\n`) || message === opening(one.title)).toBe(true);
     });
 
+    it('names the item alone for an agent deleted since the start was recorded', () => {
+      const message = agentMessageFor(agent({ name: '' }), item);
+
+      expect(message.startsWith(`${AGENT_PREAMBLE} Begin your first reply with this line, exactly: Chase the invoice`)).toBe(true);
+    });
+
     it('names the agent as it is called, not as a placeholder', () => {
       const message = agentMessageFor(agent({ name: 'Ship $& {title}' }), item);
 
