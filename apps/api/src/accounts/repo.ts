@@ -1818,8 +1818,8 @@ function runFrom(row: {
  * Every open run on one Workspace's open Items, oldest first (issue 571).
  *
  * **Joined against Items still to be done.** Done and Dismiss end the run
- * themselves; this keeps a run left open on a closed Item by the earlier
- * behaviour from counting on the dock for good.
+ * themselves; this keeps a run an Item's Done or Dismiss never ended
+ * from counting on the dock for good.
  */
 export function listOpenAgentRuns(db: AccountDb, tenantId: string, workspaceId: string): AgentRun[] {
   return db

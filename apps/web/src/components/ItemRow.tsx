@@ -726,10 +726,10 @@ export function ItemRow({
       // Agent. The run's own ways on, while it is open ("Drop an agent on an
       // item to start a Claude Code session on it", issue 571): the session
       // itself, a real link in a new tab as "Open in …" above is - the Status
-      // ends the run, so there is nothing to say about it here. Then every Agent this dashboard
-      // shows, where nothing is already running on the row - the way a
-      // keyboard starts one, since it has no drag. The ellipsis says a box
-      // opens first; the tag says it is an agent.
+      // ends the run, so there is nothing to say about it here. Then every
+      // Agent this dashboard shows, where nothing is already running on the
+      // row - the way a keyboard starts one, since it has no drag. The
+      // ellipsis says a box opens first; the tag says it is an agent.
       [
         chip?.href && (
           <M.Item key="session" asChild className={menuItemClass}>

@@ -2354,7 +2354,7 @@ describe('Agents', () => {
       await act(user);
       await user.click(screen.getByRole('button', { name: 'Undo' }));
 
-      const sent = send.mock.calls[0]![0] as { name: string; payload: Record<string, unknown> };
+      const sent = (send.mock.calls as unknown as [{ name: string; payload: Record<string, unknown> }][])[0]![0];
       expect(sent).toMatchObject({ name, payload: { itemId: 'item-1', ...turned } });
       expect(sent.payload.reopensRunId).toBe(named);
     });
