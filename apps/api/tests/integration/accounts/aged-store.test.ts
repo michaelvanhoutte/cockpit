@@ -1722,8 +1722,8 @@ describe('Connector management', () => {
       await fillWithWhatIsAlreadyThere(name);
       const held = () =>
         inStoreAsItIs(name, (sql) => ({
-          connections: sql.exec<Record<string, unknown>>('SELECT * FROM connector_accounts ORDER BY id').toArray(),
-          links: sql.exec<Record<string, unknown>>('SELECT * FROM gmail_conversations').toArray(),
+          connections: sql.exec('SELECT * FROM connector_accounts ORDER BY id').toArray(),
+          links: sql.exec('SELECT * FROM gmail_conversations').toArray(),
         }));
       const before = await held();
 

@@ -503,9 +503,11 @@ async function stillThere(mailbox: Mailbox, threadId: string, labelId: string): 
  * conversations than a run can read.
  *
  * **By star, only what gained the star is read** (issue 822): no Item is
- * closed or reopened from what Gmail changed. Its pages are as long as a run
- * can read, so none is ever too long to finish - a fresh position there would
- * miss the stars on it, which no listing finds again.
+ * closed or reopened from what Gmail changed. Its pages are no longer than one
+ * run's calls can read, so none is ever left to lapse as too long: a run that
+ * stops part-way reads the page again and finds what it brought in by its link,
+ * where a fresh position would miss the stars on it, which no listing finds
+ * again.
  */
 async function readHistory(
   host: GmailCheckHost,

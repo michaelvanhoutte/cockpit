@@ -1417,6 +1417,29 @@ describe('Capture', () => {
       expect(await broughtInto()).toEqual(['thread-one', 'thread-two']);
       expect(historyReadsFrom()).toEqual(['777', '777']);
     });
+
+    it('its Item marked done or dismissed leaves nothing waiting for Gmail, and asks Gmail to change nothing', async () => {
+      starredBefore([]);
+      await connect(granted('anna-refresh'), WORKSPACE_ID, 'star');
+      await checksSettle();
+      afterwards([starOn('thread-later')]);
+      await aCheckRuns();
+      const item = (await itemFor('thread-later'))!;
+
+      await personMarks(item.id, 'done');
+      await personMarks(item.id, 'reopened');
+      await personMarks(item.id, 'dismissed');
+      await aCheckRuns();
+
+      const waiting = await inTheStore((sql) => [
+        ...sql.exec<{ label_wanted: number | null }>(
+          "SELECT label_wanted FROM gmail_conversations WHERE thread_id = 'thread-later'",
+        ),
+      ]);
+      expect(waiting).toEqual([{ label_wanted: null }]);
+      expect(gmailModifies).toEqual([]);
+      expect(await itemFor('thread-later')).toEqual({ id: item.id, is: 'dismissed' });
+    });
   });
 
   describe('the same mailbox connected to two Workspaces, by label and by star, brings into each only what carries its own mark', () => {

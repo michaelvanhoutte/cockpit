@@ -44,6 +44,9 @@ export function wantOpenStateMirrored(
       and(
         eq(gmailConversations.tenantId, tenantId),
         eq(gmailConversations.itemId, before.id),
+        // The label alone is kept in step: an Item that came in by star
+        // changes nothing in Gmail, so nothing waits to reach it (issue 822).
+        eq(gmailConversations.mark, 'label'),
         exists(
           tx
             .select({ id: connectorAccounts.id })

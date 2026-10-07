@@ -2379,7 +2379,7 @@ const routes = app
    * carried in the attempt cookie, refused before anybody leaves where the
    * Workspace is gone or the environment cannot connect.
    *
-   * **ollows=star connects it by star** ("Connect Gmail by star, and bring
+   * **`?follows=star` connects it by star** ("Connect Gmail by star, and bring
    * in conversations starred from then on", issue 822), carried in the cookie
    * beside the Workspace; anything else is the label.
    */
