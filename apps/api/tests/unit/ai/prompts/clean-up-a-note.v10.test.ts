@@ -170,6 +170,7 @@ describe('Capture', () => {
 
       expect(instructions).toContain('keep them on the same words in the message');
       expect(instructions).toContain('no headings and no bullet points unless the note itself was a list');
+      expect(instructions).toContain('keep its items as that list, one to a line');
     });
   });
   /**

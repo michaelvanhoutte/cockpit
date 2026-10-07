@@ -81,7 +81,7 @@ ${TITLE_NAMES_THE_WORK} Write it as an instruction - "Run only the impacted CI t
 
 ${TITLE_LENGTH_TARGET_LINE} ${TITLE_LENGTH} characters is only what the form will store; it is not what to write towards.
 
-${MESSAGE_PURPOSE} It is an instruction too: the work the note is asking for, spelled out from what the note carries and nothing more. Where the note records an opinion or an observation rather than asking for something, the instruction is to record it. It is not a summary, not a report, and not a list of fields. The note is Markdown: where it uses bold, italics, links or lists, keep them on the same words in the message, and add none the note does not have. Write no headings and no bullet points unless the note itself was a list.
+${MESSAGE_PURPOSE} It is an instruction too: the work the note is asking for, spelled out from what the note carries and nothing more. Where the note records an opinion or an observation rather than asking for something, the instruction is to record it. It is not a summary, not a report, and not a list of fields. The note is Markdown: where it uses bold, italics, links or lists, keep them on the same words in the message, and add none the note does not have. Write no headings and no bullet points unless the note itself was a list; where it was, keep its items as that list, one to a line with the note's own markers, never joined into a sentence.
 
 Name the note's language first, in English, from the note alone - "English", "Dutch", or "English and Dutch" where the note genuinely mixes them. ${LANGUAGE_ANSWER} ${NEVER_TRANSLATE}
 

@@ -367,9 +367,15 @@ describe('Capture', () => {
       });
 
       it('keeps a two-item list as a list', async () => {
-        const proposal = await read('- order the new badges\n- book the room for the offsite');
+        // Asked five times, because a model that only sometimes joins the two
+        // items into a sentence passes a single dispatch and fails the night it
+        // does. One after another, so a rate limit cannot pass for drift.
+        const messages: string[] = [];
+        for (let pass = 0; pass < 5; pass += 1) {
+          messages.push((await read('- order the new badges\n- book the room for the offsite')).message);
+        }
 
-        expect(proposal.message).toMatch(/^\s*[-*] .+\n\s*[-*] /m);
+        expect(messages.filter((message) => !/^\s*[-*] .+\n\s*[-*] /m.test(message))).toEqual([]);
       });
 
       it('links the same text to the same address', async () => {
