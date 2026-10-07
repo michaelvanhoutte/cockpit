@@ -1,38 +1,37 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { isTypedInto, somethingIsOpenOverThePage } from './inboxCollapsed';
+import { useCallback, useState, useSyncExternalStore } from 'react';
 import type { KeyPress } from './inboxCollapsed';
 
 /**
- * The Dashboard's Panel list, the column at its right ("Show a Dashboard's
- * Panels in a collapsible column at its right, and jump to one", issue 803):
- * whether it is collapsed, the key that toggles it, and what the board hands
- * the column to draw.
+ * Go to panel, the column at a Dashboard's right ("Show a Dashboard's Panels
+ * in a collapsible column at its right, and jump to one", issue 803; "Go to a
+ * Panel of this Dashboard from the keyboard with G", issue 813): whether it is
+ * hidden to its strip, the key that shows and hides it, and what the board
+ * hands the column to draw.
  *
- * **Collapsed is remembered in the browser and forgotten at sign-out**, the
- * same shape `inboxCollapsed.ts` carries and for the same reason: it is a
- * choice about the chrome. A browser that refuses the write still collapses
- * for this visit: the caller holds the state, this only remembers it.
+ * **Hidden until first shown, then remembered in the browser and forgotten at
+ * sign-out**, the shape `inboxCollapsed.ts` carries and for the same reason: it
+ * is a choice about the chrome. Shown is what is stored, since hidden is the
+ * default. A browser that refuses the write still shows it for this visit: the
+ * caller holds the state, this only remembers it.
  */
 
-/** The key that toggles the list, named in both of its controls' tooltips. */
-export const PANEL_LIST_KEY = 'p';
+/** The key that shows and hides the column, named in both of its controls' tooltips. */
+export const PANEL_LIST_KEY = 'g';
 
 const KEY = 'cockpit.panel-list-collapsed';
 
-/** Collapsed only where the stored value says so; anything else is open. */
+/** Hidden unless the stored value says it was shown. */
 export function readPanelListCollapsed(store: Storage | undefined): boolean {
   try {
-    return store?.getItem(KEY) === '1';
+    return store?.getItem(KEY) !== '0';
   } catch {
-    return false;
+    return true;
   }
 }
 
-/** Open is the default, so opening removes the entry rather than storing it. */
 export function writePanelListCollapsed(store: Storage | undefined, collapsed: boolean): void {
   try {
-    if (collapsed) store?.setItem(KEY, '1');
-    else store?.removeItem(KEY);
+    store?.setItem(KEY, collapsed ? '1' : '0');
   } catch {
     // Not remembering the choice is a smaller thing than one that throws.
   }
@@ -40,12 +39,16 @@ export function writePanelListCollapsed(store: Storage | undefined, collapsed: b
 
 /** Called from `session/forget.ts`, alongside the Inbox's own collapse. */
 export function forgetPanelListCollapsed(store: Storage | undefined): void {
-  writePanelListCollapsed(store, false);
+  try {
+    store?.removeItem(KEY);
+  } catch {
+    // A browser that refuses storage remembered nothing to forget.
+  }
 }
 
 /**
- * Whether this key press toggles the list: not while typing, not with a
- * modifier held, not while a menu or a window is open, and not for a key held
+ * Whether this key press shows or hides the column: not while typing, not with
+ * a modifier held, not while a menu or a window is open, and not for a key held
  * down - the four guards `togglesTheInbox` carries, for the same reasons.
  */
 export function togglesThePanelList(press: KeyPress, covered: boolean): boolean {
@@ -56,13 +59,12 @@ export function togglesThePanelList(press: KeyPress, covered: boolean): boolean 
 }
 
 /**
- * Whether the list is collapsed, read once like the Inbox's, with the setter
- * that remembers it and the key that flips it. `listening` is whether the list
- * is on screen at all: with no list there is nothing for the key to toggle.
+ * Whether the column is hidden to its strip, read once like the Inbox's, with
+ * the setter that remembers it. The key itself is heard by the column
+ * (`components/PanelList.tsx`), which holds the keys once G has shown it.
  */
 export function usePanelListCollapsed(
   store: Storage | undefined,
-  listening: boolean,
 ): [boolean, (collapsed: boolean) => void] {
   const [collapsed, setCollapsed] = useState(() => readPanelListCollapsed(store));
   const set = useCallback(
@@ -72,39 +74,19 @@ export function usePanelListCollapsed(
     },
     [store],
   );
-  // Read at press time, so the one listener never goes stale.
-  const now = useRef(collapsed);
-  now.current = collapsed;
-  useEffect(() => {
-    if (!listening) return;
-    const onKey = (event: KeyboardEvent) => {
-      const toggles = togglesThePanelList(
-        {
-          key: event.key,
-          ctrlKey: event.ctrlKey,
-          altKey: event.altKey,
-          metaKey: event.metaKey,
-          repeat: event.repeat,
-          defaultPrevented: event.defaultPrevented,
-          typing: isTypedInto(event.target),
-        },
-        somethingIsOpenOverThePage(),
-      );
-      if (toggles) set(!now.current);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [listening, set]);
   return [collapsed, set];
 }
 
-/** One Panel as the list names it: its title, and the count its header shows (none on a Panel of text). */
-export type PanelListEntry = { panelId: string; title: string; count: number | null };
+/**
+ * One Panel as the list names it: its title, the count its header shows (none
+ * on a Panel of text), and whether the Dashboard filter leaves it undrawn.
+ */
+export type PanelListEntry = { panelId: string; title: string; count: number | null; hidden: boolean };
 
 /**
- * What the board hands the column: the Panels it draws, a row at a time in
- * reading order, and the way to bring one to the top. Published rather than
- * read from the snapshot because the board is what knows which Panels a
+ * What the board hands the column: every Panel of the Dashboard, a row at a
+ * time in reading order, and the way to bring one to the top. Published rather
+ * than read from the snapshot because the board is what knows which Panels a
  * Dashboard filter leaves drawn, and which count each header shows.
  */
 export type PanelListing = {

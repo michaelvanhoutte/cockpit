@@ -734,13 +734,16 @@ export function PanelBoard({
     };
   };
   const [jumpTo] = useState(() => (panelId: string) => jumpRef.current(panelId));
-  const listed = drawn.map(({ row }) =>
+  // Every Panel, whatever the Dashboard filter leaves undrawn: the column says
+  // which are hidden, and going to one clears the filter.
+  const listed = shown.map((row) =>
     row.cells.map((cell) => {
       const panel = panels.find((one) => one.id === cell.panelId);
       return {
         panelId: cell.panelId,
         title: panel?.name ?? '',
         count: panel && panelHoldsText(panel) ? null : (shows.get(cell.panelId)?.length ?? 0),
+        hidden: hidden?.has(cell.panelId) ?? false,
       };
     }),
   );

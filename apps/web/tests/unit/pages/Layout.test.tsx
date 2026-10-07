@@ -607,15 +607,15 @@ describe('Agents', () => {
 });
 
 describe('Dashboards', () => {
-  describe('the Panel list is drawn at the right of a Dashboard wherever the Inbox has room, and nowhere else', () => {
+  describe('Go to panel is drawn at the right of a Dashboard wherever the Inbox has room, and nowhere else', () => {
     const shell = () =>
       render(
         <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
           <Layout />
         </QueryClientProvider>,
       );
-    const list = () => screen.queryByRole('complementary', { name: 'Panels' });
-    const strip = () => screen.queryByRole('button', { name: 'Open the Panel list' });
+    const list = () => screen.queryByRole('complementary', { name: 'Go to panel' });
+    const strip = () => screen.queryByRole('button', { name: 'Open Go to panel' });
     const openADashboard = () => {
       openWorkspaceId = 'ws-markup';
       openDashboardId = 'dash-1';
@@ -630,13 +630,13 @@ describe('Dashboards', () => {
 
     afterEach(() => vi.unstubAllGlobals());
 
-    it('is drawn open on a Dashboard at a desk', async () => {
+    it('is the strip only on a Dashboard in a browser that never pressed G', async () => {
       onADesk(true);
       openADashboard();
       shell();
 
-      expect(await screen.findByRole('complementary', { name: 'Panels' })).toBeInTheDocument();
-      expect(strip()).toBeNull();
+      expect(await screen.findByRole('button', { name: 'Open Go to panel' })).toBeInTheDocument();
+      expect(list()).toBeNull();
     });
 
     it.each([
@@ -654,42 +654,51 @@ describe('Dashboards', () => {
       expect(strip()).toBeNull();
     });
 
-    it('collapses and opens on P, and is still collapsed when the page is loaded again', async () => {
+    it('is shown on G, hidden on G, and still shown when the page is loaded again', async () => {
       onADesk(true);
       openADashboard();
       const user = userEvent.setup();
       const first = shell();
-      await screen.findByRole('complementary', { name: 'Panels' });
+      await screen.findByRole('button', { name: 'Open Go to panel' });
 
-      await user.keyboard('p');
-      expect(list()).toBeNull();
-      expect(strip()).not.toBeNull();
+      await user.keyboard('g');
+      expect(list()).not.toBeNull();
+      expect(strip()).toBeNull();
       first.unmount();
 
+      const second = shell();
+      expect(await screen.findByRole('complementary', { name: 'Go to panel' })).toBeInTheDocument();
+      await user.keyboard('g');
+      expect(strip()).not.toBeNull();
+      second.unmount();
+
       shell();
-      expect(await screen.findByRole('button', { name: 'Open the Panel list' })).toBeInTheDocument();
-      await user.keyboard('p');
-      expect(await screen.findByRole('complementary', { name: 'Panels' })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Open Go to panel' })).toBeInTheDocument();
     });
 
-    it('leaves the Inbox to I, and the list to P', async () => {
+    it('leaves the Inbox to I, and the column to G, and P does nothing', async () => {
       onADesk(true);
       openADashboard();
       const user = userEvent.setup();
       shell();
-      await screen.findByRole('complementary', { name: 'Panels' });
+      await screen.findByRole('button', { name: 'Open Go to panel' });
 
+      await user.keyboard('p');
+      expect(list()).toBeNull();
+
+      await user.keyboard('g');
+      await user.keyboard('{Escape}');
+      expect(list()).toBeNull();
       await user.keyboard('i');
+
+      expect(strip()).not.toBeNull();
+      expect(localStorage.getItem('cockpit.inbox-collapsed')).toBe('1');
+
+      await user.keyboard('g');
 
       expect(list()).not.toBeNull();
       expect(localStorage.getItem('cockpit.inbox-collapsed')).toBe('1');
-      expect(localStorage.getItem('cockpit.panel-list-collapsed')).toBeNull();
-
-      await user.keyboard('p');
-
-      expect(list()).toBeNull();
-      expect(localStorage.getItem('cockpit.inbox-collapsed')).toBe('1');
-      expect(localStorage.getItem('cockpit.panel-list-collapsed')).toBe('1');
+      expect(localStorage.getItem('cockpit.panel-list-collapsed')).toBe('0');
     });
   });
 });

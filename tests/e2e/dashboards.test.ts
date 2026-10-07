@@ -616,15 +616,15 @@ test.describe('Dashboards', () => {
       await expectPinned();
     });
   });
-  test.describe('a Dashboard’s Panels are listed at its right, and a click brings one to the top', () => {
+  test.describe('a Dashboard’s Panels are found by name at its right, and G goes to one', () => {
     /**
      * F3, because where a header lands is layout and a scroll position, which
-     * jsdom has neither of; what the list holds, its controls and the key are
+     * jsdom has neither of; what the list holds, its controls and the keys are
      * apps/web/tests/unit (components/PanelList, panelList, pages/Layout). One
-     * walk: a Dashboard too tall for the window, the list open, then the key and
-     * a reload.
+     * walk: a Dashboard too tall for the window, the list shown by G, then ↓ and
+     * Enter to two Panels, G to hide it and a reload.
      */
-    test('scrolls a Panel’s header to the top, as far as the page allows for one too low, and keeps the list collapsed across a reload', async ({
+    test('goes to a Panel from the keyboard, its header at the top as far as the page allows for one too low, and keeps the list hidden across a reload', async ({
       page,
       isMobile,
     }) => {
@@ -633,8 +633,8 @@ test.describe('Dashboards', () => {
       await makeWorkspace(page, workspace, isMobile);
       await switchTo(page, workspace, isMobile);
       await openDashboard(page, 'Dashboard 1', isMobile);
-      const list = page.getByRole('complementary', { name: 'Panels' });
-      const strip = page.getByRole('button', { name: 'Open the Panel list' });
+      const list = page.getByRole('complementary', { name: 'Go to panel' });
+      const strip = page.getByRole('button', { name: 'Open Go to panel' });
       // A phone keeps collapse-and-jump, so there is nothing to walk.
       if (isMobile) {
         await expect(page.getByRole('region', { name: 'Panel 1' })).toBeVisible();
@@ -665,8 +665,12 @@ test.describe('Dashboards', () => {
       const scrollTop = () => scroller.evaluate((el) => el.scrollTop);
       const reach = () => scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
       const entry = (name: string) => list.getByRole('button', { name: new RegExp(`^${name}`) });
+      // **Hidden until first shown**: a fresh browser has the strip only.
+      await expect(strip).toBeVisible();
+      await expect(list).toHaveCount(0);
+      await page.keyboard.press('g');
       await expect(list).toBeVisible();
-      await expect(list.getByRole('heading', { name: 'Panels' })).toBeVisible();
+      await expect(list.getByRole('heading', { name: 'Go to panel' })).toBeVisible();
       await expect(entry('Extra 8')).toBeVisible();
       await expect.poll(reach, 'the Dashboard is taller than the window').toBeGreaterThan(150);
       // The list takes its width from the Panels: it is beside the scroller, not over it.
@@ -674,21 +678,35 @@ test.describe('Dashboards', () => {
       const scrollerBox = (await scroller.boundingBox())!;
       expect(listBox.x).toBeGreaterThanOrEqual(scrollerBox.x + scrollerBox.width - 1);
 
+      // **Going to a Panel with the keys**: G has the first entry highlighted, ↓
+      // moves to the one named, Enter goes and leaves the list shown.
+      const goTo = async (name: string) => {
+        const titles = await list.getByRole('listitem').allInnerTexts();
+        const at = titles.findIndex((title) => title.startsWith(name));
+        expect(at, `${name} is listed`).toBeGreaterThan(-1);
+        for (let step = 0; step < at; step += 1) await page.keyboard.press('ArrowDown');
+        await page.keyboard.press('Enter');
+      };
+
       // **A Panel that can reach the top.**
-      await press(entry('Extra 3'), isMobile);
+      await goTo('Extra 3');
       await expect
         .poll(async () => Math.abs((await headerOf('Extra 3').boundingBox())!.y - (await scroller.boundingBox())!.y))
         .toBeLessThan(2);
       await expectNoSidewaysScroll(page);
 
-      // **One too low to**: as far as the page goes, and no further.
-      await press(entry('Extra 8'), isMobile);
+      // **One too low to**: as far as the page goes, and no further. G from the page hides, G shows again.
+      await page.keyboard.press('g');
+      await expect(list).toHaveCount(0);
+      await page.keyboard.press('g');
+      await expect(list).toBeVisible();
+      await goTo('Extra 8');
       await expect.poll(async () => (await reach()) - (await scrollTop())).toBeLessThan(2);
       expect((await headerOf('Extra 8').boundingBox())!.y, 'short of the top').toBeGreaterThan(scrollerBox.y + 2);
       await expectNoSidewaysScroll(page);
 
-      // **P collapses it to the strip, and a reload keeps it so.**
-      await page.keyboard.press('p');
+      // **G hides it, and a reload keeps it so.**
+      await page.keyboard.press('g');
       await expect(list).toHaveCount(0);
       await expect(strip).toBeVisible();
       await page.reload();
