@@ -1017,10 +1017,10 @@ describe('Capture', () => {
         expect(gmailCalls.filter(refused)).toHaveLength(1);
         expect(labelIsOn('thread-001')).toBe(false);
         expect((await rowOf()).failingBecause).toBeNull();
-        // Logged by the connection and Gmail's answer, and nothing of the mail or the sign-in.
+        // Logged by the connection, the mark it follows and Gmail's answer, and nothing of the mail or the sign-in.
         const warning = logged.mock.calls.map(([line]) => String(line)).find((line) => line.includes('refused a label change'));
-        expect(JSON.parse(warning!)).toMatchObject({ level: 'warn', data: { status } });
-        expect(Object.keys(JSON.parse(warning!).data).sort()).toEqual(['sourceAccountId', 'status']);
+        expect(JSON.parse(warning!)).toMatchObject({ level: 'warn', data: { follows: 'label', status } });
+        expect(Object.keys(JSON.parse(warning!).data).sort()).toEqual(['follows', 'sourceAccountId', 'status']);
         expect(warning).not.toContain('thread-000');
         expect(warning).not.toContain('access-for-');
       } finally {
@@ -1541,6 +1541,62 @@ describe('Capture', () => {
       expect(await itemFor('thread-plain')).toBeNull();
       expect(gmailCalls.some((call) => call.startsWith('threads/thread-plain'))).toBe(false);
       expect(await itemFor('thread-x')).toMatchObject({ is: 'open' });
+    });
+
+    it('connecting the mailbox again reads each open Item once: one still starred stays open, one unstarred meanwhile is done', async () => {
+      await starredAfterConnecting(['thread-x', 'thread-y']);
+      // Unstarred with no history record a check after connecting again would read.
+      starNowIs('thread-y', 'unstarred');
+      const before = gmailCalls.length;
+
+      await connect(granted('anna-refresh-again'), WORKSPACE_ID, 'star');
+      await checksSettle();
+      await aCheckRuns();
+
+      expect(await itemFor('thread-x')).toMatchObject({ is: 'open' });
+      expect(await itemFor('thread-y')).toMatchObject({ is: 'done' });
+      const reads = gmailCalls.slice(before).filter((call) => call.startsWith('threads/'));
+      expect(reads.filter((call) => call.startsWith('threads/thread-x'))).toHaveLength(1);
+      expect(reads.filter((call) => call.startsWith('threads/thread-y'))).toHaveLength(1);
+    });
+
+    /**
+     * One history record naming each of these conversations unstarred - as
+     * unstarring many at once in Gmail records it - then a record apiece for
+     * the changes after it.
+     */
+    function unstarredAtOnce(threadIds: string[], after: HistoryChange[] = []): void {
+      const records = threadIds.map((id) => historyRecord('901', starOff(id)) as { messages: unknown[]; labelsRemoved: unknown[] });
+      const atOnce = { id: '901', messages: records.flatMap((one) => one.messages), labelsRemoved: records.flatMap((one) => one.labelsRemoved) };
+      gmailHolds({ historyId: '950', history: [atOnce, ...after.map((change, at) => historyRecord(String(902 + at), change))] });
+    }
+
+    it('unstarred among more conversations than a run can read, the one with an Item is still done at the next check', async () => {
+      await starredAfterConnecting(['thread-x']);
+      starNowIs('thread-x', 'unstarred');
+      unstarredAtOnce(['thread-x', ...Array.from({ length: 40 }, (_, at) => `thread-other-${at}`)]);
+
+      await aCheckRuns();
+
+      expect(await itemFor('thread-x')).toMatchObject({ is: 'done' });
+      expect(gmailCalls.some((call) => call.startsWith('threads/thread-other'))).toBe(false);
+    });
+
+    it('more Items unstarred at once than a run can read lose nothing: a star beside them still comes in, and the nightly read marks each done', async () => {
+      const threadIds = Array.from({ length: 31 }, (_, at) => `thread-${String(at).padStart(2, '0')}`);
+      await starredAfterConnecting(threadIds);
+      for (const id of threadIds) starNowIs(id, 'unstarred');
+      starNowIs('thread-later', 'starred');
+      unstarredAtOnce(threadIds, [starOn('thread-later')]);
+
+      await aCheckRuns();
+      expect(await itemFor('thread-later')).toMatchObject({ is: 'open' });
+
+      await handleScheduled({} as never, env);
+      await runsSettle();
+
+      for (const id of threadIds) expect(await itemFor(id)).toMatchObject({ is: 'done' });
+      expect(await itemFor('thread-later')).toMatchObject({ is: 'open' });
     });
   });
 

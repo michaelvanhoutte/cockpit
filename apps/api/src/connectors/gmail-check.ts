@@ -455,6 +455,7 @@ async function pushWhatIsWanted(
       if (!(error instanceof ChangeRefused)) throw error;
       logged('warn', 'Gmail refused a label change, which is no longer asked of it', {
         sourceAccountId: connection.id,
+        follows: connection.follows,
         status: error.status,
       });
       settled = host.gmailRefused(connection, wanted);
@@ -515,11 +516,10 @@ async function settleThreads(
   connection: GmailConnectionToCheck,
   mailbox: Mailbox,
   labelId: string,
-  threadIds: readonly string[],
+  broughtInIds: readonly string[],
   at: string,
 ): Promise<void> {
-  const known = host.alreadyBroughtIn(connection.workspaceId, connection.mailboxKey, threadIds);
-  for (const threadId of threadIds.filter((id) => known.has(id))) {
+  for (const threadId of broughtInIds) {
     const labelled = await stillThere(mailbox, threadId, labelId);
     const changed = host.sourceChanged(connection, [threadId], labelled ? 'reopened' : 'resolved', at);
     if (changed === 'disconnected') throw new ConnectionChanged('the connection was disconnected');
@@ -546,9 +546,9 @@ async function stillThere(mailbox: Mailbox, threadId: string, labelId: string): 
  * pages are no longer than one run's calls can read, so a run that stops
  * part-way reads the page again and finds what it brought in by its link,
  * where a fresh position would miss the stars on it, which no listing finds
- * again. A page naming more conversations than a run can read for closing
- * still brings in what gained the star, and leaves closing the rest to the
- * nightly listing (issue 823).
+ * again. Only the conversations it has Items for are read to settle them
+ * (issue 823); a page needing more reads than a run can make still brings in
+ * what gained the star, and leaves settling the rest to the nightly listing.
  */
 async function readHistory(
   host: GmailCheckHost,
@@ -569,10 +569,15 @@ async function readHistory(
     const answer = await mailbox.get(`history?${query}`);
     if (answer === null) return 'lapsed';
     const page = historyPage(answer, labelId);
-    // Each conversation named costs a read, and a run that stops reads the
-    // page again from its first: past what one run can read, it never ends.
-    if (page.changed.length <= CHANGED_PER_HISTORY_PAGE) {
-      await settleThreads(host, connection, mailbox, labelId, page.changed, at);
+    const known = host.alreadyBroughtIn(connection.workspaceId, connection.mailboxKey, page.changed);
+    const settling = page.changed.filter((id) => known.has(id));
+    // Each conversation read costs a call, and a run that stops reads the page
+    // again from its first: past what one run can read, it never ends. By
+    // label, every one named may be read; by star, only those with an Item to
+    // settle, and those gaining the star without one.
+    const reads = byLabel ? page.changed.length : settling.length + page.gained.filter((id) => !known.has(id)).length;
+    if (reads <= CHANGED_PER_HISTORY_PAGE) {
+      await settleThreads(host, connection, mailbox, labelId, settling, at);
     } else if (byLabel) {
       return 'lapsed';
     }
