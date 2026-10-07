@@ -84,6 +84,12 @@ describe('Appearance', () => {
       }
     });
 
+    it('keeps `over` as a fill under white, as light has it', () => {
+      const light = /--color-over:\s*(#[0-9a-f]{6});/.exec(styles)![1]!;
+      expect(dark('over')).toBe(light);
+      expect(contrast('#ffffff', dark('over'))).toBeGreaterThanOrEqual(contrast('#ffffff', light));
+    });
+
     it('draws white on a toast', () => {
       expect(contrast('#ffffff', dark('toast'))).toBeGreaterThanOrEqual(4.5);
     });
