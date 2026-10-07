@@ -123,9 +123,10 @@ export interface Account {
    */
   attachmentExists(attachmentId: string): Promise<boolean>;
   /**
-   * Every live Panel of one Workspace that takes items - what a routing
-   * proposal may choose from ("Propose where a captured note belongs, without
-   * filing it there", issue 298). Read by the enrichment job and by nothing
+   * Every live Panel of one Workspace that takes items and is not flagged
+   * Never propose - what a routing proposal may choose from ("Propose where a
+   * captured note belongs, without filing it there", issue 298; "Keep a Panel
+   * out of proposals with Never propose", issue 848). Read by the enrichment job and by nothing
    * else.
    */
   panelsThatTakeItems(workspaceId: string): Promise<Panel[]>;
@@ -133,7 +134,8 @@ export interface Account {
    * What a routing proposal reads beside the note itself, in one round trip
    * ("Learn where notes belong from where you actually file them", issue
    * 299): the most recent 50 settled decisions for one workspace whose
-   * chosen panel still exists, oldest first, and what else it has captured
+   * chosen panel still exists and is not flagged Never propose, oldest first,
+   * and what else it has captured
    * lately and not yet filed, most recent first, `excludeItemId` left out
    * ("Cap the routing prompt to the last 50 decisions on panels that still
    * exist, and drop the correction override", issue 450). Read by the

@@ -477,15 +477,21 @@ function refuseUnlessAFilter(panel: { name: string; kind: PanelKind }) {
 }
 
 /**
- * Refuses a panel nothing is filed onto where Never propose is being set
- * ("Keep a Panel out of proposals with Never propose", issue 848): a panel of
- * text or a Filter is never proposed anyway. The fifth of the same family.
+ * The Item's proposal as its Inbox chip showed it, for the decision a filing
+ * records: none where the proposed Panel is flagged Never propose, whose chip
+ * is not drawn ("Keep a Panel out of proposals with Never propose", issue 848).
+ * Otherwise the history would record an override of a chip nobody saw, naming
+ * the flagged Panel to the model and, once cleared, teaching against it.
  */
-function refuseUnlessTakesItems(panel: { name: string; kind: PanelKind }) {
-  if (panelTakesItems(panel)) return;
-  throw new PanelHoldsSomethingElseError(
-    panelGathers(panel) ? `${panel.name} is a filter, which nothing is filed onto` : `${panel.name} holds text, not items`,
-  );
+function proposalAsShown<T extends { proposedPanelId: string | null; proposedPanelReason: string | null }>(
+  db: AccountDb,
+  tenantId: string,
+  item: T,
+): T {
+  if (!item.proposedPanelId) return item;
+  return getPanel(db, tenantId, item.proposedPanelId)?.neverPropose
+    ? { ...item, proposedPanelId: null, proposedPanelReason: null }
+    : item;
 }
 
 /**
@@ -533,7 +539,8 @@ function panelTheChangeIsAbout(
  * The Panel a routing proposal names, checked exactly as strictly as a
  * person's own filing is - the Workspace live, the Panel live, its dashboard
  * live and in that Workspace, and holding items rather than text - except
- * that failing any of it answers `null` rather than throwing.
+ * that failing any of it answers `null` rather than throwing, and that a Panel
+ * flagged Never propose fails it too, though a person may still file there.
  *
  * **Never trust a panel id back** ("Propose where a captured note belongs,
  * without filing it there", issue 298): the model chooses among the ids it
@@ -1129,7 +1136,7 @@ export function runCommand<N extends CommandName>(
       const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
       // Nothing is filed onto a panel of text or a Filter, so nothing proposes
       // one, and a flag nobody reads is a state to explain later.
-      refuseUnlessTakesItems(panel);
+      refuseAPanelNothingIsFiledOn(panel);
       db.transaction((tx) => {
         // The flag alone. A proposal already naming this panel is left stored:
         // the browser hides its chip, and the next refresh overwrites it.
@@ -1508,7 +1515,7 @@ export function runCommand<N extends CommandName>(
           if (!alreadyFiled) {
             settledRouting = true;
             tx.insert(decisionHistory)
-              .values(decisionHistoryEntryFor(item, cmd, panel.id))
+              .values(decisionHistoryEntryFor(proposalAsShown(db, tenantId, item), cmd, panel.id))
               .onConflictDoNothing()
               .run();
             // The proposal is spent the moment it is read into that entry -
@@ -1575,7 +1582,7 @@ export function runCommand<N extends CommandName>(
         if (!alreadyFiled) {
           settledRouting = true;
           tx.insert(decisionHistory)
-            .values(decisionHistoryEntryFor(item, cmd, panel.id))
+            .values(decisionHistoryEntryFor(proposalAsShown(db, tenantId, item), cmd, panel.id))
             .onConflictDoNothing()
             .run();
           // Spent the moment it is read - see the identical write in

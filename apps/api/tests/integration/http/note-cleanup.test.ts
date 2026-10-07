@@ -652,6 +652,24 @@ describe('Capture', () => {
       await readAgain();
       expect(asked[0]!.system).toContain('idea for the undo bar');
     });
+
+    /** Its chip was not drawn, so filing elsewhere overrode nothing anybody saw. */
+    it('records no proposal for a filing made while the panel it proposed was flagged', async () => {
+      const compliance = await aPanel('Compliance questions');
+      const nextUp = await aPanel('Next up');
+      theModelIs({ says: { ...A_READING, panel: { panelId: nextUp, reason: 'next in line' } } });
+      const first = await captureANote({ message: 'sign-off needed, who owns it' });
+      await untilTheNoteHasBeenRead(first);
+      expect((await routingOf(first))?.proposed_panel_id).toBe(nextUp);
+      await neverPropose(nextUp, true);
+      await moveOnto(first, compliance);
+      await neverPropose(nextUp, false);
+      theModelIs({ says: A_READING });
+
+      await readAgain();
+      expect(asked[0]!.system).toContain('sign-off needed, who owns it');
+      expect(asked[0]!.system).not.toContain('you proposed Next up');
+    });
   });
 
   /**
