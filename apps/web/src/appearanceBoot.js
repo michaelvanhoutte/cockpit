@@ -7,8 +7,8 @@
  * The stored choice (`cockpit.appearance`: `light` or `dark`, absent for Match
  * device, anything else treated as absent) wins over the device's colour scheme.
  * The same script follows both while the page is open: the device switching, and
- * another tab storing a different choice, or this tab announcing its own. It is plain ES5 and takes the window as
- * its argument so a test can hand it a fake one (tests/unit/appearanceBoot.test.ts).
+ * another tab storing a different choice, or this tab announcing its own. It is
+ * plain ES5 and takes the window as its argument so a test can hand it a fake one (tests/unit/appearanceBoot.test.ts).
  */
 (function (win) {
   var KEY = 'cockpit.appearance';

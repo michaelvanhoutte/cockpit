@@ -120,7 +120,7 @@ async function signOutAndIn(page: Page, address: string, isMobile: boolean) {
  */
 test.describe('User management', () => {
   test.describe('Platform settings is offered to an admin and to nobody else', () => {
-    // Not offered on a phone, by decision (Settings is not either).
+    // Not offered on a phone, by decision (Settings holds Appearance alone there).
     test.skip(({ isMobile }) => isMobile, 'a phone has no Platform settings');
 
     test('takes an admin from the menu to the list of everyone who can sign in', async ({

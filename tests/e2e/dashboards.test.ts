@@ -537,7 +537,7 @@ test.describe('Dashboards', () => {
       );
       const filterButton = (await drawn.getByText('High', { exact: true }).boundingBox())!;
       if (!isMobile) {
-        // A desk's: a phone has no Settings.
+        // A desk's: a phone's Settings holds Appearance alone.
         await press(page.getByRole('button', { name: 'Profile' }), isMobile);
         const settings = page.getByRole('menuitem', { name: 'Settings…', exact: true });
         await expect(settings).toBeVisible();

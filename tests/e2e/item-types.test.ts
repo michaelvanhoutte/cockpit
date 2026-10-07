@@ -38,7 +38,7 @@ test.describe('Capture', () => {
       isMobile,
     }) => {
       // Settings is the pointer's, by decision.
-      test.skip(isMobile, 'a phone has no Settings');
+      test.skip(isMobile, 'a phone has no Types, only Appearance');
       await openInbox(page, isMobile);
 
       await openSettings(page, 'Types', isMobile);

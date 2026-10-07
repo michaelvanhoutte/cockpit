@@ -515,7 +515,7 @@ function TheShell() {
    * Connections, for the workspace it was started from, saying how it went.
    * The redirect keeps its address (`/w/<workspace>?connections=...`,
    * `connections.ts`); this reads it once and clears it, so Back does not
-   * open Settings again. Settings is not offered on a phone, and a workspace
+   * open Settings again. Connections is not offered on a phone, and a workspace
    * this person cannot see gets no window - the parameter is cleared either way.
    */
   const { outcome: backFromTheSource, forget: forgetTheTrip } = useConnections();
