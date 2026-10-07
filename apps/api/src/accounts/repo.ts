@@ -14,6 +14,7 @@ import {
   type Attachment,
   type Dashboard,
   type Filing,
+  type GmailMark,
   type HiddenAgent,
   type Item,
   type ItemFormPresentation,
@@ -2425,13 +2426,16 @@ export function getSourceAccount(
   db: AccountDb,
   tenantId: string,
   sourceAccountId: string,
-): { id: string; workspaceId: string; connectorId: string; externalAccountKey: string | null } | undefined {
+):
+  | { id: string; workspaceId: string; connectorId: string; externalAccountKey: string | null; follows: GmailMark }
+  | undefined {
   return db
     .select({
       id: connectorAccounts.id,
       workspaceId: connectorAccounts.workspaceId,
       connectorId: connectorAccounts.connectorId,
       externalAccountKey: connectorAccounts.externalAccountKey,
+      follows: connectorAccounts.follows,
     })
     .from(connectorAccounts)
     .where(

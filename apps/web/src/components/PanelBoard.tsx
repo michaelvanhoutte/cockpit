@@ -51,7 +51,6 @@ import { DeleteQuestion } from './DeleteQuestion';
 import { anchored } from '../panels/anchoring';
 import { arrangedWith, arrangedWithRow, placementFor, rowPlacementFor } from '../panels/dragging';
 import type { DrawnRow } from '../panels/dragging';
-import { MovePanelToDashboardPicker } from './MovePanelToDashboardPicker';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { forgetPanelsCollapsed, usePanelsCollapsed } from '../panelsCollapsed';
 import { PANEL_GAP, PanelCard } from './PanelCard';
@@ -73,6 +72,9 @@ const FilterQuestion = lazy(() => import('./FilterQuestion'));
 
 /** A Panel's Sort question, fetched only once *Sort…* is chosen, for the reason the Filter question is. */
 const SortQuestion = lazy(() => import('./SortQuestion'));
+
+/** The dashboard *Move to dashboard…* picks, fetched only once it is chosen, for the reason the Filter question is. */
+const MovePanelToDashboardPicker = lazy(() => import('./MovePanelToDashboardPicker'));
 
 /**
  * A dashboard's panels, on the rows one of its layouts arranges them into
@@ -1561,20 +1563,23 @@ export function PanelBoard({
       )}
 
       {beingMoved && (
-        <MovePanelToDashboardPicker
-          open
-
-          panelName={beingMoved.name}
-          dashboards={otherDashboards}
-          refusal={refusalFor('move_panel_to_dashboard', beingMoved.id)}
-          busy={command.isPending}
-          returnFocusTo={askedFrom.current}
-          onCancel={() => {
-            setMovingPanel(null);
-            command.reset();
-          }}
-          onPick={(dashboardId) => movePanelToDashboard(beingMoved.id, dashboardId)}
-        />
+        <WhateverTheQuestionDoes onFailure={() => setMovingPanel(null)}>
+          <Suspense fallback={null}>
+            <MovePanelToDashboardPicker
+              open
+              panelName={beingMoved.name}
+              dashboards={otherDashboards}
+              refusal={refusalFor('move_panel_to_dashboard', beingMoved.id)}
+              busy={command.isPending}
+              returnFocusTo={askedFrom.current}
+              onCancel={() => {
+                setMovingPanel(null);
+                command.reset();
+              }}
+              onPick={(dashboardId) => movePanelToDashboard(beingMoved.id, dashboardId)}
+            />
+          </Suspense>
+        </WhateverTheQuestionDoes>
       )}
     </div>
   );

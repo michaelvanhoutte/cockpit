@@ -17,12 +17,14 @@ import type { GatedEnv } from './gate.js';
  * gives.
  */
 
-/** The addresses that connect, test or disconnect a source account. */
+/** The addresses that connect, change, test or disconnect a source account. */
 export function isConnectionChange(path: string): boolean {
   return (
     /^\/v1\/workspaces\/[^/]+\/connections\//.test(path) ||
     /^\/v1\/connections\//.test(path) ||
-    /^\/v1\/commands\/(connect_source_account|disconnect_source_account|mark_source_account_tested)$/.test(path)
+    /^\/v1\/commands\/(connect_source_account|disconnect_source_account|set_gmail_follows|mark_source_account_tested)$/.test(
+      path,
+    )
   );
 }
 

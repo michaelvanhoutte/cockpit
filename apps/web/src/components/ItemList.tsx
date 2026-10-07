@@ -45,7 +45,6 @@ import {
 import { useUndo } from '../undo';
 import { ItemRow } from './ItemRow';
 import { typeOf } from '../itemTypes';
-import { MoveOrAddQuestion } from './MoveOrAddQuestion';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { SelectionBar } from './SelectionBar';
 
@@ -55,6 +54,9 @@ import { SelectionBar } from './SelectionBar';
  * `FilterQuestion`), which keeps it out of the initial bundle's budget.
  */
 const MoveToPicker = lazy(() => import('./MoveToPicker'));
+
+/** Move or add, asked of a drop between panels - fetched only once a drop asks it, for the same reason. */
+const MoveOrAddQuestion = lazy(() => import('./MoveOrAddQuestion'));
 
 /** The picker with the boundary around it, so a chunk that does not arrive closes it rather than the list. */
 function FetchedPicker({
@@ -1228,25 +1230,29 @@ export function ItemList({
       )}
 
       {asking && panelId && (
-        <MoveOrAddQuestion
-          open
-          itemTitle={itemLabel(asking.item)}
-          panelName={nameOf(panelId)}
-          // Closed by the change landing, not by the press: a refused move
-          // leaves the question up with the reason on it, which is what the
-          // picker does and what makes the refusal worth showing there at all.
-          onMove={() => move(asking.item, panelId, asking.at)}
-          onAdd={() => add(asking.item, panelId, asking.at)}
-          onCancel={() => {
-            // Reset as well as close, for the reason the picker below does: a
-            // refusal outlives the dialog it was shown in, and the list says
-            // one of its own.
-            command.reset();
-            setAsking(null);
-          }}
-          refusal={command.error instanceof CommandRefused ? command.error.message : null}
-          busy={command.isPending}
-        />
+        <WhateverTheQuestionDoes onFailure={() => setAsking(null)}>
+          <Suspense fallback={null}>
+            <MoveOrAddQuestion
+              open
+              itemTitle={itemLabel(asking.item)}
+              panelName={nameOf(panelId)}
+              // Closed by the change landing, not by the press: a refused move
+              // leaves the question up with the reason on it, which is what the
+              // picker does and what makes the refusal worth showing there at all.
+              onMove={() => move(asking.item, panelId, asking.at)}
+              onAdd={() => add(asking.item, panelId, asking.at)}
+              onCancel={() => {
+                // Reset as well as close, for the reason the picker below does: a
+                // refusal outlives the dialog it was shown in, and the list says
+                // one of its own.
+                command.reset();
+                setAsking(null);
+              }}
+              refusal={command.error instanceof CommandRefused ? command.error.message : null}
+              busy={command.isPending}
+            />
+          </Suspense>
+        </WhateverTheQuestionDoes>
       )}
 
       {adding && (
