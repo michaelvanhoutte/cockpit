@@ -622,7 +622,7 @@ test.describe('Dashboards', () => {
      * jsdom has neither of; what the list holds, its controls and the keys are
      * apps/web/tests/unit (components/PanelList, panelList, pages/Layout). One
      * walk: a Dashboard too tall for the window, the list shown by G, then ↓ and
-     * Enter to two Panels, G to hide it and a reload.
+     * Enter to two Panels, each hiding it again, and a reload.
      */
     test('goes to a Panel from the keyboard, its header at the top as far as the page allows for one too low, and keeps the list hidden across a reload', async ({
       page,
@@ -679,7 +679,7 @@ test.describe('Dashboards', () => {
       expect(listBox.x).toBeGreaterThanOrEqual(scrollerBox.x + scrollerBox.width - 1);
 
       // **Going to a Panel with the keys**: G has the first entry highlighted, ↓
-      // moves to the one named, Enter goes and leaves the list shown.
+      // moves to the one named, Enter goes and hides the list again.
       const goTo = async (name: string) => {
         const titles = await list.getByRole('listitem').allInnerTexts();
         const at = titles.findIndex((title) => title.startsWith(name));
@@ -695,8 +695,8 @@ test.describe('Dashboards', () => {
         .toBeLessThan(2);
       await expectNoSidewaysScroll(page);
 
-      // **One too low to**: as far as the page goes, and no further. G from the page hides, G shows again.
-      await page.keyboard.press('g');
+      // **One too low to**: as far as the page goes, and no further. Enter hid the
+      // list G showed, so G shows it again.
       await expect(list).toHaveCount(0);
       await page.keyboard.press('g');
       await expect(list).toBeVisible();
@@ -705,8 +705,7 @@ test.describe('Dashboards', () => {
       expect((await headerOf('Extra 8').boundingBox())!.y, 'short of the top').toBeGreaterThan(scrollerBox.y + 2);
       await expectNoSidewaysScroll(page);
 
-      // **G hides it, and a reload keeps it so.**
-      await page.keyboard.press('g');
+      // **Going hid it again, and a reload keeps it so.**
       await expect(list).toHaveCount(0);
       await expect(strip).toBeVisible();
       await page.reload();

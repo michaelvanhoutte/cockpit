@@ -32,8 +32,8 @@ type Start = { scrollTop: number; shownByG: boolean };
  *
  * **G shows it and hands it the keys.** Shown by G, or clicked into, it is in
  * its mode: the highlight is on an entry, ↑ and ↓ move it and the board
- * follows, Enter or a click goes there and ends the mode, Space puts the
- * cursor in the search box. Esc puts the Dashboard back where the mode began.
+ * follows, Enter or a click goes there and ends the mode (hiding the column if
+ * G showed it), Space puts the cursor in the search box. Esc puts the Dashboard back where the mode began.
  * Everything here is the column's own; the shell only holds whether it is shown.
  */
 export function PanelList({
@@ -100,6 +100,7 @@ export function PanelList({
   const enter = (shownByG: boolean) => {
     start.current = { scrollTop: scroller()?.scrollTop ?? 0, shownByG };
     takeKeys.current = shownByG;
+    pending.current = null;
     setActive(true);
     setQuery('');
     setAt(0);
@@ -121,11 +122,15 @@ export function PanelList({
 
   const goTo = (entry: PanelListEntry | undefined) => {
     if (!entry || !listing) return;
+    pending.current = null;
     if (entry.hidden) {
       pending.current = entry.panelId;
       setFilter(NO_DASHBOARD_FILTER);
     } else listing.jumpTo(entry.panelId);
+    // Going ends the mode as leaving does for visibility: G's column goes again, the board stays.
+    const shownByG = start.current?.shownByG ?? false;
     leave(false);
+    if (shownByG) onCollapse(true);
   };
 
   const moveTo = (next: number) => {

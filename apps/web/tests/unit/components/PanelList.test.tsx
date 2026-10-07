@@ -175,7 +175,7 @@ describe('Dashboards', () => {
       expect(highlighted()).toEqual([stays]);
     });
 
-    it('goes to the highlighted Panel on Enter and ends the mode, leaving the column shown', async () => {
+    it('goes to the highlighted Panel on Enter and ends the mode, hiding the column G showed', async () => {
       const user = userEvent.setup();
       const jumpTo = vi.fn();
       render(<Held listing={three(jumpTo)} />);
@@ -185,11 +185,10 @@ describe('Dashboards', () => {
       await user.keyboard('{Enter}');
 
       expect(jumpTo).toHaveBeenCalledExactlyOnceWith('id-Two');
-      expect(highlighted()).toEqual([]);
-      expect(shownList()).not.toBeNull();
+      expect(shownList()).toBeNull();
     });
 
-    it('goes to the Panel a click names, and ends the mode', async () => {
+    it('goes to the Panel a click names, and ends the mode, leaving a column that was already shown', async () => {
       const user = userEvent.setup();
       const jumpTo = vi.fn();
       render(<Held listing={three(jumpTo)} startsHidden={false} />);
@@ -198,6 +197,19 @@ describe('Dashboards', () => {
 
       expect(jumpTo).toHaveBeenCalledExactlyOnceWith('id-Three');
       expect(highlighted()).toEqual([]);
+      expect(shownList()).not.toBeNull();
+    });
+
+    it('hides the column on a click when G showed it, without restoring the scroll', async () => {
+      const user = userEvent.setup();
+      const jumpTo = vi.fn();
+      render(<Held listing={three(jumpTo)} />);
+
+      await user.keyboard('g');
+      await user.click(entry('Three'));
+
+      expect(jumpTo).toHaveBeenCalledExactlyOnceWith('id-Three');
+      expect(shownList()).toBeNull();
     });
 
     it('scrolls a highlighted entry below the list’s fold into view', async () => {
@@ -274,8 +286,8 @@ describe('Dashboards', () => {
 
       await user.keyboard(' tw{Enter}');
       expect(jumpTo).toHaveBeenLastCalledWith('id-Two');
+      await user.keyboard('g');
       expect(search()).toHaveValue('');
-
     });
 
     it('starts every G with an empty search, whatever was left in the box', async () => {
@@ -364,6 +376,19 @@ describe('Dashboards', () => {
       expect(jumpTo).not.toHaveBeenCalled();
       rerender(<Held listing={aListing([[['Drawn', 2], ['Hidden', 5]]], jumpTo)} startsHidden={false} />);
       expect(jumpTo).toHaveBeenCalledExactlyOnceWith('id-Hidden');
+    });
+
+    it('drops a pending jump when the mode begins again', async () => {
+      const user = userEvent.setup();
+      writeDashboardFilter(localStorage, 'today', filter);
+      const jumpTo = vi.fn();
+      const { rerender } = render(<Held listing={withAHiddenOne(jumpTo)} />);
+      await user.keyboard('g{ArrowDown}{Enter}');
+
+      await user.keyboard('g');
+      rerender(<Held listing={aListing([[['Drawn', 2], ['Hidden', 5]]], jumpTo)} startsHidden={false} />);
+
+      expect(jumpTo).not.toHaveBeenCalled();
     });
 
     it('keeps the filter on Enter on a Panel that is drawn', async () => {
