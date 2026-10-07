@@ -103,6 +103,12 @@ export interface PanelCardProps {
    * items, which is not offered the choice.
    */
   onReadOnlyChange: (readOnly: boolean) => void;
+  /**
+   * Keep a Panel of items out of routing proposals, or let it back in ("Keep a
+   * Panel out of proposals with Never propose", issue 848). Never called for a
+   * panel of text or a Filter, which is not offered the choice.
+   */
+  onNeverProposeChange: (neverPropose: boolean) => void;
   /** Draw a panel of text's words as what they mean, or as the characters typed. */
   onFormatChange: (format: 'plain' | 'rich') => void;
   /**
@@ -170,6 +176,7 @@ export function PanelCard({
   dashboardFiltered = false,
   onMoveToAnotherDashboard,
   onReadOnlyChange,
+  onNeverProposeChange,
   onFormatChange,
   onFilter,
   onSort,
@@ -282,6 +289,19 @@ export function PanelCard({
                   ...(filter ? [{ label: 'Filter…', onSelect: onFilter }] : []),
                   // Not on a Panel of text, which has no rows.
                   ...(panelTakesItems(panel) || filter ? [{ label: 'Sort…', onSelect: onSort }] : []),
+                  // Only on a Panel of items: nothing is filed onto a text
+                  // Panel or a Filter, so nothing proposes one. A setting rather
+                  // than an action, so it says whether it is on.
+                  ...(panelTakesItems(panel)
+                    ? [
+                        {
+                          label: 'Never propose',
+                          checked: panel.neverPropose,
+                          keepsFocus: true,
+                          onSelect: () => onNeverProposeChange(!panel.neverPropose),
+                        },
+                      ]
+                    : []),
                   {
                     label: 'Move to another dashboard',
                     unavailable: dashboardFiltered

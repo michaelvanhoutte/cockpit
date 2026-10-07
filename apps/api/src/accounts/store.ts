@@ -407,7 +407,9 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
    * filing it there", issue 298). A Panel of text is excluded here rather
    * than left to the caller, the same rule `MoveToPicker` applies client-side:
    * nothing is ever filed on one, so proposing one would be a chip that can
-   * never be taken.
+   * never be taken. A Panel flagged Never propose is excluded too ("Keep a
+   * Panel out of proposals with Never propose", issue 848), read here at
+   * proposal time so clearing the flag offers it again.
    *
    * `missing` where the Workspace itself has gone, the same as `snapshot`
    * above answers for the same reason: a Workspace's own tombstone leaves its
@@ -417,7 +419,9 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   panelsThatTakeItems(accountName: string, workspaceId: string): Answer<Panel[]> {
     return this.#answer(accountName, (db) => {
       if (!getWorkspace(db, accountName, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
-      return listPanelsInWorkspace(db, accountName, workspaceId).filter(panelTakesItems);
+      return listPanelsInWorkspace(db, accountName, workspaceId).filter(
+        (panel) => panelTakesItems(panel) && !panel.neverPropose,
+      );
     });
   }
 

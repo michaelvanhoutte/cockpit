@@ -182,7 +182,7 @@ const RESEARCH: Dashboard = {
 };
 
 function aPanel(id: string, dashboardId: string, name: string): Panel {
-  return { id, tenantId: 'tenant', dashboardId, name, kind: 'items' as const, format: 'plain' as const, body: '', readOnly: false, filter: null, sort: null };
+  return { id, tenantId: 'tenant', dashboardId, name, kind: 'items' as const, format: 'plain' as const, body: '', readOnly: false, neverPropose: false, filter: null, sort: null };
 }
 
 function aWorkspace(id: string, name: string): Workspace {
@@ -593,6 +593,35 @@ describe('Panels', () => {
     });
   });
 
+  /** "Keep a Panel out of proposals with Never propose" (issue 848). */
+  describe('a chip naming a panel flagged Never propose is not drawn and cannot be taken', () => {
+    const proposed = { ...BART, proposedPanelId: 'p-falcon', proposedPanelReason: 'a Falcon question' };
+    const flagFalcon = (neverPropose: boolean) => {
+      held.panels = held.panels.map((panel) => (panel.id === 'p-falcon' ? { ...panel, neverPropose } : panel));
+    };
+
+    it.each([
+      { situation: 'while the panel is flagged', flagged: true, chips: 0 },
+      { situation: 'once the flag is cleared', flagged: false, chips: 1 },
+    ])('draws the chip $situation as it should', async ({ flagged, chips }) => {
+      flagFalcon(flagged);
+      await showList({ items: [proposed] });
+
+      expect(screen.queryAllByText(/^→/)).toHaveLength(chips);
+    });
+
+    it('files nothing when the row is alt-double-clicked', async () => {
+      flagFalcon(true);
+      await showList({ items: [proposed] });
+
+      fireEvent.doubleClick(screen.getByRole('listitem'), { altKey: true });
+
+      expect(held.mutate.mock.calls.map(([sent]) => (sent as { name: string }).name)).not.toContain(
+        'move_item_to_panel',
+      );
+    });
+  });
+
   /**
    * "Say which other panels an item is also in, after its title" (issue 466):
    * *which* other live Panel or Filter an item shows on is
@@ -624,6 +653,7 @@ describe('Panels', () => {
           format: 'plain' as const,
           body: '',
           readOnly: false,
+          neverPropose: false,
           filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }], match: 'all' as const, groupBy: 'none' as const },
           sort: null,
         },
@@ -645,6 +675,7 @@ describe('Panels', () => {
         format: 'plain' as const,
         body: '',
         readOnly: false,
+        neverPropose: false,
         filter: { conditions: [{ field: 'panel' as const, values: ['p-falcon'] }], match: 'all' as const, groupBy: 'none' as const },
         sort: null,
       };

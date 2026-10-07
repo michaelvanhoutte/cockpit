@@ -279,6 +279,8 @@ const panelColumns = {
   format: panels.format,
   body: panels.body,
   readOnly: panels.readOnly,
+  // Whether proposals leave a Panel of items out.
+  neverPropose: panels.neverPropose,
   // What a Filter gathers, which is also what says the panel is one.
   filterConditions: panels.filterConditions,
   // How a panel of items is sorted, or null for Manual.
@@ -921,6 +923,12 @@ export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: str
  * with it ("Cap the routing prompt to the last 50 decisions on panels that
  * still exist, and drop the correction override", issue 450).
  *
+ * **A decision filed onto a Panel flagged Never propose is left out** too,
+ * read at proposal time rather than marked when filed, so clearing the flag
+ * puts its past filings back ("Keep a Panel out of proposals with Never
+ * propose", issue 848). Each decision names one chosen Panel, so an Item also
+ * filed onto an ordinary Panel keeps that decision.
+ *
  * **A dismissed Item's entry is left out**, unlike a tombstoned Panel's -
  * `items.deletedAt` is the one dismissal a person actually asked for
  * (`set_dismissed`), and its whole point is that the note stops being acted
@@ -973,6 +981,9 @@ export function decisionHistoryForWorkspace(
         isNull(items.deletedAt),
         isNull(chosenPanels.deletedAt),
         isNull(dashboards.deletedAt),
+        // Filings onto a Panel flagged Never propose are not learned from,
+        // read now so clearing the flag puts them back (issue 848).
+        eq(chosenPanels.neverPropose, false),
       ),
     )
     // `id` breaks a tie in `decidedAt` deterministically rather than leaving

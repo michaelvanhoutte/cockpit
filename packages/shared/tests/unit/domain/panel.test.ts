@@ -6,6 +6,7 @@ import {
   panelGathers,
   panelHoldsText,
   panelPlace,
+  panelSchema,
   panelTakesItems,
   type FilterCondition,
 } from '../../../src/domain/panel.js';
@@ -23,6 +24,14 @@ const TYPE_OKR: FilterCondition = { field: 'type', values: ['type-okr'] };
 const PANEL_Q3: FilterCondition = { field: 'panel', values: ['panel-q3'] };
 
 describe('Panels', () => {
+  describe('a panel kept from before Never propose existed reads as proposed like any other', () => {
+    it('reads a panel with no such setting as unflagged', () => {
+      const kept = { id: 'p1', tenantId: 't', dashboardId: 'd1', name: 'Next up', kind: 'items' };
+
+      expect(panelSchema.parse(kept).neverPropose).toBe(false);
+    });
+  });
+
   describe('a suggested panel is always named "Dashboard ▸ Panel"', () => {
     it.each([
       { situation: 'a panel on a live dashboard', dashboard: 'Day to day', panel: 'Admin & money', reads: 'Day to day ▸ Admin & money' },

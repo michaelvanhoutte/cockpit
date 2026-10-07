@@ -1562,7 +1562,9 @@ describe('Layouts', () => {
       });
       const before = await inStoreAsItIs(name, everythingElse);
 
-      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      // Applied alone rather than by opening the store, which would carry it on
+      // through every later change - one of which adds a column to `panels`.
+      await applyChange(name, '0053-one-layout-per-dashboard');
 
       expect(await inStoreAsItIs(name, everythingElse)).toEqual(before);
     });
@@ -1661,6 +1663,32 @@ describe('Panels', () => {
       const panels = snapshot.status === 'ok' ? snapshot.value.panels : [];
       expect(panels.length).toBeGreaterThan(0);
       expect(panels.map((panel) => panel.sort)).toEqual(panels.map(() => null));
+    });
+  });
+
+  describe('every panel an account already had is still proposed', () => {
+    /**
+     * `0057-panel-never-propose`'s direction that matters: every panel that
+     * already existed takes the default, unflagged, so none of them drops out
+     * of proposals the day it lands.
+     */
+    it('reads every panel back as unflagged, and offers every panel of items', async () => {
+      const name = 'aged-store-before-never-propose';
+      await agedTo(name, justBefore('0057-panel-never-propose'));
+      await fillWithWhatIsAlreadyThere(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot).toMatchObject({ status: 'ok' });
+      const panels = snapshot.status === 'ok' ? snapshot.value.panels : [];
+      expect(panels.length).toBeGreaterThan(0);
+      expect(panels.map((panel) => panel.neverPropose)).toEqual(panels.map(() => false));
+
+      const offered = await storeNamed(name).panelsThatTakeItems(name, 'ws-before');
+      expect(offered.status === 'ok' ? offered.value.map((panel) => panel.id).sort() : []).toEqual(
+        panels.map((panel) => panel.id).sort(),
+      );
     });
   });
 });

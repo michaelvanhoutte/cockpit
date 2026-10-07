@@ -26,6 +26,7 @@ function aPanel(id: string, dashboardId: string, name: string): Panel {
     format: 'plain' as const,
     body: '',
     readOnly: false,
+    neverPropose: false,
     filter: null,
     sort: null,
   };

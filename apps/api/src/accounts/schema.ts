@@ -440,6 +440,13 @@ export const panels = sqliteTable(
     /** Whether that text is read rather than written in. */
     readOnly: integer('read_only', { mode: 'boolean' }).notNull().default(false),
     /**
+     * Whether a Panel of items is kept out of routing proposals ("Keep a Panel
+     * out of proposals with Never propose", issue 848): never a candidate, and
+     * decisions filed onto it are left out of the history the model is shown.
+     * Read at proposal time, so clearing it restores both.
+     */
+    neverPropose: integer('never_propose', { mode: 'boolean' }).notNull().default(false),
+    /**
      * What a Filter gathers, as the JSON `panelFilterAsStored` writes, and NULL
      * on every Panel that is not one ("Add a Filter panel that shows every filed
      * item due in a window", issue 463). Being set is what *makes* a Panel a
@@ -496,6 +503,7 @@ export const panels = sqliteTable(
     check('panels_format_is_known', oneOf('format', PANEL_FORMATS)),
     // A STRICT integer column takes any integer, and this one is a flag.
     check('panels_read_only_is_a_flag', sql`read_only IN (0, 1)`),
+    check('panels_never_propose_is_a_flag', sql`never_propose IN (0, 1)`),
   ],
 );
 

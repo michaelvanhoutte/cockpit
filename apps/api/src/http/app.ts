@@ -1879,6 +1879,7 @@ const routes = app
   .openapi(commandRoute('move_panel_to_dashboard'), async (c) => c.json(await change(c, 'move_panel_to_dashboard', c.req.valid('json')), 200))
   .openapi(commandRoute('set_panel_text'), async (c) => c.json(await change(c, 'set_panel_text', c.req.valid('json')), 200))
   .openapi(commandRoute('set_panel_read_only'), async (c) => c.json(await change(c, 'set_panel_read_only', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_panel_never_propose'), async (c) => c.json(await change(c, 'set_panel_never_propose', c.req.valid('json')), 200))
   .openapi(commandRoute('set_panel_format'), async (c) => c.json(await change(c, 'set_panel_format', c.req.valid('json')), 200))
   .openapi(commandRoute('set_panel_filter'), async (c) => c.json(await change(c, 'set_panel_filter', c.req.valid('json')), 200))
   .openapi(commandRoute('set_panel_sort'), async (c) => c.json(await change(c, 'set_panel_sort', c.req.valid('json')), 200))

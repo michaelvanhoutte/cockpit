@@ -62,6 +62,7 @@ export function firstPanelFor(
     format: 'plain',
     body: '',
     readOnly: false,
+    neverPropose: false,
     // Not a Filter: a dashboard arrives with somewhere to file into, and a
     // Filter is the one Panel nothing can be filed onto.
     filterConditions: null,
@@ -144,6 +145,8 @@ export interface PanelRow {
   format: PanelFormat;
   body: string;
   readOnly: boolean;
+  /** Whether proposals leave this Panel of items out. */
+  neverPropose: boolean;
   filterConditions: string | null;
   /** How the Panel's rows are sorted, as `panelSortAsStored` writes it, or null for Manual. */
   sortCriteria: string | null;
@@ -194,6 +197,8 @@ export function panelFromCommand(cmd: AddPanelCommand, tenantId: string): PanelR
      * one menu away from the gesture that made it.
      */
     readOnly: false,
+    // Proposed like any other until somebody says otherwise from its menu.
+    neverPropose: false,
     createdAt: cmd.issuedAt,
     deletedAt: null,
   };

@@ -312,6 +312,18 @@ async function moveOnto(itemId: string, panelId: string, workspaceId = WORKSPACE
   expect(response.status).toBe(200);
 }
 
+/** Keeps a Panel out of proposals, or lets it back in. */
+async function neverPropose(panelId: string, neverPropose: boolean): Promise<void> {
+  const response = await postChange('set_panel_never_propose', {
+    commandId: nextId(),
+    issuedAt: '2026-09-09T10:00:02.000Z',
+    workspaceId: WORKSPACE_ID,
+    panelId,
+    neverPropose,
+  });
+  expect(response.status).toBe(200);
+}
+
 beforeEach(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
   await startFromEmpty();
@@ -570,6 +582,93 @@ describe('Capture', () => {
 
       expect(asked[0]!.system).toContain('Compliance questions');
       expect(asked[0]!.system).not.toContain('Reading list');
+    });
+  });
+
+  /**
+   * "Keep a Panel out of proposals with Never propose" (issue 848). The clean-up
+   * and the re-proposal take their panels from one read, so the clean-up's
+   * prompt stands for both.
+   */
+  describe('a panel flagged Never propose is never proposed', () => {
+    it('is left out of the panels a note is offered, and offered again once cleared', async () => {
+      await aPanel('Compliance questions');
+      const nextUp = await aPanel('Next up');
+      await neverPropose(nextUp, true);
+
+      await readAgain();
+      expect(asked[0]!.system).toContain('Compliance questions');
+      expect(asked[0]!.system).not.toContain('Next up');
+
+      await neverPropose(nextUp, false);
+      await readAgain();
+      expect(asked[0]!.system).toContain('Next up');
+    });
+
+    /** Flagged while the note is being read, so the panel was offered and only the write can refuse it. */
+    it('discards a proposal naming it, when it was flagged while the note was being read', async () => {
+      const nextUp = await aPanel('Next up');
+      // The first, automatic read proposes nothing; the second, run to its end
+      // here, is the one whose write meets the flag.
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+      theModelIs({ says: { ...A_READING, panel: { panelId: nextUp, reason: 'next in line' } } });
+      whileReading = () => neverPropose(nextUp, true);
+
+      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: nextId() }), env);
+
+      expect(asked).not.toHaveLength(0);
+      expect((await routingOf(itemId))?.proposed_panel_id).toBeNull();
+    });
+  });
+
+  describe('filings onto a panel flagged Never propose are not learned from', () => {
+    it('leaves its decisions out of what a proposal reads, keeps the ordinary ones, and puts them back once cleared', async () => {
+      const compliance = await aPanel('Compliance questions');
+      const nextUp = await aPanel('Next up');
+      const filedThere = await captureANote({ message: 'idea for the undo bar' });
+      await untilTheNoteHasBeenRead(filedThere);
+      await moveOnto(filedThere, nextUp);
+      // Filed on an ordinary panel, and also shown on the flagged one.
+      const filedBoth = await captureANote({ message: 'part 11 audit trail question' });
+      await untilTheNoteHasBeenRead(filedBoth);
+      await moveOnto(filedBoth, compliance);
+      const alsoShown = await postChange('add_item_to_panel', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T10:00:01.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId: filedBoth,
+        panelId: nextUp,
+        order: [filedBoth, filedThere],
+      });
+      expect(alsoShown.status).toBe(200);
+      await neverPropose(nextUp, true);
+
+      await readAgain();
+      expect(asked[0]!.system).not.toContain('idea for the undo bar');
+      expect(asked[0]!.system).toContain('part 11 audit trail question');
+
+      await neverPropose(nextUp, false);
+      await readAgain();
+      expect(asked[0]!.system).toContain('idea for the undo bar');
+    });
+
+    /** Its chip was not drawn, so filing elsewhere overrode nothing anybody saw. */
+    it('records no proposal for a filing made while the panel it proposed was flagged', async () => {
+      const compliance = await aPanel('Compliance questions');
+      const nextUp = await aPanel('Next up');
+      theModelIs({ says: { ...A_READING, panel: { panelId: nextUp, reason: 'next in line' } } });
+      const first = await captureANote({ message: 'sign-off needed, who owns it' });
+      await untilTheNoteHasBeenRead(first);
+      expect((await routingOf(first))?.proposed_panel_id).toBe(nextUp);
+      await neverPropose(nextUp, true);
+      await moveOnto(first, compliance);
+      await neverPropose(nextUp, false);
+      theModelIs({ says: A_READING });
+
+      await readAgain();
+      expect(asked[0]!.system).toContain('sign-off needed, who owns it');
+      expect(asked[0]!.system).not.toContain('you proposed Next up');
     });
   });
 

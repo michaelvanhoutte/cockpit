@@ -386,6 +386,8 @@ const commandSenders = {
     api.v1.commands.set_panel_text.$post({ json: p }, o),
   set_panel_read_only: (p: CommandPayload<'set_panel_read_only'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_panel_read_only.$post({ json: p }, o),
+  set_panel_never_propose: (p: CommandPayload<'set_panel_never_propose'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_panel_never_propose.$post({ json: p }, o),
   set_panel_format: (p: CommandPayload<'set_panel_format'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_panel_format.$post({ json: p }, o),
   set_panel_filter: (p: CommandPayload<'set_panel_filter'>, o?: ClientRequestOptions) =>

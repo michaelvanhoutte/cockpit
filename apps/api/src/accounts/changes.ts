@@ -140,6 +140,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     GMAIL_CONVERSATIONS,
     GMAIL_CONVERSATIONS_LISTED_IN,
     GMAIL_FOLLOWED_MARK,
+    PANEL_NEVER_PROPOSE,
     gettingStarted(accountId),
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
@@ -417,6 +418,40 @@ const GMAIL_FOLLOWED_MARK: Change = {
     },
     {
       sql: `ALTER TABLE \`gmail_conversations\` ADD COLUMN \`mark\` text DEFAULT 'label' NOT NULL CONSTRAINT "gmail_conversations_mark_is_mark" CHECK(mark IN ('label', 'star'))`,
+    },
+  ],
+};
+
+/**
+ * Whether a Panel of items is kept out of routing proposals ("Keep a Panel out
+ * of proposals with Never propose", issue 848) - one column on `panels`,
+ * defaulting to unflagged; `schema.ts` says what it carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** the statement landed or did not; the change is
+ *   recorded only once it has, in the same `transactionSync` (store.ts).
+ * - **The second time it runs:** it does not, having been recorded; a store
+ *   that failed before recording retries a statement that did not land.
+ * - **Rows that already break the new rule:** none. Every existing Panel takes
+ *   the default, unflagged, which the CHECK accepts, so proposals behave
+ *   exactly as before until somebody sets it.
+ * - **What is in each environment:** staging and production Panels are real
+ *   and keep their rows; nothing is rewritten.
+ * - **Rolled back after it has run:** an older release reads Panels by
+ *   explicit column (`panelColumns`, repo.ts), ignores this one and proposes
+ *   every Panel again - the flag is inert until the release returns, which
+ *   loses nothing.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const PANEL_NEVER_PROPOSE: Change = {
+  name: '0057-panel-never-propose',
+  statements: [
+    {
+      sql: 'ALTER TABLE `panels` ADD COLUMN `never_propose` integer DEFAULT 0 NOT NULL CONSTRAINT "panels_never_propose_is_a_flag" CHECK(never_propose IN (0, 1))',
     },
   ],
 };

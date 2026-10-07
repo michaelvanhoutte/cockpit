@@ -437,13 +437,16 @@ export function ItemList({
    * A proposed id the snapshot's own panels, or the Dashboard they sit on, no
    * longer hold - deleted since it was written - reads as no proposal here, the same way the store itself
    * would refuse to write it fresh; this is only the display catching up to a
-   * `proposedPanelId` that has gone stale.
+   * `proposedPanelId` that has gone stale. A Panel flagged Never propose reads
+   * the same way ("Keep a Panel out of proposals with Never propose", issue
+   * 848): the stored proposal stays until the next refresh overwrites it, and
+   * clearing the flag draws the chip again.
    */
   const routingProposalFor = (
     item: Item,
   ): { dashboardName: string; panelName: string; reason: string } | undefined => {
     if (!item.proposedPanelId) return undefined;
-    const panel = data?.panels.find((p) => p.id === item.proposedPanelId);
+    const panel = data?.panels.find((p) => p.id === item.proposedPanelId && !p.neverPropose);
     const dashboard = data?.dashboards.find((d) => d.id === panel?.dashboardId);
     return panel && dashboard
       ? { dashboardName: dashboard.name, panelName: panel.name, reason: item.proposedPanelReason ?? '' }

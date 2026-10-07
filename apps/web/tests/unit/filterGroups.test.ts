@@ -59,6 +59,7 @@ function aPanel(id: string, dashboardId: string, kind: Panel['kind'] = 'items'):
     format: 'plain',
     body: '',
     readOnly: false,
+    neverPropose: false,
     filter: null,
     sort: null,
   };

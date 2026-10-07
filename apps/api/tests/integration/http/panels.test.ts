@@ -3,6 +3,7 @@ import { applyD1Migrations, env } from 'cloudflare:test';
 import { CONDITIONS_LIMIT, PANEL_TEXT_LIMIT } from '@cockpit/shared';
 import type { Layout, Panel, WorkspaceSnapshot } from '@cockpit/shared';
 import {
+  OTHER_USER_ID,
   TASK_TYPE_ID,
   WORKSPACE_ID,
   alsoWorkspaces,
@@ -152,6 +153,10 @@ function setText(panelId: string, body: string, commandId?: string) {
 
 function setReadOnly(panelId: string, readOnly: boolean) {
   return send('set_panel_read_only', { workspaceId: WORKSPACE_ID, panelId, readOnly });
+}
+
+function setNeverPropose(panelId: string, neverPropose: boolean) {
+  return send('set_panel_never_propose', { workspaceId: WORKSPACE_ID, panelId, neverPropose });
 }
 
 function setFormat(panelId: string, format: string) {
@@ -1121,6 +1126,69 @@ describe('Panels', () => {
       expect((await ask(panelId)).status).toBe(400);
 
       expect(await panelNow(panelId)).toMatchObject({ body: '', readOnly: false });
+    });
+  });
+
+  describe('Never propose is a setting of a panel of items, and of nothing else', () => {
+    it('arrives unset, and afterwards is whatever it was last set to', async () => {
+      const { panelId } = await aPanelOfItems();
+      expect((await panelNow(panelId)).neverPropose).toBe(false);
+
+      expect((await setNeverPropose(panelId, true)).status).toBe(200);
+      expect((await panelNow(panelId)).neverPropose).toBe(true);
+
+      expect((await setNeverPropose(panelId, false)).status).toBe(200);
+      expect((await panelNow(panelId)).neverPropose).toBe(false);
+    });
+
+    it.each([
+      { situation: 'a panel of text', make: () => aPanelOfText() },
+      { situation: 'a filter', make: () => aFilter() },
+    ])('is refused on $situation, which changes nothing', async ({ make }) => {
+      const { panelId } = await make();
+
+      expect((await setNeverPropose(panelId, true)).status).toBe(400);
+
+      expect((await panelNow(panelId)).neverPropose).toBe(false);
+    });
+
+    it('is not found on a panel of another account', async () => {
+      const { panelId } = await aPanelOfItems();
+
+      const theirs = await asUser(
+        'http://cockpit.test/v1/commands/set_panel_never_propose',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            commandId: nextId(),
+            issuedAt: AT,
+            workspaceId: WORKSPACE_ID,
+            panelId,
+            neverPropose: true,
+          }),
+        },
+        OTHER_USER_ID,
+      );
+
+      expect(theirs.status).toBe(404);
+      expect((await panelNow(panelId)).neverPropose).toBe(false);
+    });
+
+    it('sent twice, is one change', async () => {
+      const { panelId } = await aPanelOfItems();
+      const commandId = nextId();
+      const ask = () =>
+        send('set_panel_never_propose', { workspaceId: WORKSPACE_ID, panelId, neverPropose: true, commandId });
+
+      expect(await (await ask()).json()).toEqual({ ok: true, applied: true });
+      expect(await (await ask()).json()).toEqual({ ok: true, applied: false });
+
+      const logged = await inTheStore(
+        (sql) => sql.exec('SELECT COUNT(*) AS n FROM commands WHERE command_id = ?', commandId).one().n,
+      );
+      expect(logged).toBe(1);
+      expect((await panelNow(panelId)).neverPropose).toBe(true);
     });
   });
 

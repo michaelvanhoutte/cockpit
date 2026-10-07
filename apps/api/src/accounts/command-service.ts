@@ -478,6 +478,24 @@ function refuseUnlessAFilter(panel: { name: string; kind: PanelKind }) {
 }
 
 /**
+ * The Item's proposal as its Inbox chip showed it, for the decision a filing
+ * records: none where the proposed Panel is flagged Never propose, whose chip
+ * is not drawn ("Keep a Panel out of proposals with Never propose", issue 848).
+ * Otherwise the history would record an override of a chip nobody saw, naming
+ * the flagged Panel to the model and, once cleared, teaching against it.
+ */
+function proposalAsShown<T extends { proposedPanelId: string | null; proposedPanelReason: string | null }>(
+  db: AccountDb,
+  tenantId: string,
+  item: T,
+): T {
+  if (!item.proposedPanelId) return item;
+  return getPanel(db, tenantId, item.proposedPanelId)?.neverPropose
+    ? { ...item, proposedPanelId: null, proposedPanelReason: null }
+    : item;
+}
+
+/**
  * Refuses a sort for a panel with no rows to sort, and Manual for a Filter
  * ("Sort a panel of items by the fields you choose", issue 526; "Choose how a
  * Filter's rows are sorted", issue 527). A panel of text has no rows; a
@@ -522,7 +540,8 @@ function panelTheChangeIsAbout(
  * The Panel a routing proposal names, checked exactly as strictly as a
  * person's own filing is - the Workspace live, the Panel live, its dashboard
  * live and in that Workspace, and holding items rather than text - except
- * that failing any of it answers `null` rather than throwing.
+ * that failing any of it answers `null` rather than throwing, and that a Panel
+ * flagged Never propose fails it too, though a person may still file there.
  *
  * **Never trust a panel id back** ("Propose where a captured note belongs,
  * without filing it there", issue 298): the model chooses among the ids it
@@ -548,7 +567,9 @@ function liveDestinationPanel(
 ): { id: string; kind: PanelKind } | null {
   if (!getWorkspace(db, tenantId, workspaceId)) return null;
   const panel = getPanel(db, tenantId, panelId);
-  if (!panel || !panelTakesItems(panel)) return null;
+  // A panel flagged Never propose is checked here, freshly, for the reason
+  // a deleted one is: it may have been flagged since the prompt was built.
+  if (!panel || !panelTakesItems(panel) || panel.neverPropose) return null;
   if (!getDashboard(db, tenantId, workspaceId, panel.dashboardId)) return null;
   return panel;
 }
@@ -1149,6 +1170,23 @@ export function runCommand<N extends CommandName>(
       });
       break;
     }
+    case 'set_panel_never_propose': {
+      const cmd = payload as CommandPayload<'set_panel_never_propose'>;
+      const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      // Nothing is filed onto a panel of text or a Filter, so nothing proposes
+      // one, and a flag nobody reads is a state to explain later.
+      refuseAPanelNothingIsFiledOn(panel);
+      db.transaction((tx) => {
+        // The flag alone. A proposal already naming this panel is left stored:
+        // the browser hides its chip, and the next refresh overwrites it.
+        tx.update(panels)
+          .set({ neverPropose: cmd.neverPropose })
+          .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
     case 'rename_panel': {
       const cmd = payload as CommandPayload<'rename_panel'>;
       const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
@@ -1516,7 +1554,7 @@ export function runCommand<N extends CommandName>(
           if (!alreadyFiled) {
             settledRouting = true;
             tx.insert(decisionHistory)
-              .values(decisionHistoryEntryFor(item, cmd, panel.id))
+              .values(decisionHistoryEntryFor(proposalAsShown(db, tenantId, item), cmd, panel.id))
               .onConflictDoNothing()
               .run();
             // The proposal is spent the moment it is read into that entry -
@@ -1583,7 +1621,7 @@ export function runCommand<N extends CommandName>(
         if (!alreadyFiled) {
           settledRouting = true;
           tx.insert(decisionHistory)
-            .values(decisionHistoryEntryFor(item, cmd, panel.id))
+            .values(decisionHistoryEntryFor(proposalAsShown(db, tenantId, item), cmd, panel.id))
             .onConflictDoNothing()
             .run();
           // Spent the moment it is read - see the identical write in

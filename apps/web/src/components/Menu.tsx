@@ -289,6 +289,21 @@ export interface MenuEntry {
    * that changes something for everybody stands apart from them.
    */
   separatorBefore?: boolean | undefined;
+  /**
+   * That the entry is a setting which is on or off, drawn as a checkbox entry
+   * with a tick at its far end when on. Absent on an entry that is an action.
+   * Drawn by `SurfaceMenu` alone, the one menu that offers a setting so far.
+   */
+  checked?: boolean | undefined;
+}
+
+/** The tick a setting's entry carries at its far end while it is on. */
+function Tick({ on }: { on: boolean }) {
+  return (
+    <span aria-hidden="true" className="w-3 text-accent-deep">
+      {on ? '✓' : ''}
+    </span>
+  );
 }
 
 /**
@@ -478,29 +493,45 @@ export function SurfaceMenu({
             {entry.separatorBefore && at > 0 && (
               <ContextMenu.Separator className="my-1 h-px bg-shade/10" />
             )}
-            <ContextMenu.Item
-              {...(entry.unavailable
-                ? { 'aria-disabled': true, 'aria-label': `${entry.label}: ${entry.unavailable}` }
-                : {})}
-              className={
-                entry.unavailable
-                  ? unavailableItemClass
-                  : entry.destructive
-                    ? destructiveItemClass
-                    : menuItemClass
-              }
-              onSelect={(event) => {
-                if (entry.unavailable) {
-                  event.preventDefault();
-                  return;
+            {entry.checked !== undefined ? (
+              // A setting rather than an action: a checkbox entry, so a reader
+              // hears whether it is on before choosing it.
+              <ContextMenu.CheckboxItem
+                checked={entry.checked}
+                className={menuItemSplitClass}
+                onSelect={() => {
+                  chose.current = !entry.keepsFocus;
+                  entry.onSelect(tab.current);
+                }}
+              >
+                {entry.label}
+                <Tick on={entry.checked} />
+              </ContextMenu.CheckboxItem>
+            ) : (
+              <ContextMenu.Item
+                {...(entry.unavailable
+                  ? { 'aria-disabled': true, 'aria-label': `${entry.label}: ${entry.unavailable}` }
+                  : {})}
+                className={
+                  entry.unavailable
+                    ? unavailableItemClass
+                    : entry.destructive
+                      ? destructiveItemClass
+                      : menuItemClass
                 }
-                chose.current = !entry.keepsFocus;
-                entry.onSelect(tab.current);
-              }}
-            >
-              {entry.label}
-              {entry.unavailable && <span className="block text-xs">{entry.unavailable}</span>}
-            </ContextMenu.Item>
+                onSelect={(event) => {
+                  if (entry.unavailable) {
+                    event.preventDefault();
+                    return;
+                  }
+                  chose.current = !entry.keepsFocus;
+                  entry.onSelect(tab.current);
+                }}
+              >
+                {entry.label}
+                {entry.unavailable && <span className="block text-xs">{entry.unavailable}</span>}
+              </ContextMenu.Item>
+            )}
           </Fragment>
         ))}
       </ContextMenuContent>
