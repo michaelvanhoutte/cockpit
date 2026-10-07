@@ -4,6 +4,7 @@ import type { Column } from 'drizzle-orm';
 import {
   CLAUDE_CODE,
   DEFAULT_ITEM_FORM_PRESENTATION,
+  GMAIL,
   REWRITE_HISTORY_LIMIT,
   panelFilterFrom,
   panelSortFrom,
@@ -2308,6 +2309,7 @@ export function sourceAccountsIn(
       connectedAt: connectorAccounts.connectedAt,
       lastTestedAt: connectorAccounts.lastTestedAt,
       failingBecause: connectionFailures.reason,
+      follows: connectorAccounts.follows,
     })
     .from(connectorAccounts)
     .leftJoin(connectionFailures, eq(connectionFailures.sourceAccountId, connectorAccounts.id))
@@ -2321,7 +2323,9 @@ export function sourceAccountsIn(
     // connecting two accounts at once share a millisecond, and a list whose
     // order moves between reads is one whose rows jump under the pointer.
     .orderBy(asc(connectorAccounts.connectedAt), asc(connectorAccounts.id))
-    .all();
+    .all()
+    // What is followed is Gmail's alone (issue 822).
+    .map(({ follows, ...account }) => (account.connectorId === GMAIL ? { ...account, follows } : account));
 }
 
 /**

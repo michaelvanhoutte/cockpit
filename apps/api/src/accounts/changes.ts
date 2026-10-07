@@ -139,6 +139,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ONE_LAYOUT_PER_DASHBOARD,
     GMAIL_CONVERSATIONS,
     GMAIL_CONVERSATIONS_LISTED_IN,
+    GMAIL_FOLLOWED_MARK,
     gettingStarted(accountId),
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
@@ -381,6 +382,43 @@ const GMAIL_CONVERSATIONS: Change = {
 const GMAIL_CONVERSATIONS_LISTED_IN: Change = {
   name: '0055-gmail-conversations-listed-in',
   statements: [{ sql: 'ALTER TABLE `gmail_conversations` ADD COLUMN `listed_in` text' }],
+};
+
+/**
+ * The mark each Gmail connection follows, and the one each conversation came
+ * in under ("Connect Gmail by star, and bring in conversations starred from
+ * then on", issue 822) - a column on `connector_accounts` and one on
+ * `gmail_conversations`, each defaulting to the label; `schema.ts` says what
+ * each carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): two `ADD COLUMN`s, and no statement that writes to a row.
+ *   Every existing connection and link reads the label, which is what each
+ *   followed.
+ * - **If it stops halfway:** it cannot. Both statements and the record that
+ *   they ran commit in one `transactionSync` (store.ts).
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** none. The default is a value
+ *   the CHECK accepts, and SQLite tests it against every existing row.
+ * - **Rolled back after it has run:** an older release never names either
+ *   column, and checks every connection as following the label - so a star
+ *   connection brings in what is labelled `Cockpit`, or fails for want of the
+ *   label, until the release goes forward again. Its Items stay.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const GMAIL_FOLLOWED_MARK: Change = {
+  name: '0056-gmail-followed-mark',
+  statements: [
+    {
+      sql: `ALTER TABLE \`connector_accounts\` ADD COLUMN \`follows\` text DEFAULT 'label' NOT NULL CONSTRAINT "connector_accounts_follows_is_mark" CHECK(follows IN ('label', 'star'))`,
+    },
+    {
+      sql: `ALTER TABLE \`gmail_conversations\` ADD COLUMN \`mark\` text DEFAULT 'label' NOT NULL CONSTRAINT "gmail_conversations_mark_is_mark" CHECK(mark IN ('label', 'star'))`,
+    },
+  ],
 };
 
 /**

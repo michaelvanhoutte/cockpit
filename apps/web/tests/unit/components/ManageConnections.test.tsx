@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { SourceAccount } from '@cockpit/shared';
@@ -256,6 +256,11 @@ describe('Connector management', () => {
         outcome: 'gmail-connected' as const,
         says: 'Connected. Conversations labelled Cockpit arrive in this workspace’s Inbox within a minute.',
       },
+      {
+        situation: 'connected by star',
+        outcome: 'gmail-star-connected' as const,
+        says: 'Connected. Conversations you star or flag from now on arrive in this workspace’s Inbox within a few minutes.',
+      },
       { situation: 'refused', outcome: 'refused' as const, says: /^That did not connect\. Nothing was stored\./ },
       { situation: 'cancelled', outcome: 'cancelled' as const, says: 'Connecting was cancelled. Nothing was stored.' },
       {
@@ -288,11 +293,59 @@ describe('Connector management', () => {
     });
   });
 
+  /** "Connect Gmail by star, and bring in conversations starred from then on", issue 822. */
+  describe('the Gmail Connect window offers one mark to follow, the label to start, and its steps follow the choice', () => {
+    it('opens with the label chosen, and the steps include creating the label', async () => {
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
+
+      const steps = await screen.findByRole('dialog', { name: 'Connect Gmail to Work' });
+      expect(within(steps).getByRole('radio', { name: 'Labelled Cockpit' })).toBeChecked();
+      expect(within(steps).getByRole('radio', { name: 'Starred (flagged in Outlook)' })).not.toBeChecked();
+      expect(steps).toHaveTextContent(/Create a label called Cockpit in Gmail/);
+    });
+
+    it('choosing the star drops creating the label, says only stars from now on count, and connects by star', async () => {
+      const leaving = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
+      showWindow();
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
+      const steps = await screen.findByRole('dialog', { name: 'Connect Gmail to Work' });
+
+      await userEvent.click(within(steps).getByRole('radio', { name: 'Starred (flagged in Outlook)' }));
+
+      expect(steps).not.toHaveTextContent(/Create a label called Cockpit/);
+      expect(steps).toHaveTextContent(/1\. Sign in with Google\./);
+      expect(steps).toHaveTextContent(
+        /2\. Star any conversation in Gmail, or flag it in Outlook,.*Only conversations starred or flagged from now on become tasks/,
+      );
+      await userEvent.click(within(steps).getByRole('button', { name: 'Sign in with Google' }));
+      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/gmail/connect?follows=star');
+    });
+  });
+
   /** "Bring in the conversations already labelled Cockpit as tasks", issue 725. */
   describe('a Gmail row shows when its mailbox was last checked, and why it is failing', () => {
     const checkedAt = '2026-10-04T09:00:00.000Z';
     it.each([
       { situation: 'never checked yet', lastTestedAt: null, failingBecause: null, reads: 'Gmail · label Cockpit', failing: null },
+      {
+        situation: 'following the star, never checked yet',
+        follows: 'star' as const,
+        lastTestedAt: null,
+        failingBecause: null,
+        reads: 'Gmail · starred',
+        failing: null,
+      },
+      {
+        situation: 'following the star, after a check',
+        follows: 'star' as const,
+        lastTestedAt: checkedAt,
+        failingBecause: null,
+        reads: `Gmail · starred · last checked ${new Date(checkedAt).toLocaleString()}`,
+        failing: null,
+      },
       {
         situation: 'after a check',
         lastTestedAt: checkedAt,
@@ -307,9 +360,10 @@ describe('Connector management', () => {
         reads: `Gmail · label Cockpit · last checked ${new Date(checkedAt).toLocaleString()}`,
         failing: 'Failing: there is no label called Cockpit in this account.',
       },
-    ])('$situation', async ({ lastTestedAt, failingBecause, reads, failing }) => {
+    ])('$situation', async ({ lastTestedAt, failingBecause, reads, failing, ...rest }) => {
+      const follows = 'follows' in rest ? rest.follows : 'label';
       held.sourceAccounts = [
-        { ...ADA, id: 'account-anna', connectorId: 'gmail', displayName: 'anna@example.com', lastTestedAt, failingBecause },
+        { ...ADA, id: 'account-anna', connectorId: 'gmail', displayName: 'anna@example.com', lastTestedAt, failingBecause, follows },
       ];
 
       showWindow();

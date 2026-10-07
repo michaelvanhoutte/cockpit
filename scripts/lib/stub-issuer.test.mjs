@@ -331,6 +331,28 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
     );
   });
 
+  // What flagging a conversation in Outlook does to the mailbox ("Connect
+  // Gmail by star, and bring in conversations starred from then on", issue
+  // 822) - a label called Cockpit or not.
+  it('stars a new conversation as history, in a mailbox with no label called Cockpit too, and lists what it was asked', async () => {
+    const token = await accessTokenFor('no-label-starred@example.com');
+    const { historyId: before } = await (await read(token, 'profile')).json();
+
+    const starred = await fetch(`${issuer.origin}/gmail-stub/star?email=no-label-starred%40example.com&subject=Flagged`, {
+      method: 'POST',
+    }).then((answer) => answer.json());
+
+    const { history } = await (await read(token, `history?startHistoryId=${before}`)).json();
+    assert.deepEqual(
+      history.map((record) => [record.labelsAdded[0].message.threadId, record.labelsAdded[0].labelIds]),
+      [[starred.thread, ['STARRED']]],
+    );
+    const { threads } = await (await read(token, 'threads?labelIds=STARRED')).json();
+    assert.deepEqual(threads.map((thread) => thread.id), [starred.thread]);
+    const asked = await (await fetch(`${issuer.origin}/gmail-stub/asked?email=no-label-starred%40example.com`)).json();
+    assert.deepEqual(asked, ['profile', 'history', 'threads']);
+  });
+
   // What Cockpit asks of the mailbox when a task is done or reopened there
   // ("Take the Cockpit label off in Gmail when its task is done in Cockpit",
   // issue 728).

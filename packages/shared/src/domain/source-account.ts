@@ -13,11 +13,22 @@ import { z } from 'zod';
 export const TEAMS = 'teams';
 
 /**
- * A Gmail mailbox, whose conversations labelled `Cockpit` become tasks
- * ("Connect a Gmail account to a workspace, and disconnect it", issue 724).
- * Its Items carry the source `mail`, which reads "Gmail" too.
+ * A Gmail mailbox, whose conversations labelled `Cockpit` - or starred -
+ * become tasks ("Connect a Gmail account to a workspace, and disconnect it",
+ * issue 724). Its Items carry the source `mail`, which reads "Gmail" too.
  */
 export const GMAIL = 'gmail';
+
+/**
+ * The one mark a Gmail connection follows ("Connect Gmail by star, and bring
+ * in conversations starred from then on", issue 822): the `Cockpit` label, or
+ * the star - which is what Outlook's flag for follow-up sets on Gmail mail.
+ * The label is the one chosen to start, and every connection made before the
+ * star existed follows it.
+ */
+export const GMAIL_MARKS = ['label', 'star'] as const;
+export type GmailMark = (typeof GMAIL_MARKS)[number];
+export const gmailMarkSchema = z.enum(GMAIL_MARKS);
 
 /**
  * A workspace's routine trigger - one Claude Code session started and
@@ -63,6 +74,8 @@ export const sourceAccountSchema = z.object({
    * failing rather than as broken.
    */
   failingBecause: z.string().nullable().default(null),
+  /** What a Gmail connection follows (issue 822); absent for every other connector. */
+  follows: gmailMarkSchema.optional(),
 });
 export type SourceAccount = z.infer<typeof sourceAccountSchema>;
 
