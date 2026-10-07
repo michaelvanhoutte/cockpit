@@ -1946,6 +1946,7 @@ export function runCommand<N extends CommandName>(
       if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
         throw new WorkspaceNotFoundError(cmd.workspaceId);
       }
+      const follows = cmd.follows ?? 'label';
       db.transaction((tx) => {
         tx.insert(connectorAccounts)
           .values({
@@ -1968,6 +1969,9 @@ export function runCommand<N extends CommandName>(
             // checked, which connecting does not do ("Bring in the
             // conversations already labelled Cockpit as tasks", issue 725).
             lastTestedAt: cmd.connectorId === GMAIL ? null : cmd.issuedAt,
+            // What the Connect window chose ("Connect Gmail by star, and
+            // bring in conversations starred from then on", issue 822).
+            follows,
           })
           // **Named at the account, not at the id, and that is the rule
           // rather than a detail**: connecting the same tenant+account again
@@ -1989,7 +1993,7 @@ export function runCommand<N extends CommandName>(
               encryptedCredential: cmd.sealedCredential,
               credentialNonce: cmd.credentialNonce,
               updatedAt: cmd.issuedAt,
-              ...(cmd.connectorId === GMAIL ? {} : { lastTestedAt: cmd.issuedAt }),
+              ...(cmd.connectorId === GMAIL ? { follows } : { lastTestedAt: cmd.issuedAt }),
             },
           })
           .run();
@@ -2018,7 +2022,11 @@ export function runCommand<N extends CommandName>(
         // Connecting a mailbox again brings in everything labelled from the
         // start, so a reconnect after a failing sign-in finds whatever it
         // missed; what is already in is found again by its link (issue 725).
+        // By star, it records a fresh position, so only what is starred
+        // after it comes in (issue 822) - and what was still to reach Gmail
+        // under the other mark is dropped, as Disconnect drops it.
         if (cmd.connectorId === GMAIL) {
+          dropWhatWasWanted(tx, tenantId, cmd.workspaceId, cmd.externalAccountKey, follows);
           tx.delete(gmailChecks)
             .where(
               inArray(

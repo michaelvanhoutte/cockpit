@@ -11,6 +11,7 @@ import {
   gmailCredentialIn,
   labelChange,
   labelChangeRefusal,
+  STARRED,
   stillLabelled,
   usableAccessToken,
   type GmailConversation,
@@ -18,6 +19,7 @@ import {
 } from './gmail.js';
 import { derivedUuid } from './push-host.js';
 import type { OpenStateWanted } from '@cockpit/connector-sdk';
+import type { GmailMark } from '@cockpit/shared';
 import type { AppliedSourceChange } from '../accounts/source-state.js';
 
 /**
@@ -55,6 +57,11 @@ import type { AppliedSourceChange } from '../accounts/source-state.js';
  * is done in Cockpit", issue 728): before anything is read, each run takes
  * the label off the conversations whose Items a person marked done or
  * dismissed, and puts it back on those reopened, until Gmail confirms each.
+ *
+ * **Or by star** ("Connect Gmail by star, and bring in conversations starred
+ * from then on", issue 822): a connection following the star brings in only
+ * what its history says was starred after the position recorded on connecting
+ * (`bringInStarred`).
  */
 
 /**
@@ -95,6 +102,8 @@ export interface GmailConnectionToCheck {
   readonly mailboxKey: string;
   /** The mailbox's address, which is what the row is called. */
   readonly address: string;
+  /** The one mark it follows: the label called Cockpit, or the star (issue 822). */
+  readonly follows: GmailMark;
   readonly sealed: Sealed;
 }
 
@@ -220,7 +229,8 @@ export async function checkGmail(env: Env, host: GmailCheckHost, now: Date): Pro
   const broughtIn: string[] = [];
   let moreToDo = false;
   for (const connection of connections) {
-    // The fewest one check can make: the label, then a page.
+    // The fewest one check can make: the label, then a page - or by star, a
+    // history page and a conversation.
     if (calls.left < 3) {
       moreToDo = true;
       break;
@@ -236,7 +246,10 @@ export async function checkGmail(env: Env, host: GmailCheckHost, now: Date): Pro
         if (!host.reseal(connection.id, held, sealed)) throw new ConnectionChanged('the sign-in was replaced');
         held = sealed;
       });
-      const reached = await bringInLabelled(host, connection, mailbox, at, broughtIn);
+      const reached =
+        connection.follows === 'star'
+          ? await bringInStarred(host, connection, mailbox, at, broughtIn)
+          : await bringInLabelled(host, connection, mailbox, at, broughtIn);
       if (reached === 'no label') {
         host.failing(connection.id, NO_LABEL, at);
         continue;
@@ -302,12 +315,7 @@ async function bringInLabelled(
   if (!progress || progress.listedAt) {
     // The position first, so whatever is labelled while the listing runs is
     // after it, and the next slice's history reads it.
-    const profile = (await mailbox.get('profile')) as { historyId?: unknown } | null;
-    const historyId = profile?.historyId;
-    if (typeof historyId !== 'string' && typeof historyId !== 'number') {
-      throw new NotAnswering('Gmail gave no history position');
-    }
-    host.startListing(connection.id, String(historyId), at);
+    host.startListing(connection.id, await positionNow(mailbox), at);
     progress = host.progress(connection.id)!;
   }
 
@@ -329,6 +337,52 @@ async function bringInLabelled(
   }
   await closeUnlisted(host, connection, mailbox, labelId, at);
   return 'done';
+}
+
+/**
+ * Brings in what is starred after the connection was made ("Connect Gmail by
+ * star, and bring in conversations starred from then on", issue 822) - from
+ * Gmail's history alone, never from a listing, because Gmail records that a
+ * conversation is starred but never when.
+ *
+ * **A position recorded is where the star starts counting.** With none yet -
+ * just connected, or connected again - or one Gmail no longer keeps, a fresh
+ * one is recorded and nothing is read: whatever was starred before it stays
+ * out. The nightly sweep's full reconcile lists nothing by star, so it is
+ * marked complete at once and the history read on from the position it kept.
+ *
+ * **Nothing is asked of the labels**, so a mailbox with no label called
+ * Cockpit never fails a star connection.
+ */
+async function bringInStarred(
+  host: GmailCheckHost,
+  connection: GmailConnectionToCheck,
+  mailbox: Mailbox,
+  at: string,
+  broughtIn: string[],
+): Promise<'done'> {
+  let progress = host.progress(connection.id);
+  if (progress && !progress.listedAt) {
+    host.pageListed(connection.id, null, at);
+    progress = host.progress(connection.id);
+    if (!progress) throw new ConnectionChanged('the connection was disconnected');
+  }
+  if (progress && (await readHistory(host, connection, mailbox, STARRED, progress, at, broughtIn)) === 'caught up') {
+    return 'done';
+  }
+  host.startListing(connection.id, await positionNow(mailbox), at);
+  host.pageListed(connection.id, null, at);
+  return 'done';
+}
+
+/** The mailbox's history position now: what the next history read starts from. */
+async function positionNow(mailbox: Mailbox): Promise<string> {
+  const profile = (await mailbox.get('profile')) as { historyId?: unknown } | null;
+  const historyId = profile?.historyId;
+  if (typeof historyId !== 'string' && typeof historyId !== 'number') {
+    throw new NotAnswering('Gmail gave no history position');
+  }
+  return String(historyId);
 }
 
 /**
@@ -447,6 +501,13 @@ async function stillThere(mailbox: Mailbox, threadId: string, labelId: string): 
  * longer keeps, after about a week: that is `lapsed`, and the caller starts the
  * full reconcile, which records a fresh one - as it does for a page naming more
  * conversations than a run can read.
+ *
+ * **By star, only what gained the star is read** (issue 822): no Item is
+ * closed or reopened from what Gmail changed. Its pages are no longer than one
+ * run's calls can read, so none is ever left to lapse as too long: a run that
+ * stops part-way reads the page again and finds what it brought in by its link,
+ * where a fresh position would miss the stars on it, which no listing finds
+ * again.
  */
 async function readHistory(
   host: GmailCheckHost,
@@ -457,18 +518,22 @@ async function readHistory(
   at: string,
   broughtIn: string[],
 ): Promise<'caught up' | 'lapsed'> {
+  const mirrors = connection.follows === 'label';
+  const pageSize = mirrors ? HISTORY_PAGE_SIZE : CHANGED_PER_HISTORY_PAGE;
   let progress = from;
   for (;;) {
-    const query = new URLSearchParams({ startHistoryId: progress.historyId, labelId, maxResults: String(HISTORY_PAGE_SIZE) });
+    const query = new URLSearchParams({ startHistoryId: progress.historyId, labelId, maxResults: String(pageSize) });
     for (const type of ['messageAdded', 'messageDeleted', 'labelAdded', 'labelRemoved']) query.append('historyTypes', type);
     if (progress.pageToken) query.set('pageToken', progress.pageToken);
     const answer = await mailbox.get(`history?${query}`);
     if (answer === null) return 'lapsed';
     const page = historyPage(answer, labelId);
-    // Each conversation named costs a read, and a run that stops reads the
-    // page again from its first: past what one run can read, it never ends.
-    if (page.changed.length > CHANGED_PER_HISTORY_PAGE) return 'lapsed';
-    await settleThreads(host, connection, mailbox, labelId, page.changed, at);
+    if (mirrors) {
+      // Each conversation named costs a read, and a run that stops reads the
+      // page again from its first: past what one run can read, it never ends.
+      if (page.changed.length > CHANGED_PER_HISTORY_PAGE) return 'lapsed';
+      await settleThreads(host, connection, mailbox, labelId, page.changed, at);
+    }
     await bringInThreads(host, connection, mailbox, labelId, page.gained, at, broughtIn);
     if (page.nextPageToken) {
       host.historyPageRead(connection.id, progress.historyId, page.nextPageToken);

@@ -1,5 +1,6 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
+import type { GmailMark } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import { ATTACHMENT_LINK_PREFIX } from './attachment-link.js';
 import type { Attempt } from './oidc.js';
@@ -372,6 +373,13 @@ export interface ConnectAttempt extends Attempt {
    * disconnect it", issue 724). A cookie from before this field was Teams'.
    */
   readonly connectorId: string;
+  /**
+   * What a Gmail connection is to follow, as the Connect window chose it
+   * ("Connect Gmail by star, and bring in conversations starred from then
+   * on", issue 822). A cookie from before this field, or carrying anything
+   * else, is the label's.
+   */
+  readonly follows?: GmailMark;
 }
 
 function attemptCookieName(url: string): string {
@@ -445,7 +453,7 @@ export function attemptHeld(c: Context): SignInAttempt | null {
 export function connectAttemptHeld(c: Context): ConnectAttempt | null {
   const held = readAttempt(getCookie(c, connectCookieName(c.req.url)));
   if (!held) return null;
-  const { workspaceId, accountName, connectorId } = held.also;
+  const { workspaceId, accountName, connectorId, follows } = held.also;
   if (typeof workspaceId !== 'string' || !workspaceId) return null;
   if (typeof accountName !== 'string' || !accountName) return null;
   return {
@@ -455,6 +463,7 @@ export function connectAttemptHeld(c: Context): ConnectAttempt | null {
     workspaceId,
     accountName,
     connectorId: typeof connectorId === 'string' && connectorId ? connectorId : 'teams',
+    follows: follows === 'star' ? 'star' : 'label',
   };
 }
 

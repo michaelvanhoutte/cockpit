@@ -27,7 +27,7 @@ import {
   whileGmailIsAsked,
   type Grant,
 } from '../issuer.js';
-import { COCKPIT_LABEL_ID, historyRecord, labelsAnswer, plainThread } from '../../gmail-payloads.js';
+import { COCKPIT_LABEL_ID, STARRED, historyRecord, labelsAnswer, plainThread } from '../../gmail-payloads.js';
 import { NO_LABEL, SIGN_IN_REFUSED } from '../../../src/connectors/gmail-check.js';
 import { derivedUuid } from '../../../src/connectors/push-host.js';
 import { handleScheduled } from '../../../src/jobs/index.js';
@@ -58,11 +58,16 @@ function granted(refreshToken: string, expiresIn = 3599): Grant {
   };
 }
 
-/** Connect, Google says whose mailbox it is, and back - as gmail-connections.test.ts walks it. */
-async function connect(grant: Grant = granted('anna-refresh'), workspaceId = WORKSPACE_ID): Promise<void> {
+/** Connect, Google says whose mailbox it is, and back - as gmail-connections.test.ts walks it - by label, or by star. */
+async function connect(
+  grant: Grant = granted('anna-refresh'),
+  workspaceId = WORKSPACE_ID,
+  follows: 'label' | 'star' = 'label',
+): Promise<void> {
   await issuerIsReachable();
   const session = await signInAs(USER_ID);
-  const started = await SELF.fetch(`http://cockpit.test/v1/workspaces/${workspaceId}/connections/gmail/connect`, {
+  const choosing = follows === 'star' ? '?follows=star' : '';
+  const started = await SELF.fetch(`http://cockpit.test/v1/workspaces/${workspaceId}/connections/gmail/connect${choosing}`, {
     redirect: 'manual',
     headers: { cookie: session },
   });
@@ -76,7 +81,9 @@ async function connect(grant: Grant = granted('anna-refresh'), workspaceId = WOR
     `http://cockpit.test/v1/connections/gmail/callback?code=a-code&state=${asked.searchParams.get('state')}`,
     { redirect: 'manual', headers: { cookie: `${session}; ${attempt}` } },
   );
-  expect(back.headers.get('location')).toBe(`/w/${workspaceId}?connections=gmail-connected`);
+  expect(back.headers.get('location')).toBe(
+    `/w/${workspaceId}?connections=${follows === 'star' ? 'gmail-star-connected' : 'gmail-connected'}`,
+  );
 }
 
 /** A mailbox holding `count` conversations labelled Cockpit, and one that is not. */
@@ -173,10 +180,12 @@ async function inboxOf(workspaceId = WORKSPACE_ID): Promise<InboxItem[]> {
   return ((await res.json()) as { items: InboxItem[] }).items.filter((item) => item.source === 'mail');
 }
 
-async function rowOf(workspaceId = WORKSPACE_ID): Promise<{ lastTestedAt: string | null; failingBecause: string | null }> {
+async function rowOf(
+  workspaceId = WORKSPACE_ID,
+): Promise<{ lastTestedAt: string | null; failingBecause: string | null; follows?: string }> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/connections`);
   const { sourceAccounts } = (await res.json()) as {
-    sourceAccounts: { lastTestedAt: string | null; failingBecause: string | null }[];
+    sourceAccounts: { lastTestedAt: string | null; failingBecause: string | null; follows?: string }[];
   };
   return sourceAccounts[0]!;
 }
@@ -1238,6 +1247,234 @@ describe('Connector management', () => {
       await aCheckRuns();
       await checksSettle();
       expect(await inboxOf()).toHaveLength(3);
+    });
+  });
+});
+
+/**
+ * "Connect Gmail by star, and bring in conversations starred from then on"
+ * (issue 822). Which history records put the star on is
+ * tests/unit/connectors/gmail.test.ts's `historyPage`, read for any label;
+ * here, that only a star added after connecting ever becomes an Item.
+ */
+const starOn = (threadId: string): HistoryChange => ({
+  labelled: `m-${threadId}`,
+  threadId,
+  with: [STARRED],
+  labelIds: ['INBOX', STARRED],
+});
+const starOff = (threadId: string): HistoryChange => ({
+  unlabelled: `m-${threadId}`,
+  threadId,
+  with: [STARRED],
+  labelIds: ['INBOX'],
+});
+
+/**
+ * A mailbox at position 777 holding these conversations starred - each by a
+ * history record before that position - and one neither starred nor labelled.
+ */
+function starredBefore(threadIds: string[]): void {
+  threadsHeld = [
+    ...threadIds.map((id) => ({
+      id,
+      labelled: false,
+      answer: plainThread(id, `Subject ${id}`, `Text ${id}`, { labelled: false, starred: true }),
+    })),
+    { id: 'thread-plain', labelled: false, answer: plainThread('thread-plain', undefined, undefined, { labelled: false }) },
+  ];
+  gmailHolds({
+    labels: labelsAnswer(),
+    historyId: '777',
+    threads: threadsHeld,
+    history: threadIds.map((id, at) => historyRecord(String(700 + at), starOn(id))),
+    historyLapsed: false,
+  });
+}
+
+/**
+ * What Gmail's history records after the first check - one record per change
+ * from `from`, the position moving on to `now` - with each conversation it
+ * names that the mailbox does not hold yet added, carrying what was put on it.
+ */
+function afterwards(changes: HistoryChange[], { from = 778, now = '900' } = {}): void {
+  for (const change of changes) {
+    if (threadsHeld.some((one) => one.id === change.threadId)) continue;
+    const marks = 'labelled' in change ? change.with : [];
+    threadsHeld.push({
+      id: change.threadId,
+      labelled: marks.includes(COCKPIT_LABEL_ID),
+      answer: plainThread(change.threadId, `Subject ${change.threadId}`, `Text ${change.threadId}`, {
+        labelled: marks.includes(COCKPIT_LABEL_ID),
+        starred: marks.includes(STARRED),
+      }),
+    });
+  }
+  gmailHolds({ historyId: now, threads: threadsHeld, history: changes.map((change, at) => historyRecord(String(from + at), change)) });
+}
+
+async function broughtInto(workspaceId = WORKSPACE_ID): Promise<string[]> {
+  return (await inboxOf(workspaceId)).map((item) => item.sourceId!).sort();
+}
+
+describe('Capture', () => {
+  describe('by star, only a conversation starred after connecting becomes an Item, and only once', () => {
+    it('three starred before connecting are no Items after the first check, which lists nothing', async () => {
+      starredBefore(['thread-a', 'thread-b', 'thread-c']);
+      await connect(granted('anna-refresh'), WORKSPACE_ID, 'star');
+
+      await checksSettle();
+
+      expect(await inboxOf()).toEqual([]);
+      expect(await rowOf()).toMatchObject({ follows: 'star', lastTestedAt: expect.any(String), failingBecause: null });
+      expect(gmailCalls.some((call) => call.startsWith('threads'))).toBe(false);
+    });
+
+    it('one starred between two checks is one open Task after the second, carrying what the conversation says', async () => {
+      starredBefore(['thread-a']);
+      await connect(granted('anna-refresh'), WORKSPACE_ID, 'star');
+      await checksSettle();
+
+      afterwards([starOn('thread-later')]);
+      await aCheckRuns();
+
+      expect(await inboxOf()).toEqual([
+        expect.objectContaining({
+          title: 'Subject thread-later',
+          description: 'Text thread-later',
+          sender: 'Pieter Claes',
+          sourceId: 'thread-later',
+          typeId: TASK_TYPE_ID,
+        }),
+      ]);
+      expect(await itemFor('thread-later')).toMatchObject({ is: 'open' });
+      expect(historyReadsFrom()).toEqual(['777']);
+      expect(gmailCalls.find((call) => call.startsWith('history?'))).toContain(`labelId=${STARRED}`);
+    });
+
+    it('connecting the same mailbox again leaves out what was starred before it', async () => {
+      starredBefore(['thread-a', 'thread-b']);
+      await connect(granted('anna-refresh'), WORKSPACE_ID, 'star');
+      await checksSettle();
+      // Starred while connected, and connected again before a check read it.
+      afterwards([starOn('thread-later')]);
+
+      await connect(granted('anna-refresh-again'), WORKSPACE_ID, 'star');
+      await checksSettle();
+      await aCheckRuns();
+
+      expect(await inboxOf()).toEqual([]);
+    });
+
+    it.each([
+      { situation: 'a position Gmail no longer keeps', lapsed: true },
+      { situation: 'the nightly run', lapsed: false },
+    ])('the full reconcile after $situation makes nothing of what is starred, and a star after it still counts', async ({ lapsed }) => {
+      starredBefore(['thread-a', 'thread-b']);
+      await connect(granted('anna-refresh'), WORKSPACE_ID, 'star');
+      await checksSettle();
+
+      if (lapsed) {
+        gmailHolds({ historyLapsed: true, historyId: '3000' });
+        await aCheckRuns();
+        gmailHolds({ historyLapsed: false });
+      } else {
+        await handleScheduled({} as never, env);
+      }
+      await runsSettle();
+
+      expect(await inboxOf()).toEqual([]);
+      expect(gmailCalls.some((call) => call.startsWith('threads'))).toBe(false);
+
+      afterwards([starOn('thread-later')], lapsed ? { from: 3001, now: '3100' } : {});
+      await aCheckRuns();
+      expect(await broughtInto()).toEqual(['thread-later']);
+    });
+
+    it('one starred before connecting, then unstarred and starred again after, is one open Task', async () => {
+      starredBefore(['thread-a']);
+      await connect(granted('anna-refresh'), WORKSPACE_ID, 'star');
+      await checksSettle();
+
+      afterwards([starOff('thread-a'), starOn('thread-a')]);
+      await aCheckRuns();
+
+      expect(await broughtInto()).toEqual(['thread-a']);
+      expect(await itemFor('thread-a')).toMatchObject({ is: 'open' });
+    });
+
+    it('a star read again, by a run that stopped before moving on from it, is still one Item', async () => {
+      starredBefore([]);
+      await connect(granted('anna-refresh'), WORKSPACE_ID, 'star');
+      await checksSettle();
+      afterwards([starOn('thread-one'), starOn('thread-two')]);
+      gmailAnswersWith(503, (call) => call.startsWith('threads/thread-two'));
+
+      await aCheckRuns();
+      expect(await broughtInto()).toEqual(['thread-one']);
+      await aCheckRuns();
+
+      expect(await broughtInto()).toEqual(['thread-one', 'thread-two']);
+      expect(historyReadsFrom()).toEqual(['777', '777']);
+    });
+
+    it('its Item marked done or dismissed leaves nothing waiting for Gmail, and asks Gmail to change nothing', async () => {
+      starredBefore([]);
+      await connect(granted('anna-refresh'), WORKSPACE_ID, 'star');
+      await checksSettle();
+      afterwards([starOn('thread-later')]);
+      await aCheckRuns();
+      const item = (await itemFor('thread-later'))!;
+
+      await personMarks(item.id, 'done');
+      await personMarks(item.id, 'reopened');
+      await personMarks(item.id, 'dismissed');
+      await aCheckRuns();
+
+      const waiting = await inTheStore((sql) => [
+        ...sql.exec<{ label_wanted: number | null }>(
+          "SELECT label_wanted FROM gmail_conversations WHERE thread_id = 'thread-later'",
+        ),
+      ]);
+      expect(waiting).toEqual([{ label_wanted: null }]);
+      expect(gmailModifies).toEqual([]);
+      expect(await itemFor('thread-later')).toEqual({ id: item.id, is: 'dismissed' });
+    });
+  });
+
+  describe('the same mailbox connected to two Workspaces, by label and by star, brings into each only what carries its own mark', () => {
+    it('the label’s conversations in one, the star’s in the other, each its own Items', async () => {
+      threadsHeld = [
+        { id: 'thread-labelled', labelled: true, answer: plainThread('thread-labelled') },
+        { id: 'thread-starred', labelled: false, answer: plainThread('thread-starred', undefined, undefined, { labelled: false, starred: true }) },
+      ];
+      gmailHolds({ labels: labelsAnswer(), historyId: '777', threads: threadsHeld, history: [], historyLapsed: false });
+      await connect(granted('anna-in-work'));
+      await connect(granted('anna-in-atlas'), OTHER_WORKSPACE_ID, 'star');
+      await checksSettle();
+
+      afterwards([labelOn('thread-labelled-later'), starOn('thread-starred-later')]);
+      await aCheckRuns();
+
+      expect(await broughtInto()).toEqual(['thread-labelled', 'thread-labelled-later']);
+      expect(await broughtInto(OTHER_WORKSPACE_ID)).toEqual(['thread-starred-later']);
+    });
+  });
+});
+
+describe('Connector management', () => {
+  describe('a connection by star never fails for want of a label called Cockpit', () => {
+    it('a mailbox with no such label reads when it was last checked, and nothing says it is failing', async () => {
+      starredBefore([]);
+      gmailHolds({ labels: labelsAnswer({ cockpit: false }) });
+      await connect(granted('anna-refresh'), WORKSPACE_ID, 'star');
+      await checksSettle();
+
+      afterwards([starOn('thread-later')]);
+      await aCheckRuns();
+
+      expect(await rowOf()).toMatchObject({ lastTestedAt: expect.any(String), failingBecause: null });
+      expect(await broughtInto()).toEqual(['thread-later']);
     });
   });
 });

@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm';
-import { GMAIL } from '@cockpit/shared';
+import { GMAIL, type GmailMark } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
 import { noteTypeId, taskTypeId } from './changes.js';
@@ -40,12 +40,16 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
       .from(gmailChecks)
       .where(and(eq(gmailChecks.tenantId, accountName), eq(gmailChecks.sourceAccountId, sourceAccountId)))
       .get()?.startedAt ?? null;
-  /** The links this connection's mailbox made in its Workspace. */
-  const linksOf = (connection: { workspaceId: string; mailboxKey: string }) =>
+  /**
+   * The links this connection's mailbox made in its Workspace, under the mark
+   * it follows: those under the other are left as they are (issue 822).
+   */
+  const linksOf = (connection: { workspaceId: string; mailboxKey: string; follows: GmailMark }) =>
     and(
       eq(gmailConversations.tenantId, accountName),
       eq(gmailConversations.workspaceId, connection.workspaceId),
       eq(gmailConversations.mailboxKey, connection.mailboxKey),
+      eq(gmailConversations.mark, connection.follows),
     );
   /**
    * Nothing waiting for Gmail on this conversation any more - only while it
@@ -75,6 +79,7 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
         workspaceId: connectorAccounts.workspaceId,
         mailboxKey: connectorAccounts.externalAccountKey,
         address: connectorAccounts.displayName,
+        follows: connectorAccounts.follows,
         sealedCredential: connectorAccounts.encryptedCredential,
         credentialNonce: connectorAccounts.credentialNonce,
       })
@@ -196,6 +201,7 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
           itemId: ids.itemId,
           labelWanted: null,
           linkedAt: at,
+          mark: connection.follows,
           // Read labelled just now, so found by the reconcile under way - or
           // by the last one, for one brought in from history after it.
           listedIn: listingOf(connection.id),

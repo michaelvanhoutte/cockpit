@@ -1,5 +1,5 @@
-import { and, eq, exists, isNotNull } from 'drizzle-orm';
-import { GMAIL } from '@cockpit/shared';
+import { and, eq, exists, isNotNull, ne } from 'drizzle-orm';
+import { GMAIL, type GmailMark } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import { connectorAccounts, gmailConversations } from './schema.js';
 
@@ -44,6 +44,9 @@ export function wantOpenStateMirrored(
       and(
         eq(gmailConversations.tenantId, tenantId),
         eq(gmailConversations.itemId, before.id),
+        // The label alone is kept in step: an Item that came in by star
+        // changes nothing in Gmail, so nothing waits to reach it (issue 822).
+        eq(gmailConversations.mark, 'label'),
         exists(
           tx
             .select({ id: connectorAccounts.id })
@@ -54,6 +57,8 @@ export function wantOpenStateMirrored(
                 eq(connectorAccounts.connectorId, GMAIL),
                 eq(connectorAccounts.workspaceId, gmailConversations.workspaceId),
                 eq(connectorAccounts.externalAccountKey, gmailConversations.mailboxKey),
+                // Only under the mark the connection follows now (issue 822).
+                eq(connectorAccounts.follows, gmailConversations.mark),
               ),
             ),
         ),
@@ -62,8 +67,18 @@ export function wantOpenStateMirrored(
     .run();
 }
 
-/** A Gmail connection going takes whatever it had still to push with it. */
-export function dropWhatWasWanted(tx: InATransaction, tenantId: string, workspaceId: string, mailboxKey: string): void {
+/**
+ * A Gmail connection going takes whatever it had still to push with it - and
+ * one connected again under another mark, whatever it had to push under the
+ * mark it no longer follows (`kept`).
+ */
+export function dropWhatWasWanted(
+  tx: InATransaction,
+  tenantId: string,
+  workspaceId: string,
+  mailboxKey: string,
+  kept?: GmailMark,
+): void {
   tx.update(gmailConversations)
     .set({ labelWanted: null })
     .where(
@@ -72,6 +87,7 @@ export function dropWhatWasWanted(tx: InATransaction, tenantId: string, workspac
         eq(gmailConversations.workspaceId, workspaceId),
         eq(gmailConversations.mailboxKey, mailboxKey),
         isNotNull(gmailConversations.labelWanted),
+        kept ? ne(gmailConversations.mark, kept) : undefined,
       ),
     )
     .run();

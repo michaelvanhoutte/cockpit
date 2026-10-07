@@ -38,7 +38,7 @@ Filing it, finishing it or dismissing it takes an Item out of the Inbox; it stay
 
 **The row names the action it would take, in the strip it uncovers**, from the first pixel it moves rather than from the threshold — which direction means what is the part a thumb cannot see, and by the time the threshold is reached the direction has already been chosen. A mark says it as soon as there is room for one and the word joins it once the strip is wide enough to hold the whole of it, a word half off the edge being worse than none; the words are the menu's own, **Move to…** and **Dismiss**, so the two ways to an action are not two things to learn. Past the threshold the strip fills with colour to say that letting go now takes it. The row **cannot name an action the release would not take**: what it says and what it does are one answer, not two.
 
-**Dismissing a Gmail Item takes its conversation's `Cockpit` label off, and nothing more** — no archive, no delete (`docs/product/workspaces.md`). **Open question for every other source:** does "delete" mean delete only here, or also archive or delete at the source? See "One-way vs two-way sync" in `docs/functional-definition.md` — the single biggest behavioral decision.
+**Dismissing a Gmail Item takes its conversation's `Cockpit` label off, and nothing more** — no archive, no delete (`docs/product/workspaces.md`); one that came in by star changes nothing in Gmail. **Open question for every other source:** does "delete" mean delete only here, or also archive or delete at the source? See "One-way vs two-way sync" in `docs/functional-definition.md` — the single biggest behavioral decision.
 
 ## How an Item reaches a box — must it pass through the Inbox first? (undecided)
 
