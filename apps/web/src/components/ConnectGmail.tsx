@@ -50,7 +50,7 @@ export function ConnectGmail({
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <Dialog.Content
           onCloseAutoFocus={(event) => {
             if (!returnFocusTo) return;

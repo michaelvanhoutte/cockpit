@@ -50,7 +50,7 @@ export function CaptureForms({
   return (
     <>
       {shareFailed && (
-        <p role="alert" data-share-failed="" className="mt-3 text-sm text-over">
+        <p role="alert" data-share-failed="" className="mt-3 text-sm text-over-ink">
           {SHARE_FAILED_MESSAGE}
         </p>
       )}

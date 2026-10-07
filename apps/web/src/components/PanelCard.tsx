@@ -655,7 +655,7 @@ export function PanelCard({
             somebody decides what else to call it takes away the thing they are
             naming. */}
         {refusal && (
-          <p role="alert" className="px-3 py-3 text-sm text-over">
+          <p role="alert" className="px-3 py-3 text-sm text-over-ink">
             {refusal}
           </p>
         )}

@@ -193,7 +193,7 @@ export default function ManageUsers({
               Disable is a row that simply did not change, which reads exactly like
               a slow one. */}
           {access.error && (
-            <p role="alert" className="mb-4 text-sm text-over">
+            <p role="alert" className="mb-4 text-sm text-over-ink">
               {whatItSaid(access.error)}
             </p>
           )}
@@ -545,7 +545,7 @@ function AddSomebody() {
       </label>
       <button
         type="submit"
-        className="rounded bg-shade/80 px-3 py-1.5 text-sm text-white disabled:opacity-40"
+        className="rounded bg-scrim/80 px-3 py-1.5 text-sm text-white disabled:opacity-40"
         disabled={adding.isPending || name.trim() === '' || email.trim() === ''}
       >
         {adding.isPending ? 'Adding…' : 'Add'}

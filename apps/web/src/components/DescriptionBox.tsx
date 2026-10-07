@@ -152,7 +152,7 @@ export function DescriptionBox({ value, onChange, editable, resetKey, uploadImag
       )}
 
       {failed && (
-        <p role="alert" className="mt-1 shrink-0 text-xs font-normal normal-case tracking-normal text-over">
+        <p role="alert" className="mt-1 shrink-0 text-xs font-normal normal-case tracking-normal text-over-ink">
           Formatting could not be loaded. The description is still here, as Markdown, and still
           saves.{' '}
           {/* Offered rather than taken, which is the difference between this and

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { clearDashboardFilter } from '../dashboardFilter';
 import { isTypedInto, somethingIsOpenOverThePage } from '../inboxCollapsed';
 import { browserStore } from '../lastVisited';
@@ -37,11 +37,6 @@ const SCOPES: readonly { scope: Scope; label: string }[] = [
   { scope: 2, label: 'Workspace' },
   { scope: 3, label: 'All' },
 ];
-
-/** A pinned heading draws over the entries scrolling under it, in the column's own colour. */
-const PINNED: CSSProperties = {
-  backgroundColor: 'color-mix(in srgb, var(--ground, var(--color-ground)) 40%, white)',
-};
 
 /**
  * Go to panel, the column at a Dashboard's right ("Go to a Panel of this
@@ -554,8 +549,7 @@ export function PanelList({
 function WorkspaceHeading({ workspace }: { workspace: ReachWorkspace }) {
   return (
     <h3
-      style={PINNED}
-      className="sticky top-0 z-20 flex h-7 items-center gap-2 border-t border-shade/15 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink"
+      className="well-fill sticky top-0 z-20 flex h-7 items-center gap-2 border-t border-shade/15 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink"
     >
       <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: workspace.color }} aria-hidden="true" />
       <span className="truncate">{workspace.name}</span>
@@ -580,8 +574,7 @@ function DashboardGroup({
   return (
     <section>
       <h4
-        style={PINNED}
-        className={`sticky z-10 truncate px-4 pt-1.5 pb-0.5 text-xs font-semibold text-accent-deep ${
+        className={`well-fill sticky z-10 truncate px-4 pt-1.5 pb-0.5 text-xs font-semibold text-accent-deep ${
           underWorkspace ? 'top-7 pl-[1.6rem]' : 'top-0 border-t border-shade/10'
         }`}
       >

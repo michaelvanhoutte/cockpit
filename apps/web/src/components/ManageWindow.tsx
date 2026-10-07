@@ -93,7 +93,7 @@ export function ManageWindow({
             browser, which would otherwise navigate away to open it - the
             same guard the Item form's own overlay carries. */}
         <Dialog.Overlay
-          className="fixed inset-0 z-floating bg-shade/30"
+          className="fixed inset-0 z-floating bg-scrim/30"
           onDragOver={(event) => {
             if (takesFiles(event)) event.preventDefault();
           }}

@@ -168,7 +168,7 @@ export default function FilterSummary({
 
       <Dialog.Root open={open} onOpenChange={(now) => !now && setOpen(false)}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/40" />
+          <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/40" />
           <FilterSheet
             filter={filter}
             setFilter={setFilter}

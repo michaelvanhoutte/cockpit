@@ -51,7 +51,7 @@ export function SettingsModal({
   return (
     <Dialog.Root open onOpenChange={(nowOpen) => !nowOpen && !held && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <Dialog.Content
           aria-describedby={undefined}
           // The focus starts on the section that is showing, not on the first.

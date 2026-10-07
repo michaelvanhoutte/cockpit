@@ -44,7 +44,7 @@ export function MoveOrAddQuestion({
   return (
     <AlertDialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && onCancel()}>
       <AlertDialog.Portal>
-        <AlertDialog.Overlay className="fixed inset-0 z-floating bg-shade/30" />
+        <AlertDialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <AlertDialog.Content
           aria-describedby={undefined}
           className="fixed z-floating left-1/2 top-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg"
@@ -57,7 +57,7 @@ export function MoveOrAddQuestion({
           </p>
 
           {refusal && (
-            <p role="alert" className="pt-3 text-sm text-over">
+            <p role="alert" className="pt-3 text-sm text-over-ink">
               {refusal}
             </p>
           )}
