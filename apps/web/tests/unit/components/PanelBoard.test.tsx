@@ -910,7 +910,8 @@ describe('Panels', () => {
 
       await choose(user, 'Project Falcon', 'Move to another dashboard');
 
-      const dialog = screen.getByRole('dialog');
+      // Found rather than got: the picker is fetched once it is chosen.
+      const dialog = await screen.findByRole('dialog');
       expect(within(dialog).getByRole('button', { name: 'Research' })).toBeVisible();
       expect(within(dialog).getByRole('button', { name: 'Personal' })).toBeVisible();
       // The dashboard the panel is already on is never offered as somewhere
@@ -922,7 +923,7 @@ describe('Panels', () => {
       const { user, mutate } = showBoard({ dashboards: [DASHBOARD, RESEARCH] });
 
       await choose(user, 'Project Falcon', 'Move to another dashboard');
-      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Research' }));
+      await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Research' }));
 
       const [asked] = mutate.mock.calls[0]!;
       expect(asked.name).toBe('move_panel_to_dashboard');
