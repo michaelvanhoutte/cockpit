@@ -353,6 +353,38 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
     assert.deepEqual(asked, ['profile', 'history', 'threads']);
   });
 
+  // Unstarring in Gmail, or clearing the flag in Outlook, and starring again
+  // ("Keep a starred Gmail task in step with its star, both ways", issue 823).
+  it('takes the star off a conversation and puts it back, each as history and in the listing', async () => {
+    const token = await accessTokenFor('no-label-unstarred@example.com');
+    const act = (what, query) =>
+      fetch(`${issuer.origin}/gmail-stub/${what}?email=no-label-unstarred%40example.com&${query}`, { method: 'POST' }).then(
+        (answer) => answer.json(),
+      );
+    const listed = async () => (await (await read(token, 'threads?labelIds=STARRED')).json()).threads.map((thread) => thread.id);
+    const starred = async (thread) =>
+      (await (await fetch(`${issuer.origin}/gmail-stub/thread?email=no-label-unstarred%40example.com&thread=${thread}`)).json())
+        .starred;
+    const { thread } = await act('star', 'subject=Flagged');
+    const { historyId: before } = await (await read(token, 'profile')).json();
+
+    await act('unstar', `thread=${thread}`);
+    assert.equal(await starred(thread), false);
+    assert.equal((await listed()).includes(thread), false);
+    await act('star', `thread=${thread}`);
+    assert.equal(await starred(thread), true);
+    assert.equal((await listed()).includes(thread), true);
+
+    const { history } = await (await read(token, `history?startHistoryId=${before}`)).json();
+    assert.deepEqual(
+      history.map((record) => [Object.keys(record).find((key) => key.startsWith('labels')), record[Object.keys(record).find((key) => key.startsWith('labels'))][0].labelIds]),
+      [
+        ['labelsRemoved', ['STARRED']],
+        ['labelsAdded', ['STARRED']],
+      ],
+    );
+  });
+
   // What Cockpit asks of the mailbox when a task is done or reopened there
   // ("Take the Cockpit label off in Gmail when its task is done in Cockpit",
   // issue 728).

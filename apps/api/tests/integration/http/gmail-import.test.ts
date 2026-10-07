@@ -1017,10 +1017,10 @@ describe('Capture', () => {
         expect(gmailCalls.filter(refused)).toHaveLength(1);
         expect(labelIsOn('thread-001')).toBe(false);
         expect((await rowOf()).failingBecause).toBeNull();
-        // Logged by the connection and Gmail's answer, and nothing of the mail or the sign-in.
+        // Logged by the connection, the mark it follows and Gmail's answer, and nothing of the mail or the sign-in.
         const warning = logged.mock.calls.map(([line]) => String(line)).find((line) => line.includes('refused a label change'));
-        expect(JSON.parse(warning!)).toMatchObject({ level: 'warn', data: { status } });
-        expect(Object.keys(JSON.parse(warning!).data).sort()).toEqual(['sourceAccountId', 'status']);
+        expect(JSON.parse(warning!)).toMatchObject({ level: 'warn', data: { follows: 'label', status } });
+        expect(Object.keys(JSON.parse(warning!).data).sort()).toEqual(['follows', 'sourceAccountId', 'status']);
         expect(warning).not.toContain('thread-000');
         expect(warning).not.toContain('access-for-');
       } finally {
@@ -1384,7 +1384,9 @@ describe('Capture', () => {
       await runsSettle();
 
       expect(await inboxOf()).toEqual([]);
-      expect(gmailCalls.some((call) => call.startsWith('threads'))).toBe(false);
+      // Listed, to close (issue 823), and none read to be brought in.
+      expect(gmailCalls.some((call) => call.startsWith(`threads?labelIds=${STARRED}`))).toBe(true);
+      expect(gmailCalls.some((call) => call.startsWith('threads/'))).toBe(false);
 
       afterwards([starOn('thread-later')], lapsed ? { from: 3001, now: '3100' } : {});
       await aCheckRuns();
@@ -1418,28 +1420,6 @@ describe('Capture', () => {
       expect(historyReadsFrom()).toEqual(['777', '777']);
     });
 
-    it('its Item marked done or dismissed leaves nothing waiting for Gmail, and asks Gmail to change nothing', async () => {
-      starredBefore([]);
-      await connect(granted('anna-refresh'), WORKSPACE_ID, 'star');
-      await checksSettle();
-      afterwards([starOn('thread-later')]);
-      await aCheckRuns();
-      const item = (await itemFor('thread-later'))!;
-
-      await personMarks(item.id, 'done');
-      await personMarks(item.id, 'reopened');
-      await personMarks(item.id, 'dismissed');
-      await aCheckRuns();
-
-      const waiting = await inTheStore((sql) => [
-        ...sql.exec<{ label_wanted: number | null }>(
-          "SELECT label_wanted FROM gmail_conversations WHERE thread_id = 'thread-later'",
-        ),
-      ]);
-      expect(waiting).toEqual([{ label_wanted: null }]);
-      expect(gmailModifies).toEqual([]);
-      expect(await itemFor('thread-later')).toEqual({ id: item.id, is: 'dismissed' });
-    });
   });
 
   describe('the same mailbox connected to two Workspaces, by label and by star, brings into each only what carries its own mark', () => {
@@ -1458,6 +1438,278 @@ describe('Capture', () => {
 
       expect(await broughtInto()).toEqual(['thread-labelled', 'thread-labelled-later']);
       expect(await broughtInto(OTHER_WORKSPACE_ID)).toEqual(['thread-starred-later']);
+    });
+  });
+});
+
+/**
+ * "Keep a starred Gmail task in step with its star, both ways" (issue 823).
+ * What the push asks, and which side wins, are one path with the label's -
+ * proved above; here, that the star is the mark it reads and writes, and that
+ * the full reconcile by star lists only to close.
+ */
+type StarHeld = 'starred' | 'unstarred' | 'binned' | 'deleted';
+
+/** The conversation as Gmail holds it now: starred, unstarred, starred in the bin, or deleted for good. */
+function starNowIs(threadId: string, held: StarHeld): void {
+  threadsHeld = threadsHeld.filter((one) => one.id !== threadId);
+  if (held !== 'deleted') {
+    threadsHeld.push({
+      id: threadId,
+      labelled: false,
+      answer: plainThread(threadId, `Subject ${threadId}`, `Text ${threadId}`, {
+        labelled: false,
+        starred: held !== 'unstarred',
+        trashed: held === 'binned',
+      }),
+    });
+  }
+  gmailHolds({ threads: threadsHeld });
+}
+
+/** Whether Gmail holds the conversation starred now. */
+function starIsOn(threadId: string): boolean {
+  const { messages } = threadsHeld.find((one) => one.id === threadId)!.answer as { messages: { labelIds: string[] }[] };
+  return messages.some((one) => one.labelIds.includes(STARRED));
+}
+
+/** The changes to this conversation Gmail was asked for, oldest first: the star `off` or `on`, and nothing else. */
+function starChangesAskedOf(threadId: string): ('off' | 'on')[] {
+  return gmailModifies
+    .filter((one) => one.threadId === threadId)
+    .map((one) => {
+      expect([...(one.addLabelIds ?? []), ...(one.removeLabelIds ?? [])]).toEqual([STARRED]);
+      return (one.addLabelIds ?? []).length > 0 ? 'on' : 'off';
+    });
+}
+
+/**
+ * Connected by star with nothing starred, then these starred after it: each an
+ * open Task once a check has run, the position moved on to 900.
+ */
+async function starredAfterConnecting(threadIds: string[], workspaces: string[] = [WORKSPACE_ID]): Promise<void> {
+  starredBefore([]);
+  for (const [at, workspaceId] of workspaces.entries()) {
+    await connect(granted(`anna-in-${at}`), workspaceId, 'star');
+  }
+  await checksSettle();
+  afterwards(threadIds.map(starOn));
+  await aCheckRuns();
+}
+
+/** What Gmail's history records after `starredAfterConnecting`'s check: one record per change, past position 900. */
+function starsChange(changes: HistoryChange[]): void {
+  historySays(changes, { from: 901, now: '950' });
+}
+
+describe('Capture', () => {
+  describe('a starred conversation’s Item is open exactly while the conversation is starred', () => {
+    it.each([
+      { situation: 'the star taken off in Gmail', before: 'open', held: 'unstarred', change: starOff('thread-x'), becomes: 'done' },
+      {
+        situation: 'its mail moved to the bin',
+        before: 'open',
+        held: 'binned',
+        change: { labelled: 'm-x', threadId: 'thread-x', with: ['TRASH'], labelIds: ['TRASH', STARRED] },
+        becomes: 'done',
+      },
+      { situation: 'its mail deleted for good', before: 'open', held: 'deleted', change: { deleted: 'm-x', threadId: 'thread-x' }, becomes: 'done' },
+      { situation: 'starred again after being done', before: 'done', held: 'starred', change: starOn('thread-x'), becomes: 'open' },
+      { situation: 'starred again after being dismissed', before: 'dismissed', held: 'starred', change: starOn('thread-x'), becomes: 'open' },
+    ] as { situation: string; before: 'open' | 'done' | 'dismissed'; held: StarHeld; change: HistoryChange; becomes: 'open' | 'done' }[])(
+      '$situation leaves the same Item $becomes at the next check',
+      async ({ before, held, change, becomes }) => {
+        await starredAfterConnecting(['thread-x', 'thread-y']);
+        const item = (await itemFor('thread-x'))!;
+        if (before !== 'open') await personMarks(item.id, before);
+
+        starNowIs('thread-x', held);
+        starsChange([change]);
+        await aCheckRuns();
+
+        expect(await itemFor('thread-x')).toEqual({ id: item.id, is: becomes });
+        expect(await itemFor('thread-y')).toMatchObject({ is: 'open' });
+      },
+    );
+
+    it('the star taken off a conversation that never had an Item makes nothing, and reads nothing', async () => {
+      await starredAfterConnecting(['thread-x']);
+
+      starsChange([starOff('thread-plain')]);
+      await aCheckRuns();
+
+      expect(await itemFor('thread-plain')).toBeNull();
+      expect(gmailCalls.some((call) => call.startsWith('threads/thread-plain'))).toBe(false);
+      expect(await itemFor('thread-x')).toMatchObject({ is: 'open' });
+    });
+
+    it('connecting the mailbox again reads each open Item once: one still starred stays open, one unstarred meanwhile is done', async () => {
+      await starredAfterConnecting(['thread-x', 'thread-y']);
+      // Unstarred with no history record a check after connecting again would read.
+      starNowIs('thread-y', 'unstarred');
+      const before = gmailCalls.length;
+
+      await connect(granted('anna-refresh-again'), WORKSPACE_ID, 'star');
+      await checksSettle();
+      await aCheckRuns();
+
+      expect(await itemFor('thread-x')).toMatchObject({ is: 'open' });
+      expect(await itemFor('thread-y')).toMatchObject({ is: 'done' });
+      const reads = gmailCalls.slice(before).filter((call) => call.startsWith('threads/'));
+      expect(reads.filter((call) => call.startsWith('threads/thread-x'))).toHaveLength(1);
+      expect(reads.filter((call) => call.startsWith('threads/thread-y'))).toHaveLength(1);
+    });
+
+    /**
+     * One history record naming each of these conversations unstarred - as
+     * unstarring many at once in Gmail records it - then a record apiece for
+     * the changes after it.
+     */
+    function unstarredAtOnce(threadIds: string[], after: HistoryChange[] = []): void {
+      const records = threadIds.map((id) => historyRecord('901', starOff(id)) as { messages: unknown[]; labelsRemoved: unknown[] });
+      const atOnce = { id: '901', messages: records.flatMap((one) => one.messages), labelsRemoved: records.flatMap((one) => one.labelsRemoved) };
+      gmailHolds({ historyId: '950', history: [atOnce, ...after.map((change, at) => historyRecord(String(902 + at), change))] });
+    }
+
+    it('unstarred among more conversations than a run can read, the one with an Item is still done at the next check', async () => {
+      await starredAfterConnecting(['thread-x']);
+      starNowIs('thread-x', 'unstarred');
+      unstarredAtOnce(['thread-x', ...Array.from({ length: 40 }, (_, at) => `thread-other-${at}`)]);
+
+      await aCheckRuns();
+
+      expect(await itemFor('thread-x')).toMatchObject({ is: 'done' });
+      expect(gmailCalls.some((call) => call.startsWith('threads/thread-other'))).toBe(false);
+    });
+
+    it('more Items unstarred at once than a run can read lose nothing: a star beside them still comes in, and the nightly read marks each done', async () => {
+      const threadIds = Array.from({ length: 31 }, (_, at) => `thread-${String(at).padStart(2, '0')}`);
+      await starredAfterConnecting(threadIds);
+      for (const id of threadIds) starNowIs(id, 'unstarred');
+      starNowIs('thread-later', 'starred');
+      unstarredAtOnce(threadIds, [starOn('thread-later')]);
+
+      await aCheckRuns();
+      expect(await itemFor('thread-later')).toMatchObject({ is: 'open' });
+
+      await handleScheduled({} as never, env);
+      await runsSettle();
+
+      for (const id of threadIds) expect(await itemFor(id)).toMatchObject({ is: 'done' });
+      expect(await itemFor('thread-later')).toMatchObject({ is: 'open' });
+    });
+  });
+
+  describe('the full reconcile by star marks done only from a complete listing of what is starred, and makes nothing', () => {
+    /**
+     * 120 starred before connecting - three pages listed, none an Item - and
+     * three starred after: one then unstarred and one marked done that is
+     * still starred, neither in any history record, so only the listing finds them.
+     */
+    async function relistedAfter(): Promise<void> {
+      starredBefore([]);
+      for (let at = 0; at < 120; at += 1) starNowIs(`thread-${String(at).padStart(3, '0')}`, 'starred');
+      await connect(granted('anna-refresh'), WORKSPACE_ID, 'star');
+      await checksSettle();
+      afterwards(['thread-kept', 'thread-unstarred', 'thread-done'].map(starOn));
+      await aCheckRuns();
+      await personMarks((await itemFor('thread-done'))!.id, 'done');
+      starNowIs('thread-done', 'starred');
+      starNowIs('thread-unstarred', 'unstarred');
+      gmailHolds({ historyLapsed: true, historyId: '3000' });
+    }
+
+    it('an open Item whose conversation is no longer starred is done once the last page is in, a done one still starred is open again, and nothing is made', async () => {
+      await relistedAfter();
+
+      await runsSettle();
+
+      expect(await itemFor('thread-unstarred')).toMatchObject({ is: 'done' });
+      expect(await itemFor('thread-done')).toMatchObject({ is: 'open' });
+      expect(await itemFor('thread-kept')).toMatchObject({ is: 'open' });
+      expect(await broughtInto()).toEqual(['thread-done', 'thread-kept', 'thread-unstarred']);
+    });
+
+    it('a listing that fails after page one of three marks nothing done, and the next run resumes it', async () => {
+      await relistedAfter();
+      gmailAnswersWith(503, (call) => call.startsWith('threads?') && call.includes('pageToken=50'));
+
+      await aCheckRuns();
+      expect(await itemFor('thread-unstarred')).toMatchObject({ is: 'open' });
+
+      const listedBefore = gmailCalls.filter((call) => call.startsWith('threads?')).length;
+      await runsSettle();
+
+      const listed = gmailCalls.filter((call) => call.startsWith('threads?')).slice(listedBefore);
+      expect(listed[0]).toContain('pageToken=50');
+      expect(await itemFor('thread-unstarred')).toMatchObject({ is: 'done' });
+    });
+  });
+
+  describe('a starred task done or dismissed in Cockpit takes the star off its conversation, and reopening it puts the star back', () => {
+    it.each([
+      { situation: 'marking it done', steps: ['done'], starred: false, asked: ['off'] },
+      { situation: 'dismissing it, then undoing the dismiss', steps: ['dismissed', 'undismissed'], starred: true, asked: ['off', 'on'] },
+      { situation: 'reopening it after marking it done', steps: ['done', 'reopened'], starred: true, asked: ['off', 'on'] },
+    ] as { situation: string; steps: ('done' | 'dismissed' | 'reopened' | 'undismissed')[]; starred: boolean; asked: string[] }[])(
+      '$situation leaves the conversation starred: $starred, and no other changed',
+      async ({ steps, starred, asked }) => {
+        await starredAfterConnecting(['thread-x', 'thread-y']);
+        const item = (await itemFor('thread-x'))!;
+
+        for (const step of steps) await personMarks(item.id, step);
+
+        expect(starIsOn('thread-x')).toBe(starred);
+        expect(starChangesAskedOf('thread-x')).toEqual(asked);
+        expect(starChangesAskedOf('thread-y')).toEqual([]);
+      },
+    );
+  });
+
+  describe('a change made in Cockpit to a starred task wins, and does not come back as Gmail’s', () => {
+    it('done in Cockpit, and starred again in Gmail before the star came off: the task stays done, and the next check takes the star off', async () => {
+      await starredAfterConnecting(['thread-x']);
+      const item = (await itemFor('thread-x'))!;
+      gmailAnswersWith(429, (call) => call.endsWith('/modify'));
+      // Unstarred and starred again by hand meanwhile, which the check reads.
+      starsChange([starOff('thread-x'), starOn('thread-x')]);
+
+      await personMarks(item.id, 'done');
+      expect(starIsOn('thread-x')).toBe(true);
+      expect(await itemFor('thread-x')).toMatchObject({ is: 'done' });
+
+      await aCheckRuns();
+
+      expect(starIsOn('thread-x')).toBe(false);
+      expect(await itemFor('thread-x')).toMatchObject({ is: 'done' });
+    });
+
+    it('Cockpit’s own unstar read back from the history changes nothing, and asks Gmail nothing more', async () => {
+      await starredAfterConnecting(['thread-x']);
+      await personMarks((await itemFor('thread-x'))!.id, 'done');
+      const before = await itemFor('thread-x');
+      const logged = await changesLogged();
+
+      starsChange([starOff('thread-x')]);
+      await aCheckRuns();
+
+      expect(await itemFor('thread-x')).toEqual(before);
+      expect(await changesLogged()).toBe(logged);
+      expect(starChangesAskedOf('thread-x')).toEqual(['off']);
+    });
+  });
+
+  describe('the same mailbox starred into two Workspaces keeps both in step with one star', () => {
+    it('done in one takes the star off, and the other’s Item is done at its next check', async () => {
+      await starredAfterConnecting(['thread-x'], [WORKSPACE_ID, OTHER_WORKSPACE_ID]);
+      expect(await itemFor('thread-x', OTHER_WORKSPACE_ID)).toMatchObject({ is: 'open' });
+
+      await personMarks((await itemFor('thread-x'))!.id, 'done');
+      expect(starIsOn('thread-x')).toBe(false);
+      starsChange([starOff('thread-x')]);
+      await aCheckRuns();
+
+      expect(await itemFor('thread-x', OTHER_WORKSPACE_ID)).toMatchObject({ is: 'done' });
     });
   });
 });
