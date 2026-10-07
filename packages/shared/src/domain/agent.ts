@@ -190,7 +190,9 @@ export function agentMessageFor(
       }
     })
     .trim();
-  return [agentPreambleFor(agent.name, item.title), body, attachmentsSection(item.attachments ?? [], readable)].filter(Boolean).join('\n\n');
+  return [agentPreambleFor(agent.name, item.title), body, attachmentsSection(item.attachments ?? [], readable)]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function attachmentsSection(

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
-import { ACCOUNT_WIDE, AGENT_COLORS, agentPreambleFor } from '@cockpit/shared';
+import { ACCOUNT_WIDE, AGENT_COLORS, AGENT_PREAMBLE } from '@cockpit/shared';
 import type {
   AgentRun,
   CommandName,
@@ -255,7 +255,7 @@ describe('Agents', () => {
       expect(fired!.headers.get('anthropic-version')).toBe('2023-06-01');
       expect(fired!.headers.get('authorization')).toBe('Bearer a-routine-token');
       expect(fired!.text).toBe(
-        `${agentPreambleFor('Scope it','Chase the invoice')}
+        `${AGENT_PREAMBLE} Begin your first reply with this line, exactly: Scope it: Chase the invoice
 
 /scoping Chase the invoice - ${env.APP_ORIGIN}/w/${WORKSPACE_ID}/d/${DASHBOARD_ID}`,
       );
