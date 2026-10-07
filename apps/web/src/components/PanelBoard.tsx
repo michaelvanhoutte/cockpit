@@ -28,13 +28,13 @@ import type {
 import { CommandRefused } from '../api/client';
 import { useCommand } from '../api/queries';
 import { scrollWhileDragging } from '../dragScroll';
-import { itemsOnPanel } from '../filing';
 import { groupFilterRows } from '../filterGroups';
-import { dayOf, filtersUsingPanel, isGrouped, itemsMatchingFilter, joinedBy } from '../filters';
+import { dayOf, filtersUsingPanel, isGrouped, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
-import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, matchesDashboardFilter, useDashboardFilter } from '../dashboardFilter';
+import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, useDashboardFilter } from '../dashboardFilter';
+import { itemsShownOn } from '../panelContents';
 import { DashboardFilterBar } from './DashboardFilterBar';
-import { DEFAULT_FILTER_SORT, inSortOrder, sortOf } from '../sorting';
+import { DEFAULT_FILTER_SORT, sortOf } from '../sorting';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
 import {
   dividerMoved,
@@ -380,26 +380,18 @@ export function PanelBoard({
   const today = dayOf(new Date());
   const withAttachments = itemIdsWithAttachments(attachments);
   const withRun = itemIdsWithRun(agentRuns);
-  const narrowed = (list: Item[]): Item[] =>
-    filteringOn
-      ? list.filter((item) => matchesDashboardFilter(dashboardFilter, item, withAttachments, today, withRun))
-      : list;
-
-  /** What a Panel shows: its own Items, or what its Filter gathers, narrowed by the Dashboard filter. */
+  /** What a Panel shows: its own Items, or what its Filter gathers, narrowed by the Dashboard filter (`panelContents.ts`, which Go to panel counts with too). */
   const itemsOf = (panel: Panel): Item[] =>
-    narrowed(
-      panelGathers(panel)
-        ? itemsMatchingFilter(
-            items,
-            filings,
-            panelsInWorkspace,
-            itemTypes,
-            panel.filter ?? NO_CONDITIONS,
-            today,
-            sortOf(panel) ?? DEFAULT_FILTER_SORT,
-          )
-        : inSortOrder(itemsOnPanel(items, filings, panel.id), sortOf(panel), itemTypes),
-    );
+    itemsShownOn(panel, {
+      items,
+      filings,
+      panelsInWorkspace,
+      itemTypes,
+      filter: dashboardFilter,
+      withAttachments,
+      withRun,
+      today,
+    });
   /**
    * **While a Dashboard filter is on, a Panel with no matching Item is not
    * drawn**, a Panel of text included, which has no Item to match. The cells
