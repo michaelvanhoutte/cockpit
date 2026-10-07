@@ -3714,41 +3714,6 @@ describe('Dashboards', () => {
     });
   });
 
-  describe('a drop in the Panel list is kept as a drag on the board is, and only where the board can be rearranged', () => {
-    it('saves what the list arranges into the Layout on screen, with the whole stored arrangement to arrange against', () => {
-      screenIs(1280);
-      const result = listed();
-      const { mutate } = showBoard({ layouts: [aLayout('mine', ['falcon', 'reading'])] });
-
-      expect(result.current!.arrangeable).toBe(true);
-      expect(result.current!.arrangement.map((row) => row.cells.map((cell) => cell.panelId))).toEqual([
-        ['falcon', 'reading'],
-      ]);
-      const [one] = result.current!.arrangement;
-      const [falcon, reading] = one!.cells;
-      act(() => result.current!.arrange([{ height: null, cells: [reading!, falcon!] }]));
-
-      const [asked] = mutate.mock.calls[0]!;
-      expect(asked.payload.layoutId).toBe('mine');
-      expect(sentOrder(mutate)).toEqual(['reading', 'falcon']);
-    });
-
-    it('says it is not arrangeable on a filtered Dashboard and on a phone', () => {
-      screenIs(1280);
-      const result = listed();
-      filterTheDashboard({ text: 'vat' });
-      showBoard({ items: [anItem('11111111-1111-7111-8111-000000000001', 'VAT return')] });
-      expect(result.current!.arrangeable).toBe(false);
-    });
-
-    it('says it is not arrangeable on a phone', () => {
-      screenIs(400);
-      const result = listed();
-      showBoard();
-      expect(result.current!.arrangeable).toBe(false);
-    });
-  });
-
   describe('a jump leaves the Panel’s header in view, below the Dashboard filter bar that sticks to the top', () => {
     it('scrolls to the header minus the height of the bar, and to the header alone with no bar', () => {
       screenIs(1280);

@@ -11,9 +11,8 @@ import { useServerEvents } from '../api/useServerEvents';
 // around itself in WorkspaceTabs.tsx - since the dock is not what the shell
 // has to paint first.
 const AgentDock = lazy(() => import('../components/AgentDock'));
-// And the Panel list column, which holds the drag half of rearranging a
-// Dashboard; its published store (panelList.ts) stays in the bundle, since the
-// board feeds it.
+// And the Panel list column; its published store (panelList.ts) stays in the
+// bundle, since the board feeds it.
 const PanelList = lazy(() => import('../components/PanelList'));
 // Out of the initial bundle too: Settings and Platform settings, and what they
 // hold, are fetched when first opened, and each section when it is first shown

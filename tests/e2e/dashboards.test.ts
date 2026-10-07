@@ -696,22 +696,6 @@ test.describe('Dashboards', () => {
       await expect(list).toHaveCount(0);
       await press(strip, isMobile);
       await expect(list).toBeVisible();
-
-      // **A drag of the last row's entry to the top of the list** rearranges
-      // the Dashboard, and a reload still shows it. A real drag, since only a
-      // browser cancels one whose source moved when it was picked up. Tall
-      // enough that both ends of the list are in view at once.
-      await page.setViewportSize({ width: 1280, height: 1000 });
-      const firstPanel = () => page.locator('[data-panel-cell]').first();
-      await expect(firstPanel()).toContainText('Panel 1');
-      const last = list.getByRole('listitem').last();
-      await expect(last).toContainText('Extra 8');
-      await last.dragTo(list.getByRole('listitem').first(), { targetPosition: { x: 40, y: 2 } });
-      await expect(firstPanel()).toContainText('Extra 8');
-      await expect(list.getByRole('listitem').first()).toContainText('Extra 8');
-      await page.reload();
-      await expect(firstPanel()).toContainText('Extra 8');
-      await expect(list.getByRole('listitem').first()).toContainText('Extra 8');
     });
   });
 });
