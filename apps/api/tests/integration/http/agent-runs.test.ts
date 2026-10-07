@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
-import { ACCOUNT_WIDE, AGENT_COLORS, AGENT_PREAMBLE } from '@cockpit/shared';
+import { ACCOUNT_WIDE, AGENT_COLORS, agentPreambleFor } from '@cockpit/shared';
 import type {
   AgentRun,
   CommandName,
@@ -246,7 +246,7 @@ describe('Agents', () => {
     });
 
     it("sends the agent's message with the item's words, the way Anthropic asks for it", async () => {
-      const agentId = await anAgent({ message: '/scoping {title} - {link}' });
+      const agentId = await anAgent({ name: 'Scope it', message: '/scoping {title} - {link}' });
       const itemId = await anItem('Chase the invoice', panelId);
 
       await start(itemId, agentId);
@@ -255,10 +255,30 @@ describe('Agents', () => {
       expect(fired!.headers.get('anthropic-version')).toBe('2023-06-01');
       expect(fired!.headers.get('authorization')).toBe('Bearer a-routine-token');
       expect(fired!.text).toBe(
-        `${AGENT_PREAMBLE}
+        `${agentPreambleFor('Scope it','Chase the invoice')}
 
 /scoping Chase the invoice - ${env.APP_ORIGIN}/w/${WORKSPACE_ID}/d/${DASHBOARD_ID}`,
       );
+    });
+
+    it('names the agent that was dropped, by the name it has when it starts', async () => {
+      const agentId = await anAgent({ name: 'Scope it' });
+      const itemId = await anItem('Chase the invoice', panelId);
+      const renamed = await postChange('update_agent', {
+        workspaceId: ACCOUNT_WIDE,
+        agentId,
+        name: 'Scope it well',
+        color: AGENT_COLORS[0]!,
+        message: '/scoping {title} - {link}',
+        asksForPrompt: false,
+        startsInProgress: true,
+      });
+      expect(renamed.status).toBe(200);
+
+      await start(itemId, agentId);
+
+      expect(claude.fired[0]!.text).toContain('exactly: Scope it well: Chase the invoice');
+      expect(claude.fired[0]!.text).not.toContain('Scope it: Chase the invoice');
     });
 
     it('sends a link to each of the item’s files that opens it without signing in', async () => {

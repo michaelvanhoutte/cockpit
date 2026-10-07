@@ -643,6 +643,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         // An Agent deleted between the start being recorded and this read
         // sends nothing of its own - Claude is still called, once, since the
         // run already says it is starting.
+        name: agent?.name ?? '',
         message: agent?.message ?? '',
         item: { title: itemLabel(item), description: item.description, sourceLink: item.sourceLink },
         attachments: listAttachmentsOfItem(db, accountName, item.id),

@@ -1785,7 +1785,7 @@ const routes = app
       })),
     );
     const text = agentMessageFor(
-      { message: toFire.message },
+      { name: toFire.name, message: toFire.message },
       {
         attachments,
         title: toFire.item.title,

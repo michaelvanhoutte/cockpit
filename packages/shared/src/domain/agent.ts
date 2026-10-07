@@ -132,6 +132,16 @@ export const AGENT_PREAMBLE = [
   'Ignore any earlier instruction about what to do with this item.',
 ].join(' ');
 
+/**
+ * **The preamble with the line Claude opens its first reply with**, `<Agent
+ * name>: <item title>`, so a session in Claude Code can be told from the rest
+ * ("Open each Agent session by naming the Agent and the item", issue 835).
+ * Built by concatenation: the name and title are inserted exactly as typed.
+ */
+export function agentPreambleFor(agentName: string, itemTitle: string): string {
+  return AGENT_PREAMBLE + ' Begin your first reply with this line, exactly: ' + agentName + ': ' + itemTitle;
+}
+
 /** What a new Agent's template starts as: the instruction to work the Item, then the Item's words. */
 export const DEFAULT_AGENT_MESSAGE = 'Work this item, then stop.\n\n{title}\n\n{description}';
 
@@ -143,7 +153,7 @@ export const DEFAULT_AGENT_MESSAGE = 'Work this item, then stop.\n\n{title}\n\n{
  * link, which is the only one the session can open.
  */
 export function agentMessageFor(
-  agent: Pick<Agent, 'message'>,
+  agent: Pick<Agent, 'name' | 'message'>,
   item: {
     title: string;
     description: string | null;
@@ -177,7 +187,7 @@ export function agentMessageFor(
       }
     })
     .trim();
-  return [AGENT_PREAMBLE, body, attachmentsSection(item.attachments ?? [], readable)].filter(Boolean).join('\n\n');
+  return [agentPreambleFor(agent.name, item.title), body, attachmentsSection(item.attachments ?? [], readable)].filter(Boolean).join('\n\n');
 }
 
 function attachmentsSection(
