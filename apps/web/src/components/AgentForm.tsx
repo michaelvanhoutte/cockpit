@@ -91,7 +91,7 @@ export function AgentForm({
                 onChange={(event) => onName(event.target.value)}
                 aria-label="Name of the agent"
                 maxLength={60}
-                className="mt-1 w-full rounded-md border border-shade/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                className="mt-1 w-full rounded-md border border-shade/10 bg-field px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
               />
             </label>
 
@@ -127,7 +127,7 @@ export function AgentForm({
                 aria-label="The message this agent sends with an item"
                 rows={4}
                 maxLength={4000}
-                className="mt-1 w-full resize-y rounded-md border border-shade/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                className="mt-1 w-full resize-y rounded-md border border-shade/10 bg-field px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
               />
               <span className="mt-1 block text-xs font-normal normal-case tracking-normal text-ink-faint">
                 {'{title}'}, {'{description}'}, {'{link}'} and, where it asks for one, {'{prompt}'}.

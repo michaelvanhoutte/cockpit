@@ -22,6 +22,7 @@ const SHAPES = [
   { kind: 'an arbitrary radius', pattern: /\brounded(?:-[a-z]{1,2})?-\[(?!var\()/ },
   { kind: 'an arbitrary shadow', pattern: /\b(?:inset-)?shadow-\[(?!var\()(?!color:)/ },
   { kind: 'black', pattern: new RegExp(`\\b(?:${UTILITY_COLOUR})-black\\b`) },
+  { kind: 'opaque white', pattern: /\bbg-white(?!\/)/ },
   { kind: 'a hex colour', pattern: /(?<![\w&])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})\b/ },
   { kind: 'a colour function', pattern: /\b(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb)\(/ },
 ];

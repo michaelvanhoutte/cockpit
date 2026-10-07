@@ -1239,7 +1239,7 @@ function TheForm({
         {attachments.map((attachment) => (
           <div
             key={attachment.id}
-            className="flex items-center gap-2 rounded-md border border-shade/10 bg-white px-3 py-2 text-sm"
+            className="flex items-center gap-2 rounded-md border border-shade/10 bg-field px-3 py-2 text-sm"
           >
             <a
               href={attachmentUrl(attachment.id)}
@@ -1542,7 +1542,7 @@ function TheForm({
                     onBlur={() => {
                       if (docked) void commitFields(['title']);
                     }}
-                    className={`w-full rounded-md border border-shade/10 bg-white px-3 py-2 normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 ${
+                    className={`w-full rounded-md border border-shade/10 bg-field px-3 py-2 normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 ${
                       onAPage ? 'text-xl font-semibold' : 'mt-1 text-sm font-normal'
                     }`}
                   />
@@ -1779,7 +1779,7 @@ function TheForm({
                               setDraft({ ...draft, typeId: e.target.value });
                               if (docked) void commitFields(['typeId']);
                             }}
-                            className="mt-1 w-full rounded-md border border-shade/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                            className="mt-1 w-full rounded-md border border-shade/10 bg-field px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
                           >
                             {/* Only while the item has none: nothing sets a type to none, so once one is picked it is not offered again. */}
                             {draft.typeId === null && <option value="">No type</option>}
@@ -1799,7 +1799,7 @@ function TheForm({
                               setDraft({ ...draft, status: e.target.value as ItemStatus });
                               if (docked) void commitFields(['status']);
                             }}
-                            className="mt-1 w-full rounded-md border border-shade/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                            className="mt-1 w-full rounded-md border border-shade/10 bg-field px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
                           >
                             <option value="to_do">To do</option>
                             <option value="in_progress">In progress</option>
@@ -1877,7 +1877,7 @@ function TheForm({
                               onBlur={() => {
                                 if (docked) void settleDueDate();
                               }}
-                              className="mt-1 w-full rounded-md border border-shade/10 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                              className="mt-1 w-full rounded-md border border-shade/10 bg-field px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
                             />
                           </label>
                           {/* One-click alongside typing one directly (issue

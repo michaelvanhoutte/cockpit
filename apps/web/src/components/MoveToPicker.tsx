@@ -318,7 +318,7 @@ function MoveToPicker({
             }}
             placeholder="Find a panel or dashboard…"
             aria-label="Find a panel or dashboard"
-            className="mt-4 w-full rounded-md border border-shade/15 bg-white px-3 py-2 text-sm placeholder:text-ink-faint focus:border-accent focus:outline-none"
+            className="mt-4 w-full rounded-md border border-shade/15 bg-field px-3 py-2 text-sm placeholder:text-ink-faint focus:border-accent focus:outline-none"
           />
 
           {/* Its own scroller rather than the dialog growing: a workspace with
@@ -433,7 +433,7 @@ function MoveToPicker({
                         data-1p-ignore
                         data-lpignore="true"
                         data-bwignore
-                        className="min-w-0 flex-1 rounded-md border border-shade/15 bg-white px-2 py-1 text-sm placeholder:text-ink-faint focus:border-accent focus:outline-none"
+                        className="min-w-0 flex-1 rounded-md border border-shade/15 bg-field px-2 py-1 text-sm placeholder:text-ink-faint focus:border-accent focus:outline-none"
                       />
                       <button
                         type="submit"
