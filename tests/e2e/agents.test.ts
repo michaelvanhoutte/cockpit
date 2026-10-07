@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { ACCOUNT_WIDE, AGENT_COLORS } from '@cockpit/shared';
+import type { Page } from '@playwright/test';
 import { isLinkedWorktree, portsFor } from '../../scripts/lib/ports.mjs';
 import {
   capture,
@@ -24,6 +25,19 @@ import {
 } from './support/app';
 
 const root = resolve(__dirname, '..', '..');
+
+/**
+ * Status ▸ the named state, from an open row menu. A mouse opens the submenu and
+ * chooses with the keyboard: a mouse click on the choice lost the submenu under this
+ * row's menu in this walk; a phone taps.
+ */
+async function chooseStatus(page: Page, state: string, isMobile: boolean): Promise<void> {
+  await press(page.getByRole('menuitem', { name: /^Status/ }), isMobile);
+  const choice = page.getByRole('menuitemradio', { name: state });
+  if (isMobile) return press(choice, isMobile);
+  await choice.focus();
+  await page.keyboard.press('Enter');
+}
 /** The stub the stack runs, which stands in for Claude Code's routines as well as for sign-in. */
 const issuer = `http://127.0.0.1:${portsFor(root, { linked: isLinkedWorktree(root), env: process.env }).e2eIssuer}`;
 
@@ -295,10 +309,20 @@ test.describe('Agents', () => {
         await expect(chip).toHaveAttribute('href', /\/claude-code\/session\/session_stub_/);
         await expect(itemRow(page, unfiled).getByText(/Claude/)).toHaveCount(0);
 
-        // Agent finished: Done - the Item is done, so it leaves the panel.
+        // The row's menu offers the session and no separate Agent finished.
         await press(farRow.getByRole('button', { name: 'Item actions' }), isMobile);
-        await press(page.getByRole('menuitem', { name: 'Agent finished: Done' }), isMobile);
+        await expect(page.getByRole('menuitem', { name: 'Open the Claude session ↗' })).toBeVisible();
+        await expect(page.getByRole('menuitem', { name: /Agent finished/ })).toHaveCount(0);
+        await page.keyboard.press('Escape');
+
+        // ✓ is the only control: the Item is done, so it leaves the panel with
+        // its chip, and Undo brings the row back with the chip and session link.
+        await farRow.hover();
+        await farRow.getByRole('button', { name: 'Mark done' }).click();
         await expect(farRow).toHaveCount(0);
+        await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
+        await expect(chip).toBeVisible();
+        await expect(chip).toHaveAttribute('href', /\/claude-code\/session\/session_stub_/);
 
         // Back to a window the connections list fits in, for putting things back.
         await page.setViewportSize({ width: 1280, height: 720 });
@@ -366,9 +390,12 @@ test.describe('Agents', () => {
       if (isMobile) await closeTheFilterSheet(page);
       await expect(itemRow(page, asked)).toBeVisible();
 
-      // Agent finished: Still to do - the chip goes, and the row stays unless filtered.
+      // In progress leaves the run open; To do ends it - the chip goes, and the row stays unless filtered.
       await press(itemRow(page, asked).getByRole('button', { name: 'Item actions' }), isMobile);
-      await press(page.getByRole('menuitem', { name: 'Agent finished: Still to do' }), isMobile);
+      await chooseStatus(page, 'In progress', isMobile);
+      await expect(itemRow(page, asked).getByRole('link', { name: /Claude is working/ })).toBeVisible();
+      await press(itemRow(page, asked).getByRole('button', { name: 'Item actions' }), isMobile);
+      await chooseStatus(page, 'To do', isMobile);
       await expect(itemRow(page, asked)).toHaveCount(0);
       await press(page.getByRole('button', { name: 'Clear the filter', exact: true }), isMobile);
       await expect(itemRow(page, asked).getByText(/Claude is working/)).toHaveCount(0);

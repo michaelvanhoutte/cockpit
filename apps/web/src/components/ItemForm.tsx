@@ -950,12 +950,18 @@ function TheForm({
     field: Field,
     value: ReturnType<typeof asStored>,
     from: Draft,
+    /** An undo of a Done names the run that Done ended, so the server reopens exactly that one. */
+    reopensRunId?: string,
   ): Promise<{ failure: string | null; held: StatusState | null }> => {
     let held: StatusState | null = null;
     for (const write of fieldWrites(field, envelope, value, from)) {
+      const command =
+        reopensRunId && write.command.name === 'set_done' && !write.command.payload.done
+          ? { ...write.command, payload: { ...write.command.payload, reopensRunId } }
+          : write.command;
       let failure: string | null = null;
       try {
-        if (!(await send(write.command)).applied) failure = CHANGED_ELSEWHERE;
+        if (!(await send(command)).applied) failure = CHANGED_ELSEWHERE;
       } catch (error) {
         failure = error instanceof Error ? error.message : 'That could not be saved';
       }
@@ -1085,7 +1091,7 @@ function TheForm({
       const pending = fields.filter((field) => changed[field] !== undefined);
       if (pending.length === 0) return;
       /** `after` is what the box and baseline hold once it landed, which an undo starts from. */
-      const committed: { field: Field; before: Draft[Field]; after: Partial<Draft> }[] = [];
+      const committed: { field: Field; before: Draft[Field]; after: Partial<Draft>; endedRunId?: string }[] = [];
       let stopped: string | null = null;
       try {
         for (const field of pending) {
@@ -1098,6 +1104,9 @@ function TheForm({
           ) {
             continue;
           }
+          // Done ends the Item's open run on the server; the undo names it, as the row's does.
+          const endedRunId =
+            field === 'status' && value === 'done' ? data?.agentRuns?.find((run) => run.itemId === itemId)?.id : undefined;
           const { failure, held: reached } = await writeField(field, value, editingRef.current!.was);
           if (failure !== null) {
             // A status that did not all land shows what the item holds.
@@ -1106,7 +1115,7 @@ function TheForm({
             break;
           }
           const after = landedAs(field, held.now[field], reached);
-          committed.push({ field, before: held.was[field], after });
+          committed.push({ field, before: held.was[field], after, ...(endedRunId && { endedRunId }) });
           unwritten.current.delete(field);
           changeEditing((now) => (now ? { ...now, was: { ...now.was, ...after } } : now));
         }
@@ -1139,9 +1148,9 @@ function TheForm({
         undo: () => {
           undoneCount.current += 1;
           const run = inTurn.current.then(async () => {
-            for (const { field, before, after } of [...undoable].reverse()) {
+            for (const { field, before, after, endedRunId } of [...undoable].reverse()) {
               const back = asStored({ ...held.now, [field]: before }, field);
-              const { failure, held: reached } = await writeField(field, back, { ...held.now, ...after });
+              const { failure, held: reached } = await writeField(field, back, { ...held.now, ...after }, endedRunId);
               if (failure !== null) {
                 if (reached) settleOn(reached);
                 throw new Error(failure);

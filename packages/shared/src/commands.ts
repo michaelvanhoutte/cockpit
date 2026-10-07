@@ -486,12 +486,16 @@ export type RemoveItemFromPanelCommand = z.infer<typeof removeItemFromPanelSchem
 export const setDoneSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   done: z.boolean(),
+  /** An undo's way of naming the run the Done it undoes ended, so the server reopens exactly that one. */
+  reopensRunId: z.uuid().optional(),
 });
 export type SetDoneCommand = z.infer<typeof setDoneSchema>;
 
 export const setDismissedSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   dismissed: z.boolean(),
+  /** As on `set_done`: the run the Dismiss being undone ended. */
+  reopensRunId: z.uuid().optional(),
 });
 export type SetDismissedCommand = z.infer<typeof setDismissedSchema>;
 
@@ -539,7 +543,9 @@ export type SettleAgentRunCommand = z.infer<typeof settleAgentRunSchema>;
 /**
  * finish_agent_run — "Agent finished: Done" or "Agent finished: Still to do"
  * (issue 571). Ends the run, and settles the Item the way marking it done or
- * putting it back to To do would.
+ * putting it back to To do would. No longer sent by the app, whose Status ends
+ * the run; the server still accepts it for tabs on the previous build and
+ * queued offline commands.
  */
 export const finishAgentRunSchema = commandEnvelopeSchema.extend({
   runId: z.uuid(),

@@ -329,23 +329,6 @@ export function ItemRow({
   };
 
   /**
-   * "Agent finished" - the run ended, and the Item settled the way it says
-   * (issue 571, rule 4). Done is offered back for as long as the bar lasts,
-   * exactly as marking it done is, by being the same way back.
-   */
-  const finishRun = (outcome: 'done' | 'still_to_do') => {
-    if (!run) return;
-    command.mutate(
-      { name: 'finish_agent_run', payload: { ...envelope(), runId: run.id, outcome } },
-      {
-        onSuccess: () => {
-          if (outcome === 'done') offerDoneBack();
-        },
-      },
-    );
-  };
-
-  /**
    * Finishing with it, and the way back offered for as long as the bar lasts
    * ("Undo what just happened", issue 144).
    *
@@ -354,14 +337,15 @@ export function ItemRow({
    * list left that it can be found in to be put back by hand.
    */
   const markDone = () => {
+    // Done ends the open run on the server; the Undo names it, to have it back.
+    const endedRunId = run?.id;
     command.mutate(
       { name: 'set_done', payload: { ...envelope(), done: true } },
-      { onSuccess: offerDoneBack },
+      { onSuccess: () => offerDoneBack(endedRunId) },
     );
   };
 
-  /** The way back from Done, the same for marking it done and for "Agent finished: Done". */
-  function offerDoneBack() {
+  function offerDoneBack(endedRunId?: string) {
     offerToUndo({
       what: `“${itemLabel(item)}” marked done`,
       undo: () =>
@@ -373,6 +357,7 @@ export function ItemRow({
             workspaceId,
             itemId: item.id,
             done: false,
+            ...(endedRunId && { reopensRunId: endedRunId }),
           },
         }),
     });
@@ -394,6 +379,7 @@ export function ItemRow({
    * cannot put back the wrong one.
    */
   const dismiss = () => {
+    const endedRunId = run?.id;
     command.mutate(
       { name: 'set_dismissed', payload: { ...envelope(), dismissed: true } },
       {
@@ -409,6 +395,7 @@ export function ItemRow({
                   workspaceId,
                   itemId: item.id,
                   dismissed: false,
+                  ...(endedRunId && { reopensRunId: endedRunId }),
                 },
               }),
           }),
@@ -738,27 +725,17 @@ export function ItemRow({
       ],
       // Agent. The run's own ways on, while it is open ("Drop an agent on an
       // item to start a Claude Code session on it", issue 571): the session
-      // itself, a real link in a new tab as "Open in …" above is, and saying
-      // the agent finished, which ends it. Then every Agent this dashboard
-      // shows, where nothing is already running on the row - the way a
-      // keyboard starts one, since it has no drag. The ellipsis says a box
-      // opens first; the tag says it is an agent.
+      // itself, a real link in a new tab as "Open in …" above is - the Status
+      // ends the run, so there is nothing to say about it here. Then every
+      // Agent this dashboard shows, where nothing is already running on the
+      // row - the way a keyboard starts one, since it has no drag. The
+      // ellipsis says a box opens first; the tag says it is an agent.
       [
         chip?.href && (
           <M.Item key="session" asChild className={menuItemClass}>
             <a href={chip.href} target="_blank" rel="noopener noreferrer">
               Open the Claude session ↗
             </a>
-          </M.Item>
-        ),
-        run && (
-          <M.Item key="finished-done" className={menuItemClass} onSelect={() => finishRun('done')}>
-            Agent finished: Done
-          </M.Item>
-        ),
-        run && (
-          <M.Item key="finished-still" className={menuItemClass} onSelect={() => finishRun('still_to_do')}>
-            Agent finished: Still to do
           </M.Item>
         ),
         ...(takesAnAgent

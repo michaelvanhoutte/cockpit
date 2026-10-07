@@ -1,5 +1,5 @@
 import { alias } from 'drizzle-orm/sqlite-core';
-import { and, asc, desc, eq, exists, gt, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, gt, gte, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
 import type { Column } from 'drizzle-orm';
 import {
   CLAUDE_CODE,
@@ -1818,11 +1818,9 @@ function runFrom(row: {
 /**
  * Every open run on one Workspace's open Items, oldest first (issue 571).
  *
- * **Joined against Items still to be done.** An Item marked done or dismissed
- * from its own menu, rather than by saying the agent finished, leaves every
- * list - so a run on it has no row left to be ended from, and would count on
- * the dock for good. It is left open rather than ended, so undoing the Done
- * brings the row back with its run.
+ * **Joined against Items still to be done.** Done and Dismiss end the run
+ * themselves; this keeps a run an Item's Done or Dismiss never ended
+ * from counting on the dock for good.
  */
 export function listOpenAgentRuns(db: AccountDb, tenantId: string, workspaceId: string): AgentRun[] {
   return db
@@ -1850,7 +1848,7 @@ export function listOpenAgentRuns(db: AccountDb, tenantId: string, workspaceId: 
  * Every open run in one Workspace that has a session link, whatever its Item
  * - what a Claude Code hook is matched against ("See on the item when Claude
  * is waiting on you", issue 572). Few by construction: at most one per Item,
- * and only until somebody says the agent finished.
+ * and only until the Item's Status ends it.
  */
 export function openRunsWithSessions(
   db: AccountDb,
@@ -1910,6 +1908,30 @@ export function openAgentRunOn(db: AccountDb, tenantId: string, itemId: string):
     .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.itemId, itemId), isNull(agentRuns.endedAt)))
     .get();
   return row ? runFrom(row) : undefined;
+}
+
+/** Whether any run other than this one started on the Item at or after `since` - what stops an undo reopening an older run beside a newer one. */
+export function anotherRunStartedSince(
+  db: AccountDb,
+  tenantId: string,
+  itemId: string,
+  runId: string,
+  since: string,
+): boolean {
+  return (
+    db
+      .select({ id: agentRuns.id })
+      .from(agentRuns)
+      .where(
+        and(
+          eq(agentRuns.tenantId, tenantId),
+          eq(agentRuns.itemId, itemId),
+          ne(agentRuns.id, runId),
+          gte(agentRuns.startedAt, since),
+        ),
+      )
+      .get() !== undefined
+  );
 }
 
 /** One run, open or ended, with the Workspace it belongs to - or undefined. */
