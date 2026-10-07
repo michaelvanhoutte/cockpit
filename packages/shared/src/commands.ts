@@ -737,6 +737,20 @@ export const disconnectSourceAccountSchema = commandEnvelopeSchema.extend({
 export type DisconnectSourceAccountCommand = z.infer<typeof disconnectSourceAccountSchema>;
 
 /**
+ * set_gmail_follows - the one mark a Gmail connection follows, switched
+ * without connecting again ("Change what a Gmail connection follows, without
+ * reconnecting", issue 824). The switch counts from its own moment, as
+ * connecting does: the history position is dropped with any change still
+ * waiting for Gmail under the other mark. Switching to the mark already
+ * followed changes nothing.
+ */
+export const setGmailFollowsSchema = commandEnvelopeSchema.extend({
+  sourceAccountId: z.string().min(1),
+  follows: gmailMarkSchema,
+});
+export type SetGmailFollowsCommand = z.infer<typeof setGmailFollowsSchema>;
+
+/**
  * mark_source_account_tested - a connection proven to still work without
  * changing what it holds ("Connect a workspace to Claude Code", issue 569,
  * "Test again"). Written by the test route once Claude has actually accepted
@@ -833,6 +847,7 @@ export const commandSchemas = {
   propose_item_panel: proposeItemPanelSchema,
   connect_source_account: connectSourceAccountSchema,
   disconnect_source_account: disconnectSourceAccountSchema,
+  set_gmail_follows: setGmailFollowsSchema,
   mark_source_account_tested: markSourceAccountTestedSchema,
   set_duplicate_settled: setDuplicateSettledSchema,
 } as const;

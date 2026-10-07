@@ -2113,6 +2113,36 @@ export function runCommand<N extends CommandName>(
       });
       break;
     }
+    case 'set_gmail_follows': {
+      const cmd = payload as CommandPayload<'set_gmail_follows'>;
+      // The same 404 Disconnect gives: a connection gone meanwhile, another
+      // Workspace's, or not Gmail's, is refused and nothing is stored
+      // ("Change what a Gmail connection follows, without reconnecting",
+      // issue 824).
+      const held = getSourceAccount(db, tenantId, cmd.sourceAccountId);
+      if (!held || held.workspaceId !== cmd.workspaceId || held.connectorId !== GMAIL || !held.externalAccountKey) {
+        throw new SourceAccountNotFoundError(cmd.sourceAccountId);
+      }
+      const mailboxKey = held.externalAccountKey;
+      db.transaction((tx) => {
+        // The mark already followed changes nothing, the position included.
+        if (held.follows !== cmd.follows) {
+          tx.update(connectorAccounts)
+            .set({ follows: cmd.follows, updatedAt: cmd.issuedAt })
+            .where(and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.id, cmd.sourceAccountId)))
+            .run();
+          // Together, as connecting again does: what was still to reach Gmail
+          // under the other mark is dropped, and the position goes, so the
+          // check the switch arms counts from here.
+          dropWhatWasWanted(tx, tenantId, held.workspaceId, mailboxKey, cmd.follows);
+          tx.delete(gmailChecks)
+            .where(and(eq(gmailChecks.tenantId, tenantId), eq(gmailChecks.sourceAccountId, cmd.sourceAccountId)))
+            .run();
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
     case 'add_attachment': {
       const cmd = payload as CommandPayload<'add_attachment'>;
       // Written by the upload route once a file's bytes have already

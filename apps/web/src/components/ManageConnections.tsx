@@ -14,6 +14,7 @@ import { api, refusal } from '../api/client';
 import { refusalFrom, useCommand, useConnectClaudeCode, useTestClaudeCodeConnection } from '../api/queries';
 import type { ConnectOutcome } from '../connections';
 import { ConnectClaudeCode } from './ConnectClaudeCode';
+import { ChangeGmailFollows } from './ChangeGmailFollows';
 import { ConnectGmail } from './ConnectGmail';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
@@ -186,6 +187,9 @@ export default function ManageConnections({
   const [claudeCodeMessage, setClaudeCodeMessage] = useState<string | null>(null);
   const [gmailSteps, setGmailSteps] = useState(false);
   const gmailOpenedFrom = useRef<HTMLElement | null>(null);
+  /** The Gmail row whose mark is being changed (issue 824). */
+  const [changingFollows, setChangingFollows] = useState<SourceAccount | null>(null);
+  const followsOpenedFrom = useRef<HTMLElement | null>(null);
   const askedFrom = useRef<HTMLElement | null>(null);
   const claudeCodeOpenedFrom = useRef<HTMLElement | null>(null);
   /**
@@ -233,6 +237,7 @@ export default function ManageConnections({
     stopAsking();
     setClaudeCodeForm(false);
     setGmailSteps(false);
+    setChangingFollows(null);
     onClose();
   };
 
@@ -339,6 +344,20 @@ export default function ManageConnections({
                           {
                             label: 'Edit…',
                             onSelect: (openedFrom: HTMLElement | null) => openClaudeCodeForm(openedFrom),
+                          },
+                        ]
+                      : []),
+                    // The same choice Connect offers, without signing in
+                    // again ("Change what a Gmail connection follows, without
+                    // reconnecting", issue 824).
+                    ...(account.connectorId === GMAIL
+                      ? [
+                          {
+                            label: 'Change what’s followed…',
+                            onSelect: (openedFrom: HTMLElement | null) => {
+                              followsOpenedFrom.current = openedFrom;
+                              setChangingFollows(account);
+                            },
                           },
                         ]
                       : []),
@@ -453,6 +472,13 @@ export default function ManageConnections({
         workspaceName={workspaceName}
         returnFocusTo={gmailOpenedFrom.current}
         onClose={() => setGmailSteps(false)}
+      />
+
+      <ChangeGmailFollows
+        account={changingFollows}
+        workspaceId={workspaceId}
+        returnFocusTo={followsOpenedFrom.current}
+        onClose={() => setChangingFollows(null)}
       />
 
       <CloseWindow disabled={command.isPending || testClaudeCode.isPending || claudeCodeFormPending} />

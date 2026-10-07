@@ -208,7 +208,10 @@ class ChangeRefused extends Error {
 }
 /** The run's calls are spent; what is left is the next run's. */
 class OutOfCalls extends Error {}
-/** The connection was disconnected or connected again while the run was reading it; the next run reads it afresh. */
+/**
+ * The connection was disconnected, connected again or switched to the other
+ * mark (issue 824) while the run was reading it; the next run reads it afresh.
+ */
 class ConnectionChanged extends Error {}
 
 /**
@@ -264,7 +267,7 @@ export async function checkGmail(env: Env, host: GmailCheckHost, now: Date): Pro
         moreToDo = true;
         host.checked(connection.id, at);
       } else if (error instanceof ConnectionChanged) {
-        // Disconnected, or connected again - which arms a check of its own.
+        // Disconnected, connected again or switched - each arms a check of its own.
         continue;
       } else {
         // Nothing is changed and nothing said: the next run tries again.

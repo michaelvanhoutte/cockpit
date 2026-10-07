@@ -21,6 +21,27 @@ const MARKS: readonly { value: GmailMark; label: string }[] = [
 ];
 
 /**
+ * The one choice of mark, as connecting offers it and as "Change what's
+ * followed…" offers it again ("Change what a Gmail connection follows,
+ * without reconnecting", issue 824).
+ */
+export function FollowedMarkChoice({ value, onChange }: { value: GmailMark; onChange: (mark: GmailMark) => void }) {
+  return (
+    <>
+      <p className="pt-4 text-sm">Bring in conversations</p>
+      <Segmented
+        label="Bring in conversations"
+        name="gmail-follows"
+        options={MARKS}
+        value={value}
+        onChange={onChange}
+        className="mt-1 flex-wrap"
+      />
+    </>
+  );
+}
+
+/**
  * The step before Google ("Connect a Gmail account to a workspace, and
  * disconnect it", issue 724): which mark brings a conversation in, what to do
  * in Gmail first, what Google is about to warn about and ask, and what a
@@ -81,15 +102,7 @@ function Steps({ workspaceId, workspaceName }: { workspaceId: string; workspaceN
     <>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <Dialog.Title className="text-base font-semibold">Connect Gmail to {workspaceName}</Dialog.Title>
-        <p className="pt-4 text-sm">Bring in conversations</p>
-        <Segmented
-          label="Bring in conversations"
-          name="gmail-follows"
-          options={MARKS}
-          value={follows}
-          onChange={setFollows}
-          className="mt-1 flex-wrap"
-        />
+        <FollowedMarkChoice value={follows} onChange={setFollows} />
         {follows === 'label' ? (
           <ol className="flex flex-col gap-3 pt-4 text-sm">
             <li>

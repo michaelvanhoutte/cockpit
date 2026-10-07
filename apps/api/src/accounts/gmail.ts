@@ -26,12 +26,21 @@ const LOOKUP_GROUP = 90;
 
 export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHost {
   // Asked in the same synchronous step as a write: the run awaited Gmail
-  // since it read the connections, and a disconnect may have landed.
-  const stillConnected = (sourceAccountId: string) =>
+  // since it read the connections, and a disconnect may have landed - or a
+  // switch to the other mark, after which nothing the run read under the old
+  // one may be written ("Change what a Gmail connection follows, without
+  // reconnecting", issue 824).
+  const stillConnected = (connection: { id: string; follows: GmailMark }) =>
     db
       .select({ id: connectorAccounts.id })
       .from(connectorAccounts)
-      .where(and(eq(connectorAccounts.tenantId, accountName), eq(connectorAccounts.id, sourceAccountId)))
+      .where(
+        and(
+          eq(connectorAccounts.tenantId, accountName),
+          eq(connectorAccounts.id, connection.id),
+          eq(connectorAccounts.follows, connection.follows),
+        ),
+      )
       .get() !== undefined;
   /** The full reconcile the connection is on, named by when it started - null before its first. */
   const listingOf = (sourceAccountId: string) =>
@@ -58,7 +67,7 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
    * connection has gone since the run read it.
    */
   const stopWaiting = (connection: GmailConnectionToCheck, pushed: OpenStateWanted) => {
-    if (!stillConnected(connection.id)) return false;
+    if (!stillConnected(connection)) return false;
     db.update(gmailConversations)
       .set({ labelWanted: null })
       .where(
@@ -165,7 +174,7 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
     },
 
     bringIn: (connection, conversation, ids, at) => {
-      if (!stillConnected(connection.id)) return 'disconnected';
+      if (!stillConnected(connection)) return 'disconnected';
       const type = typeToBringInAs(listItemTypes(db, accountName), taskTypeId(accountName), noteTypeId(accountName));
       if (!type) throw new Error(`account ${accountName} has no type to bring a conversation in as`);
       // Through `capture_item`, the one command every front door captures
@@ -213,7 +222,7 @@ export function gmailCheckHost(db: AccountDb, accountName: string): GmailCheckHo
     },
 
     sourceChanged: (connection, threadIds, change, at) => {
-      if (!stillConnected(connection.id)) return 'disconnected';
+      if (!stillConnected(connection)) return 'disconnected';
       const listing = change === 'reopened' ? listingOf(connection.id) : null;
       let changed = 0;
       for (const group of inGroupsOf(threadIds, LOOKUP_GROUP)) {

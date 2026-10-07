@@ -1730,3 +1730,200 @@ describe('Connector management', () => {
     });
   });
 });
+
+/**
+ * "Change what a Gmail connection follows, without reconnecting" (issue 824):
+ * the row's own switch, through its real endpoint, and what each mark's
+ * Items do once the other is followed. What the window draws and sends is
+ * apps/web's ManageConnections test.
+ */
+
+/** Switches the Workspace's Gmail connection to `follows`, as "Change what's followed…" does, answering the status. */
+async function switchTo(
+  follows: 'label' | 'star',
+  { workspaceId = WORKSPACE_ID, sourceAccountId }: { workspaceId?: string; sourceAccountId?: string } = {},
+): Promise<number> {
+  let id = sourceAccountId;
+  if (!id) {
+    const listed = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/connections`);
+    id = ((await listed.json()) as { sourceAccounts: { id: string }[] }).sourceAccounts[0]!.id;
+  }
+  const res = await asUser('http://cockpit.test/v1/commands/set_gmail_follows', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ commandId: crypto.randomUUID(), issuedAt: new Date().toISOString(), workspaceId, sourceAccountId: id, follows }),
+  });
+  return res.status;
+}
+
+/** When the connection's current full reconcile started, which names the position it reads from. */
+function positionStartedAt(): Promise<string | null> {
+  return inTheStore(
+    (sql) => [...sql.exec<{ started_at: string }>('SELECT started_at FROM gmail_checks')][0]?.started_at ?? null,
+  );
+}
+
+describe('Connector management', () => {
+  describe('a Gmail connection switches the one mark it follows without connecting again', () => {
+    it.each([
+      { situation: 'from the label to the star', to: 'star' as const, startsAgain: true },
+      { situation: 'to the label it already follows', to: 'label' as const, startsAgain: false },
+    ])('$situation: the row reads the mark, and the position starts again only for a switch', async ({ to, startsAgain }) => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      const before = await positionStartedAt();
+
+      expect(await switchTo(to)).toBe(200);
+      await runningCheckFinishes();
+
+      expect(await rowOf()).toMatchObject({ follows: to, lastTestedAt: expect.any(String) });
+      expect((await positionStartedAt()) !== before).toBe(startsAgain);
+    });
+
+    it('a switch for a connection disconnected meanwhile is refused, and nothing is stored', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      const listed = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections`);
+      const [held] = ((await listed.json()) as { sourceAccounts: { id: string }[] }).sourceAccounts;
+      await disconnect(WORKSPACE_ID, '018f0000-0000-7000-8000-0000000824a1');
+
+      expect(await switchTo('star', { sourceAccountId: held!.id })).toBe(404);
+      expect(
+        await inTheStore((sql) => [...sql.exec("SELECT command_id FROM commands WHERE name = 'set_gmail_follows'")]),
+      ).toEqual([]);
+    });
+
+    it('a check part-way through when the switch lands brings nothing more in under the old mark', async () => {
+      mailboxWith(5);
+      whileGmailIsAsked(
+        (call) => call.startsWith('threads/thread-002'),
+        async () => {
+          expect(await switchTo('star')).toBe(200);
+        },
+      );
+      await connect();
+
+      await checksSettle();
+
+      expect(await broughtInto()).toEqual(['thread-000', 'thread-001']);
+      expect(gmailCalls.some((call) => call.startsWith('threads/thread-003'))).toBe(false);
+    });
+  });
+
+  describe('a missing label called Cockpit fails only a connection following the label', () => {
+    it.each([
+      { situation: 'a failing label connection switched to the star reads when it was last checked', from: 'label' as const, to: 'star' as const, failing: null },
+      { situation: 'a star connection switched to the label fails, naming the label', from: 'star' as const, to: 'label' as const, failing: NO_LABEL },
+    ])('$situation, at the next check', async ({ from, to, failing }) => {
+      starredBefore([]);
+      gmailHolds({ labels: labelsAnswer({ cockpit: false }) });
+      await connect(granted('anna-refresh'), WORKSPACE_ID, from);
+      await checksSettle();
+      expect((await rowOf()).failingBecause).toBe(from === 'label' ? NO_LABEL : null);
+
+      expect(await switchTo(to)).toBe(200);
+      await runningCheckFinishes();
+
+      expect(await rowOf()).toMatchObject({ follows: to, failingBecause: failing, lastTestedAt: expect.any(String) });
+    });
+  });
+});
+
+describe('Capture', () => {
+  describe('switched to the star, only a conversation starred after the switch becomes an Item', () => {
+    it('one starred before the switch is no Item, and one starred after it is one open Task', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      afterwards([starOn('thread-before')], { now: '778' });
+
+      expect(await switchTo('star')).toBe(200);
+      await runningCheckFinishes();
+      afterwards([starOn('thread-before'), starOn('thread-after')]);
+      await aCheckRuns();
+
+      expect(await broughtInto()).toEqual(['thread-000', 'thread-after']);
+      expect(await itemFor('thread-after')).toMatchObject({ is: 'open' });
+    });
+  });
+
+  describe('only the Items under the mark followed now are kept in step with Gmail', () => {
+    it('switched to the star, a label Item whose conversation is not starred stays open through the nightly read', async () => {
+      mailboxWith(2);
+      await connect();
+      await checksSettle();
+      await switchTo('star');
+      await runningCheckFinishes();
+
+      await handleScheduled({} as never, env);
+      await runsSettle();
+
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'open' });
+      expect(await itemFor('thread-001')).toMatchObject({ is: 'open' });
+    });
+
+    it('switched to the star, a label Item marked done changes nothing in Gmail', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      await switchTo('star');
+      await runningCheckFinishes();
+
+      await personMarks((await itemFor('thread-000'))!.id, 'done');
+      await aCheckRuns();
+
+      expect(gmailModifies).toEqual([]);
+      expect(labelIsOn('thread-000')).toBe(true);
+    });
+
+    it('switched back to the label, a conversation whose label came off meanwhile has its Item done', async () => {
+      mailboxWith(2);
+      await connect();
+      await checksSettle();
+      await switchTo('star');
+      await runningCheckFinishes();
+      nowIs('thread-000', 'unlabelled');
+
+      expect(await switchTo('label')).toBe(200);
+      await checksSettle();
+
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'done' });
+      expect(await itemFor('thread-001')).toMatchObject({ is: 'open' });
+    });
+
+    it('switched to the label, a star Item whose conversation is unstarred stays open', async () => {
+      await starredAfterConnecting(['thread-x']);
+      await switchTo('label');
+      await checksSettle();
+
+      starNowIs('thread-x', 'unstarred');
+      starsChange([starOff('thread-x')]);
+      await aCheckRuns();
+      await handleScheduled({} as never, env);
+      await runsSettle();
+
+      expect(await itemFor('thread-x')).toMatchObject({ is: 'open' });
+    });
+  });
+
+  describe('a change still waiting for Gmail under the old mark is dropped at the switch', () => {
+    it('done on a label Item and not yet in Gmail, then switched to the star: the label is never taken off, even once it follows the label again', async () => {
+      mailboxWith(1);
+      await connect();
+      await checksSettle();
+      gmailAnswersWith(503, (call) => call === 'labels');
+      await personMarks((await itemFor('thread-000'))!.id, 'done');
+
+      await switchTo('star');
+      await checksSettle();
+      expect(await itemFor('thread-000')).toMatchObject({ is: 'done' });
+      await switchTo('label');
+      await checksSettle();
+
+      expect(gmailModifies).toEqual([]);
+      expect(labelIsOn('thread-000')).toBe(true);
+    });
+  });
+});

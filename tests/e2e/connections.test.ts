@@ -141,6 +141,15 @@ test.describe('Connector management', () => {
       const checked = await openSettings(page, 'Connections', isMobile);
       await expect(checked.getByText(/^Gmail · label Cockpit · last checked /)).toBeVisible();
 
+      // Switched to the star without signing in again ("Change what a Gmail
+      // connection follows, without reconnecting", issue 824): the row names it.
+      await chooseRowAction(page, 'michael@example.com', 'Change what’s followed…', isMobile);
+      const following = page.getByRole('dialog', { name: 'What michael@example.com follows' });
+      await press(following.getByText('Starred (flagged in Outlook)'), isMobile);
+      await press(following.getByRole('button', { name: 'Save' }), isMobile);
+      await expect(following).toHaveCount(0);
+      await expect(checked.getByText(/^Gmail · starred/)).toBeVisible();
+
       await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
       await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
       await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();

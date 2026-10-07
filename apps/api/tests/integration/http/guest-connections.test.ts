@@ -86,10 +86,10 @@ async function plantInGuestStore(workspaceId: string, connectorId: string, key: 
  * arrives with a Gmail and a Teams row (issue 773, `DEMO_CONNECTION` in
  * accounts/changes.ts), and what is asked here is what a visitor adds.
  */
-async function guestRows(): Promise<{ id: string; display_name: string; updated_at: string }[]> {
+async function guestRows(): Promise<{ id: string; display_name: string; updated_at: string; follows: string }[]> {
   return inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) => [
-    ...sql.exec<{ id: string; display_name: string; updated_at: string }>(
-      "SELECT id, display_name, updated_at FROM connector_accounts WHERE id NOT LIKE '0e000000-%' ORDER BY id",
+    ...sql.exec<{ id: string; display_name: string; updated_at: string; follows: string }>(
+      "SELECT id, display_name, updated_at, follows FROM connector_accounts WHERE id NOT LIKE '0e000000-%' ORDER BY id",
     ),
   ]);
 }
@@ -168,19 +168,24 @@ describe('Connector management', () => {
       expect(await guestRows()).toEqual([]);
     });
 
-    it('keeps the row of a source account the guest tries to disconnect', async () => {
+    it.each([
+      { situation: 'disconnect', command: 'disconnect_source_account', extra: {} },
+      // "Change what a Gmail connection follows, without reconnecting", issue 824.
+      { situation: 'switch to the star', command: 'set_gmail_follows', extra: { follows: 'star' } },
+    ])('keeps the Gmail row the guest tries to $situation as it was', async ({ command, extra }) => {
       const cookie = await continueAsGuest();
       const workspaceId = await guestWorkspace(cookie);
-      const planted = await plantInGuestStore(workspaceId, 'teams', 'tenant:person');
+      const planted = await plantInGuestStore(workspaceId, 'gmail', 'google-planted');
+      const before = await guestRows();
 
       const res = await asGuest(
         cookie,
-        '/v1/commands/disconnect_source_account',
-        post({ commandId: nextId(), issuedAt: AT, workspaceId, sourceAccountId: planted.id }),
+        `/v1/commands/${command}`,
+        post({ commandId: nextId(), issuedAt: AT, workspaceId, sourceAccountId: planted.id, ...extra }),
       );
 
       expect(res.status).toBe(403);
-      expect((await guestRows()).map((row) => row.id)).toEqual([planted.id]);
+      expect(await guestRows()).toEqual(before);
     });
 
     it('stores no Claude Code connection a guest creates, and leaves one already there as it was', async () => {

@@ -1904,6 +1904,7 @@ const routes = app
     if (sealed && result.applied) await revokeGmailSignIn(c.env, account, sealed);
     return c.json(result, 200);
   })
+  .openapi(commandRoute('set_gmail_follows'), async (c) => c.json(await change(c, 'set_gmail_follows', c.req.valid('json')), 200))
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c, 'delete_workspace', c.req.valid('json')), 200))
   .openapi(commandRoute('capture_item'), async (c) => {
