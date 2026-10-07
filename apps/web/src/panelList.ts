@@ -124,7 +124,7 @@ const announce = () => listeners.forEach((listener) => listener());
  * should redraw only when the list changed.
  */
 export function publishPanelList(next: PanelListing): void {
-  // The functions drop out of the JSON; rrange is made with jumpTo, by the same board.
+  // `jumpTo` is compared by identity, since a function drops out of the JSON.
   const same =
     published !== null &&
     published.dashboardId === next.dashboardId &&
