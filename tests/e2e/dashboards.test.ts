@@ -622,9 +622,12 @@ test.describe('Dashboards', () => {
      * jsdom has neither of; what the list holds, its controls and the keys are
      * apps/web/tests/unit (components/PanelList, panelList, pages/Layout). One
      * walk: a Dashboard too tall for the window, the list shown by G, then ↓ and
-     * Enter to two Panels, each hiding it again, and a reload.
+     * Enter to two Panels, each hiding it again, and a reload; then ↓ onto another
+     * Dashboard's Panel (Esc puts the first back, scroll and all) and into another
+     * Workspace (Enter, and Back returns to where G was pressed), which are
+     * history and scrolling, so only a browser has them.
      */
-    test('goes to a Panel from the keyboard, its header at the top as far as the page allows for one too low, and keeps the list hidden across a reload', async ({
+    test('goes to a Panel from the keyboard, its header at the top as far as the page allows for one too low, and keeps the list hidden across a reload, then crosses to another Dashboard and Workspace and Back returns to where G was pressed', async ({
       page,
       isMobile,
     }) => {
@@ -713,6 +716,80 @@ test.describe('Dashboards', () => {
       await expect(list).toHaveCount(0);
       await press(strip, isMobile);
       await expect(list).toBeVisible();
+
+      // **Crossing to another Dashboard and Workspace, the screen following the
+      // highlight.** A second Dashboard, set up from outside.
+      await page.keyboard.press('g');
+      const elsewhere = uniqueTitle('Elsewhere');
+      const elsewhereId = randomUUID();
+      const added = await page.request.post('/v1/commands/add_dashboard', {
+        data: {
+          commandId: randomUUID(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          dashboardId: elsewhereId,
+          panelId: randomUUID(),
+          name: elsewhere,
+        },
+      });
+      expect(added.ok(), `add_dashboard from outside failed: ${added.status()} ${await added.text()}`).toBe(true);
+      for (let at = 0; at < 9; at += 1) {
+        const sent = await page.request.post('/v1/commands/add_panel', {
+          data: {
+            commandId: randomUUID(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            dashboardId: elsewhereId,
+            panelId: randomUUID(),
+            name: `Elsewhere ${at}`,
+          },
+        });
+        expect(sent.ok(), `add_panel from outside failed: ${sent.status()} ${await sent.text()}`).toBe(true);
+      }
+      await page.reload();
+      const startAt = new URL(page.url()).pathname;
+      await scroller.evaluate((el) => (el.scrollTop = 120));
+      const scrolledTo = await scrollTop();
+      expect(scrolledTo, 'the Dashboard is scrolled before G').toBeGreaterThan(50);
+
+      // ↓ onto the other Dashboard's Panel shows that Dashboard, its header at the top; Esc is back where G was pressed.
+      await page.keyboard.press('g');
+      await page.keyboard.press('2');
+      const pinned = list.getByRole('heading', { name: elsewhere, level: 4 });
+      await expect(pinned).toBeVisible();
+      const under = (name: string) =>
+        list.getByRole('heading', { name, level: 4 }).locator('xpath=following-sibling::ul[1]/li');
+      const before = await under('Dashboard 1').count();
+      const titles = await under(elsewhere).allInnerTexts();
+      const lowDown = titles.findIndex((title) => title.startsWith('Elsewhere 2'));
+      expect(lowDown, 'a Panel low on the other Dashboard is listed').toBeGreaterThan(-1);
+      for (let step = 0; step < before + lowDown; step += 1) await page.keyboard.press('ArrowDown');
+      await expect(page).toHaveURL(new RegExp(`/d/${elsewhereId}$`));
+      await expect
+        .poll(async () => Math.abs((await headerOf('Elsewhere 2').boundingBox())!.y - (await scroller.boundingBox())!.y))
+        .toBeLessThan(2);
+      await page.keyboard.press('Escape');
+      await expect(page).toHaveURL(startAt);
+      await expect.poll(scrollTop, 'the scroll from before G is handed back').toBeGreaterThan(scrolledTo - 3);
+      expect(await scrollTop()).toBeLessThan(scrolledTo + 3);
+      await expect(list).toHaveCount(0);
+
+      // ↓ into another Workspace, then Enter: Back returns to where G was pressed.
+      const known = (await (await page.request.get('/v1/workspaces')).json()) as {
+        workspaces: { id: string; name: string }[];
+      };
+      const abroad = known.workspaces.find((one) => one.id !== workspaceId)!;
+      await page.keyboard.press('g');
+      await page.keyboard.press('3');
+      await page.keyboard.press(' ');
+      await page.keyboard.type(abroad.name);
+      await page.keyboard.press('ArrowDown');
+      await expect(page).toHaveURL(new RegExp(`/w/${abroad.id}/d/`));
+      await page.keyboard.press('Enter');
+      await expect(list).toHaveCount(0);
+      await expect(page).toHaveURL(new RegExp(`/w/${abroad.id}/d/`));
+      await page.goBack();
+      await expect(page).toHaveURL(startAt);
     });
   });
 });

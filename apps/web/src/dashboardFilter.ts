@@ -255,6 +255,12 @@ export function useDashboardFilter(
   return [filter, set];
 }
 
+/** One Dashboard's filter cleared, whichever Dashboard is on screen - what Go to panel does to reach a Panel the filter hides. */
+export function clearDashboardFilter(store: Storage | undefined, dashboardId: string): void {
+  writeDashboardFilter(store, dashboardId, NO_DASHBOARD_FILTER);
+  tellReaders();
+}
+
 /** The ids, of those given, that have a filter on - what says which tabs carry a filled funnel. */
 export function useFilteredDashboardIds(
   store: Storage | undefined,

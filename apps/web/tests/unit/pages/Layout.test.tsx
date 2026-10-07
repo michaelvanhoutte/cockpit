@@ -75,6 +75,8 @@ vi.mock('@tanstack/react-router', () => ({
     navigations.push(options);
     return Promise.resolve();
   },
+  // Read by Go to panel to go back over the history entry its moves added.
+  useRouter: () => ({ history: { back: () => undefined } }),
   // No item named, so the shell draws no form over itself - these cases are
   // about the chrome.
   useSearch: () => searchParams,

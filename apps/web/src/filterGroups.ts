@@ -81,7 +81,7 @@ export function groupFilterRows(
  * decides how many an unarranged Dashboard fits across a row, never the order
  * they come in, so any one will do.
  */
-function orderedAsDrawn(panels: readonly Panel[], layout: Layout | null): Panel[] {
+export function orderedAsDrawn(panels: readonly Panel[], layout: Layout | null): Panel[] {
   const byId = new Map(panels.map((panel) => [panel.id, panel]));
   return drawnRows(layout, panels, 1200).flatMap((row) =>
     row.cells.flatMap((cell) => byId.get(cell.panelId) ?? []),
