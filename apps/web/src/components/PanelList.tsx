@@ -19,10 +19,9 @@ const SCROLLER = '[data-drag-scroll="dashboard"]';
 
 const KBD = 'rounded border border-shade/20 px-1 text-[10px] text-ink-faint';
 
-/** Where G was pressed from, so Esc can put the screen back. */
+/** Where the mode began, so Esc can put the screen back. */
 type Start = {
   scrollTop: number;
-  shownByG: boolean;
   workspaceId: string;
   dashboardId: string;
   /** Whether the screen has been taken to another Dashboard since, which is one history entry added. */
@@ -58,11 +57,16 @@ const PINNED: CSSProperties = {
  * are none. The wider scopes are what `reach` reads from each Workspace's
  * snapshot.
  *
- * **G shows it and hands it the keys.** Shown by G, or clicked into, it is in
- * its mode: the highlight is on an entry, ↑ and ↓ move it and the screen
- * follows, 1 2 3 choose the scope, Enter or a click goes there and ends the mode
- * (hiding the column if G showed it), Space puts the cursor in the search box.
- * Esc puts the screen back where the mode began.
+ * **G and Shift+G show it on a scope, with the cursor in the search box**
+ * ("Type straight into Go to panel, and choose its scope with G and Shift+G",
+ * issue 827): G on this Dashboard, Shift+G on its Workspace; the same key again
+ * hides it and the other switches scope, keeping the text. Shown by a key, or
+ * clicked into, it is in its mode: typing narrows the list with nothing
+ * highlighted, the first ↓ highlights the first entry, ↑ and ↓ move it and the
+ * screen follows, and Enter goes to the highlight or the top match. Esc puts
+ * the screen back where the mode began. Esc and going both hide the column,
+ * whatever opened it. The keys are heard from the page, so inside the box G and
+ * Shift+G are letters.
  *
  * **The screen follows the highlight onto another Dashboard or Workspace**
  * through the router, and the history stays what going should leave: the first
@@ -88,7 +92,8 @@ export function PanelList({
   const resize = usePanelListWidth(browserStore(), rowWidth);
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<Scope>(1);
-  const [at, setAt] = useState(0);
+  /** The highlighted entry; -1 is the cursor in the box with nothing highlighted yet. */
+  const [at, setAt] = useState(-1);
   const [active, setActive] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -150,9 +155,9 @@ export function PanelList({
     scope === 1
       ? shownRows.flat().map(onThisDashboard)
       : sections.flatMap((section) => section.groups.flatMap((group) => group.targets));
-  const current = Math.min(at, Math.max(flat.length - 1, 0));
+  const current = at < 0 ? -1 : Math.min(at, Math.max(flat.length - 1, 0));
 
-  useEffect(() => setAt(0), [needle, scope]);
+  useEffect(() => setAt(-1), [needle, scope]);
   const { ask } = reach;
   useEffect(() => ask(scope), [ask, scope]);
 
@@ -180,6 +185,7 @@ export function PanelList({
     if (!collapsed) return;
     start.current = null;
     setActive(false);
+    setQuery('');
     // Hidden, it asks for no other Workspace's snapshot any more.
     setScope(1);
   }, [collapsed]);
@@ -187,7 +193,7 @@ export function PanelList({
   useEffect(() => {
     if (takeKeys.current && active && !collapsed) {
       takeKeys.current = false;
-      listRef.current?.focus();
+      searchRef.current?.focus();
     }
   }, [active, collapsed]);
 
@@ -197,25 +203,25 @@ export function PanelList({
 
   const scroller = () => document.querySelector<HTMLElement>(SCROLLER);
 
-  const enter = (shownByG: boolean) => {
+  /** Begins the mode on `chosen`; `keys` puts the cursor in the box, `keepText` leaves what is typed there. */
+  const enter = (keys: boolean, chosen: Scope = 1, keepText = false) => {
     shownAt.current = { workspaceId: reach.workspaceId, dashboardId: reach.dashboardId };
     start.current = {
       scrollTop: scroller()?.scrollTop ?? 0,
-      shownByG,
       workspaceId: reach.workspaceId,
       dashboardId: reach.dashboardId,
       left: false,
     };
-    takeKeys.current = shownByG;
+    takeKeys.current = keys;
     pending.current = null;
     restore.current = null;
     setActive(true);
-    setQuery('');
-    setScope(1);
-    setAt(0);
+    if (!keepText) setQuery('');
+    setScope(chosen);
+    setAt(-1);
   };
 
-  /** Ends the mode; `back` puts the screen where it was, and hides the column if G showed it. */
+  /** Ends the mode; `back` puts the screen where it was and hides the column, whatever showed it. */
   const leave = (back: boolean) => {
     const from = start.current;
     start.current = null;
@@ -223,17 +229,17 @@ export function PanelList({
     setActive(false);
     setQuery('');
     setScope(1);
-    if (from && back) {
-      if (from.left) {
+    if (back) {
+      if (from?.left) {
         // The one entry the moves added is undone by going back over it.
         restore.current = { dashboardId: from.dashboardId, scrollTop: from.scrollTop };
         shownAt.current = { workspaceId: from.workspaceId, dashboardId: from.dashboardId };
         reach.go(from, 'back');
-      } else {
+      } else if (from) {
         const box = scroller();
         if (box) box.scrollTop = from.scrollTop;
       }
-      if (from.shownByG) onCollapse(true);
+      onCollapse(true);
     }
     (document.activeElement as HTMLElement | null)?.blur();
   };
@@ -271,16 +277,15 @@ export function PanelList({
   const goTo = (entry: Target | undefined) => {
     if (!entry) return;
     show(entry, true);
-    // Going ends the mode as leaving does for visibility: G's column goes again, the screen stays.
-    const shownByG = start.current?.shownByG ?? false;
+    // Going ends the mode and hides the column as Esc does, but the screen stays.
     const pendingJump = pending.current;
     leave(false);
     pending.current = pendingJump;
-    if (shownByG) onCollapse(true);
+    onCollapse(true);
   };
 
   const moveTo = (next: number) => {
-    if (flat.length === 0) return;
+    if (flat.length === 0 || (next < 0 && current < 0)) return;
     const clamped = Math.max(0, Math.min(flat.length - 1, next));
     setAt(clamped);
     const entry = flat[clamped];
@@ -291,10 +296,11 @@ export function PanelList({
     if (available[chosen]) setScope(chosen);
   };
 
-  // G shows the column and takes the keys, or hides it. Heard here rather than
-  // in the shell: this is mounted whenever the column is on screen, strip or open.
-  const latest = useRef({ collapsed, enter, leave });
-  latest.current = { collapsed, enter, leave };
+  // G and Shift+G show the column on a scope, hide it, or switch its scope. Heard
+  // here rather than in the shell: this is mounted whenever the column is on
+  // screen, strip or open.
+  const latest = useRef({ collapsed, enter, leave, scope, available });
+  latest.current = { collapsed, enter, leave, scope, available };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const toggles = togglesThePanelList(
@@ -312,20 +318,24 @@ export function PanelList({
       if (!toggles) return;
       event.preventDefault();
       const now = latest.current;
+      // Shift+G where the Workspace adds nothing is G.
+      const chosen: Scope = event.shiftKey && now.available[2] ? 2 : 1;
       if (now.collapsed) {
         onCollapse(false);
-        now.enter(true);
-      } else {
+        now.enter(true, chosen);
+      } else if (now.scope === chosen) {
         if (start.current) now.leave(true);
-        onCollapse(true);
-      }
+        else onCollapse(true);
+      } else if (start.current) {
+        setScope(chosen);
+        searchRef.current?.focus();
+      } else now.enter(true, chosen, true);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onCollapse]);
 
   const onListKey = (event: ReactKeyboardEvent) => {
-    const inSearch = event.target === searchRef.current;
     const handled = () => {
       event.preventDefault();
       event.stopPropagation();
@@ -338,19 +348,11 @@ export function PanelList({
       moveTo(current - 1);
     } else if (event.key === 'Enter') {
       handled();
-      goTo(flat[current]);
+      // With nothing highlighted, the top match.
+      goTo(flat[Math.max(current, 0)]);
     } else if (event.key === 'Escape') {
       handled();
-      if (inSearch) {
-        setQuery('');
-        listRef.current?.focus();
-      } else leave(true);
-    } else if (event.key === ' ' && !inSearch) {
-      handled();
-      searchRef.current?.focus();
-    } else if (!inSearch && (event.key === '1' || event.key === '2' || event.key === '3')) {
-      handled();
-      pick(Number(event.key) as Scope);
+      leave(true);
     }
   };
 
@@ -359,7 +361,7 @@ export function PanelList({
       <button
         type="button"
         onClick={() => onCollapse(false)}
-        title={`Go to panel (${KEY_NAME})`}
+        title={`Go to panel: ${KEY_NAME} on this Dashboard, Shift+${KEY_NAME} on its Workspace`}
         aria-label="Open Go to panel"
         data-shortcut-tip="panels"
         className="well flex w-8 shrink-0 flex-col items-center gap-3 py-3 pb-[calc(0.75rem+var(--edge-bottom))] hover:bg-accent-tint/40"
@@ -373,7 +375,10 @@ export function PanelList({
         >
           Go to panel
         </span>
-        <kbd className={KBD}>{KEY_NAME}</kbd>
+        <span className="flex flex-col items-center gap-1">
+          <kbd className={KBD}>{KEY_NAME}</kbd>
+          <kbd className={KBD}>⇧{KEY_NAME}</kbd>
+        </span>
       </button>
     );
   }
@@ -406,10 +411,10 @@ export function PanelList({
     if (!available[chosen]) {
       return chosen === 2 ? 'Only one Dashboard in this Workspace' : 'Only one Workspace';
     }
-    if (chosen === 1) return `Search this Dashboard (1)`;
+    if (chosen === 1) return `Search this Dashboard (${KEY_NAME})`;
     return chosen === 2
-      ? `Search every Dashboard of ${here?.name ?? 'this Workspace'} (2)`
-      : 'Search every Workspace (3)';
+      ? `Search every Dashboard of ${here?.name ?? 'this Workspace'} (Shift+${KEY_NAME})`
+      : 'Search every Workspace';
   };
 
   const noPanels = scope === 1 ? listing && total === 0 : false;
@@ -438,7 +443,7 @@ export function PanelList({
         tabIndex={-1}
         onKeyDown={onListKey}
         onFocus={() => {
-          if (!start.current) enter(false);
+          if (!start.current) enter(false, scope, true);
         }}
         onBlur={(event) => {
           // Clicking away from the column ends the mode where you are.
@@ -475,7 +480,7 @@ export function PanelList({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             aria-label="Search Panels"
-            placeholder={active ? 'Space to search' : 'Search Panels'}
+            placeholder="Search Panels"
             className="w-full rounded border border-shade/20 bg-ground px-2 py-1 text-sm"
           />
           <div role="group" aria-label="Search in" className="mt-2 flex min-w-0 items-center gap-1 text-xs">
@@ -489,7 +494,7 @@ export function PanelList({
                 title={scopeTitle(chosen)}
                 onClick={() => {
                   pick(chosen);
-                  listRef.current?.focus();
+                  searchRef.current?.focus();
                 }}
                 className={`truncate rounded px-1.5 py-0.5 ${
                   scope === chosen
@@ -534,9 +539,9 @@ export function PanelList({
           ))}
         </div>
         <div className="border-t border-shade/10 px-3 py-2 text-[10px] leading-relaxed text-ink-faint">
-          <kbd>↑↓</kbd> move · <kbd>Enter</kbd> go · <kbd>Space</kbd> search
+          <kbd>↑↓</kbd> move · <kbd>Enter</kbd> go · <kbd>Esc</kbd> back
           <br />
-          <kbd>1 2 3</kbd> scope · <kbd>Esc</kbd> back · <kbd>{KEY_NAME}</kbd> hide
+          <kbd>{KEY_NAME}</kbd> Dashboard · <kbd>⇧{KEY_NAME}</kbd> Workspace
         </div>
       </div>
     </aside>
