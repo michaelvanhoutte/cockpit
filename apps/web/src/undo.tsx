@@ -33,7 +33,7 @@ export interface Undoable {
   /**
    * Puts it back. Throwing is how it reports that it could not. **Absent where
    * the change cannot be put back** - an undecided Item's move, which decides
-   * its Workspace - and the bar then offers only what show and lsoShowOn
+   * its Workspace - and the bar then offers only what `show` and `alsoShowOn`
    * give, for as long as it would have offered Undo.
    */
   undo?: () => Promise<unknown>;
@@ -104,14 +104,14 @@ export function forgetWhatJustHappened(): void {
   forgetWhenTheVisitEnds?.();
 }
 
-/**
- * The bar, and what it is holding. Wraps the shell, so a change made in the
- * Inbox column and one made on a panel are both offered back in the same place.
- */
 /** A button on the bar. */
 const BAR_BUTTON =
   'pointer-events-auto shrink-0 rounded px-2 py-1 font-medium text-accent-soft hover:bg-white/10';
 
+/**
+ * The bar, and what it is holding. Wraps the shell, so a change made in the
+ * Inbox column and one made on a panel are both offered back in the same place.
+ */
 export function UndoWhatJustHappened({ children }: { children: React.ReactNode }) {
   const [held, setHeld] = useState<Undoable | null>(null);
   /**
@@ -251,7 +251,7 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
           // bar stays in its own list.
           className={BOTTOM_CENTRE_STRIP}
         >
-         <div className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-toast px-4 py-2.5 text-sm text-white shadow-lg">
+          <div className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-toast px-4 py-2.5 text-sm text-white shadow-lg">
             {held.split && !failure ? (
               <span className="flex min-w-[min(14rem,100%)] flex-1" title={held.what}>
                 <span className="min-w-0 truncate">{held.split.title}</span>
@@ -262,12 +262,12 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
             )}
             <div className="ml-auto flex shrink-0 items-center">
               {!failure && held.show && (
-                <button type="button" onClick={() => leaveFor(held.show!)} className={BAR_BUTTON}>
+                <button type="button" disabled={undoing} onClick={() => leaveFor(held.show!)} className={BAR_BUTTON + ' disabled:opacity-50'}>
                   Show
                 </button>
               )}
               {!failure && held.alsoShowOn && (
-                <button type="button" onClick={() => leaveFor(held.alsoShowOn!)} className={BAR_BUTTON}>
+                <button type="button" disabled={undoing} onClick={() => leaveFor(held.alsoShowOn!)} className={BAR_BUTTON + ' disabled:opacity-50'}>
                   Also show on…
                 </button>
               )}

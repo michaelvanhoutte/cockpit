@@ -767,6 +767,8 @@ export function PanelBoard({
    */
   const showRequest = useShowRequest();
   const shownRow = useRef<{ row: HTMLElement; timer: number } | null>(null);
+  const jumpedFor = useRef<unknown>(null);
+  const [, setShowAttempts] = useState(0);
   useEffect(() => {
     if (!showRequest || showRequest.dashboardId !== dashboard.id) return;
     const { panelId, itemId } = showRequest;
@@ -782,10 +784,23 @@ export function PanelBoard({
     }
     const cell = rowsRef.current?.querySelector<HTMLElement>('[data-panel-cell="' + panelId + '"]');
     if (!cell) return;
-    settleTheShowRequest(showRequest);
-    jumpRef.current(panelId);
+    if (jumpedFor.current !== showRequest) {
+      jumpedFor.current = showRequest;
+      jumpRef.current(panelId);
+    }
     const row = cell.querySelector<HTMLElement>('[data-item-id="' + itemId + '"]');
-    if (!row) return;
+    if (!row) {
+      // The Panel holds the row but its list has not drawn it yet (a Dashboard
+      // just switched to loads its lists lazily): look again shortly, for as
+      // long as the request is live, rather than settling without it.
+      if ((shows.get(panelId) ?? []).some((item) => item.id === itemId)) {
+        const again = window.setTimeout(() => setShowAttempts((n) => n + 1), 100);
+        return () => window.clearTimeout(again);
+      }
+      settleTheShowRequest(showRequest);
+      return;
+    }
+    settleTheShowRequest(showRequest);
     row.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
     if (shownRow.current) {
       window.clearTimeout(shownRow.current.timer);
