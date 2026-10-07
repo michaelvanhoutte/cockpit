@@ -325,6 +325,57 @@ describe('Connector management', () => {
     });
   });
 
+  /** "Change what a Gmail connection follows, without reconnecting", issue 824. */
+  describe('a Gmail row’s menu changes the mark it follows, starting at the one followed now', () => {
+    const ANNA: SourceAccount = {
+      ...ADA,
+      id: 'account-anna',
+      connectorId: 'gmail',
+      displayName: 'anna@example.com',
+      follows: 'star',
+    };
+
+    async function changeWhatIsFollowed(): Promise<HTMLElement> {
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for anna@example.com' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Change what’s followed…' }));
+      return screen.findByRole('dialog', { name: 'What anna@example.com follows' });
+    }
+
+    it.each([
+      { situation: 'choosing the label sends the switch for this workspace and this row', choose: 'Labelled Cockpit', sends: 'label' },
+      { situation: 'Save with the star still chosen sends nothing', choose: null, sends: null },
+    ])('$situation', async ({ choose, sends }) => {
+      held.sourceAccounts = [ANNA, ADA];
+      showWindow();
+
+      const choice = await changeWhatIsFollowed();
+      expect(within(choice).getByRole('radio', { name: 'Starred (flagged in Outlook)' })).toBeChecked();
+      if (choose) await userEvent.click(within(choice).getByRole('radio', { name: choose }));
+      await userEvent.click(within(choice).getByRole('button', { name: 'Save' }));
+
+      if (sends) {
+        expect(sent).toHaveBeenCalledTimes(1);
+        expect(sent.mock.calls[0]![0]).toMatchObject({
+          name: 'set_gmail_follows',
+          payload: { workspaceId: 'ws-work', sourceAccountId: 'account-anna', follows: sends },
+        });
+      } else {
+        expect(sent).not.toHaveBeenCalled();
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'What anna@example.com follows' })).toBeNull());
+      }
+    });
+
+    it('is offered on a Gmail row only', async () => {
+      held.sourceAccounts = [ADA];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Ada Lovelace' }));
+
+      expect(screen.getByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'Change what’s followed…' })).toBeNull();
+    });
+  });
+
   /** "Bring in the conversations already labelled Cockpit as tasks", issue 725. */
   describe('a Gmail row shows when its mailbox was last checked, and why it is failing', () => {
     const checkedAt = '2026-10-04T09:00:00.000Z';

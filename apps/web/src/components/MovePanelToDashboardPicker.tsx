@@ -88,3 +88,5 @@ export function MovePanelToDashboardPicker({
     </Dialog.Root>
   );
 }
+
+export default MovePanelToDashboardPicker;

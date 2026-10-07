@@ -768,6 +768,12 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         (payload as CommandPayload<'connect_source_account'>).connectorId === GMAIL;
       await this.#keepCheckingGmail(accountName, connectingGmail);
     }
+    // A switch of mark checks at once, as connecting does: that check records
+    // where the new mark starts counting ("Change what a Gmail connection
+    // follows, without reconnecting", issue 824).
+    if (answer.status === 'ok' && answer.value.applied && name === 'set_gmail_follows') {
+      await this.#keepCheckingGmail(accountName, true);
+    }
     // Within seconds rather than at the next five-minute check.
     if (
       answer.status === 'ok' &&

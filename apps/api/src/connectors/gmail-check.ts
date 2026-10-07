@@ -123,8 +123,11 @@ export interface GmailCheckHost {
   readonly accountName: string;
   connections(): GmailConnectionToCheck[];
   progress(sourceAccountId: string): GmailProgress | null;
-  /** A reconcile beginning, at this history position. */
-  startListing(sourceAccountId: string, historyId: string, at: string): void;
+  /**
+   * A reconcile beginning, at this history position - unless the connection
+   * has gone, or switched mark, since the run read it, which answers false.
+   */
+  startListing(connection: GmailConnectionToCheck, historyId: string, at: string): boolean;
   /** One page done: the next one to ask for, or the listing finished. */
   pageListed(sourceAccountId: string, nextPageToken: string | null, at: string): void;
   /**
@@ -190,8 +193,8 @@ export interface GmailCheckHost {
   reseal(sourceAccountId: string, was: Sealed, sealed: Sealed): boolean;
   /** The connection was checked: it reads "last checked" and nothing says it is failing. */
   checked(sourceAccountId: string, at: string): void;
-  /** The connection cannot be checked, and why. */
-  failing(sourceAccountId: string, reason: string, at: string): void;
+  /** The connection cannot be checked, and why - said only of one still held under the mark the run read. */
+  failing(connection: GmailConnectionToCheck, reason: string, at: string): void;
 }
 
 /** Google refused the sign-in: nothing will work until it is connected again. */
@@ -208,7 +211,11 @@ class ChangeRefused extends Error {
 }
 /** The run's calls are spent; what is left is the next run's. */
 class OutOfCalls extends Error {}
-/** The connection was disconnected or connected again while the run was reading it; the next run reads it afresh. */
+/**
+ * The connection was disconnected, connected again or switched to the other
+ * mark ("Change what a Gmail connection follows, without reconnecting", issue
+ * 824) while the run was reading it; the next run reads it afresh.
+ */
 class ConnectionChanged extends Error {}
 
 /**
@@ -253,18 +260,18 @@ export async function checkGmail(env: Env, host: GmailCheckHost, now: Date): Pro
           ? await bringInStarred(host, connection, mailbox, at, broughtIn)
           : await bringInLabelled(host, connection, mailbox, at, broughtIn);
       if (reached === 'no label') {
-        host.failing(connection.id, NO_LABEL, at);
+        host.failing(connection, NO_LABEL, at);
         continue;
       }
       host.checked(connection.id, at);
     } catch (error) {
       if (error instanceof SignInRefused) {
-        host.failing(connection.id, SIGN_IN_REFUSED, at);
+        host.failing(connection, SIGN_IN_REFUSED, at);
       } else if (error instanceof OutOfCalls) {
         moreToDo = true;
         host.checked(connection.id, at);
       } else if (error instanceof ConnectionChanged) {
-        // Disconnected, or connected again - which arms a check of its own.
+        // Disconnected, connected again or switched - each arms a check of its own.
         continue;
       } else {
         // Nothing is changed and nothing said: the next run tries again.
@@ -317,7 +324,7 @@ async function bringInLabelled(
   if (!progress || progress.listedAt) {
     // The position first, so whatever is labelled while the listing runs is
     // after it, and the next slice's history reads it.
-    host.startListing(connection.id, await positionNow(mailbox), at);
+    startListing(host, connection, await positionNow(mailbox), at);
     progress = host.progress(connection.id)!;
   }
 
@@ -376,7 +383,7 @@ async function bringInStarred(
 
   let progress = host.progress(connection.id);
   if (!progress) {
-    host.startListing(connection.id, await positionNow(mailbox), at);
+    startListing(host, connection, await positionNow(mailbox), at);
     host.pageListed(connection.id, null, at);
     await closeUnlisted(host, connection, mailbox, STARRED, at);
     return 'done';
@@ -387,9 +394,8 @@ async function bringInStarred(
       return 'done';
     }
     // Lapsed: the full reconcile, from a fresh position.
-    host.startListing(connection.id, await positionNow(mailbox), at);
-    progress = host.progress(connection.id);
-    if (!progress) throw new ConnectionChanged('the connection was disconnected');
+    startListing(host, connection, await positionNow(mailbox), at);
+    progress = host.progress(connection.id)!;
   }
 
   while (!progress.listedAt) {
@@ -408,6 +414,16 @@ async function bringInStarred(
   }
   await closeUnlisted(host, connection, mailbox, STARRED, at);
   return 'done';
+}
+
+/**
+ * Records where a reconcile starts - never for a connection disconnected or
+ * switched to the other mark while the position was read, whose own check
+ * records its own ("Change what a Gmail connection follows, without
+ * reconnecting", issue 824).
+ */
+function startListing(host: GmailCheckHost, connection: GmailConnectionToCheck, historyId: string, at: string): void {
+  if (!host.startListing(connection, historyId, at)) throw new ConnectionChanged('the connection was changed');
 }
 
 /** The mailbox's history position now: what the next history read starts from. */

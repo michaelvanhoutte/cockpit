@@ -91,3 +91,5 @@ export function MoveOrAddQuestion({
     </AlertDialog.Root>
   );
 }
+
+export default MoveOrAddQuestion;
