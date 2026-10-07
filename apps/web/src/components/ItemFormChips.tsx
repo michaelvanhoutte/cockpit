@@ -201,7 +201,7 @@ export default function ItemFormChips(props: ItemFormChipsProps) {
                 onChange={(e) => {
                   if (e.target.value) props.onDueDate(e.target.value);
                 }}
-                className="mt-1 h-9 w-full rounded-md border border-shade/10 bg-white px-3 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                className="mt-1 h-9 w-full rounded-md border border-shade/10 bg-field px-3 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
               />
             </label>
             {dueDate !== null && (

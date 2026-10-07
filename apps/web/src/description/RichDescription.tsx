@@ -356,7 +356,7 @@ export default function RichDescription({
       className={
         fill
           ? 'flex min-h-0 flex-1 flex-col'
-          : 'mt-1 rounded-md border border-shade/10 bg-white focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40'
+          : 'mt-1 rounded-md border border-shade/10 bg-field focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40'
       }
     >
       {toolbar && (

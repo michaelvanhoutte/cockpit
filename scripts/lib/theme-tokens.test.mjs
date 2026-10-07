@@ -25,6 +25,7 @@ describe('literalsOutsideTheTheme', () => {
     ['an arbitrary radius', '<p className="rounded-t-[6px]">'],
     ['an arbitrary shadow', '<p className="shadow-[0_1px_2px_black]">'],
     ['black', '<p className="border-black/10 text-sm">'],
+    ['opaque white', '<p className="border-shade/10 bg-white px-3 py-2">'],
   ];
   for (const [kind, source] of caught) {
     it(`catches ${kind}: ${source}`, () => {
@@ -35,10 +36,11 @@ describe('literalsOutsideTheTheme', () => {
     });
   }
 
-  it('leaves the theme’s own names, runtime variables, white and font sizes alone', () => {
+  it('leaves the theme\'s own names, runtime variables, translucent white, text white and font sizes alone', () => {
     const source = [
       '<p className="bg-ink-strong text-on-accent rounded-md shadow-field border-shade/10">',
       '<p className="bg-[var(--tab-on)] rounded-[var(--r)] shadow-[var(--s)] bg-white/10">',
+      '<p className="bg-field text-white hover:bg-white/20">',
       '<p className="text-[15px] tracking-[0.11em] sm:w-[74px] min-h-[44px]">',
       'const url = "https://example.com/#top"; // issue #12',
     ].join('\n');

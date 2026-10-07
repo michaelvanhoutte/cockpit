@@ -148,6 +148,9 @@
   --color-night-over: #d0716a;
   --color-night-icon: #c9cbd1;
 
+  /* Field and opaque-white surfaces (light appearance). */
+  --color-field: #ffffff;
+
   /* Small marks, buttons and inputs, cards and panels (brand.css). */
   --radius-sm: 4px;
   --radius-md: 10px;

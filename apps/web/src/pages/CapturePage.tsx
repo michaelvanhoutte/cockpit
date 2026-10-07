@@ -73,7 +73,7 @@ export function CapturePage() {
           role="group"
           aria-label="Capture view"
           data-capture-switch=""
-          className="ml-auto flex overflow-hidden rounded-md border border-shade/10 bg-white text-sm"
+          className="ml-auto flex overflow-hidden rounded-md border border-shade/10 bg-field text-sm"
         >
           <Link
             to="/capture"

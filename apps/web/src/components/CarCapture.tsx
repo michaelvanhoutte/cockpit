@@ -339,7 +339,7 @@ function Driving({
       <div
         aria-label="What was heard"
         className={`mt-4 min-h-28 w-full rounded-md border p-4 text-lg leading-snug ${d(
-          'border-shade/10 bg-white text-ink shadow-field',
+          'border-shade/10 bg-field text-ink shadow-field',
           'border-white/5 bg-night-card text-night-ink',
         )}`}
       >
@@ -440,7 +440,7 @@ function Driving({
             aria-label={`Dictation language: ${name}`}
             title={`Dictating in ${name}. Press to switch.`}
             className={`inline-flex min-h-9 items-center rounded-md border px-3 text-sm font-medium tracking-[0.05em] disabled:opacity-50 ${d(
-              'border-shade/10 bg-white text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink',
+              'border-shade/10 bg-field text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink',
               'border-white/10 bg-night-card text-night-ink-soft',
             )}`}
           >
@@ -453,7 +453,7 @@ function Driving({
             aria-label="Dark view"
             title={dark ? 'Switch to the light view' : 'Switch to the dark view'}
             className={`inline-flex min-h-9 min-w-9 items-center justify-center rounded-md border px-2 ${d(
-              'border-shade/10 bg-white text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink',
+              'border-shade/10 bg-field text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink',
               'border-white/10 bg-night-card text-night-ink-soft',
             )}`}
           >

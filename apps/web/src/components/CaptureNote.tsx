@@ -629,7 +629,7 @@ export function CaptureNote({
           and a due date: one box rather than a row of its own, which took too
           much room. The border and the focus ring belong to the box, so the
           strip reads as inside the note rather than under it. */}
-      <div className="order-1 mt-2.5 flex w-full flex-col rounded-md border border-shade/10 bg-white shadow-field focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40 sm:order-none sm:mt-4 sm:min-h-56 sm:shrink-0 sm:resize-y sm:overflow-auto">
+      <div className="order-1 mt-2.5 flex w-full flex-col rounded-md border border-shade/10 bg-field shadow-field focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40 sm:order-none sm:mt-4 sm:min-h-56 sm:shrink-0 sm:resize-y sm:overflow-auto">
         {formatted ? (
           <WhateverTheEditorDoes
             onFailure={() => {
@@ -709,7 +709,7 @@ export function CaptureNote({
         {queued.map((file) => (
           <div
             key={file.id}
-            className="flex items-center gap-2 rounded-md border border-shade/10 bg-white px-3 py-2 text-sm"
+            className="flex items-center gap-2 rounded-md border border-shade/10 bg-field px-3 py-2 text-sm"
           >
             {file.previewUrl ? (
               <img
@@ -928,7 +928,7 @@ const FLAG_COLOURS: Record<Priority, { lit: string; unlit: string }> = {
 const STRIP_BUTTON =
   'inline-flex min-h-9 shrink-0 items-center justify-center rounded-md border px-2 text-sm disabled:opacity-50 sm:min-h-0 sm:py-0.5 sm:text-xs';
 const QUIET_BUTTON =
-  'border-shade/10 bg-white text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink';
+  'border-shade/10 bg-field text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink';
 const LIT_BUTTON = 'border-accent bg-accent-tint font-medium text-accent-deep';
 /** The mic while listening: filled, where a lit chip is only tinted, so it cannot be mistaken for a choice made. */
 const LIT_BUTTON_SOLID = 'border-accent bg-accent text-on-accent';
@@ -997,7 +997,7 @@ function PriorityAndDue({
               title={`${PRIORITY_LABELS[level]} priority`}
               onClick={() => onPriority(lit ? null : level)}
               className={`${STRIP_BUTTON} w-9 sm:w-7 ${
-                lit ? FLAG_COLOURS[level].lit : `border-shade/10 bg-white ${FLAG_COLOURS[level].unlit}`
+                lit ? FLAG_COLOURS[level].lit : `border-shade/10 bg-field ${FLAG_COLOURS[level].unlit}`
               }`}
             >
               <span aria-hidden="true">⚑</span>
@@ -1257,7 +1257,7 @@ function Chip({
       className={`inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm sm:min-h-0 sm:px-2.5 sm:py-[3px] sm:text-[13px] ${
         chosen
           ? 'border-accent bg-accent-tint font-medium text-accent-deep'
-          : 'border-shade/10 bg-white text-ink'
+          : 'border-shade/10 bg-field text-ink'
       }`}
     >
       {dot && (

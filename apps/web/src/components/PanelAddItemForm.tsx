@@ -145,14 +145,14 @@ export function PanelAddItemForm({
         placeholder="Capture a note or to-do…"
         aria-label="Capture a note or to-do"
         autoFocus
-        className="min-w-0 flex-1 basis-full rounded-md border border-shade/10 bg-white px-3 py-2 text-sm shadow-field outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+        className="min-w-0 flex-1 basis-full rounded-md border border-shade/10 bg-field px-3 py-2 text-sm shadow-field outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
       />
       {chosen && (
         <select
           value={chosen.id}
           onChange={(e) => setTypeId(e.target.value)}
           aria-label="What kind of thing this is"
-          className="min-w-0 flex-1 rounded-md border border-shade/10 bg-white px-3 py-2 text-sm shadow-field outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+          className="min-w-0 flex-1 rounded-md border border-shade/10 bg-field px-3 py-2 text-sm shadow-field outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
         >
           {offered.map((type) => (
             <option key={type.id} value={type.id}>
