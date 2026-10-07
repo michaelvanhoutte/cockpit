@@ -10,7 +10,8 @@ import type {
   WorkspaceSnapshot,
 } from '@cockpit/shared';
 import { DashboardBar } from '../../../src/components/DashboardBar';
-import { readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
+import { tipForClick } from '../../../src/shortcutTip';
+import { allItemsFilterId, readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
 import { DashboardFilterBar } from '../../../src/components/DashboardFilterBar';
 import { filterPills } from '../../../src/components/FilterSummary';
 import {
@@ -275,6 +276,9 @@ function showBar(
       />
       {answer.withFilterBar && openDashboardId && (
         <DashboardFilterBar dashboardId={openDashboardId} />
+      )}
+      {answer.withFilterBar && held.allItemsOpen && (
+        <DashboardFilterBar dashboardId={allItemsFilterId('ws-work')} withDone />
       )}
     </QueryClientProvider>
   );
@@ -1414,6 +1418,151 @@ describe('Dashboards', () => {
       switchTo(id('Empty b'));
 
       expect(screen.queryByRole('search', BAR)).toBeNull();
+    });
+  });
+
+  describe('F opens the filter bar with the cursor in Containing…, and never clears a filter', () => {
+    const pressF = (user: ReturnType<typeof userEvent.setup>) => user.keyboard('f');
+    const field = () => screen.getByRole('searchbox');
+
+    it('opens the bar on an unfiltered Dashboard with the cursor in the field, and typing filters', async () => {
+      const { user } = showBar(['F open'], { openDashboardId: id('F open'), withFilterBar: true });
+      await screen.findByRole('button', { name: 'Filter this dashboard' });
+      expect(screen.queryByRole('search', BAR)).toBeNull();
+
+      await pressF(user);
+      expect(screen.getByRole('search', BAR)).toBeVisible();
+      expect(field()).toHaveFocus();
+
+      await user.keyboard('vat');
+      expect(readDashboardFilter(localStorage, id('F open')).text).toBe('vat');
+      expect(field()).toHaveValue('vat');
+    });
+
+    it('closes a bar that is open with nothing set', async () => {
+      const { user } = showBar(['F close'], { openDashboardId: id('F close'), withFilterBar: true });
+      await pressF(user);
+      expect(screen.getByRole('search', BAR)).toBeVisible();
+      await user.keyboard('{Escape}');
+      expect(field()).not.toHaveFocus();
+
+      await pressF(user);
+
+      expect(screen.queryByRole('search', BAR)).toBeNull();
+    });
+
+    it('puts the cursor in the field of a filtered Dashboard and keeps the filter and the bar', async () => {
+      writeDashboardFilter(localStorage, id('F kept'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
+      const { user } = showBar(['F kept'], { openDashboardId: id('F kept'), withFilterBar: true });
+      expect(await screen.findByRole('search', BAR)).toBeVisible();
+
+      await pressF(user);
+
+      expect(field()).toHaveFocus();
+      expect(field()).toHaveValue('vat');
+      expect(readDashboardFilter(localStorage, id('F kept')).text).toBe('vat');
+      // With the cursor already in the field, F is typing and the key stays out of it.
+      await pressF(user);
+      expect(field()).toHaveValue('vatf');
+    });
+
+    it('does the same on All items, on its own bar', async () => {
+      setAllItemsTab('ws-work', true);
+      const { user } = showBar(['F items'], { allItemsOpen: true, withFilterBar: true });
+      await screen.findByRole('button', { name: 'Filter All items' });
+
+      await pressF(user);
+      expect(screen.getByRole('search', BAR)).toBeVisible();
+      expect(field()).toHaveFocus();
+
+      await user.keyboard('{Escape}');
+      await pressF(user);
+      expect(screen.queryByRole('search', BAR)).toBeNull();
+    });
+
+    it('hands the keys back on Esc in the field and keeps the text, the filter and the bar', async () => {
+      const { user } = showBar(['F esc'], { openDashboardId: id('F esc'), withFilterBar: true });
+      await pressF(user);
+      await user.keyboard('vat{Escape}');
+
+      expect(field()).not.toHaveFocus();
+      expect(field()).toHaveValue('vat');
+      expect(readDashboardFilter(localStorage, id('F esc')).text).toBe('vat');
+      expect(screen.getByRole('search', BAR)).toBeVisible();
+    });
+
+    it.each([
+      { situation: 'typing in a field', hold: '', typing: true },
+      { situation: 'Ctrl held', hold: 'Control', typing: false },
+      { situation: 'Alt held', hold: 'Alt', typing: false },
+      { situation: 'the Command key held', hold: 'Meta', typing: false },
+    ])('does nothing with $situation', async ({ hold, typing }) => {
+      const { user } = showBar(['F guard'], { openDashboardId: id('F guard'), withFilterBar: true });
+      await screen.findByRole('button', { name: 'Filter this dashboard' });
+      if (typing) {
+        const input = document.createElement('input');
+        document.body.append(input);
+        input.focus();
+        await pressF(user);
+        input.remove();
+      } else {
+        await user.keyboard(`{${hold}>}f{/${hold}}`);
+      }
+      expect(screen.queryByRole('search', BAR)).toBeNull();
+    });
+
+    it('does nothing while a menu or a window is open over the page', async () => {
+      const { user } = showBar(['F covered'], { openDashboardId: id('F covered'), withFilterBar: true });
+      await screen.findByRole('button', { name: 'Filter this dashboard' });
+      const covering = document.createElement('div');
+      covering.setAttribute('role', 'dialog');
+      document.body.append(covering);
+
+      await pressF(user);
+      covering.remove();
+
+      expect(screen.queryByRole('search', BAR)).toBeNull();
+    });
+
+    it('does nothing for a key held down', async () => {
+      showBar(['F held'], { openDashboardId: id('F held'), withFilterBar: true });
+      await screen.findByRole('button', { name: 'Filter this dashboard' });
+
+      fireEvent.keyDown(document.body, { key: 'f', repeat: true });
+
+      expect(screen.queryByRole('search', BAR)).toBeNull();
+    });
+
+    it('does nothing on a phone, whose summary line and sheet have no keyboard', async () => {
+      onAScreen(A_PHONE);
+      const { user } = showBar(['F phone'], { openDashboardId: id('F phone'), withFilterBar: true });
+      await screen.findByRole('button', { name: 'Filter this dashboard' });
+
+      await pressF(user);
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.queryByRole('search', BAR)).toBeNull();
+    });
+  });
+
+  describe('the funnel names the key', () => {
+    it('says F in its tooltip where it opens the bar, and wears the tip a mouse click earns', async () => {
+      showBar(['F tip'], { openDashboardId: id('F tip'), withFilterBar: true });
+
+      const funnel = await screen.findByRole('button', { name: 'Filter this dashboard' });
+
+      expect(funnel).toHaveAttribute('title', 'Filter this dashboard (F)');
+      expect(tipForClick({ detail: 1, target: funnel })).toBe('filter');
+      expect(tipForClick({ detail: 0, target: funnel })).toBeNull();
+    });
+
+    it('is no control to earn a tip on a tab you are not on', async () => {
+      writeDashboardFilter(localStorage, id('F away'), { ...NO_DASHBOARD_FILTER, text: 'vat' });
+      showBar(['F away', 'F here'], { openDashboardId: id('F here'), withFilterBar: true });
+
+      const sign = await screen.findByRole('img', { name: 'This dashboard is filtered' });
+
+      expect(tipForClick({ detail: 1, target: sign })).toBeNull();
     });
   });
 

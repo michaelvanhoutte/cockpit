@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 /**
  * "Tell a mouse user the key when they click what a key also does" (issue
  * 708): a click on Capture, the Inbox's collapse control or handle, the Panel
- * list's, or the agents' dock's hide control or strip names the key that does the same.
+ * list's, the agents' dock's hide control or strip, or the funnel on a Dashboard's tab names the key that does the same.
  *
  * **Shown and forgotten**: nothing is stored, so a tip shows on every click.
  * It listens for clicks only, so a key press never shows one and never has to
@@ -21,8 +21,8 @@ export const TIP_MS = 5000;
 export const TIP_ATTRIBUTE = 'data-shortcut-tip';
 
 /** The controls that have a key, as their `data-shortcut-tip` names them. */
-export type TipControl = 'capture' | 'inbox' | 'dock' | 'panels';
-const CONTROLS: readonly string[] = ['capture', 'inbox', 'dock', 'panels'] satisfies TipControl[];
+export type TipControl = 'capture' | 'inbox' | 'dock' | 'panels' | 'filter';
+const CONTROLS: readonly string[] = ['capture', 'inbox', 'dock', 'panels', 'filter'] satisfies TipControl[];
 
 /** What of a click decides its tip; a `MouseEvent` is one. */
 type Click = {
