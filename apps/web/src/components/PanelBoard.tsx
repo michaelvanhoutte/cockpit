@@ -1072,7 +1072,13 @@ export function PanelBoard({
     if (section) {
       // A Section is placed by the pointer's height alone, as a row is, and
       // shares its line with nothing.
-      const place = sectionPlacementFor(point.y, rowsOnScreen(), section.at);
+      // **Found in the page, not remembered**: the board redraws a render after
+      // a move, so a moving pointer can outrun `at`; the lifted band's own row
+      // is where it is drawn. `at` stands in until the first draw.
+      const drawn = [...(rowsRef.current?.querySelectorAll('[data-panel-row]') ?? [])].findIndex((row) =>
+        row.hasAttribute('data-lifted'),
+      );
+      const place = sectionPlacementFor(point.y, rowsOnScreen(), drawn === -1 ? section.at : drawn);
       if (place === null) return;
       section.at = place;
       setDragging((held) => {
@@ -1489,7 +1495,7 @@ export function PanelBoard({
                       place among the Sections: a Panel let go on it asks for
                       nothing, and one let go under it takes a row of its own
                       there (`panels/dragging.ts`). */}
-                  <div data-panel-row="" data-section={nth} data-section-at={rowIndex}>
+                  <div data-panel-row="" data-section={nth} data-section-at={rowIndex} data-lifted={dragging?.id === sectionKey(rowIndex) ? '' : undefined}>
                     <SectionBand
                       title={title}
                       renaming={renamingSection?.nth === nth ? renamingSection.title : null}
