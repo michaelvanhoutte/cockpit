@@ -431,6 +431,109 @@ describe('Panels', () => {
     });
   });
 
+  describe('a Status condition matches the statuses it holds, and one stored without any reads as In progress', () => {
+    const todo = anItem('todo');
+    const doing = anItem('doing', { startedAt: '2026-09-04T10:00:00.000Z' });
+    const filings = [filed('falcon', 'todo'), filed('falcon', 'doing')];
+
+    it.each([
+      { situation: 'Status is To do', condition: { field: 'status', values: ['to_do'] }, drawn: ['todo'] },
+      {
+        situation: 'Status is To do and In progress',
+        condition: { field: 'status', values: ['to_do', 'in_progress'] },
+        drawn: ['todo', 'doing'],
+      },
+      {
+        situation: 'Status is not In progress',
+        condition: { field: 'status', values: ['in_progress'], exclude: true },
+        drawn: ['todo'],
+      },
+      { situation: 'a Status stored with no values, from before', condition: { field: 'status' }, drawn: ['doing'] },
+    ] as { situation: string; condition: FilterCondition; drawn: string[] }[])('$situation draws $drawn', ({ condition, drawn }) => {
+      expect(shown([todo, doing], filings, [condition]).sort()).toEqual([...drawn].sort());
+    });
+  });
+
+  describe('an is not condition matches an item holding none of its live values', () => {
+    const note = aType('type-note', 'Note');
+    const okr = aType('type-okr', 'OKR');
+    const task = aType('type-task', 'Task');
+    const archive = aPanel('archive');
+    const q3 = aPanel('q3');
+    const panels = [FALCON, GATHERS, archive, q3];
+
+    it.each([
+      {
+        situation: 'Type is not Note: a Task, a Note',
+        condition: { field: 'type', values: [note.id], exclude: true },
+        items: [anItem('task', { typeId: task.id }), anItem('note', { typeId: note.id })],
+        drawn: ['task'],
+      },
+      {
+        situation: 'Type is not Note: an Item with no Type',
+        condition: { field: 'type', values: [note.id], exclude: true },
+        items: [anItem('untyped')],
+        drawn: ['untyped'],
+      },
+      {
+        situation: 'Priority is not High: Normal, High, no Priority',
+        condition: { field: 'priority', values: ['high'], exclude: true },
+        items: [anItem('normal', { priority: 'normal' }), anItem('high', { priority: 'high' }), anItem('none')],
+        drawn: ['normal', 'none'],
+      },
+      {
+        situation: 'Type is not Note and OKR: a Note, an OKR, a Task',
+        condition: { field: 'type', values: [note.id, okr.id], exclude: true },
+        items: [anItem('note', { typeId: note.id }), anItem('okr', { typeId: okr.id }), anItem('task', { typeId: task.id })],
+        drawn: ['task'],
+      },
+    ] as { situation: string; condition: FilterCondition; items: Item[]; drawn: string[] }[])(
+      '$situation',
+      ({ condition, items, drawn }) => {
+        const filings = items.map((item) => filed('falcon', item.id));
+        expect(shown(items, filings, [condition], { itemTypes: [note, okr, task] }).sort()).toEqual([...drawn].sort());
+      },
+    );
+
+    it('fails an item filed on any excluded Panel, however many others it is on', () => {
+      const onQ3 = anItem('q3-only');
+      const onBoth = anItem('both');
+      const excluded: FilterCondition = { field: 'panel', values: [archive.id], exclude: true };
+      expect(
+        shown([onQ3, onBoth], [filed('q3', 'q3-only'), filed('archive', 'both'), filed('q3', 'both')], [excluded], {
+          panels,
+        }),
+      ).toEqual(['q3-only']);
+    });
+  });
+
+  describe('an is not condition with nothing left to exclude filters nothing', () => {
+    const thisWeek = anItem('this-week', { dueDate: '2026-09-18' });
+    const later = anItem('later', { dueDate: '2026-12-01' });
+    const items = [thisWeek, later];
+    const filings = [filed('falcon', 'this-week'), filed('falcon', 'later')];
+    const nothingChosen: FilterCondition = { field: 'type', values: [], exclude: true };
+    const onlyDeleted: FilterCondition = { field: 'type', values: ['type-deleted'], exclude: true };
+    const panelDeleted: FilterCondition = { field: 'panel', values: ['gone'], exclude: true };
+
+    it.each([
+      { situation: 'all: Due this week, plus Type is not nothing', condition: nothingChosen, match: 'all', drawn: ['this-week'] },
+      { situation: 'any: Due this week, plus Type is not nothing', condition: nothingChosen, match: 'any', drawn: ['this-week'] },
+      { situation: 'any: Due this week, plus Panel is not a deleted Panel', condition: panelDeleted, match: 'any', drawn: ['this-week'] },
+      { situation: 'all: Due this week, plus Type is not a deleted Type', condition: onlyDeleted, match: 'all', drawn: ['this-week'] },
+    ] as { situation: string; condition: FilterCondition; match: FilterMatch; drawn: string[] }[])(
+      '$situation draws what Due this week draws alone',
+      ({ condition, match, drawn }) => {
+        expect(shown(items, filings, [due('week'), condition], { match })).toEqual(drawn);
+      },
+    );
+
+    it('lets every item through when it is the only condition under all, and none under any', () => {
+      expect(shown(items, filings, [onlyDeleted], { match: 'all' }).sort()).toEqual(['later', 'this-week']);
+      expect(shown(items, filings, [onlyDeleted, nothingChosen], { match: 'any' })).toEqual([]);
+    });
+  });
+
   describe('a due window follows the calendar of whoever is looking', () => {
     /**
      * Every case is measured from the same Thursday, so what changes between
@@ -582,7 +685,8 @@ describe('Panels', () => {
     const priority = (...values: Priority[]): FilterCondition => ({ field: 'priority', values });
     const type = (...values: string[]): FilterCondition => ({ field: 'type', values });
     const panel = (...values: string[]): FilterCondition => ({ field: 'panel', values });
-    const status = (): FilterCondition => ({ field: 'status' });
+    const status = (...values: ('to_do' | 'in_progress')[]): FilterCondition =>
+      values.length === 0 ? { field: 'status' } : { field: 'status', values };
 
     it.each([
       { situation: 'nothing chosen', conditions: [] as FilterCondition[], itemTypes: [] as ItemType[], reads: 'Nothing chosen yet' },
@@ -671,16 +775,56 @@ describe('Panels', () => {
         reads: 'Filed on wiki',
       },
       {
-        situation: 'status is In progress',
+        situation: 'a status stored before Status took values',
         conditions: [status()],
         itemTypes: [],
-        reads: 'In progress',
+        reads: 'Status is In progress',
+      },
+      { situation: 'status is To do', conditions: [status('to_do')], itemTypes: [], reads: 'Status is To do' },
+      {
+        situation: 'status is not In progress',
+        conditions: [{ ...status('in_progress'), exclude: true } as FilterCondition],
+        itemTypes: [],
+        reads: 'Status is not In progress',
+      },
+      {
+        situation: 'type is not several Types',
+        conditions: [{ ...type(okr.id, task.id), exclude: true } as FilterCondition],
+        itemTypes: [okr, task],
+        reads: 'Type is not OKR or Task',
+      },
+      {
+        situation: 'priority is not one level',
+        conditions: [{ ...priority('low'), exclude: true } as FilterCondition],
+        itemTypes: [],
+        reads: 'Priority is not Low',
+      },
+      {
+        situation: 'a Panel the item is not filed on',
+        conditions: [{ ...panel(wiki.id), exclude: true } as FilterCondition],
+        itemTypes: [],
+        panels: [wiki],
+        reads: 'Not filed on wiki',
       },
     ])('reads $situation', ({ conditions, itemTypes, panels = [], reads }) => {
       expect(saysWhatItShows(conditions, itemTypes, panels)).toBe(reads);
     });
 
     it.each([
+      {
+        // An *is not* with nothing to exclude says nothing about what is
+        // shown, so the sentence does not claim a narrowing.
+        situation: 'a Due condition beside a Type is not with nothing chosen, under any',
+        conditions: [due('week'), { field: 'type', values: [], exclude: true } as FilterCondition],
+        itemTypes: [] as ItemType[],
+        reads: 'Due this week or overdue',
+      },
+      {
+        situation: 'a Type is not whose only Type has since been deleted, beside a Due condition',
+        conditions: [due('week'), { field: 'type', values: ['type-deleted'], exclude: true } as FilterCondition],
+        itemTypes: [] as ItemType[],
+        reads: 'Due this week or overdue',
+      },
       {
         situation: 'two conditions, either of which will do',
         conditions: [due('week'), priority('high')],
@@ -749,6 +893,14 @@ describe('Panels', () => {
       expect(filtersUsingPanel('wiki', [FALCON, gathers])).toEqual([
         { filter: gathers, leftEmpty: true },
       ]);
+    });
+
+    it('names a Filter that excludes the Panel but never says it would be left showing nothing', () => {
+      const excluding: Panel = {
+        ...aPanel('rest', 'filter'),
+        filter: { conditions: [{ field: 'panel', values: ['wiki'], exclude: true }], match: 'all', groupBy: 'none' },
+      };
+      expect(filtersUsingPanel('wiki', [FALCON, excluding])).toEqual([{ filter: excluding, leftEmpty: false }]);
     });
 
     it('names two live Filters, only one of which would be left showing nothing', () => {
