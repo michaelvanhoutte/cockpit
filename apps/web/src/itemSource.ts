@@ -1,11 +1,11 @@
-import { demoPageOf, type Item } from '@cockpit/shared';
+import { demoPageOf, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
 
 /**
  * What each source is called, by its connector id, as the Workspace's snapshot
- * carries it (`sourceNames`). Possibly absent: a copy stored before it was
- * carried is restored without it.
+ * carries it. Possibly absent: a copy kept from a release that did not send it
+ * is restored without it.
  */
-export type SourceNames = Readonly<Record<string, string>> | undefined;
+export type SourceNames = WorkspaceSnapshot['sourceNames'];
 
 /**
  * What a source is called on screen ("Take source names out of the shared

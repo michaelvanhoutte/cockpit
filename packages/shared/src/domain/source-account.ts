@@ -13,17 +13,6 @@ export type GmailMark = (typeof GMAIL_MARKS)[number];
 export const gmailMarkSchema = z.enum(GMAIL_MARKS);
 
 /**
- * What a connection follows at its source, in the connector's own words
- * ("Take source names out of the shared contract", issue 927): `value` is the
- * connector's, opaque to everything else, and `label` is what the row says.
- */
-export const followedSchema = z.object({
-  value: z.string(),
-  label: z.string(),
-});
-export type Followed = z.infer<typeof followedSchema>;
-
-/**
  * A source account a Workspace has connected - a Microsoft Teams sign-in
  * ("Connect a Microsoft Teams source account", issue 485), a Claude Code
  * routine trigger (issue 569), and whatever else is connected later.
@@ -63,8 +52,16 @@ export const sourceAccountSchema = z.object({
    * failing rather than as broken.
    */
   failingBecause: z.string().nullable().default(null),
-  /** What the connection follows, where its connector follows anything at all - today Gmail alone (issue 822). */
-  follows: followedSchema.optional(),
+  /**
+   * What the connection follows, where its connector follows anything at all
+   * - today Gmail alone (issue 822): the connector's own value, opaque to
+   * everything else ("Take source names out of the shared contract", issue
+   * 927). A bare string beside `followsLabel` rather than one object, so a
+   * client built before either still parses Gmail's `label` or `star` here.
+   */
+  follows: z.string().optional(),
+  /** What the row says it follows, in the connector's own words; absent from a release before it, which then reads as `follows` itself. */
+  followsLabel: z.string().optional(),
 });
 export type SourceAccount = z.infer<typeof sourceAccountSchema>;
 

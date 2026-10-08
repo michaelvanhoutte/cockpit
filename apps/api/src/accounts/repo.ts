@@ -2350,7 +2350,7 @@ export function sourceAccountsIn(
     // with Gmail ("Move Gmail out of the core, onto the connector SDK", issue
     // 875), while the contract carries only a value and a label (issue 927).
     .map(({ follows, ...account }) =>
-      account.connectorId === GMAIL ? { ...account, follows: { value: follows, label: GMAIL_FOLLOWS_LABEL[follows] } } : account,
+      account.connectorId === GMAIL ? { ...account, follows, followsLabel: GMAIL_FOLLOWS_LABEL[follows] } : account,
     );
 }
 

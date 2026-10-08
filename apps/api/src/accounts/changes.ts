@@ -358,7 +358,7 @@ function gmailItemsUnderTheirConnector(accountId: string): Change {
  * revisits a row written after it: this carries its rewrite again, for a
  * Gmail Item the previous release captured with no connector while 0062's
  * deploy rolled out, and turns one written as `internal` naming `gmail` - the
- * form a release from 2fd8efb9 to 0062 writes on an edit - into the same
+ * form a release from 2fd8efb9 to before 0062 writes on an edit - into the same
  * `mail`. Two forms would each be a read path; one is.
  *
  * Its failure modes, per the `scoping` skill:

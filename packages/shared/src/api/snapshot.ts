@@ -87,8 +87,8 @@ export const workspaceSnapshotSchema = z.object({
    * open draws the names from the stored copy with no request of its own. An
    * id missing from it reads as itself; `internal` and `mcp` are never in it.
    * Optional rather than defaulted, unlike `attachments` above: a stored copy
-   * is restored without being parsed again, so one taken before this field
-   * existed lacks it, and the type says so.
+   * is restored without being parsed again, so one kept from a release that
+   * did not send it lacks it, and the type says so.
    */
   sourceNames: z.record(z.string(), z.string()).optional(),
   generatedAt: z.iso.datetime(),

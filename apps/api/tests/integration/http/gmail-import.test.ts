@@ -185,11 +185,9 @@ async function rowOf(
 ): Promise<{ lastTestedAt: string | null; failingBecause: string | null; follows?: string }> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/connections`);
   const { sourceAccounts } = (await res.json()) as {
-    sourceAccounts: { lastTestedAt: string | null; failingBecause: string | null; follows?: { value: string } }[];
+    sourceAccounts: { lastTestedAt: string | null; failingBecause: string | null; follows?: string }[];
   };
-  // The mark it follows, which its row names in Gmail's words (gmail-connections.test.ts).
-  const { follows, ...row } = sourceAccounts[0]!;
-  return { ...row, ...(follows ? { follows: follows.value } : {}) };
+  return sourceAccounts[0]!;
 }
 
 /** Disconnects the Workspace's Gmail connection, as its row's Disconnect does. */

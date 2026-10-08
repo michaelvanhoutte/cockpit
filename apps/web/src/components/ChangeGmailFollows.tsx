@@ -55,7 +55,7 @@ export function ChangeGmailFollows({
 
 function Choice({ account, workspaceId, onClose }: { account: SourceAccount; workspaceId: string; onClose: () => void }) {
   // The value is Gmail's own mark; anything else reads as the label it starts at.
-  const followedNow: GmailMark = gmailMarkSchema.safeParse(account.follows?.value).data ?? 'label';
+  const followedNow: GmailMark = gmailMarkSchema.safeParse(account.follows).data ?? 'label';
   const [follows, setFollows] = useState<GmailMark>(followedNow);
   const command = useCommand();
   const refusal = refusalFrom(command);

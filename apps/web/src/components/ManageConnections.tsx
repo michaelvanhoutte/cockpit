@@ -128,7 +128,7 @@ const GUEST_SENTENCE = 'Sign in with Google to connect your own';
  */
 function rowDetail(account: SourceAccount, names: SourceNames): string {
   const source = sourceNamed(names, account.connectorId);
-  const what = account.follows ? `${source} · ${account.follows.label}` : source;
+  const what = account.follows ? `${source} · ${account.followsLabel ?? account.follows}` : source;
   if (!account.lastTestedAt) return what;
   return `${what} · ${account.follows ? 'last checked' : 'last worked'} ${new Date(account.lastTestedAt).toLocaleString()}`;
 }
@@ -197,10 +197,14 @@ export default function ManageConnections({
     enabled: open,
   });
   // What each source is called, from the Workspace's own snapshot, which is
-  // read anyway - and kept, so the rows are named offline too.
+  // read anyway - and kept, so the rows are named offline too. Never stale
+  // here, so opening this window never re-reads the whole snapshot (which
+  // also counts as a guest opening Dashboards); the Workspace's own readers
+  // keep it current.
   const { data: names } = useQuery({
     ...snapshotQuery(workspaceId),
     enabled: open,
+    staleTime: Infinity,
     select: (snapshot) => snapshot.sourceNames,
   });
   const registry = useQuery({

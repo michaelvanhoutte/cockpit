@@ -193,9 +193,15 @@ describe('Connector management', () => {
       },
       {
         situation: 'a source that follows something says it in its own words',
-        account: { ...ADA, connectorId: 'outlook', follows: { value: 'folder-7', label: 'folder Follow up' } },
+        account: { ...ADA, connectorId: 'outlook', follows: 'folder-7', followsLabel: 'folder Follow up' },
         names: { outlook: 'Outlook' },
         reads: 'Outlook · folder Follow up',
+      },
+      {
+        situation: 'a row from a release that sent no words for what it follows reads the value itself',
+        account: { ...ADA, connectorId: 'outlook', follows: 'folder-7' },
+        names: { outlook: 'Outlook' },
+        reads: 'Outlook · folder-7',
       },
       {
         situation: 'a stored copy from before the names were carried reads each as its id',
@@ -349,7 +355,7 @@ describe('Connector management', () => {
           connectorId: 'gmail',
           displayName: 'anna@example.com',
           lastTestedAt: null,
-          follows: { value: 'label', label: 'label Cockpit' },
+          follows: 'label', followsLabel: 'label Cockpit',
         },
       ];
 
@@ -401,7 +407,7 @@ describe('Connector management', () => {
       id: 'account-anna',
       connectorId: 'gmail',
       displayName: 'anna@example.com',
-      follows: { value: 'star', label: 'starred' },
+      follows: 'star', followsLabel: 'starred',
     };
 
     async function changeWhatIsFollowed(): Promise<HTMLElement> {
@@ -452,7 +458,7 @@ describe('Connector management', () => {
       { situation: 'never checked yet', lastTestedAt: null, failingBecause: null, reads: 'Gmail · label Cockpit', failing: null },
       {
         situation: 'following the star, never checked yet',
-        follows: { value: 'star', label: 'starred' },
+        follows: 'star', followsLabel: 'starred',
         lastTestedAt: null,
         failingBecause: null,
         reads: 'Gmail · starred',
@@ -460,7 +466,7 @@ describe('Connector management', () => {
       },
       {
         situation: 'following the star, after a check',
-        follows: { value: 'star', label: 'starred' },
+        follows: 'star', followsLabel: 'starred',
         lastTestedAt: checkedAt,
         failingBecause: null,
         reads: `Gmail · starred · last checked ${new Date(checkedAt).toLocaleString()}`,
@@ -481,9 +487,9 @@ describe('Connector management', () => {
         failing: 'Failing: there is no label called Cockpit in this account.',
       },
     ])('$situation', async ({ lastTestedAt, failingBecause, reads, failing, ...rest }) => {
-      const follows = 'follows' in rest ? rest.follows : { value: 'label', label: 'label Cockpit' };
+      const followed = 'follows' in rest ? rest : { follows: 'label', followsLabel: 'label Cockpit' };
       held.sourceAccounts = [
-        { ...ADA, id: 'account-anna', connectorId: 'gmail', displayName: 'anna@example.com', lastTestedAt, failingBecause, follows },
+        { ...ADA, id: 'account-anna', connectorId: 'gmail', displayName: 'anna@example.com', lastTestedAt, failingBecause, ...followed },
       ];
 
       showWindow();
