@@ -4,6 +4,7 @@ import {
   FIRST_WORKSPACE_NAME,
   GRID_COLUMNS,
   MOST_ACROSS,
+  NAME_MAX_LENGTH,
   demoAddress,
   filterGroupingSchema,
   filterMatchSchema,
@@ -144,6 +145,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     gettingStarted(accountId),
     END_RUNS_ON_CLOSED_ITEMS,
     PULLED_CONNECTIONS,
+    LAYOUT_ROW_TITLES,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -215,6 +217,38 @@ const PULLED_CONNECTIONS: Change = {
     },
     {
       sql: 'CREATE UNIQUE INDEX IF NOT EXISTS `pulled_links_one_per_item` ON `pulled_links` (`item_id`)',
+    },
+  ],
+};
+
+/**
+ * A Section's title on a Layout's row ("Add, rename and delete a titled Section
+ * on a Dashboard", issue 896) - one nullable column on `layout_rows`, null on
+ * every row of Panels; `schema.ts` says what it carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** it cannot. One statement, committed with the
+ *   record that it ran in one `transactionSync` (store.ts).
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** none can. Every existing row
+ *   takes NULL, which the CHECK accepts, and reads as the row of Panels it was.
+ * - **What is in each environment:** staging and production Layouts are real
+ *   and keep their rows; nothing is rewritten.
+ * - **Rolled back after it has run:** an older release reads rows by explicit
+ *   column and drops a row with no placements, so a Section is not drawn; its
+ *   next save of that Dashboard replaces the rows whole and the titles go.
+ *   Accepted, since only titles are lost.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const LAYOUT_ROW_TITLES: Change = {
+  name: '0060-layout-row-titles',
+  statements: [
+    {
+      sql: `ALTER TABLE \`layout_rows\` ADD COLUMN \`title\` text CONSTRAINT "layout_rows_title_is_a_title" CHECK(title IS NULL OR length(title) BETWEEN 1 AND ${NAME_MAX_LENGTH})`,
     },
   ],
 };

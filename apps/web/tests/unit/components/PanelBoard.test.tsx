@@ -3901,3 +3901,74 @@ describe('Dashboards', () => {
     });
   });
 });
+/**
+ * F1: a Section on the board ("Add, rename and delete a titled Section on a
+ * Dashboard", issue 896). Where it is placed is
+ * apps/web/tests/unit/panels/arrangement.test.ts; what is asked here is how
+ * the board draws it and what its menu offers.
+ */
+describe('Layouts', () => {
+  const withASection: Layout = {
+    id: 'mine',
+    tenantId: 'tenant',
+    dashboardId: 'today',
+    rows: [
+      { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
+      { height: null, title: 'This week', cells: [] },
+      { height: null, cells: [{ panelId: 'reading', span: 12 }] },
+    ],
+  };
+
+  describe('a Section is drawn as a band with its title, no count and no box, and its menu offers Rename and Delete only', () => {
+    it('draws its title between the rows it sits between, as no Panel', () => {
+      showBoard({ layouts: [withASection] });
+
+      const band = screen.getByRole('heading', { name: 'This week' }).closest('[data-panel-row]')!;
+      expect(band).toHaveTextContent(/^This week$/);
+      expect(band.querySelector('section')).toBeNull();
+      const rows = [...document.querySelectorAll('[data-panel-row]')];
+      expect(rows.indexOf(band)).toBe(1);
+      expect(panelOrderOnScreen()).toEqual(['Project Falcon', 'To read']);
+    });
+
+    it('offers Rename and Delete, and nothing a Panel offers', async () => {
+      const { user } = showBoard({ layouts: [withASection] });
+
+      await user.click(menuButtonOf('This week'));
+
+      const entries = (await screen.findAllByRole('menuitem')).map((entry) => entry.textContent);
+      expect(entries).toEqual(['Rename', 'Delete']);
+    });
+  });
+
+  describe("a Section's change is held until the store agrees, so the next one is made to it", () => {
+    it.each([375, 1280])('at %ipx, a second delete before the re-read keeps the first', async (width) => {
+      screenIs(width);
+      const twoSections: Layout = {
+        ...withASection,
+        rows: [...withASection.rows, { height: null, title: 'Later', cells: [] }],
+      };
+      const { user, mutate } = showBoard({ layouts: [twoSections], settles: false });
+
+      await user.click(menuButtonOf('This week'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+      expect(screen.queryByRole('heading', { name: 'This week' })).toBeNull();
+      await user.click(menuButtonOf('Later'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+
+      const [asked] = mutate.mock.calls.at(-1)! as unknown as [{ payload: { rows: { title?: string }[] } }];
+      expect(asked.payload.rows.filter((row) => row.title !== undefined)).toEqual([]);
+    });
+
+    it('closes a rename left open when the board is rearranged, so that change answers for itself', async () => {
+      const { user, mutate } = showBoard({ layouts: [withASection] });
+
+      await user.click(menuButtonOf('This week'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+      dragRowLine(0, 200);
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(screen.queryByLabelText('New title for This week')).toBeNull();
+    });
+  });
+});

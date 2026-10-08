@@ -57,7 +57,15 @@ export const WHAT_A_PANEL_HOLDS = [
   { kind: 'items' as const, label: 'Items', says: 'Holds whatever you file into it.' },
   { kind: 'text' as const, label: 'Text', says: 'A box you write in.' },
   { kind: 'filter' as const, label: 'Filter', says: 'Gathers what matches a rule.' },
+  // Not a Panel at all, but a titled row of the board ("Add, rename and delete
+  // a titled Section on a Dashboard", issue 896), offered where a Panel is
+  // added because that is where a board's structure is added.
+  { kind: 'section' as const, label: 'Section', says: 'A title across the board.' },
 ];
+
+/** What a Section is, said in the question that names one. */
+export const WHAT_A_SECTION_IS =
+  'A title across the dashboard, heading the rows of panels under it. It holds no items itself.';
 
 /**
  * What a Filter says before anybody has told it what to show ("Add a Filter

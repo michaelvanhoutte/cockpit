@@ -235,9 +235,13 @@
     {
       "key": "Layouts",
       "label": "Layouts",
+      "browserWalks": 1,
       "parent": "Dashboards",
       "sourcePatterns": [
         "apps/web/src/panels/arrangement.ts",
+        "apps/web/src/panels/boardRows.ts",
+        "apps/web/src/components/SectionBand.tsx",
+        "apps/web/src/components/PanelBoard.tsx",
         "apps/web/src/panels/useScreenWidth.ts",
         "apps/web/src/components/DashboardBar.tsx",
         "apps/api/src/domain/panels.ts",

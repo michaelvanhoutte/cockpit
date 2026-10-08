@@ -5,8 +5,9 @@ import {
   MAX_ROW_HEIGHT,
   MIN_ROW_HEIGHT,
   MOST_ACROSS,
+  rowIsSection,
 } from '@cockpit/shared';
-import type { Layout, LayoutCell, LayoutRow, Panel } from '@cockpit/shared';
+import type { Layout, LayoutCell, LayoutRow, Panel, RowInput } from '@cockpit/shared';
 
 /**
  * How a dashboard is arranged, decided here and nowhere else - a list of rows,
@@ -85,12 +86,65 @@ export function layoutToDraw(
  * panels it puts side by side: they were made for a wider screen. The panels a
  * Layout does not name come after the placed ones and a deleted one is skipped
  * (`drawnRows`); a Dashboard with no Layout stays in the order its panels were
- * added.
+ * added. **A Section is drawn in its place** among them.
  */
 export function stackedOnPhone(layout: Layout | null, panels: readonly Panel[]): LayoutRow[] {
-  return drawnRows(layout, panels, 0)
-    .flatMap((row) => row.cells)
-    .map((cell) => ({ height: null, cells: [{ panelId: cell.panelId, span: DEFAULT_CELL_SPAN }] }));
+  return stacked(drawnRows(layout, panels, 0));
+}
+
+/** An arrangement as a phone draws it: every Panel on a row of its own, in reading order, and each Section in its place. */
+export function stacked(rows: readonly LayoutRow[]): LayoutRow[] {
+  return rows.flatMap((row): LayoutRow[] =>
+    rowIsSection(row)
+      ? [row]
+      : row.cells.map((cell) => ({
+          height: null,
+          cells: [{ panelId: cell.panelId, span: DEFAULT_CELL_SPAN }],
+        })),
+  );
+}
+
+/**
+ * The rows as a save sends them, named field by field rather than sent as read,
+ * so a row that arrived from a snapshot with something extra on it cannot carry
+ * that back into a change the schema then refuses.
+ */
+export function rowsToSave(rows: readonly LayoutRow[]): RowInput[] {
+  return rows.map((row) =>
+    rowIsSection(row)
+      ? { height: null, title: row.title, cells: [] }
+      : { height: row.height, cells: row.cells.map((cell) => ({ panelId: cell.panelId, span: cell.span })) },
+  );
+}
+
+/**
+ * The arrangement with a Section added at its foot, where a new Panel lands
+ * ("Add, rename and delete a titled Section on a Dashboard", issue 896). A
+ * Section is told apart from another only by where it is, so the two below
+ * name one by how many Sections come before it.
+ */
+export function withSectionAdded(rows: readonly LayoutRow[], title: string): LayoutRow[] {
+  return [...rows, { height: null, title, cells: [] }];
+}
+
+/** The arrangement with the `nth` Section given a new title. */
+export function withSectionRenamed(rows: readonly LayoutRow[], nth: number, title: string): LayoutRow[] {
+  let seen = -1;
+  return rows.map((row) => {
+    if (!rowIsSection(row)) return row;
+    seen += 1;
+    return seen === nth ? { ...row, title } : row;
+  });
+}
+
+/** The arrangement with the `nth` Section taken out, and every Panel where it was. */
+export function withSectionDeleted(rows: readonly LayoutRow[], nth: number): LayoutRow[] {
+  let seen = -1;
+  return rows.filter((row) => {
+    if (!rowIsSection(row)) return true;
+    seen += 1;
+    return seen !== nth;
+  });
 }
 
 /**
@@ -139,9 +193,14 @@ export function drawnRows(
 ): LayoutRow[] {
   if (!layout) return fittedToScreen(panels, availableWidth);
   const live = new Set(panels.map((panel) => panel.id));
+  // A Section holds no Panels and is kept as it is, with nothing under it too.
   const drawn = layout.rows
-    .map((row) => ({ height: row.height, cells: row.cells.filter((cell) => live.has(cell.panelId)) }))
-    .filter((row) => row.cells.length > 0);
+    .map((row) =>
+      rowIsSection(row)
+        ? { height: null, title: row.title, cells: [] }
+        : { height: row.height, cells: row.cells.filter((cell) => live.has(cell.panelId)) },
+    )
+    .filter((row) => row.cells.length > 0 || rowIsSection(row));
   const seen = new Set(drawn.flatMap((row) => row.cells.map((cell) => cell.panelId)));
   for (const panel of panels) {
     if (seen.has(panel.id)) continue;
@@ -191,11 +250,11 @@ export function findCell(
   return null;
 }
 
-/** The rows with one panel taken out, and any row it emptied taken out with it. */
+/** The rows with one panel taken out, and any row it emptied taken out with it; a Section stays. */
 function withoutPanel(rows: readonly LayoutRow[], panelId: string): LayoutRow[] {
   return rows
-    .map((row) => ({ height: row.height, cells: row.cells.filter((cell) => cell.panelId !== panelId) }))
-    .filter((row) => row.cells.length > 0);
+    .map((row) => ({ ...row, cells: row.cells.filter((cell) => cell.panelId !== panelId) }))
+    .filter((row) => row.cells.length > 0 || rowIsSection(row));
 }
 
 /**
@@ -244,7 +303,7 @@ export function movedBeside(
   // which moves every row after it up one.
   const landing = findCell(without, besidePanelId);
   if (!landing) return [...rows];
-  const next = without.map((row) => ({ height: row.height, cells: [...row.cells] }));
+  const next = without.map((row) => ({ ...row, cells: [...row.cells] }));
   next[landing.row]!.cells.splice(side === 'before' ? landing.at : landing.at + 1, 0, {
     panelId,
     span,
@@ -282,7 +341,7 @@ export function movedToOwnRow(
   // Already alone on that line, and the gesture asked for the line it is on:
   // nothing to do, and doing it anyway would send a change that moved nothing.
   if (emptiedItsRow && moving.row === where) return [...rows];
-  const next = without.map((row) => ({ height: row.height, cells: [...row.cells] }));
+  const next = without.map((row) => ({ ...row, cells: [...row.cells] }));
   next.splice(where, 0, {
     height: null,
     cells: [{ panelId, span: DEFAULT_CELL_SPAN }],
@@ -321,6 +380,7 @@ export function sameArrangement(
       const against = other[at]!;
       return (
         row.height === against.height &&
+        row.title === against.title &&
         row.cells.length === against.cells.length &&
         row.cells.every((cell, where) => {
           const facing = against.cells[where]!;
@@ -350,8 +410,11 @@ export function withRowHeight(
   height: number | null,
 ): LayoutRow[] {
   const kept = height === null ? null : Math.round(clamp(height, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT));
+  // A Section's height is fixed, so it is never given one.
   return rows.map((row, at) =>
-    at === rowIndex ? { height: kept, cells: row.cells.map((cell) => ({ ...cell })) } : row,
+    at === rowIndex && !rowIsSection(row)
+      ? { height: kept, cells: row.cells.map((cell) => ({ ...cell })) }
+      : row,
   );
 }
 

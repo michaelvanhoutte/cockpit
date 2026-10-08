@@ -27,7 +27,14 @@ import { DeleteQuestion } from './DeleteQuestion';
 import { RowMenu, SurfaceMenu, opensOnPress, type MenuEntry } from './Menu';
 import { NameQuestion } from './NameQuestion';
 import { RowForm } from './RowForm';
-import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_HOLDS, WHAT_A_PANEL_IS } from '../whatThingsAre';
+import {
+  WHAT_A_DASHBOARD_IS,
+  WHAT_A_PANEL_HOLDS,
+  WHAT_A_PANEL_IS,
+  WHAT_A_SECTION_IS,
+} from '../whatThingsAre';
+import { drawnRows, rowsToSave, withSectionAdded } from '../panels/arrangement';
+import { boardRowsOf } from '../panels/boardRows';
 
 /**
  * The bar under the workspace tabs: the workspace's dashboards, a `+` that adds
@@ -970,9 +977,11 @@ function AddPanel({
    * (`panelKindSchema`), so a panel added without being asked would be a panel
    * of items nobody chose.
    */
-  const [kind, setKind] = useState<PanelKind>('items');
+  const [kind, setKind] = useState<PanelKind | 'section'>('items');
   const command = useCommand();
   const button = useRef<HTMLButtonElement>(null);
+  const { data } = useQuery(snapshotQuery(workspaceId));
+  const section = kind === 'section';
 
   const refusal =
     command.error instanceof CommandRefused
@@ -984,6 +993,35 @@ function AddPanel({
   const add = () => {
     const trimmed = (naming ?? '').trim();
     if (!trimmed) return;
+    if (section) {
+      // A Section is a row of the Dashboard's one Layout, so it is added by
+      // saving the arrangement on screen with it at the foot - which makes the
+      // Layout, from the Panels as drawn, where nobody has arranged one yet.
+      const layout = data?.layouts.find((one) => one.dashboardId === dashboardId) ?? null;
+      const rows =
+        boardRowsOf(dashboardId) ??
+        drawnRows(
+          layout,
+          (data?.panels ?? []).filter((panel) => panel.dashboardId === dashboardId),
+          window.innerWidth,
+        );
+      command.mutate(
+        {
+          name: 'save_layout',
+          payload: {
+            commandId: uuidv7(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            dashboardId,
+            layoutId: layout?.id ?? uuidv7(),
+            carriesSections: true,
+            rows: rowsToSave(withSectionAdded(rows, trimmed)),
+          },
+        },
+        { onSuccess: () => setNaming(null) },
+      );
+      return;
+    }
     command.mutate(
       {
         name: 'add_panel',
@@ -1024,10 +1062,10 @@ function AddPanel({
       </button>
       <NameQuestion
         open={naming !== null}
-        question="What is the new panel called?"
-        explains={WHAT_A_PANEL_IS}
+        question={section ? 'What is the new section called?' : 'What is the new panel called?'}
+        explains={section ? WHAT_A_SECTION_IS : WHAT_A_PANEL_IS}
         alsoAsks={<WhatItHolds kind={kind} onKindChange={setKind} />}
-        fieldLabel="Name of the new panel"
+        fieldLabel={section ? 'Title of the new section' : 'Name of the new panel'}
         placeholder="One-on-ones, Waiting on…"
         submitLabel="Add"
         name={naming ?? ''}
@@ -1048,23 +1086,24 @@ function AddPanel({
 /**
  * What the new panel holds, asked in the same breath as its name.
  *
- * **Two choices in the naming question rather than two controls on the bar.**
- * The bar already carries the dashboards, a `+` and a menu,
- * and a fifth control would push one of them off a laptop. It is also the
- * honest shape: this is one decision with two answers, made at the only moment
- * it can be made.
+ * **The choices are in the naming question rather than controls on the bar.**
+ * The bar already carries the dashboards, a `+` and a menu, and another
+ * control would push one of them off a laptop. It is also the honest shape:
+ * this is one decision, made at the only moment it can be made. A Section is
+ * among them though it is no Panel, since it is added where a board's
+ * structure is added.
  *
- * Radios rather than buttons, because that is what a choice between two
- * exclusive answers is - and what gives a keyboard the arrow keys and a screen
- * reader "one of two". The circles are hidden and the whole card is the target,
+ * Radios rather than buttons, because that is what a choice between exclusive
+ * answers is - and what gives a keyboard the arrow keys and a screen reader
+ * "one of four". The circles are hidden and the whole card is the target,
  * which is why the label carries the focus ring.
  */
 function WhatItHolds({
   kind,
   onKindChange,
 }: {
-  kind: PanelKind;
-  onKindChange: (kind: PanelKind) => void;
+  kind: PanelKind | 'section';
+  onKindChange: (kind: PanelKind | 'section') => void;
 }) {
   return (
     <fieldset className="mt-6">
