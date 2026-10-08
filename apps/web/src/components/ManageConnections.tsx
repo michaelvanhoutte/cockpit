@@ -96,13 +96,13 @@ function connectPath(workspaceId: string, connectorId: string): string {
  */
 const GMAIL_CARD: Card = {
   id: GMAIL,
-  name: 'Gmail',
+  name: connectorNamed(GMAIL),
   // That the label and the task stay in step (issue 724).
   text: 'Label a conversation Cockpit in Gmail and it becomes a task here. Finishing the task takes the label off. Cockpit reads labelled mail only.',
 };
 const CLAUDE_CODE_CARD: Card = {
   id: CLAUDE_CODE,
-  name: 'Claude Code',
+  name: connectorNamed(CLAUDE_CODE),
   text: 'A routine that starts a Claude Code session on this workspace’s items.',
 };
 
@@ -201,7 +201,8 @@ export default function ManageConnections({
   const registry = useQuery({
     queryKey: ['registeredConnectors'],
     queryFn: fetchRegisteredConnectors,
-    enabled: open,
+    // Only Connections draws from it.
+    enabled: open && section !== 'agents',
   });
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [claudeCodeForm, setClaudeCodeForm] = useState(false);
@@ -222,7 +223,10 @@ export default function ManageConnections({
   const command = useCommand();
   const testClaudeCode = useTestClaudeCodeConnection(workspaceId);
 
-  const registered = (registry.data?.connectors ?? []).map(
+  const registered = (registry.data?.connectors ?? [])
+    // The two named cards win over a registered connector of the same id.
+    .filter((connector) => connector.id !== GMAIL && connector.id !== CLAUDE_CODE)
+    .map(
     (connector): Card => ({ id: connector.id, name: connector.displayName, text: connector.cardText }),
   );
   const cards = [

@@ -1551,7 +1551,12 @@ const routes = app
     c.json(
       {
         connectors: connectors(c.env)
-          .filter(({ manifest }) => manifest.auth.kind === 'oauth2')
+          .filter(({ manifest }) => {
+            // Listed only where Connect would go through: the same sign-in and
+            // client the connect route reads.
+            const sign = signInOf(c.env, manifest.id);
+            return sign !== null && clientOf(c.env, sign.auth) !== null;
+          })
           .map(({ manifest }) => ({
             id: manifest.id,
             displayName: manifest.displayName,

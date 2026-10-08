@@ -529,7 +529,7 @@ describe('Connector management', () => {
       expect(await screen.findByText(/Nothing connected yet/)).toBeInTheDocument();
       // Nothing is connected, so each connector's name appears exactly once -
       // on its own Add-a-connection row.
-      expect(screen.getByText('Microsoft Teams')).toBeInTheDocument();
+      expect(await screen.findByText('Microsoft Teams')).toBeInTheDocument();
       expect(screen.getByText('Claude Code')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Connect Microsoft Teams' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Connect Claude Code' })).toBeInTheDocument();
@@ -562,7 +562,7 @@ describe('Connector management', () => {
       expect(await screen.findByText(/last worked/)).toBeInTheDocument();
       expect(screen.getByText('Connected - one per workspace')).toBeInTheDocument();
       // Teams is still offered - only Claude Code is capped at one.
-      expect(screen.getByRole('button', { name: 'Connect Microsoft Teams' })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Connect Microsoft Teams' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Connect Claude Code' })).toBeNull();
     });
   });
