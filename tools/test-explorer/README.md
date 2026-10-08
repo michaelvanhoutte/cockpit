@@ -14,7 +14,8 @@ The report from the tip of `main` is published on every merge, at
 **<https://michaelvanhoutte.github.io/cockpit/>** — no sign-in needed. The CI stability
 page is at `/stability/` ([`tools/ci-stability`](../ci-stability/README.md)), the lead-time
 page at `/lead-time/` ([`tools/lead-time`](../lead-time/README.md)) and the test-selection
-page at `/selection/` ([`tools/selection`](../selection/README.md)); the four link to one another.
+page at `/selection/` ([`tools/selection`](../selection/README.md)); those four link to one another, and the
+architecture page at `/architecture/` ([`tools/architecture`](../architecture/README.md)) links to them.
 
 Every run on every branch, `main` included, also uploads its report as the
 `test-explorer-report` artifact, which is where a pull request's own report is, and where

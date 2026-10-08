@@ -1,10 +1,11 @@
 name: Publish
 
-# The four reports' one publish path, called from wherever a fresh one exists —
+# The five reports' one publish path, called from wherever a fresh one exists —
 # ci.yml after a merge (the test explorer, the stability report) and
 # nightly.yml after its own run (the lead-time report, the test-selection
-# report) — so a report goes live as soon as something built it, not only when
-# the next unrelated merge happens to carry it in ("Publish nightly's reports
+# report, the architecture report) — so a report goes live as soon as
+# something built it, not only when the next unrelated merge happens to carry
+# it in ("Publish nightly's reports
 # the same night, and make a manual run go live too", issue 563).
 #
 # Every report is fetched the same way regardless of which workflow called
@@ -12,7 +13,7 @@ name: Publish
 # `main`, never the newest *successful* run, so one report's failure never
 # costs another's page — the same tolerance "Run the lead-time report
 # nightly, and publish it beside the other two" (issue 515) established for
-# the lead-time and test-selection reports, now true of all four.
+# the lead-time and test-selection reports, now true of all five.
 on:
   workflow_call:
 
@@ -84,11 +85,12 @@ jobs:
           runs=$(jq -sc 'add' <<< "${CI_RUNS:-[]}"$'\n'"${NIGHTLY_RUNS:-[]}")
           echo "runs=$runs" >> "$GITHUB_OUTPUT"
 
-      # The site is four reports, assembled here rather than uploaded by
+      # The site is five reports, assembled here rather than uploaded by
       # whichever job finished last: the explorer at the root, the stability
       # page one directory down at /stability/, the lead-time page at
-      # /lead-time/ and the test-selection page at /selection/. Each stays
-      # downloadable on its own as the artifact its own job uploaded.
+      # /lead-time/, the test-selection page at /selection/ and the architecture
+      # page at /architecture/. Each stays downloadable on its own as the
+      # artifact its own job uploaded.
       - name: Find the test explorer's report
         id: explorer
         uses: ./.github/actions/find-artifact
@@ -98,7 +100,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Take the test explorer's report
         # It is not allowed to be missing — it is the page — so this one is
-        # never continue-on-error the way the other three are.
+        # never continue-on-error the way the other four are.
         uses: actions/download-artifact@v4
         with:
           name: test-explorer-report
@@ -159,6 +161,24 @@ jobs:
           name: test-selection-report
           path: site/selection/
           run-id: ${{ steps.selection.outputs.run-id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Find the architecture page
+        id: architecture
+        continue-on-error: true
+        uses: ./.github/actions/find-artifact
+        with:
+          name: architecture-report
+          runs: ${{ steps.runs.outputs.runs }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Take the architecture page, if there is one
+        if: ${{ steps.architecture.outputs.run-id != '' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: architecture-report
+          path: site/architecture/
+          run-id: ${{ steps.architecture.outputs.run-id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/upload-pages-artifact@v3

@@ -1,0 +1,27 @@
+{
+  "name": "@cockpit/architecture",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Draws how Cockpit is built from the checked-out repository alone: today the Deployment view, every environment the Worker config declares with the resources it binds, and every workflow with what starts it and what it deploys.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "generate": "node src/cli.js",
+    "model": "node src/cli.js --json",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:fast": "pnpm test:unit",
+    "test:all": "vitest run",
+    "test:coverage": "vitest run"
+  },
+  "dependencies": {
+    "jsonc-parser": "^3.3.1",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

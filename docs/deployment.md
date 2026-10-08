@@ -95,11 +95,12 @@ Workers AI binding — which has no local simulator, so a local run that declare
 one would need a Cloudflare account to start at all ("Flag a captured note that
 says what another one already said", issue 407).
 A third *GitHub* environment, `github-pages`, does exist beside these two and holds no
-part of the app: it is where CI publishes the four reports from `main` — the test
+part of the app: it is where CI publishes the five reports from `main` — the test
 explorer at the root (`tools/test-explorer/README.md`), the CI stability page at
 `/stability/` (`tools/ci-stability/README.md`), the lead-time page at
-`/lead-time/` (`tools/lead-time/README.md`) and the test-selection page at
-`/selection/` (`tools/selection/README.md`).
+`/lead-time/` (`tools/lead-time/README.md`), the test-selection page at
+`/selection/` (`tools/selection/README.md`) and the architecture page at
+`/architecture/` (`tools/architecture/README.md`).
 
 **Both are reachable by anyone who knows the URL**, with Cockpit's own sign-in the
 only thing in the way — see "Secrets and access" for what that is worth today. The
@@ -1083,11 +1084,12 @@ Then, by hand (no API, or deliberately not automated):
    It is a dashboard setting with no API to read it back from.
 
 4. **GitHub Pages**, at Settings → Pages → Source: **GitHub Actions**. `publish.yml`
-   deploys the four reports there from `main` — the test explorer
+   deploys the five reports there from `main` — the test explorer
    (`tools/test-explorer/README.md`), the CI stability page
    (`tools/ci-stability/README.md`), the lead-time page
-   (`tools/lead-time/README.md`) and the test-selection page
-   (`tools/selection/README.md`) — called from both `ci.yml`'s `Publish` job on
+   (`tools/lead-time/README.md`), the test-selection page
+   (`tools/selection/README.md`) and the architecture page
+   (`tools/architecture/README.md`) — called from both `ci.yml`'s `Publish` job on
    every merge and `nightly.yml`'s own `Publish` job, so a nightly run goes
    live the same night rather than waiting on the next merge ("Publish
    nightly's reports the same night, and make a manual run go live too", issue
