@@ -32,6 +32,9 @@ playwright-report/
 backups/
 *.partial
 
+# Usage exports (`pnpm usage:export`) name users, and this repository is public.
+usage/
+
 # What the Test job selected, and why (scripts/ci-test.mjs)
 test-record/
 e2e-record/

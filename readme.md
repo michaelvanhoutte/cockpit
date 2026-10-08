@@ -106,6 +106,12 @@ pnpm backup:export --env production --out ./backups/latest --force
 
 Taking a backup changes nothing about the environment it reads, deliberately — including not bringing any account up to date.
 
+The usage records of paid provider calls (who spent what, on which operation) go to a CSV for Excel with the same token:
+
+```bash
+pnpm usage:export --env production --days 30 --out ./usage/2026-10.csv
+```
+
 Putting one back is the same shape, and is the half that destroys something:
 
 ```bash

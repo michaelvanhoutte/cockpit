@@ -22,3 +22,4 @@ export * from './api/events.js';
 export * from './api/users.js';
 export * from './api/connected-apps.js';
 export * from './api/usage.js';
+export * from './api/usage-export.js';

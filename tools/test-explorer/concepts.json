@@ -75,6 +75,7 @@
       "sourcePatterns": [
         "apps/api/src/gateway/attempts.ts",
         "apps/api/src/gateway/record.ts",
+        "apps/api/src/gateway/export.ts",
         "apps/api/src/ai/index.ts"
       ]
     },
