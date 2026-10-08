@@ -164,7 +164,7 @@ describe('Modules', () => {
   });
 
   describe('the layout is computed from the model, so nothing overlaps as areas grow', () => {
-    const cards = (html) => [...html.slice(html.indexOf('id="modules"'), html.indexOf('id="deployment"')).matchAll(/<rect class="(?:box|breach|undescribed|ghost|clean)" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/g)].map((each) => each.slice(1).map(Number));
+    const cards = (html) => [...html.slice(html.indexOf('id="modules"'), html.indexOf('id="deployment"')).matchAll(/<rect class="(?:box|breach|undescribed|ghost|clean)" data-area="[^"]*" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/g)].map((each) => each.slice(1).map(Number));
     const overlap = ([ax, ay, aw, ah], [bx, by, bw, bh]) => ax < bx + bw && bx < ax + aw && ay < by + bh && by < ay + ah;
 
     it('places thirty areas of very different heights in rows of cards that never overlap each other', () => {
@@ -178,7 +178,7 @@ describe('Modules', () => {
     it('sizes the picture to hold the last row, however tall', () => {
       const html = viewOf(described(...Array.from({ length: 9 }, (_, index) => `apps/api/src/a${index}`)), []);
       const bottom = Math.max(...cards(html).map(([, y, , h]) => y + h));
-      expect(Number(html.match(/<svg viewBox="0 0 1200 (\d+)"[^>]*aria-label="Module map/)[1])).toBeGreaterThan(bottom);
+      expect(Number(html.match(/<svg viewBox="0 0 \d+ (\d+)"[^>]*aria-label="Module map/)[1])).toBeGreaterThan(bottom);
     });
   });
 });

@@ -1,28 +1,37 @@
 /**
- * The Modules diagram, computed from the model: a band per layer, a card per
- * area in a grid inside it. A card is as tall as its wording and marks need
- * and a row of cards as tall as its tallest, so nothing is placed by hand and
- * nothing can overlap however many areas or marks there are.
+ * The Modules diagram, computed from the model: a lane per layer (the web app,
+ * the API, the packages), a box per area on the row below everything that
+ * imports it, and an arrow for each import of the shortest chain, weighted and
+ * labelled by its file count. An import back up the chain is a red arrow with
+ * its count, marked a tie where the order could not say which half of the
+ * cycle is wrong.
  *
- * A card's outline says what is wrong with it, if anything; its lines say why.
+ * Every size is derived from what the model holds: a box wraps its name and
+ * grows with its marks, a row is as tall as its tallest box, and a lane as
+ * wide as its fullest row, so no two boxes can meet however many areas a row
+ * holds or however long a name is.
+ *
+ * A box's outline says what is wrong with it, if anything; its lines say why.
  */
 
+import { layoutModules } from '../layout.js';
 import { esc, MONO, SANS, wrap } from './svg.js';
 
-const WIDTH = 1200;
 const PAD = 16;
-const BAND_PAD = 16;
-const GAP = 16;
+const LANE_PAD = 16;
+const LANE_GAP = 24;
+const BOX_WIDTH = 240;
+const BOX_GAP = 20;
+const ROW_GAP = 72;
 const LINE = 18;
-const MAX_COLUMNS = 4;
+const HEADER = 40;
 /** Files listed under a mark before "+N more": the model holds them all. */
 const SHOWN = 3;
 
 const UNDESCRIBED_TITLE = 'Not in the description file';
-const UNDESCRIBED_NOTE = 'Areas on disk that tools/architecture/description.yml does not mention yet.';
 
-/** The lines a card says, each with the dot (or none) it starts with. */
-function linesOf(area, width) {
+/** The lines a box says, each with the dot (or none) it starts with. */
+function linesOf(area, lineCount, width) {
   const text = width - 44;
   const lines = [];
   const say = (kind, dot, words, perChar = SANS) => wrap(words, text, perChar).forEach((line, index) => lines.push({ kind, dot: index === 0 ? dot : null, text: line }));
@@ -31,9 +40,9 @@ function linesOf(area, width) {
     if (list.length > SHOWN) lines.push({ kind: 't-m', dot: null, text: `+${list.length - SHOWN} more` });
   };
 
+  if (lineCount !== null) lines.push({ kind: 't-m', dot: null, text: `${lineCount.toLocaleString('en-GB')} lines` });
   if (area.state === 'gone') say('t-red', 'd-red', 'Gone: the description file describes it, but it is not on disk');
   if (area.state === 'undescribed') say('t-amber', 'd-amber', 'Undescribed: not in the description file');
-  if (area.description) say('t-i', null, area.description);
   for (const source of area.sources) {
     say('t-red', 'd-red', `Names ${source.name} in ${source.files.length === 1 ? '1 file' : `${source.files.length} files`}`);
     files(source.files);
@@ -57,57 +66,122 @@ function outlineOf(area) {
   return 'box';
 }
 
+/** Where the segment from the centre of `box` towards (tx, ty) leaves it. */
+function leaving(box, tx, ty) {
+  const dx = tx - box.cx;
+  const dy = ty - box.cy;
+  let t = 1;
+  for (const [p, q] of [[-dx, box.cx - box.x], [dx, box.x + box.width - box.cx], [-dy, box.cy - box.y], [dy, box.y + box.height - box.cy]]) if (p > 0) t = Math.min(t, q / p);
+  return [box.cx + dx * t, box.cy + dy * t];
+}
+
+const countOf = (n) => n.toLocaleString('en-GB');
+const strokeFor = (files) => (1 + Math.log2(Math.max(files, 1)) * 0.55).toFixed(2);
+
 export function renderModules(model) {
   const { layers } = model.modules;
-  const innerWidth = WIDTH - 2 * (PAD + BAND_PAD);
-  const parts = [];
-  let y = PAD;
+  const lineCounts = new Map(model.dependencies.areas.map((each) => [each.path, each.lines]));
+  const lanes = layers.filter((layer) => layer.areas.length > 0);
+  const allAreas = lanes.flatMap((layer) => layer.areas);
+  const { rows, down, up } = layoutModules({ paths: allAreas.map((each) => each.path), cells: model.dependencies.cells, undecidedPairs: model.dependencies.undecidedPairs });
 
-  for (const layer of layers) {
-    const title = layer.title ?? UNDESCRIBED_TITLE;
-    const note = layer.title === null ? UNDESCRIBED_NOTE : layer.note;
-    const columns = MAX_COLUMNS;
-    const cardWidth = (innerWidth - (columns - 1) * GAP) / columns;
-    const noteLines = note ? wrap(note, innerWidth, SANS) : [];
+  // ---- boxes: wrapped name, marks, height
+  const boxes = new Map();
+  for (const area of allAreas) {
+    const lines = linesOf(area, lineCounts.get(area.path) ?? null, BOX_WIDTH);
+    const nameLines = wrap(area.name ?? area.path, BOX_WIDTH - 28, MONO);
+    boxes.set(area.path, { area, lines, nameLines, row: rows.get(area.path) ?? 0, width: BOX_WIDTH, height: 16 + nameLines.length * LINE + 6 + Math.max(lines.length, 1) * LINE + 12 });
+  }
+  const rowCount = Math.max(0, ...[...boxes.values()].map((each) => each.row)) + 1;
+  const rowHeight = Array.from({ length: rowCount }, (_, row) => Math.max(0, ...[...boxes.values()].filter((each) => each.row === row).map((each) => each.height)));
+  const rowTop = [];
+  let y = PAD + HEADER + LANE_PAD;
+  for (const height of rowHeight) {
+    rowTop.push(y);
+    y += height + ROW_GAP;
+  }
+  const bottom = y - ROW_GAP + LANE_PAD;
 
-    const cards = layer.areas.map((area) => {
-      const lines = linesOf(area, cardWidth);
-      const titleLines = wrap(area.path, cardWidth - 28, MONO);
-      return { area, lines, titleLines, height: 16 + titleLines.length * LINE + 8 + Math.max(lines.length, 1) * LINE + 12 };
-    });
-    const rows = [];
-    for (let i = 0; i < cards.length; i += columns) rows.push(cards.slice(i, i + columns));
-
-    const headerHeight = 38 + noteLines.length * LINE;
-    const bandHeight = BAND_PAD + headerHeight + rows.reduce((sum, row) => sum + Math.max(...row.map((each) => each.height)) + GAP, 0) - (rows.length ? GAP : 0) + BAND_PAD;
-    parts.push(
-      `<rect class="soft" x="${PAD}" y="${y}" width="${WIDTH - 2 * PAD}" height="${bandHeight}" rx="6"/>`,
-      `<text class="t-h" x="${PAD + BAND_PAD}" y="${y + BAND_PAD + 14}">${esc(title)}</text>`,
-      ...noteLines.map((line, index) => `<text class="t-m" x="${PAD + BAND_PAD}" y="${y + BAND_PAD + 36 + index * LINE}">${esc(line)}</text>`),
-    );
-
-    let rowTop = y + BAND_PAD + headerHeight;
-    for (const row of rows) {
-      const rowHeight = Math.max(...row.map((each) => each.height));
-      row.forEach((card, column) => {
-        const x = PAD + BAND_PAD + column * (cardWidth + GAP);
-        parts.push(`<rect class="${outlineOf(card.area)}" x="${x}" y="${rowTop}" width="${cardWidth}" height="${rowHeight}" rx="5"/>`);
-        card.titleLines.forEach((line, index) => parts.push(`<text class="t-h" x="${x + 14}" y="${rowTop + 26 + index * LINE}">${esc(line)}</text>`));
-        const bodyTop = rowTop + 16 + card.titleLines.length * LINE + 8 + 12;
-        card.lines.forEach((line, index) => {
-          const baseline = bodyTop + index * LINE;
-          if (line.dot) parts.push(`<circle class="${line.dot}" cx="${x + 18}" cy="${baseline - 4}" r="4"/>`);
-          parts.push(`<text class="${line.kind}" x="${x + (line.dot ? 30 : 14) + (line.indent ?? 0)}" y="${baseline}">${esc(line.text)}</text>`);
-        });
+  // ---- lanes: as wide as their fullest row; boxes of a row centred in it
+  const laneBoxes = lanes.map((layer) => layer.areas.map((each) => boxes.get(each.path)));
+  let x = PAD;
+  const laneFrames = lanes.map((layer, index) => {
+    const perRow = Array.from({ length: rowCount }, (_, row) => laneBoxes[index].filter((each) => each.row === row));
+    const widest = Math.max(1, ...perRow.map((each) => each.length));
+    const width = 2 * LANE_PAD + widest * BOX_WIDTH + (widest - 1) * BOX_GAP;
+    perRow.forEach((inRow, row) => {
+      const span = inRow.length * BOX_WIDTH + (inRow.length - 1) * BOX_GAP;
+      inRow.forEach((box, at) => {
+        box.x = x + (width - span) / 2 + at * (BOX_WIDTH + BOX_GAP);
+        box.y = rowTop[row];
       });
-      rowTop += rowHeight + GAP;
-    }
-    y += bandHeight + GAP;
+    });
+    const frame = { layer, x, width };
+    x += width + LANE_GAP;
+    return frame;
+  });
+  for (const box of boxes.values()) {
+    box.cx = box.x + box.width / 2;
+    box.cy = box.y + box.height / 2;
+  }
+  const width = Math.max(x - LANE_GAP + PAD, 2 * PAD + 200);
+
+  const parts = [];
+  for (const { layer, x: laneX, width: laneWidth } of laneFrames) {
+    const title = layer.title ?? UNDESCRIBED_TITLE;
+    parts.push(
+      `<rect class="soft" x="${laneX}" y="${PAD}" width="${laneWidth}" height="${bottom - PAD}" rx="6">${layer.note ? `<title>${esc(layer.note)}</title>` : ''}</rect>`,
+      `<text class="t-h" x="${laneX + LANE_PAD}" y="${PAD + 26}">${esc(title)}</text>`,
+    );
   }
 
-  const height = Math.ceil(y - GAP + PAD);
-  const label = `Module map of Cockpit: ${layers.map((layer) => `${layer.title ?? UNDESCRIBED_TITLE} (${layer.areas.length})`).join(', ')}.`;
-  return `<svg viewBox="0 0 ${WIDTH} ${height}" style="min-width:900px" role="img" aria-label="${esc(label)}">
+  // ---- arrows under the boxes, their labels over them
+  const labels = [];
+  const arrowsFor = (list, up_) =>
+    list.forEach((each) => {
+      const from = boxes.get(each.from);
+      const to = boxes.get(each.to);
+      const [sx, sy] = leaving(from, to.cx, to.cy);
+      const [ex, ey] = leaving(to, from.cx, from.cy);
+      const label = `${countOf(each.files)}${each.tie ? ' (tie)' : ''}`;
+      const named = `${from.area.name ?? from.area.path} imports ${to.area.name ?? to.area.path} in ${countOf(each.files)} ${each.files === 1 ? 'file' : 'files'}${each.tie ? ', the same as the import the other way' : ''}`;
+      if (!up_) {
+        parts.push(`<line class="edge" x1="${sx.toFixed(1)}" y1="${sy.toFixed(1)}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke-width="${strokeFor(each.files)}" marker-end="url(#mod-arrow)"><title>${esc(named)}</title></line>`);
+        labels.push({ x: (sx + ex) / 2 + 6, y: (sy + ey) / 2 - 3, text: label, kind: '' });
+        return;
+      }
+      const dx = ex - sx;
+      const dy = ey - sy;
+      const length = Math.hypot(dx, dy) || 1;
+      const cx = (sx + ex) / 2 - (dy / length) * 28;
+      const cy = (sy + ey) / 2 + (dx / length) * 28;
+      parts.push(`<path class="edge-up" d="M${sx.toFixed(1)},${sy.toFixed(1)} Q${cx.toFixed(1)},${cy.toFixed(1)} ${ex.toFixed(1)},${ey.toFixed(1)}" marker-end="url(#mod-arrow-up)"><title>${esc(named)}</title></path>`);
+      labels.push({ x: cx + 6, y: cy, text: label, kind: ' up' });
+    });
+  arrowsFor(down, false);
+  arrowsFor(up, true);
+
+  // ---- boxes
+  for (const { area, lines, nameLines, x: bx, y: by, width: bw, height: bh } of boxes.values()) {
+    parts.push(`<rect class="${outlineOf(area)}" data-area="${esc(area.path)}" x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="5">${area.description ? `<title>${esc(area.description)}</title>` : ''}</rect>`);
+    nameLines.forEach((line, index) => parts.push(`<text class="t-h" x="${bx + 14}" y="${by + 26 + index * LINE}">${esc(line)}</text>`));
+    const bodyTop = by + 16 + nameLines.length * LINE + 6 + 12;
+    lines.forEach((line, index) => {
+      const baseline = bodyTop + index * LINE;
+      if (line.dot) parts.push(`<circle class="${line.dot}" cx="${bx + 18}" cy="${baseline - 4}" r="4"/>`);
+      parts.push(`<text class="${line.kind}" x="${bx + (line.dot ? 30 : 14) + (line.indent ?? 0)}" y="${baseline}">${esc(line.text)}</text>`);
+    });
+  }
+  for (const label of labels) parts.push(`<text class="e-lbl${label.kind}" x="${label.x.toFixed(1)}" y="${label.y.toFixed(1)}">${esc(label.text)}</text>`);
+
+  const height = Math.ceil(bottom + PAD);
+  const named = lanes.map((layer) => `${layer.title ?? UNDESCRIBED_TITLE} (${layer.areas.length})`).join(', ');
+  const label = `Module map of Cockpit, each area below everything that imports it: ${named}. ${down.length} imports drawn, ${up.length} pointing back up.`;
+  return `<svg viewBox="0 0 ${Math.ceil(width)} ${height}" style="min-width:${Math.min(Math.ceil(width), 900)}px" role="img" aria-label="${esc(label)}">
+  <defs>
+    <marker id="mod-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mh" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="mod-arrow-up" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="mh-up" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
   ${parts.join('\n  ')}
 </svg>`;
 }

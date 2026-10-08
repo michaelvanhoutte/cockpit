@@ -97,8 +97,10 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
 
   <section id="modules">
   <h2>Modules</h2>
-  <p class="sectionnote">Every area of the web app, the API and the packages, as the description file words them. The marks are shown and nothing fails on them.</p>
+  <p class="sectionnote">Every area of the web app, the API and the packages, each on the row below everything that imports it. Only the shortest chain of imports is drawn, each arrow labelled with the files that make it. The marks are shown and nothing fails on them.</p>
   <div class="legend">
+    <span><i class="ln"></i>Imports an area below</span>
+    <span><i class="ln up"></i>An import back up the chain, closing a cycle, with its files; a tie where both halves are the same size</span>
     <span><i class="sw d-red"></i>${esc(sourceMarkLegend(counts, sources))}</span>
     <span><i class="sw d-amber"></i>Undescribed${counts.undescribed ? ` (${counts.undescribed})` : ''}</span>
     <span><i class="sw d-red"></i>Gone: described, not on disk${counts.gone ? ` (${counts.gone})` : ''}</span>

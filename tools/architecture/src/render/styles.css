@@ -92,6 +92,14 @@ nav.views a { color: var(--accent); text-decoration: none; }
 .t-hl-m { font-weight: 400; }
 .t-m { font: 400 12px var(--sans); fill: var(--ink-3); }
 .t-mono { font-family: var(--mono); }
+.edge { stroke: var(--neutral); fill: none; }
+.edge-up { stroke: var(--red); stroke-width: 2; fill: none; }
+.mh { fill: var(--neutral); }
+.mh-up { fill: var(--red); }
+.e-lbl { font: 500 11px var(--mono); fill: var(--ink-3); paint-order: stroke; stroke: var(--card); stroke-width: 3px; }
+.e-lbl.up { fill: var(--red); font-weight: 600; }
+.ln { flex: none; width: 22px; height: 0; border-top: 2px solid var(--neutral); display: inline-block; }
+.ln.up { border-top-color: var(--red); }
 
 /* The dependency matrix: a table, scrolling inside its own container */
 .dsm { border-collapse: separate; border-spacing: 2px; width: auto; font: 500 12px var(--mono); }
