@@ -173,9 +173,26 @@ describe('What changed', () => {
       expect(text).toContain('not in this checkout');
     });
 
-    it('says there is nothing to compare when the earlier commit cannot be drawn', async () => {
+    it('says there is nothing to compare when the earlier commit cannot be drawn, and leaves no checkout of it behind', async () => {
       const { root: repo, ids } = repository([{ ...base, 'apps/api/wrangler.jsonc': null }, { 'apps/api/wrangler.jsonc': CONFIG }]);
       expect(await whatChanged(repo, published(ids[0]))).toContain('could not be drawn');
+      expect(git(repo, 'worktree', 'list').split('\n')).toHaveLength(1);
+    });
+
+    it.each(['--output=pwned', '-h', '--help', 'HEAD', 'main', '', ' 1234567', '1234567\n--all', 'g234567890abcdef'])(
+      'never hands %j from the live model to git, so it is nothing to compare',
+      async (commit) => {
+        const { root: repo } = repository([base]);
+        const text = await whatChanged(repo, published(commit));
+        expect(text).toContain('There is nothing to compare');
+        expect(text).toContain('names no commit');
+        expect(git(repo, 'worktree', 'list').split('\n')).toHaveLength(1);
+      },
+    );
+
+    it('compares with a live model that names its commit abbreviated', async () => {
+      const { root: repo, ids } = repository([base, { 'apps/api/src/http/app.ts': "export const a = 'gmail';\n" }]);
+      expect(await whatChanged(repo, published(ids[0].slice(0, 9)))).toContain('http names Gmail');
     });
 
     it('compares with a model fetched from an address', async () => {

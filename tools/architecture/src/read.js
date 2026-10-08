@@ -123,15 +123,18 @@ export function readCheckout(root, { commit: named, fallbackDescription } = {}) 
     candidates,
     workflows: names.map((name) => ({ file: name, text: readText(root, `${WORKFLOWS_DIR}/${name}`) })),
     commit,
-    date: commit ? git(root, ['show', '-s', '--format=%cI', commit]) : null,
+    date: commit ? git(root, ['show', '-s', '--format=%cI', '--end-of-options', commit]) : null,
     repo: process.env.GITHUB_REPOSITORY ?? null,
     descriptionFromElsewhere: !own && Boolean(fallbackDescription),
   };
 }
 
+/** A full or abbreviated hex object id: the only shape of commit that is ever handed to git, so a value from a fetched model can never be read as an option. */
+export const isObjectId = (value) => typeof value === 'string' && /^[0-9a-f]{7,64}$/i.test(value);
+
 /** Whether the commit is one this checkout's history holds. */
 export function hasCommit(root, commit) {
-  return /^[0-9a-f]{7,64}$/i.test(commit) && git(root, ['cat-file', '-t', `${commit}^{commit}`]) === 'commit';
+  return isObjectId(commit) && git(root, ['cat-file', '-t', '--end-of-options', `${commit}^{commit}`]) === 'commit';
 }
 
 /**
@@ -139,9 +142,10 @@ export function hasCommit(root, commit) {
  * it afterwards whatever `use` does. Nothing in the working tree being drawn is touched.
  */
 export async function atCommit(root, commit, use) {
+  if (!isObjectId(commit)) throw new ReadError(String(commit), 'is not a commit id');
   const folder = path.join(mkdtempSync(path.join(tmpdir(), 'architecture-at-')), 'tree');
   try {
-    execFileSync('git', ['-C', root, 'worktree', 'add', '--detach', '--force', folder, commit], { stdio: 'ignore' });
+    execFileSync('git', ['-C', root, 'worktree', 'add', '--detach', '--force', '--end-of-options', folder, commit], { stdio: 'ignore' });
   } catch {
     rmSync(path.dirname(folder), { recursive: true, force: true });
     throw new ReadError(commit, 'cannot be checked out');
@@ -149,7 +153,7 @@ export async function atCommit(root, commit, use) {
   try {
     return await use(folder);
   } finally {
-    git(root, ['worktree', 'remove', '--force', folder]);
+    git(root, ['worktree', 'remove', '--force', '--end-of-options', folder]);
     git(root, ['worktree', 'prune']);
     rmSync(path.dirname(folder), { recursive: true, force: true });
   }
@@ -177,7 +181,7 @@ export async function readPreviousModel(location, { fetchImpl = fetch } = {}) {
   }
   try {
     const model = JSON.parse(text);
-    return typeof model?.drawnFrom?.commit === 'string' ? { model } : { unreadable: 'the previous model names no commit' };
+    return isObjectId(model?.drawnFrom?.commit) ? { model } : { unreadable: 'the previous model names no commit' };
   } catch {
     return { unreadable: 'the previous model is not valid JSON' };
   }
