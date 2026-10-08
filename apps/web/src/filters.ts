@@ -11,7 +11,13 @@ import type {
   PanelSort,
   Panel,
 } from '@cockpit/shared';
-import { NO_CONDITIONS, itemStatus, panelGathers, panelTakesItems } from '@cockpit/shared';
+import {
+  NO_CONDITIONS,
+  itemStatus,
+  panelGathers,
+  panelTakesItems,
+  statusValuesOf,
+} from '@cockpit/shared';
 import { filingsThatFile, itemsThatAreFiled } from './filing';
 import { PRIORITY_LABELS } from './priority';
 import { DEFAULT_FILTER_SORT, inSortOrder } from './sorting';
@@ -134,6 +140,15 @@ export function isAPeriod(window: DueWindow): boolean {
  * deleting leaves a condition with no live value left, every Item fails to
  * match and the condition matches nothing, never widening to stand for every
  * Type or every Panel.
+ *
+ * **An *is not* condition matches an Item holding none of its live values**
+ * ("Include or exclude a Filter panel condition's values, and filter on To do
+ * as well as In progress", issue 908), so an Item with no Priority or no Type
+ * passes, and an Item filed on any one excluded Panel fails. **With no live
+ * value left it filters nothing** - the opposite of an *is* condition left in
+ * the same state: it lets every Item through under *all*, and under *any*
+ * (`match`) adds none, since a condition that excludes nothing says nothing
+ * about which Items to add.
  */
 function holdsFor(
   condition: FilterCondition,
@@ -142,7 +157,28 @@ function holdsFor(
   liveTypeIds: ReadonlySet<string>,
   livePanelIds: ReadonlySet<string>,
   filedPanelIds: ReadonlySet<string>,
+  match: PanelFilter['match'],
 ): boolean {
+  if (condition.field !== 'dueDate' && condition.exclude) {
+    if (condition.field === 'priority') {
+      return excluding(condition.values, match, (live) => item.priority === null || !live.includes(item.priority));
+    }
+    if (condition.field === 'type') {
+      return excluding(
+        condition.values.filter((id) => liveTypeIds.has(id)),
+        match,
+        (live) => item.typeId === null || !live.includes(item.typeId),
+      );
+    }
+    if (condition.field === 'panel') {
+      return excluding(
+        condition.values.filter((id) => livePanelIds.has(id)),
+        match,
+        (live) => !live.some((id) => filedPanelIds.has(id)),
+      );
+    }
+    return excluding(statusValuesOf(condition), match, (live) => !(live as readonly string[]).includes(itemStatus(item)));
+  }
   if (condition.field === 'priority') {
     return item.priority !== null && condition.values.includes(item.priority);
   }
@@ -154,9 +190,15 @@ function holdsFor(
     return condition.values.some((id) => livePanelIds.has(id) && filedPanelIds.has(id));
   }
   if (condition.field === 'status') {
-    return itemStatus(item) === 'in_progress';
+    return (statusValuesOf(condition) as readonly string[]).includes(itemStatus(item));
   }
   return dueHolds(condition.window, condition.orOverdue, item.dueDate ?? null, on);
+}
+
+/** An *is not* condition over its live values: nothing left to exclude filters nothing under *all* and adds nothing under *any*. */
+function excluding<V>(live: readonly V[], match: PanelFilter['match'], passes: (live: readonly V[]) => boolean): boolean {
+  if (live.length === 0) return match !== 'any';
+  return passes(live);
 }
 
 /**
@@ -251,6 +293,7 @@ export function itemsMatchingFilter(
           liveTypeIds,
           livePanelIds,
           filedPanelIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS,
+          filter.match,
         ),
       ),
     ),
@@ -430,6 +473,12 @@ export function joinedBy(names: readonly string[], conjunction: 'and' | 'or'): s
  * (`itemsMatchingFilter`), so a value naming a Type or a Panel since deleted
  * is left out of the sentence exactly as it is left out of what the condition
  * matches.
+ *
+ * **An *is not* condition that filters nothing is left out** ("Include or
+ * exclude a Filter panel condition's values, and filter on To do as well as In
+ * progress", issue 908): one with no live value to exclude says nothing about
+ * what is shown, and a sentence naming it would claim a narrowing that is not
+ * happening.
  */
 export function saysWhatItShows(
   conditions: readonly FilterCondition[],
@@ -439,7 +488,15 @@ export function saysWhatItShows(
   groupBy: FilterGrouping = 'none',
 ): string {
   if (conditions.length === 0) return 'Nothing chosen yet';
-  const parts = conditions.map((condition) => sentenceFor(condition, itemTypes, panels));
+  const parts = conditions
+    .map((condition) => sentenceFor(condition, itemTypes, panels))
+    .filter((part): part is string => part !== null);
+  // Only conditions that exclude nothing: all of them lets every Item through,
+  // and any of them adds none.
+  if (parts.length === 0) {
+    const nothingSaid = match === 'any' ? 'Nothing chosen yet' : 'Everything filed';
+    return isGrouped(groupBy) ? `${nothingSaid}; grouped by ${GROUPING_NAMES[groupBy]}` : nothingSaid;
+  }
   // One condition reads the same either way, so it carries no prefix.
   const rule = match === 'any' && parts.length > 1 ? `Any of: ${parts.join('; ')}` : parts.join(' and ');
   return isGrouped(groupBy) ? `${rule}; grouped by ${GROUPING_NAMES[groupBy]}` : rule;
@@ -461,19 +518,34 @@ export const GROUPING_NAMES: Record<Exclude<FilterGrouping, 'none'>, string> = {
   panel: 'Panel',
 };
 
+/**
+ * One values condition as a sentence, or `null` where it filters nothing: an
+ * *is not* with no live value left to name. An *is* with none still reads, as
+ * "nothing", because it does empty the panel.
+ */
+function valuesSentence(
+  asked: string,
+  askedNot: string,
+  exclude: boolean | undefined,
+  names: readonly string[],
+): string | null {
+  if (exclude) return names.length === 0 ? null : `${askedNot} ${joinedBy(names, 'or')}`;
+  return `${asked} ${joinedBy(names, 'or')}`;
+}
+
 function sentenceFor(
   condition: FilterCondition,
   itemTypes: readonly ItemType[],
   panels: readonly Panel[],
-): string {
+): string | null {
   if (condition.field === 'priority') {
-    return `Priority is ${joinedBy(condition.values.map((value) => PRIORITY_LABELS[value]), 'or')}`;
+    return valuesSentence('Priority is', 'Priority is not', condition.exclude, condition.values.map((value) => PRIORITY_LABELS[value]));
   }
   if (condition.field === 'type') {
     const names = condition.values
       .map((id) => itemTypes.find((type) => type.id === id)?.name)
       .filter((name): name is string => name !== undefined);
-    return `Type is ${joinedBy(names, 'or')}`;
+    return valuesSentence('Type is', 'Type is not', condition.exclude, names);
   }
   if (condition.field === 'panel') {
     // Read against the same items-Panels-only set matching itself reads
@@ -486,10 +558,11 @@ function sentenceFor(
     const names = condition.values
       .map((id) => liveItemsPanels.find((panel) => panel.id === id)?.name)
       .filter((name): name is string => name !== undefined);
-    return `Filed on ${joinedBy(names, 'or')}`;
+    return valuesSentence('Filed on', 'Not filed on', condition.exclude, names);
   }
   if (condition.field === 'status') {
-    return 'In progress';
+    const names = statusValuesOf(condition).map((value) => (value === 'to_do' ? 'To do' : 'In progress'));
+    return valuesSentence('Status is', 'Status is not', condition.exclude, names);
   }
   const reads = WINDOW_READS[condition.window];
   const widened = condition.orOverdue && isAPeriod(condition.window);
@@ -535,7 +608,11 @@ export function filtersUsingPanel(
     // nothing - only a Filter that needs every condition, or has no other, is.
     const others = (candidate.filter ?? NO_CONDITIONS).conditions.length > 1;
     const needsIt = (candidate.filter ?? NO_CONDITIONS).match === 'all' || !others;
-    affected.push({ filter: candidate, leftEmpty: !stillHasOne && needsIt });
+    // An *is not* condition left with no live Panel excludes nothing, which
+    // lets Items through rather than emptying the Filter ("Include or exclude a
+    // Filter panel condition's values...", issue 908), so it is named but never
+    // left empty.
+    affected.push({ filter: candidate, leftEmpty: !condition.exclude && !stillHasOne && needsIt });
   }
   return affected;
 }

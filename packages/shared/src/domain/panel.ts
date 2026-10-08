@@ -171,6 +171,14 @@ export const CONDITION_VALUES_LIMIT = 50;
 export const priorityConditionSchema = z.object({
   field: z.literal('priority'),
   values: z.array(prioritySchema).max(CONDITION_VALUES_LIMIT),
+  /**
+   * Whether the condition leaves its values out rather than asking for them
+   * ("Include or exclude a Filter panel condition's values, and filter on To do
+   * as well as In progress", issue 908). Absent reads as including, which is
+   * what every Filter stored before this meant, so no stored Filter is
+   * rewritten.
+   */
+  exclude: z.boolean().optional(),
 });
 export type PriorityCondition = z.infer<typeof priorityConditionSchema>;
 
@@ -189,6 +197,14 @@ export type PriorityCondition = z.infer<typeof priorityConditionSchema>;
 export const typeConditionSchema = z.object({
   field: z.literal('type'),
   values: z.array(z.string().min(1)).max(CONDITION_VALUES_LIMIT),
+  /**
+   * Whether the condition leaves its values out rather than asking for them
+   * ("Include or exclude a Filter panel condition's values, and filter on To do
+   * as well as In progress", issue 908). Absent reads as including, which is
+   * what every Filter stored before this meant, so no stored Filter is
+   * rewritten.
+   */
+  exclude: z.boolean().optional(),
 });
 export type TypeCondition = z.infer<typeof typeConditionSchema>;
 
@@ -215,22 +231,44 @@ export type TypeCondition = z.infer<typeof typeConditionSchema>;
 export const panelConditionSchema = z.object({
   field: z.literal('panel'),
   values: z.array(z.string().min(1)).max(CONDITION_VALUES_LIMIT),
+  /**
+   * Whether the condition leaves its values out rather than asking for them
+   * ("Include or exclude a Filter panel condition's values, and filter on To do
+   * as well as In progress", issue 908). Absent reads as including, which is
+   * what every Filter stored before this meant, so no stored Filter is
+   * rewritten.
+   */
+  exclude: z.boolean().optional(),
 });
 export type PanelCondition = z.infer<typeof panelConditionSchema>;
 
 /**
- * One condition on a Filter, on whether an Item is In progress ("Mark an item
- * In progress, and see since when", issue 568).
+ * One condition on a Filter, on whether an Item is To do or In progress ("Mark
+ * an item In progress, and see since when", issue 568).
  *
- * **Nothing to choose beyond the field itself**, unlike Priority, Type or
- * Panel: a Filter only ever sees an Item still open (`itemsThatAreFiled`,
- * `apps/web/src/filing.ts`), which is already either To do or In progress, so
- * asking for one is the whole of what there is to ask.
+ * **Only the two open statuses are on offer**: a Filter only ever sees an Item
+ * still open (`itemsThatAreFiled`, `apps/web/src/filing.ts`), which is already
+ * either To do or In progress.
  */
 export const statusConditionSchema = z.object({
   field: z.literal('status'),
+  /**
+   * Which of the two open statuses it asks for ("Include or exclude a Filter
+   * panel condition's values, and filter on To do as well as In progress",
+   * issue 908). Done is not a value: a Filter never draws a Done Item, so
+   * asking for it could only ever empty the panel. Absent reads as In progress
+   * alone (`statusValuesOf`), which is all a Status condition ever meant before.
+   */
+  values: z.array(z.enum(['to_do', 'in_progress'])).max(2).optional(),
+  /** As on the other conditions: leave the values out rather than ask for them. */
+  exclude: z.boolean().optional(),
 });
 export type StatusCondition = z.infer<typeof statusConditionSchema>;
+
+/** The statuses a Status condition holds - In progress alone where it was stored without any, as every one saved before it took values was. */
+export function statusValuesOf(condition: StatusCondition): readonly ('to_do' | 'in_progress')[] {
+  return condition.values ?? ['in_progress'];
+}
 
 /**
  * One row of a Filter's question: a Due date, a Priority, a Type, a Panel or

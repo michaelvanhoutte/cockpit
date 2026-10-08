@@ -2712,6 +2712,89 @@ describe('Onboarding', () => {
       );
     });
 
+    /**
+     * That an exclusion matches what it should is settled in
+     * tests/unit/filters.test.ts; what is worked out here is that every
+     * values card offers the choice, opens on *is*, and sends what was chosen
+     * ("Include or exclude a Filter panel condition's values...", issue 908).
+     */
+    it.each(['Type', 'Priority', 'Panel', 'Status'])(
+      'opens a new %s card on is, and offers is not beside it',
+      async (field) => {
+        const { user } = showBoard({
+          panels: [aFilter('due', 'Due soon')],
+          itemTypes: [aType('type-okr', 'OKR')],
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await addCondition(user, field);
+
+        const operator = screen.getByRole('combobox', { name: `${field} is or is not` });
+        expect(operator).toHaveValue('is');
+        expect(within(operator).getByRole('option', { name: 'is not' })).toBeVisible();
+      },
+    );
+
+    it('opens a stored exclusion on is not', async () => {
+      const { user } = showBoard({
+        panels: [aFilter('due', 'Due soon', [{ field: 'priority', values: ['low'], exclude: true }])],
+      });
+
+      await choose(user, 'Due soon', 'Filter…');
+
+      expect(await screen.findByRole('combobox', { name: 'Priority is or is not' })).toHaveValue('not');
+    });
+
+    it('sends the exclusion and the value ticked once is not is chosen', async () => {
+      const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
+
+      await choose(user, 'Due soon', 'Filter…');
+      await addCondition(user, 'Priority');
+      await user.selectOptions(screen.getByRole('combobox', { name: 'Priority is or is not' }), 'is not');
+      await user.click(screen.getByRole('checkbox', { name: 'Low' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_panel_filter',
+          payload: expect.objectContaining({
+            conditions: [{ field: 'priority', values: ['low'], exclude: true }],
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('offers a Status card To do and In progress but not Done, and sends what is ticked', async () => {
+      const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
+
+      await choose(user, 'Due soon', 'Filter…');
+      await addCondition(user, 'Status');
+      expect(screen.getByRole('checkbox', { name: 'To do' })).toBeVisible();
+      expect(screen.getByRole('checkbox', { name: 'In progress' })).toBeChecked();
+      expect(screen.queryByRole('checkbox', { name: 'Done' })).toBeNull();
+      await user.click(screen.getByRole('checkbox', { name: 'To do' }));
+      await user.click(screen.getByRole('checkbox', { name: 'In progress' }));
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'set_panel_filter',
+          payload: expect.objectContaining({ conditions: [{ field: 'status', values: ['to_do'] }] }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('opens a Status stored before it took values with In progress ticked', async () => {
+      const { user } = showBoard({ panels: [aFilter('due', 'Due soon', [{ field: 'status' }])] });
+
+      await choose(user, 'Due soon', 'Filter…');
+
+      expect(await screen.findByRole('checkbox', { name: 'In progress' })).toBeChecked();
+      expect(screen.getByRole('checkbox', { name: 'To do' })).not.toBeChecked();
+    });
+
     it('does not offer a field already on the filter, from its own add menu', async () => {
       const { user } = showBoard({ panels: [aFilter('due', 'Due soon', [DUE_TODAY])] });
 

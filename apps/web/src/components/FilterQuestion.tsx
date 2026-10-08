@@ -7,6 +7,7 @@ import {
   FILTER_MATCHES,
   panelTakesItems,
   prioritySchema,
+  statusValuesOf,
   type DueCondition,
   type DueWindow,
   type FilterCondition,
@@ -294,13 +295,13 @@ const FIELD_LABELS: Record<FilterCondition['field'], string> = {
   status: 'Status',
 };
 
-/** A fresh row for a field just added - nothing chosen yet, except Due date, which has always defaulted to *today*, and Status, which has nothing to choose at all. */
+/** A fresh row for a field just added - nothing chosen yet, except Due date, which has always defaulted to *today*, and Status, which opens on In progress, the one answer it gave before it took values. Every values card opens on *is*: no `exclude` is written until *is not* is chosen. */
 function defaultConditionFor(field: FilterCondition['field']): FilterCondition {
   if (field === 'dueDate') return { field: 'dueDate', window: 'today', orOverdue: true };
   if (field === 'priority') return { field: 'priority', values: [] };
   if (field === 'type') return { field: 'type', values: [] };
   if (field === 'panel') return { field: 'panel', values: [] };
-  return { field: 'status' };
+  return { field: 'status', values: ['in_progress'] };
 }
 
 /** One row, dispatched to the control its field takes. */
@@ -324,6 +325,8 @@ function ConditionRow({
       <ValuesCondition
         at={at}
         label={FIELD_LABELS.priority}
+        exclude={row.exclude === true}
+        onExclude={(exclude) => onChange(withExclusion(row, exclude))}
         values={row.values}
         options={prioritySchema.options.map((value) => ({ id: value, label: PRIORITY_LABELS[value] }))}
         onChange={(values) => onChange({ ...row, values: values as Priority[] })}
@@ -336,6 +339,8 @@ function ConditionRow({
       <ValuesCondition
         at={at}
         label={FIELD_LABELS.type}
+        exclude={row.exclude === true}
+        onExclude={(exclude) => onChange(withExclusion(row, exclude))}
         values={row.values}
         options={itemTypes.map((type) => ({ id: type.id, label: type.name }))}
         empty={NO_TYPES}
@@ -349,6 +354,8 @@ function ConditionRow({
       <ValuesCondition
         at={at}
         label={FIELD_LABELS.panel}
+        exclude={row.exclude === true}
+        onExclude={(exclude) => onChange(withExclusion(row, exclude))}
         values={row.values}
         options={panels
           .filter(panelTakesItems)
@@ -360,30 +367,32 @@ function ConditionRow({
     );
   }
   if (row.field === 'status') {
-    return <StatusConditionRow at={at} onRemove={onRemove} />;
+    return (
+      <ValuesCondition
+        at={at}
+        label={FIELD_LABELS.status}
+        exclude={row.exclude === true}
+        onExclude={(exclude) => onChange(withExclusion(row, exclude))}
+        values={statusValuesOf(row)}
+        options={STATUS_OPTIONS}
+        onChange={(values) => onChange({ ...row, values: values as ('to_do' | 'in_progress')[] })}
+        onRemove={onRemove}
+      />
+    );
   }
   return <DueConditionRow at={at} row={row} onChange={onChange} onRemove={onRemove} />;
 }
 
-/**
- * The Status row: nothing to choose, since In progress is the only answer a
- * Filter can ever ask for it - the row exists to be removed, not to be
- * changed ("Mark an item In progress, and see since when", issue 568).
- */
-function StatusConditionRow({ at, onRemove }: { at: number; onRemove: () => void }) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="text-sm text-ink-soft">Status is In progress</span>
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`Remove condition ${at + 1}`}
-        className="ml-auto shrink-0 rounded-md px-2 py-1 text-sm text-ink-faint hover:bg-accent-tint hover:text-accent-deep"
-      >
-        Remove
-      </button>
-    </div>
-  );
+/** The two statuses a Status card offers - never Done, which a Filter panel does not draw. */
+const STATUS_OPTIONS = [
+  { id: 'to_do', label: 'To do' },
+  { id: 'in_progress', label: 'In progress' },
+];
+
+/** A values condition with its *is* / *is not* set, writing no `exclude` at all for *is* so a card never saved as *is not* stays as it was stored. */
+function withExclusion<T extends Exclude<FilterCondition, { field: 'dueDate' }>>(row: T, exclude: boolean): T {
+  const { exclude: _was, ...rest } = row;
+  return (exclude ? { ...rest, exclude: true } : rest) as T;
 }
 
 /**
@@ -448,12 +457,13 @@ function DueConditionRow({
 }
 
 /**
- * A Priority, a Type or a Panel row: a checkbox per value on offer, any of
+ * A Priority, a Type, a Panel or a Status row: an *is / is not* choice and a checkbox per value on offer, any of
  * which the condition matches ("Filter a Filter panel by priority and type",
  * issue 464; "Filter a Filter panel by panel, and name the Filters a panel's
  * deletion affects", issue 465).
  *
- * **One shape for all three.** Priority's options are the three levels the
+ * **One shape for all four.** *Is not* matches an Item holding none of the ticked values ("Include or exclude a Filter panel condition's values, and filter on To do as well as In progress", issue 908); a new card opens on *is*. Status's options are To do and In progress.
+ * Priority's options are the three levels the
  * schema carries; a Type's are the account's live Types; a Panel's are the
  * Workspace's own items Panels - never a Filter or a Panel of text, nothing
  * being filed onto either. A value naming a Type or a Panel since deleted
@@ -469,6 +479,8 @@ function DueConditionRow({
 function ValuesCondition({
   at,
   label,
+  exclude,
+  onExclude,
   values,
   options,
   empty,
@@ -477,6 +489,8 @@ function ValuesCondition({
 }: {
   at: number;
   label: string;
+  exclude: boolean;
+  onExclude: (exclude: boolean) => void;
   values: readonly string[];
   options: readonly { id: string; label: string }[];
   /** What to say instead of any checkboxes where there is nothing to offer - a Type condition where the account has no Types at all. */
@@ -491,6 +505,15 @@ function ValuesCondition({
     <div className="flex flex-wrap items-start gap-3">
       <fieldset className="flex min-w-0 flex-wrap items-center gap-3">
         <legend className="text-sm text-ink-soft">{label}</legend>
+        <select
+          value={exclude ? 'not' : 'is'}
+          aria-label={`${label} is or is not`}
+          onChange={(event) => onExclude(event.target.value === 'not')}
+          className="rounded-md border border-shade/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+        >
+          <option value="is">is</option>
+          <option value="not">is not</option>
+        </select>
         {options.length === 0 && empty ? (
           <span className="text-sm text-ink-faint">{empty}</span>
         ) : (
