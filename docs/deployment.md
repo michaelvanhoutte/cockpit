@@ -422,6 +422,14 @@ pnpm guest:reset --env production
 
 **It can reach the guest account and nothing else**: it names no account, it refuses where the guest's id belongs to a real person — somebody added under the name "Guest" before adding stopped handing it out — and a store holding any other account's rows refuses before anything is dropped. **The rows are one transaction, so one that fails leaves the account as it was.** What is left over is R2 ("Attach a file to an item", issue 441): the guest's attached files are deleted best-effort, awaited after that transaction commits rather than inside it, since R2 cannot be part of a Durable Object's own transaction — a failure there is logged and swallowed rather than reported, so a reset can succeed with the rows fully reset while a rare R2 object from that day is left behind. It asks for no confirmation, unlike a restore, because what it removes is promised to nobody; an environment with no guest account — staging — answers that it has none.
 
+And `pnpm usage:export` writes one environment's usage records — every paid provider call Cockpit made, one row per attempt — from the last N days to a CSV for Excel ("Export a period's usage records as CSV with pnpm usage:export", issue 918):
+
+```bash
+pnpm usage:export --env production --days 30 --out ./usage/2026-10.csv
+```
+
+`--days` is 1 to 365, the records being kept for twelve months. `--out` has to be a file that does not exist, and is refused rather than written over. It reads that environment's own `BACKUP_TOKEN` from `backup-tokens.json` like `pnpm backup:export`, and only reads: nothing is written to the environment. A token count the provider does not report is an empty cell, and a user who has since been deleted is their id with an empty name. The file names users: `usage/` is gitignored, and anywhere else in the checkout is not.
+
 And `pnpm duplicates:backfill` reads the notes that were already in the Inbox when duplicate flagging shipped, so that a duplicate can be caught among them rather than only among notes captured since ("Give every item already there a vector", issue 409):
 
 ```bash

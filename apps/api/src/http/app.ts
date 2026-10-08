@@ -96,6 +96,7 @@ import {
   OPERATOR_PREFIX,
   operatorGate,
 } from '../auth/operator.js';
+import { readUsageRecords } from '../gateway/export.js';
 import {
   attemptHeld,
   connectAttemptHeld,
@@ -2798,6 +2799,21 @@ const routes = app
       }
       throw error;
     }
+  })
+  // The usage records ("Export a period's usage records as CSV with pnpm
+  // usage:export", issue 918): read-only, behind the same secret, a page at a
+  // time because a year of records is more than one answer should carry.
+  .get('/v1/operator/usage/records', async (c) => {
+    const since = c.req.query('since') ?? '';
+    const after = Number(c.req.query('after') ?? 0);
+    // A caller typed these, so a bad one is theirs to fix and says which.
+    if (Number.isNaN(Date.parse(since)) || !/^\d{4}-\d{2}-\d{2}T/.test(since)) {
+      return c.json({ error: 'since has to be a UTC time, like 2026-10-01T00:00:00Z' }, 400);
+    }
+    if (!Number.isSafeInteger(after) || after < 0) {
+      return c.json({ error: 'after has to be a record number, or left out' }, 400);
+    }
+    return c.json(await readUsageRecords(c.env, new Date(since).toISOString(), after), 200);
   })
   // Restoring, which is the half that destroys something. Accounts go in first
   // and the register after, so a user never exists pointing at a store that has
