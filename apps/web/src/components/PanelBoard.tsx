@@ -48,6 +48,7 @@ import {
   drawnRows,
   layoutToDraw,
   movedBeside,
+  rowsDrawnWithout,
   rowsToSave,
   stacked,
   stackedOnPhone,
@@ -77,6 +78,7 @@ import { forgetPanelsCollapsed, usePanelsCollapsed } from '../panelsCollapsed';
 import { DashboardSelection } from './DashboardSelection';
 import { PANEL_GAP, PanelCard } from './PanelCard';
 import { publishPanelList, withdrawPanelList } from '../panelList';
+import type { PanelListRow } from '../panelList';
 import { settleTheShowRequest, useShowRequest } from '../showItem';
 
 /** How long a Panel stays outlined after the list jumps to it, in milliseconds. */
@@ -478,12 +480,8 @@ export function PanelBoard({
   // Each row keeps the place it has in `shown`, which is what it is keyed by:
   // a row hidden above would otherwise move every row under it to a new key
   // and remount the panels on them.
-  const drawn = shown
-    .map((row, place) => ({
-      place,
-      row: hidden ? { ...row, cells: row.cells.filter((cell) => !hidden.has(cell.panelId)) } : row,
-    }))
-    .filter(({ row }) => !hidden || row.cells.length > 0);
+  // A Section is drawn while a Panel under it is, and is no Panel to count.
+  const drawn = rowsDrawnWithout(shown, hidden);
   const hiddenCount = hidden ? hidden.size : 0;
 
   const refusal =
@@ -821,17 +819,19 @@ export function PanelBoard({
   const [jumpTo] = useState(() => (panelId: string) => jumpRef.current(panelId));
   // Every Panel, whatever the Dashboard filter leaves undrawn: the column says
   // which are hidden, and going to one clears the filter.
-  // A Section is not a Panel, so the column does not list it.
-  const listed = shown.filter((row) => !rowIsSection(row)).map((row) =>
-    row.cells.map((cell) => {
-      const panel = panels.find((one) => one.id === cell.panelId);
-      return {
-        panelId: cell.panelId,
-        title: panel?.name ?? '',
-        count: panel && panelHoldsText(panel) ? null : (shows.get(cell.panelId)?.length ?? 0),
-        hidden: hidden?.has(cell.panelId) ?? false,
-      };
-    }),
+  // Each Section stands in its place as a heading, whatever the filter hides.
+  const listed: PanelListRow[] = shown.map((row) =>
+    rowIsSection(row)
+      ? { section: row.title }
+      : row.cells.map((cell) => {
+          const panel = panels.find((one) => one.id === cell.panelId);
+          return {
+            panelId: cell.panelId,
+            title: panel?.name ?? '',
+            count: panel && panelHoldsText(panel) ? null : (shows.get(cell.panelId)?.length ?? 0),
+            hidden: hidden?.has(cell.panelId) ?? false,
+          };
+        }),
   );
   // After every render, which the publication itself drops when nothing it
   // says has changed; withdrawn only when the board leaves.

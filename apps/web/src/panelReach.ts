@@ -1,15 +1,15 @@
 import { useCallback } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams, useRouter } from '@tanstack/react-router';
-import { panelHoldsText } from '@cockpit/shared';
-import type { Workspace, WorkspaceSnapshot } from '@cockpit/shared';
+import { panelHoldsText, rowIsSection } from '@cockpit/shared';
+import type { Panel, Workspace, WorkspaceSnapshot } from '@cockpit/shared';
 import { snapshotQuery, workspacesQuery } from './api/queries';
 import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, readDashboardFilter } from './dashboardFilter';
-import { orderedAsDrawn } from './filterGroups';
 import { dayOf } from './filters';
 import { browserStore } from './lastVisited';
 import { itemsShownOn } from './panelContents';
-import type { PanelListEntry } from './panelList';
+import type { PanelListEntry, PanelListSection } from './panelList';
+import { drawnRows } from './panels/arrangement';
 
 /**
  * Where Go to panel searches: 1 this Dashboard, 2 every Dashboard of this
@@ -18,7 +18,8 @@ import type { PanelListEntry } from './panelList';
  */
 export type Scope = 1 | 2 | 3;
 
-export type ReachDashboard = { id: string; name: string; entries: readonly PanelListEntry[] };
+/** `entries` are its Panels in reading order, each Section standing in its place among them. */
+export type ReachDashboard = { id: string; name: string; entries: readonly (PanelListEntry | PanelListSection)[] };
 
 /** One Workspace as the list draws it: read, still being read, or not readable. */
 export type ReachWorkspace = {
@@ -60,11 +61,11 @@ export function dashboardsOf(snapshot: WorkspaceSnapshot, store: Storage | undef
   const found: ReachDashboard[] = [];
   for (const dashboard of snapshot.dashboards) {
     const filter = readDashboardFilter(store, dashboard.id);
-    const ordered = orderedAsDrawn(
-      panelsInWorkspace.filter((panel) => panel.dashboardId === dashboard.id),
-      layouts.find((layout) => layout.dashboardId === dashboard.id) ?? null,
-    );
-    const entries = ordered.map((panel): PanelListEntry => {
+    const onDashboard = panelsInWorkspace.filter((panel) => panel.dashboardId === dashboard.id);
+    const byId = new Map(onDashboard.map((panel) => [panel.id, panel]));
+    // Each Section in its place among the Panels, as the board draws them.
+    const drawn = drawnRows(layouts.find((layout) => layout.dashboardId === dashboard.id) ?? null, onDashboard, 1200);
+    const entryOf = (panel: Panel): PanelListEntry => {
       const shown = itemsShownOn(panel, {
         items: snapshot.items,
         filings: snapshot.filings ?? [],
@@ -81,8 +82,17 @@ export function dashboardsOf(snapshot: WorkspaceSnapshot, store: Storage | undef
         count: panelHoldsText(panel) ? null : shown.length,
         hidden: shown.length === 0 && isFiltering(filter),
       };
-    });
-    if (entries.length > 0) found.push({ id: dashboard.id, name: dashboard.name, entries });
+    };
+    const entries = drawn.flatMap((row): (PanelListEntry | PanelListSection)[] =>
+      rowIsSection(row)
+        ? [{ section: row.title }]
+        : row.cells.flatMap((cell) => {
+            const panel = byId.get(cell.panelId);
+            return panel ? [entryOf(panel)] : [];
+          }),
+    );
+    // A Dashboard with Sections and no Panel has nothing to go to.
+    if (entries.some((one) => 'panelId' in one)) found.push({ id: dashboard.id, name: dashboard.name, entries });
   }
   return found;
 }

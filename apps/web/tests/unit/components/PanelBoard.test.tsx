@@ -40,7 +40,8 @@ import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { setPanelsCollapsed } from '../../../src/panelsCollapsed';
 import { dashboardScope, shownOn } from '../../../src/selection';
 import { useCommand } from '../../../src/api/queries';
-import { usePanelListing } from '../../../src/panelList';
+import { entriesIn, isListedSection, usePanelListing } from '../../../src/panelList';
+import type { PanelListEntry } from '../../../src/panelList';
 import { renderHook } from '@testing-library/react';
 
 /**
@@ -3805,7 +3806,7 @@ describe('Dashboards', () => {
   }
   /** Each row as the titles and counts the list would draw, `-` where there is no count. */
   const namesIn = (result: ReturnType<typeof listed>) =>
-    result.current?.rows.map((row) => row.map((entry) => `${entry.title} ${entry.count ?? '-'}`));
+    result.current?.rows.filter((row): row is readonly PanelListEntry[] => !isListedSection(row)).map((row) => row.map((entry) => `${entry.title} ${entry.count ?? '-'}`));
 
   describe('the Panel list names each Panel the board draws, in reading order, with the count the board shows', () => {
     const ID = (n: number) => `11111111-1111-7111-8111-00000000000${n}`;
@@ -3862,7 +3863,7 @@ describe('Dashboards', () => {
       });
 
       expect(namesIn(result)).toEqual([['Project Falcon 2', 'To read 0', 'Notes -']]);
-      expect(result.current?.rows.flat().map((entry) => entry.hidden)).toEqual([false, true, true]);
+      expect(entriesIn(result.current?.rows ?? []).map((entry) => entry.hidden)).toEqual([false, true, true]);
     });
 
     it('follows a Panel added, renamed or deleted, as the next snapshot says', () => {
@@ -4071,6 +4072,79 @@ describe('Layouts', () => {
 
       const entries = (await screen.findAllByRole('menuitem')).map((entry) => entry.textContent);
       expect(entries).toEqual(['Rename', 'Delete']);
+    });
+  });
+
+  /**
+   * "Hide a Section the filter empties, and head Go to panel's Panels with
+   * their Sections", issue 898. Which Section stays is
+   * apps/web/tests/unit/panels/arrangement.test.ts; asked here is what the
+   * board draws and says of it.
+   */
+  describe('while a Dashboard filter is on, a Section is drawn only while a Panel under it is, and is never counted', () => {
+    const vat = { ...anItem('11111111-1111-7111-8111-000000000001', 'VAT return') };
+    const sectioned: Layout = {
+      ...withASection,
+      rows: [
+        { height: null, title: 'Earlier', cells: [] },
+        { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
+        { height: null, title: 'Midweek', cells: [] },
+        { height: null, cells: [{ panelId: 'reading', span: 12 }] },
+        { height: null, title: 'Later', cells: [] },
+        { height: null, cells: [{ panelId: 'other', span: 12 }] },
+      ],
+    };
+    const filteredBoard = (text: string) => {
+      filterTheDashboard({ text });
+      return showBoard({
+        panels: [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read'), aPanel('other', 'Other')],
+        layouts: [sectioned],
+        items: [vat, anItem('11111111-1111-7111-8111-000000000002', 'Water bill')],
+        filings: [
+          { panelId: 'falcon', itemId: vat.id, position: 0 },
+          { panelId: 'other', itemId: vat.id, position: 0 },
+        ],
+      });
+    };
+
+    it('draws the Sections that still have a Panel, and not the one whose only Panel is hidden', () => {
+      filteredBoard('vat');
+
+      expect(panelOrderOnScreen()).toEqual(['Project Falcon', 'Other']);
+      expect(screen.getByText('Earlier')).toBeVisible();
+      expect(screen.getByText('Later')).toBeVisible();
+      expect(screen.queryByText('Midweek')).toBeNull();
+    });
+
+    it('counts the Panel it hid and not the Section', () => {
+      filteredBoard('vat');
+
+      expect(screen.getByRole('status')).toHaveTextContent('This dashboard is filtered, 1 panel hidden');
+    });
+
+    it('says no Panel matches, with no Section drawn, where every Panel is hidden', () => {
+      filteredBoard('zzz');
+
+      expect(screen.getByText('No panel has an item matching the filter.')).toBeVisible();
+      expect(screen.queryByText('Earlier')).toBeNull();
+      expect(screen.queryByText('Later')).toBeNull();
+    });
+
+    it('hands the Panel list every Section in its place, the hidden one too', () => {
+      const { result } = renderHook(() => usePanelListing());
+      filteredBoard('vat');
+
+      expect(
+        result.current?.rows.map((row) =>
+          isListedSection(row) ? `# ${row.section}` : row.map((entry) => entry.title).join(', '),
+        ),
+      ).toEqual(['# Earlier', 'Project Falcon', '# Midweek', 'To read', '# Later', 'Other']);
+    });
+
+    it('draws every Section again where the filter is not on', () => {
+      showBoard({ layouts: [sectioned], panels: [aPanel('falcon', 'Project Falcon'), aPanel('reading', 'To read'), aPanel('other', 'Other')] });
+
+      expect(['Earlier', 'Midweek', 'Later'].map((title) => screen.queryByText(title) !== null)).toEqual([true, true, true]);
     });
   });
 

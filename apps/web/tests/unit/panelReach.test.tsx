@@ -5,7 +5,11 @@ import type { ReactNode } from 'react';
 import type { Dashboard, Filing, Item, Layout, Panel, WorkspaceSnapshot } from '@cockpit/shared';
 import { NO_DASHBOARD_FILTER, writeDashboardFilter } from '../../src/dashboardFilter';
 import { dashboardsOf, useReach } from '../../src/panelReach';
-import type { Scope } from '../../src/panelReach';
+import type { ReachDashboard, Scope } from '../../src/panelReach';
+import type { PanelListEntry } from '../../src/panelList';
+
+/** A Dashboard's Panels, without the Sections standing among them. */
+const panelsOf = (one: ReachDashboard) => one.entries.filter((entry): entry is PanelListEntry => 'panelId' in entry);
 
 /**
  * F1: what Go to panel lists beyond the Dashboard on screen. How the list
@@ -122,17 +126,46 @@ describe('Dashboards', () => {
     it('puts the Panels of an arranged Dashboard in the order its Layout draws them, and a never-arranged one in its own', () => {
       const lists = dashboardsOf(snapshot, localStorage);
 
-      expect(lists.map((one) => [one.name, one.entries.map((entry) => entry.title)])).toEqual([
+      expect(lists.map((one) => [one.name, panelsOf(one).map((entry) => entry.title)])).toEqual([
         // `Notes` is on no row of the Layout, so it is drawn on a row of its own after them.
         ['Today', ['Urgent', 'Beta', 'Alpha', 'Notes']],
         ['Research', ['Papers']],
       ]);
     });
 
+    it('stands each Section in its place among the Panels, hidden by a filter or not, and leaves out a Dashboard of Sections alone', () => {
+      writeDashboardFilter(localStorage, 'today', { ...NO_DASHBOARD_FILTER, text: 'vat' });
+      const title = (one: ReachDashboard['entries'][number]) => ('section' in one ? `# ${one.section}` : one.title);
+      const withSections = {
+        ...snapshot,
+        layouts: [
+          {
+            id: 'layout',
+            tenantId: 'tenant',
+            dashboardId: 'today',
+            rows: [
+              { height: null, title: 'Now', cells: [] },
+              { height: null, cells: [{ panelId: 'high', span: 12 }] },
+              { height: null, title: 'Later', cells: [] },
+              { height: null, cells: [{ panelId: 'b', span: 6 }, { panelId: 'a', span: 6 }] },
+            ],
+          } as Layout,
+          { id: 'bare', tenantId: 'tenant', dashboardId: 'empty', rows: [{ height: null, title: 'Alone', cells: [] }] } as Layout,
+        ],
+      };
+
+      const lists = dashboardsOf(withSections, localStorage);
+
+      expect(lists.map((one) => [one.id, one.entries.map(title)])).toEqual([
+        ['today', ['# Now', 'Urgent', '# Later', 'Beta', 'Alpha', 'Notes']],
+        ['research', ['Papers']],
+      ]);
+    });
+
     it('counts a Panel of items, a Filter and a Panel of text as their headers do', () => {
       const [today] = dashboardsOf(snapshot, localStorage);
 
-      expect(Object.fromEntries(today!.entries.map((entry) => [entry.title, entry.count]))).toEqual({
+      expect(Object.fromEntries(panelsOf(today!).map((entry) => [entry.title, entry.count]))).toEqual({
         Urgent: 1,
         Beta: 0,
         Alpha: 2,
@@ -149,13 +182,13 @@ describe('Dashboards', () => {
 
       const [today, research] = dashboardsOf(snapshot, localStorage);
 
-      expect(today!.entries.map((entry) => [entry.title, entry.hidden])).toEqual([
+      expect(panelsOf(today!).map((entry) => [entry.title, entry.hidden])).toEqual([
         ['Urgent', false],
         ['Beta', true],
         ['Alpha', false],
         ['Notes', true],
       ]);
-      expect(research!.entries.every((entry) => !entry.hidden)).toBe(true);
+      expect(panelsOf(research!).every((entry) => !entry.hidden)).toBe(true);
     });
 
     it('counts what the Dashboard’s filter leaves, as the board does', () => {
@@ -163,7 +196,7 @@ describe('Dashboards', () => {
 
       const [today] = dashboardsOf(snapshot, localStorage);
 
-      expect(today!.entries.find((entry) => entry.title === 'Alpha')?.count).toBe(1);
+      expect(panelsOf(today!).find((entry) => entry.title === 'Alpha')?.count).toBe(1);
     });
   });
 
