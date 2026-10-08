@@ -283,6 +283,13 @@ describe('Selection', () => {
       expect([...selectionIn(held, TODAY).picked]).toEqual(['a', 'b', 'c']);
     });
 
+    it('leaves out a collapsed Panel’s rows when asked for those on screen, and counts them otherwise', () => {
+      const lists = [{ scope: TODAY, ids: ['a'] }, { scope: TODAY, ids: ['b'], hidden: true }];
+
+      expect([...shownIn(lists, TODAY, true)]).toEqual(['a']);
+      expect([...shownIn(lists, TODAY)]).toEqual(['a', 'b']);
+    });
+
     it('ends the other scope’s selection when it starts one', () => {
       const held = afterPickingAll({ scope: inboxScope('ws-home'), selection: picking('z') }, TODAY, ['a']);
 

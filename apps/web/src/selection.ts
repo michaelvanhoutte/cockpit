@@ -157,12 +157,19 @@ export function afterPickingAll(held: Held, scope: string, ids: Iterable<string>
 export interface ShownRows {
   readonly scope: string;
   readonly ids: readonly string[];
+  /** Mounted but not on screen, as a collapsed Panel is. */
+  readonly hidden?: boolean;
 }
 
 /** Every distinct id the lists of `scope` show between them. */
-export function shownIn(lists: Iterable<ShownRows>, scope: string): Set<string> {
+export function shownIn(
+  lists: Iterable<ShownRows>,
+  scope: string,
+  onScreenOnly = false,
+): Set<string> {
   const shown = new Set<string>();
-  for (const list of lists) if (list.scope === scope) for (const id of list.ids) shown.add(id);
+  for (const list of lists)
+    if (list.scope === scope && !(onScreenOnly && list.hidden)) for (const id of list.ids) shown.add(id);
   return shown;
 }
 
@@ -222,16 +229,16 @@ const listsChanged = () => {
  * Says what this list shows, for as long as it is on screen. A Dashboard's
  * Panels each report here, and `shownOn` is what they show between them.
  */
-export function useShowing(scope: string, ids: readonly string[]) {
+export function useShowing(scope: string, ids: readonly string[], hidden = false) {
   const key = useRef(Symbol('list')).current;
   useEffect(() => {
     const was = lists.get(key);
-    lists.set(key, { scope, ids });
+    lists.set(key, { scope, ids, hidden });
     // A board redraws its lists with the same rows far more often than with
     // different ones, and each report would otherwise wake the pruning.
-    if (was && was.scope === scope && was.ids.length === ids.length && was.ids.every((id, at) => id === ids[at])) return;
+    if (was && was.scope === scope && !!was.hidden === hidden && was.ids.length === ids.length && was.ids.every((id, at) => id === ids[at])) return;
     listsChanged();
-  }, [key, scope, ids]);
+  }, [key, scope, ids, hidden]);
   useEffect(
     () => () => {
       lists.delete(key);
@@ -241,9 +248,9 @@ export function useShowing(scope: string, ids: readonly string[]) {
   );
 }
 
-/** The distinct ids the lists on screen show for `scope` right now. */
-export function shownOn(scope: string): Set<string> {
-  return shownIn(lists.values(), scope);
+/** The distinct ids the lists show for `scope` right now; `onScreenOnly` leaves out a collapsed Panel's. */
+export function shownOn(scope: string, onScreenOnly = false): Set<string> {
+  return shownIn(lists.values(), scope, onScreenOnly);
 }
 
 /**

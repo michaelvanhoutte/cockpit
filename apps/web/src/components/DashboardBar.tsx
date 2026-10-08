@@ -513,7 +513,7 @@ export function DashboardBar({
             label: 'Select all items',
             separatorBefore: true,
             keepsFocus: true,
-            onSelect: () => pickAll(dashboardScope(dashboard.id), shownOn(dashboardScope(dashboard.id))),
+            onSelect: () => pickAll(dashboardScope(dashboard.id), shownOn(dashboardScope(dashboard.id), true)),
           },
         ]
       : []),

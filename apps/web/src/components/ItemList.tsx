@@ -86,6 +86,7 @@ export function ItemList({
   openDashboardId,
   panelId = null,
   gathered = false,
+  hidden = false,
   sorted = false,
   groups,
   /** What the list says when it holds nothing. */
@@ -115,6 +116,12 @@ export function ItemList({
    * consequence of the Item, not a filing anybody made.
    */
   gathered?: boolean;
+  /**
+   * That the list is mounted but not on screen - a Panel collapsed on a phone.
+   * Its rows stay known to the selection, which keeps what was picked, but
+   * *Select all items* does not pick them: the rows shown are what it picks.
+   */
+  hidden?: boolean;
   /**
    * That the Panel draws these rows by a sort rather than in the order you set
    * ("Sort a panel of items by the fields you choose", issue 526). A row of its
@@ -236,7 +243,7 @@ export function ItemList({
   // does the dropping across all its Panels; the Inbox's list is the only one
   // there is, so it does its own.
   const shownIds = useMemo(() => items.map((item) => item.id), [items]);
-  useShowing(scope, shownIds);
+  useShowing(scope, shownIds, hidden);
   useHeldTo(onDashboard ? null : scope);
 
   const filingSeveral = useFilingSeveral({ workspaceId, openDashboardId, scope, picked });

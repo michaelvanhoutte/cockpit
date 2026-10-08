@@ -1897,6 +1897,7 @@ describe('Selection', () => {
       useShowing(dashboardScope('ws-work-research'), ['a', 'b']);
       useShowing(dashboardScope('ws-work-research'), ['b', 'c']);
       useShowing(dashboardScope('ws-work-dashboard 1'), ['z']);
+      useShowing(dashboardScope('ws-work-research'), ['d'], true);
       return null;
     }
     function WhatIsPicked() {
@@ -1904,7 +1905,7 @@ describe('Selection', () => {
       return <output data-testid="picked">{[...picked.picked].join(',')}</output>;
     }
 
-    it('adds every row of every Panel, an Item on two counted once, and none of another dashboard’s', async () => {
+    it('adds every row of every Panel, an Item on two counted once, none of another dashboard’s, and none of a collapsed Panel’s', async () => {
       const { user } = showBar(['Dashboard 1', 'Research'], { openDashboardId: 'ws-work-research' });
       render(
         <>

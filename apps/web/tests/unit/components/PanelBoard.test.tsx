@@ -38,6 +38,7 @@ import {
 import { CommandRefused } from '../../../src/api/client';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { setPanelsCollapsed } from '../../../src/panelsCollapsed';
+import { dashboardScope, shownOn } from '../../../src/selection';
 import { useCommand } from '../../../src/api/queries';
 import { usePanelListing } from '../../../src/panelList';
 import { renderHook } from '@testing-library/react';
@@ -3478,6 +3479,18 @@ describe('Panels', () => {
       collapse();
 
       everyPanelIsItsHeaderAlone();
+    });
+
+    it('keeps a collapsed panel’s rows out of what Select all items picks, and puts them back on opening', () => {
+      board();
+      expect([...shownOn(dashboardScope('today'), true)]).toEqual([BART.id]);
+
+      act(() => setPanelsCollapsed('today'));
+      expect([...shownOn(dashboardScope('today'), true)]).toEqual([]);
+      expect([...shownOn(dashboardScope('today'))]).toEqual([BART.id]);
+
+      act(() => setPanelsCollapsed(null));
+      expect([...shownOn(dashboardScope('today'), true)]).toEqual([BART.id]);
     });
 
     it('draws a filtered dashboard’s panels as their headers alone the same way', () => {
