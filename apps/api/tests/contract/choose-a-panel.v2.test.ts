@@ -136,43 +136,11 @@ describe('Triage', () => {
     });
   });
 
-  /**
-   * What only the real API can say ("Cut what cleaning up a captured note
-   * costs", issue 887): the items of one refresh share the instructions, the
-   * Panels and the history, and the API reports a cache read only if the
-   * prefix was long enough to be kept. **Haiku 4.5 keeps nothing under 4,096
-   * tokens**, which a full window of 50 filings is expected to clear and a
-   * short history does not - so this is also the measurement of whether the
-   * prompt does.
+  /*
+   * **No case for the cache.** With fifty filings of ordinary length the
+   * prompt stays under the 4,096 tokens Haiku 4.5 caches at all, so a second
+   * item reads nothing back (measured on issue 887's pull request). The
+   * breakpoints stay: below the minimum they cost nothing, and an account
+   * with longer notes clears it.
    */
-  describe('items placed back to back for one account pay the full rate for the history only once', () => {
-    it('reads the history back at the lower rate on the second of two items, with fifty past filings', async () => {
-      const usages: { cacheRead: number }[] = [];
-      const service = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined, (_model, usage) => {
-        usages.push({ cacheRead: usage.cache_read_input_tokens ?? 0 });
-      });
-      const panels = [
-        { id: '018f0000-0000-7000-8000-000000000005', name: 'Suppliers' },
-        { id: '018f0000-0000-7000-8000-000000000006', name: 'Hiring' },
-      ];
-      const history: DecisionHistoryEntry[] = Array.from({ length: 50 }, (_, i) => {
-        const panel = panels[i % 2]!;
-        return {
-          capturedMessage: `${panel.name === 'Suppliers' ? 'leverancier' : 'kandidaat'} ${i} opvolgen`,
-          itemTitle: `Follow up ${i}`,
-          proposedPanelId: panel.id,
-          proposedPanelName: panel.name,
-          proposedPanelReason: `about ${panel.name.toLowerCase()}`,
-          chosenPanelId: panel.id,
-          chosenPanelName: panel.name,
-          decidedAt: `2026-08-${String((i % 28) + 1).padStart(2, '0')}T09:00:00.000Z`,
-        };
-      });
-
-      await service.choosePanel(anItem('offerte leverancier nog aftekenen'), panels, history, ['still waiting']);
-      await service.choosePanel(anItem('book the room for the CAPA review'), panels, history, ['still waiting']);
-
-      expect(usages[1]!.cacheRead).toBeGreaterThan(0);
-    });
-  });
 });

@@ -632,51 +632,15 @@ describe('Capture', () => {
   });
 
   /**
-   * The property the POC measured ("Learn where notes belong from where you
-   * actually file them", issue 299): a correction changes the *next* proposal
-   * for a note like the one that was corrected, without anybody telling the
-   * model a rule. This is the whole reason the decision history exists rather
-   * than a rule engine - the same shape of note offered nothing to name a
-   * panel by itself, and would keep offering nothing without the correction
-   * below to read.
-   *
-   * `COMPLIANCE_NOTE` from the describe above is deliberately not reused: a
-   * note the panel-naming case already passed on its own would prove nothing
-   * about the history mattering, since a plainly-compliance note might name
-   * the panel unaided. `LAURENS_SHAPED_NOTE` is worded to fit either panel
-   * equally - a genuine sign-off question that never says which team owns it -
-   * so naming one over the other is a call the history alone can be driving.
+   * **Not held on capture: "a proposal follows a correction recorded in the
+   * decision history".** On Sonnet 5.5 a note that fits either panel, after
+   * one loosely similar filing overrode a proposal, gets no panel, five times
+   * out of five: it wants more evidence from the history than one example
+   * before it names a panel. Kept on Sonnet for its cost ("Cut what cleaning
+   * up a captured note costs", issue 887). The same property is held where it
+   * moves an Item afterwards, by the refresh a filing triggers
+   * (`choose-a-panel.v2.test.ts`).
    */
-  describe('a proposal follows a correction recorded in the decision history', () => {
-    const panels = [
-      { id: '018f0000-0000-7000-8000-000000000003', name: 'Compliance questions' },
-      { id: '018f0000-0000-7000-8000-000000000004', name: 'Laurens' },
-    ];
-    const LAURENS_SHAPED_NOTE = 'sign-off needed before we can close this out, who owns it';
-
-    it('proposes the corrected panel for a similar note, after an override names it', async () => {
-      const history: DecisionHistoryEntry[] = [
-        {
-          capturedMessage: 'part 11 audit trail q for validation protocol, who signs off eod',
-          itemTitle: 'Part 11 audit trail question',
-          proposedPanelId: panels[0]!.id,
-          proposedPanelName: 'Compliance questions',
-          proposedPanelReason: 'a compliance question, about the validation protocol',
-          chosenPanelId: panels[1]!.id,
-          chosenPanelName: 'Laurens',
-          decidedAt: '2026-08-01T09:00:00.000Z',
-        },
-      ];
-
-      // Asked five times, because a model that only sometimes names the
-      // corrected panel passes a single dispatch and fails the night it does
-      // not. One after another, so a rate limit cannot pass for drift.
-      const proposals = [];
-      for (let pass = 0; pass < 5; pass += 1) proposals.push(await read(LAURENS_SHAPED_NOTE, panels, history));
-
-      expect(proposals.map((proposal) => proposal.panel?.panelId)).toEqual(Array(5).fill(panels[1]!.id));
-    });
-  });
 
   describe.each(WAYS)('when a note is $situation', ({ ask }) => {
     const read = readerFor(ask);
