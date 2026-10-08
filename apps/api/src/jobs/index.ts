@@ -9,7 +9,6 @@ import {
   enrichmentJobSchema,
   readWhatANoteMeans,
   reproposePanels,
-  reproposeTexts,
   type EnrichmentJob,
 } from './enrichment.js';
 import { moveSimulatedRunToWaiting } from './simulated-run.js';
@@ -21,18 +20,15 @@ export {
   enqueueCleanUp,
   enqueueReadingItsMeaning,
   enqueueRepropose,
-  enqueueReproposeTexts,
   enrichmentJobSchema,
   readWhatANoteMeans,
   reproposePanels,
-  reproposeTexts,
 } from './enrichment.js';
 export type {
   EnrichmentJob,
   CleanUpJob,
   ReadWhatItMeansJob,
   ReproposePanelsJob,
-  ReproposeTextsJob,
   SimulatedRunWaitsJob,
   GuestArrivalJob,
 } from './enrichment.js';
@@ -149,12 +145,15 @@ async function resetTheGuestAccount(env: Env): Promise<void> {
  * message still decides its own outcome inside its own callback, which is what
  * keeps the acknowledgement per message rather than per batch.
  *
- * **Several refreshes of one Workspace's panels, or of one account's texts,
- * are not collapsed here.** Each carries the ask it was queued for, and every
- * one but the latest finds itself superseded once it runs and does nothing
+ * **Several refreshes of one Workspace's panels are not collapsed here.**
+ * Each carries the ask it was queued for, and every one but the latest finds itself superseded once it runs and does nothing
  * (`src/jobs/debounce.ts`) - across the whole debounce window rather than
  * only within one batch ("Debounce the settle-triggered repropose fan-out
  * across a real time window", issue 582).
+ *
+ * **A `re-propose-texts` message still queued is dropped as one this version
+ * does not know.** A correction used to re-read the rest of the Inbox and no
+ * longer does (issue 887), so the message is neither run nor retried.
  */
 export async function handleQueue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
   await Promise.all(batch.messages.map((message) => workThrough(message, env)));
@@ -216,8 +215,6 @@ function run(env: Env, job: EnrichmentJob): Promise<void> {
       return reproposePanels(env, job);
     case 'read-what-a-note-means':
       return readWhatANoteMeans(env, job);
-    case 're-propose-texts':
-      return reproposeTexts(env, job);
     case 'simulated-run-waits':
       return moveSimulatedRunToWaiting(env, job);
     case 'guest-arrival':
@@ -238,8 +235,6 @@ function describe(job: EnrichmentJob): string {
       return `item ${job.itemId}`;
     case 're-propose-panels':
       return `workspace ${job.workspaceId}`;
-    case 're-propose-texts':
-      return `account ${job.accountName}`;
     case 'simulated-run-waits':
       return `run ${job.runId}`;
     case 'guest-arrival':

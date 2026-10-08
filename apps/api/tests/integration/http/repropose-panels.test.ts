@@ -282,6 +282,30 @@ async function untilRouted(itemId: string, panelId: string): Promise<void> {
   });
 }
 
+/**
+ * Waits for the refresh a filing queued for `itemId` to have finished: its row
+ * in What Cockpit changed, which a refresh writes before it asks the model and
+ * settles after. The item can be routed earlier than that, by the clean-up its
+ * own capture queued, and a case that then forgets what the model was asked
+ * would otherwise forget a call of the refresh still to come.
+ */
+async function untilRefreshed(itemId: string): Promise<void> {
+  await vi.waitFor(
+    async () => {
+      const rows = await inStoreAsItIs(ACCOUNT_NAME, (sql) =>
+        sql
+          .exec<{ status: string }>(
+            "SELECT status FROM rewrite_history WHERE item_id = ? AND looks_at = 'panel'",
+            itemId,
+          )
+          .toArray(),
+      );
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((row) => row.status !== 'pending')).toBe(true);
+    },
+    { timeout: 15_000, interval: 50 },
+  );
+}
 /** A conservative stand-in for "nothing further happened": nothing left to wait for on purpose. */
 async function aWhileLongerThanAJobWouldTake(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 300));
@@ -388,6 +412,7 @@ describe('Triage', () => {
       const settled = await captureANote('call jan about the invoice');
       await moveOnto(settled, elsewhere);
       await untilRouted(waiting, compliance);
+      await untilRefreshed(waiting);
       asked = [];
 
       await moveOnto(settled, another);
@@ -407,6 +432,7 @@ describe('Triage', () => {
       const settled = await captureANote('call jan about the invoice');
       await moveOnto(settled, elsewhere);
       await untilRouted(waiting, compliance);
+      await untilRefreshed(waiting);
       asked = [];
 
       await moveToInbox(settled);
@@ -427,6 +453,7 @@ describe('Triage', () => {
       const settled = await captureANote('call jan about the invoice');
       await moveOnto(settled, elsewhere);
       await untilRouted(waiting, compliance);
+      await untilRefreshed(waiting);
       asked = [];
 
       await fileOnto(settled, another);

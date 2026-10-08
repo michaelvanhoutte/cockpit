@@ -4,16 +4,24 @@ name: Contract
 # that reads what a note means, and the Bot Framework's published signing keys
 # (docs/testing-strategy.md, "Third parties"):
 # everything below it runs against a fake, and this is what says the fake still
-# resembles the thing. Scheduled rather than per pull request,
-# because every run spends real money and the model is not deterministic - a
-# tier that ran on every push would be a bill and a flake in front of every
-# merge.
+# resembles the thing. The whole tier runs when the half of the contract we own
+# changes, which is a prompt, and by hand from the Actions tab. The Claude
+# suites never run on the schedule, because every run spends real money; the
+# weekly run takes only the suites that cost next to nothing - Teams' signing
+# keys, Gmail and the meaning model - so a change on their side still shows
+# within a week.
 #
-# Nightly, and by hand from the Actions tab when the prompt changes - which is
-# the run that matters, a prompt being the only half of this contract we own.
+# Not a required check: while it can fail for a reason the change did not cause
+# ("Make the nightly contract run pass again", issue 705), it reports drift on the pull request without blocking a merge.
 on:
+  pull_request:
+    paths:
+      - 'apps/api/src/ai/**'
+      - 'apps/api/tests/contract/**'
+      - 'apps/api/vitest.contract.config.ts'
+      - '.github/workflows/contract.yml'
   schedule:
-    - cron: '0 3 * * *'
+    - cron: '0 3 * * 1'
   workflow_dispatch:
 
 concurrency:
@@ -44,9 +52,12 @@ jobs:
       # workflows already use, and is what reads what a note means - which needs
       # Workers AI: Read on that token beside the scopes a deploy needs
       # (docs/deployment.md, "Bootstrap runbook").
-      - run: pnpm --filter @cockpit/api test:contract
+      #
+      # The weekly run names the two free suites and withholds the Claude key,
+      # so it cannot spend on the model even if a Claude suite were selected.
+      - run: pnpm --filter @cockpit/api test:contract ${{ github.event_name == 'schedule' && 'gmail read-what-a-note-means' || '' }}
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ github.event_name != 'schedule' && secrets.ANTHROPIC_API_KEY || '' }}
           ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

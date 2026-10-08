@@ -22,8 +22,7 @@ name: Nightly
 # `ci.yml`, which would run the whole suite.
 #
 # Nightly, and by hand from the Actions tab when a night was missed. Off the
-# hour and clear of contract.yml's 03:00, because GitHub delays scheduled runs
-# at the top of an hour.
+# hour, because GitHub delays scheduled runs at the top of an hour.
 on:
   schedule:
     - cron: '17 4 * * *'

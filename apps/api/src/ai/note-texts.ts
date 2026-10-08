@@ -185,7 +185,7 @@ export function readProposal(raw: unknown, offeredPanelIds: readonly string[]): 
 export type PanelRead = { panel: RoutingCandidate | null } | { discarded: string };
 
 /**
- * Reads a panel-only answer (`choose-a-panel.v1`), by the same rules
+ * Reads a panel-only answer (`choose-a-panel.v2`), by the same rules
  * `readProposal` reads the `panel` riding on a full one.
  *
  * **An answer that is not a panel choice at all is discarded, not read as

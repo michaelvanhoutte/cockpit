@@ -65,11 +65,11 @@ Third-party APIs are the hardest horizontal dependency: sandboxes are often unav
 
 1. **L1/F1:** third parties never appear.
 2. **L2/F2 and per-change L3/F3 runs** use local fakes or recorded fixtures, built from real recorded responses rather than hand-invented shapes, living in the repository.
-3. **Live contract tests:** a small separate suite runs on a schedule, never per-change, against the real APIs, purely to verify the fixtures still match reality. A failure makes updating the fixture priority work.
+3. **Live contract tests:** a small separate suite runs against the real APIs, never per-change - when a prompt it holds changes and by hand, and weekly for the suites that spend nothing on a model - purely to verify the fixtures still match reality. A failure makes updating the fixture priority work.
 
 Without rule 3 the pyramid has a silent failure mode: every level green against a fake of Slack while real Slack has changed. Rule 3 is what makes rules 1 and 2 safe.
 
-**The tier arrived with the first third party**, the Claude API ("Clean up a captured note into a clear title and a fuller message", issue 296): `apps/api/tests/contract/`, its own Vitest config so `pnpm test` cannot pick it up, `pnpm --filter @cockpit/api test:contract`, and `.github/workflows/contract.yml` nightly. Two things it settled that the next third party inherits:
+**The tier arrived with the first third party**, the Claude API ("Clean up a captured note into a clear title and a fuller message", issue 296): `apps/api/tests/contract/`, its own Vitest config so `pnpm test` cannot pick it up, `pnpm --filter @cockpit/api test:contract`, and `.github/workflows/contract.yml` on a pull request that touches the AI layer and on demand, plus a weekly run of the suites that spend nothing on the model. Two things it settled that the next third party inherits:
 
 - **A model is not an API, and what is held is a *behaviour* rather than a shape.** There is no fixture to compare against — the answer differs every time — so what each case asserts is the property the prompt was written to get: the language it answers in, that it invents no name, date or number the note did not carry. Both were measured failing before the prompt existed, which is what makes them worth a run.
 - **A contract run with no credential is red, never skipped.** A skipped tier reads green from the outside, which is the same silent failure mode rule 3 exists to close.
@@ -130,7 +130,7 @@ apps/api/tests/
   integration/     # L2: own vertical deps only
   system/          # L3: backend, full deps, no browser
 packages/shared/tests/unit/                      # L1
-apps/api/tests/contract/                         # the live contract tests ("Third-party dependencies"): scheduled only
+apps/api/tests/contract/                         # the live contract tests ("Third-party dependencies"): on a prompt change and by hand; the free ones weekly too
 packages/connectors/*/tests/{unit,contract}/     # a connector's own logic, and the same live tier per connector
 apps/web/tests/
   unit/            # F1: no real dependencies
@@ -150,7 +150,7 @@ Level separation and one-command-per-level runnability are what is mandatory. Pe
 
 **F3 runs every spec on more than one screen.** A capability is claimed to work *for a user*, and the user is on a phone as often as a desktop, so each spec runs under a desktop viewport with a mouse and a phone viewport with touch rather than one standing in for the other. Not a browser matrix: both are Chromium, and a second engine is a separate decision. Where an interaction exists on only one form factor (a swipe, a hover-revealed control) it is a different capability and gets its own spec. This cannot be pushed down the pyramid, which looks like a violation of "the testing pyramid is a cost model" (§1) and is not: the F1 runner is jsdom, which has no layout engine and reports every element as zero-sized, so viewport-dependent rendering and the touch event path are physically unprovable below a real browser.
 
-Each level gets its own runner command (`test:unit`, `test:integration`, `test:system`, `test:f-unit`, `test:f-service`, `test:e2e`, `test:contract`), plus `test:fast` and `test:all`. CI runs `test:all` on merge and `test:contract` on schedule (`.github/workflows/contract.yml`, nightly and on demand). On a pull request the browser tier runs only the areas whose `sourcePatterns` own a changed file (`scripts/ci-e2e.mjs`), and every walk where a changed file is in no area, is the registry, the Playwright config, `tests/e2e/support/` or anything that forces every package's tests in full. `test:contract` is `@cockpit/api`'s and `@cockpit/connector-teams`'s today, and is in neither `test:fast` nor `test:all`, both of which have to stay free of anything that costs money or reaches a third party.
+Each level gets its own runner command (`test:unit`, `test:integration`, `test:system`, `test:f-unit`, `test:f-service`, `test:e2e`, `test:contract`), plus `test:fast` and `test:all`. CI runs `test:all` on merge and `test:contract` (`.github/workflows/contract.yml`) on a pull request that touches the AI layer, and on demand, with its suites that spend nothing on the model weekly as well. On a pull request the browser tier runs only the areas whose `sourcePatterns` own a changed file (`scripts/ci-e2e.mjs`), and every walk where a changed file is in no area, is the registry, the Playwright config, `tests/e2e/support/` or anything that forces every package's tests in full. `test:contract` is `@cockpit/api`'s and `@cockpit/connector-teams`'s today, and is in neither `test:fast` nor `test:all`, both of which have to stay free of anything that costs money or reaches a third party.
 
 ### 9.1 Tests are named in the product's language, not the implementation's
 

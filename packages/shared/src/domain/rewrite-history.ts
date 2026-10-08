@@ -18,8 +18,9 @@ export type RewriteAttemptStatus = z.infer<typeof rewriteAttemptStatusSchema>;
 
 /**
  * Which fields a refinement looks at, fixed by what set it off: a capture
- * looks at all three, a re-read after you edit another item at the two
- * texts, a refresh after you file another item at the suggested Panel alone.
+ * looks at all three, a refresh after you file another item at the suggested
+ * Panel alone. `texts` is a re-read after you edited another item, which
+ * nothing queues any more (issue 887); the rows it left stay readable.
  */
 export const refinementScopeSchema = z.enum(['texts-and-panel', 'texts', 'panel']);
 export type RefinementScope = z.infer<typeof refinementScopeSchema>;

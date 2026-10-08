@@ -165,13 +165,25 @@ export interface Account {
     workspaceId: string,
   ): Promise<UnfiledCandidate[]>;
   /**
-   * Every item in the whole account with a captured note whose texts nobody
-   * has settled - what a correction re-proposes texts for ("Re-read the rest
-   * of the inbox the moment you fix a title", issue 399). Read by the
-   * enrichment job and by nothing else, the same as `unfiledItemsInWorkspace`
-   * above.
+   * The meaning of each candidate, and of each note filed in the Workspace
+   * since `since` (`null` where `since` is) - what a filing's refresh chooses
+   * which candidates to read again by ("Cut what cleaning up a captured note
+   * costs", issue 887). Read by the enrichment job and by nothing else.
    */
-  itemsWithUnsettledTexts(): Promise<UnfiledCandidate[]>;
+  meaningsForRefresh(
+    workspaceId: string,
+    since: string | null,
+    candidateIds: string[],
+    model: string,
+  ): Promise<{ filings: (number[] | null)[] | null; candidates: { itemId: string; reading: number[] | null }[] }>;
+  /**
+   * Records when one Workspace's refresh last ran, so the next weighs only
+   * the filings made since. Advisory: losing it makes the next refresh
+   * consider every candidate.
+   */
+  recordRefreshRan(refresh: string, at: string): Promise<null>;
+  /** When one refresh last ran, or null where none is recorded. */
+  lastRefreshRan(refresh: string): Promise<string | null>;
   /**
    * Records an ask for one refresh as the latest, and reads back the latest -
    * what debounces the settle-triggered refreshes ("Debounce the
@@ -359,7 +371,10 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     textLearningContext: async () => unwrap(await store.textLearningContext(accountName)),
     unfiledItemsInWorkspace: async (workspaceId) =>
       unwrap(await store.unfiledItemsInWorkspace(accountName, workspaceId)),
-    itemsWithUnsettledTexts: async () => unwrap(await store.itemsWithUnsettledTexts(accountName)),
+    meaningsForRefresh: async (workspaceId, since, candidateIds, model) =>
+      unwrap(await store.meaningsForRefresh(accountName, workspaceId, since, candidateIds, model)),
+    recordRefreshRan: async (refresh, at) => unwrap(await store.recordRefreshRan(accountName, refresh, at)),
+    lastRefreshRan: async (refresh) => unwrap(await store.lastRefreshRan(accountName, refresh)),
     recordRefreshAsk: async (refresh, ask) => unwrap(await store.recordRefreshAsk(accountName, refresh, ask)),
     latestRefreshAsk: async (refresh) => unwrap(await store.latestRefreshAsk(accountName, refresh)),
     queueRewriteAttempt: async (attempt) => unwrap(await store.queueRewriteAttempt(accountName, attempt)),

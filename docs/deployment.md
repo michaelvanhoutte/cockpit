@@ -470,10 +470,10 @@ CI needs, in GitHub:
 
 | Kind | Name | Value |
 |---|---|---|
-| Secret | `CLOUDFLARE_API_TOKEN` | scoped token, created in the Cloudflare dashboard — deploys with it, and the nightly contract run reads what a note means with it, which is why Workers AI: Read is among its scopes |
+| Secret | `CLOUDFLARE_API_TOKEN` | scoped token, created in the Cloudflare dashboard — deploys with it, and the contract run reads what a note means with it, which is why Workers AI: Read is among its scopes |
 | Secret | `CLOUDFLARE_ACCOUNT_ID` | `091e6e85f8268ee838089d6fed968585` — the account the same run reaches that model in |
 | Secret | `CLAUDE_CODE_OAUTH_TOKEN` | stored by `/install-github-app`, run once from an interactive Claude Code session |
-| Secret | `ANTHROPIC_API_KEY` | the same key as above, for the nightly contract run (`.github/workflows/contract.yml`), which is the only place CI talks to a real model |
+| Secret | `ANTHROPIC_API_KEY` | the same key as above, for the contract run (`.github/workflows/contract.yml`), which is the only place CI talks to a real model |
 | Secret | `ANTHROPIC_WORKSPACE_ID` | beside it, for the same reason it is set on the Worker |
 | Variable | `CLOUDFLARE_WORKERS_SUBDOMAIN` | `vanhoutte-michael` |
 
@@ -691,7 +691,7 @@ tasks", issue 725): about 288 Durable Object requests per account a day, and at
 most 40 outbound calls per run against the free plan's 50. Nothing needs
 configuring; the nightly cron re-arms any check that was lost.
 
-**The scheduled contract test needs a mailbox of its own**, never anybody's
+**The Gmail contract test needs a mailbox of its own**, never anybody's
 real one (`apps/api/tests/contract/gmail.test.ts`; it skips without these):
 
 1. A Google account for testing, with a label called `Cockpit` and at least
@@ -922,7 +922,7 @@ Then, by hand (no API, or deliberately not automated):
 
 1. **A scoped API token** for CI (Workers Scripts: Edit, D1: Edit, Account
    Settings: Read, Workers AI: Read), stored as the `CLOUDFLARE_API_TOKEN`
-   GitHub secret. The last scope is the nightly contract run's, not a deploy's:
+   GitHub secret. The last scope is the contract run's, not a deploy's:
    it calls the model that reads what a note means by its own address, a tier
    with no Worker having no binding to reach it through ("Flag a captured note
    that says what another one already said", issue 407).
@@ -1117,7 +1117,7 @@ mail provider.
 
 - **Per-tier CI jobs.** Architecture wants the fast tiers split one job per tier
   so a misplaced test is visible; the split lands with the tiers.
-- **L3 on merge, and the nightly contract runs**: they land with the suites they
+- **L3 on merge, and the contract runs**: they land with the suites they
   would run. F3 no longer waits — the browser tier runs as its own `E2E (F3)` job
   on every pull request and on `main`, against its own isolated local stack.
 - **F3 against a deployed environment.** The suite already takes `E2E_BASE_URL`,

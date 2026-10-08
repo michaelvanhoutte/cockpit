@@ -276,7 +276,7 @@ describe('Capture', () => {
      * reverting a detour, say - and `command-service.ts`'s `UPDATE` branch
      * rewrites the settled half without deleting or resetting the row. Such
      * a row teaches nothing any more, and both `renderOneTextCorrection`
-     * (`clean-up-a-note.v10.ts`) and the corrected-item set (`store.ts`) read
+     * (`clean-up-a-note.v11.ts`) and the corrected-item set (`store.ts`) read
      * this same function to agree that it counts nowhere.
      */
     it('is false where the settled half was edited back to exactly what was proposed', () => {

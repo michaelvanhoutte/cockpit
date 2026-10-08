@@ -27,7 +27,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
  * horizontal dependency - the model, at the network boundary, exactly as the
  * issuer is faked for signing in (tests/integration/issuer.ts). Whether the
  * real model obeys the prompt is the contract tier's question
- * (tests/contract/clean-up-a-note.v10.test.ts).
+ * (tests/contract/clean-up-a-note.v11.test.ts).
  *
  * **The queue is real.** The pool runs this Worker's declared consumer, so a
  * capture really does put a message on a queue and the consumer really does
@@ -73,7 +73,7 @@ const AMBIGUOUS_NOTE = {
 /** What the model does when it is asked. */
 type Answering = { says: unknown } | { text: string } | 'fails' | 'declines';
 
-let asked: { system: string; note: string }[] = [];
+let asked: { system: string; note: string; blocks: { text: string; cache_control?: unknown }[]; model: string }[] = [];
 
 /**
  * What happens between the note being sent and the answer coming back - which
@@ -97,11 +97,11 @@ function theModelIs(answering: Answering): void {
 
     const sent = JSON.parse(
       input instanceof Request ? await input.clone().text() : String(init?.body ?? '{}'),
-    ) as { system: { text: string }[]; messages: { content: string }[] };
+    ) as { model: string; system: { text: string; cache_control?: unknown }[]; messages: { content: string }[] };
     // Sent as blocks, the fixed half first and cached ("Enable prompt caching on the note-cleanup prompt", issue 584);
     // read here as the one text the model sees.
     const system = sent.system.map((block) => block.text).join('\n\n');
-    asked.push({ system, note: sent.messages[0]!.content });
+    asked.push({ system, note: sent.messages[0]!.content, blocks: sent.system, model: sent.model });
 
     if (whileReading) await whileReading();
 
@@ -208,8 +208,14 @@ async function untilTheNoteHasBeenRead(itemId: string): Promise<void> {
 async function readAgain(): Promise<void> {
   asked = [];
   await captureANote({ itemId: nextId() });
-  await vi.waitFor(() => expect(asked.length).toBeGreaterThan(0), { timeout: 15_000, interval: 50 });
+  await vi.waitFor(() => expect(asked.some(isACleanUp)).toBe(true), { timeout: 15_000, interval: 50 });
+  // A refresh a filing queued earlier can still be asking the model about
+  // where an item belongs; it is not the read this case asserts on.
+  asked = asked.filter(isACleanUp);
 }
+
+/** Whether a call is a note being cleaned up, by the worked examples only that prompt carries. */
+const isACleanUp = (call: { system: string }) => call.system.includes('Examples.');
 
 /**
  * The routing Cockpit proposed for an item, read straight out of the store -
@@ -370,6 +376,20 @@ describe('Capture', () => {
       // the repository - so nothing of the account's other items can travel
       // with it (issue 296, "it may add nothing the note does not contain").
       expect(asked[0]!.system).toContain('You are part of Cockpit');
+    });
+
+    it('is read by Sonnet 5.5, with what it learns from sent stable-first and cached after the instructions and after the history', async () => {
+      const itemId = await captureANote();
+
+      await untilTheNoteHasBeenRead(itemId);
+
+      const sent = asked[0]!;
+      expect(sent.model).toBe('claude-sonnet-5-5');
+      expect(sent.blocks).toHaveLength(3);
+      expect(sent.blocks.map((block) => block.cache_control)).toEqual([{ type: 'ephemeral' }, { type: 'ephemeral' }, undefined]);
+      expect(sent.blocks[0]!.text).toContain('Examples.');
+      expect(sent.blocks[1]!.text).toContain('Decision history');
+      expect(sent.blocks[2]!.text).toContain('Recently captured');
     });
 
     it('reads a note that belongs to no workspace yet, like any other', async () => {
@@ -660,7 +680,11 @@ describe('Capture', () => {
       theModelIs({ says: { ...A_READING, panel: { panelId: nextUp, reason: 'next in line' } } });
       const first = await captureANote({ message: 'sign-off needed, who owns it' });
       await untilTheNoteHasBeenRead(first);
-      expect((await routingOf(first))?.proposed_panel_id).toBe(nextUp);
+      // The Panel is written after the texts, so it is waited for rather than read at once.
+      await vi.waitFor(async () => expect((await routingOf(first))?.proposed_panel_id).toBe(nextUp), {
+        timeout: 15_000,
+        interval: 20,
+      });
       await neverPropose(nextUp, true);
       await moveOnto(first, compliance);
       await neverPropose(nextUp, false);
@@ -677,7 +701,7 @@ describe('Capture', () => {
    * the same model call reads the account's decision history and what else
    * has been captured lately - both rendered into the system prompt, which is
    * as far as an integration test can reach into a call whose actual routing
-   * is a live model's judgment call (tests/contract/clean-up-a-note.v10.test.ts
+   * is a live model's judgment call (tests/contract/clean-up-a-note.v11.test.ts
    * proves the judgment itself).
    */
   describe('a proposal is asked with the account’s decision history and its recent, unfiled captures', () => {

@@ -38,17 +38,15 @@ export { TITLE_TARGET };
 
 /**
  * Every word of the system prompt that is the same for every note and every
- * account - the rules and the worked examples - and nothing else, in the two
- * forms the prompt is asked in: with the Panel question, for a capture, and
- * without it, for a re-read of the texts alone.
+ * account - the rules and the worked examples - and nothing else.
  *
- * **Built once, from one boolean, so no input can reach it.** It is sent
- * first, with the cache breakpoint on its end (`index.ts`), and a cached
- * prefix is only ever read back by a request whose bytes match it exactly:
- * one interpolated value in here and no two accounts, or no two notes, would
- * share it. What varies per call is `context`, sent after it ("Enable prompt
- * caching on the note-cleanup prompt, restructured so the fixed content is a
- * stable prefix", issue 584).
+ * **A constant, so no input can reach it.** It is sent first, with the cache
+ * breakpoint on its end (`index.ts`), and a cached prefix is only ever read
+ * back by a request whose bytes match it exactly: one interpolated value in
+ * here and no two accounts, or no two notes, would share it. What varies per
+ * call is sent after it, stable part first (`buildCleanUpANote`; "Enable
+ * prompt caching on the note-cleanup prompt, restructured so the fixed
+ * content is a stable prefix", issue 584).
  *
  * **An edit here needs no cache flush.** The cache is keyed on the exact
  * bytes, so a changed sentence is a different prefix, written fresh on its
@@ -57,13 +55,9 @@ export { TITLE_TARGET };
  *
  * The paragraphs saying how to read the panels, the decision history and
  * what was recently captured are here; the panels, history and captures
- * themselves are in `context`, so this says once that they come further down.
+ * themselves come after, so this says once that they come further down.
  */
-function instructionsFor(withPanels: boolean): string {
-  // Each example's answer, with the panel line it carries only where one is asked for.
-  const noPanelFits = withPanels ? '\npanel: (none of the panels offered clearly fit)' : '';
-
-  return `You are part of Cockpit, one person's inbox for their own work.
+const INSTRUCTIONS = `You are part of Cockpit, one person's inbox for their own work.
 
 Somebody has just captured a note by typing or dictating it in a hurry, on a phone or in a car. What arrives is clipped, abbreviated, half-typed, unpunctuated, and often mixes English and Dutch in one line. You write two texts for it: a title naming the work it is asking for, and a message saying what to do about it that still makes sense to them in two weeks.
 
@@ -90,9 +84,7 @@ Some notes genuinely say two things at once - "bel jan" is either call Jan, a pe
 Almost every note has none. A note that is merely terse, or short, or missing detail is not ambiguous - it has one reading, and your main title and message are it. Only list another reading where the difference would change what somebody does about the note, and never more than two or three.
 
 A reading's message may say nothing beyond what its title already says, where the note has nothing more to add - do not repeat the same message under two readings to fill the field.
-${
-  withPanels
-    ? `
+
 Further down, after the examples, you are given what is this account's own: the panels it has already set up, its decision history, and what else has been captured recently.
 
 The panels are buckets this account files its own notes into, each named for what belongs there. Where this note clearly belongs on one of them, name its id and say in a few words why, about the note and the panel rather than about yourself - "a compliance question, about the validation protocol" rather than "I chose this because it mentions compliance". Most notes belong on none of them: a panel is not owed a note merely for being the closest match, and naming the wrong one costs more than naming none. Only name one where you are confident a person filing their own notes would put it there themselves.
@@ -100,34 +92,36 @@ The panels are buckets this account files its own notes into, each named for wha
 The decision history is this account's most recent settled filings, oldest first, with what you proposed and what they actually chose. It is the only place learning happens here - there is no separate training step. Recent entries say what is live right now; older ones still say how this person files in general, and both matter, but where they disagree favor the recent one - a project can go quiet for a while and an older habit can still hold. Where an entry shows you proposed one panel and they filed it on another, that correction outweighs an entry where they simply accepted what you proposed - it names a wrong answer as well as a right one, so read it as the stronger signal. Where such a correction concerns a note of the same kind as this one, it is the confidence the paragraph above asks for: name the panel they filed that one on, rather than none, even where this note never says which panel it is for.
 
 What else has been captured in this workspace recently and not yet filed is separate from the history, because none of it has been decided yet. It is still evidence: what somebody is writing notes about right now, before any of it has a destination. Weigh it alongside the history, never above it - an actual past decision is a stronger signal than a guess at a pattern in still-unfiled notes.
-`
-    : ''
-}
+
 Examples.
 
 Note: part 11 audit trail q for validation protocol, who signs off eod
 language: English
 title: Clarify who signs off the Part 11 audit trail
 message: Find out who signs off on the Part 11 audit trail for the validation protocol, and have it clear by end of day.
-readings: []${noPanelFits}
+readings: []
+panel: (none of the panels offered clearly fit)
 
 Note: bellen novy ivm afspraak volgende week, niet voor 10u
 language: Dutch
 title: Novy bellen over de afspraak van volgende week
 message: Novy bellen in verband met de afspraak van volgende week. Niet voor 10 uur bellen.
-readings: []${noPanelFits}
+readings: []
+panel: (none of the panels offered clearly fit)
 
 Note: check of de deploy erdoor is + mail naar Anna re invoice
 language: English and Dutch
 title: Deploy nakijken en Anna mailen over de factuur
 message: Nakijken of de deploy erdoor is en daarna Anna mailen over de factuur.
-readings: []${noPanelFits}
+readings: []
+panel: (none of the panels offered clearly fit)
 
 Note: standup is too long, half the room has nothing to say
 language: English
 title: Record that standup runs too long
 message: Record that standup is too long and that half the room has nothing to say.
-readings: []${noPanelFits}
+readings: []
+panel: (none of the panels offered clearly fit)
 
 Note: call jan
 language: English
@@ -136,22 +130,15 @@ message: Call Jan.
 readings:
 - title: Call in January
   message:
-  meaning: "'jan' is short for the month January"${noPanelFits}${
-    withPanels
-      ? `
+  meaning: "'jan' is short for the month January"
+panel: (none of the panels offered clearly fit)
 
 Note: part 11 audit trail q for validation protocol, who signs off eod
 (the first example above, once more, now that one of the panels offered is called "Compliance questions")
-panel: Compliance questions, because it's a compliance question - Part 11 and the validation protocol`
-      : ''
-  }`;
-}
-
-const INSTRUCTIONS_WITH_PANELS = instructionsFor(true);
-const INSTRUCTIONS_TEXTS_ONLY = instructionsFor(false);
+panel: Compliance questions, because it's a compliance question - Part 11 and the validation protocol`;
 
 /**
- * What Cockpit asks Claude for when a note has been captured, version 10.
+ * What Cockpit asks Claude for when a note has been captured, version 11.
  * `v7` ("Learn how you write from the titles you correct", issue 394; "Show
  * what Cockpit is told, and say how you want it changed", issue 398; "Pin an
  * example of how you want a note written", issue 397) added `corrections`,
@@ -160,11 +147,11 @@ const INSTRUCTIONS_TEXTS_ONLY = instructionsFor(false);
  * the text-learning prompt to the last 30 days, and drop rules and pinned
  * examples as inputs", issue 451; `docs/text-learning.md`).
  *
- * **`v9` changed the order and nothing it asked for.** The system prompt is two
- * parts: `instructions`, fixed and first, and `context`, this account's and
- * this call's, after it - so the fixed part is a prefix every call shares and
- * the cache can serve (issue 584). `v8` interleaved the two, which left only
- * the opening paragraphs cacheable.
+ * **`v9` changed the order and nothing it asked for.** The system prompt is
+ * the fixed `instructions` first and what is this account's and this call's
+ * after it, so the fixed part is a prefix every call shares and the cache can
+ * serve (issue 584). `v8` interleaved the two, which left only the opening
+ * paragraphs cacheable.
  *
  * **The wanted titles use their author's own vocabulary, not the note's
  * words - the one thing no general prompt rewrite could supply**
@@ -186,25 +173,32 @@ const INSTRUCTIONS_TEXTS_ONLY = instructionsFor(false);
  * instructions, so a bold name, a link or a list in the note comes back on
  * the same words (issue 756).
  *
- * Nothing else moves: language, the other readings, the Panel proposal, the
- * routing history and the shape of `schema` are `v6`'s.
+ * **`v11` runs on Sonnet 5.5 and orders what is learned from, stable first**
+ * ("Cut what cleaning up a captured note costs", issue 887). Measured on the
+ * last 20 production captures, Sonnet 5.5 made 20 usable proposals to Opus
+ * 5's 19, at $0.035 a capture against $0.086. The system prompt is three
+ * parts, each only as stable as the last, with a cache breakpoint after the
+ * first two (`index.ts`): `instructions`; `stable`, which changes only when
+ * something is filed or corrected - the Panels, the decision history, then the
+ * corrections; and `recent`, which changes with every capture. Consecutive
+ * captures of one account read the first two back at the cache rate. A
+ * correction left to the end of `stable` leaves the history cached, and the
+ * history is the larger part.
  *
- * **`routing` is `null` where only the two texts are wanted** - a correction's
- * re-read of the rest of the inbox, which never writes a Panel ("Use a
- * cheaper model for panel-only re-proposal", issue 583). The Panels, the
- * decision history, what else was captured lately, every example's `panel:`
- * line and the `panel` field of `schema` then all go, so nothing is paid for
- * that is thrown away; every sentence about the texts stays word for word.
+ * Nothing else moves: language, the other readings, the Panel proposal, the
+ * routing history and the shape of `schema` are `v6`'s. The texts-only form
+ * `v10` had, for a correction's re-read of the rest of the Inbox, went with
+ * that re-read.
  */
 export function buildCleanUpANote(
-  routing: RoutingInputs | null,
+  routing: RoutingInputs,
   corrections: readonly TextCorrectionEntry[],
   stood: WhatStood | null,
 ): {
-  version: 'v10';
+  version: 'v11';
   model: string;
   effort: 'low';
-  system: { instructions: string; context: string };
+  system: { instructions: string; stable: string; recent: string };
   schema: Record<string, unknown>;
 } {
   // Either section may be absent - a window with nothing qualifying, or
@@ -229,36 +223,29 @@ export function buildCleanUpANote(
       ? ''
       : `You are also given this account's own record of the titles and messages you have proposed in the last 30 days and how they were received - the strongest evidence of this person's own vocabulary and length available, and it outranks the built-in guidance above on vocabulary and length wherever the two disagree. It never overrides the language rule above, and never licenses adding anything the note itself does not contain.\n\n${styleEvidenceSections.join('\n\n')}`;
 
-  const sections = [
+  // The Panels first: they are in the output schema as well, so a change to
+  // them restarts the cache wherever they sit.
+  const stable = [
+    "Everything below is this account's own, read fresh for this note.",
+    renderPanels(routing.panels),
+    renderHistory(routing.history),
     ...(styleEvidence === '' ? [] : [styleEvidence]),
-    ...(routing
-      ? [renderPanels(routing.panels), renderHistory(routing.history), renderRecentlyCaptured(routing.recentlyCaptured)]
-      : []),
-  ];
-  // Nothing at all where there is nothing of the account's own to say - an
-  // empty text block is one the API refuses, and a heading over nothing would
-  // claim something follows it.
-  const context =
-    sections.length === 0
-      ? ''
-      : ["Everything below is this account's own, read fresh for this note.", ...sections].join('\n\n');
+  ].join('\n\n');
 
   return {
-    version: 'v10',
+    version: 'v11',
 
     /**
-     * Unchanged since `v1`, which measured a cheaper model handing the
-     * captured note straight back as the title, unshortened, on half the
-     * notes it was given - the one thing this whole feature exists to stop.
-     * Asking for a shorter, imperative title is a harder judgement than
-     * asking for a long one, not an easier one, so nothing here loosens with
-     * `v7`. The contract tests are what would notice if that stopped being
-     * true.
+     * Sonnet 5.5, on the 20-capture comparison above, and held to the same
+     * contract suite Opus 5 was (`tests/contract/clean-up-a-note.v11.test.ts`).
+     * Haiku 5.5 was compared too and gave three titles of another note and
+     * three rejected answers, so this is the cheapest model that held the
+     * comparison, not the cheapest there is.
      */
-    model: 'claude-opus-5',
+    model: 'claude-sonnet-5-5',
     effort: 'low',
 
-    system: { instructions: routing ? INSTRUCTIONS_WITH_PANELS : INSTRUCTIONS_TEXTS_ONLY, context },
+    system: { instructions: INSTRUCTIONS, stable, recent: renderRecentlyCaptured(routing.recentlyCaptured) },
 
     /**
      * Unchanged in shape from `v6`: history, the two texts of evidence above
@@ -311,52 +298,49 @@ export function buildCleanUpANote(
             additionalProperties: false,
           },
         },
-        ...(routing
-          ? {
-              panel: {
-                type: 'object',
-                description:
-                  'Which of the panels listed above this note belongs on, or that none of them genuinely fits - the common case, and a real answer.',
-                properties: {
-                  panelId: {
-                    type: 'string',
-                    enum: [...routing.panels.map((panel) => panel.id), ''],
-                    description:
-                      'The id of the one panel this note clearly belongs on, copied exactly from the list above - or the empty string where none of them does.',
-                  },
-                  reason: {
-                    type: 'string',
-                    description:
-                      'A few words saying why, about the note and the panel rather than about yourself. Empty exactly when panelId is empty.',
-                  },
-                },
-                required: ['panelId', 'reason'],
-                additionalProperties: false,
-              },
-            }
-          : {}),
+        panel: {
+          type: 'object',
+          description:
+            'Which of the panels listed above this note belongs on, or that none of them genuinely fits - the common case, and a real answer.',
+          properties: {
+            panelId: {
+              type: 'string',
+              enum: [...routing.panels.map((panel) => panel.id), ''],
+              description:
+                'The id of the one panel this note clearly belongs on, copied exactly from the list above - or the empty string where none of them does.',
+            },
+            reason: {
+              type: 'string',
+              description:
+                'A few words saying why, about the note and the panel rather than about yourself. Empty exactly when panelId is empty.',
+            },
+          },
+          required: ['panelId', 'reason'],
+          additionalProperties: false,
+        },
       },
-      required: ['language', 'title', 'message', 'readings', ...(routing ? ['panel'] : [])],
+      required: ['language', 'title', 'message', 'readings', 'panel'],
       additionalProperties: false,
     },
   };
 }
 
-/** What a proposal needs to say which Panel a note belongs on - absent where only the texts are wanted. */
+/** What a proposal needs to say which Panel a note belongs on. */
 export interface RoutingInputs {
   panels: readonly { id: string; name: string }[];
   history: readonly DecisionHistoryEntry[];
   recentlyCaptured: readonly string[];
 }
 
-function renderPanels(panels: readonly { id: string; name: string }[]): string {
+/** Exported for `choose-a-panel.v2`, which lists the Panels in the same words. */
+export function renderPanels(panels: readonly { id: string; name: string }[]): string {
   const list =
     panels.length > 0 ? panels.map((panel) => `- ${panel.id}: ${panel.name}`).join('\n') : '(this account has no panels yet)';
   return `Panels:\n${list}`;
 }
 
 /**
- * Unchanged since `v4`. Exported for `choose-a-panel.v1`, which reads the
+ * Unchanged since `v4`. Exported for `choose-a-panel.v2`, which reads the
  * same history in the same words.
  */
 export function renderHistory(history: readonly DecisionHistoryEntry[]): string {

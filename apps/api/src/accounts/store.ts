@@ -89,6 +89,7 @@ import {
   connectionUnder,
   decisionHistoryForWorkspace,
   everyMeaning,
+  filingMeaningsSince,
   forgetMeaning,
   claudeCodeConnectionOf,
   getAgent,
@@ -105,7 +106,6 @@ import {
   getWorkspace,
   hasClaudeCodeConnection,
   itemsToRead,
-  itemsWithUnsettledTexts,
   judgeableItemsForAccount,
   listAgents,
   listAssociationsForWorkspace,
@@ -116,6 +116,7 @@ import {
   listDashboards,
   listLayoutsInWorkspace,
   listFilingsInWorkspace,
+  meaningsOfItems,
   listOpenItems,
   listPanelsInWorkspace,
   listWorkspaces,
@@ -516,14 +517,39 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   }
 
   /**
-   * Every item in the whole account with a captured note whose texts nobody
-   * has settled - what a correction re-proposes texts for ("Re-read the rest
-   * of the inbox the moment you fix a title", issue 399).
+   * What a filing's refresh weighs its candidates by: the meaning of each
+   * candidate, and of each note filed in the Workspace since `since` - `null`
+   * for the latter where `since` is, the previous refresh being unknown
+   * ("Cut what cleaning up a captured note costs", issue 887).
    */
-  itemsWithUnsettledTexts(
+  meaningsForRefresh(
     accountName: string,
-  ): Answer<UnfiledCandidate[]> {
-    return this.#answer(accountName, (db) => itemsWithUnsettledTexts(db, accountName));
+    workspaceId: string,
+    since: string | null,
+    candidateIds: string[],
+    model: string,
+  ): Answer<{ filings: (number[] | null)[] | null; candidates: { itemId: string; reading: number[] | null }[] }> {
+    return this.#answer(accountName, (db) => ({
+      filings: since === null ? null : filingMeaningsSince(db, accountName, workspaceId, since, model),
+      candidates: meaningsOfItems(db, accountName, candidateIds, model),
+    }));
+  }
+
+  /**
+   * Records when one Workspace's refresh last ran, and reads it back. **Beside
+   * the refresh asks, in the same key-value storage and for the same reason**
+   * (`recordRefreshAsk`): it is a hint about which filings a refresh has
+   * already weighed, and losing it only makes the next refresh consider every
+   * candidate instead of the close ones.
+   */
+  recordRefreshRan(accountName: string, refresh: string, at: string): Answer<null> {
+    this.ctx.storage.kv.put(refreshRanKey(accountName, refresh), at);
+    return { status: 'ok', value: null };
+  }
+
+  /** When one refresh last ran, or null where none is recorded. */
+  lastRefreshRan(accountName: string, refresh: string): Answer<string | null> {
+    return { status: 'ok', value: this.ctx.storage.kv.get<string>(refreshRanKey(accountName, refresh)) ?? null };
   }
 
   /**
@@ -1523,6 +1549,11 @@ export const GMAIL_CHECK_EVERY_MS = 5 * 60_000;
 
 /** How soon the next run comes while a check has more to bring in than one run reached. */
 export const GMAIL_CHECK_SOON_MS = 10_000;
+
+/** Where the time one refresh last ran is kept - named for the account for the same reason. */
+function refreshRanKey(accountName: string, refresh: string): string {
+  return `refresh-ran:${accountName}:${refresh}`;
+}
 
 /** Where one refresh's latest ask is kept - carrying the account's name for the reason every query filters on it (`rpc.ts`). */
 function refreshAskKey(accountName: string, refresh: string): string {
