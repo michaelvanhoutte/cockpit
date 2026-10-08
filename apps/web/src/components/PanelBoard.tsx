@@ -944,6 +944,7 @@ export function PanelBoard({
       scrollTop: scroller?.scrollTop ?? 0,
       maxScrollTop: scroller ? scroller.scrollHeight - scroller.clientHeight : 0,
       opening,
+      room: base,
     });
     if (next.below > 0 && rowsRef.current) rowsRef.current.style.marginBottom = `${next.below}px`;
     if (scroller) scroller.scrollTop = next.scrollTop;

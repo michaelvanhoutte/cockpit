@@ -16,6 +16,8 @@ export interface Anchoring {
   maxScrollTop: number;
   /** The board is open, a Panel having been dropped: what cannot be scrolled is never made up by pulling it up. */
   opening?: boolean;
+  /** The room already above the board, which an opening board takes back before leaving any below. */
+  room?: number;
 }
 
 /**
@@ -33,7 +35,14 @@ export interface Anchoring {
  * a header lower than the Dashboard reaches becomes room below it, which the
  * Dashboard can then scroll into.
  */
-export function anchored({ wanted, now, scrollTop, maxScrollTop, opening = false }: Anchoring): {
+export function anchored({
+  wanted,
+  now,
+  scrollTop,
+  maxScrollTop,
+  opening = false,
+  room = 0,
+}: Anchoring): {
   scrollTop: number;
   shift: number;
   below: number;
@@ -41,6 +50,8 @@ export function anchored({ wanted, now, scrollTop, maxScrollTop, opening = false
   const target = Math.min(Math.max(scrollTop + (now - wanted), 0), Math.max(maxScrollTop, 0));
   const headerAfter = now - (target - scrollTop);
   const shift = wanted - headerAfter;
-  if (opening && shift < 0) return { scrollTop: target - shift, shift: 0, below: -shift };
+  // Room above is taken back first, being empty; only what is left over goes below.
+  const left = Math.max(room, 0) + shift;
+  if (opening && left < 0) return { scrollTop: target - left, shift: shift - left, below: -left };
   return { scrollTop: target, shift, below: 0 };
 }

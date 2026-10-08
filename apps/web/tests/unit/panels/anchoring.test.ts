@@ -69,6 +69,17 @@ describe('Panels', () => {
         measured: { wanted: 300, now: 120, scrollTop: 0, maxScrollTop: 0, opening: true },
         is: { scrollTop: 0, shift: 180, below: 0 },
       },
+      {
+        situation: 'dropped low with room above the board enough to hold it, so the room above is taken back',
+        measured: { wanted: 300, now: 480, scrollTop: 100, maxScrollTop: 100, opening: true, room: 400 },
+        is: { scrollTop: 100, shift: -180, below: 0 },
+      },
+      {
+        situation: 'dropped low with less room above than it needs, the rest becoming room below',
+        // 180 wanted, 100 of it room above: that goes, and the other 80 is room below.
+        measured: { wanted: 300, now: 480, scrollTop: 100, maxScrollTop: 100, opening: true, room: 100 },
+        is: { scrollTop: 180, shift: -100, below: 80 },
+      },
     ])('$situation', ({ measured, is }) => {
       expect(anchored(measured)).toEqual(is);
     });
