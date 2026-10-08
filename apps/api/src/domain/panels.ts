@@ -285,7 +285,7 @@ export function withStoredSections(
   let waiting: string[] = [];
   for (const row of stored) {
     if (rowIsSection(row)) {
-      waiting.push(row.title!);
+      waiting.push(row.title);
       continue;
     }
     const first = row.cells[0]?.panelId;

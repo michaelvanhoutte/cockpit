@@ -1065,9 +1065,7 @@ function AddPanel({
         question={section ? 'What is the new section called?' : 'What is the new panel called?'}
         explains={section ? WHAT_A_SECTION_IS : WHAT_A_PANEL_IS}
         alsoAsks={<WhatItHolds kind={kind} onKindChange={setKind} />}
-        // The same field whichever is chosen, so a name typed before choosing
-        // Section is still there after.
-        fieldLabel="Name of the new panel"
+        fieldLabel={section ? 'Title of the new section' : 'Name of the new panel'}
         placeholder="One-on-ones, Waiting on…"
         submitLabel="Add"
         name={naming ?? ''}

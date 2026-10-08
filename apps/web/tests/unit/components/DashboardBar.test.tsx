@@ -1256,7 +1256,7 @@ describe('Layouts', () => {
 
       await user.click(await screen.findByRole('button', { name: '+ Panel' }));
       await user.click(screen.getByRole('radio', { name: /Section/ }));
-      await user.type(screen.getByLabelText('Name of the new panel'), '  This week  ');
+      await user.type(screen.getByLabelText('Title of the new section'), '  This week  ');
       await user.click(screen.getByRole('button', { name: 'Add' }));
 
       const [asked] = mutate.mock.calls[0]! as unknown as [{ name: string; payload: Record<string, unknown> }];

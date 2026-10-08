@@ -3940,4 +3940,35 @@ describe('Layouts', () => {
       expect(entries).toEqual(['Rename', 'Delete']);
     });
   });
+
+  describe("a Section's change is held until the store agrees, so the next one is made to it", () => {
+    it.each([375, 1280])('at %ipx, a second delete before the re-read keeps the first', async (width) => {
+      screenIs(width);
+      const twoSections: Layout = {
+        ...withASection,
+        rows: [...withASection.rows, { height: null, title: 'Later', cells: [] }],
+      };
+      const { user, mutate } = showBoard({ layouts: [twoSections], settles: false });
+
+      await user.click(menuButtonOf('This week'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+      expect(screen.queryByRole('heading', { name: 'This week' })).toBeNull();
+      await user.click(menuButtonOf('Later'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+
+      const [asked] = mutate.mock.calls.at(-1)! as unknown as [{ payload: { rows: { title?: string }[] } }];
+      expect(asked.payload.rows.filter((row) => row.title !== undefined)).toEqual([]);
+    });
+
+    it('closes a rename left open when the board is rearranged, so that change answers for itself', async () => {
+      const { user, mutate } = showBoard({ layouts: [withASection] });
+
+      await user.click(menuButtonOf('This week'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+      dragRowLine(0, 200);
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(screen.queryByLabelText('New title for This week')).toBeNull();
+    });
+  });
 });

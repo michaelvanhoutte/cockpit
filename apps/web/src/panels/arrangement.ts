@@ -89,7 +89,12 @@ export function layoutToDraw(
  * added. **A Section is drawn in its place** among them.
  */
 export function stackedOnPhone(layout: Layout | null, panels: readonly Panel[]): LayoutRow[] {
-  return drawnRows(layout, panels, 0).flatMap((row) =>
+  return stacked(drawnRows(layout, panels, 0));
+}
+
+/** An arrangement as a phone draws it: every Panel on a row of its own, in reading order, and each Section in its place. */
+export function stacked(rows: readonly LayoutRow[]): LayoutRow[] {
+  return rows.flatMap((row): LayoutRow[] =>
     rowIsSection(row)
       ? [row]
       : row.cells.map((cell) => ({
@@ -107,7 +112,7 @@ export function stackedOnPhone(layout: Layout | null, panels: readonly Panel[]):
 export function rowsToSave(rows: readonly LayoutRow[]): RowInput[] {
   return rows.map((row) =>
     rowIsSection(row)
-      ? { height: null, title: row.title!, cells: [] }
+      ? { height: null, title: row.title, cells: [] }
       : { height: row.height, cells: row.cells.map((cell) => ({ panelId: cell.panelId, span: cell.span })) },
   );
 }

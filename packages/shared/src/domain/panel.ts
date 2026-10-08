@@ -484,7 +484,7 @@ export const layoutRowSchema = z.object({
 export type LayoutRow = z.infer<typeof layoutRowSchema>;
 
 /** Whether a row is a Section: a title and no Panels (`layoutRowSchema`). */
-export function rowIsSection(row: Pick<LayoutRow, 'title'>): boolean {
+export function rowIsSection<R extends Pick<LayoutRow, 'title'>>(row: R): row is R & { title: string } {
   return typeof row.title === 'string';
 }
 

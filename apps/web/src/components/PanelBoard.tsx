@@ -49,6 +49,7 @@ import {
   layoutToDraw,
   movedBeside,
   rowsToSave,
+  stacked,
   stackedOnPhone,
   sameArrangement,
   sharesOf,
@@ -388,8 +389,9 @@ export function PanelBoard({
   useEffect(() => () => withdrawBoardRows(dashboard.id), [dashboard.id]);
   const [renamingSection, setRenamingSection] = useState<{ nth: number; title: string } | null>(null);
   // The preview while a drag is on, then a draft that has been sent and is
-  // waiting for the store to agree, then what the store holds.
-  const shown = dragging?.preview ?? sizing ?? draft ?? stored;
+  // waiting for the store to agree, then what the store holds. A phone draws
+  // its stacking of the draft, which only a Section's change makes there.
+  const shown = dragging?.preview ?? sizing ?? (draft && phone ? stacked(draft) : draft) ?? stored;
   /**
    * Read from the list rather than kept beside the id, for the reason the list
    * of dashboards does it: a panel deleted in another tab is gone
@@ -578,6 +580,9 @@ export function PanelBoard({
     //
     if (sameArrangement(next, sent.current ?? stored)) return;
     command.reset();
+    // The rename's refusal is said in its band, so a rename left open would
+    // claim this gesture's refusal as its own.
+    setRenamingSection(null);
     setDraft(next);
     // A dashboard nobody has arranged gets its one layout from this first
     // move, under an id made here (`save_layout`).
@@ -585,13 +590,13 @@ export function PanelBoard({
   };
 
   /**
-   * A Section renamed or deleted, kept in the Dashboard's own arrangement. Drawn
-   * at once where the board draws that arrangement; a phone draws its own
-   * stacking of it, so it waits for the store there.
+   * A Section renamed or deleted, kept in the Dashboard's own arrangement and
+   * held as the draft until the store agrees - on a phone too, so a second
+   * change made before the re-read is made to this one rather than undoing it.
    */
   const changeSections = (next: LayoutRow[], afterwards?: () => void) => {
     command.reset();
-    if (!phone) setDraft(next);
+    setDraft(next);
     saveArrangement(ownLayout?.id ?? firstLayoutId(), next, afterwards);
   };
 
@@ -1414,7 +1419,7 @@ export function PanelBoard({
           {drawn.map(({ row, place: rowIndex }) => {
             if (rowIsSection(row)) {
               const nth = sectionNth.get(rowIndex)!;
-              const title = row.title!;
+              const title = row.title;
               return (
                 <Fragment key={rowIndex}>
                   <RowSeam

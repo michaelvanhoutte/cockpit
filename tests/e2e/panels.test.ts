@@ -1356,7 +1356,8 @@ test.describe('Layouts', () => {
         isMobile,
       );
       await expect(page.getByRole('dialog', { name: 'What is the new section called?' })).toBeVisible();
-      await page.getByLabel('Name of the new panel').press('Enter');
+      // Typed before Section was chosen, and still there under the Section's label.
+      await page.getByLabel('Title of the new section').press('Enter');
       expect((await added).status()).toBe(200);
       await expect(rows.last().getByRole('heading', { name: week })).toBeVisible();
       await page.reload();
