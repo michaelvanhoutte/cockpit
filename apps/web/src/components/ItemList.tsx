@@ -777,6 +777,7 @@ export function ItemList({
       item={item}
       itemType={typeOf(types, item)}
       workspaceId={workspaceId}
+      inInbox={panelId === null}
       selecting={{
         picked: selection.picked.has(item.id),
         revealed: selection.picked.size > 0,

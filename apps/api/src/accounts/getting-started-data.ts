@@ -34,10 +34,10 @@ export const INBOX_TASK: GuideTask = {
 Deal with each item in one of three ways:
 
 - **File it** onto a panel, where it waits beside things like it. Drag it there, or choose **Move to…** from its own menu (the three dots).
-- **Mark it done** once it is handled.
+- **Mark it done** from its menu (**Status ▸ Done**), if it was already handled.
 - **Dismiss it** from its menu, if it never needed doing.
 
-Try it now: work down **Getting started**, the panel beside the Inbox, then mark this item done.`,
+Try it now: work down **Getting started**, the panel beside the Inbox, then mark this item done from its menu (**Status ▸ Done**).`,
 };
 
 /** The steps, in the order the Panel holds them. */
