@@ -2158,7 +2158,7 @@ const routes = app
   /**
    * Sends the browser to Google to connect a Gmail account, through Gmail's
    * own client and asking for the permission to change mail ("Connect a Gmail
-   * account to a workspace, and disconnect it", issue 724). the generic pair below
+   * account to a workspace, and disconnect it", issue 724). The generic pair below
    * in every other respect: behind the gate, the Workspace and account
    * carried in the attempt cookie, refused before anybody leaves where the
    * Workspace is gone or the environment cannot connect.
