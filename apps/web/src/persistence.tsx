@@ -29,6 +29,11 @@ export const persister: Persister = {
 export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * `v14` because a connection's row gained `followsLabel` and a snapshot its
+ * `sourceNames`, while a Gmail Item's source became `gmail` ("Take source
+ * names out of the shared contract", issue 927). A restored copy from before
+ * it names every source by its id, Gmail Items as `mail`.
+ *
  * `v13` because a Filter panel gained its grouping ("Group a Filter panel's
  * items by the Dashboard or Panel they are filed on", issue 805). A restored
  * Filter from before it would answer `undefined` where the type says a
@@ -101,7 +106,7 @@ export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * the right way round: a cold open is a moment, a shell painted from a shape
  * the code no longer expects is a week.
  */
-export const CACHE_BUSTER = 'v13';
+export const CACHE_BUSTER = 'v14';
 
 /**
  * What is worth keeping on disk, which is everything the app paints itself from

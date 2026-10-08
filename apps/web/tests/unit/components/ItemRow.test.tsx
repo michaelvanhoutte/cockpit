@@ -55,6 +55,9 @@ function anItem(overrides: Partial<Item> = {}): Item {
   };
 }
 
+/** What the Workspace's snapshot calls each source, as the list hands it to every row (issue 927). */
+const SOURCE_NAMES = { teams: 'Microsoft Teams', gmail: 'Gmail' };
+
 /**
  * Renders one row and hands back the changes it asks for.
  *
@@ -108,6 +111,7 @@ function aRow({
     <UndoWhatJustHappened>
       <ItemRow
         item={item}
+        sourceNames={SOURCE_NAMES}
         workspaceId="ws-work"
         {...(onMoveTo ? { onMoveTo } : {})}
         {...(onOpen ? { onOpen } : {})}
@@ -690,15 +694,22 @@ describe('Triage', () => {
     it.each([
       { situation: 'an app captured', item: { source: 'mcp', sender: 'Claude' }, shows: 'Claude' },
       { situation: 'was written here', item: { source: 'internal' }, shows: 'Own' },
-      // Named as the form names it, never by the stored source (issue 724).
+      // Named by what the Workspace calls the source, never by its id ("Take
+      // source names out of the shared contract", issue 927).
       { situation: 'came from Teams', item: { source: 'teams', sender: 'Ada' }, shows: 'Microsoft Teams · Ada' },
-      { situation: 'came from Gmail', item: { source: 'mail', sender: 'Anna' }, shows: 'Gmail · Anna' },
-      { situation: 'came from Gmail as its connector', item: { source: 'gmail', sender: 'Anna' }, shows: 'Gmail · Anna' },
-      // A connector nothing in Cockpit names reads as its id (issue 925).
-      { situation: 'came from a connector nothing names', item: { source: 'outlook', sender: 'Anna' }, shows: 'outlook · Anna' },
-    ] as const)('an item that $situation says $shows where the source goes', ({ item, shows }) => {
+      { situation: 'came from Gmail', item: { source: 'gmail', sender: 'Anna' }, shows: 'Gmail · Anna' },
+      // A source the environment no longer registers reads as its id (issue 925).
+      { situation: 'came from a source nothing names', item: { source: 'outlook', sender: 'Anna' }, shows: 'outlook · Anna' },
+      {
+        situation: 'came from Teams, in a copy kept from before the names were carried',
+        item: { source: 'teams', sender: 'Ada' },
+        names: undefined,
+        shows: 'teams · Ada',
+      },
+    ] as const)('an item that $situation says $shows where the source goes', ({ item, shows, ...rest }) => {
       mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
-      render(<ItemRow item={anItem({ ...item })} workspaceId="ws-work" />);
+      const names = 'names' in rest ? rest.names : SOURCE_NAMES;
+      render(<ItemRow item={anItem({ ...item })} sourceNames={names} workspaceId="ws-work" />);
 
       expect(screen.getByText(shows)).toBeInTheDocument();
       expect(screen.queryByText(/mcp/)).toBeNull();

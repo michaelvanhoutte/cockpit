@@ -140,7 +140,7 @@ describe('Sign-in', () => {
 describe('Inbox', () => {
   describe('what arrives for the guest lands in its Inbox, from its source, with its sender and address', () => {
     it.each([
-      { situation: 'the mail', source: 'gmail', expected: { source: 'mail', sender: 'Dr. Peeters Dental' } },
+      { situation: 'the mail', source: 'gmail', expected: { source: 'gmail', sender: 'Dr. Peeters Dental' } },
       { situation: 'the Teams message', source: 'teams', expected: { source: 'teams', sender: 'Nadia Peeters' } },
     ] as const)('puts $situation in the Inbox and tells the change feed', async ({ source, expected }) => {
       const cookie = sessionIn(await continueAsGuest());

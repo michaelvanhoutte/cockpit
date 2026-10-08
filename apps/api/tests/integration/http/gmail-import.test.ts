@@ -177,7 +177,7 @@ interface InboxItem {
 async function inboxOf(workspaceId = WORKSPACE_ID): Promise<InboxItem[]> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/snapshot`);
   expect(res.status).toBe(200);
-  return ((await res.json()) as { items: InboxItem[] }).items.filter((item) => item.source === 'mail');
+  return ((await res.json()) as { items: InboxItem[] }).items.filter((item) => item.source === 'gmail');
 }
 
 async function rowOf(

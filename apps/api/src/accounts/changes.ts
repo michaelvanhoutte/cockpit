@@ -149,6 +149,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     PULLED_OPEN_WANTED,
     gmailItemsUnderTheirConnector(accountId),
     PULLED_LINK_CHOICE,
+    gmailItemsUnderTheirConnectorAgain(accountId),
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -377,6 +378,75 @@ const PULLED_LINK_CHOICE: Change = {
   name: '0063-pulled-link-choice',
   statements: [{ sql: 'ALTER TABLE `pulled_links` ADD COLUMN `choice` text' }],
 };
+
+/**
+ * Every Gmail Item stored the one way `asStored` (domain/items.ts) writes it,
+ * `mail` naming `gmail`, before the read stops serving Gmail as `mail` ("Take
+ * source names out of the shared contract", issue 927). The contract step of
+ * `0062-gmail-items-under-their-connector`, which is recorded and so never
+ * revisits a row written after it: this carries its rewrite again, for a
+ * Gmail Item the previous release captured with no connector while 0062's
+ * deploy rolled out, and turns one written as `internal` naming `gmail` - the
+ * form a release from 2fd8efb9 to before 0062 writes on an edit - into the same
+ * `mail`. Two forms would each be a read path; one is.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): two `UPDATE`s of one column each, each only where its own
+ *   `WHERE` says the row is Gmail's. `pnpm backup:export` runs before the
+ *   deploy that carries it.
+ * - **If it stops halfway:** it cannot. Both statements commit with the record
+ *   that they ran in one `transactionSync` (store.ts), so an account has every
+ *   Gmail Item in the one form or none rewritten.
+ * - **The second time it runs:** it does not, having been recorded; and
+ *   neither `WHERE` matches a row once applied, so a retry changes nothing.
+ * - **Rows that already break the rule:** a `mail` row naming another
+ *   connector is left as it is, reading as that connector as it already does;
+ *   `leavesAlone` counts them and the store logs the count, as 0062's does.
+ *   An `internal` row naming any connector but `gmail` is a Teams or app Item,
+ *   which neither statement reaches.
+ * - **What is in each environment:** real Gmail Items in staging and
+ *   production, nearly all already rewritten by 0062; each account rewrites
+ *   what is left on its first open after the deploy. No parameter count grows
+ *   with the rows.
+ * - **The windows it can be interrupted in.** *Before it runs*: the release
+ *   before this one still serves every Gmail form as `mail`. *After it*: every
+ *   Gmail Item reads `gmail`, the same whichever form it was in.
+ * - **Rolled back after it has run:** to 0062's release, a rewritten row reads
+ *   as `mail` through its alias, as every row 0062 rewrote does; no further
+ *   than 2fd8efb9, for 0062's reason. A Gmail Item edited under a release from
+ *   2fd8efb9 to before 0062 is written `internal` naming `gmail` again, and
+ *   reads as `gmail` under this one, so nothing is lost; a row written that way
+ *   is not rewritten again, being recorded.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+function gmailItemsUnderTheirConnectorAgain(accountId: string): Change {
+  return {
+    name: '0064-gmail-items-under-their-connector-again',
+    leavesAlone: {
+      count: {
+        sql: `SELECT count(*) AS n FROM items
+               WHERE tenant_id = ? AND source = 'mail' AND source_connector IS NOT NULL AND source_connector <> 'gmail'`,
+        params: [accountId],
+      },
+      because: 'Items stored as mail but naming a connector other than gmail were left as they are',
+    },
+    statements: [
+      {
+        sql: `UPDATE items SET source_connector = 'gmail'
+               WHERE tenant_id = ? AND source = 'mail' AND source_connector IS NULL`,
+        params: [accountId],
+      },
+      {
+        sql: `UPDATE items SET source = 'mail'
+               WHERE tenant_id = ? AND source = 'internal' AND source_connector = 'gmail'`,
+        params: [accountId],
+      },
+    ],
+  };
+}
 
 /**
  * Ends every run still open on an Item that is Done or dismissed ("End the

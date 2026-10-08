@@ -298,7 +298,7 @@ describe('Accounts', () => {
       const sara = halcyon.items.find((item) => item.title === 'Sara needs a yes or no on Friday for the sync')!;
 
       expect([reply.source, reply.sender, reply.sourceLink]).toEqual([
-        'mail',
+        'gmail',
         'Els Maes',
         'https://demo.cockpit.invalid/gmail',
       ]);

@@ -1,5 +1,6 @@
 import { and, eq, exists, isNotNull, ne } from 'drizzle-orm';
-import { GMAIL, type GmailMark } from '@cockpit/shared';
+import type { GmailMark } from '@cockpit/shared';
+import { GMAIL } from '../domain/named-sources.js';
 import type { AccountDb } from './client.js';
 import { connectorAccounts, gmailConversations } from './schema.js';
 

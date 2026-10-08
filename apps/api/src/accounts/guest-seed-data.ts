@@ -1,12 +1,9 @@
 import {
-  CLAUDE_CODE,
-  GMAIL,
-  TEAMS,
-  connectorNamed,
   type PanelFilter,
   type Priority,
   type WorkspaceTint,
 } from '@cockpit/shared';
+import { CLAUDE_CODE, CLAUDE_CODE_NAME, GMAIL } from '../domain/named-sources.js';
 
 /**
  * What the shared guest account holds when a visitor opens it: a contractor's
@@ -129,17 +126,17 @@ export type DemoAgentName = (typeof GUEST_DEMO_AGENTS)[number]['name'];
  * connection changes are refused at the route (auth/guest-connections.ts).
  */
 export const GUEST_DEMO_CONNECTIONS: readonly {
-  readonly connectorId: typeof GMAIL | typeof TEAMS | typeof CLAUDE_CODE;
+  readonly connectorId: string;
   readonly externalAccountKey: string;
   readonly displayName: string;
 }[] = [
   { connectorId: GMAIL, externalAccountKey: 'alex@contractor.example', displayName: 'alex@contractor.example' },
-  { connectorId: TEAMS, externalAccountKey: 'demo-tenant/alex', displayName: 'Alex Contractor' },
+  { connectorId: 'teams', externalAccountKey: 'demo-tenant/alex', displayName: 'Alex Contractor' },
   // Claude Code, so an Agent can start ("Show agents at work in the guest
   // demo, with simulated runs", issue 774). Its key is the constant a real one
   // carries (`externalAccountKey` of the connect route); the credential is the
   // placeholder, which a guest's start never opens - it is simulated instead.
-  { connectorId: CLAUDE_CODE, externalAccountKey: 'connection', displayName: connectorNamed(CLAUDE_CODE) },
+  { connectorId: CLAUDE_CODE, externalAccountKey: 'connection', displayName: CLAUDE_CODE_NAME },
 ];
 
 /** The credential every demo connection carries: not sealed, and not a secret, so nothing can open it. */

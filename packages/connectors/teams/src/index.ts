@@ -23,6 +23,14 @@ import { teamsAccountFrom, teamsSignIn } from './sign-in.js';
  * developer has to do once by hand, is in its README.
  */
 
+/**
+ * Who this connector is, needing no configuration: what an Item it made is
+ * called on screen in every environment, whether or not this one can sign in
+ * to Teams or receive its saves ("Take source names out of the shared
+ * contract", issue 927).
+ */
+export const TEAMS_IDENTITY = { id: 'teams', displayName: 'Microsoft Teams' } as const;
+
 /** What this connector needs to have been told about itself. */
 export interface TeamsConnectorConfig {
   /**
@@ -61,8 +69,7 @@ export function createTeamsConnector(config: TeamsConnectorConfig): Connector {
 
   return {
     manifest: {
-      id: 'teams',
-      displayName: 'Microsoft Teams',
+      ...TEAMS_IDENTITY,
       cardText: 'Sign in with Microsoft. Cockpit reads who you are and nothing else.',
       source: 'teams',
       supportsPush: true,
