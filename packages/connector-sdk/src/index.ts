@@ -117,7 +117,8 @@ export type SourceItem = Pick<
   /**
    * The Item's title where the source has one and the connector's Items arrive
    * as tasks (`ConnectorManifest.arrivesAs`); with none, the host titles it
-   * from the message as any capture is. Ignored for a note.
+   * from the message as any capture is. Ignored for a note. The host stores it
+   * as given, so it is a single line, trimmed and no longer than `TITLE_LENGTH`.
    */
   title?: string;
   /** Still one a capture may name; reading is open (`sourceSchema`), writing is not changed here. */

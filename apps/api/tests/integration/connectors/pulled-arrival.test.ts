@@ -107,6 +107,7 @@ function aPage(sourceId: string, title?: string): SourceItem {
 interface Arrived {
   sourceId: string | null;
   title: string;
+  description: string | null;
   typeId: string | null;
 }
 
@@ -169,6 +170,16 @@ describe('Connector management', () => {
       await connectedAndChecked();
 
       expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'What page a says', typeId: TASK_TYPE_ID }]);
+    });
+
+    it('files a Task without repeating a title that is all the source said as its description', async () => {
+      fake.arrivesAs = 'task';
+      fake.emit = [{ ...aPage('a', 'Only a title'), capturedMessage: null }];
+      env.TEST_CONNECTORS = [fakeConnector()];
+
+      await connectedAndChecked();
+
+      expect(await arrived()).toMatchObject([{ sourceId: 'a', title: 'Only a title', description: null, typeId: TASK_TYPE_ID }]);
     });
 
     it('files an untitled Note where it declares nothing, whatever title it emits', async () => {

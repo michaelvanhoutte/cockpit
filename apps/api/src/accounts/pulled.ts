@@ -251,7 +251,7 @@ export function filePulledItem(
   item: SourceItem & { sourceId: string },
   ids: { itemId: string; commandId: string },
   at: string,
-  arrivesAs: 'note' | 'task' = 'note',
+  arrivesAs: 'note' | 'task',
 ): EmittedItem | 'disconnected' {
   const holds = runHolds(db, accountName, sourceAccountId, runId);
   if (!holds) return 'disconnected';
@@ -270,8 +270,10 @@ export function filePulledItem(
     workspaceId: holds.workspaceId,
     itemId: ids.itemId,
     message,
-    // A Note stays untitled; a Task takes the source's title, or the one cut from its message.
-    ...(arrivesAs === 'task' && item.title ? { title: item.title } : {}),
+    // A Note stays untitled; a Task takes the source's title, or the one cut
+    // from its message - also where the title is all the source said, which
+    // would otherwise be repeated as the description.
+    ...(arrivesAs === 'task' && item.title && item.title !== message ? { title: item.title } : {}),
     typeId: type.id,
     capturedFrom: {
       source: item.source,
