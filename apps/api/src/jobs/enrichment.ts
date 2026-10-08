@@ -66,7 +66,8 @@ export type EnrichmentJob =
   | ReadWhatItMeansJob
   | ReproposeTextsJob
   | SimulatedRunWaitsJob
-  | GuestArrivalJob;
+  | GuestArrivalJob
+  | CheckPulledConnectionJob;
 
 export interface CleanUpJob {
   kind: 'clean-up-a-note';
@@ -193,6 +194,19 @@ export interface GuestArrivalJob {
   commandId: string;
 }
 
+/**
+ * Runs one check of one pulled connection ("Check a pulled connector on its
+ * cadence through the generic host", issue 891) - queued by the account's own
+ * alarm and run by this Worker, which opens the credential the store must not
+ * (connectors/pulled-host.ts). The account and the connection, and nothing
+ * of the work: the store's lease decides whether a delivery runs at all.
+ */
+export interface CheckPulledConnectionJob {
+  kind: 'check-a-pulled-connection';
+  accountName: string;
+  sourceAccountId: string;
+}
+
 const refreshAskSchema = z.object({ at: z.number().int().nonnegative(), id: z.uuid() });
 
 export const enrichmentJobSchema = z.discriminatedUnion('kind', [
@@ -234,6 +248,11 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     source: z.enum(['gmail', 'teams']),
     itemId: z.uuid(),
     commandId: z.uuid(),
+  }),
+  z.object({
+    kind: z.literal('check-a-pulled-connection'),
+    accountName: z.string().min(1),
+    sourceAccountId: z.string().min(1),
   }),
 ]);
 

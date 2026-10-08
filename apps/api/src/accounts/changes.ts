@@ -143,6 +143,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     PANEL_NEVER_PROPOSE,
     gettingStarted(accountId),
     END_RUNS_ON_CLOSED_ITEMS,
+    PULLED_CONNECTIONS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -153,6 +154,70 @@ export function accountChanges(accountId: string): readonly Change[] {
     guestDemoSeed(accountId),
   ];
 }
+
+/**
+ * What the generic host keeps for each connection of a source Cockpit pulls
+ * from, and which Item each of its source ids became ("Check a pulled
+ * connector on its cadence through the generic host", issue 891) - see
+ * `schema.ts` for what each column carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): `CREATE` statements only. No existing row is read,
+ *   rewritten or moved.
+ * - **If it stops halfway:** it cannot. The statements and the record that
+ *   they ran commit in one `transactionSync` (store.ts), so a store has both
+ *   tables or neither, and the next request retries.
+ * - **The second time it runs:** it does not, having been recorded; and every
+ *   statement is `IF NOT EXISTS`, so a retry over a table somehow there is a
+ *   no-op.
+ * - **Rows that already break the new rule:** none - both tables start empty.
+ * - **What is in each environment:** real Items, connections and Gmail rows in
+ *   staging and production, none of which this touches.
+ * - **Rolled back after it has run:** an older release never names either
+ *   table and queues no check; the Items already filed stay as ordinary Items.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const PULLED_CONNECTIONS: Change = {
+  name: '0059-pulled-connections',
+  statements: [
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`pulled_connections\` (
+	\`source_account_id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`state\` text,
+	\`due_at\` text NOT NULL,
+	\`queued_at\` text,
+	\`run_id\` text,
+	\`lease_until\` text,
+	CONSTRAINT "pulled_connections_state_is_json" CHECK(state IS NULL OR json_valid(state)),
+	CONSTRAINT "pulled_connections_due_at_is_timestamp" CHECK(due_at IS NULL OR (datetime(due_at) IS NOT NULL AND substr(due_at, 11, 1) = 'T' AND substr(due_at, -1) = 'Z' AND length(due_at) >= 20 AND date(due_at) = substr(due_at, 1, 10))),
+	CONSTRAINT "pulled_connections_queued_at_is_timestamp" CHECK(queued_at IS NULL OR (datetime(queued_at) IS NOT NULL AND substr(queued_at, 11, 1) = 'T' AND substr(queued_at, -1) = 'Z' AND length(queued_at) >= 20 AND date(queued_at) = substr(queued_at, 1, 10))),
+	CONSTRAINT "pulled_connections_lease_until_is_timestamp" CHECK(lease_until IS NULL OR (datetime(lease_until) IS NOT NULL AND substr(lease_until, 11, 1) = 'T' AND substr(lease_until, -1) = 'Z' AND length(lease_until) >= 20 AND date(lease_until) = substr(lease_until, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS \`pulled_links\` (
+	\`tenant_id\` text NOT NULL,
+	\`workspace_id\` text NOT NULL,
+	\`connector_id\` text NOT NULL,
+	\`external_account_key\` text NOT NULL,
+	\`source_id\` text NOT NULL,
+	\`item_id\` text NOT NULL,
+	\`linked_at\` text NOT NULL,
+	PRIMARY KEY(\`workspace_id\`, \`connector_id\`, \`external_account_key\`, \`source_id\`),
+	FOREIGN KEY (\`workspace_id\`) REFERENCES \`workspaces\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "pulled_links_linked_at_is_timestamp" CHECK(linked_at IS NULL OR (datetime(linked_at) IS NOT NULL AND substr(linked_at, 11, 1) = 'T' AND substr(linked_at, -1) = 'Z' AND length(linked_at) >= 20 AND date(linked_at) = substr(linked_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE UNIQUE INDEX IF NOT EXISTS `pulled_links_one_per_item` ON `pulled_links` (`item_id`)',
+    },
+  ],
+};
 
 /**
  * Ends every run still open on an Item that is Done or dismissed ("End the

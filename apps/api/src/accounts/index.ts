@@ -29,6 +29,8 @@ import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 import type { RefreshAsk } from '../jobs/debounce.js';
+import type { EmittedItem, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
+import type { PulledRunBegun } from './pulled.js';
 
 export type { AccountSnapshot } from './answer.js';
 export type { AccountBackup } from './backup.js';
@@ -287,6 +289,36 @@ export interface Account {
     name: N,
     payload: CommandPayload<N>,
   ): Promise<CommandResult>;
+  /**
+   * A delivered check of one pulled connection taking its lease, or learning
+   * it does nothing ("Check a pulled connector on its cadence through the
+   * generic host", issue 891).
+   */
+  beginPulledRun(sourceAccountId: string): Promise<PulledRunBegun>;
+  /** What a run that took its lease may do with its connection, until it ends (issue 891). */
+  pulledRun(sourceAccountId: string, runId: string): PulledRun;
+}
+
+/**
+ * The store's half of one run of a pulled connection's check (issue 891):
+ * every call names the run, and one that no longer holds its connection -
+ * disconnected, or taken over after its lease ran out - files and saves
+ * nothing.
+ */
+export interface PulledRun {
+  state(): Promise<unknown>;
+  saveState(state: unknown): Promise<'saved' | 'not this run'>;
+  sealedCredential(): Promise<{ sealedCredential: string; credentialNonce: string } | null>;
+  reseal(
+    was: { sealedCredential: string; credentialNonce: string },
+    sealed: { sealedCredential: string; credentialNonce: string },
+  ): Promise<'saved' | 'not saved'>;
+  fileItem(
+    item: SourceItem & { sourceId: string },
+    ids: { itemId: string; commandId: string },
+  ): Promise<EmittedItem | 'disconnected'>;
+  applySourceChange(change: SourceStateChange): Promise<'changed' | 'unchanged' | 'disconnected'>;
+  end(failing: string | null): Promise<null>;
 }
 
 /**
@@ -361,6 +393,20 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.claudeCodeHookArrival(accountName, workspaceId, sourceAccountId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
+    beginPulledRun: async (sourceAccountId) => unwrap(await store.beginPulledRun(accountName, sourceAccountId)),
+    pulledRun: (sourceAccountId, runId) => ({
+      state: async () => unwrap(await store.pulledState(accountName, sourceAccountId, runId)),
+      saveState: async (state) => unwrap(await store.savePulledState(accountName, sourceAccountId, runId, state)),
+      sealedCredential: async () =>
+        unwrap(await store.pulledSealedCredential(accountName, sourceAccountId, runId)),
+      reseal: async (was, sealed) =>
+        unwrap(await store.resealPulledCredential(accountName, sourceAccountId, runId, was, sealed)),
+      fileItem: async (item, ids) =>
+        unwrap(await store.filePulledItem(accountName, sourceAccountId, runId, item, ids)),
+      applySourceChange: async (change) =>
+        unwrap(await store.applyPulledSourceChange(accountName, sourceAccountId, runId, change)),
+      end: async (failing) => unwrap(await store.endPulledRun(accountName, sourceAccountId, runId, failing)),
+    }),
   };
 }
 
@@ -525,8 +571,9 @@ export async function resetGuestAccount(env: Env): Promise<'reset' | 'no guest a
  * tasks", issue 725) - the nightly guard against an alarm that was lost,
  * which would otherwise stop the check without a word - and starts each
  * connection's full reconcile again, the nightly sweep that corrects what the
- * history missed (issue 727). Answers how many it armed; one account failing
- * is logged and costs only itself.
+ * history missed (issue 727) - and does the same for its pulled connections
+ * (issue 891), the one alarm checking both. Answers how many it armed; one
+ * account failing is logged and costs only itself.
  */
 export async function keepEveryAccountCheckingGmail(env: Env): Promise<number> {
   let armed = 0;
@@ -535,16 +582,29 @@ export async function keepEveryAccountCheckingGmail(env: Env): Promise<number> {
       const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName));
       if (unwrap(await store.keepCheckingGmail(accountName)) === 'armed') armed += 1;
     } catch (error) {
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          message: `account ${accountName}'s Gmail check was not looked at tonight`,
-          cause: error instanceof Error ? error.message : String(error),
-        }),
-      );
+      notLookedAt(accountName, 'Gmail check', error);
+    }
+    // Its pulled connections too, and whatever Gmail's answered ("Check a
+    // pulled connector on its cadence through the generic host", issue 891):
+    // the same alarm checks both.
+    try {
+      const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName));
+      if (unwrap(await store.keepCheckingPulledConnections(accountName)) === 'armed') armed += 1;
+    } catch (error) {
+      notLookedAt(accountName, 'pulled connections’ check', error);
     }
   }
   return armed;
+}
+
+function notLookedAt(accountName: string, what: string, error: unknown): void {
+  console.error(
+    JSON.stringify({
+      level: 'error',
+      message: `account ${accountName}'s ${what} was not looked at tonight`,
+      cause: error instanceof Error ? error.message : String(error),
+    }),
+  );
 }
 
 /** Turns the store's answer back into a value or the error that belongs to it. */

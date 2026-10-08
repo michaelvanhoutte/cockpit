@@ -6,6 +6,7 @@ import type {
   Queue,
   R2Bucket,
 } from '@cloudflare/workers-types';
+import type { Connector } from '@cockpit/connector-sdk';
 import type { AccountStoreRpc } from './accounts/rpc.js';
 import type { EnrichmentJob } from './jobs/enrichment.js';
 
@@ -285,4 +286,14 @@ export interface Env {
    * which sets `0` so a start does not wait for a pause nobody is asserting on.
    */
   SIMULATED_START_MS?: string;
+  /**
+   * Connectors registered beside the registry's own list
+   * (`connectors/registry.ts`). Set by nothing in any deployment, nor in
+   * `pnpm dev`: the backend suite puts a fake pulled connector here, since no
+   * real source is pulled through the generic host until Gmail moves onto it
+   * ("Check a pulled connector on its cadence through the generic host",
+   * issue 891). An object rather than a var, so only code running beside the
+   * Worker can set it.
+   */
+  TEST_CONNECTORS?: readonly Connector[];
 }

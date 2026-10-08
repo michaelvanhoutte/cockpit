@@ -34,6 +34,20 @@ import { admittedCalls } from '../connectors/claude-code-hooks.js';
 import { checkGmail } from '../connectors/gmail-check.js';
 import { gmailCheckHost, holdsGmailConnection, sweepGmailNightly } from './gmail.js';
 import { labelChangeWaiting } from './mirrored-open-state.js';
+import {
+  applyPulledSourceChange,
+  beginPulledRun,
+  endPulledRun,
+  filePulledItem,
+  pulledSealedCredential,
+  pulledState,
+  queueDuePulledChecks,
+  resealPulledCredential,
+  savePulledState,
+  schedulePulledChecks,
+  type PulledRunBegun,
+} from './pulled.js';
+import type { EmittedItem, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
 import { APP_CAPTURES_PER_MINUTE } from '../mcp/create-item.js';
 import {
   deleteAllRows,
@@ -168,8 +182,15 @@ function spentAllowance(error: unknown): Answer<never> {
  * first one - the object stays in memory and remembers - and on the first call
  * after a deploy it is the only moment an outstanding change can be applied,
  * because no deploy step can reach an object that does not exist yet.
+ *
+ * **Completed by the composition root** (`worker.ts`, which deploys it as
+ * `AccountStore`): which connectors are pulled is the registry's to say, and
+ * an account's store may not import a connector.
  */
-export class AccountStore extends DurableObject<Env> implements AccountStoreRpc {
+export abstract class AccountStoreBase extends DurableObject<Env> implements AccountStoreRpc {
+  /** The connectors Cockpit pulls from, whose connections this store keeps a check armed for ("Check a pulled connector on its cadence through the generic host", issue 891). */
+  protected abstract pulledConnectorIds(): readonly string[];
+
   #db: AccountDb | null = null;
   #upToDate = false;
   /** The hook calls each Claude Code connection was admitted for, newest last - see `claudeCodeHookArrived`. */
@@ -750,11 +771,12 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   }
 
   /**
-   * Applies one change to the account, idempotently - and keeps the Gmail
-   * check armed exactly while the account holds a Gmail connection: a
-   * connection checks at once, and the last one going takes the check with it
-   * ("Bring in the conversations already labelled Cockpit as tasks", issue
-   * 725).
+   * Applies one change to the account, idempotently - and keeps the account's
+   * checks armed exactly while it holds a connection to check: a Gmail or
+   * pulled connection checks at once, and the last one going takes the check
+   * with it ("Bring in the conversations already labelled Cockpit as tasks",
+   * issue 725; "Check a pulled connector on its cadence through the generic
+   * host", issue 891).
    */
   async applyChange<N extends CommandName>(
     accountName: string,
@@ -807,18 +829,151 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
   }
 
   /**
+   * Arms the check of the account's pulled connections where it holds one
+   * and nothing has the alarm armed - the nightly guard against a lost alarm,
+   * as `keepCheckingGmail` is for Gmail (issue 891).
+   */
+  async keepCheckingPulledConnections(
+    accountName: string,
+  ): Promise<Answer<'armed' | 'already armed' | 'nothing to check'>> {
+    const due = this.#answer(accountName, (db) =>
+      schedulePulledChecks(db, accountName, this.pulledConnectorIds(), new Date()),
+    );
+    if (due.status !== 'ok') return due;
+    if (due.value === null) return { status: 'ok', value: 'nothing to check' };
+    if ((await this.ctx.storage.getAlarm()) !== null) return { status: 'ok', value: 'already armed' };
+    await this.#arm(accountName);
+    return { status: 'ok', value: 'armed' };
+  }
+
+  /**
+   * A delivered check of one pulled connection taking its lease, or doing
+   * nothing because a run holds it or no check is waiting (issue 891).
+   */
+  beginPulledRun(accountName: string, sourceAccountId: string): Answer<PulledRunBegun> {
+    return this.#answer(accountName, (db) =>
+      beginPulledRun(db, accountName, sourceAccountId, crypto.randomUUID(), new Date()),
+    );
+  }
+
+  /** The connector's private state for this connection, as the run holding it reads it (issue 891). */
+  pulledState(accountName: string, sourceAccountId: string, runId: string): Answer<unknown> {
+    return this.#answer(accountName, (db) => pulledState(db, accountName, sourceAccountId, runId));
+  }
+
+  /** Saves the connector's private state, while the run still holds its connection (issue 891). */
+  savePulledState(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    state: unknown,
+  ): Answer<'saved' | 'not this run'> {
+    return this.#answer(accountName, (db) => savePulledState(db, accountName, sourceAccountId, runId, state));
+  }
+
+  /**
+   * The sealed credential of the connection a run holds, opened by the Worker
+   * that holds the key and never here (issue 891).
+   */
+  pulledSealedCredential(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+  ): Answer<{ sealedCredential: string; credentialNonce: string } | null> {
+    return this.#answer(accountName, (db) => pulledSealedCredential(db, accountName, sourceAccountId, runId));
+  }
+
+  /** Saves a rotated credential the Worker sealed, while the stored one is still the one the run opened (issue 891). */
+  resealPulledCredential(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    was: { sealedCredential: string; credentialNonce: string },
+    sealed: { sealedCredential: string; credentialNonce: string },
+  ): Answer<'saved' | 'not saved'> {
+    return this.#answer(accountName, (db) =>
+      resealPulledCredential(db, accountName, sourceAccountId, runId, was, sealed),
+    );
+  }
+
+  /** Files an Item a pulled connector emitted, once per source id (issue 891). */
+  filePulledItem(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    item: SourceItem & { sourceId: string },
+    ids: { itemId: string; commandId: string },
+  ): Answer<EmittedItem | 'disconnected'> {
+    return this.#answer(accountName, (db) =>
+      filePulledItem(db, accountName, sourceAccountId, runId, item, ids, new Date().toISOString()),
+    );
+  }
+
+  /** Applies a pulled connector's source-state change to the Item it filed for that source id (issue 891). */
+  applyPulledSourceChange(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    change: SourceStateChange,
+  ): Answer<'changed' | 'unchanged' | 'disconnected'> {
+    return this.#answer(accountName, (db) =>
+      applyPulledSourceChange(db, accountName, sourceAccountId, runId, change),
+    );
+  }
+
+  /**
+   * Ends a run of a pulled connection's check, saying why it failed where it
+   * did, and arms the alarm for the next one (issue 891).
+   */
+  async endPulledRun(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    failing: string | null,
+  ): Promise<Answer<null>> {
+    const ended = this.#answer(accountName, (db) => {
+      endPulledRun(db, accountName, sourceAccountId, runId, failing, new Date());
+      return null;
+    });
+    if (ended.status === 'ok') await this.#arm(accountName);
+    return ended;
+  }
+
+  /**
+   * The account's one alarm, serving both checks it keeps: Gmail's own, when
+   * it is due, and queueing a check of each pulled connection that is due
+   * (issue 891), which the Worker's queue consumer then runs. Then the alarm
+   * is set for whichever is due next.
+   *
+   * **Due by when the alarm was set for, not by when it fired**, so a run
+   * forced early does what the alarm was armed to do, and a pulled check
+   * falling due before Gmail's does not run Gmail early.
+   *
+   * **Always re-armed while a connection remains, whatever the run did**,
+   * since an alarm nobody sets again stops silently.
+   */
+  async alarm(): Promise<void> {
+    const accountName = this.ctx.storage.kv.get<string>(CHECKS_ACCOUNT);
+    if (!accountName) return;
+    const setFor = this.ctx.storage.kv.get<number>(ALARM_SET_FOR);
+    const dueBy = new Date(Math.max(Date.now(), setFor ?? 0));
+    await this.#checkGmailIfDue(accountName, setFor);
+    await this.#queueDuePulledChecks(accountName, dueBy);
+    await this.#arm(accountName);
+  }
+
+  /**
    * The Gmail check: every Gmail connection of the account, as far as one
    * run's calls go, then the next run five minutes out - or ten seconds out
    * while what is labelled has not all been brought in yet, so connecting a
    * busy mailbox does not take hours (issue 725).
    *
-   * **Always re-armed while a connection remains, whatever the run did**,
-   * since an alarm nobody sets again stops silently; and asked again after
-   * the run, so a disconnect made while it ran is not undone by it.
+   * **The next run is asked for again after the run**, so a connection made
+   * while it ran - which asked for a check now - is not put off by it.
    */
-  async alarm(): Promise<void> {
-    const accountName = this.ctx.storage.kv.get<string>(GMAIL_CHECK_ACCOUNT);
-    if (!accountName) return;
+  async #checkGmailIfDue(accountName: string, setFor: number | undefined): Promise<void> {
+    const dueAtStart = this.ctx.storage.kv.get<number>(GMAIL_CHECK_DUE);
+    if (dueAtStart !== undefined && setFor !== undefined && dueAtStart > setFor) return;
     let moreToDo = false;
     try {
       this.#bringUpToDate(accountName);
@@ -833,42 +988,90 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
         }),
       );
     }
-    if (this.#holdsGmailConnection(accountName)) {
-      // A connection made while this ran armed the check for now, and keeps
-      // it: this run read the connections before that one existed.
-      const next = Date.now() + (moreToDo ? GMAIL_CHECK_SOON_MS : GMAIL_CHECK_EVERY_MS);
-      const armedMeanwhile = await this.ctx.storage.getAlarm();
-      await this.ctx.storage.setAlarm(armedMeanwhile === null ? next : Math.min(armedMeanwhile, next));
-    }
+    const next = Date.now() + (moreToDo ? GMAIL_CHECK_SOON_MS : GMAIL_CHECK_EVERY_MS);
+    const askedMeanwhile = this.ctx.storage.kv.get<number>(GMAIL_CHECK_DUE);
+    this.ctx.storage.kv.put(
+      GMAIL_CHECK_DUE,
+      askedMeanwhile !== undefined && askedMeanwhile !== dueAtStart ? Math.min(askedMeanwhile, next) : next,
+    );
   }
 
   /**
-   * Whether a Gmail connection is still held - answering yes where the store
-   * cannot be read just now, so a passing failure costs one run rather than
-   * the check.
+   * Queues a check of every pulled connection due by `dueBy` - naming the
+   * account and the connection and nothing else, the Worker's consumer doing
+   * the work (issue 891). A message the queue will not take is queued again
+   * when its lease would have run out.
    */
-  #holdsGmailConnection(accountName: string): boolean {
+  async #queueDuePulledChecks(accountName: string, dueBy: Date): Promise<void> {
+    let due: string[] = [];
     try {
       this.#bringUpToDate(accountName);
-      return holdsGmailConnection(this.#database(), accountName);
-    } catch {
-      return true;
+      due = queueDuePulledChecks(this.#database(), accountName, this.pulledConnectorIds(), dueBy, new Date());
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: `the pulled connections of account ${accountName} were not looked at, and are next time`,
+          cause: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+    for (const sourceAccountId of due) {
+      try {
+        await this.env.ENRICHMENT.send({ kind: 'check-a-pulled-connection', accountName, sourceAccountId });
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            message: `a check of connection ${sourceAccountId} was not queued, and is when its lease runs out`,
+            cause: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }
     }
   }
 
   /**
-   * Arms the check - at once where `now`, else only where nothing has it
-   * armed - while a Gmail connection is held, and clears it where none is.
-   * The account's name is kept beside the alarm, since an alarm arrives
-   * naming nothing.
+   * Sets the alarm for whichever check is due first - Gmail's, while a Gmail
+   * connection is held, and the earliest pulled connection's, a connection
+   * just made being due now - and clears it where there is nothing to check.
+   * Where the store cannot be read just now, it is tried again in five
+   * minutes, so a passing failure costs one run rather than the check. The
+   * account's name is kept beside the alarm, since an alarm arrives naming
+   * nothing.
    */
-  async #keepCheckingGmail(accountName: string, now: boolean): Promise<void> {
-    if (!holdsGmailConnection(this.#database(), accountName)) {
+  async #arm(accountName: string): Promise<void> {
+    let next: number | null;
+    try {
+      this.#bringUpToDate(accountName);
+      const db = this.#database();
+      const gmail = holdsGmailConnection(db, accountName)
+        ? (this.ctx.storage.kv.get<number>(GMAIL_CHECK_DUE) ?? Date.now())
+        : null;
+      const pulledDue = schedulePulledChecks(db, accountName, this.pulledConnectorIds(), new Date());
+      const pulled = pulledDue === null ? null : Date.parse(pulledDue);
+      next = gmail === null ? pulled : pulled === null ? gmail : Math.min(gmail, pulled);
+    } catch {
+      next = Date.now() + GMAIL_CHECK_EVERY_MS;
+    }
+    if (next === null) {
       await this.ctx.storage.deleteAlarm();
       return;
     }
-    this.ctx.storage.kv.put(GMAIL_CHECK_ACCOUNT, accountName);
-    if (now || (await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(Date.now());
+    this.ctx.storage.kv.put(CHECKS_ACCOUNT, accountName);
+    this.ctx.storage.kv.put(ALARM_SET_FOR, next);
+    await this.ctx.storage.setAlarm(next);
+  }
+
+  /**
+   * Asks for the Gmail check now where `now`, and otherwise leaves when it is
+   * due as it was; then arms the alarm for whatever is due first.
+   */
+  async #keepCheckingGmail(accountName: string, now: boolean): Promise<void> {
+    if (now && holdsGmailConnection(this.#database(), accountName)) {
+      this.ctx.storage.kv.put(GMAIL_CHECK_DUE, Date.now());
+    }
+    await this.#arm(accountName);
   }
 
   /**
@@ -1302,8 +1505,18 @@ const GMAIL_LIFECYCLE: ReadonlySet<CommandName> = new Set<CommandName>([
  */
 const OPENS_OR_CLOSES: ReadonlySet<CommandName> = new Set<CommandName>(['set_done', 'set_dismissed', 'finish_agent_run']);
 
-/** Where the account a Gmail check is for is kept, in the object's key-value storage beside its alarm. */
-const GMAIL_CHECK_ACCOUNT = 'gmail-check-account';
+/**
+ * Where the account the alarm's checks are for is kept, in the object's
+ * key-value storage beside its alarm. Named for Gmail, the first check, and
+ * kept so: every store armed before the pulled checks holds its name here.
+ */
+const CHECKS_ACCOUNT = 'gmail-check-account';
+
+/** When the Gmail check is next due, as a time in milliseconds; absent is now. */
+const GMAIL_CHECK_DUE = 'gmail-check-due';
+
+/** The time the alarm was last set for, which is what its checks are due by when it fires. */
+const ALARM_SET_FOR = 'alarm-set-for';
 
 /** How often each account's Gmail connections are checked. */
 export const GMAIL_CHECK_EVERY_MS = 5 * 60_000;

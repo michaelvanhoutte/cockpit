@@ -18,6 +18,8 @@ import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 import type { RefreshAsk } from '../jobs/debounce.js';
+import type { EmittedItem, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
+import type { PulledRunBegun } from './pulled.js';
 
 /**
  * What one account's store answers to, as the Worker sees it across the
@@ -346,6 +348,60 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * every account.
    */
   keepCheckingGmail(accountName: string): Awaitable<Answer<'armed' | 'already armed' | 'nothing to check'>>;
+  /**
+   * Arms the check of the account's pulled connections where it holds one and
+   * nothing has the alarm armed ("Check a pulled connector on its cadence
+   * through the generic host", issue 891) - what the nightly run asks of every
+   * account, beside `keepCheckingGmail`.
+   */
+  keepCheckingPulledConnections(
+    accountName: string,
+  ): Awaitable<Answer<'armed' | 'already armed' | 'nothing to check'>>;
+  /**
+   * The calls a run of one pulled connection's check makes, each naming the
+   * run so the store can refuse one that no longer holds its connection
+   * (issue 891). `beginPulledRun` is what a delivered check takes the lease
+   * with, or learns it does nothing; `endPulledRun` gives it back.
+   */
+  beginPulledRun(accountName: string, sourceAccountId: string): Awaitable<Answer<PulledRunBegun>>;
+  pulledState(accountName: string, sourceAccountId: string, runId: string): Awaitable<Answer<unknown>>;
+  savePulledState(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    state: unknown,
+  ): Awaitable<Answer<'saved' | 'not this run'>>;
+  pulledSealedCredential(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+  ): Awaitable<Answer<{ sealedCredential: string; credentialNonce: string } | null>>;
+  resealPulledCredential(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    was: { sealedCredential: string; credentialNonce: string },
+    sealed: { sealedCredential: string; credentialNonce: string },
+  ): Awaitable<Answer<'saved' | 'not saved'>>;
+  filePulledItem(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    item: SourceItem & { sourceId: string },
+    ids: { itemId: string; commandId: string },
+  ): Awaitable<Answer<EmittedItem | 'disconnected'>>;
+  applyPulledSourceChange(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    change: SourceStateChange,
+  ): Awaitable<Answer<'changed' | 'unchanged' | 'disconnected'>>;
+  endPulledRun(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    failing: string | null,
+  ): Awaitable<Answer<null>>;
 }
 
 type Awaitable<T> = T | Promise<T>;
