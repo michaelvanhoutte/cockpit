@@ -400,6 +400,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     runId: string,
     item: SourceItem & { sourceId: string },
     ids: { itemId: string; commandId: string },
+    arrivesAs: 'note' | 'task',
   ): Awaitable<Answer<EmittedItem | 'disconnected'>>;
   applyPulledSourceChange(
     accountName: string,

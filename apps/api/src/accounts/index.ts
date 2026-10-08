@@ -328,6 +328,7 @@ export interface PulledRun {
   fileItem(
     item: SourceItem & { sourceId: string },
     ids: { itemId: string; commandId: string },
+    arrivesAs: 'note' | 'task',
   ): Promise<EmittedItem | 'disconnected'>;
   applySourceChange(change: SourceStateChange): Promise<'changed' | 'unchanged' | 'disconnected'>;
   /** Closes the Items the connection filed under the listing's choice that it did not see (issue 938). */
@@ -422,8 +423,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
         unwrap(await store.pulledSealedCredential(accountName, sourceAccountId, runId)),
       reseal: async (was, sealed) =>
         unwrap(await store.resealPulledCredential(accountName, sourceAccountId, runId, was, sealed)),
-      fileItem: async (item, ids) =>
-        unwrap(await store.filePulledItem(accountName, sourceAccountId, runId, item, ids)),
+      fileItem: async (item, ids, arrivesAs) =>
+        unwrap(await store.filePulledItem(accountName, sourceAccountId, runId, item, ids, arrivesAs)),
       applySourceChange: async (change) =>
         unwrap(await store.applyPulledSourceChange(accountName, sourceAccountId, runId, change)),
       closeItemsNotListed: async (listing) =>

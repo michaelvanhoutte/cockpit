@@ -2,13 +2,13 @@ import { and, asc, eq, inArray, isNull, lte, min } from 'drizzle-orm';
 import type { CompleteListing, EmittedItem, OpenStateWanted, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
 import type { AccountDb } from './client.js';
 import { GUEST_ACCOUNT_NAME } from './new-user.js';
-import { noteTypeId } from './changes.js';
+import { noteTypeId, taskTypeId } from './changes.js';
 import { runCommand } from './command-service.js';
 import { listItemTypes } from './repo.js';
 import { connectionFailures, connectorAccounts, items, pulledConnections, pulledLinks } from './schema.js';
 import { confirmOpenStates, openStatesWaiting } from './pulled-open-state.js';
 import { applySourceStateChange } from './source-state.js';
-import { typeToCaptureAs } from '../domain/item-types.js';
+import { typeToBringInAs, typeToCaptureAs } from '../domain/item-types.js';
 import { leaseFrom, nextCheckAfter, whatADeliveryDoes } from '../domain/pulled-checks.js';
 
 /**
@@ -251,18 +251,27 @@ export function filePulledItem(
   item: SourceItem & { sourceId: string },
   ids: { itemId: string; commandId: string },
   at: string,
+  arrivesAs: 'note' | 'task' = 'note',
 ): EmittedItem | 'disconnected' {
   const holds = runHolds(db, accountName, sourceAccountId, runId);
   if (!holds) return 'disconnected';
   if (linkOf(db, accountName, holds, item.sourceId)) return 'already-known';
-  const type = typeToCaptureAs(listItemTypes(db, accountName), noteTypeId(accountName));
+  const types = listItemTypes(db, accountName);
+  const type =
+    arrivesAs === 'task'
+      ? typeToBringInAs(types, taskTypeId(accountName), noteTypeId(accountName))
+      : typeToCaptureAs(types, noteTypeId(accountName));
   if (!type) throw new Error(`account ${accountName} has no type to capture a pulled item as`);
+  const message = item.capturedMessage ?? item.title;
+  if (!message) throw new Error('a pulled item carries neither a message nor a title');
   runCommand(db, accountName, 'capture_item', {
     commandId: ids.commandId,
     issuedAt: at,
     workspaceId: holds.workspaceId,
     itemId: ids.itemId,
-    message: item.capturedMessage ?? item.title,
+    message,
+    // A Note stays untitled; a Task takes the source's title, or the one cut from its message.
+    ...(arrivesAs === 'task' && item.title ? { title: item.title } : {}),
     typeId: type.id,
     capturedFrom: {
       source: item.source,

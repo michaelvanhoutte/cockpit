@@ -137,7 +137,7 @@ function connectedHost(
         issuedAt: new Date().toISOString(),
         workspaceId: pointer.workspaceId,
         itemId,
-        message: item.capturedMessage ?? item.title,
+        message: item.capturedMessage ?? item.title ?? '',
         typeId: await noteTypeOf(pointer.accountName, account),
         capturedFrom: {
           source: item.source,

@@ -35,6 +35,13 @@ export interface ConnectorManifest {
    * a source that is only pushed to is never woken for nothing.
    */
   pulled?: boolean;
+  /**
+   * What the source's Items arrive as in Cockpit: `task` files each as a Task
+   * titled with the title it emitted, `note` (absent) as an untitled Note.
+   * The host picks the account's own Type for it; a connector never names one,
+   * Types being the person's own.
+   */
+  arrivesAs?: 'note' | 'task';
   auth: OAuthDescriptor | { kind: 'none' };
 }
 
@@ -105,9 +112,14 @@ export type SourceItem = Pick<
   | 'sourceLink'
   | 'sender'
   | 'sourceTimestamp'
-  | 'title'
   | 'capturedMessage'
 > & {
+  /**
+   * The Item's title where the source has one and the connector's Items arrive
+   * as tasks (`ConnectorManifest.arrivesAs`); with none, the host titles it
+   * from the message as any capture is. Ignored for a note.
+   */
+  title?: string;
   /** Still one a capture may name; reading is open (`sourceSchema`), writing is not changed here. */
   source: CapturedSource;
   /**

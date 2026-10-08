@@ -952,9 +952,10 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     runId: string,
     item: SourceItem & { sourceId: string },
     ids: { itemId: string; commandId: string },
+    arrivesAs: 'note' | 'task',
   ): Answer<EmittedItem | 'disconnected'> {
     return this.#answer(accountName, (db) =>
-      filePulledItem(db, accountName, sourceAccountId, runId, item, ids, new Date().toISOString()),
+      filePulledItem(db, accountName, sourceAccountId, runId, item, ids, new Date().toISOString(), arrivesAs),
     );
   }
 
