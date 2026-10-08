@@ -7,7 +7,7 @@
     "apps/api/src/gateway/",
     "apps/api/src/ai/index.ts",
     "apps/api/src/embeddings/index.ts",
-    "apps/api/src/connectors/claude-code.ts"
+    "apps/api/src/engines/claude-code.ts"
   ],
   "sdks": [
     "@anthropic-ai/",

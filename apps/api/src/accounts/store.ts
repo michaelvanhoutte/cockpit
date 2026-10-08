@@ -30,7 +30,7 @@ import {
   type ForeignRow,
 } from './backup.js';
 import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
-import { admittedCalls } from '../connectors/claude-code-hooks.js';
+import { HOOK_CALLS_PER_MINUTE, admittedCalls } from './call-window.js';
 import { checkGmail } from '../connectors/gmail-check.js';
 import { gmailCheckHost, holdsGmailConnection, sweepGmailNightly } from './gmail.js';
 import { labelChangeWaiting } from './mirrored-open-state.js';
@@ -750,7 +750,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   ): Answer<'admitted' | 'too-many'> {
     return this.#answer(accountName, (db) => {
       claudeCodeConnectionHeld(db, accountName, workspaceId, sourceAccountId);
-      const calls = admittedCalls(this.#hookCalls.get(sourceAccountId) ?? [], Date.parse(at));
+      const calls = admittedCalls(
+        this.#hookCalls.get(sourceAccountId) ?? [],
+        Date.parse(at),
+        HOOK_CALLS_PER_MINUTE,
+      );
       if (!calls) return 'too-many';
       this.#hookCalls.set(sourceAccountId, calls);
       recordHookArrival(db, accountName, sourceAccountId, at);

@@ -30,7 +30,7 @@ const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * that is wrong in any way is refused without ever reaching the network
  * ("Connect a workspace to Claude Code", rule 2).
  *
- * Pure, and provable at L1 (tests/unit/connectors/claude-code.test.ts)
+ * Pure, and provable at L1 (tests/unit/engines/claude-code.test.ts)
  * without a fake network to stand behind it.
  */
 export function isRoutineTriggerUrl(url: string, origin: string = ANTHROPIC_ORIGIN): boolean {

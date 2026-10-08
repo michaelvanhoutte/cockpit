@@ -134,7 +134,6 @@ import {
   type GmailRefusal,
 } from '../connectors/gmail.js';
 import { guestConnectionGate, isTheGuest } from '../auth/guest-connections.js';
-import { fireRoutine, testClaudeCodeConnection } from '../connectors/claude-code.js';
 import { providerCallsIn } from '../gateway/record.js';
 import { countForGuest, countryOf, referrerHostOf } from '../auth/sign-in-history.js';
 import {
@@ -149,10 +148,12 @@ import { connectionsFor, forgetConnection, rememberConnection } from '../connect
 import {
   HOOK_BODY_LIMIT_BYTES,
   HOOK_PATH_PREFIX,
+  fireRoutine,
   hookSecretFor,
   isHookSecret,
+  testClaudeCodeConnection,
   waitingFrom,
-} from '../connectors/claude-code-hooks.js';
+} from '../engines/list.js';
 import type { Env } from '../env.js';
 
 type AppEnv = GatedEnv;

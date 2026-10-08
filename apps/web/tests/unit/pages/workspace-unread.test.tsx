@@ -51,6 +51,8 @@ vi.mock('@tanstack/react-router', () => ({
   Outlet: () => null,
   useParams: () => params,
   useNavigate: () => () => Promise.resolve(),
+  // Read by Go to panel to go back over the history entry its moves added.
+  useRouter: () => ({ history: { back: () => undefined } }),
   // No item named, so the shell draws no form over itself - these cases are
   // about what the workspace says when it cannot be read.
   useSearch: () => ({}),
