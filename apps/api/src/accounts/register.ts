@@ -468,6 +468,10 @@ export async function endSignInsOf(env: Env, userId: string): Promise<void> {
  * tables hold `tenants` with a restricting foreign key - so without this the
  * register row is refused after the store is already gone, on every retry. The
  * release that drops those tables takes these four statements with it.
+ *
+ * **Their record of paid provider calls is not touched** (`provider_calls`,
+ * issue 917): it names them by id alone, under no foreign key, so what they
+ * spent can still be counted after they are gone.
  */
 export async function removeFromRegister(
   env: Env,

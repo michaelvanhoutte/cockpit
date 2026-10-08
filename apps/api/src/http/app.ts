@@ -1902,7 +1902,7 @@ const routes = app
     if (result.applied) {
       await countForGuest(c.env, c.get('sessionId'), 'itemsCaptured');
       const accountName = c.get('visitor').accountName;
-      c.executionCtx.waitUntil(enqueueCleanUp(c.env, accountName, captured.itemId));
+      c.executionCtx.waitUntil(enqueueCleanUp(c.env, accountName, captured.itemId, 'captured-in-app'));
       // The two texts this capture just wrote are what a duplicate is looked
       // for against ("Flag a captured note that says what another one already
       // said", issue 407) - so a note is compared against the Inbox as soon as

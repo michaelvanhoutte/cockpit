@@ -38,12 +38,13 @@ import { getConnector } from './registry.js';
  *
  * `filed` is what an Item newly filed asks for - the jobs capture's own route
  * queues - handed in by the queue consumer, since a connector may not import
- * the jobs it runs under.
+ * the jobs it runs under - told which connector filed it, for the record of
+ * the call its clean-up makes.
  */
 export async function checkPulledConnection(
   env: Env,
   job: { accountName: string; sourceAccountId: string },
-  filed: (accountName: string, itemId: string) => Promise<void>,
+  filed: (accountName: string, itemId: string, connectorId: string) => Promise<void>,
 ): Promise<void> {
   let account: Account;
   try {
@@ -62,7 +63,7 @@ export async function checkPulledConnection(
     if (!connector?.manifest.pulled) {
       throw new Error(`this version of Cockpit does not check ${begun.connectorId}`);
     }
-    await connector.sync(pulledHost(env, begun, run, (itemId) => filed(job.accountName, itemId)));
+    await connector.sync(pulledHost(env, begun, run, (itemId) => filed(job.accountName, itemId, begun.connectorId)));
   } catch (error) {
     failing = error instanceof Error ? error.message : String(error);
     logged(begun.connectorId, 'error', `a check of connection ${job.sourceAccountId} failed`, failing);

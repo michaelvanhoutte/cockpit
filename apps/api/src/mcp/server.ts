@@ -164,7 +164,7 @@ async function capture(
     }
     throw error;
   }
-  ctx.waitUntil(enqueueCleanUp(env, accountName, itemId));
+  ctx.waitUntil(enqueueCleanUp(env, accountName, itemId, 'mcp'));
   ctx.waitUntil(enqueueReadingItsMeaning(env, accountName, itemId));
   // What the MCP connections list says this app last did (issue 600).
   ctx.waitUntil(noteCapture(env, app.grantId, new Date().toISOString()));

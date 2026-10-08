@@ -2,6 +2,7 @@ import type { Message, MessageBatch, ScheduledController } from '@cloudflare/wor
 import type { Env } from '../env.js';
 import { keepEveryAccountCheckingGmail, resetGuestAccount } from '../accounts/index.js';
 import { purgeOldSignIns } from '../auth/sign-in-history.js';
+import { purgeOldProviderCalls } from '../gateway/record.js';
 import {
   cleanUpACapturedNote,
   enqueueCleanUp,
@@ -50,7 +51,8 @@ export type { BatchRead } from './backfill-meanings.js';
  *
  * **It queues nothing.** The nightly filing summary that once did is gone
  * ("Drop the nightly filing summary, keep the sentence you wrote", issue 392);
- * what runs is the guest reset, the sign-in history purge, and re-arming any
+ * what runs is the guest reset, the sign-in history and provider call
+ * purges, and re-arming any
  * Gmail or pulled-connection check that was lost, with each Gmail
  * connection's full reconcile started again - each idempotent, so a tick run
  * twice changes nothing the first did not.
@@ -59,7 +61,28 @@ export async function handleScheduled(controller: ScheduledController, env: Env)
   void controller;
   await resetTheGuestAccount(env);
   await purgeTheOldSignIns(env);
+  await purgeTheOldProviderCalls(env);
   await keepCheckingGmail(env);
+}
+
+/**
+ * The record of paid provider calls is kept 12 months too ("Record every
+ * Claude call Cockpit makes, and keep the record for 12 months", issue 917),
+ * caught on its own for the same reason.
+ */
+async function purgeTheOldProviderCalls(env: Env): Promise<void> {
+  try {
+    await purgeOldProviderCalls(env, new Date());
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `old provider call records were not removed tonight: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      }),
+    );
+  }
 }
 
 /**
@@ -220,8 +243,8 @@ function run(env: Env, job: EnrichmentJob): Promise<void> {
     case 'guest-arrival':
       return captureGuestArrival(env, job);
     case 'check-a-pulled-connection':
-      return checkPulledConnection(env, job, async (accountName, itemId) => {
-        await enqueueCleanUp(env, accountName, itemId);
+      return checkPulledConnection(env, job, async (accountName, itemId, connectorId) => {
+        await enqueueCleanUp(env, accountName, itemId, `connector:${connectorId}`);
         await enqueueReadingItsMeaning(env, accountName, itemId);
       });
   }
