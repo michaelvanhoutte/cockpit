@@ -80,10 +80,10 @@ function MoveToPicker({
   /** The dashboards filtered in this browser, which + Panel is locked on and so is the + here. */
   filteredDashboardIds?: ReadonlySet<string>;
   /**
-   * The panels the one item being moved is on now, left out where picking one
-   * would change nothing: every one of them when adding, and the only one when
-   * moving (moving to one of several still takes it off the rest, so those
-   * stay). The Inbox is left out for an item on no panel, which is in it.
+   * The panels the one item being moved is on now, every one of them left out
+   * as picking one would change nothing: a move takes it off the Panel it is
+   * moved from only, so landing on another it is on is no move. The Inbox is
+   * left out for an item on no panel, which is in it.
    *
    * Absent for a selection of several, which can mix the two, so all is offered.
    */
@@ -203,7 +203,7 @@ function MoveToPicker({
   // come to disagree - and so the three call sites that hand this its panels
   // cannot each forget separately.
   const takesItems = panels.filter(panelTakesItems);
-  const pointless = new Set(alreadyOn && (adding || alreadyOn.length === 1) ? alreadyOn : []);
+  const pointless = new Set(alreadyOn ?? []);
   const offerable = takesItems.filter((panel) => !pointless.has(panel.id));
   const needle = query.trim().toLowerCase();
   const matches = (text: string) => needle === '' || text.toLowerCase().includes(needle);

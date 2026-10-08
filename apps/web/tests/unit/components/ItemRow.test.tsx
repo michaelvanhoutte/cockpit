@@ -536,6 +536,27 @@ describe('Triage', () => {
       expect(namedByTheRow()).toBeNull();
     });
 
+    describe('a row with nowhere to move it, as on a Filter panel, takes no swipe right', () => {
+      it('uncovers no strip and does not slide, however far it is swiped', () => {
+        aRow();
+
+        swipeAndHold({ dx: 160 });
+
+        expect(namedByTheRow()).toBeNull();
+        expect(theSlidingPart()).not.toHaveStyle({ transform: 'translateX(160px)' });
+      });
+
+      it('still names Dismiss for a swipe left, and dismisses on release', () => {
+        const { mutate } = aRow();
+
+        swipeAndHold({ dx: -160 });
+        expect(namedByTheRow()?.textContent).toBe('Dismiss');
+        lift(screen.getByRole('listitem'), -160);
+
+        expect(mutate.mock.calls[0]![0].payload.dismissed).toBe(true);
+      });
+    });
+
     it('says nothing to a mouse, which never swipes', () => {
       aRow({ onMoveTo: vi.fn() });
 

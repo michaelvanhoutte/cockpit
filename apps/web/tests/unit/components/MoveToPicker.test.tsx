@@ -79,9 +79,9 @@ describe('Panels', () => {
         offers: ['Inboxoff every panel', 'Anna', 'To read', 'Papers'],
       },
       {
-        situation: 'moving an item on two panels offers both',
+        situation: 'moving an item on two panels leaves both out',
         props: { alreadyOn: ['p-falcon', 'p-anna'] },
-        offers: ['Inboxoff every panel', 'Falcon', 'Anna', 'To read', 'Papers'],
+        offers: ['Inboxoff every panel', 'To read', 'Papers'],
       },
       {
         situation: 'moving an item in the Inbox leaves the Inbox out',

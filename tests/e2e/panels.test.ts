@@ -1281,8 +1281,9 @@ test.describe('Panels', () => {
       // And the funnel says what it is gathering, without reopening the
       // question.
       await expect(filter.getByRole('img', { name: 'Shows due today or overdue' })).toBeVisible();
-      // The row is the usual one, minus the entry that would take it off a
-      // panel it was never filed onto.
+      // The row is the usual one, minus the entries that would take it off a
+      // panel it was never filed onto: no Remove from this panel, and no Move
+      // to…, which would leave a Panel the row is not on. It keeps Also show on….
       await press(
         filter
           .getByRole('listitem')
@@ -1290,7 +1291,8 @@ test.describe('Panels', () => {
           .getByRole('button', { name: 'Item actions' }),
         isMobile,
       );
-      await expect(page.getByRole('menuitem', { name: 'Move to…' })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Also show on…' })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Move to…' })).toHaveCount(0);
       await expect(page.getByRole('menuitem', { name: 'Remove from this panel' })).toHaveCount(0);
       await page.keyboard.press('Escape');
 

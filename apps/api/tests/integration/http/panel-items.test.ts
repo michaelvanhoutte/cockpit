@@ -490,6 +490,111 @@ describe('Panels', () => {
     });
   });
 
+  describe('a move takes the item off the panels it names as moved from, and every other panel keeps it', () => {
+    /** An item on every panel named, then moved to `to` from `from` (none named where it is undefined). */
+    async function movedFrom(
+      on: string[],
+      from: string[] | undefined,
+      to: string | null,
+      order?: (ids: Record<string, string>, itemId: string) => string[],
+    ) {
+      const today = await aDashboard();
+      const ids: Record<string, string> = {};
+      for (const name of ['A', 'B', 'C', 'D']) ids[name] = await aPanel(today, name);
+      const itemId = await anItem('Reply to Bart');
+      for (const name of on) expect((await addTo(itemId, ids[name]!)).status).toBe(200);
+      const target = to === null ? null : ids[to]!;
+      const res = await send('move_item_to_panel', {
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        panelId: target,
+        order: target === null ? [] : (order?.(ids, itemId) ?? [itemId]),
+        ...(from ? { fromPanelIds: from.map((name) => ids[name]!) } : {}),
+      });
+      return { res, itemId, ids };
+    }
+
+    it.each([
+      { situation: 'on A, B and C, moved from A to D', on: ['A', 'B', 'C'], from: ['A'], to: 'D', ends: ['B', 'C', 'D'] },
+      { situation: 'on A, B and C, moved from A and B to D', on: ['A', 'B', 'C'], from: ['A', 'B'], to: 'D', ends: ['C', 'D'] },
+      { situation: 'on A and C, moved from A onto C', on: ['A', 'C'], from: ['A'], to: 'C', ends: ['C'] },
+      { situation: 'moved from A, which it has since left', on: ['B', 'C'], from: ['A'], to: 'D', ends: ['B', 'C', 'D'] },
+      { situation: 'naming no panel it is moved from', on: ['A', 'B', 'C'], from: undefined, to: 'D', ends: ['D'] },
+      { situation: 'naming an empty list of panels', on: ['A', 'B'], from: [], to: 'D', ends: ['D'] },
+      { situation: 'moved to the Inbox from A while also on C', on: ['A', 'C'], from: ['A'], to: null, ends: [] },
+    ])('$situation', async ({ on, from, to, ends }) => {
+      const { res, itemId } = await movedFrom(on, from, to);
+
+      expect(res.status).toBe(200);
+      expect(await filedOn(itemId)).toEqual(ends);
+    });
+
+    it('puts it at the position the order names on the panel it lands on', async () => {
+      const today = await aDashboard();
+      const a = await aPanel(today, 'A');
+      const c = await aPanel(today, 'C');
+      const other = await anItem('Renew the domain');
+      const itemId = await anItem('Reply to Bart');
+      expect((await move(other, c)).status).toBe(200);
+      expect((await addTo(itemId, a)).status).toBe(200);
+      expect((await addTo(itemId, c, [other, itemId])).status).toBe(200);
+
+      const res = await send('move_item_to_panel', {
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        panelId: c,
+        order: [itemId, other],
+        fromPanelIds: [a],
+      });
+
+      expect(res.status).toBe(200);
+      expect(await inOrderOn(c)).toEqual(['Reply to Bart', 'Renew the domain']);
+      expect(await filedOn(itemId)).toEqual(['C']);
+    });
+
+    it('ignores a panel deleted since, taking it off none of the others', async () => {
+      const today = await aDashboard();
+      const a = await aPanel(today, 'A');
+      const b = await aPanel(today, 'B');
+      const d = await aPanel(today, 'D');
+      const itemId = await anItem('Reply to Bart');
+      expect((await addTo(itemId, a)).status).toBe(200);
+      expect((await addTo(itemId, b)).status).toBe(200);
+      expect((await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId: a })).status).toBe(200);
+
+      const res = await send('move_item_to_panel', {
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        panelId: d,
+        order: [itemId],
+        fromPanelIds: [a],
+      });
+
+      expect(res.status).toBe(200);
+      expect(await filedOn(itemId)).toEqual(['B', 'D']);
+    });
+
+    it('refuses a panel of another workspace as moved from, and stores nothing', async () => {
+      const today = await aDashboard();
+      const a = await aPanel(today, 'A');
+      const d = await aPanel(today, 'D');
+      const elsewhere = await aPanel(await aDashboard('ws-personal'), 'Somewhere else', 'ws-personal');
+      const itemId = await anItem('Reply to Bart');
+      expect((await addTo(itemId, a)).status).toBe(200);
+
+      const res = await send('move_item_to_panel', {
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        panelId: d,
+        order: [itemId],
+        fromPanelIds: [elsewhere],
+      });
+
+      expect(res.status).toBe(404);
+      expect(await filedOn(itemId)).toEqual(['A']);
+    });
+  });
+
   describe('filing is keyed to the panel, not to its title', () => {
     it('keeps a renamed panel’s items on it', async () => {
       const today = await aDashboard();

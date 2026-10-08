@@ -1539,16 +1539,38 @@ export function runCommand<N extends CommandName>(
       // stale too - the same reason a capture with no workspace carries this.
       if (decided) everyWorkspaceSees(commandRow);
 
+      // The Panels it is taken off. One it has since left, or that was deleted
+      // in another tab, is no mistake and is ignored (the item is no longer on
+      // it, as far as this move is concerned); a live one is checked as a Panel
+      // of this Workspace, which is what refuses another Workspace's. Naming
+      // none (or an empty list), or moving to the Inbox, takes it off every Panel.
+      const named = cmd.panelId === null ? [] : (cmd.fromPanelIds ?? []);
+      const fromPanelIds = named.length === 0 ? undefined : named.filter((fromId) => {
+        if (!getPanel(db, tenantId, fromId)) return false;
+        panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, fromId);
+        return true;
+      });
+
       const rows = filingRows(tenantId, cmd);
       db.transaction((tx) => {
         if (decided) settleWorkspace(tx, tenantId, cmd.itemId, decided);
-        // Off everything first, which is what makes this a move rather than an
-        // add: the item's own rows go, wherever they were, and the target
-        // panel's arrangement is then written whole. A reorder is the same two
-        // steps over one panel, which is why it is the same command.
-        tx.delete(panelItems)
-          .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.itemId, cmd.itemId)))
-          .run();
+        // Off the Panels it is moved from first, which is what makes this a
+        // move rather than an add: the item's own rows there go, and the target
+        // panel's arrangement is then written whole. Off every Panel where the
+        // move names none. A reorder is the same two steps over one panel,
+        // which is why it is the same command.
+        // (Every one named gone is nothing to take it off, not every Panel.)
+        if (!fromPanelIds || fromPanelIds.length > 0) {
+          tx.delete(panelItems)
+            .where(
+              and(
+                eq(panelItems.tenantId, tenantId),
+                eq(panelItems.itemId, cmd.itemId),
+                fromPanelIds ? inArray(panelItems.panelId, fromPanelIds) : undefined,
+              ),
+            )
+            .run();
+        }
         if (panel) {
           // Replaced whole rather than merged, for the reason a layout's
           // placements are: an order is the answer to "where do these items go

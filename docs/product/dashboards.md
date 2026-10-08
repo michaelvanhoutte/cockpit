@@ -22,7 +22,7 @@ A **Dashboard** is a saved arrangement of Panels; there can be as many per Works
 
 ## What a Panel shows — manual filing
 
-**Filing.** Any Item can be filed onto a Panel from its own menu, which is what takes it out of the Inbox (see `docs/product/inbox.md`). An Item filed on several Panels appears on all of them: **Also show on…** in a row's menu shows it on one more, and **Remove from this panel** stops one Panel showing it while every other carries on — an Item removed from the only Panel holding it is back in the Inbox. Dragging a row reorders it within the Panel it is already on — Ordering (see `docs/product/across-the-app.md`).
+**Filing.** Any Item can be filed onto a Panel from its own menu, which is what takes it out of the Inbox (see `docs/product/inbox.md`). An Item filed on several Panels appears on all of them: **Also show on…** in a row's menu shows it on one more, and **Remove from this panel** stops one Panel showing it while every other carries on, and **Move to…** takes it off that Panel and puts it on another, again leaving the rest — an Item removed from the only Panel holding it is back in the Inbox. Dragging a row reorders it within the Panel it is already on — Ordering (see `docs/product/across-the-app.md`).
 
 **Never propose, on a Panel of items' menu, keeps Cockpit from suggesting that Panel**, ticked while it is set: no Inbox chip names it, a chip already naming it is not drawn and cannot be taken, and Items filed onto it are not learned from — so a Panel filed into alongside another, such as a *Next up*, does not pull every new note towards it. Clearing it restores both, past filings included; a chip it hid comes back until Cockpit next suggests a Panel for that Item. A Panel of text or a Filter panel has no such entry, nothing being filed onto either.
 
@@ -48,7 +48,7 @@ The sort is **kept on the Panel**, the same on every device, and **Manual is hav
 
 **A Filter panel's rows go by its sort, and a Filter panel nobody has sorted goes by Due date ascending, then Priority descending, then Created ascending**, so a row with no due date is last and nothing changes until somebody chooses otherwise. **Sort…** in its menu asks the question a Panel of items gets, without the Manual / Sorted switch — nothing is filed onto a Filter panel, so it has no order of its own to go back to — and with its last row never removable. A final tie goes oldest first. The sort mark shows on a Filter panel whenever it has a sort of its own, beside the funnel; the same rules for ties and for Items with no value apply, and the sort is kept on the Filter panel like a Panel's.
 
-**Nothing is filed onto a Filter panel**, exactly as nothing is filed onto a Panel of text: it is not offered when filing, it takes no drop, and an Item asked onto it directly is refused. A row's menu is the usual one without *Remove from this panel*, and rows are not reordered — where a row sits is a consequence of the Item rather than a filing anybody made.
+**Nothing is filed onto a Filter panel**, exactly as nothing is filed onto a Panel of text: it is not offered when filing, it takes no drop, and an Item asked onto it directly is refused. A row's menu is the usual one without *Remove from this panel* and *Move to…* (it has no Panel to move the Item from, and keeps *Also show on…*), and rows are not reordered — where a row sits is a consequence of the Item rather than a filing anybody made.
 
 ## Narrowing a Dashboard — the Dashboard filter
 
