@@ -38,7 +38,7 @@ export interface Claims {
   /**
    * The directory and the person inside it, which Microsoft puts on a token
    * and Google does not - what a connected Teams account is keyed on
-   * (src/connectors/teams.ts), and so what an inbound saved message has to
+   * (packages/connectors/teams/src/sign-in.ts), and so what an inbound saved message has to
    * name to find it ("Save a Teams message to Cockpit", issue 486).
    */
   tenant?: string;

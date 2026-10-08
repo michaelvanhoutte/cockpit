@@ -31,7 +31,6 @@ import {
   signedInSchema,
   sourceAccountListSchema,
   GMAIL,
-  TEAMS,
   uuidv7,
   userAddedSchema,
   userChangedSchema,
@@ -119,14 +118,13 @@ import {
   issuerFor,
   keysOf,
   revokeToken,
-  teamsIssuerFor,
 } from '../auth/issuer.js';
 import { authorizationUrl, identityFrom, newAttempt, replyBelongsTo, type Refusal } from '../auth/oidc.js';
 import { returnPathFrom } from '../auth/return-path.js';
 import { connectedAppsOf, disconnectApp } from '../mcp/connected-apps.js';
 import { revokeAppsOf } from '../mcp/revoke.js';
 import { open, seal, sealingKey, type Sealed } from '../connectors/credential-crypto.js';
-import { teamsAccountFrom } from '../connectors/teams.js';
+import { accountSignedIn, authorizationRequest, clientOf, signInOf } from '../connectors/sign-in.js';
 import {
   gmailAccountFrom,
   gmailAuthorizationUrl,
@@ -204,22 +202,11 @@ function refuse(c: Context, reason: string, cause?: unknown) {
 }
 
 /**
- * Where Microsoft is told to send the browser back, when a Workspace is
- * connecting a Teams account ("Connect a Microsoft Teams source account",
- * issue 485).
- *
- * One address for every Workspace rather than one each, for the reason
- * `callbackUrl` above is configured rather than derived: it has to be
- * character-for-character a redirect URI registered with the Entra
- * application, and a per-Workspace address could never be. Which Workspace
- * asked is carried in the attempt cookie instead, where the browser cannot
- * choose it (`auth/gate.ts`).
+ * Where Google is told to send the browser back, for Gmail's own Google client
+ * ("Connect a Gmail account to a workspace, and disconnect it", issue 724).
+ * Every source described to the generic flow has its address from
+ * `callbackUrlFor` (connectors/sign-in.ts).
  */
-function connectCallbackUrl(c: Context): string {
-  return new URL('/v1/connections/teams/callback', c.env.APP_ORIGIN).toString();
-}
-
-/** The same, for Gmail's own Google client ("Connect a Gmail account to a workspace, and disconnect it", issue 724). */
 function gmailCallbackUrl(c: Context): string {
   return new URL('/v1/connections/gmail/callback', c.env.APP_ORIGIN).toString();
 }
@@ -293,22 +280,13 @@ function refuseConnection(
 }
 
 /**
- * What this environment needs before anything can be connected: the Entra
- * application, its secret, and the key a credential is sealed under. Answers
- * `null` where any of them is missing, which is a deployment nobody has
- * configured for this rather than anything a person did (`src/env.ts`).
+ * What this environment needs before Gmail can be connected: its Google
+ * client, its secret, and the key a credential is sealed under. Answers `null`
+ * where any of them is missing, which is a deployment nobody has configured
+ * for this rather than anything a person did (`src/env.ts`). A described
+ * source's client is read from the settings its connector names (`clientOf`,
+ * connectors/sign-in.ts).
  */
-async function whatConnectingNeeds(
-  env: Env,
-): Promise<{ clientId: string; clientSecret: string; key: CryptoKey } | null> {
-  const clientId = env.MS_CLIENT_ID?.trim();
-  const clientSecret = env.MS_CLIENT_SECRET?.trim();
-  if (!clientId || !clientSecret) return null;
-  const key = await sealingKey(env.CONNECTOR_CREDENTIAL_KEY);
-  return key ? { clientId, clientSecret, key } : null;
-}
-
-/** The same, for Gmail's own Google client (issue 724). */
 async function whatConnectingGmailNeeds(
   env: Env,
 ): Promise<{ clientId: string; clientSecret: string; key: CryptoKey } | null> {
@@ -2178,205 +2156,9 @@ const routes = app
   })
   // --- connecting a source account: two navigations, like signing in ---------
   /**
-   * Sends the browser to Microsoft to be asked whose Teams account this is,
-   * keeping what it has to come back with and which Workspace asked ("Connect
-   * a Microsoft Teams source account", issue 485).
-   *
-   * **Behind the gate, unlike the sign-in pair below**, and that is the whole
-   * shape of it: connecting is something a signed-in person does to one of
-   * their own Workspaces, so the session is what says whose account the
-   * connection lands in and the browser never names it.
-   *
-   * A navigation rather than a request the page makes, for the reason signing
-   * in is one: it ends somewhere else entirely.
-   */
-  .get('/v1/workspaces/:workspaceId/connections/teams/connect', async (c) => {
-    const workspaceId = c.req.param('workspaceId');
-    try {
-      // Theirs, and still there - asked before anybody is sent away, so a
-      // Workspace deleted in another tab refuses here rather than after a
-      // round trip through Microsoft.
-      const account = await openAccount(c.env, c.get('visitor').accountName);
-      if (!(await account.workspaces()).some((workspace) => workspace.id === workspaceId)) {
-        return refuseConnection(c, workspaceId, 'no such workspace');
-      }
-      const needed = await whatConnectingNeeds(c.env);
-      if (!needed) {
-        return refuseConnection(c, workspaceId, 'this environment cannot connect a source account');
-      }
-
-      const endpoints = await endpointsFor(teamsIssuerFor(c.env));
-      // The account goes in the attempt as well as the Workspace, because the
-      // Workspace alone does not name one (`ConnectAttempt`, auth/gate.ts).
-      const attempt = {
-        ...newAttempt(),
-        workspaceId,
-        accountName: c.get('visitor').accountName,
-        connectorId: TEAMS,
-      };
-      rememberConnectAttempt(c, attempt);
-      // `needed.clientId`, never `c.env.MS_CLIENT_ID` again: the two have to be
-      // character-for-character the same value the callback exchanges with, and
-      // a secret stored with a stray newline is otherwise two ids.
-      const url = await authorizationUrl(
-        endpoints,
-        needed.clientId,
-        connectCallbackUrl(c),
-        attempt,
-      );
-      return c.redirect(url, 302);
-    } catch (error) {
-      return refuseConnection(c, workspaceId, 'the issuer could not be reached', error);
-    }
-  })
-  /**
-   * Where Microsoft sends the browser back.
-   *
-   * Everything arriving here came through the person connecting, so nothing is
-   * believed until it has been checked against the attempt this application
-   * started (src/auth/oidc.ts) - and the attempt is spent before any of it is
-   * acted on, so a reply delivered twice (the back button, a bookmarked
-   * address) gets nowhere the second time and cannot write a second row.
-   *
-   * **Nothing is stored until Microsoft has said who this is and the
-   * credential has been sealed**, and the storing itself is one command
-   * ("Connect a Microsoft Teams source account", issue 485). So the two ends
-   * are the only ends there are: a row that is
-   * there and visible, or nothing at all and a refusal in the window.
-   */
-  .get('/v1/connections/teams/callback', async (c) => {
-    const held = connectAttemptHeld(c);
-    forgetConnectAttempt(c);
-    // An attempt started for another source did not begin here.
-    const attempt = held?.connectorId === TEAMS ? held : null;
-    const reply = c.req.query();
-
-    const wrong = replyBelongsTo(attempt, reply);
-    // Including the issuer's own refusal - somebody who declined the consent
-    // screen is told so in the window they started from, unlike a cancelled
-    // sign-in, which simply leaves you where you already were.
-    if (wrong) return refuseConnection(c, attempt?.workspaceId, wrong);
-
-    // **The account that started it has to be the account that comes back.**
-    // The session is what decides whose store the row lands in, and every
-    // account is handed a workspace under the same id
-    // (`0015-first-workspace`), so without this a sign-out and a different
-    // sign-in while somebody was away at Microsoft would seal their credential
-    // into whoever is signed in now. Sent nowhere in particular, because the
-    // Workspace the attempt names is not this visitor's to be shown.
-    if (attempt!.accountName !== c.get('visitor').accountName) {
-      return refuseConnection(c, undefined, 'the connection was started by another account');
-    }
-
-    try {
-      const needed = await whatConnectingNeeds(c.env);
-      if (!needed) {
-        return refuseConnection(
-          c,
-          attempt!.workspaceId,
-          'this environment cannot connect a source account',
-        );
-      }
-
-      const endpoints = await endpointsFor(teamsIssuerFor(c.env));
-      const exchanged = await exchangeCode(
-        endpoints,
-        { clientId: needed.clientId, clientSecret: needed.clientSecret },
-        {
-          code: reply.code!,
-          codeVerifier: attempt!.codeVerifier,
-          redirectUri: connectCallbackUrl(c),
-        },
-      );
-      if (!exchanged) return refuseConnection(c, attempt!.workspaceId, 'the exchange was refused');
-
-      const account = await teamsAccountFrom(
-        exchanged.idToken,
-        keysOf(endpoints),
-        {
-          issuer: endpoints.issuer,
-          clientId: needed.clientId,
-          nonce: attempt!.nonce,
-        },
-        new Date(),
-      );
-      if (typeof account === 'string') {
-        return refuseConnection(c, attempt!.workspaceId, account);
-      }
-
-      // Sealed here, so the credential exists in the clear only inside this
-      // request and never in a command payload a log would keep (`forTheLog`,
-      // accounts/command-service.ts).
-      const sealed = await seal(exchanged.asIssued, needed.key);
-      const connectedAt = new Date().toISOString();
-      await change(c, 'connect_source_account', {
-        commandId: uuidv7(),
-        issuedAt: connectedAt,
-        workspaceId: attempt!.workspaceId,
-        sourceAccountId: uuidv7(),
-        connectorId: TEAMS,
-        externalAccountKey: account.key,
-        displayName: account.displayName,
-        ...sealed,
-      });
-      // **After the connection is stored, and only then.** The register's index
-      // is what lets a saved message find this Workspace later ("Save a Teams
-      // message to Cockpit", issue 486) - and it is a hint rather than the
-      // authority, so writing it before the row it points at would be pointing
-      // at something that may never arrive.
-      //
-      // **Its own failure never reaches the outer `catch`.** By this point
-      // `connect_source_account` above has already committed - a DO
-      // transaction and this D1 write can't share one - so a transient
-      // failure here must not fall into `refuseConnection` below, which
-      // would tell the user nothing was saved when the connection is
-      // already live (found in review, PR 491). Retried once first, since
-      // the write upserts on the same four key columns reconnecting the
-      // same account would anyway; a repair by hand is exactly a reconnect.
-      try {
-        await rememberConnection(
-          c.env,
-          { accountName: c.get('visitor').accountName, workspaceId: attempt!.workspaceId },
-          TEAMS,
-          account.key,
-          connectedAt,
-        );
-      } catch (firstError) {
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        try {
-          await rememberConnection(
-            c.env,
-            { accountName: c.get('visitor').accountName, workspaceId: attempt!.workspaceId },
-            TEAMS,
-            account.key,
-            connectedAt,
-          );
-        } catch (secondError) {
-          console.error(
-            JSON.stringify({
-              level: 'error',
-              message:
-                'a source account connected, but is not yet reachable for a saved message - reconnecting the same account repairs it',
-              cause: secondError instanceof Error ? secondError.message : String(secondError),
-              firstAttempt: firstError instanceof Error ? firstError.message : String(firstError),
-            }),
-          );
-        }
-      }
-      return backToConnections(c, attempt!.workspaceId, 'connected');
-    } catch (error) {
-      return refuseConnection(
-        c,
-        attempt!.workspaceId,
-        'the connection could not be finished',
-        error,
-      );
-    }
-  })
-  /**
    * Sends the browser to Google to connect a Gmail account, through Gmail's
    * own client and asking for the permission to change mail ("Connect a Gmail
-   * account to a workspace, and disconnect it", issue 724). Teams' pair above
+   * account to a workspace, and disconnect it", issue 724). The generic pair below
    * in every other respect: behind the gate, the Workspace and account
    * carried in the attempt cookie, refused before anybody leaves where the
    * Workspace is gone or the environment cannot connect.
@@ -2431,7 +2213,7 @@ const routes = app
     const wrong = replyBelongsTo(attempt, reply);
     if (wrong) return refuseConnection(c, attempt?.workspaceId, wrong, undefined, gmailNotConnectedBecause(wrong, reply));
     // Whose store the row lands in is the session's to say, for the reason
-    // Teams' callback gives.
+    // the generic callback gives.
     if (attempt!.accountName !== c.get('visitor').accountName) {
       return refuseConnection(c, undefined, 'the connection was started by another account');
     }
@@ -2475,6 +2257,168 @@ const routes = app
         follows: attempt!.follows ?? 'label',
       });
       return backToConnections(c, attempt!.workspaceId, attempt!.follows === 'star' ? 'gmail-star-connected' : 'gmail-connected');
+    } catch (error) {
+      return refuseConnection(c, attempt!.workspaceId, 'the connection could not be finished', error);
+    }
+  })
+  /**
+   * Sends the browser to a source to be asked whose account this is, for any
+   * registered connector whose manifest describes an OAuth sign-in, keeping
+   * what it has to come back with and which Workspace asked ("Connect and
+   * disconnect a source through one generic sign-in flow", issue 892; Teams
+   * was the first, "Connect a Microsoft Teams source account", issue 485).
+   *
+   * **Registered after Gmail's own pair above, which is how Gmail's still
+   * wins for `gmail`** until it is described the same way ("Move Gmail out of
+   * the core, onto the connector SDK", issue 875). **An id nothing is
+   * registered under, or one whose sign-in is `none`, is not found** rather
+   * than refused: there is no connector here to have refused anything.
+   *
+   * **Behind the gate**, and that is the whole shape of it: connecting is
+   * something a signed-in person does to one of their own Workspaces, so the
+   * session is what says whose account the connection lands in and the
+   * browser never names it. A navigation rather than a request the page
+   * makes, for the reason signing in is one: it ends somewhere else entirely.
+   */
+  .get('/v1/workspaces/:workspaceId/connections/:connectorId/connect', async (c) => {
+    const workspaceId = c.req.param('workspaceId');
+    const sign = signInOf(c.env, c.req.param('connectorId'));
+    if (!sign) return c.notFound();
+    try {
+      // Theirs, and still there - asked before anybody is sent away, so a
+      // Workspace deleted in another tab refuses here rather than after a
+      // round trip through the source.
+      const account = await openAccount(c.env, c.get('visitor').accountName);
+      if (!(await account.workspaces()).some((workspace) => workspace.id === workspaceId)) {
+        return refuseConnection(c, workspaceId, 'no such workspace');
+      }
+      const client = clientOf(c.env, sign.auth);
+      if (!client || !(await sealingKey(c.env.CONNECTOR_CREDENTIAL_KEY))) {
+        return refuseConnection(c, workspaceId, 'this environment cannot connect a source account');
+      }
+
+      // The account goes in the attempt as well as the Workspace, because the
+      // Workspace alone does not name one (`ConnectAttempt`, auth/gate.ts).
+      const attempt = {
+        ...newAttempt(),
+        workspaceId,
+        accountName: c.get('visitor').accountName,
+        connectorId: sign.connector.manifest.id,
+      };
+      rememberConnectAttempt(c, attempt);
+      // `client.clientId`, never the setting again: the two have to be
+      // character-for-character the same value the callback exchanges with,
+      // and a secret stored with a stray newline is otherwise two ids.
+      return c.redirect(await authorizationRequest(c.env, sign, client, attempt), 302);
+    } catch (error) {
+      return refuseConnection(c, workspaceId, 'the issuer could not be reached', error);
+    }
+  })
+  /**
+   * Where the source sends the browser back.
+   *
+   * Everything arriving here came through the person connecting, so nothing is
+   * believed until it has been checked against the attempt this application
+   * started (src/auth/oidc.ts) - and the attempt is spent before any of it is
+   * acted on, so a reply delivered twice (the back button, a bookmarked
+   * address) gets nowhere the second time and cannot write a second row.
+   *
+   * **Nothing is stored until the source has said who this is and the
+   * credential has been sealed**, and the storing itself is one command
+   * ("Connect a Microsoft Teams source account", issue 485). So the two ends
+   * are the only ends there are: a row that is there and visible, or nothing
+   * at all and a refusal in the window.
+   */
+  .get('/v1/connections/:connectorId/callback', async (c) => {
+    const sign = signInOf(c.env, c.req.param('connectorId'));
+    if (!sign) return c.notFound();
+    const connectorId = sign.connector.manifest.id;
+    const held = connectAttemptHeld(c);
+    forgetConnectAttempt(c);
+    // An attempt started for another source did not begin here.
+    const attempt = held?.connectorId === connectorId ? held : null;
+    const reply = c.req.query();
+
+    const wrong = replyBelongsTo(attempt, reply);
+    // Including the source's own refusal - somebody who declined the consent
+    // screen is told so in the window they started from, unlike a cancelled
+    // sign-in, which simply leaves you where you already were.
+    if (wrong) return refuseConnection(c, attempt?.workspaceId, wrong);
+
+    // **The account that started it has to be the account that comes back.**
+    // The session is what decides whose store the row lands in, and every
+    // account is handed a workspace under the same id (`0015-first-workspace`),
+    // so without this a sign-out and a different sign-in while somebody was
+    // away at the source would seal their credential into whoever is signed in
+    // now. Sent nowhere in particular, because the Workspace the attempt names
+    // is not this visitor's to be shown.
+    if (attempt!.accountName !== c.get('visitor').accountName) {
+      return refuseConnection(c, undefined, 'the connection was started by another account');
+    }
+
+    try {
+      const client = clientOf(c.env, sign.auth);
+      const key = await sealingKey(c.env.CONNECTOR_CREDENTIAL_KEY);
+      if (!client || !key) {
+        return refuseConnection(c, attempt!.workspaceId, 'this environment cannot connect a source account');
+      }
+
+      const signedIn = await accountSignedIn(c.env, sign, client, reply.code!, attempt!, new Date());
+      if (!signedIn.signedIn) return refuseConnection(c, attempt!.workspaceId, signedIn.refusal);
+      const { account, asIssued } = signedIn;
+
+      // Sealed here, so the credential exists in the clear only inside this
+      // request and never in a command payload a log would keep (`forTheLog`,
+      // accounts/command-service.ts).
+      const sealed = await seal(asIssued, key);
+      const connectedAt = new Date().toISOString();
+      await change(c, 'connect_source_account', {
+        commandId: uuidv7(),
+        issuedAt: connectedAt,
+        workspaceId: attempt!.workspaceId,
+        sourceAccountId: uuidv7(),
+        connectorId,
+        externalAccountKey: account.key,
+        displayName: account.displayName,
+        ...sealed,
+      });
+      // **After the connection is stored, and only then.** The register's index
+      // is what lets a saved message find this Workspace later ("Save a Teams
+      // message to Cockpit", issue 486) - and it is a hint rather than the
+      // authority, so writing it before the row it points at would be pointing
+      // at something that may never arrive. Only a source that pushes has
+      // anything to be found by.
+      //
+      // **Its own failure never reaches the outer `catch`.** By this point
+      // `connect_source_account` above has already committed - a DO
+      // transaction and this D1 write can't share one - so a transient
+      // failure here must not fall into `refuseConnection` below, which
+      // would tell the user nothing was saved when the connection is
+      // already live (found in review, PR 491). Retried once first, since
+      // the write upserts on the same four key columns reconnecting the
+      // same account would anyway; a repair by hand is exactly a reconnect.
+      if (sign.connector.manifest.supportsPush) {
+        const where = { accountName: c.get('visitor').accountName, workspaceId: attempt!.workspaceId };
+        try {
+          await rememberConnection(c.env, where, connectorId, account.key, connectedAt);
+        } catch (firstError) {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          try {
+            await rememberConnection(c.env, where, connectorId, account.key, connectedAt);
+          } catch (secondError) {
+            console.error(
+              JSON.stringify({
+                level: 'error',
+                message:
+                  'a source account connected, but is not yet reachable for a saved message - reconnecting the same account repairs it',
+                cause: secondError instanceof Error ? secondError.message : String(secondError),
+                firstAttempt: firstError instanceof Error ? firstError.message : String(firstError),
+              }),
+            );
+          }
+        }
+      }
+      return backToConnections(c, attempt!.workspaceId, 'connected');
     } catch (error) {
       return refuseConnection(c, attempt!.workspaceId, 'the connection could not be finished', error);
     }

@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import type { Item } from '@cockpit/shared';
+import { rememberConnection } from '../../../src/connectors/directory.js';
+import { seal, sealingKey } from '../../../src/connectors/credential-crypto.js';
 import {
+  ACCOUNT_NAME,
   USER_ID,
   WORKSPACE_ID,
+  storeNamed,
   alsoWorkspaces,
   asUser,
   inTheStore,
@@ -333,6 +337,65 @@ describe('Capture', () => {
       expect(answer.status).toBe(200);
       expect(JSON.stringify(await answer.json())).toContain('not connected');
       expect(await itemsIn()).toEqual([]);
+    });
+
+    it('leaves what it already filed where it was when the connection is disconnected', async () => {
+      await connectTeams();
+      await saveFromTeams();
+      const before = await itemsIn();
+      const connections = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections`);
+      const [connected] = ((await connections.json()) as { sourceAccounts: { id: string }[] })
+        .sourceAccounts;
+
+      await asUser('http://cockpit.test/v1/commands/disconnect_source_account', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: '0195c0f6-0000-7000-8000-000000000006',
+          issuedAt: new Date().toISOString(),
+          workspaceId: WORKSPACE_ID,
+          sourceAccountId: connected!.id,
+        }),
+      });
+
+      expect(before).toHaveLength(1);
+      expect(await itemsIn()).toEqual(before);
+    });
+  });
+
+  /**
+   * A connection made before sign-in was described to the host is a row in the
+   * store and a pointer in the register, the credential sealed from the
+   * token response as Microsoft gave it ("Connect and disconnect a source
+   * through one generic sign-in flow", issue 892). Nothing is migrated, so a
+   * row written the way the old route wrote it has to go on filing.
+   */
+  describe('a Teams connection made before the generic sign-in still files what is saved', () => {
+    it('files the message for a connection written the way the old route wrote it', async () => {
+      const sealingKeyForTests = await sealingKey(env.CONNECTOR_CREDENTIAL_KEY);
+      const connectedAt = new Date().toISOString();
+      const key = `${TEAMS_TENANT}:${TEAMS_PERSON}`;
+      const applied = await storeNamed(ACCOUNT_NAME).applyChange(ACCOUNT_NAME, 'connect_source_account', {
+        commandId: crypto.randomUUID(),
+        issuedAt: connectedAt,
+        workspaceId: WORKSPACE_ID,
+        sourceAccountId: crypto.randomUUID(),
+        connectorId: 'teams',
+        externalAccountKey: key,
+        displayName: 'Ada Lovelace',
+        ...(await seal(
+          JSON.stringify({ token_type: 'Bearer', id_token: 'a.token.as-microsoft-issued-it' }),
+          sealingKeyForTests!,
+        )),
+      });
+      expect(applied.status).toBe('ok');
+      await rememberConnection(env, { accountName: ACCOUNT_NAME, workspaceId: WORKSPACE_ID }, 'teams', key, connectedAt);
+      await botFrameworkIsReachable();
+
+      const answer = await saveFromTeams();
+
+      expect(answer.status).toBe(200);
+      expect(await itemsIn()).toHaveLength(1);
     });
   });
 

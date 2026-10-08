@@ -719,7 +719,7 @@ export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
  * `externalAccountKey` is what makes connecting the same account twice a
  * refresh rather than a second row, and it is derived from the identity
  * Microsoft returned rather than sent by anybody
- * (`apps/api/src/connectors/teams.ts`).
+ * (`packages/connectors/teams/src/sign-in.ts`).
  */
 export const connectSourceAccountSchema = commandEnvelopeSchema.extend({
   sourceAccountId: z.uuid(),

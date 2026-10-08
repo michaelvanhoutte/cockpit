@@ -7,6 +7,7 @@ import {
   savedMessageFrom,
   type Refusal,
 } from './activity.js';
+import { teamsAccountFrom, teamsSignIn } from './sign-in.js';
 
 /**
  * The Microsoft Teams connector: one message action, "Save to Cockpit"
@@ -44,6 +45,12 @@ export interface TeamsConnectorConfig {
    * laptop, and a path nobody can drive locally is one nobody checks.
    */
   readonly metadataUrl?: string;
+  /**
+   * Who says whose Microsoft account is being connected. Defaults to
+   * Microsoft's own, and is pointed at the local stub by `pnpm dev` for the
+   * same reason `metadataUrl` is.
+   */
+  readonly issuer?: string;
   /** Read once per call, so a token is judged against the time it arrived. */
   readonly now?: () => Date;
 }
@@ -58,12 +65,10 @@ export function createTeamsConnector(config: TeamsConnectorConfig): Connector {
       displayName: 'Microsoft Teams',
       source: 'teams',
       supportsPush: true,
-      // Connecting an account is its own conversation with Microsoft, run by
-      // the application rather than described here ("Connect a Microsoft Teams
-      // source account", issue 485): the identity it asks for is the sign-in's
-      // own, and a descriptor here would be a second copy of it.
-      auth: { kind: 'none' },
+      auth: teamsSignIn(config.issuer),
     },
+
+    accountFrom: teamsAccountFrom,
 
     async sync() {
       // Nothing to pull: a save is pushed here, and nothing else is subscribed

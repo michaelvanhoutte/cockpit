@@ -62,7 +62,7 @@ export interface SavedMessage {
   /**
    * Which account at Microsoft saved it, in the same terms the connection was
    * stored under when somebody connected their Teams account: the tenant and
-   * the person's object id (`apps/api/src/connectors/teams.ts`).
+   * the person's object id (`packages/connectors/teams/src/sign-in.ts`).
    */
   readonly externalAccountKey: string;
   readonly item: SourceItem;

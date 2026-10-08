@@ -32,9 +32,9 @@ import { labelsAnswer } from '../../gmail-payloads.js';
  * 875). Each case scripts what its `sync` does.
  *
  * **A connection is made through the store's own change**, the one the
- * connect route writes: no route connects a pulled source until "Connect and
- * disconnect a source through one generic sign-in flow" (issue 892), so the
- * route cannot reach this by construction. Everything after - disconnecting,
+ * generic connect route writes ("Connect and disconnect a source through one
+ * generic sign-in flow", issue 892, which has its own suite), so these cases
+ * start at the check rather than at a sign-in. Everything after - disconnecting,
  * reading the Workspace and its connections, the nightly run - is entered the
  * way the app enters it.
  *

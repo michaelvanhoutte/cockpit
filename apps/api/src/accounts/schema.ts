@@ -1592,7 +1592,7 @@ export const connectorAccounts = sqliteTable(
     connectorId: text('connector_id').notNull(),
     /**
      * Which account at that source, in the source's own terms - tenant and
-     * object id for Microsoft (`src/connectors/teams.ts`). What the unique
+     * object id for Microsoft (`packages/connectors/teams/src/sign-in.ts`). What the unique
      * index below is on, and so what makes connecting the same account again
      * a refresh rather than a second row.
      */

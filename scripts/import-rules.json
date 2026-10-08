@@ -140,10 +140,6 @@
       "to": "apps/api/src/connectors/gmail.ts"
     },
     {
-      "from": "apps/api/src/http/app.ts",
-      "to": "apps/api/src/connectors/teams.ts"
-    },
-    {
       "from": "apps/web/src/components/ManageConnections.tsx",
       "to": "apps/web/src/components/ChangeGmailFollows.tsx"
     },

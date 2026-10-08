@@ -553,7 +553,7 @@ export async function startStubIssuer({ port, seedPath }) {
         sub: `stub|${held.email}`,
         // The directory and the person inside it, which Microsoft puts on a
         // token and Google does not. Signing in reads neither, and connecting
-        // a Teams account keys on the pair (apps/api/src/connectors/teams.ts) -
+        // a Teams account keys on the pair (packages/connectors/teams/src/sign-in.ts) -
         // so without them a locally connected account would be keyed on
         // something a saved message can never name, and the one path this stub
         // exists to make drivable would not be.

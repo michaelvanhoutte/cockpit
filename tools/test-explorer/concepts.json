@@ -357,7 +357,8 @@
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/api/src/connectors/credential-crypto.ts",
-        "apps/api/src/connectors/teams.ts",
+        "apps/api/src/connectors/sign-in.ts",
+        "packages/connectors/teams/src/sign-in.ts",
         "apps/api/src/connectors/registry.ts",
         "apps/api/src/connectors/directory.ts",
         "packages/connector-sdk/src/index.ts",

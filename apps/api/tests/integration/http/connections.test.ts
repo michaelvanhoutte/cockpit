@@ -29,7 +29,7 @@ import {
  * sign-in suite fakes it - the application does its own redirect, its own code
  * exchange and its own signature check against a key that file publishes.
  * Which claims a token has to carry, and what is read out of them, is
- * tests/unit/connectors/teams.test.ts's and is not re-proved here.
+ * packages/connectors/teams/tests/unit/the-teams-sign-in.test.ts's and is not re-proved here.
  */
 
 const OTHER_WORKSPACE_ID = 'ws-atlas';
