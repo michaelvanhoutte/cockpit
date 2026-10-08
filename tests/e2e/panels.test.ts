@@ -352,10 +352,11 @@ test.describe('Panels', () => {
       const rearranged = await panelsOnScreen(page);
       const rows = (await rowsOnScreen(page)).map((row) => row.length);
 
-      // A phone is never arranged: under 480px the arrangement is left unread
-      // and the dashboard is one panel to a line with nothing to rearrange it
-      // by. Nothing is deleted - it is drawn again below.
+      // A phone is never arranged: under 480px the arrangement is read only for
+      // its order, and the dashboard is one panel to a line with nothing to
+      // rearrange it by. Nothing is deleted - it is drawn again below.
       await page.setViewportSize({ width: 420, height: 800 });
+      await expect.poll(() => panelsOnScreen(page)).toEqual(rearranged);
       await expect
         .poll(async () => (await rowsOnScreen(page)).map((row) => row.length))
         .toEqual([1, 1, 1]);
