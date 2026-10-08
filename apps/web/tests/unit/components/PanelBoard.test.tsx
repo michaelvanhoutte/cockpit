@@ -2886,6 +2886,26 @@ describe('Onboarding', () => {
         );
       });
 
+      it('closes the list on Escape without closing the Filter, and hands focus back to its button', async () => {
+        const { user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [{ field: 'type', values: [] }])],
+          itemTypes: types(2),
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        const trigger = await screen.findByRole('button', { name: '+ Type' });
+        trigger.focus();
+        await user.keyboard('{Enter}');
+        await screen.findAllByRole('checkbox');
+        await user.keyboard('{Tab}{ }');
+        expect(chipsOf().length).toBe(1);
+        await user.keyboard('{Escape}');
+
+        expect(screen.queryAllByRole('checkbox')).toEqual([]);
+        expect(screen.getByRole('button', { name: 'Save' })).toBeVisible();
+        expect(trigger).toHaveFocus();
+      });
+
       it('takes the chip away and unticks the value when its own cross is pressed', async () => {
         const { user } = showBoard({
           panels: [aFilter('due', 'Due soon', [{ field: 'type', values: ['type-Alpha', 'type-Bravo'] }])],

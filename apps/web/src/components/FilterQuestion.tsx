@@ -603,7 +603,7 @@ function ValuesCondition({
         <option value="is">is</option>
         <option value="not">is not</option>
       </select>
-      <div className={`flex min-w-0 flex-wrap items-center gap-1.5 ${ACROSS}`}>
+      <div role="group" aria-label={label} className={`flex min-w-0 flex-wrap items-center gap-1.5 ${ACROSS}`}>
         {options.length === 0 && empty ? (
           <span className="pt-1 text-sm text-ink-faint">{empty}</span>
         ) : (
@@ -697,6 +697,7 @@ function ValuePicker({
           sideOffset={4}
           // Kept off the edge of a phone, where the list opens beside a chip that may sit far to the right.
           collisionPadding={8}
+          aria-label={label}
           className="z-floating w-64 max-w-[calc(100vw-2rem)] rounded-md border border-shade/10 bg-surface p-1 shadow-lg"
         >
           {options.length > SEARCHABLE_ABOVE && (
@@ -705,8 +706,8 @@ function ValuePicker({
               autoFocus
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              aria-label={`Search ${label.toLowerCase()}s`}
-              placeholder={`Search ${label.toLowerCase()}s`}
+              aria-label={`Search ${label.toLowerCase()} values`}
+              placeholder={`Search ${label.toLowerCase()} values`}
               className="mb-1 w-full rounded-md border border-shade/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent"
             />
           )}
