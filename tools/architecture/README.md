@@ -13,7 +13,7 @@ published. A row is the change, where it is and a flag; these are called out and
 
 | Flag | When |
 |---|---|
-| new source mark | a core area names a source, or names it in more files |
+| connector file in the core | a core file whose name carries a connector's words arrives; one leaving (moved into the connector's package) is listed, not called out |
 | new breach | a connector package imports beyond the SDK, or in more files |
 | new upward import | an import now points up the dependency chain, as the half of a new cycle or on its own |
 | undescribed, gone | an area is new and the description file does not mention it, or is described and no longer on disk |
@@ -47,14 +47,18 @@ The marks are shown and nothing fails on them:
 |---|---|
 | undescribed | an area on disk the file does not describe |
 | gone | an area the file describes that is no longer on disk |
-| names a source | a core area whose code uses a declared source's name, with the files that do |
 | imports beyond the SDK | a connector package importing another workspace package, or a path out of itself |
 
-A name counts in identifiers, strings and JSX text and never in a comment, as a whole word in any case:
-`gmail`, `GMAIL`, `GmailMark` and `gmail_check` name Gmail; `gmailish` does not. The words of a source
-are its own in the file, so a source whose name is also plain English (`teams`) marks more than the
-connector's own code; each mark is a file to look at. `exemptFromSources` lists files the scan skips: the
+**Connectors** are a lane of their own with one box per source the file declares, solid when the `package` it names is on
+disk, dashed red when it names none or the package is gone. A package a source names is drawn as that connector's box and not
+again as an area. A core file is a connector's when its **file name** carries the source's words as a whole word, in any case:
+`gmail-check.ts`, `gmail.ts` and `ConnectGmail.tsx` are Gmail's; `gmailish.ts` is not, and a file only mentioning
+the name inside is nothing. Each core area holding such files gets one dashed red line from the connector, labelled with how
+many; files inside the connector's own package are not counted, and neither are those `exemptFromSources` lists, the
 composition root, the one core file that names connectors.
+
+**Released together** is an outline round every lane for each Worker the Worker config deploys (environments running the same
+`main` are one Worker), and `releasedOnItsOwn` in the file lists each part shipped apart, drawn as a box outside the outline.
 
 **Dependencies** is a matrix of those areas in dependency-chain order. A cell counts the files in the
 row's area that import the column's area, and the number beside a row is that area's source lines, tests
@@ -87,8 +91,8 @@ does. A line under the matrix names the cycles. Dynamic `import()` is read like 
 import, and a path no area holds is dropped.
 
 **The description file holds the wording, the layout and the rules**, and the generator none: the layers
-and their order, each area's name, description and role (`core`, `connector` or `other`), the sources and
-their words, what is a test, which areas everything reads, and the people and services of Context. An area it does not mention still
+and their order, each area's name, description and role (`core`, `connector` or `other`), the sources, their
+words and packages, what is released on its own, what is a test, which areas everything reads, and the people and services of Context. An area it does not mention still
 appears. A new area is described by adding it to a layer; a folder the generator should look in is a
 `discover` entry. `pnpm --filter @cockpit/architecture test` fails if the file leaves an area on this
 repository's disk undescribed or describes one that is gone.

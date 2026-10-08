@@ -17,8 +17,8 @@ const folder = (path, files, { role = 'core', pkg = false } = {}) => ({
 const layer = (areas, role = 'core') => ({ title: 'Layer', note: '', role, areas });
 const area = (path, description = `${path} does its job`, role) => ({ path, description, ...(role ? { role } : {}) });
 
-const modulesOf = ({ layers = [], candidates = [], overrides = {} }) =>
-  buildModel({ wrangler: WRANGLER, workflows: [], description: descriptionFile({ layers, ...overrides }), candidates, commit: null, date: null }).modules;
+const modulesOf = ({ layers = [], candidates = [], overrides = {}, config = WRANGLER.text }) =>
+  buildModel({ wrangler: { ...WRANGLER, text: config }, workflows: [], description: descriptionFile({ layers, ...overrides }), candidates, commit: null, date: null }).modules;
 
 const find = (modules, path) => modules.layers.flatMap((each) => each.areas).find((each) => each.path === path);
 
@@ -69,56 +69,84 @@ describe('Modules', () => {
     });
   });
 
-  describe('a core area whose code names a declared source is marked, with the files that name it', () => {
-    const core = (files) => find(modulesOf({ layers: [layer([area('apps/api/src/x')])], candidates: [folder('apps/api/src/x', files)] }), 'apps/api/src/x');
-    const named = (area) => area.sources.map((each) => [each.id, each.files]);
+  describe('every declared source is a connector, solid with its package when that is on disk', () => {
+    const gmail = { id: 'gmail', name: 'Gmail', words: ['gmail'] };
+    const withPackage = { ...gmail, package: 'packages/connectors/gmail' };
+    const connectorOf = (source, candidates) => modulesOf({ candidates, overrides: { sources: [source] } }).connectors;
 
     it.each([
-      { situation: 'an identifier using the name', files: { 'a.ts': 'const checkGmail = 1;' }, expected: [['gmail', ['a.ts']]] },
-      { situation: 'a string using the name', files: { 'a.ts': "const label = 'Open in Gmail';" }, expected: [['gmail', ['a.ts']]] },
-      { situation: 'the name in capitals', files: { 'a.ts': 'export const GMAIL = "gmail";' }, expected: [['gmail', ['a.ts']]] },
-      { situation: 'the name in a snake_case column', files: { 'a.ts': 'select gmail_conversations from t' }, expected: [['gmail', ['a.ts']]] },
-      { situation: 'a source named by two words, written three ways', files: { 'a.ts': 'ClaudeCode', 'b.ts': "'claude-code'", 'c.ts': 'CLAUDE_CODE' }, expected: [['claude-code', ['a.ts', 'b.ts', 'c.ts']]] },
-      { situation: 'every file that names it, and only those', files: { 'a.ts': 'gmail', 'b.ts': 'other', 'c.ts': 'Gmail' }, expected: [['gmail', ['a.ts', 'c.ts']]] },
-      { situation: 'the name only in a line comment', files: { 'a.ts': '// we use Gmail as the example\nconst x = 1;' }, expected: [] },
-      { situation: 'the name only in a block comment', files: { 'a.ts': '/** Gmail, say.\n * Claude Code too. */\nexport {};' }, expected: [] },
-      { situation: 'the name only after a // inside a string that is not a comment', files: { 'a.ts': "const url = 'https://x/'; // gmail" }, expected: [] },
-      { situation: 'the name only inside a longer word', files: { 'a.ts': 'const gmailish = 1; const notgmail = 2; const gmail2 = 3;' }, expected: [] },
-      { situation: 'the name inside a template literal expression, past a comment', files: { 'a.ts': 'const s = `a ${ /* x */ gmail }`;' }, expected: [['gmail', ['a.ts']]] },
-      { situation: 'a source whose name is not declared', files: { 'a.ts': 'const teams = ["a", "b"]; const label = "Microsoft Teams";' }, expected: [] },
-    ])('$situation', ({ files, expected }) => {
-      expect(named(core(files))).toEqual(expected);
+      { situation: 'a source whose named package exists', source: withPackage, candidates: [folder('packages/connectors/gmail', { 'src/a.ts': 'export {}' }, { role: 'connector', pkg: true })], expected: { path: 'packages/connectors/gmail', state: 'present' } },
+      { situation: 'a source with no package named', source: gmail, candidates: [], expected: null },
+      { situation: 'a source naming a package that is not on disk', source: withPackage, candidates: [], expected: { path: 'packages/connectors/gmail', state: 'gone' } },
+    ])('$situation', ({ source, candidates, expected }) => {
+      const [connector] = connectorOf(source, candidates);
+      expect(connector).toMatchObject({ id: 'gmail', name: 'Gmail', package: expected });
     });
 
-    it('lists each file once however many times it names the source, and reads the files of a nested folder', () => {
-      const found = core({ 'a.ts': 'gmail gmail Gmail', 'deep/er/b.tsx': 'gmail' });
-      expect(found.sources).toEqual([{ id: 'gmail', name: 'Gmail', files: ['a.ts', 'deep/er/b.tsx'] }]);
+    it('has a connector for every source and nothing else', () => {
+      expect(connectorOf(gmail, []).map((each) => each.id)).toEqual(['gmail']);
+      expect(modulesOf({ overrides: { sources: [] } }).connectors).toEqual([]);
+    });
+  });
+
+  describe('a core file whose name carries a connector’s words is that connector’s, counted per core area', () => {
+    const inCore = ({ candidates, overrides = {}, source = {} }) =>
+      modulesOf({
+        layers: [layer([area('apps/api/src/x'), area('apps/web/src'), area('apps/api/src/connectors')])],
+        candidates,
+        overrides: { sources: [{ id: 'gmail', name: 'Gmail', words: ['gmail'], ...source }, { id: 'claude-code', name: 'Claude Code', words: ['claude code'] }], ...overrides },
+      }).connectors.map((each) => [each.id, each.inCore.map((here) => [here.area, here.files])]);
+
+    it.each([
+      { situation: 'two files in one core area', candidates: [folder('apps/api/src/x', { 'gmail-check.ts': '', 'gmail.ts': '' })], expected: [['gmail', [['apps/api/src/x', ['gmail-check.ts', 'gmail.ts']]]], ['claude-code', []]] },
+      { situation: 'a component in the web app, one line to that area', candidates: [folder('apps/web/src', { 'components/ConnectGmail.tsx': '' })], expected: [['gmail', [['apps/web/src', ['components/ConnectGmail.tsx']]]], ['claude-code', []]] },
+      { situation: 'files in two areas, one line to each', candidates: [folder('apps/api/src/x', { 'gmail.ts': '' }), folder('apps/web/src', { 'ChangeGmailFollows.tsx': '' })], expected: [['gmail', [['apps/api/src/x', ['gmail.ts']], ['apps/web/src', ['ChangeGmailFollows.tsx']]]], ['claude-code', []]] },
+      { situation: 'a source of two words, written as a file name', candidates: [folder('apps/api/src/x', { 'claude-code-hooks.ts': '', 'ConnectClaudeCode.tsx': '' })], expected: [['gmail', []], ['claude-code', [['apps/api/src/x', ['ConnectClaudeCode.tsx', 'claude-code-hooks.ts']]]]] },
+      { situation: 'a file only mentioning the name inside', candidates: [folder('apps/api/src/x', { 'a.ts': "const label = 'Open in Gmail'; // gmail" })], expected: [['gmail', []], ['claude-code', []]] },
+      { situation: 'the word only inside a longer word in a file name', candidates: [folder('apps/api/src/x', { 'gmailish.ts': '', 'notgmail.ts': '', 'gmail2.ts': '' })], expected: [['gmail', []], ['claude-code', []]] },
+      { situation: 'the word only in a folder name', candidates: [folder('apps/api/src/x', { 'gmail/index.ts': '' })], expected: [['gmail', []], ['claude-code', []]] },
+      {
+        situation: 'the composition root',
+        candidates: [folder('apps/api/src/connectors', { 'gmail-registry.ts': '', 'gmail.ts': '' })],
+        overrides: { exemptFromSources: ['apps/api/src/connectors/gmail-registry.ts'] },
+        expected: [['gmail', [['apps/api/src/connectors', ['gmail.ts']]]], ['claude-code', []]],
+      },
+      { situation: 'a file inside the connector’s own package', candidates: [folder('apps/api/src/x', { 'gmail.ts': '' }), folder('packages/connectors/gmail', { 'gmail.ts': '' }, { pkg: true })], source: { package: 'packages/connectors/gmail' }, expected: [['gmail', [['apps/api/src/x', ['gmail.ts']]]], ['claude-code', []]] },
+    ])('$situation', ({ candidates, overrides, source, expected }) => {
+      expect(inCore({ candidates, overrides, source })).toEqual(expected);
     });
 
-    it('does not mark a connector package for naming its own source', () => {
+    it('never counts a file of a connector package that is itself a core area', () => {
       const modules = modulesOf({
-        layers: [layer([area('packages/connectors/gmail')], 'connector')],
-        candidates: [folder('packages/connectors/gmail', { 'src/index.ts': "import type { Connector } from '@cockpit/connector-sdk'; export const gmail = 1;" }, { role: 'connector', pkg: true })],
+        layers: [layer([area('packages/connectors/gmail')])],
+        candidates: [folder('packages/connectors/gmail', { 'gmail.ts': '' }, { pkg: true })],
+        overrides: { sources: [{ id: 'gmail', name: 'Gmail', words: ['gmail'], package: 'packages/connectors/gmail' }] },
       });
-      expect(find(modules, 'packages/connectors/gmail')).toMatchObject({ sources: [], breaches: [] });
+      expect(modules.connectors[0].inCore).toEqual([]);
+    });
+  });
+
+  describe('each Worker the config deploys is one outline round everything bundled into it, and each part released on its own is a box outside', () => {
+    const layers = [layer([area('apps/web/src'), area('apps/api/src/http'), area('packages/shared'), area('packages/config', 'Config', 'other'), area('apps/api/src/old')])];
+    const candidates = [folder('apps/web/src', { 'a.ts': '' }), folder('apps/api/src/http', { 'a.ts': '' }), folder('packages/shared', { 'a.ts': '' }, { pkg: true }), folder('packages/config', { 'a.ts': '' }, { pkg: true })];
+
+    it('holds every area of the web app, the API and the packages in the config’s one Worker, however many environments run it', () => {
+      const { workers } = modulesOf({ layers, candidates, config: '{ "name": "w", "main": "src/worker.ts", "env": { "staging": {} } }' });
+      expect(workers).toEqual([{ name: 'w', main: 'src/worker.ts', environments: ['production', 'staging'], areas: ['apps/web/src', 'apps/api/src/http', 'packages/shared'] }]);
     });
 
-    it('does not mark a core file the description file exempts, and still marks its neighbours', () => {
-      const found = find(
-        modulesOf({
-          layers: [layer([area('apps/api/src/connectors')])],
-          candidates: [folder('apps/api/src/connectors', { 'registry.ts': 'import gmail from "g";', 'other.ts': 'gmail' })],
-          overrides: { exemptFromSources: ['apps/api/src/connectors/registry.ts'] },
-        }),
-        'apps/api/src/connectors',
-      );
-      expect(found.sources).toEqual([{ id: 'gmail', name: 'Gmail', files: ['other.ts'] }]);
+    it('draws one outline for each distinct entry point the config deploys', () => {
+      const { workers } = modulesOf({ layers, candidates, config: '{ "name": "w", "main": "a.ts", "env": { "other": { "name": "o", "main": "b.ts" } } }' });
+      expect(workers.map((each) => [each.name, each.environments])).toEqual([['w', ['production']], ['o', ['other']]]);
     });
 
-    it('does not read a file it was given no text for', () => {
-      const found = find(modulesOf({ layers: [layer([area('apps/api/src/x')])], candidates: [folder('apps/api/src/x', { 'a.json': null, 'b.ts': 'export {}' })] }), 'apps/api/src/x');
-      expect(found.sources).toEqual([]);
-      expect(found.files).toBe(1);
+    it.each([
+      { situation: 'a declared separately released part that is on disk', parts: [{ name: 'Teams app', path: 'packages/shared/app', description: 'd' }], files: { 'app/manifest.json': '{}' }, expected: [{ name: 'Teams app', path: 'packages/shared/app', state: 'present' }] },
+      { situation: 'a declared part whose folder is missing', parts: [{ name: 'Teams app', path: 'packages/shared/app', description: 'd' }], files: {}, expected: [{ name: 'Teams app', path: 'packages/shared/app', state: 'gone' }] },
+      { situation: 'nothing declared', parts: undefined, files: { 'app/manifest.json': '{}' }, expected: [] },
+    ])('$situation', ({ parts, files, expected }) => {
+      const { releasedOnItsOwn } = modulesOf({ layers, candidates: [folder('packages/shared', { 'a.ts': '', ...files }, { pkg: true })], overrides: parts ? { releasedOnItsOwn: parts } : {} });
+      expect(releasedOnItsOwn.map(({ name, path, state }) => ({ name, path, state }))).toEqual(expected);
     });
   });
 

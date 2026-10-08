@@ -86,10 +86,28 @@ describe('What changed', () => {
         expected: [],
       },
       {
-        situation: 'a new source mark in the core',
+        situation: 'a connector-named file arriving in a core area, called out',
+        before: draw({ areas: both, candidates: [http, jobs] }),
+        after: draw({ areas: both, candidates: [folder('apps/api/src/http', { 'app.ts': 'export const a = 1;', 'gmail.ts': '' }), jobs] }),
+        expected: [{ type: 'Connector', change: 'added', where: ['apps/api/src/http/gmail.ts'], flag: 'connector file in the core' }],
+      },
+      {
+        situation: 'a connector-named file moved into its connector’s package, leaving the core',
+        before: draw({ areas: both, candidates: [folder('apps/api/src/http', { 'app.ts': 'export const a = 1;', 'gmail.ts': '' }), jobs] }),
+        after: draw({ areas: both, candidates: [http, jobs] }),
+        expected: [{ type: 'Connector', change: 'removed', where: ['apps/api/src/http/gmail.ts'] }],
+      },
+      {
+        situation: 'a new mention of a source’s name',
         before: draw({ areas: both, candidates: [http, jobs] }),
         after: draw({ areas: both, candidates: [folder('apps/api/src/http', { 'app.ts': "export const a = 'gmail';" }), jobs] }),
-        expected: [{ type: 'Mark', change: 'added', where: ['apps/api/src/http/app.ts'], flag: 'new source mark' }],
+        expected: [],
+      },
+      {
+        situation: 'a model drawn before connectors were listed',
+        before: { ...draw({ areas: both, candidates: [http, jobs] }), modules: { ...draw({ areas: both, candidates: [http, jobs] }).modules, connectors: undefined } },
+        after: draw({ areas: both, candidates: [http, jobs] }),
+        expected: [],
       },
       {
         situation: 'two identical models',
@@ -102,10 +120,26 @@ describe('What changed', () => {
       expect(rows).toEqual(expected);
     });
 
+    it('lists no connector file when the source is newly declared or its package changes, since no file moved', () => {
+      const gmailInCore = [folder('apps/api/src/http', { 'app.ts': 'export const a = 1;', 'gmail.ts': '' }), jobs];
+      const drawn = (sources) =>
+        buildModel({
+          wrangler: { file: 'apps/api/wrangler.jsonc', text: '{ "name": "w" }' },
+          workflows: [{ file: 'w0.yml', text: WORKFLOW }],
+          description: descriptionFile({ layers: [{ title: 'API', note: '', role: 'core', areas: both }], sources }),
+          candidates: gmailInCore,
+          commit: null,
+          date: null,
+        });
+      const gmail = { id: 'gmail', name: 'Gmail', words: ['gmail'] };
+      expect(diffModels(drawn([]), drawn([gmail]))).toEqual([]);
+      expect(diffModels(drawn([gmail]), drawn([{ ...gmail, package: 'packages/connectors/gmail' }]))).toEqual([]);
+    });
+
     it('puts what the reader is meant to see first', () => {
       const before = draw({ areas: both, candidates: [http, jobs] });
-      const after = draw({ areas: both, candidates: [folder('apps/api/src/http', { 'app.ts': "export const a = 'gmail';" }), jobs], workflows: [WORKFLOW, WORKFLOW.replace('Tests', 'Deploy')] });
-      expect(diffModels(before, after).map((each) => each.flag.label)).toEqual(['new source mark', 'added']);
+      const after = draw({ areas: both, candidates: [folder('apps/api/src/http', { 'app.ts': 'export const a = 1;', 'gmail.ts': '' }), jobs], workflows: [WORKFLOW, WORKFLOW.replace('Tests', 'Deploy')] });
+      expect(diffModels(before, after).map((each) => each.flag.label)).toEqual(['connector file in the core', 'added']);
     });
 
     it('does not list a count that moves with every merge', () => {
