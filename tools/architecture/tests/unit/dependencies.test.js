@@ -89,6 +89,10 @@ describe('Dependencies', () => {
       expect(description({}).layers[0].areas[0].name).toBe(at('a'));
     });
 
+    it('refuses a read-by-everyone path that no layer describes, which would mute nothing', () => {
+      expect(() => parseDescription('d.yml', descriptionFile({ layers: [{ title: 'L', role: 'core', areas: [{ path: at('a'), description: 'x' }] }], readByEveryone: [at('typo')] }).text)).toThrow(ReadError);
+    });
+
     it('refuses a read-by-everyone list that is not a list of paths', () => {
       expect(() => parseDescription('d.yml', descriptionFile({ readByEveryone: 'apps/api/src/*' }).text)).toThrow(ReadError);
     });

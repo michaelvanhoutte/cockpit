@@ -89,6 +89,8 @@ export function parseDescription(file, text) {
     };
   });
 
+  for (const each of readByEveryone) if (!seen.has(each)) fail(`readByEveryone names ${each}, which no layer describes`);
+
   return {
     scan: { testFile, extensions: array(scan.extensions, 'scan.extensions').map((each, index) => string(each, `scan.extensions[${index}]`)), ignore: array(scan.ignore, 'scan.ignore').map((each, index) => string(each, `scan.ignore[${index}]`)) },
     discover,
