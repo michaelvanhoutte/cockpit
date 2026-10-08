@@ -4,9 +4,8 @@ import type { AccountDb } from './client.js';
 import { GUEST_ACCOUNT_NAME } from './new-user.js';
 import { noteTypeId } from './changes.js';
 import { runCommand } from './command-service.js';
-import { getItem, listItemTypes } from './repo.js';
-import { isOpen } from './mirrored-open-state.js';
-import { connectionFailures, connectorAccounts, pulledConnections, pulledLinks } from './schema.js';
+import { listItemTypes } from './repo.js';
+import { connectionFailures, connectorAccounts, items, pulledConnections, pulledLinks } from './schema.js';
 import { confirmOpenStates, openStatesWaiting } from './pulled-open-state.js';
 import { applySourceStateChange } from './source-state.js';
 import { typeToCaptureAs } from '../domain/item-types.js';
@@ -298,7 +297,7 @@ export function filePulledItem(
  * an open state still waiting for the source (as in `applyPulledSourceChange`),
  * and an Item already done or dismissed.
  *
- * Reads every link of the choice and compares in memory rather than binding
+ * Reads every open Item's link of the choice and compares in memory rather than binding
  * the listing into a statement, so a listing as long as the source has no
  * limit of parameters to meet. Answers how many it closed.
  */
@@ -316,6 +315,7 @@ export function closePulledItemsNotListed(
   const candidates = db
     .select({ sourceId: pulledLinks.sourceId, itemId: pulledLinks.itemId })
     .from(pulledLinks)
+    .innerJoin(items, and(eq(items.tenantId, accountName), eq(items.id, pulledLinks.itemId)))
     .where(
       and(
         eq(pulledLinks.tenantId, accountName),
@@ -324,14 +324,15 @@ export function closePulledItemsNotListed(
         eq(pulledLinks.externalAccountKey, holds.externalAccountKey),
         eq(pulledLinks.choice, listing.choice),
         isNull(pulledLinks.openWanted),
+        // Open, as `isOpen` has it: neither done nor dismissed.
+        isNull(items.completedAt),
+        isNull(items.deletedAt),
       ),
     )
     .all();
   let closed = 0;
   for (const { sourceId, itemId } of candidates) {
     if (seen.has(sourceId)) continue;
-    const item = getItem(db, accountName, itemId);
-    if (!item || !isOpen(item)) continue;
     if (applySourceStateChange(db, accountName, itemId, 'resolved', observedAt) === 'changed') closed += 1;
   }
   return closed;

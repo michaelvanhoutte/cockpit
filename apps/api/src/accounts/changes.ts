@@ -311,7 +311,7 @@ const PULLED_OPEN_WANTED: Change = {
  *   changes, so this one applies the next time the account is opened.
  */
 const PULLED_LINK_CHOICE: Change = {
-  name: '0062-pulled-link-choice',
+  name: '0063-pulled-link-choice',
   statements: [{ sql: 'ALTER TABLE `pulled_links` ADD COLUMN `choice` text' }],
 };
 
