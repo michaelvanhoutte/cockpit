@@ -182,7 +182,8 @@ export function findBreaches(imports, rules) {
       if (named.length > 0) {
         const importerNames = sourcesNamedBy(importer, rules);
         for (const source of named) {
-          if (!importerNames.includes(source) && importer !== rules.registry && !(rules.engines ?? []).includes(importer)) {
+          const engineList = rules.sources[source]?.engine === true && (rules.engines ?? []).includes(importer);
+          if (!importerNames.includes(source) && importer !== rules.registry && !engineList) {
             add(importer, imported, `the core may not import ${source} code from a file not named for ${source}`);
           }
         }
@@ -251,6 +252,7 @@ export function relaxations(rules, base) {
   for (const id of Object.keys(base.sources)) {
     if (!(id in rules.sources)) out.push(`source ${id} was removed`);
     else if (base.sources[id].package && base.sources[id].package !== rules.sources[id].package) out.push(`source ${id} no longer names its package ${base.sources[id].package}`);
+    else if (base.engines && rules.sources[id].engine && !base.sources[id].engine) out.push(`source ${id} became an engine`);
   }
   for (const folder of base.core) if (!rules.core.includes(folder)) out.push(`core folder ${folder} was removed`);
   for (const file of base.engines ?? []) if (!(rules.engines ?? []).includes(file)) out.push(`engine list ${file} was removed`);

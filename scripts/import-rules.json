@@ -4,7 +4,9 @@
     "teams": {
       "package": "@cockpit/connector-teams"
     },
-    "claude-code": {}
+    "claude-code": {
+      "engine": true
+    }
   },
   "core": [
     "apps/api",

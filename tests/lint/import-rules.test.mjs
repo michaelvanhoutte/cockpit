@@ -31,7 +31,7 @@ import {
 const repo = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
 const rules = {
-  sources: { gmail: {}, teams: { package: '@cockpit/connector-teams' }, 'claude-code': {} },
+  sources: { gmail: {}, teams: { package: '@cockpit/connector-teams' }, 'claude-code': { engine: true } },
   core: ['apps/api', 'apps/web', 'packages/shared'],
   registry: 'apps/api/src/connectors/registry.ts',
   engines: ['apps/api/src/engines/list.ts', 'apps/web/src/components/engines.ts'],
@@ -120,6 +120,17 @@ describe('the engine list: the core reaches an engine only through it', () => {
   it('passes the engine list importing the engine, in the API and in the web app', () => {
     assert.deepEqual(breachesOf(api('engines/list.ts'), api('engines/claude-code.ts')), []);
     assert.deepEqual(breachesOf(web('engines.ts'), web('ConnectClaudeCode.tsx')), []);
+  });
+
+  it('fails the engine list importing a source that is not an engine', () => {
+    assert.equal(breachesOf(api('engines/list.ts'), api('connectors/gmail.ts')).length, 1);
+    assert.equal(breachesOf(web('engines.ts'), web('ConnectGmail.tsx')).length, 1);
+  });
+
+  it('flags a source made an engine as a relaxation', () => {
+    const made = structuredClone(rules);
+    made.sources.gmail.engine = true;
+    assert.match(relaxations(made, rules).join('\n'), /source gmail became an engine/);
   });
 
   it('passes a generic file importing the engine list, which is not named for an engine', () => {
