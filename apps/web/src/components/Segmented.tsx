@@ -1,7 +1,7 @@
 /**
  * A few radios drawn as one segmented control: one choice of a handful that has
- * to stay visible beside what it governs - a Filter's *All of these / Any of
- * these*, a sort's *Manual / Sorted* and each criterion's direction. `hint` is
+ * to stay visible beside what it governs - a Filter's *Group by* choice, a sort's
+ * *Manual / Sorted* and each criterion's direction. `hint` is
  * what hovering an option says it means.
  */
 export function Segmented<V extends string>({

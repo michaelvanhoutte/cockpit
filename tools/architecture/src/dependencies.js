@@ -9,14 +9,19 @@
  * file importing an area twice counts once, and a type-only import or a
  * re-export is an import like any other.
  *
- * Direction is the order the areas stand in the description file: an import
- * of a later area is downward, of an earlier one upward. Two areas importing
- * each other are mutual, except where one is declared read by everything.
+ * The areas stand in dependency-chain order (order.js): the order leaving the
+ * fewest import files pointing up, so each area sits above what it imports. The
+ * description file may pin an area above another. An area declared read by
+ * everyone stands last and its imports never count. An import of an area above
+ * is upward and red, whether it is one way (possible only under a pin) or the
+ * half of a cycle back up the chain; the cycle's other half is an ordinary
+ * import kept as a partner, outlined, so the pair stays visible.
  */
 
 import path from 'node:path/posix';
 
 import { isCodeFile, isTestFile } from './description.js';
+import { EXACT_LIMIT, orderAreas, upwardFiles } from './order.js';
 import { importsOf } from './scan.js';
 
 /** The ways a relative import may leave out what the file on disk spells out. */
@@ -45,7 +50,6 @@ export function buildDependencies(description, candidates, modules) {
       lines: 0,
     }));
   const known = new Set(areas.map((each) => each.path));
-  const order = new Map(areas.map((each, index) => [each.path, index]));
 
   const byFile = new Map();
   const byPackage = new Map();
@@ -83,17 +87,37 @@ export function buildDependencies(description, candidates, modules) {
   }
 
   const mutedPaths = new Set(areas.filter((each) => each.muted).map((each) => each.path));
+  const filesOf = (from, to) => importers.get(`${from}\0${to}`)?.size ?? 0;
+  const counted = (from, to) => (mutedPaths.has(from) || mutedPaths.has(to) ? 0 : filesOf(from, to));
+
+  const ordered = areas.filter((each) => !each.muted).map((each) => each.path);
+  const pins = description.pins.filter((pin) => ordered.includes(pin.above) && ordered.includes(pin.below)).map((pin) => [pin.above, pin.below]);
+  const { order: chain, method } = orderAreas({ paths: ordered, weight: counted, pins });
+  const standing = [...chain, ...areas.filter((each) => each.muted).map((each) => each.path)];
+  const position = new Map(standing.map((each, at) => [each, at]));
+  areas.sort((a, b) => position.get(a.path) - position.get(b.path));
+
   const cells = [...importers.entries()].map(([key, files]) => {
     const [from, to] = key.split('\0');
-    const mutual = importers.has(`${to}\0${from}`);
-    const kind = mutedPaths.has(from) || mutedPaths.has(to) ? 'muted' : mutual ? 'mutual' : order.get(to) > order.get(from) ? 'downward' : 'upward';
-    return { from, to, files: files.size, kind };
+    if (mutedPaths.has(from) || mutedPaths.has(to)) return { from, to, files: files.size, kind: 'muted' };
+    const cycle = importers.has(`${to}\0${from}`);
+    const up = position.get(to) < position.get(from);
+    return { from, to, files: files.size, kind: up ? 'upward' : cycle ? 'partner' : 'downward', cycle };
   });
-  cells.sort((a, b) => order.get(a.from) - order.get(b.from) || order.get(a.to) - order.get(b.to));
+  cells.sort((a, b) => position.get(a.from) - position.get(b.from) || position.get(a.to) - position.get(b.to));
 
-  const mutualPairs = cells
-    .filter((each) => each.kind === 'mutual' && order.get(each.from) < order.get(each.to))
-    .map((each) => [each.from, each.to]);
+  // Each cycle once, the area standing higher first.
+  const cyclePairs = cells.filter((each) => each.kind === 'partner').map((each) => [each.from, each.to]);
+  // A pin decides a pair directly or through a chain of pins.
+  const pinnedAbove = (a, b, seen = new Set()) => pins.some(([above, below]) => above === a && (below === b || (!seen.has(below) && seen.add(below) && pinnedAbove(below, b, seen))));
+  const pinned = (a, b) => pinnedAbove(a, b) || pinnedAbove(b, a);
+  const undecidedPairs = cyclePairs.filter(([a, b]) => filesOf(a, b) === filesOf(b, a) && !pinned(a, b));
 
-  return { areas, cells, mutualPairs };
+  return {
+    areas,
+    cells,
+    cyclePairs,
+    undecidedPairs,
+    order: { method, areas: ordered.length, limit: EXACT_LIMIT, upwardFiles: upwardFiles(chain, counted) },
+  };
 }

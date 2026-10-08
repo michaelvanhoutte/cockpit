@@ -2260,31 +2260,40 @@ describe('Onboarding', () => {
     describe('it can be told an item need only meet any of its conditions', () => {
       const ALL_OR_ANY = 'How the conditions combine';
 
-      it('offers the choice only from two conditions, on all of these', async () => {
+      it('reads Where on the first row and offers the choice from the second, on and', async () => {
         const { user } = showBoard({ panels: [aFilter('due', 'Due soon', [DUE_TODAY])] });
 
         await choose(user, 'Due soon', 'Filter…');
         await screen.findByRole('button', { name: 'Save' });
-        expect(screen.queryByRole('radiogroup', { name: ALL_OR_ANY })).toBeNull();
+        expect(screen.getByText('Where')).toBeVisible();
+        expect(screen.queryByRole('combobox', { name: ALL_OR_ANY })).toBeNull();
 
         await addCondition(user, 'Priority');
+        await addCondition(user, 'Type');
 
-        expect(screen.getByRole('radiogroup', { name: ALL_OR_ANY })).toBeVisible();
-        expect(screen.getByRole('radio', { name: 'All of these' })).toBeChecked();
+        const joiner = screen.getByRole('combobox', { name: ALL_OR_ANY });
+        expect(joiner).toHaveValue('all');
+        expect(screen.getAllByText('and', { selector: 'span' })).toHaveLength(1);
         expect(screen.getByText(/meets all of these/)).toBeVisible();
+        expect(screen.queryByRole('radio', { name: 'All of these' })).toBeNull();
+        expect(screen.queryByRole('radio', { name: 'Any of these' })).toBeNull();
       });
 
-      it('says any in its description and puts an or between the cards once any is chosen', async () => {
-        const { user } = showBoard({
-          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH])],
+      it('reads or on every row after the first, and says any in its description, once or is chosen', async () => {
+        const { mutate, user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH, { field: 'type', values: [] }])],
         });
 
         await choose(user, 'Due soon', 'Filter…');
-        expect(screen.queryByText('or', { selector: 'li' })).toBeNull();
-        await user.click(await screen.findByRole('radio', { name: 'Any of these' }));
+        await user.selectOptions(await screen.findByRole('combobox', { name: ALL_OR_ANY }), 'or');
 
         expect(screen.getByText(/meets any of these/)).toBeVisible();
-        expect(screen.getAllByText('or', { selector: 'li' })).toHaveLength(1);
+        expect(screen.getByText('or', { selector: 'span' })).toBeVisible();
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+        expect(mutate).toHaveBeenCalledWith(
+          expect.objectContaining({ payload: expect.objectContaining({ match: 'any' }) }),
+          expect.anything(),
+        );
       });
 
       it('sends the choice with the rows, and keeps it when the rows are taken down to one', async () => {
@@ -2293,10 +2302,10 @@ describe('Onboarding', () => {
         });
 
         await choose(user, 'Due soon', 'Filter…');
-        await user.click(await screen.findByRole('radio', { name: 'Any of these' }));
+        await user.selectOptions(await screen.findByRole('combobox', { name: ALL_OR_ANY }), 'or');
         await user.click(screen.getByRole('button', { name: 'Remove condition 2' }));
-        // One row left: the switch is gone and the question reads as it always did.
-        expect(screen.queryByRole('radiogroup', { name: ALL_OR_ANY })).toBeNull();
+        // One row left: the joiner is gone and the question reads as it always did.
+        expect(screen.queryByRole('combobox', { name: ALL_OR_ANY })).toBeNull();
         expect(screen.getByText(/meets all of these/)).toBeVisible();
         await user.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -2307,6 +2316,33 @@ describe('Onboarding', () => {
           }),
           expect.anything(),
         );
+      });
+
+      it('is still or when a condition is added again after the rows were taken down to one', async () => {
+        const { user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH])],
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await user.selectOptions(await screen.findByRole('combobox', { name: ALL_OR_ANY }), 'or');
+        await user.click(screen.getByRole('button', { name: 'Remove condition 2' }));
+        await addCondition(user, 'Priority');
+
+        expect(screen.getByRole('combobox', { name: ALL_OR_ANY })).toHaveValue('any');
+      });
+
+      it('removes the condition whose own cross is pressed and keeps the others in order', async () => {
+        const { user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [DUE_TODAY, PRIORITY_HIGH, { field: 'type', values: [] }])],
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await user.click(await screen.findByRole('button', { name: 'Remove condition 2' }));
+
+        expect(screen.getAllByRole('button', { name: /^Remove condition/ })).toHaveLength(2);
+        expect(screen.queryByRole('combobox', { name: 'Priority is or is not' })).toBeNull();
+        expect(screen.getByRole('combobox', { name: 'Type is or is not' })).toBeVisible();
+        expect(screen.getByRole('combobox', { name: /Due date is/ })).toBeVisible();
       });
 
       it('sends all where it was never changed', async () => {
@@ -2331,7 +2367,7 @@ describe('Onboarding', () => {
 
         await choose(user, 'Due soon', 'Filter…');
 
-        expect(await screen.findByRole('radio', { name: 'Any of these' })).toBeChecked();
+        expect(await screen.findByRole('combobox', { name: ALL_OR_ANY })).toHaveValue('any');
       });
 
       it('saves nothing where it is cancelled', async () => {
@@ -2340,7 +2376,7 @@ describe('Onboarding', () => {
         });
 
         await choose(user, 'Due soon', 'Filter…');
-        await user.click(await screen.findByRole('radio', { name: 'Any of these' }));
+        await user.selectOptions(await screen.findByRole('combobox', { name: ALL_OR_ANY }), 'or');
         await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
         expect(mutate).not.toHaveBeenCalled();
@@ -2497,6 +2533,20 @@ describe('Onboarding', () => {
 
         await choose(user, 'Other', 'Filter…');
         expect(await screen.findByRole('radio', { name: 'Panel' })).toBeChecked();
+      });
+
+      it('says under the choice what each grouping does', async () => {
+        const { user } = showBoard({ panels: [aFilter('due', 'Due soon', [DUE_TODAY])] });
+
+        await choose(user, 'Due soon', 'Filter…');
+        expect(await screen.findByText('One list.')).toBeVisible();
+
+        await user.click(screen.getByRole('radio', { name: 'Dashboard' }));
+        expect(screen.getByText('A heading per Dashboard, its matching items under it.')).toBeVisible();
+
+        await user.click(screen.getByRole('radio', { name: 'Panel' }));
+        expect(screen.getByText(/^A heading per Panel, such as "Errands · Day to day"\./)).toBeVisible();
+        expect(screen.queryByText('One list.')).toBeNull();
       });
 
       it('sends the grouping with the conditions', async () => {

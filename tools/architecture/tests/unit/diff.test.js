@@ -9,11 +9,11 @@ const area = (path, description = `${path} does its job`) => ({ path, descriptio
 const WORKFLOW = 'name: Tests\non:\n  pull_request:\njobs:\n  go:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n';
 
 /** A model drawn by the real generator from a small repository. */
-const draw = ({ areas = [], candidates = [], config = '{ "name": "w" }', workflows = [WORKFLOW] } = {}) =>
+const draw = ({ areas = [], candidates = [], config = '{ "name": "w" }', workflows = [WORKFLOW], pins = [] } = {}) =>
   buildModel({
     wrangler: { file: 'apps/api/wrangler.jsonc', text: config },
     workflows: workflows.map((text, index) => ({ file: `w${index}.yml`, text })),
-    description: descriptionFile({ layers: [{ title: 'API', note: '', role: 'core', areas }] }),
+    description: descriptionFile({ layers: [{ title: 'API', note: '', role: 'core', areas }], pins }),
     candidates,
     commit: null,
     date: null,
@@ -59,10 +59,31 @@ describe('What changed', () => {
         expected: [{ type: 'Workflow', change: 'added', where: ['.github/workflows/w1.yml'] }],
       },
       {
-        situation: 'a dependency that became mutual, called out once for the pair',
+        situation: 'a new import that closes a cycle, called out as the upward half added',
         before: draw({ areas: both, candidates: [httpImportingJobs, jobs] }),
         after: draw({ areas: both, candidates: [httpImportingJobs, jobsImportingHttp] }),
-        expected: [{ type: 'Dependency', change: 'changed', where: ['apps/api/src/http', 'apps/api/src/jobs'], flag: 'new mutual pair' }],
+        expected: [{ type: 'Dependency', change: 'added', where: ['apps/api/src/jobs', 'apps/api/src/http'], flag: 'new upward import' }],
+      },
+      {
+        situation: 'a cycle broken by removing its upward half',
+        before: draw({ areas: both, candidates: [httpImportingJobs, jobsImportingHttp] }),
+        after: draw({ areas: both, candidates: [httpImportingJobs, jobs] }),
+        expected: [{ type: 'Dependency', change: 'removed', where: ['apps/api/src/jobs', 'apps/api/src/http'] }],
+      },
+      {
+        situation: 'a pin that flips which half points up, with the imports unchanged',
+        before: draw({ areas: both, candidates: [httpImportingJobs, jobsImportingHttp] }),
+        after: draw({ areas: both, candidates: [httpImportingJobs, jobsImportingHttp], pins: [{ above: 'apps/api/src/jobs', below: 'apps/api/src/http' }] }),
+        expected: [
+          { type: 'Dependency', change: 'added', where: ['apps/api/src/http', 'apps/api/src/jobs'], flag: 'new upward import' },
+          { type: 'Dependency', change: 'removed', where: ['apps/api/src/jobs', 'apps/api/src/http'] },
+        ],
+      },
+      {
+        situation: 'imports gaining files without changing direction',
+        before: draw({ areas: both, candidates: [httpImportingJobs, jobsImportingHttp] }),
+        after: draw({ areas: both, candidates: [folder('apps/api/src/http', { 'app.ts': "import '../jobs/run';", 'more.ts': "import '../jobs/run';" }), jobsImportingHttp] }),
+        expected: [],
       },
       {
         situation: 'a new source mark in the core',

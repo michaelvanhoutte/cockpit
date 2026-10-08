@@ -64,9 +64,15 @@ context:
     - { name: Cloudflare Workers AI, detail: 'embeddings, notes that repeat' }
     - { name: GitHub, detail: 'code, CI, deploys, report pages' }
 
-# The layers, top to bottom, and the areas in each in order: the order is the
-# direction the Dependencies view marks (an import of a later area is downward).
-# An area's `name` labels it there and defaults to its path.
+# Pins for the Dependencies view, which orders its areas by who imports whom.
+# `above` stands above `below` wherever the computed order puts them the other
+# way; an import then pointing up shows red. Each is an area's path, as the
+# layers below give it; none is needed today.
+pins: []
+
+# The layers, top to bottom, and the areas in each in order, as the Modules view
+# draws them; the order also settles a tie in the Dependencies view. An area's
+# `name` labels it there and defaults to its path.
 layers:
   - title: Web app
     note: Served by the Worker as static assets; it talks to the API over HTTP and live updates, in the shapes of packages/shared.

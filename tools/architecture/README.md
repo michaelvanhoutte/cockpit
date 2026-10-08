@@ -15,7 +15,7 @@ published. A row is the change, where it is and a flag; these are called out and
 |---|---|
 | new source mark | a core area names a source, or names it in more files |
 | new breach | a connector package imports beyond the SDK, or in more files |
-| new mutual pair | two areas now import each other |
+| new upward import | an import now points up the dependency chain, as the half of a new cycle or on its own |
 | undescribed, gone | an area is new and the description file does not mention it, or is described and no longer on disk |
 
 File counts, line counts and a cell's number of importing files move with every merge and are not changes. Where there
@@ -53,7 +53,7 @@ are its own in the file, so a source whose name is also plain English (`teams`) 
 connector's own code; each mark is a file to look at. `exemptFromSources` lists files the scan skips: the
 composition root, the one core file that names connectors.
 
-**Dependencies** is a matrix of those areas in the description file's order. A cell counts the files in the
+**Dependencies** is a matrix of those areas in dependency-chain order. A cell counts the files in the
 row's area that import the column's area, and the number beside a row is that area's source lines, tests
 excluded. How an import is attributed:
 
@@ -63,11 +63,24 @@ excluded. How an import is attributed:
 | a workspace package by name, or a path inside it | the package's area, by the `name` in its `package.json` |
 | an import within the same area, a test file's import, a third-party package | nothing |
 
-A file importing an area twice counts once; type-only imports and re-exports count. A mark's direction is the
-order of the file: an import of a later area is *downward*, of an earlier one *upward*, and two areas
-importing each other are both *mutual*. `readByEveryone` in the description file lists the areas every other
-area reads (today the API's root files, which hold `env.ts`); every cell on their row or column is muted and
-never mutual. A line under the matrix names the mutual pairs. Dynamic `import()` is read like any other
+A file importing an area twice counts once; type-only imports and re-exports count.
+
+**The order** leaves the fewest import files pointing up, so each area stands above what it imports. It is
+searched exactly (every set of areas already placed is weighed) for up to 18 areas, `EXACT_LIMIT` in `src/order.js`,
+and by a greedy order improved by moving one area at a time beyond that; the page says which it used, and a
+tie goes to the order the layers list. `readByEveryone` in the description file lists the areas every other
+area reads (today the API's root files, which hold `env.ts`): they stand last, every cell on their row or
+column is muted, and their imports never count. `pins` lists `{ above, below }` pairs for where the computed order is wrong;
+an unknown area, an area read by everyone, or pins that chase each other fail the run like any description-file error.
+
+| Cell | Shown as |
+|---|---|
+| an import of an area above (a cycle's half back up the chain, or a one-way import under a pin) | red |
+| the other half of a cycle | an ordinary import, outlined in red |
+| an import of an area below, with none back | an ordinary import |
+
+A cycle of two halves with the same number of files is said to be one the order could not decide, unless a pin
+does. A line under the matrix names the cycles. Dynamic `import()` is read like any other
 import, and a path no area holds is dropped.
 
 **The description file holds the wording, the layout and the rules**, and the generator none: the layers

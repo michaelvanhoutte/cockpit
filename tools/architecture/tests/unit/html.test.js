@@ -73,14 +73,23 @@ describe('The architecture page', () => {
       drawnFrom: { commit: null, date: null, repo: null },
       context: { cockpit: { name: 'x', summary: 'x', runs: '' }, people: [], services: [] },
       modules: { layers: [], sources: [], counts: { areas: 0, undescribed: 0, gone: 0, coreNamingASource: 0, connectorBreaches: 0 } },
-      dependencies: { areas: [], cells: [], mutualPairs: [] },
+      dependencies: { areas: [], cells: [], cyclePairs: [], undecidedPairs: [], order: { method: 'exact', areas: 0, limit: 18, upwardFiles: 0 } },
       deployment: { environments: [{ name: 'x', kind: 'environment', worker: '<b>w</b>', resources: [], deployedBy: [] }], workflows: [] },
     });
     expect(html).toContain('&lt;b&gt;w&lt;/b&gt;');
   });
 
-  it('follows the reader\'s light or dark setting', () => {
-    expect(page()).toContain('prefers-color-scheme: light');
+  it('follows the reader\'s light or dark setting, with both palettes on the page and neither forced', () => {
+    const html = page();
+    const styles = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+    const dark = styles.match(/@media \(prefers-color-scheme: dark\) \{\s*:root \{([^}]*)\}/)?.[1] ?? '';
+    const light = styles.match(/:root \{([^}]*)\}/)?.[1] ?? '';
+    expect(html).toContain('<meta name="color-scheme" content="light dark">');
+    expect(light).toContain('color-scheme: light dark');
+    expect(dark).toContain('--bg:');
+    expect(light.match(/--bg: (#\w+)/)?.[1]).toBeDefined();
+    expect(dark.match(/--bg: (#\w+)/)?.[1]).not.toBe(light.match(/--bg: (#\w+)/)?.[1]);
+    expect(html).not.toContain('data-theme');
   });
 });
 
@@ -192,24 +201,30 @@ describe('Dependencies', () => {
       expect([...dependencies.matchAll(/<th class="row"[^>]*>(\w+) <span class="lines">(\d+)<\/span>/g)].map((each) => each.slice(1))).toEqual([['a', '2'], ['b', '1'], ['c', '2']]);
     });
 
-    it('gives a mark its own colour per kind of dependency, with the count in the cell', () => {
+    it('shows a cycle’s upward half red and its downward half outlined, with the count in the cell', () => {
       const dependencies = section(html);
-      expect(dependencies).toMatch(/<td class="cyc" title="a imports b in 1 file[^"]*">1<\/td>/);
+      expect(dependencies).toMatch(/<td class="up" title="b imports a in 1 file[^"]*">1<\/td>/);
+      expect(dependencies).toMatch(/<td class="dn part" title="a imports b in 1 file[^"]*">1<\/td>/);
       expect(dependencies).toMatch(/<td class="dn" title="a imports c[^"]*">1<\/td>/);
-      expect(dependencies).toContain('Depends on a layer below');
-      expect(dependencies).toContain('Depends on a layer above');
+      expect(dependencies).toContain('Imports an area above, against the order');
+      expect(html).toMatch(/\.dsm td\.up \{[^}]*background: var\(--red\)/);
+      expect(html).toMatch(/\.dsm td\.part \{[^}]*outline: 2px solid var\(--red\)/);
     });
 
-    it('names the mutual pairs in one line under the matrix', () => {
+    it('names the cycles in one line under the matrix', () => {
       expect(section(html)).toContain('1 pair of areas import each other: <code>a</code> with <code>b</code>.');
+    });
+
+    it('says the order is exact, and that it could not decide a cycle of equal halves', () => {
+      expect(section(html)).toContain('The order is exact: every order of the 3 areas was weighed, up to 18.');
+      expect(section(html)).toContain('The order could not decide <code>a</code> and <code>b</code>');
     });
   });
 
-  it('groups the pairs by their first area, and says so when no two areas import each other', () => {
-    const three = ['a', 'b', 'c'].map(named);
-    const both = drawn(three, [on('apps/api/src/a', { 'f.ts': "import '../b/g.js';\nimport '../c/h.js';" }), on('apps/api/src/b', { 'g.ts': "import '../a/f.js';" }), on('apps/api/src/c', { 'h.ts': "import '../a/f.js';" })]);
-    expect(section(both)).toContain('2 pairs of areas import each other: <code>a</code> with <code>b</code> and <code>c</code>.');
-    expect(section(drawn(three, []))).toContain('No two areas import each other.');
+  it('says the order is approximate when there are more areas than the exact search weighs', () => {
+    const names = Array.from({ length: 19 }, (_, at) => `m${at}`);
+    const html = drawn(names.map(named), names.map((name) => on(`apps/api/src/${name}`, { 'x.ts': 'export {}' })));
+    expect(section(html)).toContain('The order is approximate: 19 areas are more than the 18 an exact search weighs');
   });
 
   it('mutes the area the file declares read by everything, and says why in the legend', () => {

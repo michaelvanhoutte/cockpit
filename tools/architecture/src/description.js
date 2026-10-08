@@ -64,6 +64,8 @@ export function parseDescription(file, text) {
 
   const readByEveryone = value.readByEveryone === undefined ? [] : array(value.readByEveryone, 'readByEveryone').map((each, index) => string(each, `readByEveryone[${index}]`));
 
+  const pins = value.pins === undefined ? [] : array(value.pins, 'pins').map((each, index) => ({ above: string(object(each, `pins[${index}]`).above, `pins[${index}].above`), below: string(each.below, `pins[${index}].below`) }));
+
   const rule = object(value.connectorRule, 'connectorRule');
 
   const context = object(value.context, 'context');
@@ -91,7 +93,19 @@ export function parseDescription(file, text) {
 
   for (const each of readByEveryone) if (!seen.has(each)) fail(`readByEveryone names ${each}, which no layer describes`);
 
+  for (const [index, pin] of pins.entries()) {
+    for (const path of [pin.above, pin.below]) if (!seen.has(path)) fail(`pins[${index}] names ${path}, which no layer describes`);
+    for (const path of [pin.above, pin.below]) if (readByEveryone.includes(path)) fail(`pins[${index}] names ${path}, which everything reads and so always comes last`);
+    if (pin.above === pin.below) fail(`pins[${index}] puts ${pin.above} above itself`);
+  }
+  // Pins that chase each other round make no order at all.
+  const below = new Map();
+  for (const pin of pins) below.set(pin.above, [...(below.get(pin.above) ?? []), pin.below]);
+  const reaches = (from, target, visited = new Set()) => (below.get(from) ?? []).some((next) => next === target || (!visited.has(next) && visited.add(next) && reaches(next, target, visited)));
+  for (const pin of pins) if (reaches(pin.below, pin.above)) fail(`pins put ${pin.above} above ${pin.below} and ${pin.below} above ${pin.above}, in a chain`);
+
   return {
+    pins,
     scan: { testFile, extensions: array(scan.extensions, 'scan.extensions').map((each, index) => string(each, `scan.extensions[${index}]`)), ignore: array(scan.ignore, 'scan.ignore').map((each, index) => string(each, `scan.ignore[${index}]`)) },
     discover,
     sources,

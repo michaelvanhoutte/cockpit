@@ -55,35 +55,111 @@ describe('Dependencies', () => {
     });
   });
 
-  describe('each dependency is marked by its direction in the declared layer order', () => {
-    const marked = (a, b) =>
-      cells(dependenciesOf({ areas: [at('a'), at('b')], candidates: [folder(at('a'), { 'f.ts': a }), folder(at('b'), { 'g.ts': b })] }));
+  describe('the areas stand in dependency-chain order, each above what it imports', () => {
+    const run = (areas, imports, overrides = {}) =>
+      dependenciesOf({
+        areas: areas.map(at),
+        overrides,
+        candidates: areas.map((name) => folder(at(name), { 'x.ts': 'export {}', ...Object.fromEntries((imports[name] ?? []).map((target, index) => [`f${index}.ts`, `import '../${target}/x.js';`])) })),
+      });
+    const order = (dependencies) => dependencies.areas.map((each) => each.path.split('/').pop());
 
     it.each([
-      { situation: 'an area importing one below it', a: "import '../b/g.js';", b: 'export {}', expected: [['a', 'b', 1, 'downward']] },
-      { situation: 'an area importing one above it', a: 'export {}', b: "import '../a/f.js';", expected: [['b', 'a', 1, 'upward']] },
-      { situation: 'two areas importing each other, both cells marked', a: "import '../b/g.js';", b: "import '../a/f.js';", expected: [['a', 'b', 1, 'mutual'], ['b', 'a', 1, 'mutual']] },
-    ])('$situation', ({ a, b, expected }) => {
-      expect(marked(a, b)).toEqual(expected);
+      { situation: 'a chain listed in any order', areas: ['c', 'a', 'b'], imports: { a: ['b'], b: ['c'] }, expected: ['a', 'b', 'c'] },
+      { situation: 'a cycle of unequal halves', areas: ['b', 'a'], imports: { a: ['b', 'b', 'b'], b: ['a'] }, expected: ['a', 'b'] },
+    ])('$situation', ({ areas, imports, expected }) => {
+      expect(order(run(areas, imports))).toEqual(expected);
     });
 
-    it('lists each mutual pair once, the earlier area first', () => {
-      const dependencies = dependenciesOf({ areas: [at('a'), at('b')], candidates: [folder(at('a'), { 'f.ts': "import '../b/g.js';" }), folder(at('b'), { 'g.ts': "import '../a/f.js';" })] });
-      expect(dependencies.mutualPairs).toEqual([[at('a'), at('b')]]);
+    it('puts the area everything reads last, and never counts its imports', () => {
+      const dependencies = run(['env', 'a', 'b'], { a: ['b'], env: ['a', 'b'] }, { readByEveryone: [at('env')] });
+      expect(order(dependencies)).toEqual(['a', 'b', 'env']);
+      expect(dependencies.order.upwardFiles).toBe(0);
+      expect(cells(dependencies)).toEqual([['a', 'b', 1, 'downward'], ['env', 'a', 1, 'muted'], ['env', 'b', 1, 'muted']]);
     });
 
-    it('mutes an area the description file declares read by everything, never marking it mutual', () => {
+    it('lets a pin put an area above another where the chain would not', () => {
+      const dependencies = run(['a', 'b'], { a: ['b', 'b', 'b'], b: ['a'] }, { pins: [{ above: at('b'), below: at('a') }] });
+      expect(order(dependencies)).toEqual(['b', 'a']);
+      expect(cells(dependencies)).toEqual([['b', 'a', 1, 'partner'], ['a', 'b', 3, 'upward']]);
+    });
+
+    it('says whether the order is exact, and how many files still point up', () => {
+      expect(run(['a', 'b'], { a: ['b'], b: ['a'] }).order).toMatchObject({ method: 'exact', areas: 2, upwardFiles: 1 });
+    });
+
+    it.each([
+      { situation: 'a pin naming an area no layer describes', pins: [{ above: at('a'), below: at('typo') }] },
+      { situation: 'a pin of an area above itself', pins: [{ above: at('a'), below: at('a') }] },
+      { situation: 'two pins that put each area above the other', pins: [{ above: at('a'), below: at('b') }, { above: at('b'), below: at('a') }] },
+      { situation: 'a pin on the area everything reads', pins: [{ above: at('env'), below: at('a') }], readByEveryone: [at('env')] },
+      { situation: 'pins that are not a list', pins: 'a above b' },
+    ])('refuses $situation', ({ pins, readByEveryone }) => {
+      const areas = ['a', 'b', 'env'].map((name) => ({ path: at(name), description: 'x' }));
+      expect(() => parseDescription('d.yml', descriptionFile({ layers: [{ title: 'L', role: 'core', areas }], pins, readByEveryone }).text)).toThrow(ReadError);
+    });
+  });
+
+  describe('a cycle marks only its upward half, and a one-way import up is marked too', () => {
+    const marked = (a, b, overrides) =>
+      dependenciesOf({ areas: [at('a'), at('b')], overrides, candidates: [folder(at('a'), a), folder(at('b'), b)] });
+    const manyFiles = (count, target) => Object.fromEntries(Array.from({ length: count }, (_, index) => [`f${index}.ts`, `import '../${target}/x.js';`]));
+
+    it('marks the half back up the chain and outlines the other, for halves of unequal size', () => {
+      const dependencies = marked(manyFiles(3, 'b'), manyFiles(1, 'a'));
+      expect(cells(dependencies)).toEqual([['a', 'b', 3, 'partner'], ['b', 'a', 1, 'upward']]);
+      expect(dependencies.cyclePairs).toEqual([[at('a'), at('b')]]);
+      expect(dependencies.undecidedPairs).toEqual([]);
+    });
+
+    it('marks one half and says the order could not decide the pair, for halves of equal size', () => {
+      const dependencies = marked(manyFiles(2, 'b'), manyFiles(2, 'a'));
+      expect(cells(dependencies).map((each) => each[3]).sort()).toEqual(['partner', 'upward']);
+      expect(dependencies.undecidedPairs).toEqual([[at('a'), at('b')]]);
+    });
+
+    it('does not call a pair undecided when a pin decided it', () => {
+      const dependencies = marked(manyFiles(2, 'b'), manyFiles(2, 'a'), { pins: [{ above: at('a'), below: at('b') }] });
+      expect(dependencies.undecidedPairs).toEqual([]);
+    });
+
+    it('does not call a pair undecided when a chain of pins through a third area decided it', () => {
+      const dependencies = dependenciesOf({
+        areas: [at('a'), at('b'), at('c')],
+        overrides: { pins: [{ above: at('a'), below: at('c') }, { above: at('c'), below: at('b') }] },
+        candidates: [folder(at('a'), manyFiles(2, 'b')), folder(at('b'), manyFiles(2, 'a')), folder(at('c'), { 'g.ts': 'export {}' })],
+      });
+      expect(dependencies.cyclePairs).toEqual([[at('a'), at('b')]]);
+      expect(dependencies.undecidedPairs).toEqual([]);
+    });
+
+    it('marks a one-way import up, under a pin, with no outlined partner', () => {
+      const dependencies = marked(manyFiles(1, 'b'), { 'g.ts': 'export {}' }, { pins: [{ above: at('b'), below: at('a') }] });
+      expect(cells(dependencies)).toEqual([['a', 'b', 1, 'upward']]);
+      expect(dependencies.cyclePairs).toEqual([]);
+    });
+
+    it('leaves an import down the chain, with no import back, ordinary', () => {
+      const dependencies = marked(manyFiles(1, 'b'), { 'g.ts': 'export {}' });
+      expect(cells(dependencies)).toEqual([['a', 'b', 1, 'downward']]);
+    });
+  });
+
+  describe('an area the description file declares read by everything is muted', () => {
+    it('never marks it as part of a cycle', () => {
       const dependencies = dependenciesOf({
         areas: [at('a'), at('*')],
         overrides: { readByEveryone: [at('*')] },
         candidates: [folder(at('a'), { 'f.ts': "import '../env.js';" }), folder(at('*'), { 'env.ts': "import './a/f.js';" })],
       });
       expect(cells(dependencies)).toEqual([['a', '*', 1, 'muted'], ['*', 'a', 1, 'muted']]);
-      expect(dependencies.mutualPairs).toEqual([]);
+      expect(dependencies.cyclePairs).toEqual([]);
       expect(dependencies.areas.map((each) => each.muted)).toEqual([false, true]);
     });
+  });
 
-    it('keeps the order the description file gives, and labels an area by its name or else its path', () => {
+  describe('the description file labels the areas', () => {
+    it('labels an area by its name or else its path', () => {
       const description = (extra) => parseDescription('d.yml', descriptionFile({ layers: [{ title: 'L', role: 'core', areas: [{ path: at('a'), description: 'x', ...extra }] }] }).text);
       expect(description({ name: 'alpha' }).layers[0].areas[0].name).toBe('alpha');
       expect(description({}).layers[0].areas[0].name).toBe(at('a'));
