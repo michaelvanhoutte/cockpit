@@ -28,9 +28,18 @@ export function connectors(env: Env): Connector[] {
           }),
         ]
       : []),
+    // Set by the backend suite alone (`src/env.ts`).
+    ...(env.TEST_CONNECTORS ?? []),
   ];
 }
 
 export function getConnector(env: Env, id: string): Connector | undefined {
   return connectors(env).find((c) => c.manifest.id === id);
+}
+
+/** The connectors Cockpit pulls from, whose connections the account's store keeps a check armed for. */
+export function pulledConnectorIds(env: Env): string[] {
+  return connectors(env)
+    .filter((c) => c.manifest.pulled === true)
+    .map((c) => c.manifest.id);
 }

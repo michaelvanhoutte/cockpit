@@ -29,6 +29,8 @@ import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 import type { RefreshAsk } from '../jobs/debounce.js';
+import type { EmittedItem, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
+import type { PulledRunBegun } from './pulled.js';
 
 export type { AccountSnapshot } from './answer.js';
 export type { AccountBackup } from './backup.js';
@@ -287,6 +289,36 @@ export interface Account {
     name: N,
     payload: CommandPayload<N>,
   ): Promise<CommandResult>;
+  /**
+   * A delivered check of one pulled connection taking its lease, or learning
+   * it does nothing ("Check a pulled connector on its cadence through the
+   * generic host", issue 891).
+   */
+  beginPulledRun(sourceAccountId: string): Promise<PulledRunBegun>;
+  /** What a run that took its lease may do with its connection, until it ends (issue 891). */
+  pulledRun(sourceAccountId: string, runId: string): PulledRun;
+}
+
+/**
+ * The store's half of one run of a pulled connection's check (issue 891):
+ * every call names the run, and one that no longer holds its connection -
+ * disconnected, or taken over after its lease ran out - files and saves
+ * nothing.
+ */
+export interface PulledRun {
+  state(): Promise<unknown>;
+  saveState(state: unknown): Promise<'saved' | 'not this run'>;
+  sealedCredential(): Promise<{ sealedCredential: string; credentialNonce: string } | null>;
+  reseal(
+    was: { sealedCredential: string; credentialNonce: string },
+    sealed: { sealedCredential: string; credentialNonce: string },
+  ): Promise<'saved' | 'not saved'>;
+  fileItem(
+    item: SourceItem & { sourceId: string },
+    ids: { itemId: string; commandId: string },
+  ): Promise<EmittedItem | 'disconnected'>;
+  applySourceChange(change: SourceStateChange): Promise<'changed' | 'unchanged' | 'disconnected'>;
+  end(failing: string | null): Promise<null>;
 }
 
 /**
@@ -361,6 +393,20 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.claudeCodeHookArrival(accountName, workspaceId, sourceAccountId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
+    beginPulledRun: async (sourceAccountId) => unwrap(await store.beginPulledRun(accountName, sourceAccountId)),
+    pulledRun: (sourceAccountId, runId) => ({
+      state: async () => unwrap(await store.pulledState(accountName, sourceAccountId, runId)),
+      saveState: async (state) => unwrap(await store.savePulledState(accountName, sourceAccountId, runId, state)),
+      sealedCredential: async () =>
+        unwrap(await store.pulledSealedCredential(accountName, sourceAccountId, runId)),
+      reseal: async (was, sealed) =>
+        unwrap(await store.resealPulledCredential(accountName, sourceAccountId, runId, was, sealed)),
+      fileItem: async (item, ids) =>
+        unwrap(await store.filePulledItem(accountName, sourceAccountId, runId, item, ids)),
+      applySourceChange: async (change) =>
+        unwrap(await store.applyPulledSourceChange(accountName, sourceAccountId, runId, change)),
+      end: async (failing) => unwrap(await store.endPulledRun(accountName, sourceAccountId, runId, failing)),
+    }),
   };
 }
 
@@ -534,6 +580,9 @@ export async function keepEveryAccountCheckingGmail(env: Env): Promise<number> {
     try {
       const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName));
       if (unwrap(await store.keepCheckingGmail(accountName)) === 'armed') armed += 1;
+      // Its pulled connections too ("Check a pulled connector on its cadence
+      // through the generic host", issue 891): the same alarm checks both.
+      if (unwrap(await store.keepCheckingPulledConnections(accountName)) === 'armed') armed += 1;
     } catch (error) {
       console.error(
         JSON.stringify({

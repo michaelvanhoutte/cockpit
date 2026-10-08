@@ -12,6 +12,7 @@ import {
 } from './enrichment.js';
 import { moveSimulatedRunToWaiting } from './simulated-run.js';
 import { captureGuestArrival } from './guest-arrival.js';
+import { checkPulledConnection } from '../connectors/pulled-host.js';
 
 export {
   cleanUpACapturedNote,
@@ -217,6 +218,8 @@ function run(env: Env, job: EnrichmentJob): Promise<void> {
       return moveSimulatedRunToWaiting(env, job);
     case 'guest-arrival':
       return captureGuestArrival(env, job);
+    case 'check-a-pulled-connection':
+      return checkPulledConnection(env, job);
   }
 }
 
@@ -234,5 +237,7 @@ function describe(job: EnrichmentJob): string {
       return `run ${job.runId}`;
     case 'guest-arrival':
       return `${job.source} arrival ${job.itemId}`;
+    case 'check-a-pulled-connection':
+      return `connection ${job.sourceAccountId} of account ${job.accountName}`;
   }
 }
