@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Draws how Cockpit is built from the checked-out repository alone: today the Deployment view, every environment the Worker config declares with the resources it binds, and every workflow with what starts it and what it deploys.",
+  "description": "Draws how Cockpit is built from the checked-out repository alone: the Context and Modules views from a description file kept in the repository and the folders on disk, and the Deployment view from the Worker config and the workflows.",
   "engines": {
     "node": ">=22"
   },

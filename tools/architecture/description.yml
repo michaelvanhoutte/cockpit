@@ -1,0 +1,108 @@
+# What the architecture report cannot read from the code: each area's wording,
+# where it sits on the Modules view, who the Context view shows, and the rules
+# the marks come from. tools/architecture/README.md says how it is read.
+
+# Where to look for areas. `one` is a folder drawn as a single area; `folders`
+# is each folder inside it (and, with rootFiles, the files directly in it as
+# one more); `packages` is each folder inside it that holds a package.json.
+# `role` is the role of an area this file does not describe yet.
+discover:
+  - { path: apps/web/src, as: one, role: core }
+  - { path: apps/api/src, as: folders, rootFiles: true, role: core }
+  - { path: packages, as: packages, role: core }
+  - { path: packages/connectors, as: packages, role: connector }
+
+# What counts as source code, what is a test (never read, and a folder of
+# nothing else is not an area) and which folders hold nothing of ours.
+scan:
+  extensions: ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']
+  tests: '(^|/)(tests?|__tests__|__mocks__)/|\.(test|spec)\.[cm]?[jt]sx?$'
+  ignore: [node_modules, dist, build, coverage, out, .wrangler, .turbo]
+
+# Names of a source of items. A core area whose code (identifiers, strings and
+# JSX text, never comments) uses one is marked. `words` are whole words in any
+# case; the words of a phrase may be joined by a space, - or _, or a change of
+# case. Teams is not declared: its connector is a package behind the SDK, and
+# the core says "Microsoft Teams" only as a display name. Declare it with
+# words that only the product is called ("teams" is also plain English) to
+# see those too.
+sources:
+  - { id: gmail, name: Gmail, words: [gmail] }
+  - { id: claude-code, name: Claude Code, words: [claude code] }
+
+# A connector package may import its SDK and nothing else of ours: not the
+# shared contract, not the app. `scope` is the prefix of our own packages.
+connectorRule:
+  sdk: '@cockpit/connector-sdk'
+  scope: '@cockpit/'
+
+context:
+  cockpit:
+    name: Cockpit
+    summary: Unified inbox and dashboards, one Worker per environment on Cloudflare serving the API, live updates and the app.
+    runs: production · staging
+  people:
+    - { name: People in a workspace, detail: 'browser, installed PWA, share sheet' }
+    - { name: Guest, detail: 'demo sign-in, reset every night' }
+    - { name: Admin and operator, detail: 'admin pages, backup and restore' }
+    - { name: AI agents, detail: 'Claude.ai, Claude Code over MCP' }
+  services:
+    - { name: Google, detail: 'sign-in, Gmail API' }
+    - { name: Microsoft, detail: 'Entra sign-in, Teams via Bot Framework' }
+    - { name: Anthropic, detail: 'Claude API reads captured notes' }
+    - { name: Cloudflare Workers AI, detail: 'embeddings, notes that repeat' }
+    - { name: GitHub, detail: 'code, CI, deploys, report pages' }
+
+layers:
+  - title: Web app
+    note: Served by the Worker as static assets; it talks to the API over HTTP and live updates, in the shapes of packages/shared.
+    role: core
+    areas:
+      - path: apps/web/src
+        description: 'The React app: router, pages, panels, Inbox, Capture and its offline outbox, item form, settings and connections.'
+
+  - title: API
+    note: One Cloudflare Worker. worker.ts dispatches fetch, queue and scheduled; the Hono app handles requests.
+    role: core
+    areas:
+      - path: apps/api/src/http
+        description: 'The Hono app: every route, request validation, error-to-status mapping and the live-update stream.'
+      - path: apps/api/src/auth
+        description: 'Sign-in with OIDC, sessions, the gate in front of every route, operator and admin access, attachment links.'
+      - path: apps/api/src/mcp
+        description: 'The MCP server at /mcp: OAuth for connected apps, consent, grants and the create_item tool.'
+      - path: apps/api/src/jobs
+        description: 'The queue consumer that cleans up and reads captured notes, and the nightly scheduled work.'
+      - path: apps/api/src/ai
+        description: 'The Claude layer behind a project-owned interface: prompts that clean up a note and choose a panel.'
+      - path: apps/api/src/embeddings
+        description: 'Reads what a note means with Workers AI, so a note that repeats another can be flagged.'
+      - path: apps/api/src/accounts
+        description: 'The AccountStore Durable Object, one per account: its SQLite schema, change log, command service, backup and restore.'
+      - path: apps/api/src/domain
+        description: 'The account data model as plain code: items, panels, dashboards, filings, workspaces and the histories behind them.'
+      - path: apps/api/src/db
+        description: 'The register in D1 (accounts, users, sign-ins, connector directory): its Drizzle schema and client.'
+      - path: apps/api/src/connectors
+        description: 'The composition root where the core meets connectors, with the host connectors run against and the credential crypto.'
+      - path: apps/api/src/*
+        description: 'The Worker entry points (worker.ts, index.ts), its bindings type (env.ts) and the share target.'
+
+  - title: Packages
+    note: Shared by the web app and the API.
+    role: core
+    areas:
+      - path: packages/shared
+        description: 'The contract between web and API: domain types, Zod schemas, command definitions and API shapes.'
+      - path: packages/connector-sdk
+        description: 'The connector SPI: what a connector is and the only capabilities the host offers it.'
+      - path: packages/config
+        role: other
+        description: 'Shared tsconfig and formatting config for the monorepo; no code runs from it.'
+
+  - title: Connector packages
+    note: A connector imports the connector SDK and nothing else of ours.
+    role: connector
+    areas:
+      - path: packages/connectors/teams
+        description: 'The Microsoft Teams connector: a Save to Cockpit message action, verified as a genuine Bot Framework call.'

@@ -1,6 +1,7 @@
 /**
- * The model: the Worker config's text and each workflow's text in, what
- * Cockpit is deployed as out. A pure function of its arguments (no clock, no
+ * The model: the Worker config's text, each workflow's text, the description
+ * file and the areas found on disk in; what Cockpit is deployed as, who and
+ * what it talks to, and what its areas are, out. A pure function of its arguments (no clock, no
  * filesystem, no git), so the same commit always draws the same model.
  *
  * Wrangler's rules decide what an environment holds. Settings such as the
@@ -15,14 +16,11 @@
 import { parse as parseJsonc, printParseErrorCode } from 'jsonc-parser';
 import { parseDocument } from 'yaml';
 
-/** A file that could not be read as what it is. Names the file so a failed night says which. */
-export class ReadError extends Error {
-  constructor(file, reason) {
-    super(`${file}: ${reason}`);
-    this.name = 'ReadError';
-    this.file = file;
-  }
-}
+import { parseDescription } from './description.js';
+import { ReadError } from './errors.js';
+import { buildContext, buildModules } from './modules.js';
+
+export { ReadError };
 
 export const PRODUCTION = 'production';
 
@@ -230,9 +228,10 @@ function pagesOf(steps) {
 }
 
 /**
- * @param {{ wrangler: { file: string, text: string }, workflows: { file: string, text: string }[], commit: string|null, date: string|null, repo?: string|null }} input
+ * @param {{ wrangler: { file: string, text: string }, workflows: { file: string, text: string }[], description: { file: string, text: string }, candidates?: object[], commit: string|null, date: string|null, repo?: string|null }} input
  */
-export function buildModel({ wrangler, workflows, commit, date, repo = null }) {
+export function buildModel({ wrangler, workflows, description: descriptionFile, candidates = [], commit, date, repo = null }) {
+  const description = parseDescription(descriptionFile.file, descriptionFile.text);
   const environments = environmentsOf(parseWranglerConfig(wrangler.file, wrangler.text));
   const declared = new Set(environments.map((each) => each.name));
   const parsed = workflows.map((each) => parseWorkflow(each.file, each.text)).sort((a, b) => a.file.localeCompare(b.file));
@@ -253,6 +252,8 @@ export function buildModel({ wrangler, workflows, commit, date, repo = null }) {
 
   return {
     drawnFrom: { commit, date, repo },
+    context: buildContext(description),
+    modules: buildModules(description, candidates),
     deployment: {
       pages: publisher ? { workflow: publisher.file, reports: publisher.pages.reports } : null,
       environments: environments.map((environment) => ({
