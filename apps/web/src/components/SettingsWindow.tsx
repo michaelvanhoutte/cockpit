@@ -1,6 +1,5 @@
 import { lazy, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CLAUDE_CODE, GMAIL, TEAMS } from '@cockpit/shared';
 import { workspacesQuery } from '../api/queries';
 import type { ConnectOutcome } from '../connections';
 import { SettingsModal } from './SettingsModal';
@@ -20,10 +19,6 @@ export interface ConnectOutcomeFor {
   workspaceId: string;
   outcome: ConnectOutcome;
 }
-
-/** The sources Connections offers, beside the Claude Code connection Agent settings holds. */
-const SOURCES = [GMAIL, TEAMS] as const;
-const AGENTS = [CLAUDE_CODE] as const;
 
 /**
  * Settings: the account's types, its Gmail and Teams connections, the Claude Code
@@ -65,12 +60,12 @@ export default function SettingsWindow({
         {
           key: 'connections',
           label: 'Connections',
-          content: <ConnectionsOf connectors={SOURCES} startsIn={startsIn} outcome={outcome} guest={guest} onClose={onClose} />,
+          content: <ConnectionsOf section="sources" startsIn={startsIn} outcome={outcome} guest={guest} onClose={onClose} />,
         },
         {
           key: 'agents',
           label: 'Agent settings',
-          content: <ConnectionsOf connectors={AGENTS} startsIn={startsIn} guest={guest} onClose={onClose} />,
+          content: <ConnectionsOf section="agents" startsIn={startsIn} guest={guest} onClose={onClose} />,
         },
         { key: 'mcp', label: 'MCP', content: <ManageConnectedApps open onClose={onClose} /> },
         appearance,
@@ -86,13 +81,13 @@ export default function SettingsWindow({
  * it always says whose connections these are.
  */
 function ConnectionsOf({
-  connectors,
+  section,
   startsIn,
   outcome,
   guest,
   onClose,
 }: {
-  connectors: readonly string[];
+  section: 'sources' | 'agents';
   guest?: boolean | undefined;
   startsIn: string | undefined;
   outcome?: ConnectOutcomeFor | undefined;
@@ -108,7 +103,7 @@ function ConnectionsOf({
       // Remounted per workspace, so one's half-answered question is not still
       // open over the next.
       key={chosen.id}
-      only={connectors}
+      section={section}
       guest={guest}
       workspaceId={chosen.id}
       workspaceName={chosen.name}

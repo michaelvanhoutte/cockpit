@@ -33,6 +33,7 @@ const fixedUrls: Connector = {
   manifest: {
     id: FIXED,
     displayName: 'A source with fixed addresses',
+    cardText: 'A source reached at fixed addresses.',
     source: 'notion',
     supportsPush: false,
     auth: {
@@ -55,6 +56,7 @@ const noSignIn: Connector = {
   manifest: {
     id: NO_SIGN_IN,
     displayName: 'A source with no sign-in',
+    cardText: 'A source with no sign-in.',
     source: 'notion',
     supportsPush: false,
     auth: { kind: 'none' },
@@ -225,6 +227,46 @@ describe('Connector management', () => {
         returned: 404,
       });
       expect(await storedRows()).toEqual([]);
+    });
+  });
+
+  describe('the Connections window lists the connectors the registry holds that a person can sign in to', () => {
+    const listed = async () =>
+      (
+        (await (await asUser('http://cockpit.test/v1/connectors')).json()) as {
+          connectors: { id: string; displayName: string; cardText: string; asksFirst: boolean }[];
+        }
+      ).connectors;
+
+    it('lists Teams with the name and text its manifest gives, and a source registered nowhere else', async () => {
+      expect(await listed()).toEqual([
+        {
+          id: 'teams',
+          displayName: 'Microsoft Teams',
+          cardText: 'Sign in with Microsoft. Cockpit reads who you are and nothing else.',
+          asksFirst: false,
+        },
+        {
+          id: FIXED,
+          displayName: 'A source with fixed addresses',
+          cardText: 'A source reached at fixed addresses.',
+          asksFirst: false,
+        },
+      ]);
+    });
+
+    it('lists no Teams where its bot is not configured', async () => {
+      const bot = settings.MS_BOT_APP_ID;
+      delete settings.MS_BOT_APP_ID;
+      try {
+        expect((await listed()).map((one) => one.id)).toEqual([FIXED]);
+      } finally {
+        settings.MS_BOT_APP_ID = bot;
+      }
+    });
+
+    it('lists no source that has no sign-in', async () => {
+      expect((await listed()).map((one) => one.id)).not.toContain(NO_SIGN_IN);
     });
   });
 });

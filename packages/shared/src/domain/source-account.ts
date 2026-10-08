@@ -85,6 +85,26 @@ export const sourceAccountListSchema = z.object({
 export type SourceAccountList = z.infer<typeof sourceAccountListSchema>;
 
 /**
+ * A connector the registry holds and a person can sign in to, as the
+ * Connections window draws its card ("List the registry's connectors in the
+ * Connections window", issue 894): the manifest's own name and text, nothing
+ * the connector keeps to itself.
+ */
+export const registeredConnectorSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  cardText: z.string(),
+  /** Whether connecting asks the person something before it leaves for the source. */
+  asksFirst: z.boolean(),
+});
+export type RegisteredConnector = z.infer<typeof registeredConnectorSchema>;
+
+export const registeredConnectorListSchema = z.object({
+  connectors: registeredConnectorSchema.array(),
+});
+export type RegisteredConnectorList = z.infer<typeof registeredConnectorListSchema>;
+
+/**
  * What the form posts to connect - or, pressed again with a new token, to
  * edit - a workspace's Claude Code routine (issue 569): the routine's own
  * trigger address and the token it was given to fire with. Never a command:

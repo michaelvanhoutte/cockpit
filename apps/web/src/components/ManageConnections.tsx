@@ -3,10 +3,11 @@ import { queryOptions, useQuery } from '@tanstack/react-query';
 import {
   CLAUDE_CODE,
   GMAIL,
-  TEAMS,
   connectorNamed,
+  registeredConnectorListSchema,
   sourceAccountListSchema,
   uuidv7,
+  type RegisteredConnectorList,
   type SourceAccount,
   type SourceAccountList,
 } from '@cockpit/shared';
@@ -31,6 +32,13 @@ async function fetchSourceAccounts(workspaceId: string): Promise<SourceAccountLi
   const res = await api.v1.workspaces[':workspaceId'].connections.$get({ param: { workspaceId } });
   if (!res.ok) throw refusal('connections', res.status);
   return sourceAccountListSchema.parse(await res.json());
+}
+
+/** The connectors the registry holds, which the Add-a-connection cards are drawn from (issue 894). */
+async function fetchRegisteredConnectors(): Promise<RegisteredConnectorList> {
+  const res = await api.v1.connectors.$get();
+  if (!res.ok) throw refusal('connectors', res.status);
+  return registeredConnectorListSchema.parse(await res.json());
 }
 
 /**
@@ -67,7 +75,7 @@ const sourceAccountsQuery = (workspaceId: string) =>
   });
 
 /**
- * Connecting a Teams account is a navigation, not a request: the browser
+ * Connecting a registered source is a navigation, not a request: the browser
  * leaves for Microsoft and comes back to a page, so there is nothing here to
  * await and nothing to parse - the same shape `SIGN_IN_PATH` (`api/client.ts`)
  * has, and the same reason.
@@ -75,29 +83,38 @@ const sourceAccountsQuery = (workspaceId: string) =>
  * It comes back to `/w/<workspaceId>?connections=connected|refused`, which is
  * what reopens this window over the Workspace it was started from.
  */
-function connectTeamsPath(workspaceId: string): string {
-  return `/v1/workspaces/${encodeURIComponent(workspaceId)}/connections/teams/connect`;
+function connectPath(workspaceId: string, connectorId: string): string {
+  return `/v1/workspaces/${encodeURIComponent(workspaceId)}/connections/${encodeURIComponent(connectorId)}/connect`;
 }
 
 /**
- * The connectors a workspace can add ("Connect a workspace to Claude Code",
- * issue 569): what the Add-a-connection list offers, whether or not anything
- * of that kind is connected yet. A plain constant, the same way the Teams
- * card was hardcoded here before it - adding another means adding it here,
- * nowhere else.
+ * The two cards the registry does not hold, named here and nowhere else: Gmail
+ * until it moves onto the connector SDK (issue 875), and Claude Code until
+ * outbound integrations have a boundary (issue 879). Every other card comes
+ * from the registry ("List the registry's connectors in the Connections
+ * window", issue 894), so adding a source touches no file in this app.
  */
-const AVAILABLE_CONNECTORS = [GMAIL, TEAMS, CLAUDE_CODE] as const;
+const GMAIL_CARD: Card = {
+  id: GMAIL,
+  name: 'Gmail',
+  // That the label and the task stay in step (issue 724).
+  text: 'Label a conversation Cockpit in Gmail and it becomes a task here. Finishing the task takes the label off. Cockpit reads labelled mail only.',
+};
+const CLAUDE_CODE_CARD: Card = {
+  id: CLAUDE_CODE,
+  name: 'Claude Code',
+  text: 'A routine that starts a Claude Code session on this workspace’s items.',
+};
+
+/** One connector Add a connection offers. */
+interface Card {
+  id: string;
+  name: string;
+  text: string;
+}
 
 /** What the guest is told in place of every way to connect. */
 const GUEST_SENTENCE = 'Sign in with Google to connect your own';
-
-/** What each card says it does - for Gmail, that the label and the task stay in step (issue 724). */
-const CARD_TEXT: Record<(typeof AVAILABLE_CONNECTORS)[number], string> = {
-  [GMAIL]:
-    'Label a conversation Cockpit in Gmail and it becomes a task here. Finishing the task takes the label off. Cockpit reads labelled mail only.',
-  [TEAMS]: 'Sign in with Microsoft. Cockpit reads who you are and nothing else.',
-  [CLAUDE_CODE]: 'A routine that starts a Claude Code session on this workspace’s items.',
-};
 
 /** What a connected row says under its name, beside the source. */
 function rowDetail(account: SourceAccount): string {
@@ -149,16 +166,16 @@ export default function ManageConnections({
   open,
   onClose,
   returnFocusTo,
-  only,
+  section,
   picker,
   guest = false,
 }: {
   /**
-   * These kinds of connection only - Gmail and Teams under Connections,
-   * Claude Code under Agent settings (Settings, `SettingsWindow.tsx`).
-   * Absent, every kind is shown.
+   * Which cards and rows: the sources under Connections (Gmail and what the
+   * registry holds), Claude Code under Agent settings (Settings,
+   * `SettingsWindow.tsx`). Absent, every kind is shown.
    */
-  only?: readonly string[] | undefined;
+  section?: 'sources' | 'agents' | undefined;
   /**
    * The shared guest, who connects nothing: the server refuses it anyway
    * (`auth/guest-connections.ts`), so this offers the way to connect one's own
@@ -181,6 +198,11 @@ export default function ManageConnections({
     // request nobody asked for.
     enabled: open,
   });
+  const registry = useQuery({
+    queryKey: ['registeredConnectors'],
+    queryFn: fetchRegisteredConnectors,
+    enabled: open,
+  });
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [claudeCodeForm, setClaudeCodeForm] = useState(false);
   const [claudeCodeFormPending, setClaudeCodeFormPending] = useState(false);
@@ -200,7 +222,17 @@ export default function ManageConnections({
   const command = useCommand();
   const testClaudeCode = useTestClaudeCodeConnection(workspaceId);
 
-  const connected = (data?.sourceAccounts ?? []).filter((account) => !only || only.includes(account.connectorId));
+  const registered = (registry.data?.connectors ?? []).map(
+    (connector): Card => ({ id: connector.id, name: connector.displayName, text: connector.cardText }),
+  );
+  const cards = [
+    ...(section !== 'agents' ? [GMAIL_CARD, ...registered] : []),
+    ...(section !== 'sources' ? [CLAUDE_CODE_CARD] : []),
+  ];
+  const connected = (data?.sourceAccounts ?? []).filter(
+    (account) =>
+      !section || (section === 'agents') === (account.connectorId === CLAUDE_CODE),
+  );
   /**
    * Saying "nothing connected" is a claim about what this Workspace holds, so
    * it needs an answer to have arrived - the same lie `ManageTypes` records,
@@ -242,12 +274,12 @@ export default function ManageConnections({
   };
 
   /**
-   * Leaves the application for Microsoft, and comes back to this Workspace
+   * Leaves the application for the source, and comes back to this Workspace
    * with this window open over it - a whole-page navigation like signing in,
    * rather than a popup nothing else in this app uses.
    */
-  const connectTeams = () => {
-    window.location.assign(connectTeamsPath(workspaceId));
+  const connectRegistered = (connectorId: string) => {
+    window.location.assign(connectPath(workspaceId, connectorId));
   };
 
   // Named apart from the imported `refusal` above, which builds an Error from
@@ -421,31 +453,31 @@ export default function ManageConnections({
         Add a connection
       </h3>
       <div className="mt-2 flex flex-col gap-2">
-        {AVAILABLE_CONNECTORS.filter((connectorId) => !only || only.includes(connectorId)).map((connectorId) => (
+        {cards.map((card) => (
           <div
-            key={connectorId}
+            key={card.id}
             className="flex items-center gap-3 rounded-md border border-shade/10 p-3"
           >
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">{connectorNamed(connectorId)}</p>
-              <p className="text-sm text-ink-faint">{CARD_TEXT[connectorId]}</p>
+              <p className="text-sm font-medium">{card.name}</p>
+              <p className="text-sm text-ink-faint">{card.text}</p>
             </div>
             {guest ? (
               <span className="shrink-0 text-sm text-ink-faint">{GUEST_SENTENCE}</span>
-            ) : connectorId === CLAUDE_CODE && claudeCodeConnected ? (
+            ) : card.id === CLAUDE_CODE && claudeCodeConnected ? (
               <span className="shrink-0 text-sm text-ink-faint">Connected - one per workspace</span>
             ) : (
               <button
                 type="button"
                 // Two rows both reading "Connect" need two names for anyone
                 // not reading them side by side - a screen reader, or a test.
-                aria-label={`Connect ${connectorNamed(connectorId)}`}
+                aria-label={`Connect ${card.name}`}
                 onClick={(event) => {
-                  if (connectorId === TEAMS) connectTeams();
-                  else if (connectorId === GMAIL) {
+                  if (card.id === GMAIL) {
                     gmailOpenedFrom.current = event.currentTarget;
                     setGmailSteps(true);
-                  } else openClaudeCodeForm(event.currentTarget);
+                  } else if (card.id === CLAUDE_CODE) openClaudeCodeForm(event.currentTarget);
+                  else connectRegistered(card.id);
                 }}
                 disabled={command.isPending || testClaudeCode.isPending || claudeCodeFormPending}
                 className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"

@@ -29,6 +29,7 @@ import {
   rewriteHistoryResponseSchema,
   setAccessSchema,
   signedInSchema,
+  registeredConnectorListSchema,
   sourceAccountListSchema,
   GMAIL,
   uuidv7,
@@ -140,7 +141,7 @@ import {
   signInAsGuest,
   signInWithGoogle,
 } from '../auth/register.js';
-import { getConnector } from '../connectors/registry.js';
+import { connectors, getConnector } from '../connectors/registry.js';
 import { pushHostFor } from '../connectors/push-host.js';
 import { connectionsFor, forgetConnection, rememberConnection } from '../connectors/directory.js';
 import {
@@ -950,6 +951,25 @@ const sourceAccountsRoute = createRoute({
 });
 
 /**
+ * The connectors this environment's registry holds that a person can sign in
+ * to ("List the registry's connectors in the Connections window", issue 894):
+ * what the Connections window draws a card from, so adding a source adds its
+ * card without a change to the web app. One that is not registered, such as
+ * Teams where its bot is not configured, is not listed; neither is one with
+ * no sign-in, since its card would have a Connect that goes nowhere.
+ */
+const registeredConnectorsRoute = createRoute({
+  method: 'get',
+  path: '/v1/connectors',
+  responses: {
+    200: {
+      description: 'The connectors a person can sign in to, in registration order',
+      content: { 'application/json': { schema: registeredConnectorListSchema } },
+    },
+  },
+});
+
+/**
  * The apps the signed-in person has allowed into their Cockpit ("See the apps
  * connected to your Cockpit, and disconnect one", issue 600). Only their own:
  * what somebody else allowed, into the same account or not, is theirs to see.
@@ -1527,6 +1547,21 @@ const routes = app
     // connections, the same reasoning the attachment download route records.
     return c.json({ sourceAccounts: await account.sourceAccounts(workspaceId) }, 200);
   })
+  .openapi(registeredConnectorsRoute, (c) =>
+    c.json(
+      {
+        connectors: connectors(c.env)
+          .filter(({ manifest }) => manifest.auth.kind === 'oauth2')
+          .map(({ manifest }) => ({
+            id: manifest.id,
+            displayName: manifest.displayName,
+            cardText: manifest.cardText,
+            asksFirst: manifest.asksFirst === true,
+          })),
+      },
+      200,
+    ),
+  )
   .openapi(connectedAppsRoute, async (c) => {
     return c.json({ apps: await connectedAppsOf(c.env, c.get('visitor').userId) }, 200);
   })
