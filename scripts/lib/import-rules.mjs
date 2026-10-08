@@ -182,7 +182,7 @@ export function findBreaches(imports, rules) {
       if (named.length > 0) {
         const importerNames = sourcesNamedBy(importer, rules);
         for (const source of named) {
-          if (!importerNames.includes(source) && importer !== rules.registry) {
+          if (!importerNames.includes(source) && importer !== rules.registry && !(rules.engines ?? []).includes(importer)) {
             add(importer, imported, `the core may not import ${source} code from a file not named for ${source}`);
           }
         }
@@ -253,6 +253,8 @@ export function relaxations(rules, base) {
     else if (base.sources[id].package && base.sources[id].package !== rules.sources[id].package) out.push(`source ${id} no longer names its package ${base.sources[id].package}`);
   }
   for (const folder of base.core) if (!rules.core.includes(folder)) out.push(`core folder ${folder} was removed`);
+  for (const file of base.engines ?? []) if (!(rules.engines ?? []).includes(file)) out.push(`engine list ${file} was removed`);
+  for (const file of rules.engines ?? []) if (base.engines && !base.engines.includes(file)) out.push(`${file} was added to the engine lists`);
   if (rules.registry !== base.registry) out.push(`the registry changed from ${base.registry} to ${rules.registry}`);
   if (rules.areas.folder !== base.areas.folder) out.push(`the areas folder changed from ${base.areas.folder} to ${rules.areas.folder}`);
   for (const file of rules.areas.root) if (!base.areas.root.includes(file)) out.push(`${file} was added to the composition root`);

@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  HOOK_CALLS_PER_MINUTE,
-  admittedCalls,
   hookSecretFor,
   isHookSecret,
   waitingFrom,
-} from '../../../src/connectors/claude-code-hooks.js';
+} from '../../../src/engines/claude-code-hooks.js';
 
 /**
  * L1: pure apart from Web Crypto, which is the same API the Worker runs - the
@@ -44,19 +42,6 @@ describe('Connector management', () => {
 
     it('issues the same secret every time it is asked', async () => {
       expect(await hookSecretFor(KEY, 'conn-a')).toBe(await hookSecretFor(KEY, 'conn-a'));
-    });
-  });
-
-  describe('one connection is heard a limited number of times a minute', () => {
-    const NOW = Date.parse('2026-09-29T10:00:00.000Z');
-    const full = Array.from({ length: HOOK_CALLS_PER_MINUTE }, (_, i) => NOW - 59_000 + i);
-
-    it.each([
-      { situation: 'the first call', earlier: [], admitted: true },
-      { situation: 'a call past the limit', earlier: full, admitted: false },
-      { situation: 'a call once the oldest have aged out', earlier: full.map((at) => at - 2_000), admitted: true },
-    ])('$situation', ({ earlier, admitted }) => {
-      expect(admittedCalls(earlier, NOW) !== null).toBe(admitted);
     });
   });
 

@@ -10,7 +10,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,11 +34,12 @@ const rules = {
   sources: { gmail: {}, teams: { package: '@cockpit/connector-teams' }, 'claude-code': {} },
   core: ['apps/api', 'apps/web', 'packages/shared'],
   registry: 'apps/api/src/connectors/registry.ts',
+  engines: ['apps/api/src/engines/list.ts', 'apps/web/src/components/engines.ts'],
   areas: {
     folder: 'apps/api/src',
     root: ['worker.ts', 'env.ts', 'index.ts'],
     sharedRoot: ['env.ts'],
-    order: [['http'], ['jobs'], ['accounts'], ['db'], ['ai', 'embeddings'], ['domain']],
+    order: [['http'], ['jobs'], ['engines'], ['connectors'], ['accounts'], ['db'], ['ai', 'embeddings'], ['domain']],
   },
   allowlist: [],
 };
@@ -102,6 +103,39 @@ describe('rule 2: the core does not import source code', () => {
   it('passes a file named for a source importing another file named for the same source', () => {
     assert.deepEqual(breachesOf(api('connectors/gmail-check.ts'), api('connectors/gmail.ts')), []);
     assert.deepEqual(breachesOf(api('http/gmail-routes.ts'), api('http/gmail.ts')), []);
+  });
+});
+
+describe('the engine list: the core reaches an engine only through it', () => {
+  const web = (path) => `apps/web/src/components/${path}`;
+
+  it('fails a generic file importing the engine, naming both files', () => {
+    const [breach] = breachesOf(api('http/app.ts'), api('engines/claude-code.ts'));
+    assert.equal(breach.from, api('http/app.ts'));
+    assert.equal(breach.to, api('engines/claude-code.ts'));
+    assert.match(failuresAgainst([breach], [])[0], /http\/app\.ts imports .*engines\/claude-code\.ts: .*claude-code/);
+    assert.equal(breachesOf(web('ManageConnections.tsx'), web('ConnectClaudeCode.tsx')).length, 1);
+  });
+
+  it('passes the engine list importing the engine, in the API and in the web app', () => {
+    assert.deepEqual(breachesOf(api('engines/list.ts'), api('engines/claude-code.ts')), []);
+    assert.deepEqual(breachesOf(web('engines.ts'), web('ConnectClaudeCode.tsx')), []);
+  });
+
+  it('passes a generic file importing the engine list, which is not named for an engine', () => {
+    assert.deepEqual(breachesOf(api('http/app.ts'), api('engines/list.ts')), []);
+    assert.deepEqual(breachesOf(web('ManageConnections.tsx'), web('engines.ts')), []);
+  });
+
+  it('keeps the engine area below the core areas that reach it and above the ones it reaches', () => {
+    assert.deepEqual(breachesOf(api('http/app.ts'), api('engines/list.ts')), []);
+    assert.equal(breachesOf(api('accounts/store.ts'), api('engines/list.ts')).length, 1);
+    assert.deepEqual(breachesOf(api('engines/claude-code-hooks.ts'), api('connectors/credential-crypto.ts')), []);
+  });
+
+  it('leaves no Claude Code entry on the real allowlist', () => {
+    const { allowlist } = JSON.parse(readFileSync(join(repo, 'scripts/import-rules.json'), 'utf8'));
+    assert.deepEqual(allowlist.filter((entry) => /claude-?code/i.test(`${entry.from} ${entry.to}`)), []);
   });
 });
 
@@ -250,6 +284,6 @@ describe('relaxing the rules themselves', () => {
   it('fails reordering, removing or merging areas', () => {
     assert.match(relaxations(change((r) => { r.areas.order = [['jobs'], ['http'], ['accounts'], ['db'], ['ai', 'embeddings'], ['domain']]; }), rules).join('\n'), /http no longer stays above jobs/);
     assert.match(relaxations(change((r) => { r.areas.order = r.areas.order.filter((tier) => tier[0] !== 'jobs'); }), rules).join('\n'), /http no longer stays above jobs/);
-    assert.match(relaxations(change((r) => { r.areas.order[4] = ['ai']; r.areas.order.splice(5, 0, ['embeddings']); }), rules).join('\n'), /ai and embeddings no longer share a tier/);
+    assert.match(relaxations(change((r) => { r.areas.order[6] = ['ai']; r.areas.order.splice(7, 0, ['embeddings']); }), rules).join('\n'), /ai and embeddings no longer share a tier/);
   });
 });

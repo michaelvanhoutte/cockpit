@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isRoutineTriggerUrl, refusalFor, sessionUrlFrom } from '../../../src/connectors/claude-code.js';
+import { isRoutineTriggerUrl, refusalFor, sessionUrlFrom } from '../../../src/engines/claude-code.js';
 
 /**
  * L1: pure, no network - the check `testClaudeCodeConnection` runs before any

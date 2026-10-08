@@ -34,6 +34,8 @@ sources:
 # (docs/architecture.md, "Connectors: plugin-shaped, host-blind").
 exemptFromSources:
   - apps/api/src/connectors/registry.ts
+  - apps/api/src/engines/list.ts
+  - apps/web/src/components/engines.ts
 
 # A connector package may import its SDK and nothing else of ours: not the
 # shared contract, not the app. `scope` is the prefix of our own packages.
@@ -101,6 +103,9 @@ layers:
       - path: apps/api/src/ai
         name: 'ai'
         description: 'The Claude layer behind a project-owned interface: prompts that clean up a note and choose a panel.'
+      - path: apps/api/src/engines
+        name: 'engines'
+        description: 'Claude Code, the one outbound engine: the trigger check, the fire request, its refusal wording and reading a hook, reached only through engines/list.ts.'
       - path: apps/api/src/embeddings
         name: 'embeddings'
         description: 'Reads what a note means with Workers AI, so a note that repeats another can be flagged.'

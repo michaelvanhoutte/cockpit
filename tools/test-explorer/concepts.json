@@ -391,7 +391,7 @@
       "sourcePatterns": [
         "packages/shared/src/domain/agent.ts",
         "packages/shared/src/domain/agent-run.ts",
-        "apps/api/src/connectors/claude-code.ts",
+        "apps/api/src/engines/claude-code.ts",
         "apps/api/src/http/app.ts",
         "apps/web/src/agentInTheAir.ts",
         "apps/web/src/agentRunChip.ts",

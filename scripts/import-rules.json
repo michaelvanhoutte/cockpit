@@ -34,6 +34,9 @@
         "jobs"
       ],
       [
+        "engines"
+      ],
+      [
         "connectors"
       ],
       [
@@ -100,10 +103,6 @@
     },
     {
       "from": "apps/api/src/accounts/store.ts",
-      "to": "apps/api/src/connectors/claude-code-hooks.ts"
-    },
-    {
-      "from": "apps/api/src/accounts/store.ts",
       "to": "apps/api/src/connectors/gmail-check.ts"
     },
     {
@@ -132,14 +131,6 @@
     },
     {
       "from": "apps/api/src/http/app.ts",
-      "to": "apps/api/src/connectors/claude-code-hooks.ts"
-    },
-    {
-      "from": "apps/api/src/http/app.ts",
-      "to": "apps/api/src/connectors/claude-code.ts"
-    },
-    {
-      "from": "apps/api/src/http/app.ts",
       "to": "apps/api/src/connectors/gmail.ts"
     },
     {
@@ -148,11 +139,11 @@
     },
     {
       "from": "apps/web/src/components/ManageConnections.tsx",
-      "to": "apps/web/src/components/ConnectClaudeCode.tsx"
-    },
-    {
-      "from": "apps/web/src/components/ManageConnections.tsx",
       "to": "apps/web/src/components/ConnectGmail.tsx"
     }
+  ],
+  "engines": [
+    "apps/api/src/engines/list.ts",
+    "apps/web/src/components/engines.ts"
   ]
 }

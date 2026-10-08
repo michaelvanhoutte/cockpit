@@ -34,7 +34,7 @@ import {
  * as claude-code-connections.test.ts does.
  *
  * Not re-proved here: the wording of each refusal status, which is
- * tests/unit/connectors/claude-code.test.ts's; the message template's own
+ * tests/unit/engines/claude-code.test.ts's; the message template's own
  * substitution, which is packages/shared/tests/unit/domain/agent.test.ts's;
  * what the chip says for each run, which is the web app's own F1 test.
  */
