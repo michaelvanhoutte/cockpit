@@ -47,7 +47,6 @@ import {
   schedulePulledChecks,
   type PulledRunBegun,
 } from './pulled.js';
-import { pulledConnectorIds } from '../connectors/registry.js';
 import type { EmittedItem, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
 import { APP_CAPTURES_PER_MINUTE } from '../mcp/create-item.js';
 import {
@@ -183,8 +182,15 @@ function spentAllowance(error: unknown): Answer<never> {
  * first one - the object stays in memory and remembers - and on the first call
  * after a deploy it is the only moment an outstanding change can be applied,
  * because no deploy step can reach an object that does not exist yet.
+ *
+ * **Completed by the composition root** (`worker.ts`, which deploys it as
+ * `AccountStore`): which connectors are pulled is the registry's to say, and
+ * an account's store may not import a connector.
  */
-export class AccountStore extends DurableObject<Env> implements AccountStoreRpc {
+export abstract class AccountStoreBase extends DurableObject<Env> implements AccountStoreRpc {
+  /** The connectors Cockpit pulls from, whose connections this store keeps a check armed for ("Check a pulled connector on its cadence through the generic host", issue 891). */
+  protected abstract pulledConnectorIds(): readonly string[];
+
   #db: AccountDb | null = null;
   #upToDate = false;
   /** The hook calls each Claude Code connection was admitted for, newest last - see `claudeCodeHookArrived`. */
@@ -831,7 +837,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     accountName: string,
   ): Promise<Answer<'armed' | 'already armed' | 'nothing to check'>> {
     const due = this.#answer(accountName, (db) =>
-      schedulePulledChecks(db, accountName, pulledConnectorIds(this.env), new Date()),
+      schedulePulledChecks(db, accountName, this.pulledConnectorIds(), new Date()),
     );
     if (due.status !== 'ok') return due;
     if (due.value === null) return { status: 'ok', value: 'nothing to check' };
@@ -1000,7 +1006,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     let due: string[] = [];
     try {
       this.#bringUpToDate(accountName);
-      due = queueDuePulledChecks(this.#database(), accountName, pulledConnectorIds(this.env), dueBy, new Date());
+      due = queueDuePulledChecks(this.#database(), accountName, this.pulledConnectorIds(), dueBy, new Date());
     } catch (error) {
       console.error(
         JSON.stringify({
@@ -1042,7 +1048,7 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       const gmail = holdsGmailConnection(db, accountName)
         ? (this.ctx.storage.kv.get<number>(GMAIL_CHECK_DUE) ?? Date.now())
         : null;
-      const pulledDue = schedulePulledChecks(db, accountName, pulledConnectorIds(this.env), new Date());
+      const pulledDue = schedulePulledChecks(db, accountName, this.pulledConnectorIds(), new Date());
       const pulled = pulledDue === null ? null : Date.parse(pulledDue);
       next = gmail === null ? pulled : pulled === null ? gmail : Math.min(gmail, pulled);
     } catch {

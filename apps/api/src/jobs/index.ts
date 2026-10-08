@@ -4,6 +4,8 @@ import { keepEveryAccountCheckingGmail, resetGuestAccount } from '../accounts/in
 import { purgeOldSignIns } from '../auth/sign-in-history.js';
 import {
   cleanUpACapturedNote,
+  enqueueCleanUp,
+  enqueueReadingItsMeaning,
   enrichmentJobSchema,
   readWhatANoteMeans,
   reproposePanels,
@@ -221,7 +223,10 @@ function run(env: Env, job: EnrichmentJob): Promise<void> {
     case 'guest-arrival':
       return captureGuestArrival(env, job);
     case 'check-a-pulled-connection':
-      return checkPulledConnection(env, job);
+      return checkPulledConnection(env, job, async (accountName, itemId) => {
+        await enqueueCleanUp(env, accountName, itemId);
+        await enqueueReadingItsMeaning(env, accountName, itemId);
+      });
   }
 }
 

@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray, isNull, lte, min } from 'drizzle-orm';
 import type { EmittedItem, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
 import type { AccountDb } from './client.js';
-import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
+import { GUEST_ACCOUNT_NAME } from './new-user.js';
 import { noteTypeId } from './changes.js';
 import { runCommand } from './command-service.js';
 import { listItemTypes } from './repo.js';

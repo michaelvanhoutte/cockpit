@@ -7,8 +7,6 @@ import {
   type PulledRun,
 } from '../accounts/index.js';
 import type { PulledRunStarted } from '../accounts/pulled.js';
-import type { CheckPulledConnectionJob } from '../jobs/enrichment.js';
-import { enqueueCleanUp, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { open, seal, sealingKey, type Sealed } from './credential-crypto.js';
 import { derivedUuid } from './push-host.js';
 import { getConnector } from './registry.js';
@@ -37,8 +35,16 @@ import { getConnector } from './registry.js';
  * failing is thrown to the queue's retry. Anything thrown during `sync`, the
  * connector's own calls back into the store among it, is a check that failed,
  * which the connection's row says, and is not retried before its turn.
+ *
+ * `filed` is what an Item newly filed asks for - the jobs capture's own route
+ * queues - handed in by the queue consumer, since a connector may not import
+ * the jobs it runs under.
  */
-export async function checkPulledConnection(env: Env, job: CheckPulledConnectionJob): Promise<void> {
+export async function checkPulledConnection(
+  env: Env,
+  job: { accountName: string; sourceAccountId: string },
+  filed: (accountName: string, itemId: string) => Promise<void>,
+): Promise<void> {
   let account: Account;
   try {
     account = await openAccount(env, job.accountName);
@@ -56,7 +62,7 @@ export async function checkPulledConnection(env: Env, job: CheckPulledConnection
     if (!connector?.manifest.pulled) {
       throw new Error(`this version of Cockpit does not check ${begun.connectorId}`);
     }
-    await connector.sync(pulledHost(env, job.accountName, begun, run));
+    await connector.sync(pulledHost(env, begun, run, (itemId) => filed(job.accountName, itemId)));
   } catch (error) {
     failing = error instanceof Error ? error.message : String(error);
     logged(begun.connectorId, 'error', `a check of connection ${job.sourceAccountId} failed`, failing);
@@ -65,7 +71,12 @@ export async function checkPulledConnection(env: Env, job: CheckPulledConnection
 }
 
 /** What a connector may do with the one connection this run holds. */
-function pulledHost(env: Env, accountName: string, begun: PulledRunStarted, run: PulledRun): ConnectorHost {
+function pulledHost(
+  env: Env,
+  begun: PulledRunStarted,
+  run: PulledRun,
+  filed: (itemId: string) => Promise<void>,
+): ConnectorHost {
   const { connectorId } = begun;
   /** The sealed credential this run opened, and what it opened to - the latest rotated one, once there is one. */
   let opened: { sealed: Sealed; credential: string } | null = null;
@@ -126,15 +137,14 @@ function pulledHost(env: Env, accountName: string, begun: PulledRunStarted, run:
       // name one Item.
       const named = JSON.stringify([begun.workspaceId, connectorId, begun.externalAccountKey, sourceId]);
       const itemId = await derivedUuid(`pulled-item:${named}`);
-      const filed = await run.fileItem(
+      const answer = await run.fileItem(
         { ...item, sourceId },
         { itemId, commandId: await derivedUuid(`pulled-capture:${named}`) },
       );
       // Disconnected meanwhile: nothing was filed, and nothing is asked of
       // the connector - the run ends with whatever it does next.
-      if (filed !== 'filed') return 'already-known';
-      await enqueueCleanUp(env, accountName, itemId);
-      await enqueueReadingItsMeaning(env, accountName, itemId);
+      if (answer !== 'filed') return 'already-known';
+      await filed(itemId);
       return 'filed';
     },
 
