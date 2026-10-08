@@ -16,11 +16,9 @@ import {
   REMOTE_SESSION_HEADER,
   startAgentOutcomeSchema,
   startAgentSchema,
-  CLAUDE_CODE,
   commandResultSchema,
   commandSchemas,
   connectClaudeCodeSchema,
-  connectorNamed,
   demoAddress,
   MAX_ATTACHMENT_SIZE,
   itemTypeListSchema,
@@ -31,7 +29,6 @@ import {
   signedInSchema,
   registeredConnectorListSchema,
   sourceAccountListSchema,
-  GMAIL,
   uuidv7,
   userAddedSchema,
   userChangedSchema,
@@ -42,6 +39,7 @@ import {
   type CommandPayload,
   type CommandResult,
 } from '@cockpit/shared';
+import { CLAUDE_CODE, CLAUDE_CODE_NAME, GMAIL } from '../domain/named-sources.js';
 import {
   AccountNotInRegisterError,
   AccountNotUpToDateError,
@@ -142,7 +140,7 @@ import {
   signInAsGuest,
   signInWithGoogle,
 } from '../auth/register.js';
-import { connectors, getConnector } from '../connectors/registry.js';
+import { connectors, getConnector, sourceNames } from '../connectors/registry.js';
 import { pushHostFor } from '../connectors/push-host.js';
 import { connectionsFor, forgetConnection, rememberConnection } from '../connectors/directory.js';
 import {
@@ -1539,7 +1537,7 @@ const routes = app
     // Opening a Workspace is opening its Dashboards: the read the app makes
     // each time one is shown (issue 653).
     await countForGuest(c.env, c.get('sessionId'), 'dashboardsOpened');
-    return c.json({ ...snapshot, generatedAt: new Date().toISOString() }, 200);
+    return c.json({ ...snapshot, sourceNames: sourceNames(c.env), generatedAt: new Date().toISOString() }, 200);
   })
   .openapi(sourceAccountsRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
@@ -1630,7 +1628,7 @@ const routes = app
       // "one Claude Code connection per workspace" - pressing Connect again
       // upserts onto this same key rather than ever adding a second row.
       externalAccountKey: 'connection',
-      displayName: connectorNamed(CLAUDE_CODE),
+      displayName: CLAUDE_CODE_NAME,
       ...sealed,
     });
     return c.json({ accepted: true }, 200);

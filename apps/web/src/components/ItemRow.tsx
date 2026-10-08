@@ -5,7 +5,6 @@ import {
   itemHasOpenReadings,
   itemLabel,
   itemStatus,
-  connectorNamed,
   panelPlace,
   runBlocksAStart,
   STARTING_GIVES_UP_AFTER_MS,
@@ -27,7 +26,7 @@ import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { landItem, liftItem } from '../itemInTheAir';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
-import { capturingApp, openableAtSource } from '../itemSource';
+import { capturingApp, openableAtSource, sourceNamed, type SourceNames } from '../itemSource';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useUndo } from '../undo';
@@ -77,6 +76,7 @@ const EMPTY_ALSO_IN: readonly string[] = [];
 export function ItemRow({
   item,
   itemType,
+  sourceNames,
   workspaceId,
   inInbox = false,
   liftedFrom,
@@ -104,6 +104,8 @@ export function ItemRow({
    * types existed, and one whose type was deleted, both have none.
    */
   itemType?: ItemType | undefined;
+  /** What each source is called, from the Workspace's snapshot, for the same reason `itemType` is handed in. */
+  sourceNames?: SourceNames;
   workspaceId: string;
   /**
    * That this row is drawn in the Inbox rather than on a Panel or a Filter
@@ -453,7 +455,7 @@ export function ItemRow({
 
   /** The best label this Item has, worked out once for the two places the row draws it. */
   const label = itemLabel(item);
-  const atSource = openableAtSource(item);
+  const atSource = openableAtSource(item, sourceNames);
   /** What "also in…" reads, whole - the same sentence the tooltip spells out when the row has cut it. */
   const alsoInText = alsoIn.length > 0 ? `also in ${alsoIn.join(', ')}` : null;
 
@@ -1225,10 +1227,10 @@ export function ItemRow({
               ))}
             <span className="truncate">
               {itemType ? '· ' : ''}
-              {/* The source by the name the form gives it - "Gmail", never the
-                  stored `mail` ("Connect a Gmail account to a workspace, and
-                  disconnect it", issue 724). */}
-              {capturingApp(item) ?? (item.source === 'internal' ? 'Own' : connectorNamed(item.source))}
+              {/* The source by the name its connector gives it - "Gmail",
+                  never the id `gmail` ("Take source names out of the shared
+                  contract", issue 927). */}
+              {capturingApp(item) ?? (item.source === 'internal' ? 'Own' : sourceNamed(sourceNames, item.source))}
               {item.sender && !capturingApp(item) ? ` · ${item.sender}` : ''}
             </span>
             {/* The way back to the original, where the source gave one ("Open an

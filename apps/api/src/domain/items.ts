@@ -1,5 +1,4 @@
 import {
-  GMAIL,
   isStoredSource,
   textsFromCapture,
   type AssociateCommand,
@@ -20,6 +19,7 @@ import {
   type Source,
   type StoredSource,
 } from '@cockpit/shared';
+import { GMAIL } from './named-sources.js';
 
 /**
  * Pure command handlers (architecture §6.1: domain imports nothing from the
@@ -57,8 +57,8 @@ export type StoredItem = Omit<Item, 'source'> & {
  * ("Store Gmail Items under their connector id", issue 926): the connector
  * column is the authority for every connector-made Item, and `mail` is a value
  * the old column already holds, so a new Gmail Item is stored exactly as
- * `0062-gmail-items-under-their-connector` rewrites an old one. `mail` is what
- * capture still says and what the read still serves; either name lands here.
+ * `0062-gmail-items-under-their-connector` rewrites an old one. Capture still
+ * says `mail` and the read serves `gmail`; either name lands here.
  */
 export function asStored(item: Item): StoredItem {
   if (item.source === 'mail' || item.source === GMAIL) return { ...item, source: 'mail', sourceConnector: GMAIL };

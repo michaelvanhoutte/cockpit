@@ -11,12 +11,15 @@ import { openableAtSource, whereALinkOpens } from '../../src/itemSource';
  */
 const itemFrom = (source: Source, sourceLink: string | null): Item => ({ source, sourceLink, sender: 'Els Maes' }) as Item;
 
+/** What the Workspace's snapshot calls each source (issue 927). */
+const NAMES = { gmail: 'Gmail', teams: 'Microsoft Teams' };
+
 describe('Connector management', () => {
   describe('Open on a demo item opens Cockpit’s own page for its source, and on any other item opens the source as before', () => {
     it.each([
       {
         situation: 'a demo Gmail address',
-        item: itemFrom('mail', 'https://demo.cockpit.invalid/gmail'),
+        item: itemFrom('gmail', 'https://demo.cockpit.invalid/gmail'),
         opens: { name: 'Gmail', link: '/demo/gmail' },
       },
       {
@@ -26,12 +29,12 @@ describe('Connector management', () => {
       },
       {
         situation: 'an unknown path on the demo host',
-        item: itemFrom('mail', 'https://demo.cockpit.invalid/anything-else'),
+        item: itemFrom('gmail', 'https://demo.cockpit.invalid/anything-else'),
         opens: null,
       },
       {
         situation: 'a real Gmail link on a named person’s item',
-        item: itemFrom('mail', 'https://mail.google.com/mail/u/0/#inbox/18c0ffee'),
+        item: itemFrom('gmail', 'https://mail.google.com/mail/u/0/#inbox/18c0ffee'),
         opens: { name: 'Gmail', link: 'https://mail.google.com/mail/u/0/#inbox/18c0ffee' },
       },
       {
@@ -39,19 +42,14 @@ describe('Connector management', () => {
         item: itemFrom('teams', 'https://teams.microsoft.com/l/message/19:abc/1'),
         opens: { name: 'Microsoft Teams', link: 'https://teams.microsoft.com/l/message/19:abc/1' },
       },
-      { situation: 'an item with no link', item: itemFrom('mail', null), opens: null },
-      {
-        situation: 'a real Gmail link on an item from its connector',
-        item: itemFrom('gmail', 'https://mail.google.com/mail/u/0/#inbox/18c0ffee'),
-        opens: { name: 'Gmail', link: 'https://mail.google.com/mail/u/0/#inbox/18c0ffee' },
-      },
+      { situation: 'an item with no link', item: itemFrom('gmail', null), opens: null },
       {
         situation: 'a link from a connector nothing names',
         item: itemFrom('outlook', 'https://outlook.example/m/1'),
         opens: { name: 'outlook', link: 'https://outlook.example/m/1' },
       },
     ])('$situation', ({ item, opens }) => {
-      expect(openableAtSource(item)).toEqual(opens);
+      expect(openableAtSource(item, NAMES)).toEqual(opens);
     });
   });
 
