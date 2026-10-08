@@ -1597,6 +1597,38 @@ describe('Layouts', () => {
       ).toEqual([{ id: 'ly-wide' }]);
     });
   });
+
+  describe('every layout an account already had reads exactly as before once Sections can be titled', () => {
+    /**
+     * `0059-layout-row-titles`'s direction that matters: every row already
+     * stored takes no title, so it is the row of Panels it was and no Section
+     * appears on any Dashboard the day it lands ("Add, rename and delete a
+     * titled Section on a Dashboard", issue 896).
+     */
+    it('reads every row with its panels and height, and none of them titled', async () => {
+      const name = 'aged-store-before-layout-row-titles';
+      await agedTo(name, justBefore('0059-layout-row-titles'));
+      await fillWithWhatIsAlreadyThere(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot).toMatchObject({ status: 'ok' });
+      expect(
+        snapshot.status === 'ok'
+          ? snapshot.value.layouts.map((layout) => ({ id: layout.id, rows: layout.rows }))
+          : [],
+      ).toEqual([
+        {
+          id: 'ly-before',
+          rows: [
+            { height: 248, cells: [{ panelId: 'pn-before', span: 8 }] },
+            { height: 164, cells: [{ panelId: 'pn-wrapped', span: 5 }] },
+          ],
+        },
+      ]);
+    });
+  });
 });
 
 describe('Panels', () => {

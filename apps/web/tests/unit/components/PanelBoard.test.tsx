@@ -3901,3 +3901,43 @@ describe('Dashboards', () => {
     });
   });
 });
+/**
+ * F1: a Section on the board ("Add, rename and delete a titled Section on a
+ * Dashboard", issue 896). Where it is placed is
+ * apps/web/tests/unit/panels/arrangement.test.ts; what is asked here is how
+ * the board draws it and what its menu offers.
+ */
+describe('Layouts', () => {
+  const withASection: Layout = {
+    id: 'mine',
+    tenantId: 'tenant',
+    dashboardId: 'today',
+    rows: [
+      { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
+      { height: null, title: 'This week', cells: [] },
+      { height: null, cells: [{ panelId: 'reading', span: 12 }] },
+    ],
+  };
+
+  describe('a Section is drawn as a band with its title, no count and no box, and its menu offers Rename and Delete only', () => {
+    it('draws its title between the rows it sits between, as no Panel', () => {
+      showBoard({ layouts: [withASection] });
+
+      const band = screen.getByRole('heading', { name: 'This week' }).closest('[data-panel-row]')!;
+      expect(band).toHaveTextContent(/^This week$/);
+      expect(band.querySelector('section')).toBeNull();
+      const rows = [...document.querySelectorAll('[data-panel-row]')];
+      expect(rows.indexOf(band)).toBe(1);
+      expect(panelOrderOnScreen()).toEqual(['Project Falcon', 'To read']);
+    });
+
+    it('offers Rename and Delete, and nothing a Panel offers', async () => {
+      const { user } = showBoard({ layouts: [withASection] });
+
+      await user.click(menuButtonOf('This week'));
+
+      const entries = (await screen.findAllByRole('menuitem')).map((entry) => entry.textContent);
+      expect(entries).toEqual(['Rename', 'Delete']);
+    });
+  });
+});

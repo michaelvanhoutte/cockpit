@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { prioritySchema, workspaceNameSchema } from './item.js';
+import { NAME_MAX_LENGTH, isSingleLine, prioritySchema, workspaceNameSchema } from './item.js';
 
 /**
  * Panels and the layouts that arrange them ("Panels on a dashboard, with
@@ -469,12 +469,32 @@ export const layoutCellSchema = z.object({
 });
 export type LayoutCell = z.infer<typeof layoutCellSchema>;
 
-/** One row of a layout: the Panels across it, in order, and how tall it is (architecture.md §4.4). */
+/**
+ * One row of a layout: the Panels across it, in order, and how tall it is
+ * (architecture.md §4.4). **A row carrying a title is a Section** ("Add,
+ * rename and delete a titled Section on a Dashboard", issue 896): it holds no
+ * Panels and is drawn as a band. A row of Panels carries no title at all, so a
+ * copy from before Sections reads exactly as it did.
+ */
 export const layoutRowSchema = z.object({
   height: z.number().nullable().default(null),
+  title: z.string().optional(),
   cells: z.array(layoutCellSchema),
 });
 export type LayoutRow = z.infer<typeof layoutRowSchema>;
+
+/** Whether a row is a Section: a title and no Panels (`layoutRowSchema`). */
+export function rowIsSection(row: Pick<LayoutRow, 'title'>): boolean {
+  return typeof row.title === 'string';
+}
+
+/** A Section's title obeys the rules a Panel's name does, under its own words, and need not be unique. */
+export const sectionTitleSchema = z
+  .string()
+  .trim()
+  .min(1, { message: 'a section needs a title' })
+  .max(NAME_MAX_LENGTH, { message: `a section title is at most ${NAME_MAX_LENGTH} characters` })
+  .refine(isSingleLine, { message: 'a section title is a single line, without tabs or line breaks' });
 
 /**
  * A Dashboard's one arrangement of its Panels ("Convert every Dashboard to its
@@ -498,11 +518,30 @@ export const cellInputSchema = z.object({
 });
 export type CellInput = z.infer<typeof cellInputSchema>;
 
-/** A row on the way in. An empty one is refused (architecture.md §4.4). */
-export const rowInputSchema = z.object({
-  height: z.number().int().min(MIN_ROW_HEIGHT).max(MAX_ROW_HEIGHT).nullable(),
-  cells: z.array(cellInputSchema).min(1),
-});
+/**
+ * A row on the way in: Panels and no title, or a Section's title and nothing
+ * else. A row with neither is refused (architecture.md §4.4).
+ */
+export const rowInputSchema = z
+  .object({
+    height: z.number().int().min(MIN_ROW_HEIGHT).max(MAX_ROW_HEIGHT).nullable(),
+    title: sectionTitleSchema.optional(),
+    cells: z.array(cellInputSchema),
+  })
+  .superRefine((row, ctx) => {
+    if (row.title === undefined) {
+      if (row.cells.length === 0) {
+        ctx.addIssue({ code: 'custom', path: ['cells'], message: 'a row holds at least one panel' });
+      }
+      return;
+    }
+    if (row.cells.length > 0) {
+      ctx.addIssue({ code: 'custom', path: ['cells'], message: 'a section holds no panels' });
+    }
+    if (row.height !== null) {
+      ctx.addIssue({ code: 'custom', path: ['height'], message: 'a section has no height of its own' });
+    }
+  });
 export type RowInput = z.infer<typeof rowInputSchema>;
 
 /**

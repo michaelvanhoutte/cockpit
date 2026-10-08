@@ -435,11 +435,17 @@ export function listLayoutRows(
       layoutId: layoutRows.layoutId,
       rowIndex: layoutRows.rowIndex,
       height: layoutRows.height,
+      title: layoutRows.title,
     })
     .from(layoutRows)
     .where(and(eq(layoutRows.tenantId, tenantId), eq(layoutRows.layoutId, layoutId)))
     .orderBy(asc(layoutRows.rowIndex))
     .all();
+}
+
+/** One layout's rows as the snapshot draws them, which is what a save from a tab that predates Sections is placed against. */
+export function storedRowsOf(db: AccountDb, tenantId: string, layoutId: string): LayoutRow[] {
+  return rowsOf(listLayoutRows(db, tenantId, layoutId), listPlacements(db, tenantId, layoutId));
 }
 
 /** One layout's cells, in the order they are drawn in: by row, then along it. */
@@ -547,6 +553,7 @@ export function listLayoutsInWorkspace(
       layoutId: layoutRows.layoutId,
       rowIndex: layoutRows.rowIndex,
       height: layoutRows.height,
+      title: layoutRows.title,
     })
     .from(layoutRows)
     .innerJoin(layouts, eq(layoutRows.layoutId, layouts.id))
@@ -573,26 +580,29 @@ export function listLayoutsInWorkspace(
 /**
  * One layout's rows, assembled from the two lists that carry them.
  *
- * **The rows are what the arrangement is**, so a row with no cells is dropped
- * rather than drawn: a save writes both lists in one transaction and never
- * leaves an empty one behind, but a row whose only panel was deleted is exactly
- * that state, and a blank line on the dashboard is not what a deleted panel
- * should look like.
+ * **The rows are what the arrangement is**, so a row with no cells and no title
+ * is dropped rather than drawn: a save writes both lists in one transaction and
+ * never leaves an empty one behind, but a row whose only panel was deleted is
+ * exactly that state, and a blank line on the dashboard is not what a deleted
+ * panel should look like. **A titled row is a Section** and is kept with no
+ * cells, which is all it ever holds; a row of Panels carries no title at all,
+ * so it reads exactly as it did before Sections.
  *
  * Both lists arrive ordered, so this only groups.
  */
 function rowsOf(
-  heights: readonly { rowIndex: number; height: number | null }[],
+  heights: readonly { rowIndex: number; height: number | null; title: string | null }[],
   cells: readonly { panelId: string; rowIndex: number; span: number }[],
 ): LayoutRow[] {
   return heights
-    .map((row) => ({
+    .map((row): LayoutRow => ({
       height: row.height,
+      ...(row.title === null ? {} : { title: row.title }),
       cells: cells
         .filter((cell) => cell.rowIndex === row.rowIndex)
         .map(({ panelId, span }) => ({ panelId, span })),
     }))
-    .filter((row) => row.cells.length > 0);
+    .filter((row) => row.cells.length > 0 || row.title !== undefined);
 }
 
 /**

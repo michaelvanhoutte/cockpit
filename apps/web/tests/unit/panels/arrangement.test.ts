@@ -8,9 +8,13 @@ import {
   movedBeside,
   movedRow,
   movedToOwnRow,
+  rowsToSave,
   sharesOf,
   stackedOnPhone,
   withRowHeight,
+  withSectionAdded,
+  withSectionDeleted,
+  withSectionRenamed,
 } from '../../../src/panels/arrangement';
 
 /**
@@ -398,6 +402,71 @@ describe('Layouts', () => {
 
     it('leaves the arrangement alone for a row that is not there', () => {
       expect(movedRow(rows, 7, 0)).toEqual(rows);
+    });
+  });
+
+  /**
+   * A Section is a titled row holding no Panels ("Add, rename and delete a
+   * titled Section on a Dashboard", issue 896). What the store keeps is
+   * apps/api/tests/integration/http/panels.test.ts; what is decided here is
+   * where the board draws it and what each change to one leaves.
+   */
+  describe('a Section keeps its place among the rows, with or without Panels under it', () => {
+    const week = (title = 'This week'): LayoutRow => ({ height: null, title, cells: [] });
+    const lines = (rows: readonly LayoutRow[]) =>
+      rows.map((row) => row.title ?? row.cells.map((one) => one.panelId).join(' '));
+    const layout = aLayout('mine', [
+      week('Now'),
+      aRow([cell('a', 6), cell('b', 6)]),
+      week(),
+      week('Later'),
+      aRow([cell('gone', 12)]),
+    ]);
+
+    it.each([
+      {
+        situation: 'drawn on a wide screen, its last Panel gone',
+        draw: () => drawnRows(layout, [aPanel('a'), aPanel('b')], 1280),
+        lines: ['Now', 'a b', 'This week', 'Later'],
+      },
+      {
+        situation: 'stacked on a phone',
+        draw: () => stackedOnPhone(layout, [aPanel('a'), aPanel('b')]),
+        lines: ['Now', 'a', 'b', 'This week', 'Later'],
+      },
+      {
+        situation: 'a Panel moved away from under it',
+        draw: () => movedToOwnRow(drawnRows(layout, [aPanel('a'), aPanel('b')], 1280), 'a', 4),
+        lines: ['Now', 'b', 'This week', 'Later', 'a'],
+      },
+      {
+        situation: 'added, at the foot',
+        draw: () => withSectionAdded([aRow([cell('a', 12)])], 'Next'),
+        lines: ['a', 'Next'],
+      },
+      {
+        situation: 'the second of three renamed',
+        draw: () => withSectionRenamed(layout.rows, 1, 'Soon'),
+        lines: ['Now', 'a b', 'Soon', 'Later', 'gone'],
+      },
+      {
+        situation: 'the second of three deleted',
+        draw: () => withSectionDeleted(layout.rows, 1),
+        lines: ['Now', 'a b', 'Later', 'gone'],
+      },
+    ])('$situation', ({ draw, lines: expected }) => {
+      expect(lines(draw())).toEqual(expected);
+    });
+
+    it('is never given a height, which a Section does not have', () => {
+      expect(withRowHeight([week()], 0, 300)).toEqual([week()]);
+    });
+
+    it('is sent with its title and nothing else', () => {
+      expect(rowsToSave([{ ...week(), height: 240 }, aRow([cell('a', 6)], 300)])).toEqual([
+        { height: null, title: 'This week', cells: [] },
+        { height: 300, cells: [cell('a', 6)] },
+      ]);
     });
   });
 });

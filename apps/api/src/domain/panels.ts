@@ -3,9 +3,11 @@ import {
   FIRST_PANEL_NAME,
   NAME_MAX_LENGTH,
   panelFilterAsStored,
+  rowIsSection,
 } from '@cockpit/shared';
 import type {
   AddPanelCommand,
+  LayoutRow,
   Panel,
   PanelFormat,
   RowInput,
@@ -220,6 +222,8 @@ export interface LayoutRowRow {
   layoutId: string;
   rowIndex: number;
   height: number | null;
+  /** A Section's title, and null on a row of Panels. */
+  title: string | null;
 }
 
 /**
@@ -253,9 +257,59 @@ export function arrangementRows(
     });
   });
   return {
-    rows: rows.map((row, rowIndex) => ({ tenantId, layoutId, rowIndex, height: row.height })),
+    rows: rows.map((row, rowIndex) => ({
+      tenantId,
+      layoutId,
+      rowIndex,
+      height: row.height,
+      title: row.title ?? null,
+    })),
     placements,
   };
+}
+
+/**
+ * The rows a save from a tab that predates Sections becomes: its own rows, with
+ * every Section the store holds put back above the Panel it headed - the first
+ * Panel of the next row of Panels under it - and at the end where that Panel is
+ * not in the save, or where the Section headed nothing.
+ *
+ * Such a tab never sends a Section, so without this its next drag would delete
+ * every one (issue 896, decision 3 of its technical design).
+ */
+export function withStoredSections(
+  rows: readonly RowInput[],
+  stored: readonly LayoutRow[],
+): RowInput[] {
+  const headed: { title: string; panelId: string | null }[] = [];
+  let waiting: string[] = [];
+  for (const row of stored) {
+    if (rowIsSection(row)) {
+      waiting.push(row.title!);
+      continue;
+    }
+    const first = row.cells[0]?.panelId;
+    if (!first) continue;
+    for (const title of waiting) headed.push({ title, panelId: first });
+    waiting = [];
+  }
+  for (const title of waiting) headed.push({ title, panelId: null });
+  if (headed.length === 0) return [...rows];
+
+  const placed = new Set<number>();
+  const out: RowInput[] = [];
+  for (const row of rows) {
+    headed.forEach((section, at) => {
+      if (placed.has(at) || !row.cells.some((cell) => cell.panelId === section.panelId)) return;
+      placed.add(at);
+      out.push({ height: null, title: section.title, cells: [] });
+    });
+    out.push(row);
+  }
+  headed.forEach((section, at) => {
+    if (!placed.has(at)) out.push({ height: null, title: section.title, cells: [] });
+  });
+  return out;
 }
 
 /**
@@ -264,7 +318,7 @@ export function arrangementRows(
  * column added there is a value added here.
  */
 export const PLACEMENT_VALUES_PER_ROW = 6;
-export const LAYOUT_ROW_VALUES_PER_ROW = 4;
+export const LAYOUT_ROW_VALUES_PER_ROW = 5;
 
 /**
  * Where a newly added panel goes in a layout that already exists: in a row of
@@ -290,7 +344,7 @@ export function appendedPlacement(
   // have contiguous indexes, and counting would collide with a row that exists.
   const rowIndex = (existingRows.at(-1)?.rowIndex ?? -1) + 1;
   return {
-    row: { tenantId, layoutId, rowIndex, height: null },
+    row: { tenantId, layoutId, rowIndex, height: null, title: null },
     placement: { tenantId, layoutId, panelId, rowIndex, position: 0, span: DEFAULT_CELL_SPAN },
   };
 }

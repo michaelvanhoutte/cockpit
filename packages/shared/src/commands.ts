@@ -288,6 +288,13 @@ export type SetPanelSortCommand = z.infer<typeof setPanelSortSchema>;
 export const saveLayoutSchema = commandEnvelopeSchema.extend({
   dashboardId: z.string(),
   layoutId: z.uuid(),
+  /**
+   * Sent by every client that knows Sections, so a save with none in `rows`
+   * deletes them. A save without it is from a tab that predates them, and keeps
+   * the stored Sections where they were ("Add, rename and delete a titled
+   * Section on a Dashboard", issue 896).
+   */
+  carriesSections: z.literal(true).optional(),
   /** The rows, top to bottom. An arrangement is the whole list. */
   rows: z
     .array(rowInputSchema)

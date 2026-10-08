@@ -28,6 +28,7 @@ import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { setPanelsCollapsed, usePanelsCollapsed } from '../../../src/panelsCollapsed';
 import { DWELL_MS } from '../../../src/switchWhileDragging';
 import { WHAT_A_DASHBOARD_IS, WHAT_A_PANEL_IS } from '../../../src/whatThingsAre';
+import { publishBoardRows, withdrawBoardRows } from '../../../src/panels/boardRows';
 
 /**
  * F1: what is under test is the bar's own behaviour - what it shows, what it
@@ -1189,6 +1190,84 @@ describe('Panels', () => {
       await user.click(screen.getByRole('button', { name: 'Add' }));
 
       expect(mutate.mock.calls[0]![0].payload.kind).toBe('items');
+    });
+  });
+});
+
+/**
+ * F1: + Panel offering a Section, which is a titled row of the Dashboard's
+ * arrangement rather than a Panel ("Add, rename and delete a titled Section on
+ * a Dashboard", issue 896). What the question says and the arrangement it
+ * sends are this bar's; that the store keeps it is
+ * apps/api/tests/integration/http/panels.test.ts.
+ */
+describe('Layouts', () => {
+  const OPEN = 'ws-work-dashboard 1';
+
+  afterEach(() => withdrawBoardRows(OPEN));
+
+  describe('+ Panel offers a Section, which asks for its name and lands at the foot of the board', () => {
+    it('asks what the new section is called once Section is chosen', async () => {
+      const { user } = showBar(['Dashboard 1'], { openDashboardId: OPEN });
+
+      await user.click(await screen.findByRole('button', { name: '+ Panel' }));
+      await user.click(screen.getByRole('radio', { name: /Section/ }));
+
+      expect(screen.getByRole('dialog')).toHaveAccessibleName('What is the new section called?');
+    });
+
+    const falcon = aPanel('Falcon', OPEN);
+    const anna = aPanel('Anna', OPEN);
+    it.each([
+      {
+        situation: 'a dashboard already arranged',
+        layouts: [
+          {
+            id: '018f0000-0000-7000-8000-00000000000a',
+            tenantId: 'tenant',
+            dashboardId: OPEN,
+            rows: [{ height: 300, cells: [{ panelId: falcon.id, span: 8 }, { panelId: anna.id, span: 4 }] }],
+          },
+        ],
+        drawnOnTheBoard: null,
+        layoutId: '018f0000-0000-7000-8000-00000000000a',
+        before: [{ height: 300, cells: [{ panelId: falcon.id, span: 8 }, { panelId: anna.id, span: 4 }] }],
+      },
+      {
+        situation: 'a dashboard nobody has arranged, as the board draws it',
+        layouts: [],
+        drawnOnTheBoard: [
+          { height: null, cells: [{ panelId: falcon.id, span: 12 }] },
+          { height: null, cells: [{ panelId: anna.id, span: 12 }] },
+        ],
+        layoutId: null,
+        before: [
+          { height: null, cells: [{ panelId: falcon.id, span: 12 }] },
+          { height: null, cells: [{ panelId: anna.id, span: 12 }] },
+        ],
+      },
+    ])('puts it after the last row of $situation', async ({ layouts, drawnOnTheBoard, layoutId, before }) => {
+      if (drawnOnTheBoard) publishBoardRows(OPEN, drawnOnTheBoard);
+      const { user, mutate } = showBar(['Dashboard 1'], {
+        openDashboardId: OPEN,
+        panels: [falcon, anna],
+        layouts,
+      });
+
+      await user.click(await screen.findByRole('button', { name: '+ Panel' }));
+      await user.click(screen.getByRole('radio', { name: /Section/ }));
+      await user.type(screen.getByLabelText('Name of the new panel'), '  This week  ');
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      const [asked] = mutate.mock.calls[0]! as unknown as [{ name: string; payload: Record<string, unknown> }];
+      expect(asked.name).toBe('save_layout');
+      expect(asked.payload).toMatchObject({
+        dashboardId: OPEN,
+        carriesSections: true,
+        rows: [...before, { height: null, title: 'This week', cells: [] }],
+      });
+      if (layoutId) expect(asked.payload.layoutId).toBe(layoutId);
+      expect(screen.queryByRole('dialog')).toBeNull();
     });
   });
 });

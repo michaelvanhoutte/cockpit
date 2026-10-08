@@ -21,7 +21,7 @@ import {
 const AT = '2026-09-01T10:00:00.000Z';
 
 function row(rowIndex: number, height: number | null = null) {
-  return { tenantId: 'tenant', layoutId: 'wide', rowIndex, height };
+  return { tenantId: 'tenant', layoutId: 'wide', rowIndex, height, title: null };
 }
 
 function aPanel(id: string): Panel {
@@ -203,7 +203,7 @@ describe('Layouts', () => {
       const appended = appendedPlacement('tenant', 'wide', 'new', [row(0), row(1)]);
 
       expect(appended).toEqual({
-        row: { tenantId: 'tenant', layoutId: 'wide', rowIndex: 2, height: null },
+        row: { tenantId: 'tenant', layoutId: 'wide', rowIndex: 2, height: null, title: null },
         placement: {
           tenantId: 'tenant',
           layoutId: 'wide',
@@ -241,8 +241,8 @@ describe('Layouts', () => {
       ]);
 
       expect(rows).toEqual([
-        { tenantId: 'tenant', layoutId: 'wide', rowIndex: 0, height: 300 },
-        { tenantId: 'tenant', layoutId: 'wide', rowIndex: 1, height: null },
+        { tenantId: 'tenant', layoutId: 'wide', rowIndex: 0, height: 300, title: null },
+        { tenantId: 'tenant', layoutId: 'wide', rowIndex: 1, height: null, title: null },
       ]);
       expect(placements).toEqual([
         { tenantId: 'tenant', layoutId: 'wide', panelId: 'falcon', rowIndex: 0, position: 0, span: 8 },

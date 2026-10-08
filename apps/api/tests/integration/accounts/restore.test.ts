@@ -602,7 +602,9 @@ describe('Backup', () => {
         { id: 'ly-wide', tenant_id: ACCOUNT_NAME, dashboard_id: 'ws-1-dashboard-1', created_at: AT },
       ]);
       expect(now.tables.layout_rows).toEqual([
-        { tenant_id: ACCOUNT_NAME, layout_id: 'ly-wide', row_index: 0, height: 320 },
+        // Untitled, as every row from before Sections reads ("Add, rename and
+        // delete a titled Section on a Dashboard", issue 896).
+        { tenant_id: ACCOUNT_NAME, layout_id: 'ly-wide', row_index: 0, height: 320, title: null },
       ]);
       expect(now.tables.panel_placements!.map((cell) => [cell.layout_id, cell.span])).toEqual([['ly-wide', 6]]);
     });
