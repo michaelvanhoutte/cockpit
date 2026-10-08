@@ -2,12 +2,15 @@
  * The only file that touches the checkout: reads the Worker config, every
  * workflow and the description file as text, lists the folders the description
  * file says to look in, reads the source files in them, and asks git which
- * commit that is. It reads nothing else, and nothing over a network. A file it needs and cannot read is a
- * ReadError, which the CLI turns into a failed run that writes nothing.
+ * commit that is. Beyond the checkout it reads one thing: the previous report's model, from a file or one
+ * address, and it draws an earlier commit by checking it out into a folder of its own. A file it needs and
+ * cannot read is a ReadError, which the CLI turns into a failed run that writes nothing; the previous model
+ * and the earlier commit are only ever "nothing to compare", never a failure.
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { isCodeFile, isTestFile, parseDescription } from './description.js';
@@ -95,8 +98,14 @@ function discover(root, description) {
   return candidates;
 }
 
-export function readCheckout(root) {
-  const description = { file: DESCRIPTION_FILE, text: readText(root, DESCRIPTION_FILE) };
+/**
+ * @param {string} root
+ * @param {{ commit?: string, fallbackDescription?: { file: string, text: string } }} [options] `commit` names the commit `root` holds when
+ *   it is an earlier one, so the environment's own commit is not claimed for it; `fallbackDescription` is used when `root` has no description file.
+ */
+export function readCheckout(root, { commit: named, fallbackDescription } = {}) {
+  const own = existsSync(path.join(root, DESCRIPTION_FILE));
+  const description = !own && fallbackDescription ? fallbackDescription : { file: DESCRIPTION_FILE, text: readText(root, DESCRIPTION_FILE) };
   const candidates = discover(root, parseDescription(description.file, description.text));
 
   let names;
@@ -107,7 +116,7 @@ export function readCheckout(root) {
   }
   if (names.length === 0) throw new ReadError(WORKFLOWS_DIR, 'holds no workflows');
 
-  const commit = process.env.GITHUB_SHA || git(root, ['rev-parse', 'HEAD']);
+  const commit = named ?? (process.env.GITHUB_SHA || git(root, ['rev-parse', 'HEAD']));
   return {
     wrangler: { file: WRANGLER_CONFIG, text: readText(root, WRANGLER_CONFIG) },
     description,
@@ -116,5 +125,60 @@ export function readCheckout(root) {
     commit,
     date: commit ? git(root, ['show', '-s', '--format=%cI', commit]) : null,
     repo: process.env.GITHUB_REPOSITORY ?? null,
+    descriptionFromElsewhere: !own && Boolean(fallbackDescription),
   };
+}
+
+/** Whether the commit is one this checkout's history holds. */
+export function hasCommit(root, commit) {
+  return /^[0-9a-f]{7,64}$/i.test(commit) && git(root, ['cat-file', '-t', `${commit}^{commit}`]) === 'commit';
+}
+
+/**
+ * Runs `use(folder)` over a checkout of `commit` in a folder of its own, a detached git worktree, and removes
+ * it afterwards whatever `use` does. Nothing in the working tree being drawn is touched.
+ */
+export async function atCommit(root, commit, use) {
+  const folder = path.join(mkdtempSync(path.join(tmpdir(), 'architecture-at-')), 'tree');
+  try {
+    execFileSync('git', ['-C', root, 'worktree', 'add', '--detach', '--force', folder, commit], { stdio: 'ignore' });
+  } catch {
+    rmSync(path.dirname(folder), { recursive: true, force: true });
+    throw new ReadError(commit, 'cannot be checked out');
+  }
+  try {
+    return await use(folder);
+  } finally {
+    git(root, ['worktree', 'remove', '--force', folder]);
+    git(root, ['worktree', 'prune']);
+    rmSync(path.dirname(folder), { recursive: true, force: true });
+  }
+}
+
+/**
+ * The previous report's model from a file or an address. `{ model }` when it read; `{ first: true }` when there is
+ * no report yet (no such file, a 404); `{ unreadable: reason }` for anything else. Never throws: a night whose
+ * previous model cannot be had still draws its page.
+ */
+export async function readPreviousModel(location, { fetchImpl = fetch } = {}) {
+  let text;
+  try {
+    if (/^https?:\/\//i.test(location)) {
+      const response = await fetchImpl(location, { signal: AbortSignal.timeout(20_000) });
+      if (response.status === 404) return { first: true };
+      if (!response.ok) return { unreadable: `the live report answered ${response.status}` };
+      text = await response.text();
+    } else {
+      text = readFileSync(location, 'utf8');
+    }
+  } catch (error) {
+    if (error.code === 'ENOENT') return { first: true };
+    return { unreadable: `the previous model could not be fetched (${error.code ?? error.message})` };
+  }
+  try {
+    const model = JSON.parse(text);
+    return typeof model?.drawnFrom?.commit === 'string' ? { model } : { unreadable: 'the previous model names no commit' };
+  } catch {
+    return { unreadable: 'the previous model is not valid JSON' };
+  }
 }

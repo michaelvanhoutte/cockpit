@@ -116,3 +116,12 @@ footer a { color: var(--accent); text-decoration: none; }
   .wrap { padding: 24px 14px 60px; }
   h1 { font-size: 23px; }
 }
+
+/* What changed: a table of change, where and a flag */
+.scroll { overflow-x: auto; }
+table.changes { border-collapse: collapse; width: 100%; font-size: 14px; }
+table.changes th, table.changes td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.changes th { font-weight: 600; color: var(--ink-3); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+.pill { display: inline-block; font: 600 11px var(--mono); padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
+.p-mech { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }
+.p-hand { background: var(--red-soft); color: var(--red); }
