@@ -443,12 +443,14 @@
     {
       "key": "Selection",
       "label": "Selection",
-      "browserWalks": 4,
+      "browserWalks": 5,
       "parent": "Across the app",
       "sourcePatterns": [
         "apps/web/src/selection.ts",
         "apps/web/src/hold.ts",
-        "apps/web/src/components/SelectionBar.tsx"
+        "apps/web/src/components/SelectionBar.tsx",
+        "apps/web/src/components/DashboardSelection.tsx",
+        "apps/web/src/components/useFilingSeveral.tsx"
       ]
     },
     {

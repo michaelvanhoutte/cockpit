@@ -3,6 +3,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isPhoneWidth, uuidv7, type Dashboard, type PanelKind, type WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
+import { dashboardScope, pickAll, shownOn } from '../selection';
 import { refusalFrom, snapshotQuery, useCommand, useSendCommand } from '../api/queries';
 import {
   NO_DASHBOARD_FILTER,
@@ -501,6 +502,20 @@ export function DashboardBar({
       },
     },
     ...collapseEntry(dashboard),
+    // Every row the open Dashboard's Panels show, picked in one go ("Select
+    // across every panel of a dashboard", issue 863). On the open Dashboard's
+    // menu only, since its Panels are the ones on screen to be picked. Its own
+    // group, after Collapse panels.
+    ...(dashboard.id === openDashboardId
+      ? [
+          {
+            label: 'Select all items',
+            separatorBefore: true,
+            keepsFocus: true,
+            onSelect: () => pickAll(dashboardScope(dashboard.id), shownOn(dashboardScope(dashboard.id), true)),
+          },
+        ]
+      : []),
   ];
 
   /*

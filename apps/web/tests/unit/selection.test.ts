@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import type { Item } from '@cockpit/shared';
-import { afterClicking, NOTHING_PICKED, pickedInTheList, type Selection } from '../../src/selection';
+import {
+  afterClicking,
+  afterEnding,
+  afterPickingAll,
+  afterPruning,
+  afterUpdating,
+  dashboardScope,
+  inboxScope,
+  NOTHING_HELD,
+  NOTHING_PICKED,
+  pickedInTheList,
+  selectionIn,
+  shownIn,
+  type Held,
+  type Selection,
+} from '../../src/selection';
 
 /**
  * F1: what a click on a tick means, decided away from any rendered list.
@@ -121,6 +136,169 @@ describe('Selection', () => {
       const still = pickedInTheList(picking('d', 'a'), ROWS.map(anItem));
 
       expect(still.map((item) => item.id)).toEqual(['a', 'd']);
+    });
+  });
+
+  describe('a Dashboard holds one selection across all its Panels, counting each Item once', () => {
+    const TODAY = dashboardScope('today');
+    const FALCON = ['a', 'b', 'c'];
+    const READING = ['x', 'y', 'b'];
+    const clickIn = (held: Held, ids: string[], id: string, withShift = false) =>
+      afterUpdating(held, TODAY, (was) => afterClicking(ids, was, id, withShift));
+
+    it('adds a pick on a second Panel to what the first holds', () => {
+      const held = clickIn(clickIn(NOTHING_HELD, FALCON, 'a'), READING, 'x');
+
+      expect([...selectionIn(held, TODAY).picked]).toEqual(['a', 'x']);
+    });
+
+    it('ticks an Item shown on two Panels on both, and counts it once', () => {
+      const held = clickIn(NOTHING_HELD, FALCON, 'b');
+      const picked = selectionIn(held, TODAY);
+
+      expect(pickedInTheList(picked, FALCON.map(anItem)).map((item) => item.id)).toEqual(['b']);
+      expect(pickedInTheList(picked, READING.map(anItem)).map((item) => item.id)).toEqual(['b']);
+      expect(picked.picked.size).toBe(1);
+    });
+
+    it('picks the one row when a shift-click is on another Panel than the last pick', () => {
+      const held = clickIn(clickIn(NOTHING_HELD, FALCON, 'a'), READING, 'y', true);
+
+      // A span never crosses Panels: `a` is not in the second one to reach back to.
+      expect([...selectionIn(held, TODAY).picked]).toEqual(['a', 'y']);
+    });
+
+    it('holds nothing once the last Item is put back, and the next pick starts afresh', () => {
+      const held = clickIn(clickIn(NOTHING_HELD, FALCON, 'a'), FALCON, 'a');
+
+      expect(held).toBe(NOTHING_HELD);
+      expect(selectionIn(clickIn(held, FALCON, 'c', true), TODAY).reachingFrom).toBe('c');
+    });
+  });
+
+  describe('one scope holds a selection at a time, and leaving it ends it', () => {
+    const TODAY = dashboardScope('today');
+    const HOME = inboxScope('ws-home');
+    const picking = (scope: string, id: string) =>
+      afterUpdating(NOTHING_HELD, scope, (was) => afterClicking(ROWS, was, id, false));
+
+    it.each([
+      { situation: 'the Inbox ends a Dashboard’s selection', first: TODAY, then: HOME },
+      { situation: 'a Panel ends the Inbox’s selection', first: HOME, then: TODAY },
+    ])('picking in $situation', ({ first, then }) => {
+      const held = afterUpdating(picking(first, 'a'), then, (was) => afterClicking(ROWS, was, 'b', false));
+
+      expect(selectionIn(held, first).picked.size).toBe(0);
+      expect([...selectionIn(held, then).picked]).toEqual(['b']);
+    });
+
+    it('finds nothing picked in another Dashboard, or another Workspace’s Inbox', () => {
+      const held = picking(TODAY, 'a');
+
+      expect(selectionIn(held, dashboardScope('later')).picked.size).toBe(0);
+      expect(selectionIn(held, inboxScope('ws-other')).picked.size).toBe(0);
+    });
+
+    it('ends when its own scope does, and only then', () => {
+      const held = picking(TODAY, 'a');
+
+      expect(afterEnding(held, TODAY)).toBe(NOTHING_HELD);
+      expect(afterEnding(held, HOME)).toBe(held);
+      expect(afterEnding(held)).toBe(NOTHING_HELD);
+    });
+  });
+
+  describe('a picked Item no shown Panel holds leaves the selection; nothing else empties it', () => {
+    const TODAY = dashboardScope('today');
+    const HOME = inboxScope('ws-home');
+    const holding = (...ids: string[]): Held => ({ scope: TODAY, selection: picking(...ids) });
+
+    it('drops what none of the lists shows, and keeps what any of them does', () => {
+      const shown = shownIn(
+        [
+          { scope: TODAY, ids: ['a'] },
+          { scope: TODAY, ids: ['b', 'c'] },
+        ],
+        TODAY,
+      );
+
+      const held = afterPruning(holding('a', 'b', 'z'), TODAY, shown);
+
+      expect([...selectionIn(held, TODAY).picked]).toEqual(['a', 'b']);
+    });
+
+    it('keeps an Item moved from one Panel to another of the same Dashboard', () => {
+      const held = afterPruning(
+        holding('a'),
+        TODAY,
+        shownIn([{ scope: TODAY, ids: ['b'] }, { scope: TODAY, ids: ['a'] }], TODAY),
+      );
+
+      expect([...selectionIn(held, TODAY).picked]).toEqual(['a']);
+    });
+
+    it('lets go of the row a shift-click would have reached back to when it leaves', () => {
+      const held = afterPruning(holding('a', 'b'), TODAY, new Set(['a']));
+
+      expect(selectionIn(held, TODAY).reachingFrom).toBeNull();
+    });
+
+    it('holds nothing once every picked Item has left', () => {
+      expect(afterPruning(holding('a'), TODAY, new Set(['q']))).toBe(NOTHING_HELD);
+    });
+
+    it('is not emptied by another scope’s housekeeping', () => {
+      // The Inbox's refresh drops the rows it no longer shows, from a selection
+      // it does not hold - which must not take the Dashboard's over with nothing.
+      const held = holding('a', 'b');
+
+      expect(afterPruning(held, HOME, new Set())).toBe(held);
+      expect(afterUpdating(held, HOME, () => NOTHING_PICKED)).toBe(held);
+      // Even a fresh, empty one: nothing picked is not a selection to take over with.
+      expect(afterUpdating(held, HOME, () => ({ picked: new Set(), reachingFrom: null }))).toBe(held);
+      expect(afterEnding(held, HOME)).toBe(held);
+    });
+
+    it('counts only the lists of the scope asked about', () => {
+      const shown = shownIn([{ scope: TODAY, ids: ['a'] }, { scope: HOME, ids: ['z'] }], TODAY);
+
+      expect([...shown]).toEqual(['a']);
+    });
+  });
+
+  describe('Select all adds what a Panel shows, or what the Dashboard shows, to what is picked', () => {
+    const TODAY = dashboardScope('today');
+
+    it('adds a Panel’s rows to what is already picked on another', () => {
+      const held = afterPickingAll({ scope: TODAY, selection: picking('x') }, TODAY, ['a', 'b']);
+
+      expect([...selectionIn(held, TODAY).picked]).toEqual(['x', 'a', 'b']);
+    });
+
+    it('picks every row of every Panel, an Item on two Panels counted once', () => {
+      const shown = shownIn([{ scope: TODAY, ids: ['a', 'b'] }, { scope: TODAY, ids: ['b', 'c'] }], TODAY);
+
+      const held = afterPickingAll(NOTHING_HELD, TODAY, shown);
+
+      expect([...selectionIn(held, TODAY).picked]).toEqual(['a', 'b', 'c']);
+    });
+
+    it('leaves out a collapsed Panel’s rows when asked for those on screen, and counts them otherwise', () => {
+      const lists = [{ scope: TODAY, ids: ['a'] }, { scope: TODAY, ids: ['b'], hidden: true }];
+
+      expect([...shownIn(lists, TODAY, true)]).toEqual(['a']);
+      expect([...shownIn(lists, TODAY)]).toEqual(['a', 'b']);
+    });
+
+    it('ends the other scope’s selection when it starts one', () => {
+      const held = afterPickingAll({ scope: inboxScope('ws-home'), selection: picking('z') }, TODAY, ['a']);
+
+      expect(selectionIn(held, inboxScope('ws-home')).picked.size).toBe(0);
+      expect([...selectionIn(held, TODAY).picked]).toEqual(['a']);
+    });
+
+    it('starts nothing from nothing', () => {
+      expect(afterPickingAll(NOTHING_HELD, TODAY, [])).toBe(NOTHING_HELD);
     });
   });
 });

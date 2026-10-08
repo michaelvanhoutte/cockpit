@@ -1631,10 +1631,10 @@ describe('Selection', () => {
       expect(held.send).not.toHaveBeenCalled();
     });
 
-    it('empties the other list when a selection is started here', async () => {
-      // Two lists are drawn side by side - the Inbox beside a panel - and a
-      // selection belongs to one of them. Only provable with both on screen,
-      // which is why it is here rather than in selection.test.ts.
+    it('ends the other scope’s selection when one is started here', async () => {
+      // The Inbox is drawn beside a Dashboard's Panel, and each holds a selection
+      // of its own - one at a time. Only provable with both on screen, which is
+      // why it is here rather than in selection.test.ts.
       const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       render(
         <QueryClientProvider client={client}>
@@ -1663,8 +1663,9 @@ describe('Selection', () => {
 
       await tick(user, RENEW);
 
-      // One bar, not two: the first list let go of what it was holding.
-      expect(screen.getAllByText('1 selected')).toHaveLength(1);
+      // The Inbox let go of what it was holding, and its bar with it; the
+      // Panel's own bar is the board's (`DashboardSelection`), not drawn here.
+      expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
       expect(isPicked(BART)).toBe(false);
       expect(isPicked(RENEW)).toBe(true);
     });

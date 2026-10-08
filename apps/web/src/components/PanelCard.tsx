@@ -13,6 +13,7 @@ import { saysWhatItShows } from '../filters';
 import type { FilterGroup } from '../filterGroups';
 import { saysHowItIsSorted, sortOf } from '../sorting';
 import { ItemList } from './ItemList';
+import { dashboardScope, pickAll } from '../selection';
 import { PanelAddItemForm } from './PanelAddItemForm';
 import { PanelText } from '../panels/PanelText';
 import { SurfaceMenu, SurfaceMenuButton, opensOnKey, opensOnActivate } from './Menu';
@@ -256,7 +257,27 @@ export function PanelCard({
             isRenaming
               ? []
               : [
-                  { label: 'Rename', onSelect: onStartRenaming },
+                  // Every row this Panel shows, added to what is picked on the
+                  // Dashboard ("Select across every panel of a dashboard",
+                  // issue 863). Always there on a Panel with rows to pick, and
+                  // saying why when it has none; not on a panel of text, which
+                  // has no rows. Its own group, so Rename keeps its place under
+                  // a line.
+                  ...(panelTakesItems(panel) || filter
+                    ? [
+                        {
+                          label: 'Select all',
+                          keepsFocus: true,
+                          unavailable: items.length === 0 ? 'This panel has no items' : undefined,
+                          onSelect: () =>
+                            pickAll(
+                              dashboardScope(panel.dashboardId),
+                              items.map((item) => item.id),
+                            ),
+                        },
+                      ]
+                    : []),
+                  { label: 'Rename', separatorBefore: true, onSelect: onStartRenaming },
                   // Only on a panel of text. A panel of items has no text to
                   // lock, and an entry that means nothing where it is offered is
                   // worse than one that is not there - the menu's own rule keeps
@@ -672,6 +693,7 @@ export function PanelCard({
             // dropped here, nothing is reordered, and no row offers to be
             // removed from a panel it was never put on.
             gathered={filter !== null}
+            hidden={collapsed}
             // A sorted Panel's rows go where the sort puts them, so none is
             // dragged to a new place in it.
             sorted={(sortedAs !== null || dashboardFiltered) && filter === null}

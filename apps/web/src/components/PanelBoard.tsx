@@ -59,6 +59,7 @@ import { arrangedWith, arrangedWithRow, placementFor, rowPlacementFor } from '..
 import type { DrawnRow } from '../panels/dragging';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { forgetPanelsCollapsed, usePanelsCollapsed } from '../panelsCollapsed';
+import { DashboardSelection } from './DashboardSelection';
 import { PANEL_GAP, PanelCard } from './PanelCard';
 import { publishPanelList, withdrawPanelList } from '../panelList';
 import { settleTheShowRequest, useShowRequest } from '../showItem';
@@ -1589,6 +1590,11 @@ export function PanelBoard({
           />
         </div>
       )}
+
+      {/* The one bar for what is picked across this Dashboard's Panels. Last
+          in the board, so it is stuck to the foot of the Dashboard's column
+          however far the Panels above it scroll. */}
+      <DashboardSelection workspaceId={workspaceId} dashboardId={dashboard.id} />
 
       {beingFiltered && (
         // No fallback: the chunk is small, and there is nothing on screen yet

@@ -10,6 +10,7 @@ import type {
   WorkspaceSnapshot,
 } from '@cockpit/shared';
 import { DashboardBar } from '../../../src/components/DashboardBar';
+import { dashboardScope, useSelection, useShowing } from '../../../src/selection';
 import { tipForClick } from '../../../src/shortcutTip';
 import { allItemsFilterId, readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
 import { DashboardFilterBar } from '../../../src/components/DashboardFilterBar';
@@ -579,6 +580,7 @@ describe('Dashboards', () => {
         'Edit…',
         'Delete',
         `Collapse panels${NOT_A_PHONE}`,
+        'Select all items',
       ]);
     });
 
@@ -904,7 +906,8 @@ describe('Dashboards', () => {
     it('is not offered by a dashboard’s menu, on or off', async () => {
       const { user } = showBar(['Dashboard 1', 'Research'], { openDashboardId: OPEN });
       await user.click(await screen.findByRole('button', { name: 'Actions for Research' }));
-      expect(entries().join('|')).not.toMatch(/all items/i);
+      // Select all items is the Dashboard's own (issue 863), not the tab's.
+      expect(entries().join('|')).not.toMatch(/(show|hide) all items/i);
     });
 
     it('offers exactly Hide All items tab on its own "…", and nothing of a dashboard’s', async () => {
@@ -1857,6 +1860,55 @@ describe('Panels', () => {
 
       expect(await screen.findByRole('menuitem', { name: 'Edit…' })).toBeVisible();
       expect(screen.queryByRole('menuitem', { name: /Collapse panels/ })).toBeNull();
+    });
+  });
+});
+
+describe('Selection', () => {
+  describe('Select all items picks what the open dashboard’s panels show', () => {
+    /** Two Panels of the open Dashboard, reporting the rows they show the way a list does. */
+    function PanelsShowing() {
+      useShowing(dashboardScope('ws-work-research'), ['a', 'b']);
+      useShowing(dashboardScope('ws-work-research'), ['b', 'c']);
+      useShowing(dashboardScope('ws-work-dashboard 1'), ['z']);
+      useShowing(dashboardScope('ws-work-research'), ['d'], true);
+      return null;
+    }
+    function WhatIsPicked() {
+      const picked = useSelection(dashboardScope('ws-work-research'));
+      return <output data-testid="picked">{[...picked.picked].join(',')}</output>;
+    }
+
+    it('adds every row of every Panel, an Item on two counted once, none of another dashboard’s, and none of a collapsed Panel’s', async () => {
+      const { user } = showBar(['Dashboard 1', 'Research'], { openDashboardId: 'ws-work-research' });
+      render(
+        <>
+          <PanelsShowing />
+          <WhatIsPicked />
+        </>,
+      );
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Research' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Select all items' }));
+
+      expect(screen.getByTestId('picked')).toHaveTextContent('a,b,c');
+    });
+
+    it('is offered on the open dashboard alone, not on another dashboard’s tab', async () => {
+      showBar(['Dashboard 1', 'Research'], { openDashboardId: 'ws-work-research' });
+
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Dashboard 1' }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Edit…' })).toBeVisible();
+      expect(screen.queryByRole('menuitem', { name: 'Select all items' })).toBeNull();
+    });
+
+    it('is offered from the open dashboard’s own tab as well', async () => {
+      showBar(['Dashboard 1', 'Research'], { openDashboardId: 'ws-work-research' });
+
+      fireEvent.contextMenu(await screen.findByRole('link', { name: 'Research' }));
+
+      expect(await screen.findByRole('menuitem', { name: 'Select all items' })).toBeVisible();
     });
   });
 });

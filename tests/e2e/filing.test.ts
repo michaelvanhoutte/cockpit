@@ -318,6 +318,13 @@ test.describe('Panels', () => {
         await capture(page, title, isMobile);
         await expect(itemRow(page, title)).toBeVisible();
       }
+      // **Rows below the three, so the three are not the foot of the Inbox.** Each
+      // filing puts up an undo bar over the foot of a phone's screen for ten
+      // seconds, and a row at the very end of a long Inbox cannot be scrolled
+      // clear of it: the next tap waits the bar out, which two filings did not have
+      // the time for. Whatever the walks before this one left in the Inbox decides
+      // whether it is long.
+      for (const title of ['one', 'two', 'three'].map(uniqueTitle)) await capture(page, title, isMobile);
       for (const title of [first, second, third]) await fileOnto(page, title, panel, isMobile);
       await goToTheDashboard(page, dashboard, isMobile);
       // Each filed from the menu lands on top of the one before.
