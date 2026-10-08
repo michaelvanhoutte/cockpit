@@ -180,6 +180,8 @@ vi.mock('../../../src/api/queries', () => ({
         attachments: held.attachments,
         agentRuns: held.agentRuns,
         itemFormPresentation: held.itemFormPresentation,
+        // What the Workspace calls each source (issue 927).
+        sourceNames: { teams: 'Microsoft Teams', gmail: 'Gmail' },
       } as unknown as WorkspaceSnapshot;
     },
   }),
@@ -1895,13 +1897,16 @@ describe('Item editing', () => {
       expect(opener).toHaveAttribute('target', '_blank');
     });
 
-    /** "Connect a Gmail account to a workspace, and disconnect it", issue 724. */
-    it('names an item from Gmail "Gmail", never the stored "mail"', async () => {
-      await theForm(anItem({ source: 'mail', sender: 'Anna', sourceLink: 'https://mail.google.com/mail/#all/1' }));
+    /** "Take source names out of the shared contract", issue 927. */
+    it.each([
+      { situation: 'Gmail as "Gmail", never by its id', source: 'gmail', reads: 'Gmail', hidden: /\bgmail\b/ },
+      { situation: 'a source the Workspace does not name by its id', source: 'outlook', reads: 'outlook', hidden: null },
+    ])('names an item from $situation', async ({ source, reads, hidden }) => {
+      await theForm(anItem({ source, sender: 'Anna', sourceLink: 'https://mail.example/1' }));
 
-      expect(screen.getByText(/From Gmail - Anna/)).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'Open in Gmail' })).toBeInTheDocument();
-      expect(screen.queryByText(/\bmail\b/)).toBeNull();
+      expect(screen.getByText(new RegExp(`From ${reads} - Anna`))).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: `Open in ${reads}` })).toBeInTheDocument();
+      if (hidden) expect(screen.queryByText(hidden)).toBeNull();
     });
 
     it('names the app that captured it, and not the protocol it came through', async () => {

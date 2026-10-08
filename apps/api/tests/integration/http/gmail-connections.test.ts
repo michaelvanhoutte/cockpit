@@ -111,11 +111,13 @@ async function connect(
 async function listed(
   workspaceId = WORKSPACE_ID,
   userId = USER_ID,
-): Promise<{ id: string; displayName: string; connectorId: string; follows?: string }[]> {
+): Promise<{ id: string; displayName: string; connectorId: string; follows?: { value: string; label: string } }[]> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/connections`, {}, userId);
   expect(res.status).toBe(200);
   return (
-    (await res.json()) as { sourceAccounts: { id: string; displayName: string; connectorId: string; follows?: string }[] }
+    (await res.json()) as {
+      sourceAccounts: { id: string; displayName: string; connectorId: string; follows?: { value: string; label: string } }[];
+    }
   ).sourceAccounts;
 }
 
@@ -222,12 +224,15 @@ describe('Connector management', () => {
 
   /** "Connect Gmail by star, and bring in conversations starred from then on", issue 822. */
   describe('a Gmail connection follows the one mark chosen to connect it, the label where none was chosen', () => {
+    // Its row names the mark in Gmail's words ("Take source names out of the shared contract", issue 927).
+    const BY_STAR = { value: 'star', label: 'starred' };
+    const BY_LABEL = { value: 'label', label: 'label Cockpit' };
     it.each([
-      { situation: 'by star', choosing: '?follows=star', follows: 'star', told: 'gmail-star-connected' },
-      { situation: 'by label', choosing: '?follows=label', follows: 'label', told: 'gmail-connected' },
-      { situation: 'choosing nothing', choosing: '', follows: 'label', told: 'gmail-connected' },
-      { situation: 'choosing a mark there is not', choosing: '?follows=flag', follows: 'label', told: 'gmail-connected' },
-    ])('connected $situation, the row follows the $follows', async ({ choosing, follows, told }) => {
+      { situation: 'by star', choosing: '?follows=star', follows: BY_STAR, told: 'gmail-star-connected' },
+      { situation: 'by label', choosing: '?follows=label', follows: BY_LABEL, told: 'gmail-connected' },
+      { situation: 'choosing nothing', choosing: '', follows: BY_LABEL, told: 'gmail-connected' },
+      { situation: 'choosing a mark there is not', choosing: '?follows=flag', follows: BY_LABEL, told: 'gmail-connected' },
+    ])('connected $situation, the row follows the $follows.value', async ({ choosing, follows, told }) => {
       const back = await connect(ANNA, granted('a-refresh-token'), WORKSPACE_ID, choosing);
 
       expect(back.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=${told}`);
@@ -238,7 +243,7 @@ describe('Connector management', () => {
       await connect(ANNA, granted('the-first-refresh-token'), WORKSPACE_ID, '?follows=star');
       await connect(ANNA, granted('the-second-refresh-token'));
 
-      expect(await listed()).toMatchObject([{ follows: 'label' }]);
+      expect(await listed()).toMatchObject([{ follows: { value: 'label' } }]);
       expect(await storedRows()).toHaveLength(1);
     });
   });

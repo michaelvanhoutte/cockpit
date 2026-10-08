@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, inject, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { env, applyD1Migrations } from 'cloudflare:test';
 import { workspaceSnapshotSchema } from '@cockpit/shared';
 import type { Item } from '@cockpit/shared';
+import type { Connector } from '@cockpit/connector-sdk';
 import {
   TASK_TYPE_ID,
   WORKSPACE_ID,
@@ -50,17 +51,15 @@ describe('Capture', () => {
 
   /**
    * The wire's source is the connector id the store names, whatever it is
-   * ("Read a connector id as an Item's source", issue 925) - except Gmail's,
-   * served as `mail` while a client built before that release may still be
-   * installed: it parses a snapshot strictly and refuses `gmail` ("Store
-   * Gmail Items under their connector id", issue 926). Nothing writes
-   * `outlook`, and nothing can name a connector on an Item captured inside
-   * Cockpit, so the store is arranged directly: the one case where the
+   * ("Read a connector id as an Item's source", issue 925), Gmail's included
+   * ("Take source names out of the shared contract", issue 927). Nothing
+   * writes `outlook`, and nothing can name a connector on an Item captured
+   * inside Cockpit, so the store is arranged directly: the one case where the
    * interface cannot reach the behaviour.
    */
   describe('an Item whose connector the store names is served under that connector', () => {
     it.each([
-      { situation: 'Gmail, still served as mail to clients that know no other name', connector: 'gmail', served: 'mail' },
+      { situation: 'Gmail, under its own id', connector: 'gmail', served: 'gmail' },
       { situation: 'a connector nothing in Cockpit names', connector: 'outlook', served: 'outlook' },
     ])('$situation', async ({ connector, served }) => {
       const itemId = '018f0000-0000-7000-8000-000000000011';
@@ -86,6 +85,56 @@ describe('Capture', () => {
       // Parsed the way the web client parses it, so a source the contract refuses fails here.
       const held = workspaceSnapshotSchema.parse(await snapshot.json()).items.find((item) => item.id === itemId)!;
       expect(held.source).toBe(served);
+    });
+  });
+});
+
+/** A connector the registry holds in this test alone, so its name can only have come from its manifest. */
+const OUTLOOK: Connector = {
+  manifest: {
+    id: 'outlook',
+    displayName: 'Outlook',
+    cardText: 'A mailbox.',
+    source: 'notion',
+    supportsPush: false,
+    auth: { kind: 'none' },
+  },
+  async sync() {},
+};
+
+const settings = env as unknown as Record<string, string | undefined>;
+
+/**
+ * "Take source names out of the shared contract" (issue 927): what a source is
+ * called comes with the Workspace, so the app draws it from the copy it keeps
+ * with no request of its own. Integration because the names are the
+ * environment's registry, read on the way out of the real route.
+ */
+describe('Connector management', () => {
+  describe('a source is called what its connector calls itself, and a source no longer registered by its id', () => {
+    afterEach(() => {
+      delete env.TEST_CONNECTORS;
+    });
+
+    it.each([
+      { situation: 'Teams, by its manifest', bot: true, id: 'teams', called: 'Microsoft Teams' },
+      { situation: 'a connector registered here alone, by its manifest', bot: true, id: 'outlook', called: 'Outlook' },
+      { situation: 'Gmail, by the name the core still gives it', bot: true, id: 'gmail', called: 'Gmail' },
+      { situation: 'Claude Code, by the name the core still gives it', bot: true, id: 'claude-code', called: 'Claude Code' },
+      { situation: 'Teams where its bot is not configured: unnamed', bot: false, id: 'teams', called: undefined },
+      { situation: 'an app connected to Cockpit: never named here', bot: true, id: 'mcp', called: undefined },
+    ])('$situation', async ({ bot, id, called }) => {
+      env.TEST_CONNECTORS = [OUTLOOK];
+      const kept = settings.MS_BOT_APP_ID;
+      if (!bot) delete settings.MS_BOT_APP_ID;
+      try {
+        const snapshot = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
+        expect(snapshot.status).toBe(200);
+        const { sourceNames } = workspaceSnapshotSchema.parse(await snapshot.json());
+        expect(sourceNames?.[id]).toBe(called);
+      } finally {
+        settings.MS_BOT_APP_ID = kept;
+      }
     });
   });
 });

@@ -26,6 +26,8 @@ const held = vi.hoisted(() => ({
   hooks: { url: '', secret: '', domain: '', lastArrivedAt: null as string | null },
   /** The connection each hooks read was for. */
   hooksAskedFor: [] as string[],
+  /** What the Workspace's snapshot calls each source (issue 927). */
+  sourceNames: {} as Record<string, string> | undefined,
 }));
 
 vi.mock('../../../src/api/queries', () => ({
@@ -34,6 +36,11 @@ vi.mock('../../../src/api/queries', () => ({
   useTestClaudeCodeConnection: vi.fn(),
   refusalFrom: (command: { error: unknown }) =>
     command.error ? 'That did not reach the server. Try again.' : null,
+  // The Workspace's snapshot, of which the window reads only what each source is called.
+  snapshotQuery: (workspaceId: string) => ({
+    queryKey: ['snapshot', workspaceId],
+    queryFn: () => Promise.resolve({ sourceNames: held.sourceNames }),
+  }),
 }));
 
 // `ManageConnections` reads its own list straight off `api.v1.workspaces…` -
@@ -161,6 +168,7 @@ beforeEach(() => {
   held.sourceAccounts = [];
   held.registry = [TEAMS_CARD];
   held.hooksAskedFor = [];
+  held.sourceNames = { teams: 'Microsoft Teams', gmail: 'Gmail', 'claude-code': 'Claude Code' };
   vi.restoreAllMocks();
 });
 
@@ -173,7 +181,35 @@ describe('Connector management', () => {
 
       expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
       expect(screen.getByText('Michael')).toBeInTheDocument();
-      expect(screen.getAllByText('Microsoft Teams')).toHaveLength(3);
+      await waitFor(() => expect(screen.getAllByText('Microsoft Teams')).toHaveLength(3));
+    });
+
+    /** "Take source names out of the shared contract", issue 927. */
+    it.each([
+      {
+        situation: 'a source the environment no longer registers reads as its id',
+        account: { ...ADA, connectorId: 'outlook' },
+        reads: 'outlook',
+      },
+      {
+        situation: 'a source that follows something says it in its own words',
+        account: { ...ADA, connectorId: 'outlook', follows: { value: 'folder-7', label: 'folder Follow up' } },
+        names: { outlook: 'Outlook' },
+        reads: 'Outlook · folder Follow up',
+      },
+      {
+        situation: 'a stored copy from before the names were carried reads each as its id',
+        account: ADA,
+        names: undefined,
+        reads: 'teams',
+      },
+    ])('$situation', async ({ account, reads, ...rest }) => {
+      if ('names' in rest) held.sourceNames = rest.names;
+      held.sourceAccounts = [account];
+
+      showWindow();
+
+      expect(await screen.findByText(reads)).toBeInTheDocument();
     });
 
     /**
@@ -307,13 +343,20 @@ describe('Connector management', () => {
 
     it('a connected Gmail account is a row named by its address, reading the label it follows', async () => {
       held.sourceAccounts = [
-        { ...ADA, id: 'account-anna', connectorId: 'gmail', displayName: 'anna@example.com', lastTestedAt: null },
+        {
+          ...ADA,
+          id: 'account-anna',
+          connectorId: 'gmail',
+          displayName: 'anna@example.com',
+          lastTestedAt: null,
+          follows: { value: 'label', label: 'label Cockpit' },
+        },
       ];
 
       showWindow('gmail-connected');
 
       expect(await screen.findByText('anna@example.com')).toBeInTheDocument();
-      expect(screen.getByText('Gmail · label Cockpit')).toBeInTheDocument();
+      expect(await screen.findByText('Gmail · label Cockpit')).toBeInTheDocument();
       await userEvent.click(screen.getByRole('button', { name: 'Actions for anna@example.com' }));
       expect(await screen.findByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
     });
@@ -358,7 +401,7 @@ describe('Connector management', () => {
       id: 'account-anna',
       connectorId: 'gmail',
       displayName: 'anna@example.com',
-      follows: 'star',
+      follows: { value: 'star', label: 'starred' },
     };
 
     async function changeWhatIsFollowed(): Promise<HTMLElement> {
@@ -409,7 +452,7 @@ describe('Connector management', () => {
       { situation: 'never checked yet', lastTestedAt: null, failingBecause: null, reads: 'Gmail · label Cockpit', failing: null },
       {
         situation: 'following the star, never checked yet',
-        follows: 'star' as const,
+        follows: { value: 'star', label: 'starred' },
         lastTestedAt: null,
         failingBecause: null,
         reads: 'Gmail · starred',
@@ -417,7 +460,7 @@ describe('Connector management', () => {
       },
       {
         situation: 'following the star, after a check',
-        follows: 'star' as const,
+        follows: { value: 'star', label: 'starred' },
         lastTestedAt: checkedAt,
         failingBecause: null,
         reads: `Gmail · starred · last checked ${new Date(checkedAt).toLocaleString()}`,
@@ -438,7 +481,7 @@ describe('Connector management', () => {
         failing: 'Failing: there is no label called Cockpit in this account.',
       },
     ])('$situation', async ({ lastTestedAt, failingBecause, reads, failing, ...rest }) => {
-      const follows = 'follows' in rest ? rest.follows : 'label';
+      const follows = 'follows' in rest ? rest.follows : { value: 'label', label: 'label Cockpit' };
       held.sourceAccounts = [
         { ...ADA, id: 'account-anna', connectorId: 'gmail', displayName: 'anna@example.com', lastTestedAt, failingBecause, follows },
       ];

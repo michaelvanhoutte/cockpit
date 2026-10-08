@@ -16,7 +16,6 @@ import {
   ACCOUNT_WIDE,
   DEFAULT_ITEM_FORM_PRESENTATION,
   TITLE_LENGTH,
-  connectorNamed,
   itemHasOpenReadings,
   itemLabel,
   itemStatus,
@@ -54,7 +53,7 @@ import {
   useReportDocked,
   useSettleQuietOpening,
 } from '../itemForm';
-import { capturingApp, openableAtSource } from '../itemSource';
+import { capturingApp, openableAtSource, sourceNamed } from '../itemSource';
 import { useUndo } from '../undo';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
@@ -272,7 +271,7 @@ function TheForm({
   useEffect(() => {
     if (item || !isFetching) setArriving(false);
   }, [item, isFetching]);
-  const atSource = item ? openableAtSource(item) : null;
+  const atSource = item ? openableAtSource(item, data?.sourceNames) : null;
   /** What Cockpit changed on this item: read behind the paint, so the form is drawn without it. */
   const cockpit = useCockpitChanges(itemId, item);
   /** Read at the moment a save lands rather than when its function was made, which may be a render ago. */
@@ -1563,7 +1562,7 @@ function TheForm({
                     tabs so it shows on both. */}
                 {item.source !== 'internal' && (
                   <p className="mt-2 shrink-0 text-xs text-ink-faint">
-                    From {capturingApp(item) ?? connectorNamed(item.source)}
+                    From {capturingApp(item) ?? sourceNamed(data?.sourceNames, item.source)}
                     {item.sender && !capturingApp(item) ? ` - ${item.sender}` : ''}
                     {atSource && (
                       <>
@@ -2088,7 +2087,7 @@ function TheForm({
                         </dt>
                         <dd className="mt-1 text-ink-soft">
                           {capturingApp(item) ??
-                            (item.source === 'internal' ? 'Cockpit' : connectorNamed(item.source))}
+                            (item.source === 'internal' ? 'Cockpit' : sourceNamed(data?.sourceNames, item.source))}
                           {item.sender && !capturingApp(item) ? ` - ${item.sender}` : ''}
                         </dd>
                       </div>

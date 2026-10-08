@@ -1,4 +1,22 @@
-import { connectorNamed, demoPageOf, type Item } from '@cockpit/shared';
+import { demoPageOf, type Item } from '@cockpit/shared';
+
+/**
+ * What each source is called, by its connector id, as the Workspace's snapshot
+ * carries it (`sourceNames`). Possibly absent: a copy stored before it was
+ * carried is restored without it.
+ */
+export type SourceNames = Readonly<Record<string, string>> | undefined;
+
+/**
+ * What a source is called on screen ("Take source names out of the shared
+ * contract", issue 927): its connector's own name, where the environment
+ * registers it, and the id itself where it does not - so a source this app was
+ * never built with still reads as something.
+ */
+export function sourceNamed(names: SourceNames, source: string): string {
+  // Own keys only, so an id such as `constructor` is never read off the prototype.
+  return names && Object.hasOwn(names, source) ? names[source]! : source;
+}
 
 /** Where Cockpit draws the page for one of the guest demo's addresses (`DemoPage`, pages/DemoPage.tsx). */
 export const demoPath = (page: string) => `/demo/${page}`;
@@ -46,10 +64,10 @@ export function capturingApp(item: Item): string | null {
  * opens nothing. Any other link - a named person's real one included - passes
  * through as it was.
  */
-export function openableAtSource(item: Item): { name: string; link: string } | null {
+export function openableAtSource(item: Item, names: SourceNames): { name: string; link: string } | null {
   if (item.source === 'internal' || !item.sourceLink) return null;
   if (!/^https?:\/\//i.test(item.sourceLink)) return null;
-  const name = capturingApp(item) ?? connectorNamed(item.source);
+  const name = capturingApp(item) ?? sourceNamed(names, item.source);
   const link = whereALinkOpens(item.sourceLink);
   return link === null ? null : { name, link };
 }

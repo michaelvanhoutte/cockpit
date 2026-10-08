@@ -80,6 +80,17 @@ export const workspaceSnapshotSchema = z.object({
   agentRuns: z.array(agentRunSchema).default([]),
   /** Why Claude last refused this Workspace's Claude Code connection, until a start works again (issue 571); null while it is not failing. */
   claudeCodeFailing: z.string().nullable().default(null),
+  /**
+   * What each source is called on screen, by its connector id ("Take source
+   * names out of the shared contract", issue 927): every connector the
+   * environment registers, by its manifest's name. Carried here so a cold
+   * open draws the names from the stored copy with no request of its own. An
+   * id missing from it reads as itself; `internal` and `mcp` are never in it.
+   * Optional rather than defaulted, unlike `attachments` above: a stored copy
+   * is restored without being parsed again, so one taken before this field
+   * existed lacks it, and the type says so.
+   */
+  sourceNames: z.record(z.string(), z.string()).optional(),
   generatedAt: z.iso.datetime(),
   /**
    * POC (own-event refetch): the newest change this snapshot is built on, as

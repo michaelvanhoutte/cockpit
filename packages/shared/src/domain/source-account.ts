@@ -1,6 +1,29 @@
 import { z } from 'zod';
 
 /**
+ * The one mark a Gmail connection follows ("Connect Gmail by star, and bring
+ * in conversations starred from then on", issue 822): the `Cockpit` label, or
+ * the star - which is what Outlook's flag for follow-up sets on Gmail mail.
+ * The label is the one chosen to start, and every connection made before the
+ * star existed follows it. What Gmail's own commands carry; a connection's row
+ * reads `follows` below, which names no source.
+ */
+export const GMAIL_MARKS = ['label', 'star'] as const;
+export type GmailMark = (typeof GMAIL_MARKS)[number];
+export const gmailMarkSchema = z.enum(GMAIL_MARKS);
+
+/**
+ * What a connection follows at its source, in the connector's own words
+ * ("Take source names out of the shared contract", issue 927): `value` is the
+ * connector's, opaque to everything else, and `label` is what the row says.
+ */
+export const followedSchema = z.object({
+  value: z.string(),
+  label: z.string(),
+});
+export type Followed = z.infer<typeof followedSchema>;
+
+/**
  * A source account a Workspace has connected - a Microsoft Teams sign-in
  * ("Connect a Microsoft Teams source account", issue 485), a Claude Code
  * routine trigger (issue 569), and whatever else is connected later.
@@ -9,46 +32,11 @@ import { z } from 'zod';
  * Workspace's own store and read by nothing that answers a browser, so the
  * wire carries only what a row has to say: which source it is, whose account
  * at that source, when it was connected, and when it last worked.
+ *
+ * **It names no source**: `connectorId` is whatever the connector is called,
+ * and its name on screen comes with the Workspace (`sourceNames` on the
+ * snapshot).
  */
-export const TEAMS = 'teams';
-
-/**
- * A Gmail mailbox, whose conversations labelled `Cockpit` - or starred -
- * become tasks ("Connect a Gmail account to a workspace, and disconnect it",
- * issue 724). Its Items are stored under this id and served as the source
- * `mail`, which reads "Gmail" too.
- */
-export const GMAIL = 'gmail';
-
-/**
- * The one mark a Gmail connection follows ("Connect Gmail by star, and bring
- * in conversations starred from then on", issue 822): the `Cockpit` label, or
- * the star - which is what Outlook's flag for follow-up sets on Gmail mail.
- * The label is the one chosen to start, and every connection made before the
- * star existed follows it.
- */
-export const GMAIL_MARKS = ['label', 'star'] as const;
-export type GmailMark = (typeof GMAIL_MARKS)[number];
-export const gmailMarkSchema = z.enum(GMAIL_MARKS);
-
-/**
- * A workspace's routine trigger - one Claude Code session started and
- * reported back, rather than an account signed in to (issue 569). It still
- * fills the same row a source account does: the store keys on `connectorId`
- * alone, not on what kind of thing is connected.
- */
-export const CLAUDE_CODE = 'claude-code';
-
-/** What a connector is called on screen; its id is what the store keys on. */
-export function connectorNamed(connectorId: string): string {
-  if (connectorId === TEAMS) return 'Microsoft Teams';
-  // An Item's source is `mail`, the connection's connector `gmail`: both are
-  // Gmail to whoever reads them (issue 724).
-  if (connectorId === GMAIL || connectorId === 'mail') return 'Gmail';
-  if (connectorId === CLAUDE_CODE) return 'Claude Code';
-  return connectorId;
-}
-
 export const sourceAccountSchema = z.object({
   id: z.string(),
   connectorId: z.string(),
@@ -75,8 +63,8 @@ export const sourceAccountSchema = z.object({
    * failing rather than as broken.
    */
   failingBecause: z.string().nullable().default(null),
-  /** What a Gmail connection follows (issue 822); absent for every other connector. */
-  follows: gmailMarkSchema.optional(),
+  /** What the connection follows, where its connector follows anything at all - today Gmail alone (issue 822). */
+  follows: followedSchema.optional(),
 });
 export type SourceAccount = z.infer<typeof sourceAccountSchema>;
 

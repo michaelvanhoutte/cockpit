@@ -1,11 +1,10 @@
 import { and, eq, exists, inArray, isNull, notExists, sql } from 'drizzle-orm';
 import {
-  CLAUDE_CODE,
-  GMAIL,
   agentsShownOnDashboard,
   hookNamesSession,
   runBlocksAStart,
 } from '@cockpit/shared';
+import { CLAUDE_CODE, GMAIL } from '../domain/named-sources.js';
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import { dropWhatWasWanted, wantOpenStateMirrored } from './mirrored-open-state.js';

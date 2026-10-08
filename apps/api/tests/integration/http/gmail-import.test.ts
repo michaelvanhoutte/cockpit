@@ -177,7 +177,7 @@ interface InboxItem {
 async function inboxOf(workspaceId = WORKSPACE_ID): Promise<InboxItem[]> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/snapshot`);
   expect(res.status).toBe(200);
-  return ((await res.json()) as { items: InboxItem[] }).items.filter((item) => item.source === 'mail');
+  return ((await res.json()) as { items: InboxItem[] }).items.filter((item) => item.source === 'gmail');
 }
 
 async function rowOf(
@@ -185,9 +185,11 @@ async function rowOf(
 ): Promise<{ lastTestedAt: string | null; failingBecause: string | null; follows?: string }> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/connections`);
   const { sourceAccounts } = (await res.json()) as {
-    sourceAccounts: { lastTestedAt: string | null; failingBecause: string | null; follows?: string }[];
+    sourceAccounts: { lastTestedAt: string | null; failingBecause: string | null; follows?: { value: string } }[];
   };
-  return sourceAccounts[0]!;
+  // The mark it follows, which its row names in Gmail's words (gmail-connections.test.ts).
+  const { follows, ...row } = sourceAccounts[0]!;
+  return { ...row, ...(follows ? { follows: follows.value } : {}) };
 }
 
 /** Disconnects the Workspace's Gmail connection, as its row's Disconnect does. */

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { uuidv7, type GmailMark, type SourceAccount } from '@cockpit/shared';
+import { gmailMarkSchema, uuidv7, type GmailMark, type SourceAccount } from '@cockpit/shared';
 import { refusalFrom, useCommand } from '../api/queries';
 import { FollowedMarkChoice } from './ConnectGmail';
 
@@ -54,7 +54,8 @@ export function ChangeGmailFollows({
 }
 
 function Choice({ account, workspaceId, onClose }: { account: SourceAccount; workspaceId: string; onClose: () => void }) {
-  const followedNow: GmailMark = account.follows ?? 'label';
+  // The value is Gmail's own mark; anything else reads as the label it starts at.
+  const followedNow: GmailMark = gmailMarkSchema.safeParse(account.follows?.value).data ?? 'label';
   const [follows, setFollows] = useState<GmailMark>(followedNow);
   const command = useCommand();
   const refusal = refusalFrom(command);

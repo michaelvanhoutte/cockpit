@@ -2,9 +2,7 @@ import { alias } from 'drizzle-orm/sqlite-core';
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
 import type { Column } from 'drizzle-orm';
 import {
-  CLAUDE_CODE,
   DEFAULT_ITEM_FORM_PRESENTATION,
-  GMAIL,
   REWRITE_HISTORY_LIMIT,
   panelFilterFrom,
   panelSortFrom,
@@ -31,6 +29,7 @@ import {
   type StoredPanelKind,
   type Workspace,
 } from '@cockpit/shared';
+import { CLAUDE_CODE, GMAIL, GMAIL_FOLLOWS_LABEL } from '../domain/named-sources.js';
 import type { AccountDb } from './client.js';
 import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments.js';
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
@@ -605,9 +604,6 @@ function rowsOf(
     .filter((row) => row.cells.length > 0 || row.title !== undefined);
 }
 
-/** What a Gmail Item is served as, until the contract step takes it away (`source` below). */
-const SERVED_FOR_GMAIL = 'mail';
-
 /**
  * The columns an item is read by, named for the reason `workspaceColumns` above
  * is named: a bare `select()` names every column the table declares, so the
@@ -630,18 +626,11 @@ const itemColumns = {
    * connector is named - every source the `source` column's own CHECK cannot
    * hold, and Gmail - and `source` everywhere else. Coalesced here, so nothing
    * above this file has to know that a CHECK on a table with four children is
-   * why there are two (`STORED_SOURCES` in the contract).
-   *
-   * **Except a Gmail Item, still served as `mail`**: the expand-side alias of
-   * "Store Gmail Items under their connector id" (issue 926). A client built
-   * before "Read a connector id as an Item's source" (issue 925) parses every
-   * snapshot strictly against a closed list of sources and fails the whole
-   * Workspace on `gmail`. "Take source names out of the shared contract"
-   * (issue 927) removes this once installed clients have updated. The only
-   * place it is said: every Item the API serves is read through here.
+   * why there are two (`STORED_SOURCES` in the contract). A Gmail Item is
+   * served as `gmail` ("Take source names out of the shared contract", issue
+   * 927), its `mail` having no meaning beyond the frozen column.
    */
-  source: sql<Source>`case when ${items.sourceConnector} = ${GMAIL} then ${SERVED_FOR_GMAIL}
-                           else coalesce(${items.sourceConnector}, ${items.source}) end`.as('source'),
+  source: sql<Source>`coalesce(${items.sourceConnector}, ${items.source})`.as('source'),
   sourceId: items.sourceId,
   sourceLink: items.sourceLink,
   sender: items.sender,
@@ -2357,8 +2346,12 @@ export function sourceAccountsIn(
     // order moves between reads is one whose rows jump under the pointer.
     .orderBy(asc(connectorAccounts.connectedAt), asc(connectorAccounts.id))
     .all()
-    // What is followed is Gmail's alone (issue 822).
-    .map(({ follows, ...account }) => (account.connectorId === GMAIL ? { ...account, follows } : account));
+    // What it follows, in Gmail's words, for Gmail alone: the column moves
+    // with Gmail ("Move Gmail out of the core, onto the connector SDK", issue
+    // 875), while the contract carries only a value and a label (issue 927).
+    .map(({ follows, ...account }) =>
+      account.connectorId === GMAIL ? { ...account, follows: { value: follows, label: GMAIL_FOLLOWS_LABEL[follows] } } : account,
+    );
 }
 
 /**

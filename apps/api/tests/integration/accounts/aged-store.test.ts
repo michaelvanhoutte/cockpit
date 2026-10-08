@@ -2027,10 +2027,11 @@ const sourcesIn = (name: string) =>
 /**
  * A store from just before the change, filled as every other case here is -
  * `it-before` being a Gmail Item - and holding `held` besides. An entry naming
- * `it-before` restores it with the source given instead.
+ * `it-before` restores it with the source given instead. `before` is the
+ * change it stops short of.
  */
-async function storeHolding(name: string, held: readonly Held[]): Promise<void> {
-  await agedTo(name, justBefore(GMAIL_ITEMS));
+async function storeHolding(name: string, held: readonly Held[], before = GMAIL_ITEMS): Promise<void> {
+  await agedTo(name, justBefore(before));
   await fillWithWhatIsAlreadyThere(name);
   await inStoreAsItIs(name, (sql) => {
     for (const one of held) {
@@ -2051,10 +2052,10 @@ async function storeHolding(name: string, held: readonly Held[]): Promise<void> 
 }
 
 /** The rows the change logged as left alone, by how many it counted. */
-function leftAloneIn(lines: unknown[][]): number[] {
+function leftAloneIn(lines: unknown[][], message = LEFT_ALONE): number[] {
   return lines
     .map(([line]) => String(line))
-    .filter((line) => line.includes(LEFT_ALONE))
+    .filter((line) => line.includes(message))
     .map((line) => (JSON.parse(line) as { level: string; data: { rows: number } }))
     .map((logged) => {
       expect(logged.level).toBe('warn');
@@ -2152,6 +2153,81 @@ describe('Accounts', () => {
       // Compared whole, so a row changed that should not have been shows.
       expect(await sourcesIn(name)).toEqual(
         before.map((row) => (rewritten.includes(row.id) ? { ...row, source_connector: 'gmail' } : row)),
+      );
+    });
+  });
+});
+
+/**
+ * "Take source names out of the shared contract" (issue 927): before Gmail is
+ * served under its own id, every Gmail Item is put in the one form `asStored`
+ * writes, `mail` naming `gmail` - those a release before 0062 captured with no
+ * connector while it rolled out, and those an older release edited into
+ * `internal` naming `gmail`. `it-before` is the first kind, the fixture
+ * writing it with no connector. Integration for 0062's reason; that the form
+ * reads as Gmail is capture-source.test.ts's.
+ */
+const GMAIL_ITEMS_AGAIN = '0063-gmail-items-under-their-connector-again';
+
+/** What it logs when it leaves Gmail Items naming another connector alone. */
+const LEFT_ALONE_AGAIN = 'Items stored as mail but naming a connector other than gmail were left as they are';
+
+describe('Accounts', () => {
+  describe('every account comes up to date with every Gmail Item in the one form, and nothing else rewritten', () => {
+    const own = { id: 'it-own', source: 'internal', connector: null };
+    const fromTeams = { id: 'it-teams', source: 'internal', connector: 'teams' };
+    const fromAnApp = { id: 'it-app', source: 'internal', connector: 'mcp' };
+    const asOne = { source: 'mail', source_connector: 'gmail' };
+    const many = (prefix: string, source: string, connector: string | null) =>
+      Array.from({ length: 120 }, (_, nth) => ({ id: `${prefix}-${String(nth).padStart(3, '0')}`, source, connector }));
+
+    it.each([
+      {
+        situation: 'a Gmail Item captured with no connector, and one edited into an Item naming Gmail: both in the one form',
+        held: [
+          own,
+          fromTeams,
+          fromAnApp,
+          { id: 'it-gmail-bare', source: 'mail', connector: null },
+          { id: 'it-gmail-edited', source: 'internal', connector: 'gmail' },
+        ],
+        rewritten: ['it-before', 'it-gmail-bare', 'it-gmail-edited'],
+        logged: [],
+      },
+      {
+        situation: 'a Gmail Item already naming another connector: left as it is, and logged',
+        held: [{ id: 'it-elsewhere', source: 'mail', connector: 'outlook' }],
+        rewritten: ['it-before'],
+        logged: [1],
+      },
+      {
+        situation: 'every Gmail Item already in the one form: nothing changes',
+        held: [own, fromTeams, { id: 'it-before', source: 'mail', connector: 'gmail' }],
+        rewritten: [],
+        logged: [],
+      },
+      {
+        situation: '120 Gmail Items of each kind: every one rewritten',
+        held: [...many('it-bare', 'mail', null), ...many('it-edited', 'internal', 'gmail')],
+        rewritten: ['it-before', ...[...many('it-bare', 'mail', null), ...many('it-edited', 'internal', 'gmail')].map((one) => one.id)],
+        logged: [],
+      },
+    ])('$situation', async ({ situation, held, rewritten, logged }) => {
+      const name = `aged-store-gmail-again-${held.length}-${rewritten.length}`;
+      await storeHolding(name, held, GMAIL_ITEMS_AGAIN);
+      const before = await sourcesIn(name);
+
+      const log = vi.spyOn(console, 'warn');
+      try {
+        expect(await storeNamed(name).workspaces(name), situation).toMatchObject({ status: 'ok' });
+        expect(leftAloneIn(log.mock.calls, LEFT_ALONE_AGAIN)).toEqual(logged);
+      } finally {
+        log.mockRestore();
+      }
+
+      // Compared whole, so a row changed that should not have been shows.
+      expect(await sourcesIn(name)).toEqual(
+        before.map((row) => (rewritten.includes(row.id) ? { ...row, ...asOne } : row)),
       );
     });
   });

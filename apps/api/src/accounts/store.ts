@@ -10,7 +10,8 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import { CLAUDE_CODE, GMAIL, itemLabel, panelTakesItems } from '@cockpit/shared';
+import { CLAUDE_CODE, GMAIL } from '../domain/named-sources.js';
+import { itemLabel, panelTakesItems } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';

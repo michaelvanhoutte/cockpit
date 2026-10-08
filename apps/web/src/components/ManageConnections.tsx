@@ -1,9 +1,6 @@
 import { useRef, useState } from 'react';
 import { queryOptions, useQuery } from '@tanstack/react-query';
 import {
-  CLAUDE_CODE,
-  GMAIL,
-  connectorNamed,
   registeredConnectorListSchema,
   sourceAccountListSchema,
   uuidv7,
@@ -12,8 +9,9 @@ import {
   type SourceAccountList,
 } from '@cockpit/shared';
 import { api, refusal } from '../api/client';
-import { refusalFrom, useCommand, useConnectClaudeCode, useTestClaudeCodeConnection } from '../api/queries';
+import { refusalFrom, snapshotQuery, useCommand, useConnectClaudeCode, useTestClaudeCodeConnection } from '../api/queries';
 import type { ConnectOutcome } from '../connections';
+import { sourceNamed, type SourceNames } from '../itemSource';
 import { ConnectEngine } from './engines';
 import { ChangeGmailFollows } from './ChangeGmailFollows';
 import { ConnectGmail } from './ConnectGmail';
@@ -88,21 +86,27 @@ function connectPath(workspaceId: string, connectorId: string): string {
 }
 
 /**
- * The two cards the registry does not hold, named here and nowhere else: Gmail
- * until it moves onto the connector SDK (issue 875), and Claude Code until
- * outbound integrations have a boundary (issue 879). Every other card comes
- * from the registry ("List the registry's connectors in the Connections
- * window", issue 894), so adding a source touches no file in this app.
+ * The two sources the registry does not hold, named here and nowhere else in
+ * this app: Gmail until it moves onto the connector SDK ("Move Gmail out of
+ * the core, onto the connector SDK", issue 875), and Claude Code until
+ * "Decide how Claude Code and other outbound integrations sit behind a
+ * boundary" (issue 879). Every other card comes from the registry ("List the
+ * registry's connectors in the Connections window", issue 894), and every
+ * name a row says from the Workspace's snapshot ("Take source names out of
+ * the shared contract", issue 927), so adding a source touches no file in
+ * this app.
  */
+const GMAIL = 'gmail';
+const CLAUDE_CODE = 'claude-code';
 const GMAIL_CARD: Card = {
   id: GMAIL,
-  name: connectorNamed(GMAIL),
+  name: 'Gmail',
   // That the label and the task stay in step (issue 724).
   text: 'Label a conversation Cockpit in Gmail and it becomes a task here. Finishing the task takes the label off. Cockpit reads labelled mail only.',
 };
 const CLAUDE_CODE_CARD: Card = {
   id: CLAUDE_CODE,
-  name: connectorNamed(CLAUDE_CODE),
+  name: 'Claude Code',
   text: 'A routine that starts a Claude Code session on this workspace’s items.',
 };
 
@@ -116,23 +120,17 @@ interface Card {
 /** What the guest is told in place of every way to connect. */
 const GUEST_SENTENCE = 'Sign in with Google to connect your own';
 
-/** What a connected row says under its name, beside the source. */
-function rowDetail(account: SourceAccount): string {
-  // The label is fixed, and the row says so ("Connect a Gmail account to a
-  // workspace, and disconnect it", issue 724) - and when the mailbox was last
-  // checked, once it has been ("Bring in the conversations already labelled
-  // Cockpit as tasks", issue 725) - or that it follows the star instead
-  // ("Connect Gmail by star, and bring in conversations starred from then
-  // on", issue 822).
-  if (account.connectorId === GMAIL) {
-    const follows = account.follows === 'star' ? 'Gmail · starred' : 'Gmail · label Cockpit';
-    return account.lastTestedAt
-      ? `${follows} · last checked ${new Date(account.lastTestedAt).toLocaleString()}`
-      : follows;
-  }
-  return account.lastTestedAt
-    ? `${connectorNamed(account.connectorId)} · last worked ${new Date(account.lastTestedAt).toLocaleString()}`
-    : connectorNamed(account.connectorId);
+/**
+ * What a connected row says under its name: the source, what it follows where
+ * it follows something, in the connector's own words (Gmail's label or star,
+ * issues 724 and 822), and when it last worked - for a connection that follows
+ * something, when it was last checked (issue 725).
+ */
+function rowDetail(account: SourceAccount, names: SourceNames): string {
+  const source = sourceNamed(names, account.connectorId);
+  const what = account.follows ? `${source} · ${account.follows.label}` : source;
+  if (!account.lastTestedAt) return what;
+  return `${what} · ${account.follows ? 'last checked' : 'last worked'} ${new Date(account.lastTestedAt).toLocaleString()}`;
 }
 
 /**
@@ -197,6 +195,13 @@ export default function ManageConnections({
     // (`WorkspaceTabs.tsx`), and a list read for a shut window would be a
     // request nobody asked for.
     enabled: open,
+  });
+  // What each source is called, from the Workspace's own snapshot, which is
+  // read anyway - and kept, so the rows are named offline too.
+  const { data: names } = useQuery({
+    ...snapshotQuery(workspaceId),
+    enabled: open,
+    select: (snapshot) => snapshot.sourceNames,
   });
   const registry = useQuery({
     queryKey: ['registeredConnectors'],
@@ -341,7 +346,7 @@ export default function ManageConnections({
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm">{account.displayName}</p>
-                  <p className="text-sm text-ink-faint">{rowDetail(account)}</p>
+                  <p className="text-sm text-ink-faint">{rowDetail(account, names)}</p>
                   {/* Why Claude last refused to start a session through it,
                       until one starts again ("Drop an agent on an item to
                       start a Claude Code session on it", issue 571). */}

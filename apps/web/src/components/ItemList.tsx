@@ -800,6 +800,7 @@ export function ItemList({
     <ItemRow
       item={item}
       itemType={typeOf(types, item)}
+      sourceNames={data?.sourceNames}
       workspaceId={workspaceId}
       inInbox={panelId === null}
       {...(rowPanel ? { liftedFrom: rowPanel } : {})}

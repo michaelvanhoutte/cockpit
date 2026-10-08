@@ -10,7 +10,7 @@ import { plainWords } from './plain-words.js';
 /**
  * A connector's id: lowercase words joined by `-`, `_` or `.`. What a source
  * is called on the wire, so a client can draw one it has never heard of as the
- * id itself (`connectorNamed`).
+ * id itself (`sourceNames` on the snapshot).
  */
 export const connectorIdSchema = z
   .string()
@@ -21,9 +21,8 @@ export const connectorIdSchema = z
  * Where an Item came from, as it is read: 'internal' means created inside
  * Cockpit, 'mcp' that an app connected to Cockpit captured it (the app's
  * registered name being the Item's `sender`), and anything else is the id of
- * the connector that made it. The old values keep their meaning; a Gmail Item
- * is stored under `gmail` and still served as `mail`, for clients that know no
- * other name ("Store Gmail Items under their connector id", issue 926).
+ * the connector that made it: a Gmail Item is served as `gmail` ("Take source
+ * names out of the shared contract", issue 927).
  *
  * **Open on purpose**: a closed list here would need the next source added in
  * the contract, and a client that parses a snapshot would refuse an Item

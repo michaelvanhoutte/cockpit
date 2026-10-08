@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { connectorNamed } from '../../../src/domain/source-account.js';
 import {
   TITLE_LENGTH,
   UNTITLED,
@@ -432,7 +431,7 @@ describe('Connector management', () => {
     it.each([
       { situation: 'Cockpit’s own', source: 'internal', accepted: true },
       { situation: 'an app connection’s', source: 'mcp', accepted: true },
-      { situation: 'what a Gmail Item reads as today', source: 'mail', accepted: true },
+      { situation: 'what a Gmail Item read as before', source: 'mail', accepted: true },
       { situation: 'Gmail’s connector', source: 'gmail', accepted: true },
       { situation: 'Teams’ connector', source: 'teams', accepted: true },
       { situation: 'a connector nothing in Cockpit names', source: 'outlook', accepted: true },
@@ -443,17 +442,6 @@ describe('Connector management', () => {
       { situation: 'capitals', source: 'Gmail', accepted: false },
     ])('an Item from $situation source is read: $accepted', ({ source, accepted }) => {
       expect(itemSchema.safeParse(anItem(source)).success).toBe(accepted);
-    });
-  });
-
-  describe('a connector id reads as the connector’s name, or as itself where nothing names it', () => {
-    it.each([
-      { connectorId: 'gmail', shows: 'Gmail' },
-      { connectorId: 'mail', shows: 'Gmail' },
-      { connectorId: 'teams', shows: 'Microsoft Teams' },
-      { connectorId: 'outlook', shows: 'outlook' },
-    ])('$connectorId reads as $shows', ({ connectorId, shows }) => {
-      expect(connectorNamed(connectorId)).toBe(shows);
     });
   });
 });

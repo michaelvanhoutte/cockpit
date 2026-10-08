@@ -1,6 +1,7 @@
 import type { Connector } from '@cockpit/connector-sdk';
 import { createTeamsConnector } from '@cockpit/connector-teams';
 import type { Env } from '../env.js';
+import { NAMED_SOURCES } from '../domain/named-sources.js';
 
 /**
  * The composition root (architecture §6.2): the application knows connectors
@@ -37,6 +38,20 @@ export function connectors(env: Env): Connector[] {
     // Set by the backend suite alone (`src/env.ts`).
     ...(env.TEST_CONNECTORS ?? []),
   ];
+}
+
+/**
+ * What each source is called on screen, by connector id ("Take source names
+ * out of the shared contract", issue 927): every registered connector by its
+ * manifest's name, and the sources the core still names itself
+ * (`domain/named-sources.ts`), which win over a registered one of the same id.
+ * A source no longer registered is absent, and so reads as its id.
+ */
+export function sourceNames(env: Env): Record<string, string> {
+  return {
+    ...Object.fromEntries(connectors(env).map(({ manifest }) => [manifest.id, manifest.displayName])),
+    ...NAMED_SOURCES,
+  };
 }
 
 export function getConnector(env: Env, id: string): Connector | undefined {
