@@ -1,13 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
-import { buildCleanUpANote } from './prompts/clean-up-a-note.v10.js';
-import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v1.js';
+import { buildCleanUpANote } from './prompts/clean-up-a-note.v11.js';
+import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v2.js';
 import { readPanelChoice, readProposal, type PanelRead, type ProposalRead } from './note-texts.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 
 export type { NoteTexts, PanelRead, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
-export type { ItemToPlace } from './prompts/choose-a-panel.v1.js';
+export type { ItemToPlace } from './prompts/choose-a-panel.v2.js';
 
 /**
  * The AI layer behind a project-owned interface (architecture, "AI layer"):
@@ -26,10 +26,11 @@ export type { ItemToPlace } from './prompts/choose-a-panel.v1.js';
  * read ("Offer the other readings when a captured note says two things",
  * issue 297) and which Panel it belongs on, where one clearly fits ("Propose
  * where a captured note belongs, without filing it there", issue 298) - one
- * call on capture, since both halves are wanted then. The two re-reads of the
- * rest of an inbox each want only one half, so each asks for only that half
- * (`rewriteTexts`, `choosePanel`; issue 583) rather than paying for both and
- * throwing one away.
+ * call on capture, since both halves are wanted then. The re-read of the rest
+ * of an inbox after a filing wants only the Panel, so it asks for only that
+ * (`choosePanel`; issue 583) rather than paying for both and throwing one
+ * away. A correction re-reads nothing: it shapes later captures only ("Cut
+ * what cleaning up a captured note costs", issue 887).
  */
 export interface AiService {
   /**
@@ -79,21 +80,9 @@ export interface AiService {
   ): Promise<ProposalRead>;
 
   /**
-   * `cleanUpNote` with nothing asked about Panels - the same prompt, the same
-   * model, and its `panel` always `null` - for a correction's re-read of the
-   * rest of the inbox, which writes only the texts ("Use a cheaper model for
-   * panel-only re-proposal", issue 583).
-   */
-  rewriteTexts(
-    capturedMessage: string,
-    corrections: readonly TextCorrectionEntry[],
-    stood: WhatStood | null,
-  ): Promise<ProposalRead>;
-
-  /**
    * Which of `panels` an Item belongs on, and nothing else - for a settled
    * filing's refresh of the rest of the inbox, which writes only the Panel
-   * (`choose-a-panel.v1`, issue 583). `history` and `recentlyCaptured` are
+   * (`choose-a-panel.v2`, issue 583). `history` and `recentlyCaptured` are
    * what `cleanUpNote` takes under the same names. Refuses and throws on
    * the same terms as `cleanUpNote`.
    */
@@ -161,17 +150,6 @@ export class ClaudeAiService implements AiService {
     return 'refused' in answer ? { discarded: answer.refused } : readProposal(answer.text, panels.map((panel) => panel.id));
   }
 
-  async rewriteTexts(
-    capturedMessage: string,
-    corrections: readonly TextCorrectionEntry[],
-    stood: WhatStood | null,
-  ): Promise<ProposalRead> {
-    const prompt = buildCleanUpANote(null, corrections, stood);
-    const answer = await this.#ask(prompt, capturedMessage);
-    // No Panel was offered, so none can be read back.
-    return 'refused' in answer ? { discarded: answer.refused } : readProposal(answer.text, []);
-  }
-
   async choosePanel(
     item: ItemToPlace,
     panels: readonly { id: string; name: string }[],
@@ -185,11 +163,11 @@ export class ClaudeAiService implements AiService {
 
   /** One call, constrained to the prompt's own schema: its text, or that the model declined. */
   async #ask(
-    // `effort` is null for a model that refuses the field (`choose-a-panel.v1`).
+    // `effort` is null for a model that refuses the field (`choose-a-panel.v2`).
     prompt: {
       model: string;
       effort: 'low' | null;
-      system: string | { instructions: string; context: string };
+      system: { instructions: string; stable: string; recent: string };
       schema: Record<string, unknown>;
     },
     content: string,
@@ -205,32 +183,35 @@ export class ClaudeAiService implements AiService {
        */
       max_tokens: 8_192,
       /**
-       * `clean-up-a-note`'s fixed half carries the breakpoint, so every call
-       * with the same schema reads it back at the cache rate for five minutes
-       * after the last one ("Enable prompt caching on the note-cleanup
-       * prompt, restructured so the fixed content is a stable prefix", issue
-       * 584). **The schema is part of what is cached**: a capture's carries
-       * this account's panel ids as an `enum`, and a different
-       * `output_config.format` invalidates the cache, so that prefix is shared
-       * by one account's captures with an unchanged set of panels, never
-       * across accounts; a texts-only re-read has no `enum`, so its prefix is
-       * shared more widely. The API gives the schema no breakpoint of its own.
-       * Nothing after the marker is cached: `context` changes with every note
-       * filed or captured, and a second breakpoint on it would pay the write
-       * premium far more often than it was read back.
+       * Three blocks, the one that changes least first, with a breakpoint
+       * after each of the first two: the fixed instructions, then what changes
+       * only on a filing or a correction, then what changes with every
+       * capture ("Enable prompt caching on the note-cleanup prompt,
+       * restructured so the fixed content is a stable prefix", issue 584;
+       * "Cut what cleaning up a captured note costs", issue 887). A call reads
+       * back at the cache rate whichever of the two prefixes the one before it
+       * left standing, for five minutes after the last one. The last block has
+       * no breakpoint: a capture changes it every time, and caching it would
+       * pay the write premium far more often than it was read back.
        *
-       * `choose-a-panel` goes as the one string it is, uncached: it runs on
-       * Haiku 4.5, which caches nothing shorter than 4,096 tokens, and its
-       * fixed part is a fraction of that.
+       * **The schema is part of what is cached**: a capture's carries this
+       * account's panel ids as an `enum`, and a different `output_config.format`
+       * invalidates the cache, so a prefix is shared by one account's calls
+       * with an unchanged set of panels, never across accounts. The API gives
+       * the schema no breakpoint of its own.
+       *
+       * Neither prompt can send an empty block, which the API refuses: each
+       * is left out where it has nothing to say. `choose-a-panel` runs on
+       * Haiku 4.5, which caches nothing shorter than 4,096 tokens, so its
+       * breakpoints take effect only for an account with a long history.
        */
-      system:
-        typeof prompt.system === 'string'
-          ? prompt.system
-          : [
-              { type: 'text', text: prompt.system.instructions, cache_control: { type: 'ephemeral' } },
-              // Left out rather than sent empty, which the API refuses.
-              ...(prompt.system.context === '' ? [] : [{ type: 'text' as const, text: prompt.system.context }]),
-            ],
+      system: [
+        { type: 'text', text: prompt.system.instructions, cache_control: { type: 'ephemeral' } },
+        ...(prompt.system.stable === ''
+          ? []
+          : [{ type: 'text' as const, text: prompt.system.stable, cache_control: { type: 'ephemeral' as const } }]),
+        ...(prompt.system.recent === '' ? [] : [{ type: 'text' as const, text: prompt.system.recent }]),
+      ],
       messages: [{ role: 'user', content }],
       output_config: {
         // Constrained to the prompt's own schema, which is what makes the

@@ -15,7 +15,7 @@ import { historyAnswer, historyRecord, labelsAnswer, modifyAnswer, plainThread, 
  * it writes (undone in the same case), asked of Gmail
  * itself against a dedicated test mailbox (docs/testing-strategy.md, "Third
  * parties"; "Bring in the conversations already labelled Cockpit as tasks",
- * issue 725). **Scheduled, never on a pull request** (.github/workflows/
+ * issue 725). **Never per change** (.github/workflows/
  * contract.yml), for the reason the Bot Framework one is: it reaches the
  * network, and what it holds is Google's decision rather than ours.
  *

@@ -111,7 +111,7 @@ Both of the above have shipped. What is left, named rather than numbered so that
 |---|---|---|
 | **The store** | The triple recorded at your first edit, the count and sample of what stood read from `items` beside it, prompt v8 reading both, each capped to the last 30 days ("Cap the text-learning prompt to the last 30 days, and drop rules and pinned examples as inputs", issue 451). Headless — it changes what titles say, and puts up no screen. | prompt v6 |
 | **The evidence** | What it got right and what you corrected, as two lists on a screen — the sample of what stood, and the pairs with Cockpit's version struck through. | the store |
-| **Re-read the Inbox** | Correcting a text re-proposes everything still unfiled, as "Re-propose the rest of the inbox the moment you file one" (issue 300) already does for Panels, and debounced the same way ("Debounce the settle-triggered repropose fan-out across a real time window", issue 582). | the store |
+| **Re-read the Inbox** | Decided against ("Cut what cleaning up a captured note costs", issue 887): correcting a text re-reads nothing, and shapes later captures only. Measured, a re-read mostly reworded the titles and sometimes damaged one - a title translated, another note's title, a name changed. The items already in the Inbox keep the texts they have. | - |
 | **Try again** | A fresh suggestion now, the rejected one recorded — and what gets a tolerated-but-wrong title out of the sample that stood. | the store |
 | **Cockpit's account of itself** | Generated when you open the screen it needs, stored nowhere. | a screen |
 

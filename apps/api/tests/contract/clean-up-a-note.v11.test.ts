@@ -2,14 +2,14 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { afterAll, describe, expect, it } from 'vitest';
 import { ClaudeAiService, type ProposalRead } from '../../src/ai/index.js';
 import { TITLE_LENGTH } from '@cockpit/shared';
-import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v10.js';
+import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v11.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../src/domain/text-corrections.js';
 
 /**
  * The contract tier: the real Claude API, the real prompt, no fake anywhere
- * (docs/testing-strategy.md, "Third parties"). **Scheduled, never on a pull
- * request** - every case spends money and takes as long as the model does, and
+ * (docs/testing-strategy.md, "Third parties"). **Run on a pull request that
+ * changes a prompt, and by hand, never on a schedule** - every case spends money and takes as long as the model does, and
  * the fakes one tier down are what every other test runs against.
  *
  * What only this tier can prove: that the prompt still gets the behaviours out
@@ -55,28 +55,22 @@ function tallied(name: string): ClaudeAiService {
     spent.output += usage.output_tokens;
   });
 }
-const reading = tallied('clean-up-a-note.v10 on capture');
-const rereading = tallied('clean-up-a-note.v10 texts only');
+const reading = tallied('clean-up-a-note.v11 on capture');
 
 const NO_STOOD: WhatStood | null = null;
 
 /**
- * The two calls that write a note's texts: on capture, where the same answer
- * also names a Panel, and a correction's re-read of the rest of the inbox,
- * which asks for the texts alone ("Use a cheaper model for panel-only
- * re-proposal", issue 583). Every rule about the texts binds both, so every
- * case about the texts runs against both.
+ * The call that writes a note's texts, on capture, where the same answer also
+ * names a Panel. A correction no longer re-reads the rest of the inbox ("Cut
+ * what cleaning up a captured note costs", issue 887), so this is the only way
+ * a note's texts are written; it stays a table so every case below keeps its
+ * place under it.
  */
 const WAYS = [
   {
     situation: 'read on capture',
     ask: (note: string, corrections: readonly TextCorrectionEntry[]) =>
       reading.cleanUpNote(note, [], [], [], corrections, NO_STOOD),
-  },
-  {
-    situation: 're-read after a title is corrected',
-    ask: (note: string, corrections: readonly TextCorrectionEntry[]) =>
-      rereading.rewriteTexts(note, corrections, NO_STOOD),
   },
 ];
 
@@ -161,6 +155,28 @@ async function read(
   // is otherwise only in the logs of a scheduled run nobody was watching.
   if (!('proposal' in answer)) throw new Error(`nothing usable came back: ${answer.discarded}`);
   return answer.proposal;
+}
+
+const TWO_PANELS = [
+  { id: '018f0000-0000-7000-8000-000000000005', name: 'Suppliers' },
+  { id: '018f0000-0000-7000-8000-000000000006', name: 'Hiring' },
+];
+
+/** A full window of the decision history: 50 settled filings, alternating between two panels. */
+function fiftyFilings(panels: readonly { id: string; name: string }[]): DecisionHistoryEntry[] {
+  return Array.from({ length: 50 }, (_, i) => {
+    const panel = panels[i % 2]!;
+    return {
+      capturedMessage: `${panel.name === 'Suppliers' ? 'leverancier' : 'kandidaat'} ${i} opvolgen`,
+      itemTitle: `Follow up ${i}`,
+      proposedPanelId: panel.id,
+      proposedPanelName: panel.name,
+      proposedPanelReason: `about ${panel.name.toLowerCase()}`,
+      chosenPanelId: panel.id,
+      chosenPanelName: panel.name,
+      decidedAt: `2026-08-${String((i % 28) + 1).padStart(2, '0')}T09:00:00.000Z`,
+    };
+  });
 }
 
 describe('Capture', () => {
@@ -248,7 +264,7 @@ describe('Capture', () => {
         expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
         // The cases in this file are only evidence about the version they ran
         // against, so the version is said out loud once.
-        expect(buildCleanUpANote(null, [], NO_STOOD).version).toBe('v10');
+        expect(buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], NO_STOOD).version).toBe('v11');
       });
 
       it('does not pad a note that is already shorter than the target', async () => {
@@ -569,7 +585,7 @@ describe('Capture', () => {
    * questions ("Propose where a captured note belongs, without filing it
    * there", issue 298) - the same shape the prompt's own worked example is,
    * deliberately neither the same note nor the same panel name as that
-   * example (`clean-up-a-note.v10.ts`'s last example pairs "Compliance
+   * example (`clean-up-a-note.v11.ts`'s last example pairs "Compliance
    * questions" with the Part 11 audit trail note). A pass on the exact note
    * and panel name the prompt was shown the answer to would prove recall
    * rather than generalisation - the failure this tier exists to catch, per
@@ -758,25 +774,41 @@ describe('Capture', () => {
    * of its own.
    */
   describe('notes read back to back for one account pay the full rate for the fixed instructions only once', () => {
-    it.each([
-      {
-        situation: 'on capture',
-        ask: (service: ClaudeAiService, note: string) => service.cleanUpNote(note, [], [], [], [], NO_STOOD),
-      },
-      {
-        situation: 'when only the texts are re-read',
-        ask: (service: ClaudeAiService, note: string) => service.rewriteTexts(note, [], NO_STOOD),
-      },
-    ])('reads the fixed instructions back at the lower rate on the second of two notes, $situation', async ({ ask }) => {
+    it('reads the fixed instructions back at the lower rate on the second of two notes', async () => {
       const usages: Anthropic.Usage[] = [];
       const service = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined, (_model, usage) => {
         usages.push(usage);
       });
 
-      expect('proposal' in (await ask(service, 'offerte leverancier nog aftekenen'))).toBe(true);
-      expect('proposal' in (await ask(service, 'book the room for the CAPA review'))).toBe(true);
+      expect('proposal' in (await service.cleanUpNote('offerte leverancier nog aftekenen', [], [], [], [], NO_STOOD))).toBe(true);
+      expect('proposal' in (await service.cleanUpNote('book the room for the CAPA review', [], [], [], [], NO_STOOD))).toBe(true);
 
       expect(usages[1]!.cache_read_input_tokens ?? 0).toBeGreaterThan(0);
+    });
+
+    /**
+     * "Cut what cleaning up a captured note costs" (issue 887): the history and
+     * the corrections are cached beside the instructions, so what the second
+     * note pays the full rate for is its own few lines and the recently
+     * captured notes. The history is what makes the prefix large, so a second
+     * note that read only the instructions back would still be paying for most
+     * of the prompt, and would fail the last assertion.
+     */
+    it('reads the history back at the lower rate too, paying the full rate only for the note and the recent notes', async () => {
+      const usages: Anthropic.Usage[] = [];
+      const service = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || undefined, (_model, usage) => {
+        usages.push(usage);
+      });
+      const history = fiftyFilings(TWO_PANELS);
+
+      expect('proposal' in (await service.cleanUpNote('offerte leverancier nog aftekenen', TWO_PANELS, history, ['still waiting'], [], NO_STOOD))).toBe(true);
+      expect('proposal' in (await service.cleanUpNote('book the room for the CAPA review', TWO_PANELS, history, ['and another'], [], NO_STOOD))).toBe(true);
+
+      const first = usages[0]!;
+      const second = usages[1]!;
+      const read = second.cache_read_input_tokens ?? 0;
+      expect(read).toBeGreaterThanOrEqual((first.cache_creation_input_tokens ?? 0) + (first.cache_read_input_tokens ?? 0));
+      expect(second.input_tokens).toBeLessThan(read / 4);
     });
   });
 
@@ -790,25 +822,7 @@ describe('Capture', () => {
    */
   describe('an account with a full decision history still gets a usable proposal', () => {
     it('answers with a proposal when fifty past filings ride along with the note', async () => {
-      const panels = [
-        { id: '018f0000-0000-7000-8000-000000000005', name: 'Suppliers' },
-        { id: '018f0000-0000-7000-8000-000000000006', name: 'Hiring' },
-      ];
-      const history: DecisionHistoryEntry[] = Array.from({ length: 50 }, (_, i) => {
-        const panel = panels[i % 2]!;
-        return {
-          capturedMessage: `${panel.name === 'Suppliers' ? 'leverancier' : 'kandidaat'} ${i} opvolgen`,
-          itemTitle: `Follow up ${i}`,
-          proposedPanelId: panel.id,
-          proposedPanelName: panel.name,
-          proposedPanelReason: `about ${panel.name.toLowerCase()}`,
-          chosenPanelId: panel.id,
-          chosenPanelName: panel.name,
-          decidedAt: `2026-08-${String((i % 28) + 1).padStart(2, '0')}T09:00:00.000Z`,
-        };
-      });
-
-      await read('factuur van de leverancier klopt niet, nakijken', panels, history);
+      await read('factuur van de leverancier klopt niet, nakijken', TWO_PANELS, fiftyFilings(TWO_PANELS));
     });
   });
 });

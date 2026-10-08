@@ -7,6 +7,7 @@ import {
   NotFoundInAccountError,
 } from '../accounts/index.js';
 import { aiFor } from '../ai/index.js';
+import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
 import type { PanelRead, RoutingCandidate } from '../ai/index.js';
 import {
   asFarAsItReads,
@@ -15,6 +16,7 @@ import {
   EMBEDDING_MODEL,
 } from '../embeddings/index.js';
 import { couldStillBeActedOn, whatAnItemSays } from '../domain/duplicates.js';
+import { itemsToReadAgain } from '../domain/panel-refresh.js';
 import type { QueuedRewriteAttempt } from '../domain/rewrite-history.js';
 import { debounceSecondsFor, isSuperseded, type RefreshAsk } from './debounce.js';
 
@@ -64,7 +66,6 @@ export type EnrichmentJob =
   | CleanUpJob
   | ReproposePanelsJob
   | ReadWhatItMeansJob
-  | ReproposeTextsJob
   | SimulatedRunWaitsJob
   | GuestArrivalJob;
 
@@ -142,29 +143,6 @@ export interface ReadWhatItMeansJob {
 }
 
 /**
- * Asks for every Item in the account still unsettled to have its title and
- * description re-proposed, the way `CleanUpJob` first proposes them - fired
- * once a correction is recorded, against corrections that now include it
- * ("Re-read the rest of the inbox the moment you fix a title", issue 399).
- *
- * **The whole account, not one Workspace**, unlike `ReproposePanelsJob`
- * beside it: how this person writes is a property of the account
- * (`docs/text-learning.md`, "Scope: per account"), not of the Workspace the
- * correcting Item happened to be in.
- *
- * **The account, not the Item that was corrected.** The one Item that just
- * settled is what caused this, but it is not what this job is about - it is
- * already settled, so it answers `itemsWithUnsettledTexts` itself and needs
- * nothing further.
- */
-export interface ReproposeTextsJob {
-  kind: 're-propose-texts';
-  accountName: string;
-  /** The ask this message was queued for - `ReproposePanelsJob.ask`, per account rather than per Workspace. */
-  ask?: RefreshAsk | undefined;
-}
-
-/**
  * Moves a simulated run in the guest account to *waiting on you*, a while
  * after it was started ("Show agents at work in the guest demo, with simulated
  * runs", issue 774) - `jobs/simulated-run.ts`, which also says why it is on
@@ -214,11 +192,6 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     // client that created it generated (`commandEnvelopeSchema.workspaceId`,
     // packages/shared), and this is carried straight from there.
     workspaceId: z.string().min(1),
-    ask: refreshAskSchema.optional(),
-  }),
-  z.object({
-    kind: z.literal('re-propose-texts'),
-    accountName: z.string().min(1),
     ask: refreshAskSchema.optional(),
   }),
   z.object({
@@ -297,6 +270,11 @@ export async function enqueueCleanUp(env: Env, accountName: string, itemId: stri
    * line on every capture.
    */
   const hasKey = Boolean(env.ANTHROPIC_API_KEY);
+
+  // The shared guest demo spends the same key for anyone who opens it, so it is
+  // treated as an environment with no key: a guest's capture keeps the title it
+  // was typed with, and there is no history row to explain why (issue 887).
+  if (accountName === GUEST_ACCOUNT_NAME) return;
 
   // Opened regardless of whether a key is configured - unlike the rest of
   // this function before this line existed. What a captured note's cleanup
@@ -400,6 +378,8 @@ export async function enqueueCleanUp(env: Env, accountName: string, itemId: stri
  * mechanical title capture wrote; only a call that failed is left to throw.
  */
 export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<void> {
+  // Refused again for a message queued for the guest before it stopped being queued.
+  if (job.accountName === GUEST_ACCOUNT_NAME) return say(job.itemId, 'nothing was enriched: the guest account never calls the model');
   // A fresh id stands in for a message enqueued before `attemptId` existed
   // (found in review, on the same deploy-skew window `enrichmentJobSchema`'s
   // own `.optional()` now allows through) - no queued row exists to update
@@ -750,9 +730,6 @@ function panelsRefresh(workspaceId: string): string {
   return `re-propose-panels:${workspaceId}`;
 }
 
-/** Which refresh the account's text re-read is, to the record of asks: one per account. */
-const TEXTS_REFRESH = 're-propose-texts';
-
 /**
  * Queues one refresh, delayed by the debounce window, and then records it as
  * the latest ask for that refresh ("Debounce the settle-triggered repropose
@@ -769,6 +746,8 @@ async function askForRefresh(
   whatWasAsked: string,
 ): Promise<void> {
   if (!env.ANTHROPIC_API_KEY) return;
+  // The guest never calls the model (see `enqueueCleanUp`).
+  if (accountName === GUEST_ACCOUNT_NAME) return;
 
   const ask: RefreshAsk = { at: Date.now(), id: crypto.randomUUID() };
   try {
@@ -844,6 +823,9 @@ async function aLaterAskTookItsPlace(account: Account, refresh: string, ask: Ref
  * client-side, not a property this job's own ordering provides.
  */
 export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promise<void> {
+  if (job.accountName === GUEST_ACCOUNT_NAME) {
+    return sayForWorkspace(job.workspaceId, 'nothing was refreshed: the guest account never calls the model');
+  }
   const ai = aiFor(env);
   if (!ai) return sayForWorkspace(job.workspaceId, 'nothing was refreshed: this environment has no ANTHROPIC_API_KEY');
 
@@ -861,14 +843,48 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
     return sayForWorkspace(job.workspaceId, 'nothing was refreshed yet: a later filing queued the refresh that will');
   }
 
-  const candidates = await account.unfiledItemsInWorkspace(job.workspaceId);
-  if (candidates.length === 0) return sayForWorkspace(job.workspaceId, 'nothing was waiting to be refreshed');
+  const waiting = await account.unfiledItemsInWorkspace(job.workspaceId);
+  if (waiting.length === 0) return sayForWorkspace(job.workspaceId, 'nothing was waiting to be refreshed');
+
+  // Only the Items a filing since the previous refresh could have changed, at
+  // most the 20 most recently captured; the rest keep the proposal they have
+  // ("Cut what cleaning up a captured note costs", issue 887). **The run is
+  // recorded as started before the filings are read**, so one made while this
+  // runs is weighed again next time rather than by nobody. A filing's time is
+  // the client's (`decidedAt` is the change's `issuedAt`), so a clock running
+  // behind can leave a filing unweighed: advisory, like the record itself.
+  const startedAt = new Date().toISOString();
+  const refresh = panelsRefresh(job.workspaceId);
+  const previousRun = await account.lastRefreshRan(refresh);
+  const meanings = await account.meaningsForRefresh(
+    job.workspaceId,
+    previousRun,
+    waiting.map((candidate) => candidate.id),
+    EMBEDDING_MODEL,
+  );
+  const chosen = new Set(itemsToReadAgain(meanings.candidates, meanings.filings));
+  const candidates = waiting.filter((candidate) => chosen.has(candidate.id));
+  try {
+    await account.recordRefreshRan(refresh, startedAt);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `workspace ${job.workspaceId}'s refresh ran and was not recorded as having, so the next also weighs the filings this one did: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      }),
+    );
+  }
+  if (candidates.length === 0) {
+    return sayForWorkspace(job.workspaceId, 'nothing waiting is close to what was filed, so nothing was refreshed');
+  }
 
   for (const candidate of candidates) {
     // Queued before the model is asked, for the same reason and with the same
-    // fresh id `reproposeTexts` below gives: every call this refresh pays for
-    // is a row in the history ("Give reproposePanels the same rewrite-history
-    // logging reproposeTexts already has", issue 581).
+    // fresh id every time: every call this refresh pays for is a row in the
+    // history ("Give reproposePanels the same rewrite-history logging
+    // reproposeTexts already had", issue 581).
     const attemptId = crypto.randomUUID();
     try {
       await recordHistory(() =>
@@ -943,182 +959,6 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
         JSON.stringify({
           level: 'error',
           message: `item ${candidate.id} was not refreshed: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        }),
-      );
-    }
-  }
-}
-
-/**
- * Asks for a correction to have every still-unsettled Item in the account
- * re-proposed, without making the edit that caused it wait for it ("Re-read
- * the rest of the inbox the moment you fix a title", issue 399) - the same
- * shape as `enqueueRepropose` above, and the same guard: an environment with
- * no key queues nothing its consumer would only discard.
- */
-export async function enqueueReproposeTexts(env: Env, accountName: string): Promise<void> {
-  await askForRefresh(
-    env,
-    accountName,
-    TEXTS_REFRESH,
-    (ask) => ({ kind: 're-propose-texts', accountName, ask }),
-    `the re-read of account ${accountName}'s Inbox, asked for by a correction,`,
-  );
-}
-
-/**
- * Runs one re-read: every Item in the account with a captured note whose
- * texts nobody has settled gets its title and description proposed again,
- * against the corrections as they stand right now - which is what makes this
- * worth firing on every correction rather than only when the Inbox is
- * opened.
- *
- * **Only the two texts are asked for and written.** `rewriteTexts` is
- * `cleanUpNote` with the Panels left out ("Use a cheaper model for
- * panel-only re-proposal", issue 583) - a second opinion on routing nobody
- * asked for would be `reproposePanels`'s own job, fired from a settled filing
- * rather than from a correction.
- *
- * **Goes through `propose_item_texts`, never around it.** The same guard
- * `cleanUpACapturedNote` writes through - `applyProposedTexts` refuses any
- * Item whose `texts_settled_at` is set - is what stops this from overwriting
- * an edit that landed after `itemsWithUnsettledTexts` was read: the query and
- * this write are not atomic with each other, and a candidate settled in
- * between is simply refused rather than clobbered.
- *
- * **One Item's failure does not cost the rest**, and this runs sequentially
- * rather than in parallel, for the same two reasons `reproposePanels` beside
- * it gives.
- */
-export async function reproposeTexts(env: Env, job: ReproposeTextsJob): Promise<void> {
-  const ai = aiFor(env);
-  if (!ai) return sayForAccount(job.accountName, 'nothing was re-read: this environment has no ANTHROPIC_API_KEY');
-
-  let account;
-  try {
-    account = await openAccount(env, job.accountName);
-  } catch (error) {
-    if (error instanceof AccountNotInRegisterError) {
-      return sayForAccount(job.accountName, 'nothing was re-read: the account is no longer in the register');
-    }
-    throw error;
-  }
-
-  if (await aLaterAskTookItsPlace(account, TEXTS_REFRESH, job.ask)) {
-    return sayForAccount(job.accountName, 'nothing was re-read yet: a later correction queued the re-read that will');
-  }
-
-  const candidates = await account.itemsWithUnsettledTexts();
-  if (candidates.length === 0) return sayForAccount(job.accountName, 'nothing was waiting to be re-read');
-
-  // Read once for the whole re-read: per account rather than per candidate,
-  // since it does not vary across them.
-  const { promptCorrections, promptStood } = await account.textLearningContext();
-
-  for (const candidate of candidates) {
-    // Queued the moment this loop reaches it, rather than at `enqueueReproposeTexts`
-    // above: which items this fans out to is not known until `itemsWithUnsettledTexts`
-    // has actually run. A fresh id every time, unlike `cleanUpACapturedNote`'s
-    // own `job.attemptId` - this whole job is never seen to throw past this
-    // point (every failure below is caught in this same loop and logged rather
-    // than rethrown), so there is no redelivery of it to reconcile against.
-    const attemptId = crypto.randomUUID();
-    try {
-      await recordHistory(() =>
-        account.queueRewriteAttempt({
-          id: attemptId,
-          tenantId: job.accountName,
-          workspaceId: candidate.workspaceId,
-          itemId: candidate.id,
-          titleBefore: candidate.title,
-          descriptionBefore: candidate.description,
-          looksAt: 'texts',
-          panelBeforeId: candidate.proposedPanelId,
-          attemptedAt: new Date().toISOString(),
-        }),
-      );
-
-      const read = await ai.rewriteTexts(candidate.capturedMessage, promptCorrections, promptStood);
-      if (!('proposal' in read)) {
-        await recordHistory(() =>
-          account.recordRewriteOutcome(attemptId, {
-            status: 'left-as-is',
-            message: `nothing was re-read: ${read.discarded}`,
-          }),
-        );
-        say(candidate.id, `nothing was re-read: ${read.discarded}`);
-        continue;
-      }
-      let written;
-      try {
-        written = await account.applyChange('propose_item_texts', {
-          commandId: crypto.randomUUID(),
-          issuedAt: new Date().toISOString(),
-          workspaceId: candidate.workspaceId,
-          itemId: candidate.id,
-          title: read.proposal.title,
-          description: read.proposal.message,
-          readings: read.proposal.readings.map((reading) => ({
-            title: reading.title,
-            description: reading.message,
-            meaning: reading.meaning,
-          })),
-        });
-      } catch (error) {
-        // The candidate went between the read above and this write - the
-        // same not-worth-retrying race `cleanUpACapturedNote` names for the
-        // same write, arriving by the same door.
-        if (error instanceof NotFoundInAccountError) {
-          await recordHistory(() =>
-            account.recordRewriteOutcome(attemptId, {
-              status: 'left-as-is',
-              message: 'nothing was written: the item went while it was being re-read',
-            }),
-          );
-          say(candidate.id, 'nothing was written: the item went while it was being re-read');
-          continue;
-        }
-        throw error;
-      }
-      await recordHistory(() =>
-        account.recordRewriteOutcome(attemptId, {
-          status: written.applied ? 'rewritten' : 'left-as-is',
-          titleAfter: written.applied ? read.proposal.title : null,
-          descriptionAfter: written.applied ? read.proposal.message : null,
-          // Nothing was asked about a Panel, so nothing was proposed.
-          proposedPanelId: null,
-          proposedPanelReason: null,
-          message: written.applied
-            ? `re-proposed in ${read.proposal.language}`
-            : 'nothing was written: the texts are already edited',
-        }),
-      );
-      say(
-        candidate.id,
-        written.applied ? `re-proposed in ${read.proposal.language}` : 'nothing was written: the texts are already edited',
-      );
-      // The two texts have just been replaced, so whatever was worked out
-      // about what this Item means is about words nobody can see any more
-      // ("Flag a captured note that says what another one already said",
-      // issue 407) - the same re-read `cleanUpACapturedNote` fires from the
-      // other door that rewrites an Item's texts, and only where the write
-      // actually landed, for the same reason.
-      if (written.applied) await enqueueReadingItsMeaning(env, job.accountName, candidate.id);
-    } catch (error) {
-      // Worth trying again another time, but not worth losing the rest of
-      // this re-read over - the same reasoning `reproposePanels` gives.
-      await recordHistory(() =>
-        account.recordRewriteOutcome(attemptId, {
-          status: 'failed',
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          message: `item ${candidate.id} was not re-read: ${
             error instanceof Error ? error.message : String(error)
           }`,
         }),
@@ -1245,7 +1085,3 @@ function sayForWorkspace(workspaceId: string, what: string): void {
   sayAbout('workspace', workspaceId, what);
 }
 
-/** One line in the logs, saying which account's re-read and what happened to it. */
-function sayForAccount(accountName: string, what: string): void {
-  sayAbout('account', accountName, what);
-}

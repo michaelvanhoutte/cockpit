@@ -84,7 +84,6 @@ import {
   enqueueCleanUp,
   enqueueReadingItsMeaning,
   enqueueRepropose,
-  enqueueReproposeTexts,
   enqueueGuestArrivals,
   enqueueSimulatedRunWaiting,
   readWhatTheseNotesMean,
@@ -1304,23 +1303,20 @@ async function changeThatMightSettleARouting<N extends 'move_item_to_panel' | 'a
  * this account writes ("Learn how you write from the titles you correct",
  * issue 394).
  *
+ * **A correction queues nothing but the re-reading of what the Item means.**
+ * What it teaches reaches later captures only; the Items already in the Inbox
+ * keep the texts they have ("Cut what cleaning up a captured note costs",
+ * issue 887).
+ *
  * **The form showing the duplicates is where a stale answer would show up
  * first**, which is why the re-read is fired from the edit rather than left to
  * anything later: a person renames a note to something they already have, and
  * the mark has to follow.
  *
- * **Reads `result.recordedCorrection` rather than asking first, separately,
- * whether the Item had a proposal to correct** - the same reasoning
- * `changeThatMightSettleARouting` above gives for `result.settledRouting`:
- * one call decided it atomically, so this reads the fact off that call rather
- * than racing whatever else touches the same Item ("Re-read the rest of the
- * inbox the moment you fix a title", issue 399).
- *
  * **Only where the write landed.** A replay and a change made against an older
  * version both answer `applied: false` and queue nothing, so neither buys a
  * second reading of a note nobody changed. `waitUntil` for the reason capture's
- * own job is: nobody pressing Save is waiting to be told about a duplicate or
- * for the rest of their Inbox to be re-read.
+ * own job is: nobody pressing Save is waiting to be told about a duplicate.
  */
 async function changeThatRewritesTheTexts<N extends 'set_title' | 'set_description'>(
   c: Context<AppEnv>,
@@ -1332,12 +1328,8 @@ async function changeThatRewritesTheTexts<N extends 'set_title' | 'set_descripti
   if (result.applied) {
     c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, payload.itemId));
   }
-  if (result.recordedCorrection) {
-    c.executionCtx.waitUntil(enqueueReproposeTexts(c.env, accountName));
-  }
   return result;
 }
-
 /**
  * Whether an error raised while streaming changes is worth reporting.
  *

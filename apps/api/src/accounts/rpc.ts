@@ -118,14 +118,25 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     workspaceId: string,
   ): Awaitable<Answer<UnfiledCandidate[]>>;
   /**
-   * Every item in the whole account with a captured note whose texts nobody
-   * has settled - what a correction re-proposes texts for ("Re-read the rest
-   * of the inbox the moment you fix a title", issue 399). Read by that job
-   * and by nothing else, the same as `unfiledItemsInWorkspace` above.
+   * The meaning of each candidate, and of each note filed in the Workspace
+   * since `since` (`null` where `since` is) - what a filing's refresh chooses
+   * which candidates to read again by ("Cut what cleaning up a captured note
+   * costs", issue 887). Read by that job and by nothing else.
    */
-  itemsWithUnsettledTexts(
+  meaningsForRefresh(
     accountName: string,
-  ): Awaitable<Answer<UnfiledCandidate[]>>;
+    workspaceId: string,
+    since: string | null,
+    candidateIds: string[],
+    model: string,
+  ): Awaitable<Answer<{ filings: (number[] | null)[] | null; candidates: { itemId: string; reading: number[] | null }[] }>>;
+  /**
+   * Records when one Workspace's refresh last ran, so the next weighs only
+   * the filings made since - kept beside the asks, and only advisory.
+   */
+  recordRefreshRan(accountName: string, refresh: string, at: string): Awaitable<Answer<null>>;
+  /** When one refresh last ran, or null where none is recorded. */
+  lastRefreshRan(accountName: string, refresh: string): Awaitable<Answer<string | null>>;
   /**
    * Records an ask for one refresh as the latest, unless a later one is
    * already recorded ("Debounce the settle-triggered repropose fan-out across

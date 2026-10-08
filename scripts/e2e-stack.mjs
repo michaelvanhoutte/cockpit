@@ -269,7 +269,7 @@ const api = start(
      * exactly what capture wrote. What Cockpit does with a note it *can* read
      * is held one tier down, against a model faked at the network boundary
      * (apps/api/tests/integration/http/note-cleanup.test.ts), and against the
-     * real one nightly (apps/api/tests/contract/).
+     * real one in the contract run (apps/api/tests/contract/).
      */
     '--var',
     'ANTHROPIC_API_KEY:',
@@ -283,7 +283,7 @@ const api = start(
      * and enough for a walk to reach a flagged row and follow it. *What* the
      * real model flags is held one tier down against a faked binding
      * (apps/api/tests/integration/http/duplicate-notes.test.ts) and against
-     * the real one nightly (apps/api/tests/contract/).
+     * the real one in the contract run (apps/api/tests/contract/).
      */
     '--var',
     'EMBEDDINGS_STAND_IN:true',

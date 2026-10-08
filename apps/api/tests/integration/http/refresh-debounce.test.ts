@@ -18,8 +18,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 
 /**
  * Integration level: a real store holds the record of asks, and the filings
- * and corrections that ask arrive through the real Worker (`SELF.fetch`, via
- * `asUser`). What is faked is the model, at the network boundary, and the
+ * that ask arrive through the real Worker (`SELF.fetch`, via `asUser`). What is faked is the model, at the network boundary, and the
  * queue's *timing*: every message the Worker sends is held here, with the
  * delay it was sent with, and delivered through the real consumer
  * (`handleQueue`) when a case says the window has passed - so a burst
@@ -101,7 +100,7 @@ function holdTheQueue(): void {
 }
 
 /** Takes every held refresh of this kind off the queue, oldest first, leaving everything else held. */
-function refreshesHeld(kind: 're-propose-panels' | 're-propose-texts') {
+function refreshesHeld(kind: 're-propose-panels') {
   const taken = held.filter((message) => message.body.kind === kind);
   held = held.filter((message) => message.body.kind !== kind);
   return taken;
@@ -221,19 +220,6 @@ async function fileANote(note: string, panelId: string, workspaceId = WORKSPACE_
   });
 }
 
-/** Corrects the title Cockpit proposed for a new Item - one correction, and one ask for a re-read. */
-async function correctATitle(note: string): Promise<void> {
-  const itemId = await waitingInTheInbox(note, { proposedTitle: 'As proposed' });
-  const response = await postChange('set_title', {
-    commandId: nextId(),
-    issuedAt: nextIssuedAt(),
-    workspaceId: WORKSPACE_ID,
-    itemId,
-    title: 'As corrected',
-  });
-  expect((await response.json()) as { recordedCorrection?: boolean }).toMatchObject({ recordedCorrection: true });
-}
-
 beforeEach(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
   await startFromEmpty();
@@ -323,7 +309,7 @@ describe('Triage', () => {
     });
   });
 
-  describe("a burst in one Workspace never holds back another Workspace's refresh, nor the re-read a correction asks for", () => {
+  describe("a burst in one Workspace never holds back another Workspace's refresh", () => {
     it('each still reaches the model once', async () => {
       const panel = await aPanel('Somewhere else');
       const panelElsewhere = await aPanel('Somewhere else again', WS2, `${WS2}-dashboard-1`);
@@ -337,25 +323,6 @@ describe('Triage', () => {
       await deliverInTurn(refreshesHeld('re-propose-panels'));
       expect(timesAskedAbout(WAITING_NOTE)).toBe(1);
       expect(timesAskedAbout(WAITING_ELSEWHERE)).toBe(1);
-
-      await correctATitle('a note whose title gets corrected');
-      await deliverInTurn(refreshesHeld('re-propose-texts'));
-      expect(timesAskedAbout(WAITING_NOTE)).toBe(2);
-    });
-  });
-
-  describe('a burst of corrections re-reads the rest of the Inbox once, after the burst', () => {
-    it('several corrections within the window reach the model once', async () => {
-      await waitingInTheInbox(WAITING_NOTE);
-
-      await correctATitle('the first note corrected');
-      await correctATitle('the second note corrected');
-      await correctATitle('the third note corrected');
-
-      const reReads = refreshesHeld('re-propose-texts');
-      expect(reReads.map((message) => message.delaySeconds)).toEqual([30, 30, 30]);
-      await deliverInTurn(reReads);
-      expect(timesAskedAbout(WAITING_NOTE)).toBe(1);
     });
   });
 });

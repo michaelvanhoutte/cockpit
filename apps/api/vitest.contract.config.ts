@@ -8,9 +8,9 @@ import { defineConfig } from 'vitest/config';
  * Worker, and they must never be picked up by `pnpm test`, which runs
  * `vitest run` over everything under `tests/` with the other config.
  *
- * **Scheduled only**, because every run spends real money and takes as long as
- * the model does: `.github/workflows/contract.yml` runs it nightly, and
- * `pnpm --filter @cockpit/api test:contract` runs it by hand. A failure here is
+ * **Never on a schedule**, because every run spends real money and takes as long as
+ * the model does: `.github/workflows/contract.yml` runs it on a pull request that
+ * touches the AI layer, and `pnpm --filter @cockpit/api test:contract` runs it by hand. A failure here is
  * the model or the prompt having drifted, and fixing it is priority work rather
  * than something to re-run until it passes.
  */
