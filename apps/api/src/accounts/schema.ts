@@ -1842,6 +1842,78 @@ export const gmailChecks = sqliteTable(
 );
 
 /**
+ * What the generic host keeps for one connection of a source Cockpit pulls
+ * from ("Check a pulled connector on its cadence through the generic host",
+ * issue 891): the connector's own private state, when it is next checked, and
+ * the lease of the run checking it now.
+ *
+ * - `state` is the connector's opaque state as JSON, null until it saves any.
+ * - `due_at` is when the account's alarm next queues a check: five minutes
+ *   after a run ends, or when a queued or running check's lease would run out,
+ *   so a message or a run that is lost is queued again then.
+ * - `queued_at` is set when a check is queued and cleared when a run takes
+ *   it, which is what makes a message delivered twice one run.
+ * - `run_id` and `lease_until` name the run under way; every call the run
+ *   makes is refused once its connection is gone or another run has taken
+ *   it, which a delivery may do once `lease_until` has passed.
+ *
+ * **No foreign key**, for the reason `connectionFailures` gives: a disconnect
+ * deletes its connection for real, and a row here naming one that has gone is
+ * never read, since every read joins to the live connection.
+ */
+export const pulledConnections = sqliteTable(
+  'pulled_connections',
+  {
+    sourceAccountId: text('source_account_id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    state: text('state'),
+    dueAt: text('due_at').notNull(),
+    queuedAt: text('queued_at'),
+    runId: text('run_id'),
+    leaseUntil: text('lease_until'),
+  },
+  (t) => [
+    check('pulled_connections_state_is_json', sql.raw('state IS NULL OR json_valid(state)')),
+    check('pulled_connections_due_at_is_timestamp', isTimestamp('due_at')),
+    check('pulled_connections_queued_at_is_timestamp', isTimestamp('queued_at')),
+    check('pulled_connections_lease_until_is_timestamp', isTimestamp('lease_until')),
+  ],
+);
+
+/**
+ * Which Item each source id of a pulled connection became (issue 891) - what a
+ * source-state change is applied through, and so one Item ever per source id.
+ *
+ * **Keyed on the account at the source and the Workspace, not on the
+ * connection's row**, as `gmailConversations` is and for its reason:
+ * disconnecting and connecting the same account again finds what it filed
+ * already known rather than filing it twice, and the same account connected
+ * to two Workspaces gives each its own Item. **Never deleted**: a disconnect
+ * leaves the Items, and the links with them.
+ */
+export const pulledLinks = sqliteTable(
+  'pulled_links',
+  {
+    tenantId: text('tenant_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    connectorId: text('connector_id').notNull(),
+    externalAccountKey: text('external_account_key').notNull(),
+    sourceId: text('source_id').notNull(),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    linkedAt: text('linked_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.connectorId, t.externalAccountKey, t.sourceId] }),
+    uniqueIndex('pulled_links_one_per_item').on(t.itemId),
+    check('pulled_links_linked_at_is_timestamp', isTimestamp('linked_at')),
+  ],
+);
+
+/**
  * The command log (architecture, "Mutations are commands, not object PUTs"):
  * idempotency check for retries and the audit trail. command_id is the
  * client-generated ID; a replayed command is a no-op.

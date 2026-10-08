@@ -19,9 +19,21 @@ import { asReachedAt, oauthHelpersFor, providerFor } from './mcp/oauth.js';
 import { SHARE_TARGET_PATH } from '@cockpit/shared';
 import { answerShare } from './share-target.js';
 import { AUTHORIZE_PATH, isAnsweredByTheAuthorizationServer } from './mcp/paths.js';
+import { AccountStoreBase } from './accounts/store.js';
+import { pulledConnectorIds } from './connectors/registry.js';
 
 export type { AppType } from './index.js';
-export { AccountStore } from './accounts/store.js';
+
+/**
+ * The account's store, told here which connectors are pulled, since the
+ * store may not import the registry ("Check a pulled connector on its cadence
+ * through the generic host", issue 891).
+ */
+export class AccountStore extends AccountStoreBase {
+  protected pulledConnectorIds(): readonly string[] {
+    return pulledConnectorIds(this.env);
+  }
+}
 
 /**
  * Four doors, decided by path before anything else runs ("Connect Claude to

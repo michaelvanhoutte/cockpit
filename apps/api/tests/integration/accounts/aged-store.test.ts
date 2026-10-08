@@ -444,6 +444,22 @@ const rowsFor: {
           VALUES (?, 'ws-before', 'google-somebody', 'thread-before', 'it-before', 0, ?)`,
     params: (name) => [name, AT],
   },
+  {
+    // The tables `0059-pulled-connections` creates ("Check a pulled connector
+    // on its cadence through the generic host", issue 891): a pulled
+    // connection's check part-way through a run, and an Item it filed, for
+    // the next update to meet.
+    table: 'pulled_connections',
+    sql: `INSERT INTO pulled_connections (source_account_id, tenant_id, state, due_at, queued_at, run_id, lease_until)
+          VALUES ('cn-before', ?, '{"cursor":"7"}', ?, NULL, 'run-before', ?)`,
+    params: (name) => [name, AT, LATER],
+  },
+  {
+    table: 'pulled_links',
+    sql: `INSERT INTO pulled_links (tenant_id, workspace_id, connector_id, external_account_key, source_id, item_id, linked_at)
+          VALUES (?, 'ws-before', 'teams', 'a-tenant:somebody', 'source-before', 'it-done-before', ?)`,
+    params: (name) => [name, AT],
+  },
 ];
 
 /**
@@ -1600,14 +1616,14 @@ describe('Layouts', () => {
 
   describe('every layout an account already had reads exactly as before once Sections can be titled', () => {
     /**
-     * `0059-layout-row-titles`'s direction that matters: every row already
+     * `0060-layout-row-titles`'s direction that matters: every row already
      * stored takes no title, so it is the row of Panels it was and no Section
      * appears on any Dashboard the day it lands ("Add, rename and delete a
      * titled Section on a Dashboard", issue 896).
      */
     it('reads every row with its panels and height, and none of them titled', async () => {
       const name = 'aged-store-before-layout-row-titles';
-      await agedTo(name, justBefore('0059-layout-row-titles'));
+      await agedTo(name, justBefore('0060-layout-row-titles'));
       await fillWithWhatIsAlreadyThere(name);
 
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });

@@ -22,6 +22,12 @@ export interface ConnectorManifest {
    * opens it there again (`OpenStateWanted`). Absent is no.
    */
   mirrorsOpenState?: boolean;
+  /**
+   * Whether Cockpit pulls from the source: the host then runs `sync` for each
+   * connection about every five minutes, one run at a time. Absent is no, so
+   * a source that is only pushed to is never woken for nothing.
+   */
+  pulled?: boolean;
   auth: OAuthDescriptor | { kind: 'none' };
 }
 
@@ -123,6 +129,14 @@ export interface ConnectorHost extends ConnectedAccountHost {
   /** Opaque private state per connector+account: cursors, sync bookkeeping. */
   getState(): Promise<unknown>;
   setState(state: unknown): Promise<void>;
+
+  /**
+   * Hands back a credential the source rotated during this run, in the shape
+   * `getCredentials` gave it, so the next run gets it. Saved only while the
+   * stored one is still the one this run opened: a reconnect made meanwhile
+   * wins.
+   */
+  setCredentials(credentials: Record<string, string>): Promise<void>;
 
   emitSourceStateChange(change: SourceStateChange): Promise<void>;
 

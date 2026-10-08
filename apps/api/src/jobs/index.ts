@@ -4,6 +4,8 @@ import { keepEveryAccountCheckingGmail, resetGuestAccount } from '../accounts/in
 import { purgeOldSignIns } from '../auth/sign-in-history.js';
 import {
   cleanUpACapturedNote,
+  enqueueCleanUp,
+  enqueueReadingItsMeaning,
   enrichmentJobSchema,
   readWhatANoteMeans,
   reproposePanels,
@@ -12,6 +14,7 @@ import {
 } from './enrichment.js';
 import { moveSimulatedRunToWaiting } from './simulated-run.js';
 import { captureGuestArrival } from './guest-arrival.js';
+import { checkPulledConnection } from '../connectors/pulled-host.js';
 
 export {
   cleanUpACapturedNote,
@@ -52,9 +55,9 @@ export type { BatchRead } from './backfill-meanings.js';
  * **It queues nothing.** The nightly filing summary that once did is gone
  * ("Drop the nightly filing summary, keep the sentence you wrote", issue 392);
  * what runs is the guest reset, the sign-in history purge, and re-arming any
- * Gmail check that was lost with each Gmail connection's full reconcile
- * started again - each idempotent, so a tick run twice changes nothing the
- * first did not.
+ * Gmail or pulled-connection check that was lost, with each Gmail
+ * connection's full reconcile started again - each idempotent, so a tick run
+ * twice changes nothing the first did not.
  */
 export async function handleScheduled(controller: ScheduledController, env: Env): Promise<void> {
   void controller;
@@ -66,7 +69,9 @@ export async function handleScheduled(controller: ScheduledController, env: Env)
 /**
  * Every account holding a Gmail connection has its check armed again where it
  * was lost ("Bring in the conversations already labelled Cockpit as tasks",
- * issue 725) - one account failing is logged inside, and the rest go on.
+ * issue 725), and so does every account holding a pulled connection ("Check a
+ * pulled connector on its cadence through the generic host", issue 891) - one
+ * account failing is logged inside, and the rest go on.
  */
 async function keepCheckingGmail(env: Env): Promise<void> {
   try {
@@ -217,6 +222,11 @@ function run(env: Env, job: EnrichmentJob): Promise<void> {
       return moveSimulatedRunToWaiting(env, job);
     case 'guest-arrival':
       return captureGuestArrival(env, job);
+    case 'check-a-pulled-connection':
+      return checkPulledConnection(env, job, async (accountName, itemId) => {
+        await enqueueCleanUp(env, accountName, itemId);
+        await enqueueReadingItsMeaning(env, accountName, itemId);
+      });
   }
 }
 
@@ -234,5 +244,7 @@ function describe(job: EnrichmentJob): string {
       return `run ${job.runId}`;
     case 'guest-arrival':
       return `${job.source} arrival ${job.itemId}`;
+    case 'check-a-pulled-connection':
+      return `connection ${job.sourceAccountId} of account ${job.accountName}`;
   }
 }

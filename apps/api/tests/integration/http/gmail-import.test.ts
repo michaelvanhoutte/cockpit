@@ -1169,7 +1169,9 @@ describe('Connector management', () => {
 
       await handleScheduled({} as never, env);
 
-      expect(await nextCheck()).not.toBeNull();
+      // Armed for now, so the check may already be running - with no alarm set
+      // until it ends - by the time this looks: it is armed once it has.
+      await runningCheckFinishes();
       expect(
         await runInDurableObject(storeNamed('tenant-ada'), (_instance, state) => state.storage.getAlarm()),
       ).toBeNull();
