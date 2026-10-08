@@ -1533,13 +1533,14 @@ const GMAIL_LIFECYCLE: ReadonlySet<CommandName> = new Set<CommandName>([
   'delete_workspace',
 ]);
 
+/** The changes a person makes that open or close an Item - the ones a pulled source mirrors (issue 893). */
+const PERSON_OPENS_OR_CLOSES: ReadonlySet<CommandName> = new Set<CommandName>(['set_done', 'set_dismissed']);
+
 /**
  * The changes that can open or close an Item, after which a change waiting
  * for Gmail brings the check forward to now ("Take the Cockpit label off in
  * Gmail when its task is done in Cockpit", issue 728).
  */
-/** The changes a person makes that open or close an Item - the ones a pulled source mirrors (issue 893). */
-const PERSON_OPENS_OR_CLOSES: ReadonlySet<CommandName> = new Set<CommandName>(['set_done', 'set_dismissed']);
 const OPENS_OR_CLOSES: ReadonlySet<CommandName> = new Set<CommandName>(['set_done', 'set_dismissed', 'finish_agent_run']);
 
 /**

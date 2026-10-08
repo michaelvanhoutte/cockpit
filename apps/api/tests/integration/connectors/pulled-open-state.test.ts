@@ -31,6 +31,7 @@ import {
 
 const MIRRORS = 'fake-mirrors';
 const SILENT = 'fake-silent';
+const CANNOT = 'fake-declares-only';
 
 const fake = {
   /** What each run's `sync` does, one script per run in order; the last repeats. */
@@ -46,7 +47,7 @@ const fake = {
   throws: false,
 };
 
-function connectorNamed(id: string, mirrors: boolean): Connector {
+function connectorNamed(id: string, mirrors: boolean, able = true): Connector {
   return {
     manifest: {
       id,
@@ -61,7 +62,10 @@ function connectorNamed(id: string, mirrors: boolean): Connector {
       fake.runs += 1;
       await fake.scripts[Math.min(fake.runs, fake.scripts.length) - 1]?.(host, fake.runs);
     },
-    async mirrorOpenState(_host, wanted) {
+    ...(!able
+      ? {}
+      : {
+          async mirrorOpenState(_host: ConnectorHost, wanted: OpenStateWanted[]) {
       if (!mirrors) {
         fake.silentAsked += 1;
         return [];
@@ -69,7 +73,7 @@ function connectorNamed(id: string, mirrors: boolean): Connector {
       fake.handed.push(wanted);
       if (fake.throws) throw new Error('the source refused');
       return fake.confirms(wanted);
-    },
+    } }),
   };
 }
 
@@ -253,7 +257,7 @@ beforeEach(async () => {
   known.clear();
   fake.confirms = (wanted) => wanted.map((one) => one.sourceId);
   runsIn(async () => {});
-  env.TEST_CONNECTORS = [connectorNamed(MIRRORS, true), connectorNamed(SILENT, false)];
+  env.TEST_CONNECTORS = [connectorNamed(MIRRORS, true), connectorNamed(SILENT, false), connectorNamed(CANNOT, true, false)];
 });
 
 afterEach(() => {
@@ -327,6 +331,21 @@ describe('Connector management', () => {
       expect((await nextAlarm())! - Date.now()).toBeGreaterThan(4 * 60_000);
       await nextChecksRun();
       expect(fake.silentAsked).toBe(0);
+    });
+  });
+
+  describe('a source that declares it mirrors but cannot is not asked to', () => {
+    it('records nothing for its Items, so a change the source reports still applies', async () => {
+      runsIn(bringsIn('page-1'));
+      await connectedAndChecked(CANNOT);
+
+      await change('set_done', 'page-1', true);
+
+      expect(
+        await inTheStore((sql) =>
+          [...sql.exec<{ open_wanted: number | null }>('SELECT open_wanted FROM pulled_links')].map((row) => row.open_wanted),
+        ),
+      ).toEqual([null]);
     });
   });
 
