@@ -20,7 +20,7 @@ import {
 import { CommandRefused } from '../api/client';
 import { itemsThatMayBeDuplicates, possibleDuplicatesOf } from '../duplicates';
 import { ITEM_BEING_DRAGGED, placeAfterMoving, placeAmongHeld, whereItWouldLand } from '../dropAt';
-import { itemInTheAir } from '../itemInTheAir';
+import { itemInTheAir, panelLiftedFrom } from '../itemInTheAir';
 import {
   filedOrderOnPanel,
   filingsThatFile,
@@ -228,6 +228,8 @@ export function ItemList({
       ? dashboardScope(openDashboardId)
       : inboxScope(workspaceId);
   const onDashboard = panelId !== null && openDashboardId !== null;
+  /** The Panel the rows here are filed on, which a move from one of them leaves: none in the Inbox or on a Filter. */
+  const rowPanel = panelId !== null && !gathered ? panelId : null;
   const selection = useSelection(scope);
   const setSelection = (update: Selection | ((was: Selection) => Selection)) =>
     updateSelection(scope, typeof update === 'function' ? update : () => update);
@@ -288,7 +290,18 @@ export function ItemList({
    * mapping to the order the panel holds is `placeAmongHeld`, and it is not the
    * same list - a filing outlives its item being finished.
    */
-  const move = (item: Item, panelId: string | null, atAmongDrawn = 0, intoWorkspace?: string) => {
+  const move = (
+    item: Item,
+    panelId: string | null,
+    atAmongDrawn = 0,
+    intoWorkspace?: string,
+    /**
+     * The Panel it is moved from, the only one it comes off. Absent takes it off
+     * every Panel, which is what a move from the Inbox and an undo mean
+     * (issue 923).
+     */
+    leaving?: string,
+  ) => {
     const before = whereItIs(item);
     // Which workspace the move is made in - this one, unless the picker chose
     // another workspace's Inbox for an item that belongs to none ("Capture
@@ -333,6 +346,7 @@ export function ItemList({
           itemId: item.id,
           panelId,
           order,
+          ...(leaving && panelId !== null ? { fromPanelIds: [leaving] } : {}),
         },
       },
       {
@@ -349,10 +363,10 @@ export function ItemList({
             what: `“${itemLabel(item)}” moved to ${nameOf(panelId)}`,
             // The title is what the bar shortens, never where it went.
             split: { title: `“${itemLabel(item)}”`, rest: ` moved to ${nameOf(panelId)}` },
-            // Every panel it was on, not the first of them: a move takes an
-            // item off all of them, so putting it back on one would lose the
-            // rest - and an item can be on several since "Ask whether to move
-            // an item to a panel or add it to one" (issue 142). **Withheld for
+            // Every panel it was on, not the first of them: the move above may
+            // have taken it off one, and the undo sends no Panel to leave, which
+            // takes it off everything before putting it back on each (issue
+            // 142, issue 923). **Withheld for
             // an undecided item**, whose move decides its workspace and cannot
             // be put back (`decides` above); it still gets the two below.
             ...(decides ? {} : { undo: () => putItBackOn(item, before) }),
@@ -661,7 +675,7 @@ export function ItemList({
    * answer to which of the two was meant ("Ask whether to move an item to a
    * panel or add it to one", issue 142).
    */
-  const [asking, setAsking] = useState<{ item: Item; at: number } | null>(null);
+  const [asking, setAsking] = useState<{ item: Item; at: number; from: string | null } | null>(null);
   const rows = useRef<HTMLUListElement>(null);
   /**
    * That a sorted Panel already holds the row in the air, from whichever list
@@ -716,9 +730,15 @@ export function ItemList({
     if (sorted && wasAt !== -1) return;
     const gap = sorted ? 0 : placeAfterMoving(gapUnder(event.clientY), wasAt === -1 ? null : wasAt);
 
+    // The Panel it was picked up from, when that is another one than this: a
+    // row dropped on a Panel it is already on, from a different Panel, is not a
+    // reorder but a move or an add, so it is asked (issue 923).
+    const cameFrom = panelLiftedFrom(itemId);
+    const fromAnotherPanel = panelId !== null && cameFrom !== null && cameFrom !== panelId;
+
     // Dropped exactly where it started changes nothing, and sending it would
     // put a change in the undo bar that undoes to the same place.
-    if (panelId && wasAt !== -1 && gap === wasAt) return;
+    if (panelId && wasAt !== -1 && !fromAnotherPanel && gap === wasAt) return;
     // The same, in the Inbox: a row dragged about inside it is already filed
     // nowhere, so moving it to the Inbox is a change that changes nothing -
     // and it would still offer to be undone, which is worse than doing nothing
@@ -738,9 +758,9 @@ export function ItemList({
     // the Inbox, whatever a filing onto a Filter says about it, and there is no
     // answer to "move or add" that would leave it there.
     const onAPanelAlready = filed.some((filing) => filing.itemId === itemId);
-    if (panelId && wasAt === -1 && onAPanelAlready) {
+    if (panelId && (wasAt === -1 || fromAnotherPanel) && onAPanelAlready) {
       command.reset();
-      setAsking({ item: moving, at: gap });
+      setAsking({ item: moving, at: gap, from: cameFrom });
       return;
     }
     // Already on this panel: somewhere else in it, which is a reorder and must
@@ -780,17 +800,24 @@ export function ItemList({
       itemType={typeOf(types, item)}
       workspaceId={workspaceId}
       inInbox={panelId === null}
+      {...(rowPanel ? { liftedFrom: rowPanel } : {})}
       selecting={{
         picked: selection.picked.has(item.id),
         revealed: selection.picked.size > 0,
         onPick: (withShift) => pick(item, withShift),
         onEndSelection: stopSelecting,
       }}
-      onMoveTo={(from) => {
-        openedFrom.current = from;
-        command.reset();
-        setMoving(item);
-      }}
+      // Not on a Filter panel's row: its place is a consequence of the Item, so
+      // there is no Panel to move it from (it keeps Also show on…).
+      {...(gathered
+        ? {}
+        : {
+            onMoveTo: (from: HTMLElement | null) => {
+              openedFrom.current = from;
+              command.reset();
+              setMoving(item);
+            },
+          })}
       onOpen={() => openItem(item.id)}
       // The one you are looking at, which is the same move the
       // picker makes with this workspace's Inbox chosen - the row
@@ -976,7 +1003,8 @@ export function ItemList({
               // Closed by the change landing, not by the press: a refused move
               // leaves the question up with the reason on it, which is what the
               // picker does and what makes the refusal worth showing there at all.
-              onMove={() => move(asking.item, panelId, asking.at)}
+              onMove={() => move(asking.item, panelId, asking.at, undefined, asking.from ?? undefined)}
+              {...(asking.from ? { leaves: nameOf(asking.from) } : {})}
               onAdd={() => add(asking.item, panelId, asking.at)}
               onCancel={() => {
                 // Reset as well as close, for the reason the picker below does: a
@@ -1051,7 +1079,7 @@ export function ItemList({
           open
           onPick={(target) =>
             'panel' in target
-              ? move(moving, target.panel)
+              ? move(moving, target.panel, 0, undefined, rowPanel ?? undefined)
               : move(moving, null, 0, target.inboxOf)
           }
           onCancel={() => {

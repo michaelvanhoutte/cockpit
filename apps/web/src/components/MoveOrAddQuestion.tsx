@@ -29,7 +29,10 @@ export function MoveOrAddQuestion({
   onCancel,
   refusal,
   busy = false,
+  leaves,
 }: {
+  /** The Panel the row was dropped from, which moving it takes it off and adding it leaves. Absent where that is not known. */
+  leaves?: string;
   itemTitle: string;
   /** The panel it was dropped on, named in both answers so neither is a guess. */
   panelName: string;
@@ -53,7 +56,9 @@ export function MoveOrAddQuestion({
             Move “{itemTitle}” to {panelName}, or add it there as well?
           </AlertDialog.Title>
           <p className="pt-2 text-sm text-ink-soft">
-            Adding it leaves it on the panels it is on now.
+            {leaves
+              ? `Moving it takes it off ${leaves}; adding it leaves it there.`
+              : 'Adding it leaves it on the panels it is on now.'}
           </p>
 
           {refusal && (

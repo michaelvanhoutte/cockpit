@@ -187,8 +187,8 @@ export function orderWithItemAt(
  * **An item already on the panel is named once rather than twice**, because an
  * order naming one twice is refused as a shape. What is sent for it is still a
  * *move*, not an add, so it comes off every other panel it was on - which is
- * what moving it there means, and what the same item picked out on its own and
- * moved from its row's menu already does. A reorder within one panel is the
+ * what moving a selection there means (a move from one row's menu takes it off
+ * only the Panel that row is on). A reorder within one panel is the
  * other gesture (`reorder`, which sends an add for exactly this reason).
  */
 export function ordersForFilingSeveral(

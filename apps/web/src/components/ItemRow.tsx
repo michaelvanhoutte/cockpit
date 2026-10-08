@@ -79,6 +79,7 @@ export function ItemRow({
   itemType,
   workspaceId,
   inInbox = false,
+  liftedFrom,
   onMoveTo,
   onAddTo,
   onOpen,
@@ -111,8 +112,17 @@ export function ItemRow({
    */
   inInbox?: boolean;
   /**
+   * The Panel this row is filed on, which a drag carries so the Panel it is
+   * dropped on can take the Item off this one and no other ("Move an Item from
+   * one Panel's row without taking it off its other Panels", issue 923). Absent
+   * in the Inbox and on a Filter panel, whose rows are filed on none of their own.
+   */
+  liftedFrom?: string;
+  /**
    * Asked to move this item somewhere, and handed the control the menu was
-   * opened from so whatever opens can put the focus back there.
+   * opened from so whatever opens can put the focus back there. Absent on a
+   * Filter panel's row, whose place is a consequence of the Item and so has
+   * nothing to move from; with it goes the swipe right.
    *
    * The picker itself belongs to the list rather than to the row (ItemList),
    * because one dialog per row would be a dozen dialogs in an Inbox of a dozen.
@@ -597,7 +607,10 @@ export function ItemRow({
       // slide toward ("...suspend single-row actions while a selection is
       // held", issue 438).
       if (selecting?.revealed) return;
-      setGone(howFarItHasGone(dx, dy));
+      const across = howFarItHasGone(dx, dy);
+      // Nothing to file it with, so a swipe right uncovers nothing and moves
+      // nothing; a swipe left still dismisses.
+      setGone(!onMoveTo && across > 0 ? 0 : across);
     },
     onPointerUp: (event: React.PointerEvent) => {
       const start = from.current;
@@ -970,7 +983,7 @@ export function ItemRow({
         // without something it recognises on the transfer.
         event.dataTransfer.setData('text/plain', itemLabel(item));
         event.dataTransfer.effectAllowed = 'move';
-        liftItem(item.id);
+        liftItem(item.id, liftedFrom ?? null);
       }}
       onDragEnd={landItem}
       // An Agent dropped here starts on this Item ("Drop an agent on an item

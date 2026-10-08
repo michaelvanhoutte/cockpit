@@ -12,13 +12,27 @@
  * stale id only until the next drag overwrites it.
  */
 let inTheAir: string | null = null;
+let liftedFrom: string | null = null;
 
-export function liftItem(itemId: string): void {
+/**
+ * `fromPanelId` is the Panel the row was picked up from, which a drop onto
+ * another Panel names as the one a move takes it off ("Move an Item from one
+ * Panel's row without taking it off its other Panels", issue 923). Absent for a
+ * row of the Inbox or of a Filter, which is on no Panel of its own to leave.
+ */
+export function liftItem(itemId: string, fromPanelId: string | null = null): void {
   inTheAir = itemId;
+  liftedFrom = fromPanelId;
 }
 
 export function landItem(): void {
   inTheAir = null;
+  liftedFrom = null;
+}
+
+/** The Panel the Item in the air was picked up from, or null if none, or if it is not this Item. */
+export function panelLiftedFrom(itemId: string): string | null {
+  return inTheAir === itemId ? liftedFrom : null;
 }
 
 export function itemInTheAir(): string | null {

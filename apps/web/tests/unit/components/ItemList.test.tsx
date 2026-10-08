@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -1326,6 +1326,120 @@ describe('Panels', () => {
           name: 'remove_item_from_panel',
           payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-falcon' }),
         }),
+        expect.anything(),
+      );
+    });
+  });
+
+  describe('a move from a Panel’s row names that Panel, and offers no Panel the Item is on', () => {
+    afterEach(landItem);
+    const ON_FALCON_AND_ANNA = [
+      { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+      { panelId: 'p-anna', itemId: BART.id, position: 0 },
+    ];
+
+    it('leaves out every Panel the Item is on, and offers the Inbox', async () => {
+      held.filings = ON_FALCON_AND_ANNA;
+      const user = await showList({ items: [BART], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      const dialog = await openThePicker(user);
+
+      expect(offered(dialog)).toEqual(['Inboxoff every panel', 'To read']);
+    });
+
+    it('names the Panel the row is on as the one it is moved from', async () => {
+      held.filings = ON_FALCON_AND_ANNA;
+      const user = await showList({ items: [BART], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: 'To read' }));
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'move_item_to_panel',
+          payload: expect.objectContaining({ panelId: 'p-reading', fromPanelIds: ['p-falcon'] }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('names no Panel when it is put in the Inbox, which takes it off every one', async () => {
+      held.filings = ON_FALCON_AND_ANNA;
+      const user = await showList({ items: [BART], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: /^Inbox/ }));
+
+      const payload = held.mutate.mock.calls[0]![0].payload as Record<string, unknown>;
+      expect(payload).toMatchObject({ panelId: null });
+      expect(payload).not.toHaveProperty('fromPanelIds');
+    });
+
+    it('names no Panel for a row in the Inbox, which is on none', async () => {
+      const user = await showList({ items: [BART], openDashboardId: TODAY.id });
+
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
+
+      const payload = held.mutate.mock.calls[0]![0].payload as Record<string, unknown>;
+      expect(payload).toMatchObject({ panelId: 'p-falcon' });
+      expect(payload).not.toHaveProperty('fromPanelIds');
+    });
+  });
+
+  describe('a drop answered Move it here names the Panel it came from, and the question says so', () => {
+    afterEach(landItem);
+
+    /** Dropped from Anna onto Falcon, which holds it already or not. */
+    async function droppedFromAnna(alsoOnFalcon: boolean) {
+      held.filings = [
+        { panelId: 'p-anna', itemId: BART.id, position: 0 },
+        ...(alsoOnFalcon ? [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }] : []),
+      ];
+      const user = await showList({
+        items: alsoOnFalcon ? [BART] : [],
+        openDashboardId: TODAY.id,
+        panelId: 'p-falcon',
+      });
+      liftItem(BART.id, 'p-anna');
+      await dropOnto(BART.id);
+      return user;
+    }
+
+    it.each([
+      { situation: 'a Panel it is not on', alsoOnFalcon: false },
+      { situation: 'a Panel it is on already', alsoOnFalcon: true },
+    ])('moving it onto $situation takes it off Anna only', async ({ alsoOnFalcon }) => {
+      const user = await droppedFromAnna(alsoOnFalcon);
+
+      const question = await screen.findByRole('alertdialog');
+      expect(question).toHaveTextContent('Anna');
+      await user.click(within(question).getByRole('button', { name: 'Move it here' }));
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'move_item_to_panel',
+          payload: expect.objectContaining({ panelId: 'p-falcon', fromPanelIds: ['p-anna'] }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('is still a reorder when it was picked up from the Panel it is dropped on', async () => {
+      const other = anItem('11111111-1111-7111-8111-000000000002', 'Renew the domain');
+      held.items = [BART, other];
+      held.filings = [
+        { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+        { panelId: 'p-falcon', itemId: other.id, position: 1 },
+      ];
+      await showList({ items: [BART, other], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      liftItem(other.id, 'p-falcon');
+
+      await dropOnto(other.id);
+
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'add_item_to_panel' }),
         expect.anything(),
       );
     });

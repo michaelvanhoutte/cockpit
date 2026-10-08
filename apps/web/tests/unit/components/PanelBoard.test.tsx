@@ -2614,7 +2614,7 @@ describe('Onboarding', () => {
       expect(within(due).getByText(NOTHING_MATCHES_YET)).toBeVisible();
     });
 
-    it('offers a row the usual menu without taking it off a panel it was never filed on', async () => {
+    it('offers a row the usual menu without Move to…, and without taking it off a panel it was never filed on', async () => {
       const bart = anItem('11111111-1111-7111-8111-000000000001', 'Reply to Bart');
       const { user } = showBoard({
         panels: [aFilter('due', 'Due soon', [DUE_TODAY])],
@@ -2625,8 +2625,8 @@ describe('Onboarding', () => {
 
       await user.click(within(due).getByRole('button', { name: 'Item actions' }));
 
-      expect(await screen.findByRole('menuitem', { name: 'Move to…' })).toBeVisible();
-      expect(screen.getByRole('menuitem', { name: 'Also show on…' })).toBeVisible();
+      expect(await screen.findByRole('menuitem', { name: 'Also show on…' })).toBeVisible();
+      expect(screen.queryByRole('menuitem', { name: 'Move to…' })).toBeNull();
       expect(screen.queryByRole('menuitem', { name: 'Remove from this panel' })).toBeNull();
     });
 
