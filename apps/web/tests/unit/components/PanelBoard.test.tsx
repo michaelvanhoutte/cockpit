@@ -3801,8 +3801,8 @@ describe('Dashboards', () => {
     ];
     const rowOf = (title: string) => screen.getByText(title).closest<HTMLElement>('[data-item-id]')!;
     const cellOf = (name: string) => screen.getByRole('region', { name }).closest('[data-panel-cell]')!;
-    const show = (itemId: string, panelId = 'falcon', dashboardId = DASHBOARD.id) =>
-      act(() => askToShow({ dashboardId, panelId, itemId }));
+    const show = (itemId: string | string[], panelId = 'falcon', dashboardId = DASHBOARD.id) =>
+      act(() => askToShow({ dashboardId, panelId, itemIds: [itemId].flat() }));
 
     beforeEach(() => {
       screenIs(1280);
@@ -3825,6 +3825,20 @@ describe('Dashboards', () => {
       act(() => void vi.advanceTimersByTime(5000));
 
       expect(rowOf('Pay the rent')).not.toHaveAttribute('data-shown');
+    });
+
+    it('highlights every row of a moved selection, and no other', () => {
+      showBoard({ items: [vat, rent, anItem(ID(3), 'Book the venue')], filings: [...FILED, { panelId: 'falcon', itemId: ID(3), position: 2 }] });
+
+      show([ID(1), ID(3)]);
+
+      expect(rowOf('VAT return')).toHaveAttribute('data-shown');
+      expect(rowOf('Book the venue')).toHaveAttribute('data-shown');
+      expect(rowOf('Pay the rent')).not.toHaveAttribute('data-shown');
+
+      act(() => void vi.advanceTimersByTime(5000));
+
+      expect(document.querySelector('[data-shown]')).toBeNull();
     });
 
     it('clears a dashboard filter that hides the row first, the way going to a panel does', () => {

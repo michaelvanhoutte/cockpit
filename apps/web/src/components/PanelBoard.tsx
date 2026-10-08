@@ -762,25 +762,34 @@ export function PanelBoard({
   /**
    * Show on the undo bar ("Show and Also show on… in the undo bar after
    * moving an Item", issue 849): the Panel jumped to as Go to panel does it,
-   * and the Item's row highlighted for a moment. **A Dashboard filter that
+   * and the Item's row (every row, for a moved selection: issue 850) highlighted
+   * for a moment. **A Dashboard filter that
    * hides the Panel or the row is cleared first**, the way going to a hidden
    * Panel does; an Item no longer on the Panel leaves the Panel jumped to and
    * nothing highlighted.
    */
   const showRequest = useShowRequest();
-  const shownRow = useRef<{ row: HTMLElement; timer: number } | null>(null);
+  const shownRows = useRef<{ rows: HTMLElement[]; timer: number } | null>(null);
   const jumpedFor = useRef<unknown>(null);
   const [, setShowAttempts] = useState(0);
+  /** Takes the highlight off the rows that carry it. */
+  const unhighlight = () => {
+    if (!shownRows.current) return;
+    window.clearTimeout(shownRows.current.timer);
+    shownRows.current.rows.forEach((row) => row.removeAttribute('data-shown'));
+    shownRows.current = null;
+  };
   useEffect(() => {
     if (!showRequest || showRequest.dashboardId !== dashboard.id) return;
-    const { panelId, itemId } = showRequest;
+    const { panelId, itemIds } = showRequest;
     if (!panels.some((panel) => panel.id === panelId)) {
       settleTheShowRequest(showRequest);
       return;
     }
-    const isFiled = filings.some((filing) => filing.itemId === itemId && filing.panelId === panelId);
-    const rowHidden = isFiled && !(shows.get(panelId) ?? []).some((item) => item.id === itemId);
-    if (filteringOn && (hidden?.has(panelId) || rowHidden)) {
+    const drawn = new Set((shows.get(panelId) ?? []).map((item) => item.id));
+    // Those still filed on the Panel: one moved off it meanwhile has no row to find.
+    const filed = itemIds.filter((id) => filings.some((f) => f.itemId === id && f.panelId === panelId));
+    if (filteringOn && (hidden?.has(panelId) || filed.some((id) => !drawn.has(id)))) {
       clearDashboardFilter(browserStore(), dashboard.id);
       return;
     }
@@ -790,36 +799,26 @@ export function PanelBoard({
       jumpedFor.current = showRequest;
       jumpRef.current(panelId);
     }
-    const row = cell.querySelector<HTMLElement>('[data-item-id="' + itemId + '"]');
-    if (!row) {
-      // The Panel holds the row but its list has not drawn it yet (a Dashboard
+    const expected = filed.filter((id) => drawn.has(id));
+    const rows = expected.flatMap((id) => cell.querySelector<HTMLElement>('[data-item-id="' + id + '"]') ?? []);
+    if (rows.length < expected.length) {
+      // The Panel holds a row but its list has not drawn it yet (a Dashboard
       // just switched to loads its lists lazily): look again shortly, for as
       // long as the request is live, rather than settling without it.
-      if ((shows.get(panelId) ?? []).some((item) => item.id === itemId)) {
-        const again = window.setTimeout(() => setShowAttempts((n) => n + 1), 100);
-        return () => window.clearTimeout(again);
-      }
-      settleTheShowRequest(showRequest);
-      return;
+      const again = window.setTimeout(() => setShowAttempts((n) => n + 1), 100);
+      return () => window.clearTimeout(again);
     }
     settleTheShowRequest(showRequest);
-    row.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
-    if (shownRow.current) {
-      window.clearTimeout(shownRow.current.timer);
-      shownRow.current.row.removeAttribute('data-shown');
-    }
-    row.setAttribute('data-shown', '');
-    shownRow.current = {
-      row,
-      timer: window.setTimeout(() => row.removeAttribute('data-shown'), SHOWN_ROW_MS),
+    unhighlight();
+    if (rows.length === 0) return;
+    rows[0]!.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    rows.forEach((row) => row.setAttribute('data-shown', ''));
+    shownRows.current = {
+      rows,
+      timer: window.setTimeout(unhighlight, SHOWN_ROW_MS),
     };
   });
-  useEffect(
-    () => () => {
-      if (shownRow.current) window.clearTimeout(shownRow.current.timer);
-    },
-    [],
-  );
+  useEffect(() => () => unhighlight(), []);
   useEffect(
     () => () => {
       if (outlined.current) window.clearTimeout(outlined.current.timer);

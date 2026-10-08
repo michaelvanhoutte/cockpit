@@ -17,6 +17,7 @@ import { landItem, liftItem } from '../../../src/itemInTheAir';
 import { ItemList } from '../../../src/components/ItemList';
 import type { FilterGroup } from '../../../src/filterGroups';
 import { UndoWhatJustHappened } from '../../../src/undo';
+import { useShowRequest } from '../../../src/showItem';
 
 /**
  * F1: the picker and what choosing in it sends. What a move then does to a
@@ -1537,6 +1538,12 @@ function sendThatFiles() {
       name: string;
       payload: { itemId: string; panelId: string | null; order: string[] };
     };
+    if (name === 'remove_item_from_panel') {
+      held.filings = held.filings.filter(
+        (filing) => !(filing.itemId === payload.itemId && filing.panelId === payload.panelId),
+      );
+      return Promise.resolve();
+    }
     if (payload.panelId) {
       const on = held.filings
         .filter((filing) => filing.panelId === payload.panelId)
@@ -1933,7 +1940,7 @@ describe('Triage', () => {
       await tick(user, RENEW);
       await fileWhatIsPicked(user, 'Falcon');
 
-      expect(await screen.findByText('“Renew the domain” moved to Falcon')).toBeVisible();
+      expect(await screen.findByRole('status')).toHaveTextContent('“Renew the domain” moved to Falcon');
     });
 
     it.each([
@@ -1976,6 +1983,186 @@ describe('Triage', () => {
       await waitFor(() => expect(nowOn('p-falcon')).toEqual(was.falcon));
       expect(nowOn('p-anna')).toEqual(was.anna);
       expect(screen.queryByText(/could not|changed while/)).not.toBeInTheDocument();
+    });
+  });
+});
+
+/**
+ * Show and Also show on… on the undo bar after a selection is moved onto a
+ * Panel ("Show and Also show on… after moving a selection", issue 850). A
+ * single move's are above; what the bar does with them is undo.test.tsx's, and
+ * where Show lands is PanelBoard.test.tsx's.
+ */
+describe('Selection', () => {
+  const barOffers = () =>
+    within(screen.getByRole('status'))
+      .getAllByRole('button')
+      .map((button) => button.textContent);
+  /** What a re-read of the snapshot finds once the fake store has changed. */
+  const reRead = () =>
+    act(() => {
+      theClient.setQueryData(['snapshot', 'ws-work'], (old: WorkspaceSnapshot) => ({
+        ...old,
+        filings: held.filings,
+      }));
+    });
+  /** What Show has asked the board to bring the screen to. */
+  function AskedFor() {
+    const request = useShowRequest();
+    return <output data-testid="asked">{request ? request.itemIds.join(',') : ''}</output>;
+  }
+
+  describe('a moved selection’s bar acts on exactly the items that moved', () => {
+    it('adds every moved item to the panel picked, and one Undo takes them all off again', async () => {
+      held.items = THREE;
+      sendThatFiles();
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      await tick(user, BART);
+      await tick(user, RENEW);
+      await tick(user, CHASE);
+      await fileWhatIsPicked(user, 'Falcon');
+      await screen.findByText('3 items moved to Falcon');
+      reRead();
+      expect(barOffers()).toEqual(['Show', 'Also show on…', 'Undo']);
+
+      await user.click(screen.getByRole('button', { name: 'Also show on…' }));
+      const picker = await screen.findByRole('dialog');
+      expect(picker).toHaveTextContent('Also show 3 items on');
+      expect(within(picker).queryByRole('button', { name: 'Falcon' })).toBeNull();
+      await user.click(within(picker).getByRole('button', { name: 'Anna' }));
+
+      expect(await screen.findByText('3 items added to Anna')).toBeVisible();
+      expect(nowOn('p-anna').sort()).toEqual([BART.id, RENEW.id, CHASE.id].sort());
+      expect(nowOn('p-falcon').sort()).toEqual([BART.id, RENEW.id, CHASE.id].sort());
+      expect(barOffers()).toEqual(['Undo']);
+
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      await waitFor(() => expect(nowOn('p-anna')).toEqual([]));
+      expect(nowOn('p-falcon').sort()).toEqual([BART.id, RENEW.id, CHASE.id].sort());
+    });
+
+    it('still takes off the rest when one added was taken off meanwhile', async () => {
+      held.items = THREE;
+      sendThatFiles();
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      for (const item of THREE) await tick(user, item);
+      await fileWhatIsPicked(user, 'Falcon');
+      await screen.findByText('3 items moved to Falcon');
+      reRead();
+      // The server refuses to take off what is not on the panel. Installed
+      // before the add, since the Undo is built with the send in force then.
+      const real = held.send;
+      held.send = vi.fn((args: unknown) => {
+        const { name, payload } = args as { name: string; payload: { itemId: string; panelId: string } };
+        const filed = held.filings.some((f) => f.itemId === payload.itemId && f.panelId === payload.panelId);
+        return name === 'remove_item_from_panel' && !filed
+          ? Promise.reject(new CommandRefused(409, 'it is not on that panel'))
+          : real(args as never);
+      }) as typeof held.send;
+      await user.click(screen.getByRole('button', { name: 'Also show on…' }));
+      await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Anna' }));
+      await screen.findByText('3 items added to Anna');
+      held.filings = held.filings.filter((f) => !(f.panelId === 'p-anna' && f.itemId === BART.id));
+      reRead();
+
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      await waitFor(() => expect(nowOn('p-anna')).toEqual([]));
+      expect(screen.queryByText(/changed while/)).not.toBeInTheDocument();
+    });
+
+    it('offers back only what was added when an add is refused part way', async () => {
+      held.items = THREE;
+      sendThatFiles();
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      for (const item of THREE) await tick(user, item);
+      await fileWhatIsPicked(user, 'Falcon');
+      await screen.findByText('3 items moved to Falcon');
+      reRead();
+      const real = held.send;
+      let adds = 0;
+      held.send = vi.fn((args: unknown) =>
+        (args as { name: string }).name === 'add_item_to_panel' && ++adds === 3
+          ? Promise.reject(new CommandRefused(409, 'this panel changed while you were looking at it'))
+          : real(args as never),
+      ) as typeof held.send;
+      await user.click(screen.getByRole('button', { name: 'Also show on…' }));
+      await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Anna' }));
+
+      expect(await screen.findByText('2 of 3 items added to Anna')).toBeVisible();
+      expect(nowOn('p-anna')).toHaveLength(2);
+      reRead();
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(() => expect(nowOn('p-anna')).toEqual([]));
+    });
+
+    it('covers only the two that moved when one was refused', async () => {
+      held.items = THREE;
+      refusesAfter(2);
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      for (const item of THREE) await tick(user, item);
+      await fileWhatIsPicked(user, 'Falcon');
+      await screen.findByText('2 of 3 items moved to Falcon');
+      held.panels = held.panels.map((panel) =>
+        panel.id === 'p-falcon' ? { ...panel, dashboardId: TODAY.id } : panel,
+      );
+      render(<AskedFor />);
+
+      await user.click(screen.getByRole('button', { name: 'Show' }));
+
+      await waitFor(() => expect(screen.getByTestId('asked')).toHaveTextContent(`${BART.id},${RENEW.id}`));
+      expect(screen.getByTestId('asked')).not.toHaveTextContent(CHASE.id);
+    });
+
+    it('asks to be shown every moved row on the panel’s dashboard', async () => {
+      held.items = THREE;
+      sendThatFiles();
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      await tick(user, BART);
+      await tick(user, CHASE);
+      await fileWhatIsPicked(user, 'Falcon');
+      await screen.findByText('2 items moved to Falcon');
+      render(<AskedFor />);
+
+      await user.click(screen.getByRole('button', { name: 'Show' }));
+
+      await waitFor(() =>
+        expect(held.navigate).toHaveBeenCalledWith(
+          expect.objectContaining({ params: { workspaceId: 'ws-work', dashboardId: TODAY.id } }),
+        ),
+      );
+      expect(screen.getByTestId('asked')).toHaveTextContent(`${BART.id},${CHASE.id}`);
+    });
+
+    it('offers Show and Also show on… without Undo when one picked item was undecided', async () => {
+      const nowhere = {
+        ...anItem('11111111-1111-7111-8111-00000000000b', 'Where does this go'),
+        workspaceDecided: false,
+      };
+      held.items = [BART, nowhere];
+      const user = await showList({ items: [BART, nowhere], openDashboardId: TODAY.id });
+      await tick(user, BART);
+      await tick(user, nowhere);
+      await fileWhatIsPicked(user, 'Falcon');
+
+      await screen.findByText('2 items moved to Falcon');
+      expect(barOffers()).toEqual(['Show', 'Also show on…']);
+    });
+
+    it('offers Undo alone after a selection is moved to the Inbox', async () => {
+      held.items = THREE;
+      held.filings = [
+        { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+        { panelId: 'p-falcon', itemId: RENEW.id, position: 1 },
+      ];
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      await tick(user, BART);
+      await tick(user, RENEW);
+      await fileWhatIsPicked(user, /^Inbox/);
+
+      await screen.findByText('2 items moved to the Inbox');
+      expect(barOffers()).toEqual(['Undo']);
     });
   });
 });

@@ -3,7 +3,8 @@ import { useSyncExternalStore } from 'react';
 /**
  * Show, on the undo bar after an Item is moved onto a Panel ("Show and Also
  * show on… in the undo bar after moving an Item", issue 849): the request to
- * bring the screen to an Item on a Panel.
+ * bring the screen to the Items just moved onto a Panel (one, or a whole
+ * selection: "Show and Also show on… after moving a selection", issue 850).
  *
  * **A request rather than a call**, because the Dashboard holding the Panel may
  * not be on screen yet. The bar asks and the router switches; the board of that
@@ -11,7 +12,7 @@ import { useSyncExternalStore } from 'react';
  * for a Panel (`PanelBoard`'s jump) and then the Item's row. The same board
  * code serves a phone, which draws no Go to panel column.
  */
-export type ShowRequest = { dashboardId: string; panelId: string; itemId: string; at: number };
+export type ShowRequest = { dashboardId: string; panelId: string; itemIds: readonly string[]; at: number };
 
 /** How long a request waits for its Dashboard to draw, in milliseconds. */
 export const A_REQUEST_WAITS_MS = 10_000;

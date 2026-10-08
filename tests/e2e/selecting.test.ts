@@ -81,9 +81,14 @@ async function goToTheDashboard(page: Page, dashboard: string, isMobile: boolean
  * the row to start a selection, a pointer ctrl/cmd-clicks it - from anywhere on
  * the row, since the checkbox that used to carry this is gone.
  */
-async function startSelecting(page: Page, title: string, isMobile: boolean): Promise<void> {
+async function startSelecting(
+  page: Page,
+  title: string,
+  isMobile: boolean,
+  nearTheTop = false,
+): Promise<void> {
   if (isMobile) {
-    await holdRow(page, title);
+    await holdRow(page, title, nearTheTop);
     return;
   }
   await itemRow(page, title).click({ modifiers: ['ControlOrMeta'] });
@@ -192,7 +197,9 @@ test.describe('Selection', () => {
       const onThePanel = page.getByRole('region', { name: panel });
       await expect(onThePanel.getByText(titles[0]!)).toBeVisible();
       if (isMobile) await onThePanel.getByText(titles[0]!).scrollIntoViewIfNeeded();
-      await startSelecting(page, titles[0]!, isMobile);
+      // Near its top edge: the offer drawn over this short a screen is three
+      // buttons wide and two lines tall, and covers the middle of the row.
+      await startSelecting(page, titles[0]!, isMobile, true);
 
       await expect(onThePanel.getByText('1 selected')).toBeInViewport();
       await expect(onThePanel.getByRole('button', { name: 'Move to…' })).toBeInViewport();
