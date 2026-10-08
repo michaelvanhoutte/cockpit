@@ -1,10 +1,9 @@
-import { Fragment, useState } from 'react';
+import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   DUE_WINDOWS,
   FILTER_GROUPINGS,
-  FILTER_MATCHES,
   panelTakesItems,
   prioritySchema,
   statusValuesOf,
@@ -31,9 +30,10 @@ const NO_PANELS_TO_CHOOSE = 'No panels to choose from yet.';
  * shows every filed item due in a window", issue 463; "Filter a Filter panel
  * by priority and type", issue 464).
  *
- * **One row per condition, and all of them have to hold** unless the switch
- * above them says *any* ("Let a Filter show items that meet any of its
- * conditions", issue 504), which appears from two rows. The rows are a list
+ * **One row per condition, and all of them have to hold** unless the second
+ * row's joiner says *or* ("Let a Filter show items that meet any of its
+ * conditions", issue 504; "Join a Filter's conditions with and/or beside each
+ * row", issue 909). The rows are a list
  * rather than a sentence with clauses because that is what the question grows
  * into - Due date, Priority, Type and, since "Filter a Filter panel by panel,
  * and name the Filters a panel's deletion affects" (issue 465), Panel, each
@@ -73,7 +73,7 @@ function FilterQuestion({
   panelName: string;
   /** What the Filter shows now, which the rows open on. */
   conditions: readonly FilterCondition[];
-  /** Whether the Filter needs all of them or any one, which the switch opens on. */
+  /** Whether the Filter needs all of them or any one, which the second row's joiner opens on. */
   match: FilterMatch;
   /** What the Filter's rows are grouped under, which the *Group by* choice opens on. */
   groupBy: FilterGrouping;
@@ -110,16 +110,15 @@ function FilterQuestion({
   /**
    * Whether an Item has to meet all of the rows or any one, read once like
    * them. **Kept when rows are removed down to one**, the way *or overdue* is
-   * kept when the window changes: the switch hides below two rows, but what was
-   * chosen is still what saves.
+   * kept when the window changes: the joiner that sets it exists only from the
+   * second row, but what was chosen is still what saves.
    */
   const [match, setMatch] = useState<FilterMatch>(initialMatch);
   /** What the rows are grouped under, saved with the conditions ("Group a Filter panel's items by the Dashboard or Panel they are filed on", issue 805). */
   const [groupBy, setGroupBy] = useState<FilterGrouping>(initialGroupBy);
   // With fewer than two rows the two answers are the same one, and the question
   // reads as it always did.
-  const several = rows.length >= 2;
-  const any = several && match === 'any';
+  const any = rows.length >= 2 && match === 'any';
 
   const change = (at: number, row: FilterCondition) =>
     setRows(rows.map((was, index) => (index === at ? row : was)));
@@ -143,7 +142,7 @@ function FilterQuestion({
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
+          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
           <Dialog.Title className="text-base font-semibold">
             What does {panelName} show?
@@ -159,19 +158,14 @@ function FilterQuestion({
             }}
             className="pt-4"
           >
-            {several && <MatchSwitch match={match} onChange={setMatch} />}
             {rows.length === 0 ? (
               <p className="text-sm text-ink-faint">Nothing chosen yet.</p>
             ) : (
-              <ul className="flex flex-col gap-1">
+              <ul className="flex flex-col gap-2">
                 {rows.map((row, at) => (
-                  <Fragment key={row.field}>
-                    {any && at > 0 && (
-                      <li aria-hidden className="text-center text-xs uppercase text-ink-faint">
-                        or
-                      </li>
-                    )}
-                    <li className="rounded-md border border-shade/10 p-3">
+                  <li key={row.field} className="flex items-start gap-2">
+                    <Joiner at={at} match={match} onChange={setMatch} />
+                    <div className="min-w-0 flex-1 rounded-md border border-shade/10 p-3">
                       <ConditionRow
                         at={at}
                         row={row}
@@ -180,8 +174,8 @@ function FilterQuestion({
                         onChange={(next) => change(at, next)}
                         onRemove={() => setRows(rows.filter((_, index) => index !== at))}
                       />
-                    </li>
-                  </Fragment>
+                    </div>
+                  </li>
                 ))}
               </ul>
             )}
@@ -208,10 +202,12 @@ function FilterQuestion({
               </DropdownMenu.Root>
             )}
 
-            <div className="flex items-center gap-3 pt-4">
+            {/* How the list is drawn is its own section, apart from what it shows. */}
+            <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-shade/10 pt-4">
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Display</span>
               {/* The words on screen are the choice's name, so a screen reader and
                   a voice command both find it by what is seen. */}
-              <span aria-hidden="true" className="text-sm text-ink-soft">Group by</span>
+              <span aria-hidden="true" className="whitespace-nowrap text-sm text-ink-soft">Group by</span>
               <Segmented
                 label="Group by"
                 name="filter-group-by"
@@ -220,6 +216,7 @@ function FilterQuestion({
                 onChange={setGroupBy}
               />
             </div>
+            <p className="pt-1.5 text-xs text-ink-faint">{GROUPING_HINTS[groupBy]}</p>
 
             {refusal && (
               <p role="alert" className="pt-3 text-sm text-over-ink">
@@ -252,34 +249,53 @@ function FilterQuestion({
 /** What each grouping is called on the *Group by* choice: the funnel's own names, and *None*. */
 const GROUPING_LABELS: Record<FilterGrouping, string> = { none: 'None', ...GROUPING_NAMES };
 
-/** What the two ways of combining the rows are called on the switch. */
-const MATCH_LABELS: Record<FilterMatch, string> = {
-  all: 'All of these',
-  any: 'Any of these',
+/** What each grouping does, said under the choice so *Panel* need not be tried to be understood. */
+const GROUPING_HINTS: Record<FilterGrouping, string> = {
+  none: 'One list.',
+  dashboard: 'A heading per Dashboard, its matching items under it.',
+  panel: 'A heading per Panel, such as "Errands \u00b7 Day to day". An item on two Panels appears under each.',
 };
 
 /**
- * The switch between *All of these* and *Any of these* ("Let a Filter show
- * items that meet any of its conditions", issue 504): two radios drawn as one
- * segmented control, because it is one choice of two that has to stay visible
- * beside the rows it governs.
+ * The word in the left gutter that joins a row to the ones above it: *Where*
+ * on the first, then *and* or *or* ("Join a Filter's conditions with and/or
+ * beside each row", issue 909).
+ *
+ * **The second row's joiner is the Filter's all-or-any, and the rows after it
+ * only repeat it as text.** A Filter is all or any as a whole (mixes such as
+ * *(A and B) or C* are not built), so a third row offering its own choice would
+ * promise something the Filter cannot hold. A `select` rather than a segmented
+ * control: two words in a gutter a few characters wide.
  */
-function MatchSwitch({
+function Joiner({
+  at,
   match,
   onChange,
 }: {
+  at: number;
   match: FilterMatch;
   onChange: (match: FilterMatch) => void;
 }) {
   return (
-    <Segmented
-      label="How the conditions combine"
-      name="filter-match"
-      options={FILTER_MATCHES.map((value) => ({ value, label: MATCH_LABELS[value] }))}
-      value={match}
-      onChange={onChange}
-      className="mb-3"
-    />
+    <span className="w-14 shrink-0 pt-3 text-right text-sm text-ink-soft">
+      {at === 0 ? (
+        'Where'
+      ) : at === 1 ? (
+        <select
+          value={match}
+          aria-label="How the conditions combine"
+          onChange={(event) => onChange(event.target.value as FilterMatch)}
+          className="w-full rounded-md border border-shade/10 bg-surface px-1 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+        >
+          <option value="all">and</option>
+          <option value="any">or</option>
+        </select>
+      ) : match === 'any' ? (
+        'or'
+      ) : (
+        'and'
+      )}
+    </span>
   );
 }
 
@@ -396,6 +412,35 @@ function withExclusion<T extends Exclude<FilterCondition, { field: 'dueDate' }>>
 }
 
 /**
+ * Every condition is one grid of four columns - field, operator or window,
+ * values, remove - so the columns line up from box to box and each box reads
+ * as one sentence (*Priority* *is not* *Low*). Each box is its own grid rather
+ * than one shared by all, so a row can still wrap its values onto lines of
+ * their own; the fixed first two tracks are what keep the boxes aligned.
+ */
+const ROW =
+  'grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 sm:grid-cols-[5rem_6.5rem_minmax(0,1fr)_auto]';
+const FIELD = 'pt-1 text-sm font-semibold text-ink-strong max-sm:col-start-1';
+/** On a phone the four tracks do not fit beside the gutter, so a box stacks: the field and its cross on the first line, then the operator, then the values, each across the full width. */
+const ACROSS = 'max-sm:col-span-2';
+const OPERATOR =
+  'w-full rounded-md border border-shade/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40 max-sm:col-span-2';
+
+/** The cross that removes a condition, named by its place so a screen reader can tell the boxes apart. */
+function RemoveButton({ at, onRemove }: { at: number; onRemove: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onRemove}
+      aria-label={`Remove condition ${at + 1}`}
+      className="rounded-md px-2 py-1 text-base leading-none text-ink-faint hover:bg-accent-tint hover:text-accent-deep max-sm:col-start-2 max-sm:row-start-1"
+    >
+      {'\u00d7'}
+    </button>
+  );
+}
+
+/**
  * One Due date row: which window, and whether it also takes in what is already
  * past.
  *
@@ -420,13 +465,13 @@ function DueConditionRow({
   onRemove: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <span className="text-sm text-ink-soft">Due date</span>
+    <div className={ROW}>
+      <span className={FIELD}>Due date</span>
       <select
         value={row.window}
         aria-label={`Due date is, condition ${at + 1}`}
         onChange={(event) => onChange({ ...row, window: event.target.value as DueWindow })}
-        className="rounded-md border border-shade/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+        className={OPERATOR}
       >
         {DUE_WINDOWS.map((window) => (
           <option key={window} value={window}>
@@ -434,24 +479,19 @@ function DueConditionRow({
           </option>
         ))}
       </select>
-      {isAPeriod(row.window) && (
-        <label className="flex items-center gap-1.5 text-sm text-ink-soft">
-          <input
-            type="checkbox"
-            checked={row.orOverdue}
-            onChange={(event) => onChange({ ...row, orOverdue: event.target.checked })}
-          />
-          or overdue
-        </label>
-      )}
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`Remove condition ${at + 1}`}
-        className="ml-auto rounded-md px-2 py-1 text-sm text-ink-faint hover:bg-accent-tint hover:text-accent-deep"
-      >
-        Remove
-      </button>
+      <span className={`pt-1 ${ACROSS}`}>
+        {isAPeriod(row.window) && (
+          <label className="flex items-center gap-1.5 text-sm text-ink-soft">
+            <input
+              type="checkbox"
+              checked={row.orOverdue}
+              onChange={(event) => onChange({ ...row, orOverdue: event.target.checked })}
+            />
+            or overdue
+          </label>
+        )}
+      </span>
+      <RemoveButton at={at} onRemove={onRemove} />
     </div>
   );
 }
@@ -502,18 +542,19 @@ function ValuesCondition({
     onChange(values.includes(id) ? values.filter((held) => held !== id) : [...values, id]);
 
   return (
-    <div className="flex flex-wrap items-start gap-3">
-      <fieldset className="flex min-w-0 flex-wrap items-center gap-3">
-        <legend className="text-sm text-ink-soft">{label}</legend>
-        <select
-          value={exclude ? 'not' : 'is'}
-          aria-label={`${label} is or is not`}
-          onChange={(event) => onExclude(event.target.value === 'not')}
-          className="rounded-md border border-shade/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
-        >
-          <option value="is">is</option>
-          <option value="not">is not</option>
-        </select>
+    <div className={ROW}>
+      <span className={FIELD}>{label}</span>
+      <select
+        value={exclude ? 'not' : 'is'}
+        aria-label={`${label} is or is not`}
+        onChange={(event) => onExclude(event.target.value === 'not')}
+        className={OPERATOR}
+      >
+        <option value="is">is</option>
+        <option value="not">is not</option>
+      </select>
+      <fieldset className={`flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 pt-1 ${ACROSS}`}>
+        <legend className="sr-only">{label}</legend>
         {options.length === 0 && empty ? (
           <span className="text-sm text-ink-faint">{empty}</span>
         ) : (
@@ -529,14 +570,7 @@ function ValuesCondition({
           ))
         )}
       </fieldset>
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`Remove condition ${at + 1}`}
-        className="ml-auto shrink-0 rounded-md px-2 py-1 text-sm text-ink-faint hover:bg-accent-tint hover:text-accent-deep"
-      >
-        Remove
-      </button>
+      <RemoveButton at={at} onRemove={onRemove} />
     </div>
   );
 }
