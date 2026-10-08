@@ -63,6 +63,7 @@ export function createTeamsConnector(config: TeamsConnectorConfig): Connector {
     manifest: {
       id: 'teams',
       displayName: 'Microsoft Teams',
+      cardText: 'Sign in with Microsoft. Cockpit reads who you are and nothing else.',
       source: 'teams',
       supportsPush: true,
       auth: teamsSignIn(config.issuer),

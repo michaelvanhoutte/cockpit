@@ -60,6 +60,7 @@ const fakePulled: Connector = {
   manifest: {
     id: FAKE,
     displayName: 'A pulled source',
+    cardText: 'A source Cockpit pulls from.',
     source: 'notion',
     supportsPush: false,
     pulled: true,

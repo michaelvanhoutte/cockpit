@@ -52,6 +52,7 @@ function connectorNamed(id: string, mirrors: boolean, able = true): Connector {
     manifest: {
       id,
       displayName: 'A pulled source',
+      cardText: 'A source Cockpit pulls from.',
       source: 'notion',
       supportsPush: false,
       pulled: true,

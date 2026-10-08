@@ -13,6 +13,13 @@ import type { Item, Source } from '@cockpit/shared';
 export interface ConnectorManifest {
   id: string;
   displayName: string;
+  /** What the source's card in the Connections window says it does. */
+  cardText: string;
+  /**
+   * Whether connecting asks the person something before the sign-in starts.
+   * Absent is no: Connect leaves for the source at once.
+   */
+  asksFirst?: boolean;
   source: Source;
   /** Whether the source can push (webhooks) in addition to being pulled. */
   supportsPush: boolean;

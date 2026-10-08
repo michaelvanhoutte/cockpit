@@ -20,6 +20,8 @@ import { useCommand, useConnectClaudeCode, useTestClaudeCodeConnection } from '.
 /** What the list read answers with, per case. */
 const held = vi.hoisted(() => ({
   sourceAccounts: [] as SourceAccount[],
+  /** What the registry's list answers with: Teams, as in an environment that has its bot. */
+  registry: [] as { id: string; displayName: string; cardText: string; asksFirst: boolean }[],
   /** What the Claude Code connection's hooks read answers with (issue 572). */
   hooks: { url: '', secret: '', domain: '', lastArrivedAt: null as string | null },
   /** The connection each hooks read was for. */
@@ -40,6 +42,9 @@ vi.mock('../../../src/api/queries', () => ({
 vi.mock('../../../src/api/client', () => ({
   api: {
     v1: {
+      connectors: {
+        $get: () => Promise.resolve(new Response(JSON.stringify({ connectors: held.registry }))),
+      },
       workspaces: {
         ':workspaceId': {
           connections: {
@@ -145,8 +150,16 @@ function showWindow(outcome?: ConnectOutcome, testOutcome: TestOutcome = { accep
   );
 }
 
+const TEAMS_CARD = {
+  id: 'teams',
+  displayName: 'Microsoft Teams',
+  cardText: 'Sign in with Microsoft. Cockpit reads who you are and nothing else.',
+  asksFirst: false,
+};
+
 beforeEach(() => {
   held.sourceAccounts = [];
+  held.registry = [TEAMS_CARD];
   held.hooksAskedFor = [];
   vi.restoreAllMocks();
 });
@@ -192,6 +205,19 @@ describe('Connector management', () => {
       await userEvent.click(await screen.findByRole('button', { name: 'Connect Microsoft Teams' }));
 
       expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/teams/connect');
+    });
+
+    it('sends the browser to the connect address of whichever registered source’s Connect was pressed', async () => {
+      const leaving = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({
+        assign: leaving,
+      } as unknown as Location);
+      held.registry = [TEAMS_CARD, { ...TEAMS_CARD, id: 'notion', displayName: 'Notion', cardText: 'Pages.' }];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Notion' }));
+
+      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/notion/connect');
     });
 
     it('says so when the trip came back refused', async () => {
@@ -503,10 +529,38 @@ describe('Connector management', () => {
       expect(await screen.findByText(/Nothing connected yet/)).toBeInTheDocument();
       // Nothing is connected, so each connector's name appears exactly once -
       // on its own Add-a-connection row.
-      expect(screen.getByText('Microsoft Teams')).toBeInTheDocument();
+      expect(await screen.findByText('Microsoft Teams')).toBeInTheDocument();
       expect(screen.getByText('Claude Code')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Connect Microsoft Teams' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Connect Claude Code' })).toBeInTheDocument();
+    });
+
+    it('draws one card per registered connector, named and described as its manifest gives, and none for one the registry lacks', async () => {
+      held.registry = [{ id: 'notion', displayName: 'Notion', cardText: 'Pages become tasks.', asksFirst: false }];
+
+      showWindow();
+
+      expect(await screen.findByRole('button', { name: 'Connect Notion' })).toBeInTheDocument();
+      expect(screen.getByText('Pages become tasks.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Connect Microsoft Teams' })).toBeNull();
+      // The two named cards stay, as before.
+      expect(screen.getByRole('button', { name: 'Connect Gmail' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Connect Claude Code' })).toBeInTheDocument();
+    });
+
+    it('draws the named Gmail card once even when the registry holds a connector of that id', async () => {
+      held.registry = [{ id: 'gmail', displayName: 'Gmail again', cardText: 'x', asksFirst: false }];
+
+      showWindow();
+
+      expect(await screen.findByRole('button', { name: 'Connect Gmail' })).toBeInTheDocument();
+      expect(screen.queryByText('Gmail again')).toBeNull();
+    });
+
+    it('shows Teams’ card with its manifest’s text', async () => {
+      showWindow();
+
+      expect(await screen.findByText(TEAMS_CARD.cardText)).toBeInTheDocument();
     });
 
     it('shows a connected Claude Code under Connected with when it last worked, and offers no more Connect for it', async () => {
@@ -517,7 +571,7 @@ describe('Connector management', () => {
       expect(await screen.findByText(/last worked/)).toBeInTheDocument();
       expect(screen.getByText('Connected - one per workspace')).toBeInTheDocument();
       // Teams is still offered - only Claude Code is capped at one.
-      expect(screen.getByRole('button', { name: 'Connect Microsoft Teams' })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Connect Microsoft Teams' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Connect Claude Code' })).toBeNull();
     });
   });
