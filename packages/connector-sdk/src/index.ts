@@ -110,7 +110,26 @@ export type SourceItem = Pick<
 > & {
   /** Still one a capture may name; reading is open (`sourceSchema`), writing is not changed here. */
   source: CapturedSource;
+  /**
+   * Which choice the connection followed when the source brought this in, for
+   * a connector whose connection follows one (what to list, which folder).
+   * Stored on the Item's link when it is first made and never changed, so a
+   * `CompleteListing` under that choice can close the Item and one under
+   * another choice cannot. Absent: no listing ever closes it.
+   */
+  choice?: string;
 };
+
+/**
+ * Every source id one complete listing of the source saw, under the choice the
+ * connection now follows. A connector reports it only when it read the source
+ * to the end; one that could not list says nothing, since an empty listing
+ * means the source holds nothing.
+ */
+export interface CompleteListing {
+  choice: string;
+  sourceIds: readonly string[];
+}
 
 /** What the host did with an emitted item: `filed` as a new Item, or `already-known` and left as it was. */
 export type EmittedItem = 'filed' | 'already-known';
@@ -191,6 +210,17 @@ export interface ConnectorHost extends ConnectedAccountHost {
   setCredentials(credentials: Record<string, string>): Promise<void>;
 
   emitSourceStateChange(change: SourceStateChange): Promise<void>;
+
+  /**
+   * Reports a complete listing: the host closes, as a `resolved`
+   * `SourceStateChange` would, every Item still open that this connection
+   * brought in under `listing.choice` and the listing did not see - the
+   * backstop for a source whose change history can lapse, and the
+   * full-list-and-diff a source with no history needs. Items brought in under
+   * another choice, or with none, and Items whose open state is still waiting
+   * to reach the source (`OpenStateWanted`) are left as they are.
+   */
+  reportCompleteListing(listing: CompleteListing): Promise<void>;
 
   /** Rate-limit/backoff helper so connectors don't roll their own. */
   sleep(ms: number): Promise<void>;

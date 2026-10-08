@@ -1914,6 +1914,14 @@ export const pulledLinks = sqliteTable(
      * only the latest of a quick close and reopen is ever handed over.
      */
     openWanted: integer('open_wanted', { mode: 'boolean' }),
+    /**
+     * The choice the connection followed when the connector filed this link's
+     * Item ("Close a pulled connector's Items its complete listing no longer
+     * sees", issue 938): the only links a complete listing under that same
+     * choice may close. Set when the link is made and never changed; null on
+     * a link made before this existed or without one, which no listing closes.
+     */
+    choice: text('choice'),
   },
   (t) => [
     primaryKey({ columns: [t.workspaceId, t.connectorId, t.externalAccountKey, t.sourceId] }),

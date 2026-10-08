@@ -1,4 +1,4 @@
-import type { Connector, ConnectorHost, EmittedItem, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
+import type { CompleteListing, Connector, ConnectorHost, EmittedItem, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
 import type { Env } from '../env.js';
 import {
   AccountNotInRegisterError,
@@ -176,6 +176,10 @@ function pulledHost(
 
     async emitSourceStateChange(change: SourceStateChange): Promise<void> {
       await run.applySourceChange(change);
+    },
+
+    async reportCompleteListing(listing: CompleteListing): Promise<void> {
+      await run.closeItemsNotListed(listing);
     },
 
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
