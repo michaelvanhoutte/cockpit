@@ -284,7 +284,7 @@ async function gmailLastChecked(): Promise<string | null> {
 }
 
 /**
- * The alarm firing, each time for when it was set, until uns checks have
+ * The alarm firing, each time for when it was set, until `runs` checks have
  * run in all - for connections whose next checks fall due moments apart.
  */
 async function checksRunUntil(runs: number): Promise<void> {
@@ -388,18 +388,23 @@ describe('Connector management', () => {
 
   describe('a source Cockpit pulls from picks up where it last said it got to, for that connection alone', () => {
     it('starts from nothing, then from where the last check said, and never from another connection’s place', async () => {
-      const read: unknown[] = [];
-      everyRun(async (host, run) => {
-        read.push(await host.getState());
-        await host.setState({ cursor: `after-run-${run}` });
+      // Each connection's own sign-in says which connection a run is checking.
+      const read: { connection: string; state: unknown }[] = [];
+      everyRun(async (host) => {
+        const connection = (await host.getCredentials()).credential!;
+        read.push({ connection, state: await host.getState() });
+        await host.setState({ savedBy: connection, after: read.length });
       });
-      await connect('somebody');
-      await connect('somebody-else');
+      await connect('somebody', WORKSPACE_ID, 'first-connection');
+      await connect('somebody-else', WORKSPACE_ID, 'second-connection');
       for (const check of await checksQueue(2)) await deliver(check);
-      expect(read).toEqual([null, null]);
+      expect(read.map((one) => one.state)).toEqual([null, null]);
 
       await checksRunUntil(4);
-      expect(read.slice(2)).toEqual(expect.arrayContaining([{ cursor: 'after-run-1' }, { cursor: 'after-run-2' }]));
+      for (const { connection, state } of read.slice(2)) {
+        const first = read.findIndex((one) => one.connection === connection);
+        expect(state).toEqual({ savedBy: connection, after: first + 1 });
+      }
     });
   });
 
@@ -456,7 +461,6 @@ describe('Connector management', () => {
   });
 
   describe('each thing a source Cockpit pulls from brings in is one Item in the connection’s Workspace, cleaned up and read for its meaning', () => {
-
     it('something new is an open Item there, and is cleaned up and read', async () => {
       // Both set, so neither is left unasked because this environment could not have run it.
       env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';

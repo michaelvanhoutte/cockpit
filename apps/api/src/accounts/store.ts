@@ -1025,14 +1025,14 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     }
   }
 
-
   /**
    * Sets the alarm for whichever check is due first - Gmail's, while a Gmail
    * connection is held, and the earliest pulled connection's, a connection
-   * just made being due now - and clears it where there is nothing to check. Where the store cannot be read just now,
-   * it is tried again in five minutes, so a passing failure costs one run
-   * rather than the check. The account's name is kept beside the alarm, since
-   * an alarm arrives naming nothing.
+   * just made being due now - and clears it where there is nothing to check.
+   * Where the store cannot be read just now, it is tried again in five
+   * minutes, so a passing failure costs one run rather than the check. The
+   * account's name is kept beside the alarm, since an alarm arrives naming
+   * nothing.
    */
   async #arm(accountName: string): Promise<void> {
     let next: number | null;

@@ -581,20 +581,30 @@ export async function keepEveryAccountCheckingGmail(env: Env): Promise<number> {
     try {
       const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName));
       if (unwrap(await store.keepCheckingGmail(accountName)) === 'armed') armed += 1;
-      // Its pulled connections too ("Check a pulled connector on its cadence
-      // through the generic host", issue 891): the same alarm checks both.
+    } catch (error) {
+      notLookedAt(accountName, 'Gmail check', error);
+    }
+    // Its pulled connections too, and whatever Gmail's answered ("Check a
+    // pulled connector on its cadence through the generic host", issue 891):
+    // the same alarm checks both.
+    try {
+      const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName));
       if (unwrap(await store.keepCheckingPulledConnections(accountName)) === 'armed') armed += 1;
     } catch (error) {
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          message: `account ${accountName}'s Gmail check was not looked at tonight`,
-          cause: error instanceof Error ? error.message : String(error),
-        }),
-      );
+      notLookedAt(accountName, 'pulled connections’ check', error);
     }
   }
   return armed;
+}
+
+function notLookedAt(accountName: string, what: string, error: unknown): void {
+  console.error(
+    JSON.stringify({
+      level: 'error',
+      message: `account ${accountName}'s ${what} was not looked at tonight`,
+      cause: error instanceof Error ? error.message : String(error),
+    }),
+  );
 }
 
 /** Turns the store's answer back into a value or the error that belongs to it. */

@@ -33,9 +33,10 @@ import { getConnector } from './registry.js';
 
 /**
  * One delivered check. A decision - nobody's account, a run already under
- * way, a check already run - ends quietly; a store call that failed is thrown
- * to the queue's retry. A connector whose `sync` throws is a check that
- * failed, which the connection's row says, and is not retried before its turn.
+ * way, a check already run - ends quietly; taking or giving back the lease
+ * failing is thrown to the queue's retry. Anything thrown during `sync`, the
+ * connector's own calls back into the store among it, is a check that failed,
+ * which the connection's row says, and is not retried before its turn.
  */
 export async function checkPulledConnection(env: Env, job: CheckPulledConnectionJob): Promise<void> {
   let account: Account;
@@ -120,7 +121,10 @@ function pulledHost(env: Env, accountName: string, begun: PulledRunStarted, run:
     async emitItem(item: SourceItem): Promise<EmittedItem> {
       const sourceId = item.sourceId ?? '';
       if (!sourceId) throw new Error(`the ${connectorId} connector emitted an item its source does not name`);
-      const named = `${begun.workspaceId}:${connectorId}:${begun.externalAccountKey}:${sourceId}`;
+      // As a JSON array rather than joined, since an account's key may itself
+      // hold the separator (Teams' `tenant:user`) and two pairs must never
+      // name one Item.
+      const named = JSON.stringify([begun.workspaceId, connectorId, begun.externalAccountKey, sourceId]);
       const itemId = await derivedUuid(`pulled-item:${named}`);
       const filed = await run.fileItem(
         { ...item, sourceId },

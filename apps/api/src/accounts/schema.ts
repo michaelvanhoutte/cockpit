@@ -1842,7 +1842,8 @@ export const gmailChecks = sqliteTable(
  * - `queued_at` is set when a check is queued and cleared when a run takes
  *   it, which is what makes a message delivered twice one run.
  * - `run_id` and `lease_until` name the run under way; every call the run
- *   makes is refused once its lease is gone or another run holds it.
+ *   makes is refused once its connection is gone or another run has taken
+ *   it, which a delivery may do once `lease_until` has passed.
  *
  * **No foreign key**, for the reason `connectionFailures` gives: a disconnect
  * deletes its connection for real, and a row here naming one that has gone is
