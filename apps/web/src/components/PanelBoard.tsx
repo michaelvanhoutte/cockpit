@@ -1743,6 +1743,8 @@ export function PanelBoard({
               groupBy={(beingFiltered.filter ?? NO_CONDITIONS).groupBy}
               itemTypes={itemTypes}
               panels={panelsInWorkspace}
+              dashboards={dashboards}
+              layouts={layouts}
               onSave={(conditions, match, groupBy) => setFilter(beingFiltered.id, conditions, match, groupBy)}
               onCancel={() => {
                 setFiltering(null);

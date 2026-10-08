@@ -337,6 +337,19 @@ async function addCondition(user: ReturnType<typeof userEvent.setup>, field: str
   await user.click(await screen.findByRole('menuitem', { name: field }));
 }
 
+/** Opens a values card's *+ Field* list, so its checkboxes can be read or ticked. */
+async function openList(user: ReturnType<typeof userEvent.setup>, field: string) {
+  await user.click(await screen.findByRole('button', { name: `+ ${field}` }));
+  await screen.findAllByRole('checkbox');
+}
+
+/** Ticks one value in a values card's list and closes the list again, the way a person adds a chip. */
+async function pick(user: ReturnType<typeof userEvent.setup>, field: string, value: string) {
+  await openList(user, field);
+  await user.click(screen.getByRole('checkbox', { name: value }));
+  await user.keyboard('{Escape}');
+}
+
 /**
  * What a panel drag carries. Without one every handler reads `types` off null
  * and the drop is a no-op - which a test expecting *no* change would pass on,
@@ -2692,8 +2705,8 @@ describe('Onboarding', () => {
 
       await choose(user, 'Due soon', 'Filter…');
       await addCondition(user, 'Priority');
-      await user.click(screen.getByRole('checkbox', { name: 'High' }));
-      await user.click(screen.getByRole('checkbox', { name: 'Normal' }));
+      await pick(user, 'Priority', 'High');
+      await pick(user, 'Priority', 'Normal');
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
       expect(mutate).toHaveBeenCalledWith(
@@ -2717,7 +2730,7 @@ describe('Onboarding', () => {
 
       await choose(user, 'Due soon', 'Filter…');
       await addCondition(user, 'Type');
-      await user.click(screen.getByRole('checkbox', { name: 'OKR' }));
+      await pick(user, 'Type', 'OKR');
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
       expect(mutate).toHaveBeenCalledWith(
@@ -2746,9 +2759,11 @@ describe('Onboarding', () => {
       // Never a Filter - not itself, and not any other - and never a panel of
       // text: nothing is ever filed onto either ("Filter a Filter panel by
       // panel, and name the Filters a panel's deletion affects", issue 465).
+      await openList(user, 'Panel');
       expect(screen.queryByRole('checkbox', { name: 'Due soon' })).toBeNull();
       expect(screen.queryByRole('checkbox', { name: 'Notes' })).toBeNull();
       await user.click(screen.getByRole('checkbox', { name: 'Project Falcon' }));
+      await user.keyboard('{Escape}');
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
       expect(mutate).toHaveBeenCalledWith(
@@ -2802,7 +2817,7 @@ describe('Onboarding', () => {
       await choose(user, 'Due soon', 'Filter…');
       await addCondition(user, 'Priority');
       await user.selectOptions(screen.getByRole('combobox', { name: 'Priority is or is not' }), 'is not');
-      await user.click(screen.getByRole('checkbox', { name: 'Low' }));
+      await pick(user, 'Priority', 'Low');
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
       expect(mutate).toHaveBeenCalledWith(
@@ -2821,11 +2836,13 @@ describe('Onboarding', () => {
 
       await choose(user, 'Due soon', 'Filter…');
       await addCondition(user, 'Status');
+      await openList(user, 'Status');
       expect(screen.getByRole('checkbox', { name: 'To do' })).toBeVisible();
       expect(screen.getByRole('checkbox', { name: 'In progress' })).toBeChecked();
       expect(screen.queryByRole('checkbox', { name: 'Done' })).toBeNull();
       await user.click(screen.getByRole('checkbox', { name: 'To do' }));
       await user.click(screen.getByRole('checkbox', { name: 'In progress' }));
+      await user.keyboard('{Escape}');
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
       expect(mutate).toHaveBeenCalledWith(
@@ -2842,8 +2859,182 @@ describe('Onboarding', () => {
 
       await choose(user, 'Due soon', 'Filter…');
 
-      expect(await screen.findByRole('checkbox', { name: 'In progress' })).toBeChecked();
+      await openList(user, 'Status');
+      expect(screen.getByRole('checkbox', { name: 'In progress' })).toBeChecked();
       expect(screen.getByRole('checkbox', { name: 'To do' })).not.toBeChecked();
+    });
+
+    describe('a values card shows what it holds as chips and changes them from a list', () => {
+      const NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf'];
+      const types = (count: number) => NAMES.slice(0, count).map((name) => aType(`type-${name}`, name));
+      const chipsOf = () =>
+        screen.queryAllByRole('button', { name: /^Take .* out$/ }).map((cross) => cross.getAttribute('aria-label'));
+
+      it('adds a chip for a value ticked in the list, and sends it', async () => {
+        const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon')], itemTypes: types(2) });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await addCondition(user, 'Type');
+        await pick(user, 'Type', 'Bravo');
+
+        expect(chipsOf()).toEqual(['Take Bravo out']);
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+        expect(mutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            payload: expect.objectContaining({ conditions: [{ field: 'type', values: ['type-Bravo'] }] }),
+          }),
+          expect.anything(),
+        );
+      });
+
+      it('closes the list on Escape without closing the Filter, and hands focus back to its button', async () => {
+        const { user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [{ field: 'type', values: [] }])],
+          itemTypes: types(2),
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        const trigger = await screen.findByRole('button', { name: '+ Type' });
+        trigger.focus();
+        await user.keyboard('{Enter}');
+        await screen.findAllByRole('checkbox');
+        await user.keyboard('{Tab}{ }');
+        expect(chipsOf().length).toBe(1);
+        await user.keyboard('{Escape}');
+
+        expect(screen.queryAllByRole('checkbox')).toEqual([]);
+        expect(screen.getByRole('button', { name: 'Save' })).toBeVisible();
+        expect(trigger).toHaveFocus();
+      });
+
+      it('takes the chip away and unticks the value when its own cross is pressed', async () => {
+        const { user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [{ field: 'type', values: ['type-Alpha', 'type-Bravo'] }])],
+          itemTypes: types(2),
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await user.click(await screen.findByRole('button', { name: 'Take Alpha out' }));
+
+        expect(chipsOf()).toEqual(['Take Bravo out']);
+        await openList(user, 'Type');
+        expect(screen.getByRole('checkbox', { name: 'Alpha' })).not.toBeChecked();
+        expect(screen.getByRole('checkbox', { name: 'Bravo' })).toBeChecked();
+      });
+
+      it('takes the chip away when its value is unticked in the list', async () => {
+        const { user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [{ field: 'type', values: ['type-Alpha'] }])],
+          itemTypes: types(2),
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await openList(user, 'Type');
+        await user.click(screen.getByRole('checkbox', { name: 'Alpha' }));
+
+        expect(chipsOf()).toEqual([]);
+      });
+
+      it('shows no chip and offers no checkbox for a Type since deleted', async () => {
+        const { user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [{ field: 'type', values: ['type-gone', 'type-Alpha'] }])],
+          itemTypes: types(2),
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await screen.findByRole('button', { name: 'Take Alpha out' });
+        await openList(user, 'Type');
+
+        expect(chipsOf()).toEqual(['Take Alpha out']);
+        expect(screen.getAllByRole('checkbox')).toHaveLength(2);
+      });
+
+      it.each([
+        { situation: 'six Types', count: 6, searchable: false },
+        { situation: 'seven Types', count: 7, searchable: true },
+      ])('offers a search box for $situation: $searchable', async ({ count, searchable }) => {
+        const { user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [{ field: 'type', values: [] }])],
+          itemTypes: types(count),
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await openList(user, 'Type');
+
+        expect(screen.getAllByRole('checkbox')).toHaveLength(count);
+        expect(screen.queryByRole('searchbox') !== null).toBe(searchable);
+      });
+
+      it('narrows the list to the names containing what is typed, and says so when none do', async () => {
+        const { user } = showBoard({
+          panels: [aFilter('due', 'Due soon', [{ field: 'type', values: [] }])],
+          itemTypes: types(7),
+        });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await openList(user, 'Type');
+        await user.type(screen.getByRole('searchbox'), 'ho');
+        expect(screen.getAllByRole('checkbox').map((box) => box.parentElement?.textContent)).toEqual(['Echo']);
+
+        await user.clear(screen.getByRole('searchbox'));
+        await user.type(screen.getByRole('searchbox'), 'zzz');
+        expect(screen.queryAllByRole('checkbox')).toEqual([]);
+        expect(screen.getByText('No match.')).toBeVisible();
+      });
+
+      describe('Panels are listed under their Dashboard, in the order its board draws them', () => {
+        const ANNA = aPanel('anna', 'Anna');
+        const FALCON = aPanel('falcon', 'Project Falcon');
+        const PAPERS = { ...aPanel('papers', 'Papers'), dashboardId: 'research' };
+        const MORE = ['Reading', 'Talks', 'Grants', 'Teaching'].map((name) => ({ ...aPanel(name, name), dashboardId: 'research' }));
+        const NOTES = aPanelOfText('notes', 'Notes');
+        const DUE = aFilter('due', 'Due soon', [{ field: 'panel', values: [] }]);
+        /** Today's board draws Anna before Project Falcon, which was made first. */
+        const LAYOUT = aLayout('layout-today', ['anna', 'falcon', 'due', 'notes']);
+        const board = () =>
+          showBoard({
+            panels: [DUE, FALCON, ANNA, NOTES],
+            panelsInWorkspace: [DUE, FALCON, ANNA, NOTES, PAPERS, ...MORE],
+            dashboards: [DASHBOARD, RESEARCH],
+            layouts: [LAYOUT],
+          });
+        const listed = () => screen.getAllByRole('checkbox').map((box) => box.parentElement?.textContent);
+
+        it('lists each Dashboard’s Panels under its name, Dashboards in tab order and Panels in board order, never a Filter or a panel of text', async () => {
+          const { user } = board();
+
+          await choose(user, 'Due soon', 'Filter…');
+          await openList(user, 'Panel');
+
+          expect(listed()).toEqual(['Anna', 'Project Falcon', 'Papers', 'Reading', 'Talks', 'Grants', 'Teaching']);
+          const list = screen.getAllByRole('checkbox')[0]!.closest('[role="dialog"]') as HTMLElement;
+          expect(within(list).getByText('Today')).toBeVisible();
+          expect(within(list).getByText('Research')).toBeVisible();
+        });
+
+        it('keeps all of a Dashboard’s Panels when its name is searched', async () => {
+          const { user } = board();
+
+          await choose(user, 'Due soon', 'Filter…');
+          await openList(user, 'Panel');
+          await user.type(screen.getByRole('searchbox'), 'resea');
+
+          expect(listed()).toEqual(['Papers', 'Reading', 'Talks', 'Grants', 'Teaching']);
+          await user.clear(screen.getByRole('searchbox'));
+          await user.type(screen.getByRole('searchbox'), 'toda');
+          expect(listed()).toEqual(['Anna', 'Project Falcon']);
+        });
+
+        it('names the Panel and its Dashboard on a chosen Panel’s chip', async () => {
+          const { user } = board();
+
+          await choose(user, 'Due soon', 'Filter…');
+          await pick(user, 'Panel', 'Papers');
+
+          const chip = screen.getByRole('button', { name: 'Take Papers out' }).parentElement!;
+          expect(chip).toHaveTextContent(/Papers\s*·\s*Research/);
+        });
+      });
     });
 
     it('does not offer a field already on the filter, from its own add menu', async () => {
