@@ -1921,6 +1921,19 @@ describe('Triage', () => {
       ]);
     });
 
+    it('names no Panel to take them off when what is picked is in the Inbox', async () => {
+      held.items = THREE;
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+
+      await tick(user, BART);
+      await fileWhatIsPicked(user, 'Falcon');
+
+      await waitFor(() => expect(held.send).toHaveBeenCalledTimes(1));
+      const sent = (held.send.mock.calls[0] as unknown as [{ name: string; payload: Record<string, unknown> }])[0];
+      expect(sent.name).toBe('move_item_to_panel');
+      expect(sent.payload).toMatchObject({ panelId: 'p-falcon' });
+      expect(sent.payload).not.toHaveProperty('fromPanelIds');
+    });
     it('files one picked row exactly as its own menu would', async () => {
       held.items = THREE;
       const user = await showList({ items: THREE, openDashboardId: TODAY.id });
