@@ -2042,6 +2042,51 @@ describe('Selection', () => {
       expect(nowOn('p-falcon').sort()).toEqual([BART.id, RENEW.id, CHASE.id].sort());
     });
 
+    it('still takes off the rest when one added was taken off meanwhile', async () => {
+      held.items = THREE;
+      sendThatFiles();
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      for (const item of THREE) await tick(user, item);
+      await fileWhatIsPicked(user, 'Falcon');
+      await screen.findByText('3 items moved to Falcon');
+      reRead();
+      await user.click(screen.getByRole('button', { name: 'Also show on…' }));
+      await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Anna' }));
+      await screen.findByText('3 items added to Anna');
+      held.filings = held.filings.filter((f) => !(f.panelId === 'p-anna' && f.itemId === BART.id));
+      reRead();
+
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      await waitFor(() => expect(nowOn('p-anna')).toEqual([]));
+      expect(screen.queryByText(/changed while/)).not.toBeInTheDocument();
+    });
+
+    it('offers back only what was added when an add is refused part way', async () => {
+      held.items = THREE;
+      sendThatFiles();
+      const user = await showList({ items: THREE, openDashboardId: TODAY.id });
+      for (const item of THREE) await tick(user, item);
+      await fileWhatIsPicked(user, 'Falcon');
+      await screen.findByText('3 items moved to Falcon');
+      reRead();
+      const real = held.send;
+      let adds = 0;
+      held.send = vi.fn((args: unknown) =>
+        (args as { name: string }).name === 'add_item_to_panel' && ++adds === 3
+          ? Promise.reject(new CommandRefused(409, 'this panel changed while you were looking at it'))
+          : real(args as never),
+      ) as typeof held.send;
+      await user.click(screen.getByRole('button', { name: 'Also show on…' }));
+      await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Anna' }));
+
+      expect(await screen.findByText('2 of 3 items added to Anna')).toBeVisible();
+      expect(nowOn('p-anna')).toHaveLength(2);
+      reRead();
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(() => expect(nowOn('p-anna')).toEqual([]));
+    });
+
     it('covers only the two that moved when one was refused', async () => {
       held.items = THREE;
       refusesAfter(2);

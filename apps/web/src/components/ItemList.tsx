@@ -889,7 +889,11 @@ export function ItemList({
     offerToUndo({
       what: `${how} added to ${nameOf(panelId)}`,
       undo: async () => {
+        // Read when pressed: one taken off meanwhile (another tab) is already
+        // what Undo wants, and its refusal must not leave the rest on.
+        const now = (await latestSnapshot(workspaceId)).filings ?? [];
         for (const item of added) {
+          if (!now.some((f) => f.itemId === item.id && f.panelId === panelId)) continue;
           await send({
             name: 'remove_item_from_panel',
             payload: {
