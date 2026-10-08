@@ -143,6 +143,17 @@ describe('the export holds every record in the period, read a page at a time', (
     assert.equal(written, false);
   });
 
+  it('stops rather than ask forever for a page that does not move on', async () => {
+    await assert.rejects(
+      exportUsage({
+        ask: async () => ({ records: [record()], next: 0 }),
+        write: async () => {},
+        days: 7,
+      }),
+      /does not continue/,
+    );
+  });
+
   it('counts back whole days from now', () => {
     assert.equal(periodStart(1, new Date('2026-10-08T12:00:00.000Z')), '2026-10-07T12:00:00.000Z');
   });
@@ -165,6 +176,12 @@ describe('the command never writes over a file', () => {
     writeFileSync(out, 'earlier');
     await assert.rejects(place.write('new'), /already there/);
     assert.equal(readFileSync(out, 'utf8'), 'earlier');
+  });
+
+  it('makes the folder the file goes in when it is not there', async () => {
+    const out = join(dir, 'fresh', 'folder', 'new.csv');
+    await (await prepareExport({ out })).write('rows');
+    assert.equal(readFileSync(out, 'utf8'), 'rows');
   });
 
   it('writes a new file', async () => {

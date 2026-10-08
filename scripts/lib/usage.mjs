@@ -6,6 +6,7 @@
 //
 
 import * as fsp from 'node:fs/promises';
+import { dirname } from 'node:path';
 
 import { readEnvironment, readFlags } from './operator.mjs';
 
@@ -110,6 +111,10 @@ export async function exportUsage({ ask, write, days, now = new Date() }) {
     }
     records.push(...page.records);
     if (page.next === null || page.next === undefined) break;
+    // A page that does not move on would be asked for forever.
+    if (!Number.isInteger(page.next) || page.next <= after) {
+      throw new Error('reading the records got a page that does not continue - is something in front of this environment?');
+    }
     after = page.next;
   }
   await write(toCsv(records));
@@ -130,6 +135,9 @@ export async function prepareExport({ out, disk = fsp }) {
     if (error === there) throw error;
     if (error.code !== 'ENOENT') throw error;
   }
+  // `usage/` is gitignored, so it is not there in a fresh checkout: make it now,
+  // not after every page has been read.
+  await disk.mkdir(dirname(out), { recursive: true });
   return {
     async write(text) {
       try {
