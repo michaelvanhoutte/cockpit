@@ -4,7 +4,17 @@ import type { CommandName, CommandPayload, WorkspaceSnapshot } from '@cockpit/sh
 import { handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { GUEST_ACCOUNT_NAME } from '../../../src/auth/register.js';
-import { ACCOUNT_NAME, DASHBOARD_ID, TASK_TYPE_ID, WORKSPACE_ID, asUser, seedRegister, signInAs, startFromEmpty } from '../seed.js';
+import {
+  ACCOUNT_NAME,
+  DASHBOARD_ID,
+  TASK_TYPE_ID,
+  WORKSPACE_ID,
+  asUser,
+  inStoreAsItIs,
+  seedRegister,
+  signInAs,
+  startFromEmpty,
+} from '../seed.js';
 
 /**
  * Integration level, through the real Worker: the shared guest demo spends the
@@ -107,6 +117,16 @@ async function capture(message: string): Promise<{ itemId: string; title: string
   return { itemId, title: item.title };
 }
 
+/** What Cockpit changed says about one of the guest's Items, read straight out of the store. */
+async function whatCockpitChangedSaysOf(itemId: string): Promise<{ id: string; status: string; message: string | null }[]> {
+  return inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) =>
+    sql.exec<{ id: string; status: string; message: string | null }>(
+      'SELECT id, status, message FROM rewrite_history WHERE item_id = ? ORDER BY attempted_at',
+      itemId,
+    ).toArray(),
+  );
+}
+
 /** Files an Item the guest has not filed yet onto a Panel that already holds some. */
 async function fileAnItem(): Promise<string> {
   const { items, filings } = await snapshot();
@@ -185,13 +205,20 @@ afterEach(() => {
 
 describe('Capture', () => {
   describe('the guest account never asks the model', () => {
-    it('a guest capture keeps the title it was typed with, and nothing is queued to change it', async () => {
-      const { title } = await capture('call jan about the invoice, not before 10');
+    it('a guest capture keeps the title it was typed with, nothing is queued to change it, and What Cockpit changed says why', async () => {
+      const { itemId, title } = await capture('call jan about the invoice, not before 10');
       await aSignedInAccountHasCapturedToo();
 
       expect(title).toBe('call jan about the invoice, not before 10');
       expect(held.filter((job) => job.accountName === GUEST_ACCOUNT_NAME)).toEqual([]);
       expect(reachedTheNetwork).toEqual([]);
+      await vi.waitFor(
+        async () =>
+          expect((await whatCockpitChangedSaysOf(itemId)).map(({ status, message }) => ({ status, message }))).toEqual([
+            { status: 'left-as-is', message: 'nothing was enriched: the guest account never calls the model' },
+          ]),
+        { timeout: 15_000, interval: 20 },
+      );
     });
 
     it('a guest filing queues no refresh of the rest of the Inbox', async () => {
@@ -208,13 +235,29 @@ describe('Capture', () => {
         workspaces: { id: string }[];
       };
 
-      const cleanUp = await deliver({ kind: 'clean-up-a-note', accountName: GUEST_ACCOUNT_NAME, itemId });
+      // What a capture queued before the guest stopped being queued left behind: a row still waiting.
+      const attemptId = nextId();
+      await inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) =>
+        sql.exec(
+          `INSERT INTO rewrite_history (id, tenant_id, workspace_id, item_id, title_before, looks_at, status, attempted_at)
+           VALUES (?, ?, ?, ?, ?, 'texts-and-panel', 'pending', ?)`,
+          attemptId,
+          GUEST_ACCOUNT_NAME,
+          WORKSPACE,
+          itemId,
+          'call jan about the invoice',
+          AT,
+        ),
+      );
+
+      const cleanUp = await deliver({ kind: 'clean-up-a-note', accountName: GUEST_ACCOUNT_NAME, itemId, attemptId });
       const refresh = await deliver({ kind: 're-propose-panels', accountName: GUEST_ACCOUNT_NAME, workspaceId: workspaces[0]!.id });
 
       expect(cleanUp.acked).toBe(true);
       expect(refresh.acked).toBe(true);
       expect(reachedTheNetwork).toEqual([]);
       expect((await snapshot()).items.find((one) => one.id === itemId)!.title).toBe('call jan about the invoice');
+      expect((await whatCockpitChangedSaysOf(itemId)).find((row) => row.id === attemptId)?.status).toBe('left-as-is');
     });
   });
 });

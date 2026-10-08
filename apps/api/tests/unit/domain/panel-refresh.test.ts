@@ -53,8 +53,10 @@ describe('Triage', () => {
       expect(itemsToReadAgain(items(FAR, CLOSE), null)).toEqual(['item-1', 'item-2']);
     });
 
-    it('no filing since the last refresh leaves only the items with no meaning', () => {
-      expect(itemsToReadAgain(items(CLOSE, null), [])).toEqual(['item-2']);
+    it('a filing that cannot be found since the last refresh puts every item up for re-reading', () => {
+      // A filing's time is the device's, so one made on a clock running behind,
+      // or replayed after reconnecting, can predate the last refresh.
+      expect(itemsToReadAgain(items(FAR, CLOSE), [])).toEqual(['item-1', 'item-2']);
     });
 
     it.each([

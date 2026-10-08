@@ -236,12 +236,11 @@ export function buildCleanUpANote(
     version: 'v11',
 
     /**
-     * Sonnet 5.5 held every case of the clean-up's contract suite that Opus 5
-     * did (`tests/contract/clean-up-a-note.v11.test.ts`), and held the
-     * property `v1` measured a cheaper model failing: handing the captured
-     * note straight back as the title, unshortened. Haiku 5.5 did not - three
-     * titles of another note, three answers rejected - so this is the
-     * cheapest model that holds them, not the cheapest there is.
+     * Sonnet 5.5, on the 20-capture comparison above, and held to the same
+     * contract suite Opus 5 was (`tests/contract/clean-up-a-note.v11.test.ts`).
+     * Haiku 5.5 was compared too and gave three titles of another note and
+     * three rejected answers, so this is the cheapest model that held the
+     * comparison, not the cheapest there is.
      */
     model: 'claude-sonnet-5-5',
     effort: 'low',

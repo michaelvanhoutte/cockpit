@@ -41,6 +41,8 @@ const TOWARDS = { filed: [1, 0, 0], other: [0, 1, 0], unrelated: [0, 0, 1] } as 
 const PROPOSES_NOTHING = { panelId: '', reason: '' };
 
 let asked: string[] = [];
+/** Whether the model answers every call with a failure, as an outage or a refused request would. */
+let failing = false;
 /** The system blocks and model of every call, in order. */
 let sentBlocks: { model: string; blocks: { text: string; cache_control?: unknown }[] }[] = [];
 
@@ -53,6 +55,8 @@ function stubTheModel(): void {
     ) as { model: string; system: { text: string; cache_control?: unknown }[]; messages: { content: string }[] };
     sentBlocks.push({ model: sent.model, blocks: sent.system });
     asked.push(JSON.parse(/^Captured note: (.*)$/m.exec(sent.messages[0]!.content)![1]!) as string);
+    // A 400 rather than a 5xx, so the client's own retry does not ask twice.
+    if (failing) return Response.json({ type: 'error', error: { type: 'invalid_request_error', message: 'refused' } }, { status: 400 });
     return Response.json({
       id: 'msg_1',
       type: 'message',
@@ -206,6 +210,7 @@ beforeEach(async () => {
   await seedRegister();
   await alsoWorkspaces();
   asked = [];
+  failing = false;
   sentBlocks = [];
   held = [];
   onPanel = [];
@@ -278,6 +283,26 @@ describe('Triage', () => {
 
       // Close to the first filing, far from the second: asked once for the first and not again.
       expect([timesAskedAbout(CLOSE_NOTE), timesAskedAbout(FAR_NOTE)]).toEqual([2, 2]);
+    });
+
+    it('a refresh whose every call failed leaves its filings to be weighed again by the next', async () => {
+      await waitingInTheInbox(CLOSE_NOTE, TOWARDS.filed);
+      await waitingInTheInbox(FAR_NOTE, TOWARDS.unrelated);
+      await fileANote('an earlier filing', TOWARDS.other);
+      await runTheRefresh();
+      await aMomentLater();
+      failing = true;
+      await fileANote('call jan about the invoice', TOWARDS.filed);
+      await runTheRefresh();
+      expect(timesAskedAbout(CLOSE_NOTE)).toBe(2);
+      failing = false;
+      await aMomentLater();
+
+      await fileANote('plan the offsite', TOWARDS.unrelated);
+      await runTheRefresh();
+
+      // Close to the filing whose refresh failed, so asked about again; far from it but close to the latest.
+      expect([timesAskedAbout(CLOSE_NOTE), timesAskedAbout(FAR_NOTE)]).toEqual([3, 2]);
     });
   });
 });

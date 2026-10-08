@@ -1330,6 +1330,7 @@ async function changeThatRewritesTheTexts<N extends 'set_title' | 'set_descripti
   }
   return result;
 }
+
 /**
  * Whether an error raised while streaming changes is worth reporting.
  *

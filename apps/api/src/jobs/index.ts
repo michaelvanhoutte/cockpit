@@ -146,7 +146,7 @@ async function resetTheGuestAccount(env: Env): Promise<void> {
  * only within one batch ("Debounce the settle-triggered repropose fan-out
  * across a real time window", issue 582).
  *
- * **A e-propose-texts message still queued is dropped as one this version
+ * **A `re-propose-texts` message still queued is dropped as one this version
  * does not know.** A correction used to re-read the rest of the Inbox and no
  * longer does (issue 887), so the message is neither run nor retried.
  */

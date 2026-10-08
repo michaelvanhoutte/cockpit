@@ -31,9 +31,12 @@ export interface CandidateMeaning {
  * An Item is read again when it has no meaning (nothing says it is far from
  * what was filed) or its meaning is at least `COULD_BE_CHANGED_BY_A_FILING`
  * close to any filing. **It fails open to every candidate** where the previous
- * refresh is unknown or a filed note has no meaning, since neither says what
- * the filing could have reached; the cap still holds then. An Item left out
- * keeps the proposal it has until a later filing selects it.
+ * refresh is unknown, a filed note has no meaning, or no filing is found at
+ * all, since none says what the filing could have reached; the cap still holds
+ * then. A refresh is only ever asked for by a filing, so finding none means its
+ * time predates the last refresh - a device clock running behind, or a filing
+ * replayed after reconnecting. An Item left out keeps the proposal it has
+ * until a later filing selects it.
  */
 export function itemsToReadAgain(
   candidates: readonly CandidateMeaning[],
@@ -42,7 +45,7 @@ export function itemsToReadAgain(
 ): string[] {
   const ids = (items: readonly CandidateMeaning[]) => items.slice(0, cap).map((candidate) => candidate.itemId);
   const readings = (filings ?? []).filter((filed): filed is readonly number[] => filed !== null && filed.length > 0);
-  if (filings === null || readings.length < filings.length) return ids(candidates);
+  if (filings === null || filings.length === 0 || readings.length < filings.length) return ids(candidates);
 
   return ids(
     candidates.filter(

@@ -20,6 +20,9 @@ import { itemsToReadAgain } from '../domain/panel-refresh.js';
 import type { QueuedRewriteAttempt } from '../domain/rewrite-history.js';
 import { debounceSecondsFor, isSuperseded, type RefreshAsk } from './debounce.js';
 
+/** What What Cockpit changed says of a guest's capture, which is never cleaned up (issue 887). */
+const GUEST_NEVER_CALLS_THE_MODEL = 'nothing was enriched: the guest account never calls the model';
+
 /**
  * Three jobs on the account's own classification: reading a captured note and
  * proposing what to call it, what it said, and which Panel it belongs on
@@ -271,11 +274,6 @@ export async function enqueueCleanUp(env: Env, accountName: string, itemId: stri
    */
   const hasKey = Boolean(env.ANTHROPIC_API_KEY);
 
-  // The shared guest demo spends the same key for anyone who opens it, so it is
-  // treated as an environment with no key: a guest's capture keeps the title it
-  // was typed with, and there is no history row to explain why (issue 887).
-  if (accountName === GUEST_ACCOUNT_NAME) return;
-
   // Opened regardless of whether a key is configured - unlike the rest of
   // this function before this line existed. What a captured note's cleanup
   // did is now a durable row from the very first capture ("See the history
@@ -342,6 +340,16 @@ export async function enqueueCleanUp(env: Env, accountName: string, itemId: stri
     );
     return;
   }
+  // The shared guest demo spends the same key for anyone who opens it, so it is
+  // treated as an environment with no key: a guest's capture keeps the title it
+  // was typed with, and its row says why ("Cut what cleaning up a captured
+  // note costs", issue 887).
+  if (accountName === GUEST_ACCOUNT_NAME) {
+    await recordHistory(() =>
+      account.recordRewriteOutcome(attemptId, { status: 'left-as-is', message: GUEST_NEVER_CALLS_THE_MODEL }),
+    );
+    return;
+  }
 
   const job: EnrichmentJob = { kind: 'clean-up-a-note', accountName, itemId, attemptId };
   try {
@@ -378,8 +386,6 @@ export async function enqueueCleanUp(env: Env, accountName: string, itemId: stri
  * mechanical title capture wrote; only a call that failed is left to throw.
  */
 export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<void> {
-  // Refused again for a message queued for the guest before it stopped being queued.
-  if (job.accountName === GUEST_ACCOUNT_NAME) return say(job.itemId, 'nothing was enriched: the guest account never calls the model');
   // A fresh id stands in for a message enqueued before `attemptId` existed
   // (found in review, on the same deploy-skew window `enrichmentJobSchema`'s
   // own `.optional()` now allows through) - no queued row exists to update
@@ -404,6 +410,15 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
       return say(job.itemId, 'nothing was enriched: the account is no longer in the register');
     }
     throw error;
+  }
+
+  // Refused again for a message queued for the guest before it stopped being
+  // queued, settling the row that capture left waiting.
+  if (job.accountName === GUEST_ACCOUNT_NAME) {
+    await recordHistory(() =>
+      account.recordRewriteOutcome(attemptId, { status: 'left-as-is', message: GUEST_NEVER_CALLS_THE_MODEL }),
+    );
+    return say(job.itemId, GUEST_NEVER_CALLS_THE_MODEL);
   }
 
   const ai = aiFor(env);
@@ -848,11 +863,13 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
 
   // Only the Items a filing since the previous refresh could have changed, at
   // most the 20 most recently captured; the rest keep the proposal they have
-  // ("Cut what cleaning up a captured note costs", issue 887). **The run is
-  // recorded as started before the filings are read**, so one made while this
-  // runs is weighed again next time rather than by nobody. A filing's time is
-  // the client's (`decidedAt` is the change's `issuedAt`), so a clock running
-  // behind can leave a filing unweighed: advisory, like the record itself.
+  // ("Cut what cleaning up a captured note costs", issue 887). **The run's
+  // time is taken before the filings are read**, so one made while this runs
+  // is weighed again next time rather than by nobody. **It is recorded only
+  // where no call failed**, so the filings a failed call was weighing are
+  // weighed again by the next refresh rather than dropped. A filing's time is
+  // the client's (`decidedAt` is the change's `issuedAt`), which is why
+  // finding no filing at all reads every candidate (`itemsToReadAgain`).
   const startedAt = new Date().toISOString();
   const refresh = panelsRefresh(job.workspaceId);
   const previousRun = await account.lastRefreshRan(refresh);
@@ -864,22 +881,26 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
   );
   const chosen = new Set(itemsToReadAgain(meanings.candidates, meanings.filings));
   const candidates = waiting.filter((candidate) => chosen.has(candidate.id));
-  try {
-    await account.recordRefreshRan(refresh, startedAt);
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        level: 'error',
-        message: `workspace ${job.workspaceId}'s refresh ran and was not recorded as having, so the next also weighs the filings this one did: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      }),
-    );
-  }
+  const recordThatItRan = async () => {
+    try {
+      await account.recordRefreshRan(refresh, startedAt);
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: `workspace ${job.workspaceId}'s refresh ran and was not recorded as having, so the next also weighs the filings this one did: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        }),
+      );
+    }
+  };
   if (candidates.length === 0) {
+    await recordThatItRan();
     return sayForWorkspace(job.workspaceId, 'nothing waiting is close to what was filed, so nothing was refreshed');
   }
 
+  let aCallFailed = false;
   for (const candidate of candidates) {
     // Queued before the model is asked, for the same reason and with the same
     // fresh id every time: every call this refresh pays for is a row in the
@@ -949,6 +970,7 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
       // this refresh over: the queue's own retry is for the whole job, and a
       // model that was rate-limited on Item 3 will be rate-limited on Items
       // 4 through N too, redelivered or not.
+      aCallFailed = true;
       await recordHistory(() =>
         account.recordRewriteOutcome(attemptId, {
           status: 'failed',
@@ -965,6 +987,7 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
       );
     }
   }
+  if (!aCallFailed) await recordThatItRan();
 }
 
 /**
