@@ -9,6 +9,7 @@ import {
   movedRow,
   movedToOwnRow,
   sharesOf,
+  stackedOnPhone,
   withRowHeight,
 } from '../../../src/panels/arrangement';
 
@@ -229,6 +230,48 @@ describe('Layouts', () => {
       expect(drawnRows(null, panels.map(aPanel), screenWidth)).toEqual(
         rows.map((row) => ({ height: null, cells: row.map((id) => cell(id, 12)) })),
       );
+    });
+  });
+
+  describe('on a phone, a dashboard’s panels stack in the order its layout is read: rows top to bottom, each row left to right', () => {
+    const stacked = (layout: Layout | null, ids: string[]) =>
+      idsOf(stackedOnPhone(layout, ids.map(aPanel))).flat();
+
+    it('reads each row left to right, one row after another', () => {
+      const layout = aLayout('mine', [aRow([cell('p1', 6), cell('p2', 6)]), aRow([cell('p3', 12)])]);
+
+      expect(stacked(layout, ['p1', 'p2', 'p3'])).toEqual(['p1', 'p2', 'p3']);
+    });
+
+    it('puts a panel created first but arranged last at the end', () => {
+      const layout = aLayout('mine', [aRow([cell('p2', 6), cell('p3', 6)]), aRow([cell('p1', 12)])]);
+
+      expect(stacked(layout, ['p1', 'p2', 'p3'])).toEqual(['p2', 'p3', 'p1']);
+    });
+
+    it('keeps the order the panels were created in where nobody has arranged the dashboard', () => {
+      expect(stacked(null, ['p1', 'p2', 'p3'])).toEqual(['p1', 'p2', 'p3']);
+    });
+
+    it('puts a panel the layout does not name yet after every placed one', () => {
+      const layout = aLayout('mine', [aRow([cell('p3', 12)]), aRow([cell('p2', 12)])]);
+
+      expect(stacked(layout, ['new', 'p2', 'p3'])).toEqual(['p3', 'p2', 'new']);
+    });
+
+    it('skips a panel the layout names but nothing has any more, keeping the rest in order', () => {
+      const layout = aLayout('mine', [aRow([cell('p2', 6), cell('gone', 6)]), aRow([cell('p1', 12)])]);
+
+      expect(stacked(layout, ['p1', 'p2'])).toEqual(['p2', 'p1']);
+    });
+
+    it('draws one panel across at the panel’s own height, whatever the layout set', () => {
+      const layout = aLayout('mine', [aRow([cell('p1', 8), cell('p2', 4)], 400)]);
+
+      expect(stackedOnPhone(layout, [aPanel('p1'), aPanel('p2')])).toEqual([
+        { height: null, cells: [cell('p1', 12)] },
+        { height: null, cells: [cell('p2', 12)] },
+      ]);
     });
   });
 

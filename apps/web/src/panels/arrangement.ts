@@ -64,9 +64,8 @@ export function panelsAcross(availableWidth: number): number {
  *
  * **None at all on a phone** (`isPhoneWidth`): a Layout is an arrangement made
  * for a wider screen, and handing one to a phone is what drew panels too narrow
- * to read. The answer is the same null a Dashboard nobody has arranged gets, so
- * it is drawn fitted to the screen, one panel across. The Layout is left alone
- * and is read again the moment the window is wide enough.
+ * to read. The Layout is left alone and is read again the moment the window is
+ * wide enough; what a phone takes from it is only the order (`stackedOnPhone`).
  */
 export function layoutToDraw(
   layouts: readonly Layout[],
@@ -75,6 +74,23 @@ export function layoutToDraw(
 ): Layout | null {
   if (isPhoneWidth(screenWidth)) return null;
   return layouts.find((layout) => layout.dashboardId === dashboardId) ?? null;
+}
+
+/**
+ * What a phone draws: every panel on a row of its own, in the order a wider
+ * screen reads the Layout - rows top to bottom, each row left to right - so a
+ * panel dragged to the top on a laptop is at the top on a phone.
+ *
+ * **Only the order is taken from the Layout**, never its row heights or the
+ * panels it puts side by side: they were made for a wider screen. The panels a
+ * Layout does not name come after the placed ones and a deleted one is skipped
+ * (`drawnRows`); a Dashboard with no Layout stays in the order its panels were
+ * added.
+ */
+export function stackedOnPhone(layout: Layout | null, panels: readonly Panel[]): LayoutRow[] {
+  return drawnRows(layout, panels, 0)
+    .flatMap((row) => row.cells)
+    .map((cell) => ({ height: null, cells: [{ panelId: cell.panelId, span: DEFAULT_CELL_SPAN }] }));
 }
 
 /**

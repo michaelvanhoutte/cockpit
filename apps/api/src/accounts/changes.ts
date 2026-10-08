@@ -3573,8 +3573,8 @@ function firstWorkspace(accountId: string): Change {
  * that applies this change writes them, and nothing refers to them afterwards.
  *
  * **Placed before *Panel 1* by being dated a second before it.** A Dashboard
- * nobody has arranged draws its Panels in the order they were made, and a phone
- * always does (`layoutToDraw`, apps/web/src/panels/arrangement.ts), so the date
+ * nobody has arranged draws its Panels in the order they were made, a phone
+ * included (`stackedOnPhone`, apps/web/src/panels/arrangement.ts), so the date
  * is what puts *Getting started* first on every screen; writing a Layout would
  * have done it on a desk alone. *Panel 1*'s own row is untouched.
  *

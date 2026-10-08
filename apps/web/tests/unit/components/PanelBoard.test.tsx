@@ -1501,11 +1501,18 @@ describe('Panels', () => {
   describe('a phone is drawn one panel across and offers nothing to rearrange with', () => {
     const rowsDrawn = () => document.querySelectorAll('[data-panel-row]').length;
 
-    it('ignores the layout made for a wider screen, however near it is', () => {
+    it('draws the layout made for a wider screen one panel to a row, however near it is', () => {
       screenIs(375);
       showBoard({ layouts: [aLayout('laptop', ['falcon', 'reading'])] });
 
       expect(rowsDrawn()).toBe(2);
+    });
+
+    it('stacks the panels in the order the layout is read on a wider screen', () => {
+      screenIs(375);
+      showBoard({ layouts: [aLayout('laptop', ['reading', 'falcon'])] });
+
+      expect(panelOrderOnScreen()).toEqual(['To read', 'Project Falcon']);
     });
 
     it('takes away every line and the grab that rearranging is done with', () => {
