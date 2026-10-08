@@ -66,20 +66,33 @@ export function SelectionBar({
     const el = bar.current;
     if (!el || (!pinned && !onBoard)) return;
     const root = document.documentElement;
-    const publish = () => {
+    const publishNow = () => {
+      frame = 0;
       const lift = pinned
         ? `${el.offsetHeight}px - var(--edge-bottom)`
         : `max(0px, ${Math.round(window.innerHeight - el.getBoundingClientRect().top)}px - var(--dock-h, 0px) - var(--edge-bottom))`;
       root.style.setProperty('--selection-bar-h', `calc(${lift})`);
     };
-    publish();
+    // Once a frame at most: a scroll fires many times a frame, and each read
+    // here is a layout.
+    let frame = 0;
+    const publish = () => {
+      if (frame === 0) frame = requestAnimationFrame(publishNow);
+    };
+    publishNow();
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(publish) : null;
     observer?.observe(el);
     if (!pinned) {
+      // **And everything it stands in**, since on a board shorter than the
+      // window the bar sits after the last row: an edit that finishes Items
+      // takes rows away, the bar rises, and neither a scroll nor a resize says
+      // so - the very offer that edit makes would be left over the bar.
+      for (let up = el.parentElement; up; up = up.parentElement) observer?.observe(up);
       window.addEventListener('resize', publish);
       window.addEventListener('scroll', publish, { capture: true, passive: true });
     }
     return () => {
+      cancelAnimationFrame(frame);
       observer?.disconnect();
       window.removeEventListener('resize', publish);
       window.removeEventListener('scroll', publish, { capture: true });
