@@ -4,6 +4,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ADMIN, GUEST_USER_ID, paintedWorkspace, shellColours, uuidv7 } from '@cockpit/shared';
+import { useAllItemsOnScreen } from '../allItemsTab';
 import { useAppearance } from '../appearance';
 import { NotSignedIn, signOut } from '../api/client';
 import { meQuery, refusalFrom, snapshotQuery, useCommand, workspacesQuery } from '../api/queries';
@@ -117,9 +118,7 @@ function TheShell() {
     },
   });
   /** *All items* is the page on screen (`router.tsx`), which the bar marks in place of a dashboard. */
-  const onAllItems = useRouterState({
-    select: (state) => /^\/w\/[^/]+\/items\/?$/.test(state.location.pathname),
-  });
+  const onAllItems = useAllItemsOnScreen() !== null;
   useScrollWhileDraggingAnItem();
   const roomForTheInbox = useRoomForTheInbox();
   const shortcutTip = useShortcutTip(roomForTheInbox);
