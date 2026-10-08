@@ -430,6 +430,7 @@ describe('Selection', () => {
           itemId: payload.itemId,
           panelId: payload.panelId,
           from: payload.fromPanelIds as string[] | undefined,
+          order: payload.order as string[] | undefined,
         }),
       );
     }
@@ -512,6 +513,36 @@ describe('Selection', () => {
       await waitFor(() => expect(sent()).toHaveLength(1));
       expect(sent()[0]).toMatchObject({ name: 'add_item_to_panel', panelId: 'target' });
       expect(sent()[0]!.from).toBeUndefined();
+    });
+
+    it('chains the orders when a move and an add are mixed in one selection', async () => {
+      const gathering = aPanel('gathering', 'Urgent', {
+        kind: 'filter',
+        filter: { conditions: [{ field: 'priority', values: ['high'] }], match: 'all', groupBy: 'none' },
+      });
+      const urgent = { ...RENEW, priority: 'high' as const };
+      const user = await showDashboard({
+        items: [BART, urgent, CHASE],
+        filings: [filedOn('falcon', BART.id), filedOn('elsewhere', urgent.id), filedOn('target', CHASE.id)],
+        panels: [FALCON, gathering, ELSEWHERE, TARGET],
+      });
+
+      await moveSelectionTo(
+        user,
+        [
+          ['Project Falcon', BART],
+          ['Urgent', urgent],
+        ],
+        'Target panel',
+      );
+
+      await waitFor(() => expect(sent()).toHaveLength(2));
+      const [first, second] = sent();
+      // The second is an add, and its order still names the first as well as the panel's own.
+      expect([first!.name, first!.from]).toEqual(['move_item_to_panel', ['falcon']]);
+      expect(second!.name).toBe('add_item_to_panel');
+      expect(first!.order).toEqual([BART.id, CHASE.id]);
+      expect(second!.order).toEqual([BART.id, urgent.id, CHASE.id]);
     });
 
     it('names only the Panel it leaves for an Item already on the target', async () => {
