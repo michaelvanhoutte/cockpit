@@ -185,11 +185,10 @@ export function orderWithItemAt(
  * selection, then whatever it already held.
  *
  * **An item already on the panel is named once rather than twice**, because an
- * order naming one twice is refused as a shape. What is sent for it is still a
- * *move*, not an add, so it comes off every other panel it was on - which is
- * what moving a selection there means (a move from one row's menu takes it off
- * only the Panel that row is on). A reorder within one panel is the
- * other gesture (`reorder`, which sends an add for exactly this reason).
+ * order naming one twice is refused as a shape. Whether what is sent for it is
+ * a move or an add, and what the move takes it off, is `howToFileSelected`'s
+ * to say; a reorder within one panel is the other gesture (`reorder`, which
+ * sends an add for exactly this reason).
  */
 export function ordersForFilingSeveral(
   held: readonly string[],
@@ -231,4 +230,46 @@ export function orderPuttingBack(
     ...was.filter((id) => present.has(id)),
     ...alsoThere.filter((id) => !was.includes(id)),
   ];
+}
+
+/**
+ * What filing one picked item onto a panel sends ("Move a selection off only
+ * the Panels of the Dashboard it was selected on", issue 924).
+ *
+ * **A move takes it off the Panels of the Dashboard the selection was made on,
+ * and no others.** Panels on other Dashboards keep it, as a move from one row's
+ * menu leaves them (issue 923). The target is never named as a source: the item
+ * is landing there.
+ *
+ * **Naming no Panel is not "none" but "every"** (`fromPanelIds` absent or empty),
+ * so an item shown here only by a Filter, and filed only on other Dashboards,
+ * is sent as an add: it loses nothing and lands on the target as well.
+ *
+ * Plain, taking it off every Panel, where nothing is being left: an item filed
+ * nowhere (the Inbox's), a move to the Inbox, and a selection held in the Inbox
+ * (`dashboardId` null).
+ */
+export type HowToFileSelected =
+  | { how: 'move'; fromPanelIds?: string[] }
+  | { how: 'add' };
+
+export function howToFileSelected(
+  filings: readonly Filing[],
+  panelsInWorkspace: readonly Panel[],
+  dashboardId: string | null,
+  target: string | null,
+  itemId: string,
+): HowToFileSelected {
+  if (target === null || dashboardId === null) return { how: 'move' };
+  const mine = filings.filter((filing) => filing.itemId === itemId);
+  if (mine.length === 0) return { how: 'move' };
+  const here = new Set(
+    panelsInWorkspace.filter((panel) => panel.dashboardId === dashboardId).map((panel) => panel.id),
+  );
+  const sources = [
+    ...new Set(
+      mine.map((filing) => filing.panelId).filter((id) => id !== target && here.has(id)),
+    ),
+  ];
+  return sources.length > 0 ? { how: 'move', fromPanelIds: sources } : { how: 'add' };
 }

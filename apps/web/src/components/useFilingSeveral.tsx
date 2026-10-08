@@ -4,7 +4,12 @@ import { useNavigate } from '@tanstack/react-router';
 import { itemLabel, uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
 import { snapshotQuery, useLatestSnapshot, useSendCommand } from '../api/queries';
 import { CommandRefused } from '../api/client';
-import { filedOrderOnPanel, orderPuttingBack, ordersForFilingSeveral } from '../filing';
+import {
+  filedOrderOnPanel,
+  howToFileSelected,
+  orderPuttingBack,
+  ordersForFilingSeveral,
+} from '../filing';
 import { useFilteredDashboardIds } from '../dashboardFilter';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn, rememberRecentPanel } from '../recentPanels';
@@ -168,6 +173,13 @@ export function useFilingSeveral({
     // Read before anything moves, because afterwards it is gone - and read for
     // all of them at once, so every order below describes the same moment.
     const wasOn = new Map(chosen.map((item) => [item.id, whereItIs(item)] as const));
+    // What each one is taken off is decided now too, from the same moment.
+    const how = new Map(
+      chosen.map((item) => [
+        item.id,
+        howToFileSelected(data?.filings ?? [], data?.panels ?? [], openDashboardId, target, item.id),
+      ]),
+    );
     const orders = target
       ? ordersForFilingSeveral(
           filedOrderOnPanel(data?.filings ?? [], target),
@@ -180,18 +192,32 @@ export function useFilingSeveral({
     const moved: Item[] = [];
     try {
       for (const [at, item] of chosen.entries()) {
-        await send({
-          name: 'move_item_to_panel',
-          payload: {
-            commandId: uuidv7(),
-            issuedAt: new Date().toISOString(),
-            workspaceId,
-            itemId: item.id,
-            panelId: target,
-            // The Inbox has no order - it is by age - so filing there sends none.
-            order: target ? orders[at]! : [],
-          },
-        });
+        const sent = how.get(item.id)!;
+        const envelope = {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId,
+          itemId: item.id,
+        };
+        // An add where the selection's Dashboard holds it on no Panel to leave:
+        // a move naming none would take it off every Panel (`howToFileSelected`).
+        if (sent.how === 'add') {
+          await send({
+            name: 'add_item_to_panel',
+            payload: { ...envelope, panelId: target!, order: orders[at]! },
+          });
+        } else {
+          await send({
+            name: 'move_item_to_panel',
+            payload: {
+              ...envelope,
+              panelId: target,
+              // The Inbox has no order - it is by age - so filing there sends none.
+              order: target ? orders[at]! : [],
+              ...(sent.fromPanelIds ? { fromPanelIds: sent.fromPanelIds } : {}),
+            },
+          });
+        }
         moved.push(item);
       }
     } catch (error) {

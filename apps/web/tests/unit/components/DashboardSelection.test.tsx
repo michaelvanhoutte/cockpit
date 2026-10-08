@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, renderHook, screen, within } from '@testing-library/react';
+import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
@@ -18,6 +18,11 @@ import { useCommand } from '../../../src/api/queries';
  * proved in the browser (tests/e2e/selecting.test.ts).
  */
 
+/** What filing a selection sends, answered as the server would answer a change that is accepted. */
+const held = vi.hoisted(() => ({
+  send: undefined as unknown as ReturnType<typeof vi.fn>,
+}));
+
 vi.mock('@tanstack/react-router', async () => ({
   ...(await vi.importActual<typeof import('@tanstack/react-router')>('@tanstack/react-router')),
   useNavigate: () => vi.fn(() => Promise.resolve()),
@@ -27,7 +32,7 @@ vi.mock('../../../src/api/queries', async () => {
   const actual = await vi.importActual<typeof import('../../../src/api/queries')>(
     '../../../src/api/queries',
   );
-  return { ...actual, useCommand: vi.fn() };
+  return { ...actual, useCommand: vi.fn(), useSendCommand: () => held.send };
 });
 
 const DASHBOARD: Dashboard = { id: 'today', tenantId: 'tenant', workspaceId: 'ws-work', name: 'Today' };
@@ -215,6 +220,7 @@ const TWO_PANELS: World = {
 
 beforeEach(() => {
   localStorage.clear();
+  held.send = vi.fn(() => Promise.resolve());
 });
 
 describe('Selection', () => {
@@ -409,6 +415,153 @@ describe('Selection', () => {
 
       const entries = (await screen.findAllByRole('menuitem')).map((entry) => entry.textContent);
       expect(entries.slice(0, 2)).toEqual(['Select all', 'Rename']);
+    });
+  });
+
+  describe('a selection moved from a Dashboard takes each Item off that Dashboard’s Panels only', () => {
+    const ELSEWHERE = aPanel('elsewhere', 'Elsewhere', {}, OTHER.id);
+    const TARGET = aPanel('target', 'Target panel', {}, OTHER.id);
+
+    /** What each filing named: the change, the Item, and the Panels a move takes it off. */
+    function sent() {
+      return (held.send.mock.calls as unknown as [{ name: string; payload: Record<string, unknown> }][]).map(
+        ([{ name, payload }]) => ({
+          name,
+          itemId: payload.itemId,
+          panelId: payload.panelId,
+          from: payload.fromPanelIds as string[] | undefined,
+          order: payload.order as string[] | undefined,
+        }),
+      );
+    }
+
+    async function moveSelectionTo(
+      user: ReturnType<typeof userEvent.setup>,
+      picks: [string, Item][],
+      target: string | RegExp,
+    ) {
+      for (const [panel, item] of picks) await tick(user, panel, item);
+      await user.click(screen.getByRole('button', { name: 'Move to…' }));
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: target }));
+    }
+
+    const on = (...filings: Filing[]): World => ({
+      items: [BART, RENEW, CHASE],
+      filings,
+      panels: [FALCON, READING, ELSEWHERE, TARGET],
+    });
+
+    it('names the Panel here an Item is on, and not the one on another Dashboard', async () => {
+      const user = await showDashboard(on(filedOn('falcon', BART.id), filedOn('elsewhere', BART.id, 1)));
+
+      await moveSelectionTo(user, [['Project Falcon', BART]], 'Target panel');
+
+      await waitFor(() => expect(sent()).toHaveLength(1));
+      expect(sent()[0]).toMatchObject({ name: 'move_item_to_panel', panelId: 'target', from: ['falcon'] });
+    });
+
+    it('names every Panel of the Dashboard an Item is on', async () => {
+      const user = await showDashboard(on(filedOn('falcon', BART.id), filedOn('reading', BART.id, 1)));
+
+      await moveSelectionTo(user, [['Project Falcon', BART]], 'Target panel');
+
+      await waitFor(() => expect(sent()).toHaveLength(1));
+      expect([...sent()[0]!.from!].sort()).toEqual(['falcon', 'reading']);
+    });
+
+    it('names, for each Item of a selection, its own Panels here', async () => {
+      const user = await showDashboard(
+        on(
+          filedOn('falcon', BART.id),
+          filedOn('elsewhere', BART.id, 1),
+          filedOn('reading', RENEW.id),
+          filedOn('elsewhere', RENEW.id, 2),
+        ),
+      );
+
+      await moveSelectionTo(
+        user,
+        [
+          ['Project Falcon', BART],
+          ['To read', RENEW],
+        ],
+        'Target panel',
+      );
+
+      await waitFor(() => expect(sent()).toHaveLength(2));
+      expect(sent().map((s) => [s.itemId, s.from])).toEqual([
+        [BART.id, ['falcon']],
+        [RENEW.id, ['reading']],
+      ]);
+    });
+
+    it('adds an Item this Dashboard shows only through a Filter, instead of a move naming no Panel', async () => {
+      const gathering = aPanel('gathering', 'Urgent', {
+        kind: 'filter',
+        filter: { conditions: [{ field: 'priority', values: ['high'] }], match: 'all', groupBy: 'none' },
+      });
+      const urgent = { ...BART, priority: 'high' as const };
+      const user = await showDashboard({
+        items: [urgent],
+        filings: [filedOn('elsewhere', urgent.id)],
+        panels: [gathering, ELSEWHERE, TARGET],
+      });
+
+      await moveSelectionTo(user, [['Urgent', urgent]], 'Target panel');
+
+      await waitFor(() => expect(sent()).toHaveLength(1));
+      expect(sent()[0]).toMatchObject({ name: 'add_item_to_panel', panelId: 'target' });
+      expect(sent()[0]!.from).toBeUndefined();
+    });
+
+    it('chains the orders when a move and an add are mixed in one selection', async () => {
+      const gathering = aPanel('gathering', 'Urgent', {
+        kind: 'filter',
+        filter: { conditions: [{ field: 'priority', values: ['high'] }], match: 'all', groupBy: 'none' },
+      });
+      const urgent = { ...RENEW, priority: 'high' as const };
+      const user = await showDashboard({
+        items: [BART, urgent, CHASE],
+        filings: [filedOn('falcon', BART.id), filedOn('elsewhere', urgent.id), filedOn('target', CHASE.id)],
+        panels: [FALCON, gathering, ELSEWHERE, TARGET],
+      });
+
+      await moveSelectionTo(
+        user,
+        [
+          ['Project Falcon', BART],
+          ['Urgent', urgent],
+        ],
+        'Target panel',
+      );
+
+      await waitFor(() => expect(sent()).toHaveLength(2));
+      const [first, second] = sent();
+      // The second is an add, and its order still names the first as well as the panel's own.
+      expect([first!.name, first!.from]).toEqual(['move_item_to_panel', ['falcon']]);
+      expect(second!.name).toBe('add_item_to_panel');
+      expect(first!.order).toEqual([BART.id, CHASE.id]);
+      expect(second!.order).toEqual([BART.id, urgent.id, CHASE.id]);
+    });
+
+    it('names only the Panel it leaves for an Item already on the target', async () => {
+      const user = await showDashboard(on(filedOn('falcon', BART.id), filedOn('target', BART.id, 1)));
+
+      await moveSelectionTo(user, [['Project Falcon', BART]], 'Target panel');
+
+      await waitFor(() => expect(sent()).toHaveLength(1));
+      expect(sent()[0]).toMatchObject({ name: 'move_item_to_panel', panelId: 'target', from: ['falcon'] });
+    });
+
+    it('names no Panel when it is moved to the Inbox, which takes it off every one', async () => {
+      const user = await showDashboard(on(filedOn('falcon', BART.id), filedOn('elsewhere', BART.id, 1)));
+
+      await moveSelectionTo(user, [['Project Falcon', BART]], /^Inbox/);
+
+      await waitFor(() => expect(sent()).toHaveLength(1));
+      expect(sent()[0]).toMatchObject({ name: 'move_item_to_panel', panelId: null });
+      expect(sent()[0]!.from).toBeUndefined();
     });
   });
 });

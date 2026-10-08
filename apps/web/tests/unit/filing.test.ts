@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { Filing, Item } from '@cockpit/shared';
+import type { Filing, Item, Panel } from '@cockpit/shared';
 import {
   filedOrderOnPanel,
+  howToFileSelected,
   itemsInTheInbox,
   itemsOnPanel,
   itemsThatAreFiled,
@@ -252,6 +253,64 @@ describe('Panels', () => {
       const orders = ordersForFilingSeveral(['x', 'y'], ['a', 'b', 'c']);
 
       expect(orders.at(-1)).toEqual(['a', 'b', 'c', 'x', 'y']);
+    });
+  });
+
+  describe('a selection moved from a Dashboard takes each item off that Dashboard’s panels only', () => {
+    const panel = (id: string, dashboardId: string): Panel => ({ id, dashboardId }) as Panel;
+    const panels = [panel('a', 'here'), panel('b', 'here'), panel('d', 'here'), panel('x', 'elsewhere')];
+
+    it.each([
+      {
+        situation: 'on a panel here and one on another dashboard',
+        onto: 'd',
+        on: ['a', 'x'],
+        expected: { how: 'move', fromPanelIds: ['a'] },
+      },
+      {
+        situation: 'on two panels here',
+        onto: 'd',
+        on: ['a', 'b'],
+        expected: { how: 'move', fromPanelIds: ['a', 'b'] },
+      },
+      {
+        situation: 'shown here only by a filter, filed on another dashboard',
+        onto: 'd',
+        on: ['x'],
+        expected: { how: 'add' },
+      },
+      {
+        situation: 'on a panel here and already on the target',
+        onto: 'd',
+        on: ['a', 'd'],
+        expected: { how: 'move', fromPanelIds: ['a'] },
+      },
+      {
+        situation: 'on the target here and on another dashboard',
+        onto: 'd',
+        on: ['d', 'x'],
+        expected: { how: 'add' },
+      },
+      {
+        situation: 'filed nowhere',
+        onto: 'd',
+        on: [],
+        expected: { how: 'move' },
+      },
+      {
+        situation: 'moved to the inbox',
+        onto: null,
+        on: ['a', 'x'],
+        expected: { how: 'move' },
+      },
+    ])('$situation', ({ onto, on, expected }) => {
+      const filings = on.map((panelId, position) => filed(panelId, 'i', position));
+
+      expect(howToFileSelected(filings, panels, 'here', onto, 'i')).toEqual(expected);
+    });
+
+    it('moves a selection held in the inbox as before', () => {
+      expect(howToFileSelected([filed('x', 'i', 0)], panels, null, 'd', 'i')).toEqual({ how: 'move' });
     });
   });
 
