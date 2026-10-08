@@ -1034,13 +1034,24 @@ export const whileSwipingRow = (
  * passing quietly, so this is a note for whoever reads the two together, not a
  * risk being carried.
  */
-export async function holdRow(page: Page, title: string): Promise<void> {
+export async function holdRow(
+  page: Page,
+  title: string,
+  /** Press near the row's top edge rather than its middle, where the undo offer floats over a short screen. */
+  nearTheTop = false,
+): Promise<void> {
   const row = itemRow(page, title);
   await row.scrollIntoViewIfNeeded();
   const box = await row.boundingBox();
   if (!box) throw new Error(`cannot hold ${title}: it is not on screen`);
   const at = [
-    { x: box.x + box.width / 2, y: box.y + box.height / 2, radiusX: 8, radiusY: 8, force: 1 },
+    {
+      x: box.x + box.width / 2,
+      y: nearTheTop ? box.y + 12 : box.y + box.height / 2,
+      radiusX: 8,
+      radiusY: 8,
+      force: 1,
+    },
   ];
 
   const cdp = await page.context().newCDPSession(page);

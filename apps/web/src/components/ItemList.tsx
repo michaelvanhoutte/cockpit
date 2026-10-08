@@ -224,6 +224,10 @@ export function ItemList({
   const [moving, setMoving] = useState<Item | null>(null);
   /** The item being added to a second panel from its menu, if any. */
   const [adding, setAdding] = useState<Item | null>(null);
+  /** The items a moved selection brought to a panel, being added to a second one from the undo bar's Also show on…. */
+  const [addingSeveral, setAddingSeveral] = useState<Item[] | null>(null);
+  /** Why adding several stopped with nothing added, if it did. */
+  const [addingRefusal, setAddingRefusal] = useState<string | null>(null);
   const openedFrom = useRef<HTMLElement | null>(null);
 
   /** The rows picked out of this list ("Select several items…", issue 169). */
@@ -344,10 +348,10 @@ export function ItemList({
    * Where the panel is read when pressed rather than when the move was made, so
    * a panel moved to another Dashboard meanwhile is where Show goes.
    */
-  const showOnItsPanel = async (itemId: string, panelId: string) => {
+  const showOnItsPanel = async (itemIds: readonly string[], panelId: string) => {
     const dashboardId = (await latestSnapshot(workspaceId)).panels.find((p) => p.id === panelId)?.dashboardId;
     if (!dashboardId) return;
-    askToShow({ dashboardId, panelId, itemId });
+    askToShow({ dashboardId, panelId, itemIds });
     await navigate({ to: '/w/$workspaceId/d/$dashboardId', params: { workspaceId, dashboardId } });
   };
   /**
@@ -431,7 +435,7 @@ export function ItemList({
             // bar after moving an Item", issue 849).
             ...(panelId
               ? {
-                  show: () => void showOnItsPanel(item.id, panelId),
+                  show: () => void showOnItsPanel([item.id], panelId),
                   alsoShowOn: () => {
                     openedFrom.current = null;
                     command.reset();
@@ -794,10 +798,110 @@ export function ItemList({
     // (`decides`), and one offer covers a whole run here - so one undecided
     // item in the selection is enough to withhold it, rather than a bar that
     // puts some of them back and quietly settles the rest.
-    if (moved.some((item) => !workspaceIsDecided(item))) return;
+    const decides = moved.some((item) => !workspaceIsDecided(item));
+    // Onto a panel only, as a single move does: the Inbox has nowhere to show
+    // and nothing to also show on. Show and Also show on… cover exactly what
+    // moved, and an undecided item withholds Undo alone.
+    if (decides && target === null) return;
+    const single = moved.length === 1 && chosen.length === 1;
     offerToUndo({
       what: whatMoved(moved, chosen.length, nameOf(target)),
-      undo: () => putSeveralBack(moved, wasOn),
+      ...(single
+        ? { split: { title: `“${itemLabel(moved[0]!)}”`, rest: ` moved to ${nameOf(target)}` } }
+        : {}),
+      ...(decides ? {} : { undo: () => putSeveralBack(moved, wasOn) }),
+      ...(target
+        ? {
+            show: () =>
+              void showOnItsPanel(
+                moved.map((item) => item.id),
+                target,
+              ),
+            alsoShowOn: () => {
+              openedFrom.current = null;
+              command.reset();
+              setAddingRefusal(null);
+              setAddingSeveral(moved);
+            },
+          }
+        : {}),
+    });
+  };
+
+  /**
+   * Adds everything a selection moved to one more panel, from the undo bar's
+   * Also show on… (`fileSeveral`), leaving each on the panels it is on.
+   *
+   * **Read when the picker answers, not when the bar was drawn**: those already
+   * on the panel by then (a move made meanwhile in another tab) are left out,
+   * and the one Undo takes off exactly those added. One add at a time, each
+   * order built on the one before, as filing several is. It can stop part way:
+   * what was added is offered back; with nothing added the picker stays up with
+   * the reason.
+   */
+  const addSeveral = async (items: readonly Item[], panelId: string) => {
+    if (filing) return;
+    const filings = (await latestSnapshot(workspaceId)).filings ?? [];
+    const toAdd = items.filter(
+      (item) => !filings.some((f) => f.itemId === item.id && f.panelId === panelId),
+    );
+    if (toAdd.length === 0) {
+      setAddingSeveral(null);
+      return;
+    }
+    const orders = ordersForFilingSeveral(
+      filedOrderOnPanel(filings, panelId),
+      toAdd.map((item) => item.id),
+    );
+    setFiling(true);
+    setAddingRefusal(null);
+    const added: Item[] = [];
+    let refusal: string | null = null;
+    try {
+      for (const [at, item] of toAdd.entries()) {
+        await send({
+          name: 'add_item_to_panel',
+          payload: {
+            commandId: uuidv7(),
+            issuedAt: new Date().toISOString(),
+            workspaceId,
+            itemId: item.id,
+            panelId,
+            order: orders[at]!,
+          },
+        });
+        added.push(item);
+      }
+    } catch (error) {
+      refusal =
+        error instanceof CommandRefused ? error.message : 'These could not all be added. Try again.';
+    } finally {
+      setFiling(false);
+    }
+    if (added.length === 0) {
+      setAddingRefusal(refusal);
+      return;
+    }
+    rememberRecentPanel(browserStore(), workspaceId, panelId);
+    setAddingSeveral(null);
+    const how =
+      added.length === toAdd.length ? `${added.length} items` : `${added.length} of ${toAdd.length} items`;
+    offerToUndo({
+      what: `${how} added to ${nameOf(panelId)}`,
+      undo: async () => {
+        for (const item of added) {
+          await send({
+            name: 'remove_item_from_panel',
+            payload: {
+              commandId: uuidv7(),
+              issuedAt: new Date().toISOString(),
+              workspaceId,
+              itemId: item.id,
+              panelId,
+            },
+          });
+        }
+      },
     });
   };
 
@@ -1316,6 +1420,30 @@ export function ItemList({
         />
       )}
 
+      {addingSeveral && (
+        <FetchedPicker
+          onFailure={() => setAddingSeveral(null)}
+          moving={{ several: addingSeveral.length }}
+          adding
+          onAddPanel={addPanelFor}
+          filteredDashboardIds={filteredDashboardIds}
+          dashboards={data?.dashboards ?? []}
+          panels={data?.panels ?? []}
+          openDashboardId={openDashboardId}
+          recent={recentPanelsIn(browserStore(), workspaceId)}
+          open
+          workspaceId={workspaceId}
+          onPick={(target) => {
+            if ('panel' in target) void addSeveral(addingSeveral, target.panel);
+          }}
+          onCancel={() => setAddingSeveral(null)}
+          refusal={addingRefusal}
+          busy={filing}
+          // The panels every one of them is on, where adding would change nothing.
+          alreadyOn={inAll(addingSeveral.map((item) => whereItIs(item).map((at) => at.panelId)))}
+        />
+      )}
+
       {moving && (
         <FetchedPicker
           onFailure={() => setMoving(null)}
@@ -1383,6 +1511,12 @@ function whatMoved(moved: readonly Item[], asked: number, target: string): strin
   }
   const how = moved.length === asked ? `${asked} items` : `${moved.length} of ${asked} items`;
   return `${how} moved to ${target}`;
+}
+
+/** The ids found in every one of the lists. */
+function inAll(lists: string[][]): string[] {
+  const [first = [], ...rest] = lists;
+  return first.filter((id) => rest.every((list) => list.includes(id)));
 }
 
 /**
