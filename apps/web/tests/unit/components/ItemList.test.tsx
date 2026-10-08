@@ -1119,6 +1119,25 @@ describe('Panels', () => {
       expect(held.mutate).not.toHaveBeenCalled();
     });
 
+    it('asks move or add of a row it holds that was picked up from another Panel', async () => {
+      held.items = [BART, other];
+      held.filings = [
+        { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+        { panelId: 'p-falcon', itemId: other.id, position: 1 },
+        { panelId: 'p-anna', itemId: other.id, position: 0 },
+      ];
+      await showList({ items: [BART, other], openDashboardId: TODAY.id, panelId: 'p-falcon', sorted: true });
+
+      liftItem(other.id, 'p-anna');
+      const refused = fireEvent.dragOver(theListBox(), {
+        dataTransfer: { types: [ITEM_BEING_DRAGGED], getData: () => other.id, setData: vi.fn(), dropEffect: '' },
+      });
+      await dropOnto(other.id);
+
+      expect(refused).toBe(false);
+      expect(await screen.findByRole('alertdialog')).toHaveTextContent('Anna');
+    });
+
     it('files a row from the Inbox at the top of the order you set, wherever it is let go', async () => {
       const arriving = anItem('11111111-1111-7111-8111-000000000006', 'Apply the patch');
       held.items = [BART, other, arriving];

@@ -469,8 +469,9 @@ export const moveItemToPanelSchema = commandEnvelopeSchema
     order: z.array(z.uuid()),
     /**
      * The Panels the move takes the Item off ("Move an Item from one Panel's row
-     * without taking it off its other Panels", issue 923). Absent takes it off
-     * every Panel, which is what undo and a tab on the previous release send; a
+     * without taking it off its other Panels", issue 923). Absent or empty takes it
+     * off every Panel (to take it off none, `add_item_to_panel`),
+     * which is what undo and a tab on the previous release send; a
      * move to the Inbox takes it off every Panel whatever is named.
      */
     fromPanelIds: z.array(z.uuid()).optional(),

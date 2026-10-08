@@ -684,7 +684,10 @@ export function ItemList({
    */
   const alreadyHeldWhileSorted = () => {
     const carried = itemInTheAir();
-    return sorted && carried !== null && items.some((item) => item.id === carried);
+    if (!sorted || carried === null || !items.some((item) => item.id === carried)) return false;
+    // One lifted from another Panel is asked, move or add, so it is taken.
+    const from = panelLiftedFrom(carried);
+    return from === null || from === panelId;
   };
 
   /**
@@ -727,14 +730,13 @@ export function ItemList({
     // A sorted Panel has no place to aim at: a row already on it stays where
     // the sort puts it, and one arriving goes to the top of the order you set,
     // where a menu filing puts it too.
-    if (sorted && wasAt !== -1) return;
-    const gap = sorted ? 0 : placeAfterMoving(gapUnder(event.clientY), wasAt === -1 ? null : wasAt);
-
     // The Panel it was picked up from, when that is another one than this: a
     // row dropped on a Panel it is already on, from a different Panel, is not a
     // reorder but a move or an add, so it is asked (issue 923).
     const cameFrom = panelLiftedFrom(itemId);
     const fromAnotherPanel = panelId !== null && cameFrom !== null && cameFrom !== panelId;
+    if (sorted && wasAt !== -1 && !fromAnotherPanel) return;
+    const gap = sorted ? 0 : placeAfterMoving(gapUnder(event.clientY), wasAt === -1 ? null : wasAt);
 
     // Dropped exactly where it started changes nothing, and sending it would
     // put a change in the undo bar that undoes to the same place.

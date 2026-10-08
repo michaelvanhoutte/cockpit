@@ -552,6 +552,28 @@ describe('Panels', () => {
       expect(await filedOn(itemId)).toEqual(['C']);
     });
 
+    it('ignores a panel deleted since, taking it off none of the others', async () => {
+      const today = await aDashboard();
+      const a = await aPanel(today, 'A');
+      const b = await aPanel(today, 'B');
+      const d = await aPanel(today, 'D');
+      const itemId = await anItem('Reply to Bart');
+      expect((await addTo(itemId, a)).status).toBe(200);
+      expect((await addTo(itemId, b)).status).toBe(200);
+      expect((await send('delete_panel', { workspaceId: WORKSPACE_ID, panelId: a })).status).toBe(200);
+
+      const res = await send('move_item_to_panel', {
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        panelId: d,
+        order: [itemId],
+        fromPanelIds: [a],
+      });
+
+      expect(res.status).toBe(200);
+      expect(await filedOn(itemId)).toEqual(['B', 'D']);
+    });
+
     it('refuses a panel of another workspace as moved from, and stores nothing', async () => {
       const today = await aDashboard();
       const a = await aPanel(today, 'A');
