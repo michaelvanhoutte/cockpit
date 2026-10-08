@@ -479,7 +479,7 @@ function DueConditionRow({
           </option>
         ))}
       </select>
-      <span className={`pt-1 ${ACROSS}`}>
+      <span className={`pt-1 ${ACROSS}${isAPeriod(row.window) ? '' : ' max-sm:hidden'}`}>
         {isAPeriod(row.window) && (
           <label className="flex items-center gap-1.5 text-sm text-ink-soft">
             <input
