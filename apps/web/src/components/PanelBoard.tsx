@@ -47,6 +47,7 @@ import {
   drawnRows,
   layoutToDraw,
   movedBeside,
+  stackedOnPhone,
   sameArrangement,
   sharesOf,
   withRowHeight,
@@ -373,7 +374,9 @@ export function PanelBoard({
   } | null>(null);
 
   const drawnWith = layoutToDraw(layouts, dashboard.id, screenWidth);
-  const stored = drawnRows(drawnWith, panels, acrossWidth);
+  const stored = phone
+    ? stackedOnPhone(layouts.find((layout) => layout.dashboardId === dashboard.id) ?? null, panels)
+    : drawnRows(drawnWith, panels, acrossWidth);
   // The preview while a drag is on, then a draft that has been sent and is
   // waiting for the store to agree, then what the store holds.
   const shown = dragging?.preview ?? sizing ?? draft ?? stored;

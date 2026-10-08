@@ -20,7 +20,7 @@ export const GRID_COLUMNS = 12;
  */
 export const PHONE_WIDTH_BELOW = 480;
 
-/** Whether a window is a phone's: too narrow for a Layout to be read or made on it. */
+/** Whether a window is a phone's: too narrow for a Layout to be drawn or made on it; it is read only for its order. */
 export function isPhoneWidth(width: number): boolean {
   return width < PHONE_WIDTH_BELOW;
 }
