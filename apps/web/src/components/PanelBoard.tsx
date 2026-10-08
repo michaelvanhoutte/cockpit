@@ -63,7 +63,14 @@ import { dashboardTabAt } from '../panels/dashboardDrop';
 import type { TabRect } from '../panels/dashboardDrop';
 import { DeleteQuestion } from './DeleteQuestion';
 import { anchored } from '../panels/anchoring';
-import { arrangedWith, arrangedWithRow, placementFor, rowPlacementFor } from '../panels/dragging';
+import {
+  arrangedWith,
+  arrangedWithRow,
+  arrangedWithSection,
+  placementFor,
+  rowPlacementFor,
+  sectionPlacementFor,
+} from '../panels/dragging';
 import type { DrawnRow } from '../panels/dragging';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { forgetPanelsCollapsed, usePanelsCollapsed } from '../panelsCollapsed';
@@ -80,6 +87,15 @@ const SHOWN_ROW_MS = 2500;
 
 /** How close two taps on a header are to be a double-tap, in milliseconds. */
 const DOUBLE_TAP_MS = 350;
+
+/**
+ * What a Section in hand is named by where a Panel's id would go (the drag's
+ * `id`, the header the board is anchored on): its place among the rows, which
+ * no Panel id can be mistaken for.
+ */
+const SECTION_KEY = 'section:';
+const sectionKey = (place: number) => `${SECTION_KEY}${place}`;
+const isSectionKey = (id: string) => id.startsWith(SECTION_KEY);
 
 /**
  * A Filter's own question, fetched only once *Filter…* is chosen from a
@@ -279,6 +295,15 @@ export function PanelBoard({
   const draggingNow = useRef<string | null>(null);
   /** Whether what is in hand is the whole row `draggingNow` is on, for the same reason `draggingNow` is a ref. */
   const draggingRowNow = useRef(false);
+  /**
+   * The Section in hand, if what is in hand is one: the place it began at, and
+   * the place it is drawn at now. **Named by place, as a Section is everywhere
+   * else** (`sectionNth`): it has no Panel to be named by, and `from` is
+   * what the arrangement the drag started from is moved by while `at` is where
+   * its band is on the page. A ref beside the state, for the reason
+   * `draggingNow` is one.
+   */
+  const sectionInHand = useRef<{ from: number; at: number } | null>(null);
   /**
    * **And on a phone, every Panel is its header alone for as long as the person
    * asks** - a double-tap on a header, or *Collapse panels* on the Dashboard's
@@ -627,9 +652,11 @@ export function PanelBoard({
     const rows = rowsRef.current?.querySelectorAll('[data-panel-row]') ?? [];
     return [...rows].map((row) => {
       const box = row.getBoundingClientRect();
+      const section = row.getAttribute('data-section');
       return {
         top: box.top,
         bottom: box.bottom,
+        ...(section === null ? {} : { section: Number(section) }),
         cells: [...row.querySelectorAll('[data-panel-cell]')].map((cell) => {
           const at = cell.getBoundingClientRect();
           return {
@@ -746,7 +773,11 @@ export function PanelBoard({
 
   /** Where a Panel's header is on the page, or null where it is not drawn. */
   const headerTop = (panelId: string): number | null => {
-    const header = rowsRef.current?.querySelector(`[data-panel-cell="${panelId}"] header`);
+    const header = rowsRef.current?.querySelector(
+      isSectionKey(panelId)
+        ? `[data-section-at="${panelId.slice(SECTION_KEY.length)}"] header`
+        : `[data-panel-cell="${panelId}"] header`,
+    );
     return header ? header.getBoundingClientRect().top : null;
   };
 
@@ -998,10 +1029,13 @@ export function PanelBoard({
    * the drag answered its first move and then went deaf. This element is the
    * one thing on screen that no rearrangement can unmount.
    */
-  const pickUp = (panelId: string, pointerId: number, whole = false) => {
+  const pickUp = (panelId: string, pointerId: number, whole = false, section: number | null = null) => {
     anchorOn(panelId);
     command.reset();
     setRenaming(null);
+    // A Section is named by its place, which this drag moves.
+    setRenamingSection(null);
+    sectionInHand.current = section === null ? null : { from: section, at: section };
     setDeleting(null);
     setMovingPanel(null);
     setFiltering(null);
@@ -1034,6 +1068,30 @@ export function PanelBoard({
     const inHand = draggingNow.current;
     if (!inHand) return;
     pointerAt.current = point;
+    const section = sectionInHand.current;
+    if (section) {
+      // A Section is placed by the pointer's height alone, as a row is, and
+      // shares its line with nothing.
+      // **Found in the page, not remembered**: the board redraws a render after
+      // a move, so a moving pointer can outrun `at`; the lifted band's own row
+      // is where it is drawn. `at` stands in until the first draw.
+      const drawn = [...(rowsRef.current?.querySelectorAll('[data-panel-row]') ?? [])].findIndex((row) =>
+        row.hasAttribute('data-lifted'),
+      );
+      const place = sectionPlacementFor(point.y, rowsOnScreen(), drawn === -1 ? section.at : drawn);
+      if (place === null) return;
+      section.at = place;
+      setDragging((held) => {
+        if (!held) return held;
+        const preview = arrangedWithSection(held.from, section.from, place);
+        // Two Sections alike swap unseen, so where the band is drawn is kept
+        // current besides.
+        return sameArrangement(preview, held.preview) && held.id === sectionKey(place)
+          ? held
+          : { ...held, id: sectionKey(place), preview };
+      });
+      return;
+    }
     if (draggingRowNow.current) {
       // A row is placed by the pointer's height alone, among the rows as drawn.
       const place = rowPlacementFor(point.y, rowsOnScreen(), inHand);
@@ -1077,6 +1135,7 @@ export function PanelBoard({
   const letGo = (point: { x: number; y: number }) => {
     if (!draggingNow.current) return;
     draggingNow.current = null;
+    sectionInHand.current = null;
     const held = dragging;
     if (held) anchorOn(held.id);
     setDragging(null);
@@ -1093,8 +1152,10 @@ export function PanelBoard({
 
   /** A drag abandoned rather than dropped: the panels go back and nothing is sent. */
   const abandon = () => {
+    // Where a Section began is where its band goes back to.
     if (draggingNow.current) anchorOn(draggingNow.current);
     draggingNow.current = null;
+    sectionInHand.current = null;
     setDragging(null);
   };
 
@@ -1430,10 +1491,11 @@ export function PanelBoard({
                     onLetGo={letGoOfLine}
                     onFitToContents={fitRowToContents}
                   />
-                  {/* A row the drag measures like any other, with nothing
-                      across it to land beside: a Panel let go on it stays
-                      where it was (`panels/dragging.ts`). */}
-                  <div data-panel-row="" data-section="">
+                  {/* A row the drag measures like any other, named by its
+                      place among the Sections: a Panel let go on it asks for
+                      nothing, and one let go under it takes a row of its own
+                      there (`panels/dragging.ts`). */}
+                  <div data-panel-row="" data-section={nth} data-section-at={rowIndex} data-lifted={dragging?.id === sectionKey(rowIndex) ? '' : undefined}>
                     <SectionBand
                       title={title}
                       renaming={renamingSection?.nth === nth ? renamingSection.title : null}
@@ -1455,6 +1517,10 @@ export function PanelBoard({
                       }}
                       refusal={renamingSection?.nth === nth ? refusalFor('save_layout') : null}
                       busy={command.isPending}
+                      lifted={dragging?.id === sectionKey(rowIndex)}
+                      onPickUp={
+                        arrangeable ? (pointerId) => pickUp(sectionKey(rowIndex), pointerId, true, rowIndex) : null
+                      }
                     />
                   </div>
                 </Fragment>
