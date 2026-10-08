@@ -92,6 +92,23 @@ nav.views a { color: var(--accent); text-decoration: none; }
 .t-m { font: 400 12px var(--sans); fill: var(--ink-3); }
 .t-mono { font-family: var(--mono); }
 
+/* The dependency matrix: a table, scrolling inside its own container */
+.dsm { border-collapse: separate; border-spacing: 2px; width: auto; font: 500 12px var(--mono); }
+.dsm th, .dsm td { border: 0; padding: 0; }
+.dsm th.row { text-align: right; padding-right: 8px; color: var(--ink-1); font-weight: 500; white-space: nowrap; }
+.dsm th.row .lines { color: var(--ink-3); }
+.dsm th.col { height: 120px; width: 34px; vertical-align: bottom; color: var(--ink-1); font-weight: 500; }
+.dsm th.col span { display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
+.dsm td { width: 34px; height: 30px; text-align: center; background: var(--soft); color: var(--ink-1); border-radius: 3px; }
+.dsm td.self { background: var(--line); }
+.dsm td.dn { background: color-mix(in srgb, var(--accent) 28%, var(--card)); }
+.dsm td.up { background: color-mix(in srgb, var(--amber) 38%, var(--card)); }
+.dsm td.cyc { background: var(--red); color: #fff; font-weight: 600; }
+.dsm td.env { background: var(--soft); color: var(--ink-3); }
+.d-down { background: color-mix(in srgb, var(--accent) 40%, var(--card)); }
+.d-up { background: color-mix(in srgb, var(--amber) 50%, var(--card)); }
+.d-muted { background: var(--line); }
+
 footer { margin-top: 40px; color: var(--ink-3); font-size: 12.5px; }
 footer a { color: var(--accent); text-decoration: none; }
 

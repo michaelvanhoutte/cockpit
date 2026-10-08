@@ -62,6 +62,18 @@ function filesIn(root, scan, relative, { recursive }) {
   return files;
 }
 
+/** The name a package declares, which other packages import it by; none when the manifest names none. */
+function packageNameOf(root, folder) {
+  const file = posix(folder, 'package.json');
+  try {
+    const { name } = JSON.parse(readText(root, file));
+    return typeof name === 'string' ? name : null;
+  } catch (error) {
+    if (error instanceof ReadError) throw error;
+    throw new ReadError(file, 'is not valid JSON');
+  }
+}
+
 /** The folders the description file says to look in, each as a candidate area with the files it holds. */
 function discover(root, description) {
   const { scan } = description;
@@ -76,7 +88,7 @@ function discover(root, description) {
     for (const folder of folders) {
       const at = posix(where.path, folder.name);
       if (where.as === 'packages' && !existsSync(path.join(root, at, 'package.json'))) continue;
-      candidates.push({ path: at, package: where.as === 'packages', role: where.role, files: filesIn(root, scan, at, { recursive: true }) });
+      candidates.push({ path: at, package: where.as === 'packages', packageName: where.as === 'packages' ? packageNameOf(root, at) : null, role: where.role, files: filesIn(root, scan, at, { recursive: true }) });
     }
     if (where.rootFiles) candidates.push({ path: posix(where.path, '*'), package: false, role: where.role, files: filesIn(root, scan, where.path, { recursive: false }) });
   }

@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { renderContext } from './context.js';
+import { renderDependencies, mutualSummary } from './dependencies.js';
 import { renderDiagram } from './diagram.js';
 import { renderModules } from './modules.js';
 
@@ -45,6 +46,7 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
       : `<span>commit <b>${esc(commit.slice(0, 7))}</b></span>`;
   const { environments, workflows } = model.deployment;
   const { counts, sources } = model.modules;
+  const mutedAreas = model.dependencies.areas.filter((each) => each.muted);
 
   return `<!doctype html>
 <html lang="en">
@@ -75,7 +77,7 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
       <span><a href="${esc(leadTimeHref)}"><b>Lead time &rarr;</b></a></span>
       <span><a href="${esc(selectionHref)}"><b>Selection &rarr;</b></a></span>
     </div>
-    <nav class="views" aria-label="Views"><a href="#context">Context</a><a href="#modules">Modules</a><a href="#deployment">Deployment</a></nav>
+    <nav class="views" aria-label="Views"><a href="#context">Context</a><a href="#modules">Modules</a><a href="#deps">Dependencies</a><a href="#deployment">Deployment</a></nav>
   </header>
 
   <section id="context">
@@ -98,6 +100,21 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
   <div class="diagram">
     ${renderModules(model)}
   </div>
+  </section>
+
+  <section id="deps">
+  <h2>Dependencies</h2>
+  <p class="sectionnote">Each cell counts the files in the row's area importing the column's area, in the layer order of the description file. The number beside a row is that area's source lines, tests excluded.</p>
+  <div class="legend">
+    <span><i class="sw d-down"></i>Depends on a layer below</span>
+    <span><i class="sw d-up"></i>Depends on a layer above</span>
+    <span><i class="sw d-red"></i>Two areas depending on each other</span>${mutedAreas.length ? `
+    <span><i class="sw d-muted"></i>Muted: everything reads ${mutedAreas.map((each) => `<code>${esc(each.name)}</code>`).join(', ')}</span>` : ''}
+  </div>
+  <div class="diagram">
+    ${renderDependencies(model)}
+  </div>
+  <p class="sectionnote">${mutualSummary(model.dependencies)}</p>
   </section>
 
   <section id="deployment">

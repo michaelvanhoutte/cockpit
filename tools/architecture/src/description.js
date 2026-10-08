@@ -62,6 +62,8 @@ export function parseDescription(file, text) {
 
   const exemptFromSources = value.exemptFromSources === undefined ? [] : array(value.exemptFromSources, 'exemptFromSources').map((each, index) => string(each, `exemptFromSources[${index}]`));
 
+  const readByEveryone = value.readByEveryone === undefined ? [] : array(value.readByEveryone, 'readByEveryone').map((each, index) => string(each, `readByEveryone[${index}]`));
+
   const rule = object(value.connectorRule, 'connectorRule');
 
   const context = object(value.context, 'context');
@@ -82,7 +84,7 @@ export function parseDescription(file, text) {
         const path = string(area.path, `${here}.path`);
         if (seen.has(path)) fail(`${path} is described twice`);
         seen.add(path);
-        return { path, description: string(area.description, `${here}.description`), role: area.role === undefined ? layerRole : role(area.role, `${here}.role`) };
+        return { path, name: area.name === undefined ? path : string(area.name, `${here}.name`), description: string(area.description, `${here}.description`), role: area.role === undefined ? layerRole : role(area.role, `${here}.role`) };
       }),
     };
   });
@@ -92,6 +94,7 @@ export function parseDescription(file, text) {
     discover,
     sources,
     exemptFromSources,
+    readByEveryone,
     connectorRule: { sdk: string(rule.sdk, 'connectorRule.sdk'), scope: string(rule.scope, 'connectorRule.scope') },
     context: {
       cockpit: { name: string(cockpit.name, 'context.cockpit.name'), summary: string(cockpit.summary, 'context.cockpit.summary'), runs: cockpit.runs === undefined ? '' : string(cockpit.runs, 'context.cockpit.runs') },
