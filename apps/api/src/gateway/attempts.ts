@@ -28,16 +28,32 @@ export interface CallAbout {
  * name it by its id (`connector:teams`), so one added later is named without
  * a change here.
  */
-export type Trigger = 'captured-in-app' | 'mcp' | 'gmail-check' | 'panel-settled' | `connector:${string}`;
+export type Trigger =
+  | 'captured-in-app'
+  | 'mcp'
+  | 'gmail-check'
+  | 'panel-settled'
+  | 'backfill'
+  | 'agent-started'
+  | 'connection-test'
+  | `connector:${string}`;
 
-/** Whose money a call spent: today only Cockpit's own Anthropic key. */
-export interface PaidBy {
-  kind: 'cockpit-anthropic-key';
-  /** The Anthropic workspace the key is scoped to, where one is configured. */
-  account: string | null;
-  /** The key's last 4 characters, as the Console shows them - never more. */
-  keyEnding: string;
-}
+/**
+ * Whose money a call spent. A provider added later adds its own kind here, and
+ * `scripts/lib/usage.mjs` the words the export gives it.
+ */
+export type PaidBy =
+  | {
+      kind: 'cockpit-anthropic-key';
+      /** The Anthropic workspace the key is scoped to, where one is configured. */
+      account: string | null;
+      /** The key's last 4 characters, as the Console shows them - never more. */
+      keyEnding: string;
+    }
+  /** Cockpit's own Workers AI binding, billed to Cockpit's Cloudflare account. */
+  | { kind: 'cloudflare-workers-ai'; account: null; keyEnding: null }
+  /** The person's own Claude plan, spent by firing the routine named here. */
+  | { kind: 'claude-plan'; account: string; keyEnding: null };
 
 /** The four counts a provider reports, each `null` where it reports none. */
 export interface Tokens {
@@ -78,6 +94,25 @@ export interface Around {
   now: () => Date;
   wait: (ms: number) => Promise<void>;
 }
+
+/**
+ * The real clock, the real wait and the given recorder - what every caller
+ * outside a test hands `callThrough`.
+ */
+export function inRealTime(record: Recorder): Around {
+  return {
+    record,
+    clock: () => Date.now(),
+    now: () => new Date(),
+    wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  };
+}
+
+/** For a provider whose calls are never repeated: one attempt, whatever happens. */
+export const NEVER_RETRIED: Pick<RetryPolicy, 'retries' | 'retryAfter'> = {
+  retries: 0,
+  retryAfter: () => null,
+};
 
 const NO_TOKENS: Tokens = { tokensIn: null, cacheRead: null, cacheWrite: null, tokensOut: null };
 

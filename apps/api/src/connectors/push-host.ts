@@ -152,7 +152,7 @@ function connectedHost(
       // buys no second model call.
       if (!result.applied) return 'already-known';
       around.waitUntil(enqueueCleanUp(around.env, pointer.accountName, itemId, `connector:${connectorId}`));
-      around.waitUntil(enqueueReadingItsMeaning(around.env, pointer.accountName, itemId));
+      around.waitUntil(enqueueReadingItsMeaning(around.env, pointer.accountName, itemId, `connector:${connectorId}`));
       return 'filed';
     },
   };

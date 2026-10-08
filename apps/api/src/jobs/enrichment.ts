@@ -151,6 +151,8 @@ export interface ReadWhatItMeansJob {
   kind: 'read-what-a-note-means';
   accountName: string;
   itemId: string;
+  /** What started it; absent on a job queued before it was carried. */
+  triggeredBy?: Trigger | undefined;
 }
 
 /**
@@ -198,7 +200,7 @@ export interface CheckPulledConnectionJob {
 const refreshAskSchema = z.object({ at: z.number().int().nonnegative(), id: z.uuid() });
 
 const triggerSchema = z.union([
-  z.enum(['captured-in-app', 'mcp', 'gmail-check', 'panel-settled']),
+  z.enum(['captured-in-app', 'mcp', 'gmail-check', 'panel-settled', 'backfill', 'agent-started', 'connection-test']),
   z.templateLiteral(['connector:', z.string().min(1).max(64)]),
 ]);
 
@@ -214,6 +216,7 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     kind: z.literal('read-what-a-note-means'),
     accountName: z.string().min(1),
     itemId: z.uuid(),
+    triggeredBy: triggerSchema.optional(),
   }),
   z.object({
     kind: z.literal('re-propose-panels'),
@@ -630,7 +633,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // same re-read an edit fires, from the other of the two things that rewrite
   // an Item's texts - and only where the write actually landed, so a
   // redelivered job whose proposal the store refused costs no second reading.
-  if (written.applied) await enqueueReadingItsMeaning(env, job.accountName, job.itemId);
+  if (written.applied) await enqueueReadingItsMeaning(env, job.accountName, job.itemId, job.triggeredBy);
 
   // A second, independent write, factored out because a settled filing's own
   // re-proposal ("Re-propose the rest of the inbox the moment you file one",
@@ -1052,10 +1055,11 @@ export async function enqueueReadingItsMeaning(
   env: Env,
   accountName: string,
   itemId: string,
+  triggeredBy?: Trigger | undefined,
 ): Promise<void> {
   if (!canReadMeaning(env)) return;
 
-  const job: EnrichmentJob = { kind: 'read-what-a-note-means', accountName, itemId };
+  const job: EnrichmentJob = { kind: 'read-what-a-note-means', accountName, itemId, triggeredBy };
   try {
     await env.ENRICHMENT.send(job);
   } catch (error) {
@@ -1125,7 +1129,11 @@ export async function readWhatANoteMeans(env: Env, job: ReadWhatItMeansJob): Pro
     return say(job.itemId, 'nothing was read: the item is finished with or dismissed');
   }
 
-  const reading = await embeddings.readMeaning(asFarAsItReads(said));
+  const reading = await embeddings.readMeaning(asFarAsItReads(said), {
+    accountName: job.accountName,
+    itemId: job.itemId,
+    triggeredBy: job.triggeredBy ?? null,
+  });
   const remembered = await account.rememberWhatAnItemMeans(job.itemId, EMBEDDING_MODEL, reading);
   say(
     job.itemId,

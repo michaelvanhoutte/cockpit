@@ -38,6 +38,7 @@ import { labelChangeWaiting } from './mirrored-open-state.js';
 import { bringPulledCheckForward } from './pulled-open-state.js';
 import {
   applyPulledSourceChange,
+  closePulledItemsNotListed,
   beginPulledRun,
   confirmPulledOpenStates,
   endPulledRun,
@@ -51,7 +52,7 @@ import {
   schedulePulledChecks,
   type PulledRunBegun,
 } from './pulled.js';
-import type { EmittedItem, OpenStateWanted, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
+import type { CompleteListing, EmittedItem, OpenStateWanted, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
 import { APP_CAPTURES_PER_MINUTE } from '../mcp/create-item.js';
 import {
   deleteAllRows,
@@ -967,6 +968,18 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   ): Answer<'changed' | 'unchanged' | 'disconnected'> {
     return this.#answer(accountName, (db) =>
       applyPulledSourceChange(db, accountName, sourceAccountId, runId, change),
+    );
+  }
+
+  /** Closes the Items a pulled connector's complete listing no longer sees (issue 938). */
+  closePulledItemsNotListed(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    listing: CompleteListing,
+  ): Answer<number | 'disconnected'> {
+    return this.#answer(accountName, (db) =>
+      closePulledItemsNotListed(db, accountName, sourceAccountId, runId, listing, new Date().toISOString()),
     );
   }
 
