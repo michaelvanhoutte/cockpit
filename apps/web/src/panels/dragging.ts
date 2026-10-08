@@ -1,3 +1,4 @@
+import { rowIsSection } from '@cockpit/shared';
 import type { LayoutRow } from '@cockpit/shared';
 import { movedBeside, movedRow, movedToOwnRow } from './arrangement';
 
@@ -24,6 +25,14 @@ export interface DrawnRow {
   top: number;
   bottom: number;
   cells: readonly DrawnCell[];
+  /**
+   * Set where the row is a Section, to how many Sections come before it. A
+   * Section is told apart only by its place ("Add, rename and delete a titled
+   * Section on a Dashboard", issue 896), and a Panel drag never moves one, so
+   * the number means the same Section in the preview and in the arrangement the
+   * drag started from.
+   */
+  section?: number;
 }
 
 /**
@@ -49,7 +58,12 @@ export type Placement =
    * panel off the row it started on. It snapped the preview home and a
    * release there sent nothing.
    */
-  | { on: 'ownRow'; under: string | null };
+  | { on: 'ownRow'; under: string | null }
+  /**
+   * A row of its own in the gap under a Section, which has no Panel to be
+   * named by: named by its place among the Sections instead.
+   */
+  | { on: 'underSection'; section: number };
 
 /**
  * The placement the pointer is asking for.
@@ -85,6 +99,9 @@ export function placementFor(
     const row = rows[index]!;
     if (point.y < row.top) return inTheGapUnder(rows[index - 1], dragged);
     if (point.y <= row.bottom) {
+      // **A Section's line shares nothing**: a Panel let go on it asks for
+      // nothing, and the board shows nothing happening.
+      if (row.section !== undefined) return null;
       // On its own row a panel swaps once the pointer is where the swap would
       // draw it; on any other, which half of a panel the pointer is on decides.
       if (row.cells.some((cell) => cell.panelId === dragged)) {
@@ -145,6 +162,7 @@ function withinItsOwnRow(x: number, row: DrawnRow, dragged: string): Placement |
  */
 function inTheGapUnder(above: DrawnRow | undefined, dragged: string): Placement | null {
   if (!above) return { on: 'ownRow', under: null };
+  if (above.section !== undefined) return { on: 'underSection', section: above.section };
   const anchor = [...above.cells].reverse().find((cell) => cell.panelId !== dragged);
   return anchor ? { on: 'ownRow', under: anchor.panelId } : null;
 }
@@ -199,6 +217,10 @@ export function arrangedWith(
   // moved are two different arrangements, and only a panel means the same in
   // both. A panel that has gone since (deleted in another tab) leaves the
   // arrangement alone rather than guessing at a line.
+  if (placement.on === 'underSection') {
+    const section = rows.filter((row) => rowIsSection(row))[placement.section];
+    return section ? movedToOwnRow(rows, panelId, rows.indexOf(section) + 1) : [...rows];
+  }
   if (placement.under === null) return movedToOwnRow(rows, panelId, 0);
   const above = rows.findIndex((row) => row.cells.some((cell) => cell.panelId === placement.under));
   return above === -1 ? [...rows] : movedToOwnRow(rows, panelId, above + 1);
@@ -238,4 +260,32 @@ export function arrangedWithRow(
 ): LayoutRow[] {
   const from = rows.findIndex((row) => row.cells.some((cell) => cell.panelId === panelId));
   return from === -1 ? [...rows] : movedRow(rows, from, place);
+}
+
+/**
+ * Where a Section held by its band goes: its place among the rows once it is
+ * moved, by the pointer's height alone - the rule a row taken by its grip is
+ * placed by, and the other rows' middles are what it passes.
+ *
+ * **Named by where it is drawn now**, `at`, because a Section has no Panel to
+ * name it by (`rowPlacementFor`'s way) and no identity beyond its place. The
+ * board keeps that number current as the Section moves. Null where `at` is no
+ * row.
+ */
+export function sectionPlacementFor(
+  pointY: number,
+  rows: readonly DrawnRow[],
+  at: number,
+): number | null {
+  if (!rows[at]) return null;
+  return rows.filter((row, index) => index !== at && (row.top + row.bottom) / 2 < pointY).length;
+}
+
+/** The arrangement with the Section that began at `from` moved to `place` among the rows; the same move a whole row makes. */
+export function arrangedWithSection(
+  rows: readonly LayoutRow[],
+  from: number,
+  place: number,
+): LayoutRow[] {
+  return movedRow(rows, from, place);
 }

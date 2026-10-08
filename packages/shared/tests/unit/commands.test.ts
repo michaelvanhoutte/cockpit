@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { uuidv7 } from '../../src/ids.js';
+import { panelFilterAsStored, panelFilterFrom, type FilterCondition } from '../../src/domain/panel.js';
 import {
   captureItemSchema,
   moveItemToPanelSchema,
   proposeItemTextsSchema,
   setDuplicateSettledSchema,
+  setPanelFilterSchema,
 } from '../../src/commands.js';
 
 describe('Capture', () => {
@@ -187,6 +189,35 @@ describe('Panels', () => {
       { situation: 'a move to the Inbox with no order', move: { ...envelope, panelId: null, order: [] } },
     ])('accepts $situation', ({ move }) => {
       expect(moveItemToPanelSchema.safeParse(move).success).toBe(true);
+    });
+  });
+
+  describe('a Filter saved with an exclusion and Status values is stored and read back as it was saved', () => {
+    const save = (conditions: unknown[]) =>
+      setPanelFilterSchema.safeParse({
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId: 'ws-work',
+        panelId: uuidv7(),
+        conditions,
+      });
+
+    it('keeps the exclusion flag and the Status values through the schema, the stored text and the read', () => {
+      const conditions: FilterCondition[] = [
+        { field: 'type', values: ['type-note'], exclude: true },
+        { field: 'status', values: ['to_do'], exclude: true },
+      ];
+      const saved = save(conditions);
+      expect(saved.success).toBe(true);
+      if (!saved.success) return;
+
+      const read = panelFilterFrom(panelFilterAsStored(saved.data.conditions, saved.data.match, saved.data.groupBy));
+
+      expect(read?.conditions).toEqual(conditions);
+    });
+
+    it('refuses a Status value of Done, which a Filter never draws', () => {
+      expect(save([{ field: 'status', values: ['done'] }]).success).toBe(false);
     });
   });
 });

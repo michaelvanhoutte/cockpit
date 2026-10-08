@@ -9,6 +9,7 @@ import {
   panelSchema,
   panelTakesItems,
   rowInputSchema,
+  statusValuesOf,
   type FilterCondition,
 } from '../../../src/domain/panel.js';
 
@@ -104,6 +105,33 @@ describe('Panels', () => {
       expect(
         panelFilterFrom(panelFilterAsStored([DUE_TODAY, PRIORITY_HIGH, TYPE_OKR, PANEL_Q3])),
       ).toEqual({ conditions: [DUE_TODAY, PRIORITY_HIGH, TYPE_OKR, PANEL_Q3], match: 'all', groupBy: 'none' });
+    });
+
+    it('reads a Filter stored before exclusion and Status values as including, with Status as In progress', () => {
+      // Both additions are optional on the stored shape, so what an earlier
+      // release wrote is read as what it meant then ("Include or exclude a
+      // Filter panel condition's values...", issue 908).
+      const read = panelFilterFrom(
+        '{"conditions":[{"field":"type","values":["type-okr"]},{"field":"status"}]}',
+      );
+
+      expect(read?.conditions[0]).toEqual({ field: 'type', values: ['type-okr'] });
+      expect(read?.conditions[0]).not.toHaveProperty('exclude');
+      expect(read?.conditions[1]).toEqual({ field: 'status' });
+      expect(statusValuesOf({ field: 'status' })).toEqual(['in_progress']);
+    });
+
+    it('reads back an exclusion and Status values exactly as written', () => {
+      const held: FilterCondition[] = [
+        { field: 'priority', values: ['low'], exclude: true },
+        { field: 'panel', values: ['panel-q3'], exclude: true },
+        { field: 'status', values: ['to_do', 'in_progress'], exclude: true },
+      ];
+      expect(panelFilterFrom(panelFilterAsStored(held))?.conditions).toEqual(held);
+    });
+
+    it('shows nothing chosen where a Status value is Done', () => {
+      expect(panelFilterFrom('{"conditions":[{"field":"status","values":["done"]}]}')).toEqual(NO_CONDITIONS);
     });
 
     it('is not a filter at all where nothing was stored', () => {

@@ -1,11 +1,12 @@
 import { and, asc, eq, inArray, isNull, lte, min } from 'drizzle-orm';
-import type { EmittedItem, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
+import type { EmittedItem, OpenStateWanted, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
 import type { AccountDb } from './client.js';
 import { GUEST_ACCOUNT_NAME } from './new-user.js';
 import { noteTypeId } from './changes.js';
 import { runCommand } from './command-service.js';
 import { listItemTypes } from './repo.js';
 import { connectionFailures, connectorAccounts, pulledConnections, pulledLinks } from './schema.js';
+import { confirmOpenStates, openStatesWaiting } from './pulled-open-state.js';
 import { applySourceStateChange } from './source-state.js';
 import { typeToCaptureAs } from '../domain/item-types.js';
 import { leaseFrom, nextCheckAfter, whatADeliveryDoes } from '../domain/pulled-checks.js';
@@ -303,7 +304,39 @@ export function applyPulledSourceChange(
   if (change.change === 'removed') return 'unchanged';
   const link = linkOf(db, accountName, holds, change.sourceId);
   if (!link) return 'unchanged';
+  // What a person changed and the source has not yet heard wins over what the
+  // source says: the connector is handed it before the next read (issue 893).
+  if (link.openWanted !== null) return 'unchanged';
   return applySourceStateChange(db, accountName, link.itemId, change.change, change.observedAt);
+}
+
+/**
+ * The open states a person set in Cockpit that the connection's source has not
+ * confirmed - what the run hands the connector before it reads (issue 893).
+ * Nothing once the run no longer holds its connection.
+ */
+export function pulledOpenStatesWaiting(
+  db: AccountDb,
+  accountName: string,
+  sourceAccountId: string,
+  runId: string,
+): OpenStateWanted[] {
+  const holds = runHolds(db, accountName, sourceAccountId, runId);
+  return holds ? openStatesWaiting(db, accountName, holds) : [];
+}
+
+/** Clears the open states the connector confirmed, while the run still holds its connection (issue 893). */
+export function confirmPulledOpenStates(
+  db: AccountDb,
+  accountName: string,
+  sourceAccountId: string,
+  runId: string,
+  confirmed: readonly OpenStateWanted[],
+): 'confirmed' | 'not this run' {
+  const holds = runHolds(db, accountName, sourceAccountId, runId);
+  if (!holds) return 'not this run';
+  confirmOpenStates(db, accountName, holds, confirmed);
+  return 'confirmed';
 }
 
 /**
@@ -363,7 +396,7 @@ function linkOf(
   sourceId: string,
 ) {
   return db
-    .select({ itemId: pulledLinks.itemId })
+    .select({ itemId: pulledLinks.itemId, openWanted: pulledLinks.openWanted })
     .from(pulledLinks)
     .where(
       and(
