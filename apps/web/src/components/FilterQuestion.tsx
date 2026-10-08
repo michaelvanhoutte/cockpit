@@ -1,22 +1,26 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as Popover from '@radix-ui/react-popover';
 import {
   DUE_WINDOWS,
   FILTER_GROUPINGS,
   panelTakesItems,
   prioritySchema,
   statusValuesOf,
+  type Dashboard,
   type DueCondition,
   type DueWindow,
   type FilterCondition,
   type FilterGrouping,
   type FilterMatch,
   type ItemType,
+  type Layout,
   type Panel,
   type Priority,
 } from '@cockpit/shared';
 import { GROUPING_NAMES, WINDOW_LABELS, isAPeriod } from '../filters';
+import { orderedAsDrawn } from '../filterGroups';
 import { MenuContent, menuItemClass } from './Menu';
 import { Segmented } from './Segmented';
 import { NO_TYPES } from '../itemTypes';
@@ -63,6 +67,8 @@ function FilterQuestion({
   groupBy: initialGroupBy,
   itemTypes,
   panels,
+  dashboards,
+  layouts,
   open,
   onSave,
   onCancel,
@@ -87,6 +93,10 @@ function FilterQuestion({
    * could never match anything (`panel.ts`, `panelConditionSchema`).
    */
   panels: readonly Panel[];
+  /** The Workspace's Dashboards in tab order, whose names head the Panels a Panel condition lists. */
+  dashboards: readonly Dashboard[];
+  /** Their Layouts, which put each Dashboard's Panels in the order its board draws them. */
+  layouts: readonly Layout[];
   open: boolean;
   onSave: (conditions: FilterCondition[], match: FilterMatch, groupBy: FilterGrouping) => void;
   onCancel: () => void;
@@ -171,6 +181,8 @@ function FilterQuestion({
                         row={row}
                         itemTypes={itemTypes}
                         panels={panels}
+                        dashboards={dashboards}
+                        layouts={layouts}
                         onChange={(next) => change(at, next)}
                         onRemove={() => setRows(rows.filter((_, index) => index !== at))}
                       />
@@ -326,6 +338,8 @@ function ConditionRow({
   row,
   itemTypes,
   panels,
+  dashboards,
+  layouts,
   onChange,
   onRemove,
 }: {
@@ -333,6 +347,8 @@ function ConditionRow({
   row: FilterCondition;
   itemTypes: readonly ItemType[];
   panels: readonly Panel[];
+  dashboards: readonly Dashboard[];
+  layouts: readonly Layout[];
   onChange: (row: FilterCondition) => void;
   onRemove: () => void;
 }) {
@@ -373,9 +389,7 @@ function ConditionRow({
         exclude={row.exclude === true}
         onExclude={(exclude) => onChange(withExclusion(row, exclude))}
         values={row.values}
-        options={panels
-          .filter(panelTakesItems)
-          .map((panel) => ({ id: panel.id, label: panel.name }))}
+        options={panelOptions(panels, dashboards, layouts)}
         empty={NO_PANELS_TO_CHOOSE}
         onChange={(values) => onChange({ ...row, values })}
         onRemove={onRemove}
@@ -397,6 +411,31 @@ function ConditionRow({
     );
   }
   return <DueConditionRow at={at} row={row} onChange={onChange} onRemove={onRemove} />;
+}
+
+/**
+ * The Panels a Panel condition offers, each carrying its Dashboard: Dashboards
+ * in tab order and a Dashboard's Panels as its Layout draws them ("Choose a
+ * Filter condition's values from a searchable list, with Panels under their
+ * Dashboard", issue 910).
+ *
+ * **The order Group by *Panel* and Go to panel already use** (`orderedAsDrawn`),
+ * not the order the Panels were made in, so the list reads as the board does.
+ * A Filter or a Panel of text is left out (`panelTakesItems`), and so is a
+ * Panel whose Dashboard is not among those handed in: it has no heading to sit
+ * under.
+ */
+function panelOptions(
+  panels: readonly Panel[],
+  dashboards: readonly Dashboard[],
+  layouts: readonly Layout[],
+): ValueOption[] {
+  return dashboards.flatMap((dashboard) =>
+    orderedAsDrawn(
+      panels.filter((panel) => panel.dashboardId === dashboard.id && panelTakesItems(panel)),
+      layouts.find((layout) => layout.dashboardId === dashboard.id) ?? null,
+    ).map((panel) => ({ id: panel.id, label: panel.name, group: dashboard.name })),
+  );
 }
 
 /** The two statuses a Status card offers - never Done, which a Filter panel does not draw. */
@@ -496,25 +535,33 @@ function DueConditionRow({
   );
 }
 
+/** One thing a values card can hold; `group` is the heading it is listed under, and is said after its name on its chip. */
+type ValueOption = { id: string; label: string; group?: string };
+
 /**
- * A Priority, a Type, a Panel or a Status row: an *is / is not* choice and a checkbox per value on offer, any of
- * which the condition matches ("Filter a Filter panel by priority and type",
- * issue 464; "Filter a Filter panel by panel, and name the Filters a panel's
- * deletion affects", issue 465).
+ * A Priority, a Type, a Panel or a Status row: an *is / is not* choice, the
+ * chosen values as chips, and a list to choose them from ("Filter a Filter
+ * panel by priority and type", issue 464; "Filter a Filter panel by panel, and
+ * name the Filters a panel's deletion affects", issue 465; "Choose a Filter
+ * condition's values from a searchable list, with Panels under their
+ * Dashboard", issue 910).
  *
- * **One shape for all four.** *Is not* matches an Item holding none of the ticked values ("Include or exclude a Filter panel condition's values, and filter on To do as well as In progress", issue 908); a new card opens on *is*. Status's options are To do and In progress.
- * Priority's options are the three levels the
- * schema carries; a Type's are the account's live Types; a Panel's are the
- * Workspace's own items Panels - never a Filter or a Panel of text, nothing
- * being filed onto either. A value naming a Type or a Panel since deleted
- * stops being offered here the moment it is - which is also why nothing here
- * needs to know about a deleted one at all: `itemTypes` and `panels` already
- * carry only the live ones, so a value not among them simply draws no
- * checkbox, matching what it now means (`filters.ts`).
+ * **One shape for all four.** *Is not* matches an Item holding none of the
+ * chosen values ("Include or exclude a Filter panel condition's values, and
+ * filter on To do as well as In progress", issue 908); a new card opens on
+ * *is*. Status's options are To do and In progress. Priority's are the three
+ * levels the schema carries; a Type's are the account's live Types; a Panel's
+ * are the Workspace's own items Panels - never a Filter or a Panel of text,
+ * nothing being filed onto either.
  *
- * **Checkboxes, not a `select`.** The question is which of several values
- * matches, so the answer is a set rather than one choice from a list - the
- * shape a `select` cannot hold at all.
+ * **Chips are drawn from the options, not from the stored values.** A value
+ * naming a Type or a Panel since deleted is not among them, so it shows no
+ * chip and the list does not offer it - matching what it now means
+ * (`filters.ts`) with nothing here needing to know about a deleted one.
+ *
+ * **Chips rather than a row of checkboxes** because a Workspace holds dozens of
+ * Panels and a row of names stops being something to read: the chips are what
+ * the card holds, and the list is only where that is changed.
  */
 function ValuesCondition({
   at,
@@ -532,14 +579,17 @@ function ValuesCondition({
   exclude: boolean;
   onExclude: (exclude: boolean) => void;
   values: readonly string[];
-  options: readonly { id: string; label: string }[];
-  /** What to say instead of any checkboxes where there is nothing to offer - a Type condition where the account has no Types at all. */
+  options: readonly ValueOption[];
+  /** What to say instead of any chips and list where there is nothing to offer - a Type condition where the account has no Types at all. */
   empty?: string;
   onChange: (values: string[]) => void;
   onRemove: () => void;
 }) {
   const toggle = (id: string) =>
     onChange(values.includes(id) ? values.filter((held) => held !== id) : [...values, id]);
+  const chosen = values
+    .map((id) => options.find((option) => option.id === id))
+    .filter((option): option is ValueOption => option !== undefined);
 
   return (
     <div className={ROW}>
@@ -553,25 +603,141 @@ function ValuesCondition({
         <option value="is">is</option>
         <option value="not">is not</option>
       </select>
-      <fieldset className={`flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 pt-1 ${ACROSS}`}>
-        <legend className="sr-only">{label}</legend>
+      <div className={`flex min-w-0 flex-wrap items-center gap-1.5 ${ACROSS}`}>
         {options.length === 0 && empty ? (
-          <span className="text-sm text-ink-faint">{empty}</span>
+          <span className="pt-1 text-sm text-ink-faint">{empty}</span>
         ) : (
-          options.map((option) => (
-            <label key={option.id} className="flex items-center gap-1.5 text-sm text-ink-soft">
-              <input
-                type="checkbox"
-                checked={values.includes(option.id)}
-                onChange={() => toggle(option.id)}
-              />
-              {option.label}
-            </label>
-          ))
+          <>
+            {chosen.map((option) => (
+              <span
+                key={option.id}
+                className={`inline-flex max-w-full items-center gap-1 rounded-full border py-0.5 pl-2.5 pr-1 text-sm ${
+                  exclude
+                    ? 'border-over-ink/40 bg-over-ink/10 text-over-ink'
+                    : 'border-accent bg-accent-tint text-accent-deep'
+                }`}
+              >
+                {/* Struck through under *is not*, so the chip says what the card does without the operator being read. */}
+                <span className={`truncate${exclude ? ' line-through' : ''}`}>{option.label}</span>
+                {option.group && (
+                  <span className="shrink-0 text-xs opacity-70">
+                    {'·'} {option.group}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => toggle(option.id)}
+                  aria-label={`Take ${option.label} out`}
+                  className="rounded-full px-1 leading-none hover:bg-shade/10"
+                >
+                  {'×'}
+                </button>
+              </span>
+            ))}
+            <ValuePicker label={label} options={options} values={values} onToggle={toggle} />
+          </>
         )}
-      </fieldset>
+      </div>
       <RemoveButton at={at} onRemove={onRemove} />
     </div>
+  );
+}
+
+/** How many options a list holds before it gets a search box. */
+const SEARCHABLE_ABOVE = 6;
+
+/**
+ * The *+ Type* button and the checkbox list it opens: ticking adds the value's
+ * chip and unticking takes it away, so the list and the chips are one choice
+ * seen twice.
+ *
+ * **A search box only past six options**, where scanning stops being quicker
+ * than typing; it matches an option's name and its heading's, so naming a
+ * Dashboard keeps all of its Panels. Headings stick to the top while their
+ * options scroll under them. The search is forgotten when the list closes.
+ */
+function ValuePicker({
+  label,
+  options,
+  values,
+  onToggle,
+}: {
+  label: string;
+  options: readonly ValueOption[];
+  values: readonly string[];
+  onToggle: (id: string) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const needle = search.trim().toLowerCase();
+  const shown = options.filter(
+    (option) =>
+      needle === '' ||
+      option.label.toLowerCase().includes(needle) ||
+      (option.group ?? '').toLowerCase().includes(needle),
+  );
+  // Options arrive already in heading order, so a heading is a run of them.
+  const runs: { heading: string | undefined; options: ValueOption[] }[] = [];
+  for (const option of shown) {
+    const last = runs[runs.length - 1];
+    if (last && last.heading === option.group) last.options.push(option);
+    else runs.push({ heading: option.group, options: [option] });
+  }
+
+  return (
+    <Popover.Root onOpenChange={(opened) => !opened && setSearch('')}>
+      <Popover.Trigger
+        type="button"
+        className="rounded-full border border-dashed border-shade/20 px-2.5 py-0.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep"
+      >
+        + {label}
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          align="start"
+          sideOffset={4}
+          // Kept off the edge of a phone, where the list opens beside a chip that may sit far to the right.
+          collisionPadding={8}
+          className="z-floating w-64 max-w-[calc(100vw-2rem)] rounded-md border border-shade/10 bg-surface p-1 shadow-lg"
+        >
+          {options.length > SEARCHABLE_ABOVE && (
+            <input
+              type="search"
+              autoFocus
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              aria-label={`Search ${label.toLowerCase()}s`}
+              placeholder={`Search ${label.toLowerCase()}s`}
+              className="mb-1 w-full rounded-md border border-shade/10 bg-surface px-2 py-1 text-sm outline-none focus:border-accent"
+            />
+          )}
+          <div className="max-h-64 overflow-y-auto">
+            {shown.length === 0 && <p className="px-2 py-1.5 text-sm text-ink-faint">No match.</p>}
+            {runs.map((run, at) => (
+              <div key={`${run.heading ?? ''}-${at}`}>
+                {run.heading && (
+                  <p className="sticky top-0 bg-surface px-2 pb-0.5 pt-2 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                    {run.heading}
+                  </p>
+                )}
+                {run.options.map((option) => (
+                  <label
+                    key={option.id}
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm text-ink hover:bg-accent-tint"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={values.includes(option.id)}
+                      onChange={() => onToggle(option.id)}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+            ))}
+          </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
