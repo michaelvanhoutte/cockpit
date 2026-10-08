@@ -46,6 +46,13 @@ const held = vi.hoisted(() => ({
   pending: false,
   /** Every start of an agent asked for, and what it answers. */
   startAgent: vi.fn((_args?: unknown) => Promise.resolve()),
+  /** Where the router was asked to go. */
+  navigate: vi.fn((_args?: unknown) => Promise.resolve()),
+}));
+
+vi.mock('@tanstack/react-router', async () => ({
+  ...(await vi.importActual<typeof import('@tanstack/react-router')>('@tanstack/react-router')),
+  useNavigate: () => held.navigate,
 }));
 
 /**
@@ -243,6 +250,9 @@ async function dropOnto(itemId: string, clientY = 1) {
   fireEvent.drop(theListBox(), { dataTransfer, clientY });
 }
 
+/** The cache the list reads the snapshot from, so a test can say what the re-read after a change finds. */
+let theClient: QueryClient;
+
 async function showList({
   items = [BART],
   openDashboardId = null as string | null,
@@ -259,6 +269,7 @@ async function showList({
   groups?: FilterGroup[] | undefined;
 } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  theClient = client;
   render(
     <QueryClientProvider client={client}>
       <UndoWhatJustHappened>
@@ -349,6 +360,7 @@ beforeEach(() => {
   held.pending = false;
   held.mutate = vi.fn();
   held.send = vi.fn(() => Promise.resolve());
+  held.navigate = vi.fn(() => Promise.resolve());
   localStorage.clear();
 });
 
@@ -2411,6 +2423,166 @@ describe('Panels', () => {
       expect(within(dialog).getByRole('button', { name: 'Add a panel to Today' })).toBeVisible();
       expect(within(dialog).queryByRole('button', { name: 'Add a panel to Research' })).toBeNull();
       expect(within(dialog).getByRole('button', { name: 'To read' })).toBeVisible();
+    });
+  });
+});
+
+/**
+ * Show and Also show on… on the undo bar after an Item is moved onto a Panel
+ * ("Show and Also show on… in the undo bar after moving an Item", issue 849).
+ * What the bar does with them (a bar without Undo, the title cut short) is
+ * tests/unit/undo.test.tsx's; where Show lands is tests/unit/components/
+ * PanelBoard.test.tsx's.
+ */
+describe('Panels', () => {
+  /** The buttons the bar is offering, left to right. */
+  const barOffers = () =>
+    within(screen.getByRole('status'))
+      .getAllByRole('button')
+      .map((button) => button.textContent);
+  const landing = () => {
+    held.mutate = vi.fn((_args, options?: { onSuccess?: () => void }) => options?.onSuccess?.());
+  };
+  const proposed = { ...BART, proposedPanelId: 'p-falcon', proposedPanelReason: 'a Falcon question' };
+
+  describe('a move of one item onto a panel offers Show and Also show on…, and nothing else does', () => {
+    it.each([
+      {
+        situation: 'moved from the menu’s Move to…',
+        offers: ['Show', 'Also show on…', 'Undo'],
+        make: async () => {
+          const user = await showList({ openDashboardId: TODAY.id });
+          const dialog = await openThePicker(user);
+          await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
+        },
+      },
+      {
+        situation: 'moved by its proposal chip',
+        offers: ['Show', 'Also show on…', 'Undo'],
+        make: async () => {
+          const user = await showList({ items: [proposed] });
+          await user.click(screen.getByRole('button', { name: /^Today ▸ Falcon/ }));
+        },
+      },
+      {
+        situation: 'moved by a drop from the Inbox onto a panel',
+        offers: ['Show', 'Also show on…', 'Undo'],
+        make: async () => {
+          await showList({ items: [], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+          await dropOnto(BART.id);
+        },
+      },
+      {
+        situation: 'moved to the Inbox',
+        offers: ['Undo'],
+        make: async () => {
+          held.filings = [{ panelId: 'p-anna', itemId: BART.id, position: 0 }];
+          const user = await showList({ openDashboardId: TODAY.id });
+          const dialog = await openThePicker(user);
+          await user.click(within(dialog).getByRole('button', { name: /^Inbox/ }));
+        },
+      },
+      {
+        situation: 'reordered within a panel',
+        offers: ['Undo'],
+        make: async () => {
+          const other = anItem('11111111-1111-7111-8111-000000000005', 'Renew the domain');
+          held.items = [BART, other];
+          held.filings = [
+            { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+            { panelId: 'p-falcon', itemId: other.id, position: 1 },
+          ];
+          await showList({ items: [BART, other], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+          await dropOnto(other.id);
+        },
+      },
+      {
+        situation: 'added with Also show on…',
+        offers: ['Undo'],
+        make: async () => {
+          held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+          const user = await showList({ openDashboardId: TODAY.id, panelId: 'p-falcon' });
+          await user.click(screen.getByRole('button', { name: 'Item actions' }));
+          await user.click(await screen.findByRole('menuitem', { name: 'Also show on…' }));
+          await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Anna' }));
+        },
+      },
+      {
+        situation: 'an undecided item moved onto a panel, which cannot be put back',
+        offers: ['Show', 'Also show on…'],
+        make: async () => {
+          const undecided = { ...BART, workspaceDecided: false };
+          held.items = [undecided];
+          const user = await showList({ items: [undecided] });
+          const dialog = await openThePicker(user);
+          await user.click(within(dialog).getAllByRole('button', { name: 'Falcon' })[0]!);
+        },
+      },
+    ])('$situation', async ({ make, offers }) => {
+      landing();
+      await make();
+
+      expect(barOffers()).toEqual(offers);
+    });
+  });
+
+  describe('Also show on… from the bar adds the item to a second panel without leaving where you are', () => {
+    it('opens the picker leaving out every panel the item is on by then, and offers Undo of the add alone', async () => {
+      landing();
+      const user = await showList({ openDashboardId: TODAY.id });
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
+      // What the re-read after the move finds, and a move made meanwhile in
+      // another tab: the item is on Falcon, and now also on Anna.
+      act(() => {
+        theClient.setQueryData(['snapshot', 'ws-work'], (old: WorkspaceSnapshot) => ({
+          ...old,
+          filings: [
+            { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+            { panelId: 'p-anna', itemId: BART.id, position: 0 },
+          ],
+        }));
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Also show on…' }));
+
+      const picker = await screen.findByRole('dialog');
+      expect(picker).toHaveTextContent('Also show “Reply to Bart” on');
+      expect(within(picker).queryByRole('button', { name: 'Falcon' })).toBeNull();
+      expect(within(picker).queryByRole('button', { name: 'Anna' })).toBeNull();
+      await user.click(within(picker).getByRole('button', { name: 'To read' }));
+      expect(held.mutate).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          name: 'add_item_to_panel',
+          payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-reading' }),
+        }),
+        expect.anything(),
+      );
+      expect(screen.getByRole('status')).toHaveTextContent('“Reply to Bart” added to To read');
+      expect(barOffers()).toEqual(['Undo']);
+      expect(held.navigate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Show goes to the dashboard holding the panel the item was moved to', () => {
+    it('asks the router for that dashboard, as the panel is found when it is pressed', async () => {
+      landing();
+      const user = await showList({ openDashboardId: TODAY.id });
+      const dialog = await openThePicker(user);
+      await user.click(within(dialog).getByRole('button', { name: 'To read' }));
+      // The panel was moved to another dashboard before Show was pressed.
+      held.panels = held.panels.map((panel) =>
+        panel.id === 'p-reading' ? { ...panel, dashboardId: TODAY.id } : panel,
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Show' }));
+
+      await waitFor(() =>
+        expect(held.navigate).toHaveBeenCalledWith(
+          expect.objectContaining({ params: { workspaceId: 'ws-work', dashboardId: TODAY.id } }),
+        ),
+      );
+      expect(screen.queryByRole('status')).toBeNull();
     });
   });
 });

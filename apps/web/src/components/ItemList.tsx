@@ -1,6 +1,7 @@
 import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentProps } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import {
   agentsShownOnDashboard,
   itemLabel,
@@ -42,6 +43,7 @@ import {
   useOnlyOneListSelecting,
   type Selection,
 } from '../selection';
+import { askToShow } from '../showItem';
 import { useUndo } from '../undo';
 import { ItemRow } from './ItemRow';
 import { typeOf } from '../itemTypes';
@@ -218,6 +220,7 @@ export function ItemList({
   const send = useSendCommand();
   const latestSnapshot = useLatestSnapshot();
   const offerToUndo = useUndo();
+  const navigate = useNavigate();
   const [moving, setMoving] = useState<Item | null>(null);
   /** The item being added to a second panel from its menu, if any. */
   const [adding, setAdding] = useState<Item | null>(null);
@@ -336,6 +339,18 @@ export function ItemList({
   };
 
   /**
+   * Show, on the undo bar after a move: the Dashboard holding the panel, which
+   * the board then scrolls to and highlights the item on (`PanelBoard`).
+   * Where the panel is read when pressed rather than when the move was made, so
+   * a panel moved to another Dashboard meanwhile is where Show goes.
+   */
+  const showOnItsPanel = async (itemId: string, panelId: string) => {
+    const dashboardId = (await latestSnapshot(workspaceId)).panels.find((p) => p.id === panelId)?.dashboardId;
+    if (!dashboardId) return;
+    askToShow({ dashboardId, panelId, itemId });
+    await navigate({ to: '/w/$workspaceId/d/$dashboardId', params: { workspaceId, dashboardId } });
+  };
+  /**
    * Files an item, at a place counted among the rows the target panel *draws*.
    *
    * Drawn rather than held, because that is what every caller has: a menu move
@@ -397,14 +412,33 @@ export function ItemList({
           if (panelId) rememberRecentPanel(browserStore(), workspaceId, panelId);
           setMoving(null);
           setAsking(null);
-          if (decides) return;
+          // An undecided item moved to a workspace's Inbox has nothing to
+          // offer: nothing to put back, and nowhere to show.
+          if (decides && panelId === null) return;
           offerToUndo({
             what: `“${itemLabel(item)}” moved to ${nameOf(panelId)}`,
+            // The title is what the bar shortens, never where it went.
+            split: { title: `“${itemLabel(item)}”`, rest: ` moved to ${nameOf(panelId)}` },
             // Every panel it was on, not the first of them: a move takes an
             // item off all of them, so putting it back on one would lose the
             // rest - and an item can be on several since "Ask whether to move
-            // an item to a panel or add it to one" (issue 142).
-            undo: () => putItBackOn(item, before),
+            // an item to a panel or add it to one" (issue 142). **Withheld for
+            // an undecided item**, whose move decides its workspace and cannot
+            // be put back (`decides` above); it still gets the two below.
+            ...(decides ? {} : { undo: () => putItBackOn(item, before) }),
+            // Onto a panel only: a move to the Inbox has nowhere to show and
+            // nothing to also show on ("Show and Also show on… in the undo
+            // bar after moving an Item", issue 849).
+            ...(panelId
+              ? {
+                  show: () => void showOnItsPanel(item.id, panelId),
+                  alsoShowOn: () => {
+                    openedFrom.current = null;
+                    command.reset();
+                    setAdding(item);
+                  },
+                }
+              : {}),
           });
         },
       },

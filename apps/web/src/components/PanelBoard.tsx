@@ -31,7 +31,13 @@ import { scrollWhileDragging } from '../dragScroll';
 import { groupFilterRows } from '../filterGroups';
 import { dayOf, filtersUsingPanel, isGrouped, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
-import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, useDashboardFilter } from '../dashboardFilter';
+import {
+  clearDashboardFilter,
+  isFiltering,
+  itemIdsWithAttachments,
+  itemIdsWithRun,
+  useDashboardFilter,
+} from '../dashboardFilter';
 import { itemsShownOn } from '../panelContents';
 import { DashboardFilterBar } from './DashboardFilterBar';
 import { DEFAULT_FILTER_SORT, sortOf } from '../sorting';
@@ -55,9 +61,13 @@ import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { forgetPanelsCollapsed, usePanelsCollapsed } from '../panelsCollapsed';
 import { PANEL_GAP, PanelCard } from './PanelCard';
 import { publishPanelList, withdrawPanelList } from '../panelList';
+import { settleTheShowRequest, useShowRequest } from '../showItem';
 
 /** How long a Panel stays outlined after the list jumps to it, in milliseconds. */
 const JUMP_OUTLINE_MS = 1200;
+
+/** How long an Item's row stays highlighted after Show brings the screen to it, in milliseconds. */
+const SHOWN_ROW_MS = 2500;
 
 /** How close two taps on a header are to be a double-tap, in milliseconds. */
 const DOUBLE_TAP_MS = 350;
@@ -748,6 +758,68 @@ export function PanelBoard({
     publishPanelList({ dashboardId: dashboard.id, rows: listed, jumpTo });
   });
   useEffect(() => () => withdrawPanelList(jumpTo), [jumpTo]);
+
+  /**
+   * Show on the undo bar ("Show and Also show on… in the undo bar after
+   * moving an Item", issue 849): the Panel jumped to as Go to panel does it,
+   * and the Item's row highlighted for a moment. **A Dashboard filter that
+   * hides the Panel or the row is cleared first**, the way going to a hidden
+   * Panel does; an Item no longer on the Panel leaves the Panel jumped to and
+   * nothing highlighted.
+   */
+  const showRequest = useShowRequest();
+  const shownRow = useRef<{ row: HTMLElement; timer: number } | null>(null);
+  const jumpedFor = useRef<unknown>(null);
+  const [, setShowAttempts] = useState(0);
+  useEffect(() => {
+    if (!showRequest || showRequest.dashboardId !== dashboard.id) return;
+    const { panelId, itemId } = showRequest;
+    if (!panels.some((panel) => panel.id === panelId)) {
+      settleTheShowRequest(showRequest);
+      return;
+    }
+    const isFiled = filings.some((filing) => filing.itemId === itemId && filing.panelId === panelId);
+    const rowHidden = isFiled && !(shows.get(panelId) ?? []).some((item) => item.id === itemId);
+    if (filteringOn && (hidden?.has(panelId) || rowHidden)) {
+      clearDashboardFilter(browserStore(), dashboard.id);
+      return;
+    }
+    const cell = rowsRef.current?.querySelector<HTMLElement>('[data-panel-cell="' + panelId + '"]');
+    if (!cell) return;
+    if (jumpedFor.current !== showRequest) {
+      jumpedFor.current = showRequest;
+      jumpRef.current(panelId);
+    }
+    const row = cell.querySelector<HTMLElement>('[data-item-id="' + itemId + '"]');
+    if (!row) {
+      // The Panel holds the row but its list has not drawn it yet (a Dashboard
+      // just switched to loads its lists lazily): look again shortly, for as
+      // long as the request is live, rather than settling without it.
+      if ((shows.get(panelId) ?? []).some((item) => item.id === itemId)) {
+        const again = window.setTimeout(() => setShowAttempts((n) => n + 1), 100);
+        return () => window.clearTimeout(again);
+      }
+      settleTheShowRequest(showRequest);
+      return;
+    }
+    settleTheShowRequest(showRequest);
+    row.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    if (shownRow.current) {
+      window.clearTimeout(shownRow.current.timer);
+      shownRow.current.row.removeAttribute('data-shown');
+    }
+    row.setAttribute('data-shown', '');
+    shownRow.current = {
+      row,
+      timer: window.setTimeout(() => row.removeAttribute('data-shown'), SHOWN_ROW_MS),
+    };
+  });
+  useEffect(
+    () => () => {
+      if (shownRow.current) window.clearTimeout(shownRow.current.timer);
+    },
+    [],
+  );
   useEffect(
     () => () => {
       if (outlined.current) window.clearTimeout(outlined.current.timer);
