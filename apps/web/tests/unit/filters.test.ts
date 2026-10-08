@@ -863,6 +863,14 @@ describe('Panels', () => {
       expect(saysWhatItShows(conditions, [], [], match, groupBy)).toBe(reads);
     });
 
+    it.each([
+      { match: 'all' as const, reads: 'Everything filed; grouped by Panel' },
+      { match: 'any' as const, reads: 'Nothing chosen yet; grouped by Panel' },
+    ])('keeps the grouping when every condition is an is not that filters nothing, set to $match', ({ match, reads }) => {
+      const nothingToExclude: FilterCondition = { field: 'type', values: [], exclude: true };
+      expect(saysWhatItShows([nothingToExclude], [], [], match, 'panel')).toBe(reads);
+    });
+
     it('adds nothing for a grouping it does not know, rather than naming one', () => {
       const unknown = 'type' as unknown as FilterGrouping;
       expect(saysWhatItShows([due('week')], [], [], 'all', unknown)).toBe('Due this week or overdue');

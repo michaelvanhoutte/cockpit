@@ -493,7 +493,10 @@ export function saysWhatItShows(
     .filter((part): part is string => part !== null);
   // Only conditions that exclude nothing: all of them lets every Item through,
   // and any of them adds none.
-  if (parts.length === 0) return match === 'any' ? 'Nothing chosen yet' : 'Everything filed';
+  if (parts.length === 0) {
+    const nothingSaid = match === 'any' ? 'Nothing chosen yet' : 'Everything filed';
+    return isGrouped(groupBy) ? `${nothingSaid}; grouped by ${GROUPING_NAMES[groupBy]}` : nothingSaid;
+  }
   // One condition reads the same either way, so it carries no prefix.
   const rule = match === 'any' && parts.length > 1 ? `Any of: ${parts.join('; ')}` : parts.join(' and ');
   return isGrouped(groupBy) ? `${rule}; grouped by ${GROUPING_NAMES[groupBy]}` : rule;
