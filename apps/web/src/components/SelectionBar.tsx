@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 
 /**
@@ -18,6 +18,9 @@ export function SelectionBar({
   count,
   filing,
   refusal,
+  saving,
+  editMenu,
+  dateField,
   onMoveTo,
   onClear,
   onBoard = false,
@@ -28,6 +31,12 @@ export function SelectionBar({
   filing: boolean;
   /** Why the filing stopped, if it stopped. */
   refusal: string | null;
+  /** Which Item of how many an edit is sending, while one is: the count then says so, and Move to… and Edit wait. */
+  saving: { at: number; of: number } | null;
+  /** Edit ▾ (`useEditingSeveral`), which sits between Move to… and Clear. */
+  editMenu: ReactNode;
+  /** The date field Pick a date… opens, drawn under the buttons. */
+  dateField?: ReactNode;
   onMoveTo: () => void;
   onClear: () => void;
   /** That this is a Dashboard's bar, drawn as a card beside the Inbox rather than as the foot of a list. */
@@ -95,32 +104,40 @@ export function SelectionBar({
               : 'border-t border-shade/5'
         }`}
       >
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium tabular-nums text-accent-deep">
-            {count} selected
+        {/* Wraps, so the Inbox's column - a fifth of the screen - puts the buttons
+          on a line of their own under the count rather than breaking each
+          label across two. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="whitespace-nowrap text-sm font-medium tabular-nums text-accent-deep">
+            {saving ? `Saving ${saving.at} of ${saving.of}…` : `${count} selected`}
           </span>
-          <button
-            type="button"
-            className="ml-auto rounded-sm border border-accent/40 bg-surface px-2 py-1 text-sm hover:border-accent disabled:opacity-50"
-            disabled={filing}
-            onClick={onMoveTo}
-          >
-            {filing ? 'Moving…' : 'Move to…'}
-          </button>
-          <button
-            type="button"
-            className="rounded-sm px-2 py-1 text-sm text-ink-soft hover:text-ink disabled:opacity-50"
-            disabled={filing}
-            onClick={onClear}
-          >
-            Clear
-          </button>
+          <div className="ml-auto flex items-center gap-2 whitespace-nowrap">
+            <button
+              type="button"
+              className="rounded-sm border border-accent/40 bg-surface px-2 py-1 text-sm hover:border-accent disabled:opacity-50"
+              disabled={filing || saving !== null}
+              onClick={onMoveTo}
+            >
+              {filing ? 'Moving…' : 'Move to…'}
+            </button>
+            {editMenu}
+            <button
+              type="button"
+              className="rounded-sm px-2 py-1 text-sm text-ink-soft hover:text-ink disabled:opacity-50"
+              disabled={filing || saving !== null}
+              onClick={onClear}
+            >
+              Clear
+            </button>
+          </div>
         </div>
+
+        {dateField}
 
         {/* Where a refusal is said when the picker has already closed - which is
           what a filing that stopped part way through does, because some of it
           happened. What is left is still picked, so this sits above the ticks
-          it is about. */}
+          it is about. An edit's says how many were not changed and why. */}
         {refusal && (
           <p role="alert" className="pt-1 text-sm text-over-ink">
             {refusal}

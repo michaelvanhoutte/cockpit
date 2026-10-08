@@ -53,6 +53,7 @@ import { typeOf } from '../itemTypes';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { SelectionBar } from './SelectionBar';
 import { FetchedPicker } from './FetchedPicker';
+import { useEditingSeveral } from './useEditingSeveral';
 import { useFilingSeveral } from './useFilingSeveral';
 
 /** Move or add, asked of a drop between panels - fetched only once a drop asks it, for the same reason. */
@@ -247,6 +248,7 @@ export function ItemList({
   useHeldTo(onDashboard ? null : scope);
 
   const filingSeveral = useFilingSeveral({ workspaceId, openDashboardId, scope, picked });
+  const editing = useEditingSeveral({ workspaceId, picked, filing: filingSeveral.filing });
   const { whereItIs, showOnItsPanel, nameOf, addPanelFor, filteredDashboardIds } = filingSeveral;
 
   /**
@@ -952,7 +954,10 @@ export function ItemList({
         <SelectionBar
           count={picked.length}
           filing={filingSeveral.filing}
-          refusal={filingSeveral.refusal}
+          refusal={[filingSeveral.refusal, editing.refusal].filter(Boolean).join(' ') || null}
+          saving={editing.saving}
+          editMenu={editing.menu}
+          dateField={editing.dateField}
           onMoveTo={filingSeveral.ask}
           onClear={stopSelecting}
         />

@@ -120,6 +120,37 @@ async function addToSelection(
   await itemRow(page, title).click({ modifiers: withShift ? ['Shift'] : ['ControlOrMeta'] });
 }
 
+/**
+ * Edit ▾ ▸ a field ▸ an option, the way each device chooses: a finger taps its
+ * way down, a pointer travels from the field to the option in steps - a few
+ * pixels at a time, as a hand does, rather than jumping - because a submenu
+ * that closes as the pointer crosses the next field's trigger is exactly what
+ * a real pointer would meet and a jump never does.
+ */
+async function chooseFromEdit(
+  page: Page,
+  field: string,
+  option: string,
+  isMobile: boolean,
+): Promise<void> {
+  await press(page.getByRole('button', { name: 'Edit ▾' }), isMobile);
+  const trigger = page.getByRole('menuitem', { name: new RegExp(`^${field}`) });
+  const target = page.getByRole('menuitemradio', { name: option, exact: true });
+  if (isMobile) {
+    await trigger.tap();
+    await target.tap();
+    return;
+  }
+  await trigger.hover();
+  await expect(target).toBeVisible();
+  const from = (await trigger.boundingBox())!;
+  const to = (await target.boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
+  await expect(target).toBeVisible();
+  await target.click();
+}
+
 test.describe('Selection', () => {
   test.describe('rows picked out of the Inbox are filed together, and can be put back together', () => {
     test('picks three out and files them onto a panel, then takes it back', async ({
@@ -237,10 +268,13 @@ test.describe('Selection', () => {
   });
 
   test.describe('rows picked across a dashboard’s panels share one selection and one bar', () => {
-    test('picks on two panels, selects all, ends it from the Inbox, and files every pick together', async ({
+    test('picks on two panels, selects all, ends it from the Inbox, files and edits every pick together', async ({
       page,
       isMobile,
     }) => {
+      // The longest walk here: it reaches the state every step after the first
+      // needs, so what Edit adds is extended onto it rather than set up again.
+      test.slow();
       const { dashboard, panel: falcon } = await ownDashboardWithAPanel(page, isMobile);
       const reading = await addPanel(page, 'Reading', isMobile);
       const done = await addPanel(page, 'Done', isMobile);
@@ -314,6 +348,33 @@ test.describe('Selection', () => {
       await expect.poll(() => itemsOn(page, done)).toEqual([]);
       await expect.poll(() => itemsOn(page, falcon)).toEqual([first, second]);
       await expect.poll(() => itemsOn(page, reading)).toEqual([third]);
+
+      // Edit sets a field on every pick, from whichever panel: both rows take
+      // the priority, the selection is still held, and the field now reads
+      // what both share.
+      const high = (title: string) => itemRow(page, title).getByRole('img', { name: 'High priority' });
+      await startSelecting(page, first, isMobile);
+      await addToSelection(page, third, isMobile);
+      await chooseFromEdit(page, 'Priority', 'High', isMobile);
+      await expect(high(first)).toBeVisible();
+      await expect(high(third)).toBeVisible();
+      await expect(page.getByText('2 selected')).toBeVisible();
+      await press(page.getByRole('button', { name: 'Edit ▾' }), isMobile);
+      await expect(page.getByRole('menuitem', { name: /^Priority/ })).toContainText('High');
+      await page.keyboard.press('Escape');
+
+      // One Undo puts both back.
+      await expect(page.getByText('Priority set to High on 2 items')).toBeVisible();
+      await page.getByRole('button', { name: 'Undo' }).click();
+      await expect(high(first)).toHaveCount(0);
+      await expect(high(third)).toHaveCount(0);
+      await page.getByRole('button', { name: 'Clear' }).click();
+
+      // The Inbox's bar offers the same Edit.
+      await goToTheInbox(page, isMobile);
+      await startSelecting(page, inInbox, isMobile);
+      await chooseFromEdit(page, 'Priority', 'High', isMobile);
+      await expect(high(inInbox)).toBeVisible();
     });
   });
 
