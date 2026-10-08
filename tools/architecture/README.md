@@ -38,9 +38,9 @@ drawn.
 file puts it in (its description is the box's tooltip). A box sits on the row below everything that imports it,
 by downward imports alone, and only the shortest chain is drawn: an import a longer chain of downward imports
 already covers is left out. Each arrow is labelled with its file count. A cycle draws its downward half as an
-ordinary arrow and its upward half in red, labelled a tie where the order could not decide it. Areas are found on disk by the file's `discover`
-rules: the web app's `src` as one area, each folder of the API's `src` (and its root files as one more),
-and each package under `packages/` and `packages/connectors/`. A folder holding only tests is not an area.
+ordinary arrow and its upward half in red, labelled a tie where the order could not decide it. Areas are found on disk by the
+file's `discover` rules: the web app's `src` as one area, each folder of the API's `src` (and its root
+files as one more), and each package under `packages/` and `packages/connectors/`. A folder holding only tests is not an area.
 The marks are shown and nothing fails on them:
 
 | Mark | When |
