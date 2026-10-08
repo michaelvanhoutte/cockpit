@@ -317,12 +317,13 @@ src/
 ├── http/          # Hono routes: thin adapters, validate → call domain → serialize
 ├── connectors/    # host side only: the registry wiring connector packages in, and the
 │                  # generic /ingress/:connector webhook route (§6.2). No source-specific code.
+├── engines/       # Claude Code, the one outbound engine, reached only through engines/list.ts (§6.2)
 ├── jobs/          # queue consumers + cron handlers: sync schedules, reconciliation (§6.3)
 ├── ai/            # the AI layer behind an interface (§6.4)
 └── gateway/       # makes, retries and records every paid provider call (provider_calls)
 ```
 
-The dependency rule is one-directional: `domain` imports nothing from the other layers, which makes the L1 tier a property of the design rather than a mocking exercise. Between the API's areas the direction is `http` → `mcp` → `jobs` → `connectors` → `auth` → `accounts` → `db` → `ai`, `embeddings` → `gateway` → `domain`, and CI fails an import that runs against it; `scripts/import-rules.json` declares it, with the breaches not yet removed as an allowlist that can only shrink.
+The dependency rule is one-directional: `domain` imports nothing from the other layers, which makes the L1 tier a property of the design rather than a mocking exercise. Between the API's areas the direction is `http` → `mcp` → `jobs` → `engines` → `connectors` → `auth` → `accounts` → `db` → `ai`, `embeddings` → `gateway` → `domain`, and CI fails an import that runs against it; `scripts/import-rules.json` declares it, with the breaches not yet removed as an allowlist that can only shrink.
 
 ### 6.2 Connectors: plugin-shaped, host-blind
 
@@ -346,6 +347,10 @@ The dependency rule is one-directional: `domain` imports nothing from the other 
 **Webhook ingress is generic.** The host exposes `/ingress/:connectorId/*` and routes the raw request to the connector's handler; signature verification is the connector's job, using SDK helpers. It is outside the sign-in gate, nobody being signed in when a source pushes, so that verification is the only door.
 
 **Testing falls out of the boundary.** Connectors are tested in isolation against a fake host, the core against a fake connector; recorded fixtures cover L2, and the contract suite verifies reality still matches them. Each connector package carries its own README documenting its source's quirks, in the spirit of [poc/slack-realtime](../poc/slack-realtime/README.md).
+
+**Outbound engines are accepted as core, behind a seam inside it** ("Decide how Claude Code and other outbound integrations sit behind a boundary", issue 879). Claude Code is the one thing Cockpit sends work to rather than takes Items from, and with one engine an SDK and package would be an abstraction with nothing to prove it against. Agents, Runs, the dock and the hook route's caps are Cockpit's own, engine-neutral state; what is Claude-specific (the trigger check, the fire request, the refusal wording, reading a hook) sits in `apps/api/src/engines/` and `ConnectClaudeCode.tsx`, which the rest of the core reaches only through the engine lists, `engines/list.ts` and `components/engines.ts`. The same import rule as connectors holds that: a file named for a source `scripts/import-rules.json` marks as an engine may be imported only by an engine list, and an engine list may import no other source. Generic files may still name the `claude-code` id; the seam is about behaviour, not mentions. **The trigger:** once a second engine is planned, the engine place becomes an SDK-backed package, as connectors are.
+
+**An engine's connection is a row in the connections table beside source accounts**, a credential a Workspace holds for an outside system under the id of what uses it. Its row id stays, since the hook secret derives from it; the pulled host and the Connections window's registry cards act only on ids the connector registry holds, so an engine's row is never taken for a source. Disconnecting is the one command for both. **A start stays inside the request**, waiting on Claude up to its limit and recording *unknown* where no answer comes.
 
 ### 6.3 Background jobs: Cloudflare Queues + Cron Triggers
 

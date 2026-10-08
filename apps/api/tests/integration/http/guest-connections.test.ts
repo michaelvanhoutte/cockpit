@@ -261,7 +261,7 @@ describe('Connector management', () => {
       )
         .bind(planted.id, GUEST_ACCOUNT_NAME, workspaceId, AT)
         .run();
-      const { hookSecretFor } = await import('../../../src/connectors/claude-code-hooks.js');
+      const { hookSecretFor } = await import('../../../src/engines/claude-code-hooks.js');
       const secret = await hookSecretFor(env.CONNECTOR_CREDENTIAL_KEY, planted.id);
 
       const answer = await SELF.fetch(`http://cockpit.test/ingress/claude-code/hooks/${planted.id}`, {

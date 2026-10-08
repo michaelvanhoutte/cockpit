@@ -14,7 +14,7 @@ import {
 import { api, refusal } from '../api/client';
 import { refusalFrom, useCommand, useConnectClaudeCode, useTestClaudeCodeConnection } from '../api/queries';
 import type { ConnectOutcome } from '../connections';
-import { ConnectClaudeCode } from './ConnectClaudeCode';
+import { ConnectEngine } from './engines';
 import { ChangeGmailFollows } from './ChangeGmailFollows';
 import { ConnectGmail } from './ConnectGmail';
 import { DeleteQuestion } from './DeleteQuestion';
@@ -491,7 +491,7 @@ export default function ManageConnections({
         ))}
       </div>
 
-      <ConnectClaudeCode
+      <ConnectEngine
         open={claudeCodeForm}
         workspaceId={workspaceId}
         connectionId={claudeCodeConnected?.id}

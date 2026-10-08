@@ -23,7 +23,7 @@ import {
  * for the start the runs come from, as agent-runs.test.ts does.
  *
  * Not re-proved here: which ids name a session, and the secret's own checks,
- * which are tests/unit/connectors/claude-code-hooks.test.ts's and
+ * which are tests/unit/engines/claude-code-hooks.test.ts's and
  * packages/shared's; what the chip and the dock say, which is the web app's
  * own F1 tests.
  */

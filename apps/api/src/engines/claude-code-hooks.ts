@@ -1,5 +1,5 @@
 import { base64url } from '../auth/oidc.js';
-import { signingKey } from './credential-crypto.js';
+import { signingKey } from '../connectors/credential-crypto.js';
 
 /**
  * Claude Code hooks reporting a session's state back to Cockpit ("See on the
@@ -7,9 +7,9 @@ import { signingKey } from './credential-crypto.js';
  * waiting on you, `UserPromptSubmit` that it is working again.
  *
  * **The route is outside the sign-in gate**, so what is here is its whole
- * door: a secret per connection, a cap on the body, and a cap on how often
- * one connection is heard from. Pure apart from Web Crypto, and provable at
- * L1 (tests/unit/connectors/claude-code-hooks.test.ts).
+ * door: a secret per connection, a cap on the body, and (in the account's store, `accounts/call-window.ts`)
+ * a cap on how often one connection is heard from. Pure apart from Web Crypto, and provable at
+ * L1 (tests/unit/engines/claude-code-hooks.test.ts).
  */
 
 /** The path a connection's hooks post to, under the ingress prefix the sign-in gate waves through. */
@@ -22,10 +22,6 @@ export const HOOK_PATH_PREFIX = '/ingress/claude-code/hooks/';
  * that never moves.
  */
 export const HOOK_BODY_LIMIT_BYTES = 1024 * 1024;
-
-/** How many calls one connection is heard in a minute - a session sends two a turn. */
-export const HOOK_CALLS_PER_MINUTE = 60;
-const WINDOW_MS = 60_000;
 
 const PURPOSE = 'cockpit claude-code hooks v1';
 
@@ -50,19 +46,6 @@ export async function isHookSecret(
   const mac = bytesOfBase64url(presented);
   if (!key || !mac || mac.length !== 32) return false;
   return crypto.subtle.verify('HMAC', key, mac, new TextEncoder().encode(sourceAccountId));
-}
-
-/**
- * The calls a connection has been admitted for in the last minute, with this
- * one added - or null where it is one too many, leaving the count as it was.
- */
-export function admittedCalls(
-  earlier: readonly number[],
-  now: number,
-  limit: number = HOOK_CALLS_PER_MINUTE,
-): number[] | null {
-  const recent = earlier.filter((at) => now - at < WINDOW_MS);
-  return recent.length >= limit ? null : [...recent, now];
 }
 
 /** Whether a hook's event says the session is waiting on you, working again, or neither. */

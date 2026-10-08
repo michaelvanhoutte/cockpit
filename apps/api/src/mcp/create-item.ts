@@ -24,7 +24,7 @@ export const SERVER_INSTRUCTIONS =
 
 /**
  * How many `create_item` calls one grant is admitted for in a minute, refused ones included - the same number
- * the Claude Code hooks are held to (`HOOK_CALLS_PER_MINUTE`), for the same
+ * the Claude Code hooks are held to (`HOOK_CALLS_PER_MINUTE`, accounts/call-window.ts), for the same
  * reason: well above anything a person asking Claude does, and a ceiling on
  * what a runaway loop can write before somebody notices.
  */

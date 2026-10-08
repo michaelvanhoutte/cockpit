@@ -20,7 +20,7 @@ import {
  * application makes its own real HTTP call, exactly as it does against
  * Microsoft in connections.test.ts - and nothing here re-proves
  * `isRoutineTriggerUrl`'s own branches, which is
- * tests/unit/connectors/claude-code.test.ts's.
+ * tests/unit/engines/claude-code.test.ts's.
  */
 
 const OTHER_WORKSPACE_ID = 'ws-atlas';
