@@ -245,7 +245,7 @@ function run(env: Env, job: EnrichmentJob): Promise<void> {
     case 'check-a-pulled-connection':
       return checkPulledConnection(env, job, async (accountName, itemId, connectorId) => {
         await enqueueCleanUp(env, accountName, itemId, `connector:${connectorId}`);
-        await enqueueReadingItsMeaning(env, accountName, itemId);
+        await enqueueReadingItsMeaning(env, accountName, itemId, `connector:${connectorId}`);
       });
   }
 }

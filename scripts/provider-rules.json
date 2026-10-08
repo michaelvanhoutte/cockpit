@@ -1,0 +1,39 @@
+{
+  "scan": [
+    "apps/api/src",
+    "packages"
+  ],
+  "holders": [
+    "apps/api/src/gateway/",
+    "apps/api/src/ai/index.ts",
+    "apps/api/src/embeddings/index.ts",
+    "apps/api/src/connectors/claude-code.ts"
+  ],
+  "sdks": [
+    "@anthropic-ai/",
+    "@ai-sdk/",
+    "@cloudflare/ai",
+    "@google/genai",
+    "@google/generative-ai",
+    "@mistralai/",
+    "ai",
+    "cohere-ai",
+    "groq-sdk",
+    "openai"
+  ],
+  "addresses": [
+    "api.anthropic.com",
+    "api.openai.com",
+    "api.mistral.ai",
+    "api.cohere.com",
+    "api.groq.com",
+    "api.deepseek.com",
+    "api.elevenlabs.io",
+    "api.deepgram.com",
+    "api.assemblyai.com",
+    "generativelanguage.googleapis.com"
+  ],
+  "bindings": [
+    "AI"
+  ]
+}

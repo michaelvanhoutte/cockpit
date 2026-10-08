@@ -75,6 +75,13 @@ describe('each record is one CSV row Excel reads back as written', () => {
     });
   }
 
+  it('says who paid for a Workers AI reading and for a routine on a Claude plan, naming the routine', () => {
+    const reading = cells(toCsv([record({ paidBy: 'cloudflare-workers-ai', paidByAccount: null, paidByKeyEnding: null })]));
+    assert.ok(reading.includes(',Cloudflare Workers AI,ok,'), reading);
+    const routine = cells(toCsv([record({ paidBy: 'claude-plan', paidByAccount: 'trig_01', paidByKeyEnding: null })]));
+    assert.ok(routine.includes(`,The person's own Claude plan (routine trig_01),ok,`), routine);
+  });
+
   it('leaves token counts the provider did not report empty, not 0', () => {
     const row = cells(toCsv([record({ tokensIn: null, cacheRead: null, cacheWrite: null, tokensOut: null })]));
     assert.ok(row.endsWith(',ok,4210,,,,,item-1'), row);

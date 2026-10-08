@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import type { Env } from '../env.js';
+import { callThrough, inRealTime, NEVER_RETRIED, type CallAbout, type Outcome, type Recorder, type Trigger } from '../gateway/attempts.js';
+import { providerCallsIn } from '../gateway/record.js';
 
 /**
  * Reading what a note *means*, behind a project-owned interface - the same
@@ -15,14 +17,16 @@ import type { Env } from '../env.js';
  */
 export interface EmbeddingService {
   /**
-   * What one text means, as a vector.
+   * What one text means, as a vector. `callFor` says whom the call was for, so
+   * the gateway can record it ("Record every paid provider call through one
+   * gateway", issue 902); a stand-in records nothing.
    *
    * Throws rather than answering a refusal, unlike `cleanUpNote`: there is no
    * such thing as the model declining a piece of text here, so everything that
    * can go wrong is a call that failed - which is worth retrying, and is what
    * the queue retries (`jobs/enrichment.ts`).
    */
-  readMeaning(text: string): Promise<number[]>;
+  readMeaning(text: string, callFor: ReadingFor): Promise<number[]>;
 
   /**
    * What several texts mean, in the order given - one call rather than one per
@@ -31,7 +35,16 @@ export interface EmbeddingService {
    * this exists because a backfill's batch is exactly the shape Workers AI
    * itself takes many texts in one request.
    */
-  readMeanings(texts: readonly string[]): Promise<number[][]>;
+  readMeanings(texts: readonly string[], callFor: ReadingFor): Promise<number[][]>;
+}
+
+/** Whom and what a reading is for, as its record names it. */
+export interface ReadingFor {
+  accountName: string;
+  /** `null` for a batch, which is one call about many notes. */
+  itemId: string | null;
+  /** `null` where the job was queued before what started it was carried. */
+  triggeredBy: Trigger | null;
 }
 
 /**
@@ -69,7 +82,7 @@ export function embeddingsFor(env: Env): EmbeddingService | null {
   // it even where a binding is also present - the same precedence `OIDC_ISSUER`
   // takes over Google (`auth/issuer.ts`).
   if (env.EMBEDDINGS_STAND_IN === 'true') return new StandInEmbeddingService();
-  if (env.AI) return new WorkersAiEmbeddingService(env.AI);
+  if (env.AI) return new WorkersAiEmbeddingService(env.AI, providerCallsIn(env));
   return null;
 }
 
@@ -83,25 +96,53 @@ const embeddingAnswerSchema = z.object({
   data: z.array(z.array(z.number()).min(1)).min(1),
 });
 
+/** How a failed reading is recorded: Workers AI answers with no HTTP status a caller can read, so none is kept. */
+function workersAiOutcome(error: unknown): Outcome {
+  return error instanceof Error && error.name === 'TimeoutError' ? { outcome: 'timed-out' } : { outcome: 'error', status: null };
+}
+
 /** The Workers AI implementation. Constructed by `embeddingsFor` and nowhere else. */
 export class WorkersAiEmbeddingService implements EmbeddingService {
   readonly #ai: NonNullable<Env['AI']>;
+  readonly #record: Recorder;
 
-  constructor(ai: NonNullable<Env['AI']>) {
+  /** `record` is handed every call's record, which `embeddingsFor` has write D1. */
+  constructor(ai: NonNullable<Env['AI']>, record: Recorder) {
     this.#ai = ai;
+    this.#record = record;
   }
 
-  async readMeaning(text: string): Promise<number[]> {
-    return (await this.readMeanings([text]))[0]!;
+  async readMeaning(text: string, callFor: ReadingFor): Promise<number[]> {
+    return (await this.readMeanings([text], callFor))[0]!;
   }
 
-  async readMeanings(texts: readonly string[]): Promise<number[][]> {
-    const answer = await this.#ai.run(EMBEDDING_MODEL, { text: [...texts] });
-    const read = embeddingAnswerSchema.safeParse(answer);
-    if (!read.success || read.data.data.length !== texts.length) {
-      throw new Error(`${EMBEDDING_MODEL} answered with something that is not a reading`);
-    }
-    return read.data.data;
+  /**
+   * One call through the gateway, which records it with no token counts:
+   * Workers AI reports none. Never repeated here - the queue is what retries a
+   * reading, and each of its attempts is its own record.
+   */
+  async readMeanings(texts: readonly string[], callFor: ReadingFor): Promise<number[][]> {
+    const about: CallAbout = {
+      ...callFor,
+      operation: 'read-what-a-note-means',
+      promptVersion: null,
+      provider: 'cloudflare',
+      model: EMBEDDING_MODEL,
+      paidBy: { kind: 'cloudflare-workers-ai', account: null, keyEnding: null },
+    };
+    return callThrough(
+      about,
+      async () => {
+        const answer = await this.#ai.run(EMBEDDING_MODEL, { text: [...texts] });
+        const read = embeddingAnswerSchema.safeParse(answer);
+        if (!read.success || read.data.data.length !== texts.length) {
+          throw new Error(`${EMBEDDING_MODEL} answered with something that is not a reading`);
+        }
+        return { value: read.data.data, tokens: null };
+      },
+      { ...NEVER_RETRIED, outcomeOf: workersAiOutcome },
+      inRealTime(this.#record),
+    );
   }
 }
 

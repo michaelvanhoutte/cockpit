@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
-import { callThrough, type CallAbout, type Outcome, type Recorder, type RetryPolicy, type Trigger } from '../gateway/attempts.js';
+import { callThrough, inRealTime, type CallAbout, type Outcome, type Recorder, type RetryPolicy, type Trigger } from '../gateway/attempts.js';
 import { providerCallsIn } from '../gateway/record.js';
 import { buildCleanUpANote } from './prompts/clean-up-a-note.v11.js';
 import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v2.js';
@@ -271,12 +271,7 @@ export class ClaudeAiService implements AiService {
         };
       },
       CLAUDE_RETRIES,
-      {
-        record: this.#record,
-        clock: () => Date.now(),
-        now: () => new Date(),
-        wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-      },
+      inRealTime(this.#record),
     );
     // A refusal is the model declining, not a fault: it reaches here as a
     // successful call with nothing usable in it, which is exactly what a
