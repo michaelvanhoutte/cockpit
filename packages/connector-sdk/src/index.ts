@@ -31,12 +31,55 @@ export interface ConnectorManifest {
   auth: OAuthDescriptor | { kind: 'none' };
 }
 
-/** Enough for the host to run the OAuth dance generically. */
+/**
+ * A connector's description of its own sign-in: enough for the host to run the
+ * whole dance for it, from the redirect to the sealed credential
+ * ("Connect and disconnect a source through one generic sign-in flow", issue
+ * 892). The host sends the browser away with PKCE, spends the code, seals the
+ * token response as the source issued it and stores the connection; the one
+ * step it cannot do for a source is name the account, which is
+ * `Connector.accountFrom`.
+ *
+ * Data only, so a manifest can be listed and compared without running
+ * anything. Which settings hold the client is named here and read by the host,
+ * so a connector never sees a secret it was not handed.
+ */
 export interface OAuthDescriptor {
   kind: 'oauth2';
-  authorizationUrl: string;
-  tokenUrl: string;
+  /**
+   * Where the source answers: an issuer whose discovery document names its
+   * endpoints and signing keys - the host then also verifies the identity
+   * token in the reply and hands its claims to `accountFrom` - or fixed
+   * authorization and token URLs, for a source with neither, where the claims
+   * are `null` and the token response is all there is to read.
+   */
+  endpoints: { issuer: string } | { authorizationUrl: string; tokenUrl: string };
   scopes: string[];
+  /** The names of the environment settings holding the client the source issued this Cockpit. */
+  clientSettings: { id: string; secret: string };
+}
+
+/** What the host hands `Connector.accountFrom` once the source has answered a sign-in. */
+export interface SignInReply {
+  /**
+   * The claims of the identity token, after the host has checked its signature,
+   * issuer, audience, expiry and the nonce this sign-in sent. `null` for a
+   * source with fixed URLs, which has no identity token to check.
+   */
+  claims: Record<string, unknown> | null;
+  /** The token response as the source answered it. */
+  tokenResponse: Record<string, unknown>;
+}
+
+/**
+ * Who a sign-in connected, in the source's own terms. `key` is the whole of
+ * what makes connecting the same account twice a refresh rather than a second
+ * connection, and is the same key a push names the account by (`PushHost`).
+ */
+export interface ConnectedAccountIdentity {
+  key: string;
+  /** What the connection is called in the list of connections. */
+  displayName: string;
 }
 
 /**
@@ -179,6 +222,14 @@ export interface Connector {
 
   /** Pull changes from the source. Sync strategy is the connector's private business. */
   sync(host: ConnectorHost): Promise<void>;
+
+  /**
+   * The step turning a sign-in's reply into the account it connected, for a
+   * connector whose manifest `auth` is `oauth2`. Pure: answers `null` where
+   * the reply names nobody, which the host treats as a refused sign-in. A
+   * connector with `auth` of `none` is never signed in and is never asked.
+   */
+  accountFrom?(reply: SignInReply): ConnectedAccountIdentity | null;
 
   /**
    * Optional push ingress. The host routes POST /ingress/:connectorId/* here

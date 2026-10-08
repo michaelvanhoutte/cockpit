@@ -12,7 +12,10 @@ import type { Env } from '../env.js';
  * is a secret per environment, and a connector that has not been told it is one
  * this environment does not have. So an environment with no `MS_BOT_APP_ID`
  * offers no Teams ingress at all rather than one that refuses everything, which
- * is the same standing every other absent secret has (`src/env.ts`).
+ * is the same standing every other absent secret has (`src/env.ts`). **And no
+ * way to connect one**: the sign-in routes find a connector here, so a source
+ * that is not registered is not found there either ("Connect and disconnect a
+ * source through one generic sign-in flow", issue 892).
  */
 export function connectors(env: Env): Connector[] {
   return [
@@ -22,6 +25,9 @@ export function connectors(env: Env): Connector[] {
       ? [
           createTeamsConnector({
             appId: env.MS_BOT_APP_ID,
+            // The stub issuer locally and in the browser suite, Microsoft's own
+            // where nothing overrides it (`whoToBelieve`, auth/issuer.ts).
+            ...(env.OIDC_ISSUER?.trim() ? { issuer: env.OIDC_ISSUER.trim() } : {}),
             ...(env.BOT_FRAMEWORK_METADATA_URL
               ? { metadataUrl: env.BOT_FRAMEWORK_METADATA_URL }
               : {}),

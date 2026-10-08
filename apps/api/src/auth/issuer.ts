@@ -17,16 +17,6 @@ import { TENANT_PLACEHOLDER, type IssuerEndpoints } from './oidc.js';
 const GOOGLE = 'https://accounts.google.com';
 
 /**
- * Who says whose Microsoft account a Workspace is connecting ("Connect a
- * Microsoft Teams source account", issue 485) - the multi-tenant endpoint,
- * because whose tenant somebody connects is theirs to choose.
- *
- * Its discovery document names itself with `{tenantid}` where a real tenant
- * goes, which is why `discover` below and `oidc.ts` both know that spelling.
- */
-const MICROSOFT = 'https://login.microsoftonline.com/common/v2.0';
-
-/**
  * **`OIDC_ISSUER` is how local development and the browser suite point at the
  * stub issuer**, which is what lets them run the same flow this file runs
  * against Google - one sign-in path everywhere, rather than a bypass in the
@@ -35,10 +25,12 @@ const MICROSOFT = 'https://login.microsoftonline.com/common/v2.0';
  * in against whatever it named: it is configuration with the weight of a
  * secret, and docs/deployment.md says so where the secrets are listed.
  *
- * **It stands in for both issuers**, which is the whole reason it is a
- * fallback per flow rather than a constant: one stub answering both flows is
+ * **It stands in for every issuer**, which is the whole reason it is a
+ * fallback per flow rather than a constant: one stub answering every flow is
  * what lets a worktree drive connecting a Teams account without a second
- * issuer to start and a second variable to keep in step.
+ * issuer to start and a second variable to keep in step. A connector that
+ * names an issuer of its own (Teams, `connectors/registry.ts`) is handed this
+ * one in its place.
  */
 function whoToBelieve(env: Env, unlessOverridden: string): string {
   return env.OIDC_ISSUER?.trim() || unlessOverridden;
@@ -46,10 +38,6 @@ function whoToBelieve(env: Env, unlessOverridden: string): string {
 
 export function issuerFor(env: Env): string {
   return whoToBelieve(env, GOOGLE);
-}
-
-export function teamsIssuerFor(env: Env): string {
-  return whoToBelieve(env, MICROSOFT);
 }
 
 /**
@@ -180,7 +168,32 @@ export async function exchangeCode(
   credentials: { clientId: string; clientSecret: string },
   reply: { code: string; codeVerifier: string; redirectUri: string },
 ): Promise<ExchangedTokens | null> {
-  const response = await fetch(endpoints.tokenEndpoint, {
+  const asIssued = await spendCode(endpoints.tokenEndpoint, credentials, reply);
+  if (asIssued === null) return null;
+  let idToken: unknown;
+  try {
+    // Read inside the `try` as well as parsed there: `null` is valid JSON, and
+    // reading a property off it throws rather than answering `undefined`.
+    idToken = (JSON.parse(asIssued) as { id_token?: unknown } | null)?.id_token;
+  } catch {
+    return null;
+  }
+  return typeof idToken === 'string' && idToken ? { idToken, asIssued } : null;
+}
+
+/**
+ * Spends a code at a token endpoint and answers the response exactly as it
+ * arrived, or `null` for a refusal - for a source whose token endpoint is a
+ * fixed address and whose answer need not carry an identity token
+ * ("Connect and disconnect a source through one generic sign-in flow", issue
+ * 892). Read as text so the answer can be kept whole, see `ExchangedTokens`.
+ */
+export async function spendCode(
+  tokenEndpoint: string,
+  credentials: { clientId: string; clientSecret: string },
+  reply: { code: string; codeVerifier: string; redirectUri: string },
+): Promise<string | null> {
+  const response = await fetch(tokenEndpoint, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -203,18 +216,9 @@ export async function exchangeCode(
     return null;
   }
 
-  // Read as text and parsed here, rather than `response.json()`, so the answer
-  // can be kept exactly as it arrived - see `ExchangedTokens` above.
-  const asIssued = await response.text();
-  let idToken: unknown;
-  try {
-    // Read inside the `try` as well as parsed there: `null` is valid JSON, and
-    // reading a property off it throws rather than answering `undefined`.
-    idToken = (JSON.parse(asIssued) as { id_token?: unknown } | null)?.id_token;
-  } catch {
-    return null;
-  }
-  return typeof idToken === 'string' && idToken ? { idToken, asIssued } : null;
+  // Read as text, rather than `response.json()`, so the answer can be kept
+  // exactly as it arrived - see `ExchangedTokens` above.
+  return response.text();
 }
 
 /** How long a revoke may take before disconnecting stops waiting for it. */

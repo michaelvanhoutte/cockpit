@@ -121,16 +121,17 @@ export function newAttempt(random: Pick<Crypto, 'getRandomValues'> = crypto): At
  * accounts signed in has to be able to choose the one this Cockpit knows.
  */
 export async function authorizationUrl(
-  endpoints: IssuerEndpoints,
+  endpoints: Pick<IssuerEndpoints, 'authorizationEndpoint'>,
   clientId: string,
   redirectUri: string,
   attempt: Attempt,
+  scopes: string = SCOPES,
 ): Promise<string> {
   const url = new URL(endpoints.authorizationEndpoint);
   url.searchParams.set('client_id', clientId);
   url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('response_type', 'code');
-  url.searchParams.set('scope', SCOPES);
+  url.searchParams.set('scope', scopes);
   url.searchParams.set('state', attempt.state);
   url.searchParams.set('nonce', attempt.nonce);
   url.searchParams.set('code_challenge', await challengeFor(attempt.codeVerifier));
@@ -185,7 +186,8 @@ export const TENANT_PLACEHOLDER = '{tenantid}';
  *
  * **Shared by signing in and by connecting a source account**, which believe
  * a token for the same five reasons and then read different claims out of it
- * (`identityFrom` below, and `connectors/teams.ts`).
+ * (`identityFrom` below, and `connectors/sign-in.ts`, which hands the claims
+ * to the connector's own account step).
  */
 export async function claimsFrom(
   idToken: string,
