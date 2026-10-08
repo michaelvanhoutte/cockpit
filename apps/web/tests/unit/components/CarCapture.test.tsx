@@ -225,6 +225,7 @@ describe('Capture', () => {
     vi.unstubAllGlobals();
     pageIs('visible');
     document.documentElement.removeAttribute('data-car-dark');
+    document.documentElement.removeAttribute('data-app-dark');
   });
 
   describe('the Car view is not offered where the browser cannot recognise speech', () => {
@@ -710,6 +711,64 @@ describe('Capture', () => {
 
       expect(flagged()).toBe(false);
       expect(screen.getByRole('status')).toHaveTextContent(NO_SPEECH_HERE);
+    });
+  });
+
+  describe('the Car view is dark when the app is dark or its own switch is on, and light only when both are light', () => {
+    const flagged = () => document.documentElement.hasAttribute('data-car-dark');
+    const appIs = (look: 'dark' | 'light') =>
+      act(() => {
+        if (look === 'dark') document.documentElement.setAttribute('data-app-dark', '');
+        else document.documentElement.removeAttribute('data-app-dark');
+      });
+
+    it.each([
+      { situation: 'app dark, Car switch off', app: 'dark', own: 'light', night: true },
+      { situation: 'app light, Car switch on', app: 'light', own: 'dark', night: true },
+      { situation: 'app light, Car switch off', app: 'light', own: 'light', night: false },
+    ] as const)('$situation: night look is $night', async ({ app, own, night }) => {
+      await appIs(app);
+      await theCar({ dictating: { engine: anEngine().engine, store: aStore({ [CAR_DARK_KEY]: own }) } });
+
+      expect(flagged()).toBe(night);
+    });
+
+    it('is light again when the app goes from dark to light with the Car switch off', async () => {
+      await appIs('dark');
+      await theCar({ dictating: { engine: anEngine().engine, store: aStore() } });
+      expect(flagged()).toBe(true);
+
+      await appIs('light');
+
+      expect(flagged()).toBe(false);
+    });
+  });
+
+  describe('the Car view switch is hidden while the app is dark, and returns with its own choice once the app is light', () => {
+    const appIs = (look: 'dark' | 'light') =>
+      act(() => {
+        if (look === 'dark') document.documentElement.setAttribute('data-app-dark', '');
+        else document.documentElement.removeAttribute('data-app-dark');
+      });
+
+    it('shows no switch beside the language tag while the app is dark', async () => {
+      await appIs('dark');
+      await theCar({ dictating: { engine: anEngine().engine, store: aStore() } });
+
+      expect(screen.queryByRole('button', { name: 'Dark view' })).toBeNull();
+    });
+
+    it.each([
+      { choice: 'dark', pressed: 'true', night: true },
+      { choice: 'light', pressed: 'false', night: false },
+    ] as const)('shows the switch as it was, with the choice $choice, once the app goes light', async ({ choice, pressed, night }) => {
+      await appIs('dark');
+      await theCar({ dictating: { engine: anEngine().engine, store: aStore({ [CAR_DARK_KEY]: choice }) } });
+
+      await appIs('light');
+
+      expect(theMoon()).toHaveAttribute('aria-pressed', pressed);
+      expect(document.documentElement.hasAttribute('data-car-dark')).toBe(night);
     });
   });
 

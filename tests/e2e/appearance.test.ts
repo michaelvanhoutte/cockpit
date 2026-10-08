@@ -15,6 +15,20 @@ test.describe('Appearance', () => {
     // The dark page and the dark surface, as styles.css gives them.
     const PAGE = 'rgb(27, 28, 33)';
     const SURFACE = 'rgb(36, 37, 43)';
+    // The Car view's night ground, as styles.css gives it.
+    const NIGHT = 'rgb(17, 18, 22)';
+
+    // The Car view is offered only where the browser can recognise speech.
+    test.beforeEach(async ({ page }) => {
+      await page.addInitScript(() => {
+        class FakeSpeechRecognition {
+          start() {}
+          stop() {}
+          abort() {}
+        }
+        Object.assign(window, { SpeechRecognition: FakeSpeechRecognition, webkitSpeechRecognition: FakeSpeechRecognition });
+      });
+    });
 
     test('is dark on the logon page, on a Dashboard and in a menu opened over it, and is chosen in Settings, on a phone too', async ({ page, isMobile }) => {
       // Asked as soon as the document exists, before the app has drawn a thing.
@@ -56,6 +70,19 @@ test.describe('Appearance', () => {
 
       await choose(/^Dark/);
       expect(await groundOf(page)).toBe(PAGE);
+
+      // The Car view is in its night look whenever the app is dark, with no
+      // moon/sun switch; Light brings the switch back and the view follows its own choice.
+      const body = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+      await page.goto('/capture');
+      await press(page.getByRole('link', { name: 'Car' }), isMobile);
+      await expect(page.getByRole('button', { name: 'Speak a note' })).toBeVisible();
+      await expect.poll(body).toBe(NIGHT);
+      await expect(page.getByRole('button', { name: 'Dark view' })).toHaveCount(0);
+
+      await choose(/^Light/);
+      await expect(page.getByRole('button', { name: 'Dark view' })).toHaveAttribute('aria-pressed', 'false');
+      await expect.poll(body).not.toBe(NIGHT);
     });
   });
 });
