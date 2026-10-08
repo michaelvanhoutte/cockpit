@@ -104,6 +104,17 @@ describe('Modules', () => {
     return JSON.parse(readFileSync(run.model, 'utf8'));
   };
 
+  it('draws this repository’s own areas as boxes, one per area on disk, none overlapping, with arrows between them', async () => {
+    const run = await draw(checkout);
+    expect(run.code).toBe(0);
+    const { modules } = JSON.parse(readFileSync(run.model, 'utf8'));
+    const page = readFileSync(run.out, 'utf8');
+    const boxes = [...page.matchAll(/<rect class="[a-z]+" data-area="([^"]*)" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/g)].map((each) => ({ area: each[1], x: +each[2], y: +each[3], w: +each[4], h: +each[5] }));
+    expect(boxes.map((each) => each.area).sort()).toEqual(modules.layers.flatMap((layer) => layer.areas).map((each) => each.path).sort());
+    for (const [at, a] of boxes.entries()) for (const b of boxes.slice(at + 1)) expect(a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h, `${a.area} meets ${b.area}`).toBe(false);
+    expect(page.match(/<line class="edge"/g)?.length).toBeGreaterThan(5);
+  });
+
   it('finds the areas on disk by the description file’s own rules: folders, root files, packages, never tests or dependencies', async () => {
     const root = fixture({
       files: {
