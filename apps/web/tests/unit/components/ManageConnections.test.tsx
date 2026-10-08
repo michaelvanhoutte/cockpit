@@ -548,6 +548,15 @@ describe('Connector management', () => {
       expect(screen.getByRole('button', { name: 'Connect Claude Code' })).toBeInTheDocument();
     });
 
+    it('draws the named Gmail card once even when the registry holds a connector of that id', async () => {
+      held.registry = [{ id: 'gmail', displayName: 'Gmail again', cardText: 'x', asksFirst: false }];
+
+      showWindow();
+
+      expect(await screen.findByRole('button', { name: 'Connect Gmail' })).toBeInTheDocument();
+      expect(screen.queryByText('Gmail again')).toBeNull();
+    });
+
     it('shows Teams’ card with its manifest’s text', async () => {
       showWindow();
 
