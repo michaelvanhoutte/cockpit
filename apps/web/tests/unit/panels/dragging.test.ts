@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { arrangedWith, arrangedWithRow, placementFor, rowPlacementFor } from '../../../src/panels/dragging';
+import {
+  arrangedWith,
+  arrangedWithRow,
+  arrangedWithSection,
+  placementFor,
+  rowPlacementFor,
+  sectionPlacementFor,
+} from '../../../src/panels/dragging';
+import { sameArrangement } from '../../../src/panels/arrangement';
 import type { DrawnRow } from '../../../src/panels/dragging';
 import type { LayoutRow } from '@cockpit/shared';
 
@@ -372,5 +380,106 @@ describe('Panels', () => {
         }
       },
     );
+  });
+});
+
+/**
+ * A Section on the board ("Drag a Section between a Dashboard's rows, and keep
+ * Panels off its line", issue 897): a row holding no Panels, so a string stands
+ * for one in the rows below, as a list of panel ids stands for any other.
+ */
+type Line = string | string[];
+
+/** The rows as drawn: a Section is a band of its own, named by how many Sections come before it. */
+function drawnWithSections(lines: readonly Line[]): DrawnRow[] {
+  let sections = 0;
+  return lines.map((line, index) => {
+    const top = index * 122;
+    if (typeof line === 'string') return { top, bottom: top + 100, cells: [], section: sections++ };
+    return { top, bottom: top + 100, cells: line.map((panelId) => ({ panelId, left: 0, right: 600 })) };
+  });
+}
+
+/** The same rows as the arrangement stores them. */
+function storedWithSections(lines: readonly Line[]): LayoutRow[] {
+  return lines.map((line) =>
+    typeof line === 'string'
+      ? { height: null, title: line, cells: [] }
+      : { height: null, cells: line.map((panelId) => ({ panelId, span: 12 })) },
+  );
+}
+
+/** What is on each row: a Panel's id, or the title of a Section in capitals. */
+const shape = (rows: readonly LayoutRow[]) =>
+  rows.map((row) => (row.title === undefined ? row.cells.map((c) => c.panelId) : row.title.toUpperCase()));
+
+describe('Layouts', () => {
+  describe('a Section moves only between rows, and nothing shares its line', () => {
+    // Three rows, 100 tall with 22 between: middles at 50, 172 and 294.
+    const lines: Line[] = [['a'], ['b'], 'Soon'];
+    const rows = drawnWithSections(lines);
+    const from = storedWithSections(lines);
+    const held = 2;
+
+    it.each([
+      { situation: 'taken from the foot to above the first row', y: 10, place: 0, becomes: ['SOON', ['a'], ['b']] },
+      { situation: 'taken to the gap between two rows', y: 110, place: 1, becomes: [['a'], 'SOON', ['b']] },
+      {
+        situation: 'released over a row of Panels, placed by its height and never beside a Panel',
+        y: 150,
+        place: 1,
+        becomes: [['a'], 'SOON', ['b']],
+      },
+      { situation: 'released where it started', y: 294, place: 2, becomes: [['a'], ['b'], 'SOON'] },
+    ])('$situation', ({ y, place, becomes }) => {
+      expect(sectionPlacementFor(y, rows, held)).toBe(place);
+      expect(shape(arrangedWithSection(from, held, place))).toEqual(becomes);
+    });
+
+    it('sends nothing for a Section released where it started', () => {
+      expect(sameArrangement(arrangedWithSection(from, held, 2), from)).toBe(true);
+    });
+
+    it('asks for nothing where the Section in hand is not on the board', () => {
+      expect(sectionPlacementFor(100, rows, 7)).toBeNull();
+    });
+
+    describe('with a Panel in hand', () => {
+      const board: Line[] = [['a', 'c'], 'Soon', ['b']];
+
+      it('shows nothing happening on a Section’s line', () => {
+        expect(placementFor({ x: 300, y: 172 }, drawnWithSections(board), 'c')).toBeNull();
+      });
+
+      it('takes a row of its own in the gap under a Section', () => {
+        const placement = placementFor({ x: 300, y: 233 }, drawnWithSections(board), 'c');
+
+        expect(placement).toEqual({ on: 'underSection', section: 0 });
+        expect(shape(arrangedWith(storedWithSections(board), 'c', placement!))).toEqual([
+          ['a'],
+          'SOON',
+          ['c'],
+          ['b'],
+        ]);
+      });
+
+      it('takes a row of its own under a Section at the foot of the board', () => {
+        const atFoot = drawnWithSections([['a'], 'Soon']);
+
+        const placement = placementFor({ x: 300, y: 400 }, atFoot, 'a');
+
+        expect(placement).toEqual({ on: 'underSection', section: 0 });
+        expect(shape(arrangedWith(storedWithSections([['a'], 'Soon']), 'a', placement!))).toEqual(['SOON', ['a']]);
+      });
+
+      it('names the second Section by its place among the Sections, not among the rows', () => {
+        const two: Line[] = ['One', ['a'], 'Two', ['b']];
+
+        const placement = placementFor({ x: 300, y: 3 * 122 - 10 }, drawnWithSections(two), 'b');
+
+        expect(placement).toEqual({ on: 'underSection', section: 1 });
+        expect(shape(arrangedWith(storedWithSections(two), 'b', placement!))).toEqual(['ONE', ['a'], 'TWO', ['b']]);
+      });
+    });
   });
 });
