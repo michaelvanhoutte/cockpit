@@ -644,7 +644,12 @@ test.describe('Panels', () => {
       // Two moves, because a drag that jumps straight to its destination in one
       // step gives the page nothing to react to: the seams open on the first.
       await page.mouse.move(...(await centreOf(board)), { steps: 4 });
-      await page.mouse.move(...(await centreOf(seam)), { steps: 4 });
+      // The part of the seam below the Dashboard bar: a board whose first row was
+      // picked up is pulled up by the gap opening, which leaves the seam's middle
+      // under the bar's tabs, where a release moves the panel to another dashboard.
+      const seamBox = (await seam.boundingBox())!;
+      const seamTop = Math.max(seamBox.y, (await page.locator('[data-drag-scroll="dashboard"]').boundingBox())!.y);
+      await page.mouse.move(seamBox.x + seamBox.width / 2, (seamTop + seamBox.y + seamBox.height) / 2, { steps: 4 });
       await page.mouse.up();
       expect((await toItsOwnLine).status()).toBe(200);
       await expect.poll(() => rowsOnScreen(page)).toEqual([[second], [third, first]]);
@@ -710,6 +715,18 @@ test.describe('Panels', () => {
       });
       const headerOf = (name: string) => page.getByRole('region', { name }).locator('header');
       const headerTop = async (name: string) => (await headerOf(name).boundingBox())!.y;
+      const bar = dashboardBar(page);
+      const belowBar = async (name: string) => {
+        const box = (await bar.boundingBox())!;
+        return (await headerTop(name)) - (box.y + box.height);
+      };
+      await dashboard.evaluate((el) => {
+        el.scrollTop = 0;
+      });
+      const usualTop = await belowBar(one);
+      await dashboard.evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
       const grabbedAt = await headerTop(five);
       const [grabX, grabY] = await centreOf(headerOf(five));
 
@@ -739,12 +756,13 @@ test.describe('Panels', () => {
 
       await page.mouse.up();
 
-      // Open again, and the panel dropped is where it was let go.
+      // Open again, and the panel dropped is where scrolling alone reaches: the room above that held it while it was in the air is gone, so it is the first row, directly below the Dashboard bar.
       await expect(page.getByRole('region', { name: one }).getByRole('listitem')).toHaveCount(0);
       await expect
         .poll(async () => (await page.getByRole('region', { name: one }).boundingBox())!.height)
         .toBeGreaterThan(300);
-      await expect.poll(async () => Math.abs((await headerTop(five)) - letGoAt) <= 1).toBe(true);
+      await expect.poll(async () => Math.abs((await belowBar(five)) - usualTop) <= 1).toBe(true);
+      expect(await headerTop(five)).toBeLessThan(letGoAt);
 
       // **A whole row, by the grip at its left edge, anchors the same way**: the
       // bottom row taken at the foot of the page keeps its header under the
@@ -774,26 +792,16 @@ test.describe('Panels', () => {
 
       // **The first Panel taken from the top and dropped into the last row**
       // leaves the Dashboard unable to scroll far enough to hold its header
-      // where it was let go: the shortfall is room below the board, never the
-      // board pulled up out of reach. What lies between the last row and the end of the
-      // Dashboard with nothing to make up is what "no empty space" is measured against.
+      // where it was let go; what scrolling cannot reach is given up, so the
+      // board ends at its last row and starts below the Dashboard bar.
       const gapBelowRows = async () => {
         const rows = await rowsOnScreen(page);
         const last = rows[rows.length - 1]!;
         const lastBox = (await page.getByRole('region', { name: last[0]! }).boundingBox())!;
         return dashboard.evaluate(
-          (el, lastBottom) => ({
-            gap: el.getBoundingClientRect().top - el.scrollTop + el.scrollHeight - lastBottom,
-            fits: el.scrollHeight <= el.clientHeight,
-          }),
+          (el, lastBottom) => el.getBoundingClientRect().top - el.scrollTop + el.scrollHeight - lastBottom,
           lastBox.y + lastBox.height,
         );
-      };
-      // Empty room below the last row: whatever the Dashboard scrolls past the
-      // usual gap, a board shorter than the screen having none to scroll.
-      const roomBelow = async () => {
-        const { gap, fits } = await gapBelowRows();
-        return fits ? 0 : gap - usualGap;
       };
       const toTheFoot = () =>
         dashboard.evaluate((el) => {
@@ -806,74 +814,65 @@ test.describe('Panels', () => {
       const settle = () =>
         page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
       await toTheFoot();
-      const usualGap = (await gapBelowRows()).gap;
+      const usualGap = await gapBelowRows();
       await toTheTop();
 
-      /** Takes the first Panel of the first row and lets it go on the last row's first Panel, returning where it was let go. */
-      const dropFirstOnLast = async () => {
-        const rows = await rowsOnScreen(page);
-        const taken = rows[0]![0]!;
-        const onto = rows[rows.length - 1]![0]!;
-        const saved = answerTo(page, 'save_layout');
-        await page.mouse.move(...(await centreOf(headerOf(taken))));
-        await page.mouse.down();
-        await expect
-          .poll(async () => (await page.getByRole('region', { name: onto }).boundingBox())!.height)
-          .toBeLessThan(100);
-        await page.mouse.move(...(await centreOf(headerOf(onto))), { steps: 8 });
-        await settle();
-        const letGo = await headerTop(taken);
-        await page.mouse.up();
-        expect((await saved).status()).toBe(200);
-        await expect
-          .poll(async () => (await page.getByRole('region', { name: onto }).boundingBox())!.height)
-          .toBeGreaterThan(300);
-        return { taken, onto, letGo };
-      };
-
-      const bar = dashboardBar(page);
-      const dropped = await dropFirstOnLast();
-      await expect.poll(async () => Math.abs((await headerTop(dropped.taken)) - dropped.letGo) <= 1).toBe(true);
-
-      // Scrolled to the top, the first row's header is below the Dashboard bar
-      // rather than under it.
-      await toTheTop();
-      const firstRow = (await rowsOnScreen(page))[0]![0]!;
-      const barBottom = (await bar.boundingBox())!.y + (await bar.boundingBox())!.height;
-      expect(await headerTop(firstRow)).toBeGreaterThanOrEqual(barBottom - 1);
-
-      // **The room went with that scroll, and nothing on screen moved when it
-      // did**; back at the foot the page ends at the last row.
-      const seenAt = await headerTop(firstRow);
-      await settle();
-      expect(await headerTop(firstRow)).toBe(seenAt);
-      expect(await dashboard.evaluate((el) => el.scrollTop)).toBe(0);
-      await toTheFoot();
-      expect(Math.abs(await roomBelow())).toBeLessThanOrEqual(1);
-
-      // **A drag started with the room still there** holds the header under
-      // the pointer, and once it is let go high no earlier room remains below.
-      await toTheTop();
-      const again = await dropFirstOnLast();
-      const [holdX, holdY] = await centreOf(headerOf(again.taken));
-      const heldAt = await headerTop(again.taken);
-      await page.mouse.move(holdX, holdY);
+      const rows = await rowsOnScreen(page);
+      const taken = rows[0]![0]!;
+      const onto = rows[rows.length - 1]![0]!;
+      const saved = answerTo(page, 'save_layout');
+      await page.mouse.move(...(await centreOf(headerOf(taken))));
       await page.mouse.down();
       await expect
-        .poll(async () => (await page.getByRole('region', { name: again.onto }).boundingBox())!.height)
+        .poll(async () => (await page.getByRole('region', { name: onto }).boundingBox())!.height)
         .toBeLessThan(100);
-      await expect.poll(async () => Math.abs((await headerTop(again.taken)) - heldAt) <= 1).toBe(true);
-      // Carried up to the top row, where scrolling alone can hold the header,
-      // so any room left below afterwards is the earlier drop's.
-      const top = (await rowsOnScreen(page))[0]![0]!;
-      await page.mouse.move(...(await centreOf(headerOf(top))), { steps: 8 });
+      await page.mouse.move(...(await centreOf(headerOf(onto))), { steps: 8 });
       await settle();
       await page.mouse.up();
+      expect((await saved).status()).toBe(200);
       await expect
-        .poll(async () => (await page.getByRole('region', { name: again.onto }).boundingBox())!.height)
+        .poll(async () => (await page.getByRole('region', { name: onto }).boundingBox())!.height)
         .toBeGreaterThan(300);
+
+      // At the foot the Dashboard ends at the last row, with no room below it.
       await toTheFoot();
-      expect(Math.abs(await roomBelow())).toBeLessThanOrEqual(1);
+      expect(Math.abs((await gapBelowRows()) - usualGap)).toBeLessThanOrEqual(1);
+      // Scrolled to the top, the first row's header is where it always is, below
+      // the Dashboard bar and with no room above it.
+      await toTheTop();
+      const firstRow = (await rowsOnScreen(page))[0]![0]!;
+      expect(Math.abs((await belowBar(firstRow)) - usualTop)).toBeLessThanOrEqual(1);
+
+      // **A board shorter than the screen once open**: the lower row's Panel dropped
+      // on the upper row's gives up the room above that held it in the air, so the
+      // first row sits directly below the Dashboard bar with no empty space above it.
+      await page.setViewportSize({ width: 1280, height: 1600 });
+      await ownDashboard(page, isMobile);
+      const shortNames = ['Falcon', 'Reading', 'People'].map((label) => uniqueTitle(label));
+      for (const name of shortNames) await addPanel(page, name, isMobile);
+      const [shortOne, shortTwo, shortThree] = shortNames as [string, string, string];
+      await expect.poll(() => rowsOnScreen(page)).toEqual([[shortOne, shortTwo], [shortThree]]);
+      expect(await dashboard.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+      const shortTop = await belowBar(shortOne);
+
+      const shortSaved = answerTo(page, 'save_layout');
+      await page.mouse.move(...(await centreOf(headerOf(shortThree))));
+      await page.mouse.down();
+      await expect
+        .poll(async () => (await page.getByRole('region', { name: shortOne }).boundingBox())!.height)
+        .toBeLessThan(100);
+      await page.mouse.move(...(await centreOf(headerOf(shortOne))), { steps: 8 });
+      await page.evaluate(
+        () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+      );
+      await page.mouse.up();
+      expect((await shortSaved).status()).toBe(200);
+      await expect
+        .poll(async () => (await page.getByRole('region', { name: shortOne }).boundingBox())!.height)
+        .toBeGreaterThan(120);
+
+      const shortFirst = (await rowsOnScreen(page))[0]![0]!;
+      expect(Math.abs((await belowBar(shortFirst)) - shortTop)).toBeLessThanOrEqual(1);
     });
   });
 
