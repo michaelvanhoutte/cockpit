@@ -605,6 +605,9 @@ function rowsOf(
     .filter((row) => row.cells.length > 0 || row.title !== undefined);
 }
 
+/** What a Gmail Item is served as, until the contract step takes it away (`source` below). */
+const SERVED_FOR_GMAIL = 'mail';
+
 /**
  * The columns an item is read by, named for the reason `workspaceColumns` above
  * is named: a bare `select()` names every column the table declares, so the
@@ -623,13 +626,22 @@ const itemColumns = {
   workspaceDecided: items.workspaceDecided,
   /**
    * Where the Item came from, which is two columns and one answer ("Save a
-   * Teams message to Cockpit", issue 486): `source_connector` where the
-   * source is one the `source` column's own CHECK cannot hold, and `source`
-   * everywhere else. Coalesced here, so nothing above this file has to know
-   * that a CHECK on a table with four children is why there are two
-   * (`STORED_SOURCES` in the contract).
+   * Teams message to Cockpit", issue 486): `source_connector` wherever a
+   * connector is named - every source the `source` column's own CHECK cannot
+   * hold, and Gmail - and `source` everywhere else. Coalesced here, so nothing
+   * above this file has to know that a CHECK on a table with four children is
+   * why there are two (`STORED_SOURCES` in the contract).
+   *
+   * **Except a Gmail Item, still served as `mail`**: the expand-side alias of
+   * "Store Gmail Items under their connector id" (issue 926). A client built
+   * before "Read a connector id as an Item's source" (issue 925) parses every
+   * snapshot strictly against a closed list of sources and fails the whole
+   * Workspace on `gmail`. "Take source names out of the shared contract"
+   * (issue 927) removes this once installed clients have updated. The only
+   * place it is said: every Item the API serves is read through here.
    */
-  source: sql<Source>`coalesce(${items.sourceConnector}, ${items.source})`.as('source'),
+  source: sql<Source>`case when ${items.sourceConnector} = ${GMAIL} then ${SERVED_FOR_GMAIL}
+                           else coalesce(${items.sourceConnector}, ${items.source}) end`.as('source'),
   sourceId: items.sourceId,
   sourceLink: items.sourceLink,
   sender: items.sender,

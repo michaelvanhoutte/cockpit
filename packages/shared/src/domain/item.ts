@@ -21,8 +21,9 @@ export const connectorIdSchema = z
  * Where an Item came from, as it is read: 'internal' means created inside
  * Cockpit, 'mcp' that an app connected to Cockpit captured it (the app's
  * registered name being the Item's `sender`), and anything else is the id of
- * the connector that made it. The old values keep their meaning; `mail` is
- * still what a Gmail Item reads as until it is stored under `gmail`.
+ * the connector that made it. The old values keep their meaning; a Gmail Item
+ * is stored under `gmail` and still served as `mail`, for clients that know no
+ * other name ("Store Gmail Items under their connector id", issue 926).
  *
  * **Open on purpose**: a closed list here would need the next source added in
  * the contract, and a client that parses a snapshot would refuse an Item

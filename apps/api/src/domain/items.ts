@@ -1,4 +1,5 @@
 import {
+  GMAIL,
   isStoredSource,
   textsFromCapture,
   type AssociateCommand,
@@ -51,8 +52,16 @@ export type StoredItem = Omit<Item, 'source'> & {
  * (`STORED_SOURCES` in the contract, `0038-item-source-connector`). The read
  * coalesces them back into one (`itemColumns`, accounts/repo.ts), so this is
  * the only place either half is seen.
+ *
+ * **A Gmail Item names its connector, `gmail`, and keeps `mail` beside it**
+ * ("Store Gmail Items under their connector id", issue 926): the connector
+ * column is the authority for every connector-made Item, and `mail` is a value
+ * the old column already holds, so a new Gmail Item is stored exactly as
+ * `0062-gmail-items-under-their-connector` rewrites an old one. `mail` is what
+ * capture still says and what the read still serves; either name lands here.
  */
 export function asStored(item: Item): StoredItem {
+  if (item.source === 'mail' || item.source === GMAIL) return { ...item, source: 'mail', sourceConnector: GMAIL };
   return isStoredSource(item.source)
     ? { ...item, source: item.source, sourceConnector: null }
     : { ...item, source: 'internal', sourceConnector: item.source };
