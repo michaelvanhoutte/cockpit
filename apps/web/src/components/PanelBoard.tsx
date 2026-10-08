@@ -886,6 +886,12 @@ export function PanelBoard({
     lastTap.current = { at, opened: false, panelId };
   };
 
+  /** Room below the board, set in the page at once so what is measured and scrolled next reflects it. */
+  const leaveBelow = (px: number) => {
+    if (rowsRef.current) rowsRef.current.style.marginBottom = px ? `${px}px` : '';
+    setBelow(px);
+  };
+
   /**
    * Puts the anchored header back under the pointer once the board has
    * collapsed or opened: the Dashboard scrolls by the difference, and what it
@@ -909,9 +915,8 @@ export function PanelBoard({
       // was on screen stays put unless a header is wanted at the top.
       const was = scroller.scrollTop;
       rowsRef.current.style.marginTop = '';
-      rowsRef.current.style.marginBottom = '';
       setRoom(0);
-      setBelow(0);
+      leaveBelow(0);
       scroller.scrollTop = was - room;
       const top = held?.toTop ? headerTop(held.panelId) : null;
       if (held && top !== null) {
@@ -928,11 +933,8 @@ export function PanelBoard({
     // picks a Panel up, in the page itself so what is measured next reflects it.
     const opening = !collapsed;
     const base = opening && room < 0 ? 0 : room;
-    if (rowsRef.current) {
-      if (base !== room) rowsRef.current.style.marginTop = '';
-      if (!opening) rowsRef.current.style.marginBottom = '';
-    }
-    if (!opening) setBelow(0);
+    if (base !== room && rowsRef.current) rowsRef.current.style.marginTop = '';
+    if (!opening) leaveBelow(0);
     const now = held ? headerTop(held.panelId) : null;
     if (!held || now === null) {
       if (base !== room) setRoom(base);
@@ -946,9 +948,8 @@ export function PanelBoard({
       opening,
       room: base,
     });
-    if (next.below > 0 && rowsRef.current) rowsRef.current.style.marginBottom = `${next.below}px`;
+    leaveBelow(next.below);
     if (scroller) scroller.scrollTop = next.scrollTop;
-    setBelow(next.below);
     // Added to what is already there, and so taken back where a header that
     // had to be held down by room can now be held by scrolling.
     setRoom(Math.abs(base + next.shift) < 0.5 ? 0 : base + next.shift);
@@ -964,9 +965,7 @@ export function PanelBoard({
     const scroller = dashboardScroller();
     if (below === 0 || !scroller) return;
     const onScroll = () => {
-      if (scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - below + 0.5) return;
-      if (rowsRef.current) rowsRef.current.style.marginBottom = '';
-      setBelow(0);
+      if (scroller.scrollTop + scroller.clientHeight <= scroller.scrollHeight - below + 0.5) setBelow(0);
     };
     scroller.addEventListener('scroll', onScroll, { passive: true });
     return () => scroller.removeEventListener('scroll', onScroll);
