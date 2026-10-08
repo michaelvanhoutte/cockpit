@@ -7,20 +7,39 @@
 
 import { esc } from './svg.js';
 
-const KIND_CLASS = { downward: 'dn', upward: 'up', mutual: 'cyc', muted: 'env' };
-const KIND_TEXT = { downward: 'a layer below', upward: 'a layer above', mutual: 'each importing the other', muted: 'an area everything reads' };
+const KIND_CLASS = { downward: 'dn', upward: 'up', partner: 'dn part', muted: 'env' };
+const KIND_TEXT = {
+  downward: 'an area below',
+  upward: 'an area above, against the order',
+  partner: 'an area below, the other half of a cycle',
+  muted: 'an area everything reads',
+};
 
 const count = (n, one) => `${n.toLocaleString('en-GB')} ${n === 1 ? one : `${one}s`}`;
+const list = (names) => (names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
 
-/** "accounts with auth, connectors and mcp; auth with connectors" - each area once, with the later areas it is mutual with. */
-export function mutualSummary(dependencies) {
+/** "accounts with auth, connectors and mcp; auth with connectors" - each area once, with the lower areas it is in a cycle with. */
+export function cycleSummary(dependencies) {
   const nameOf = new Map(dependencies.areas.map((each) => [each.path, each.name]));
-  if (dependencies.mutualPairs.length === 0) return 'No two areas import each other.';
+  if (dependencies.cyclePairs.length === 0) return 'No two areas import each other.';
   const grouped = new Map();
-  for (const [a, b] of dependencies.mutualPairs) grouped.set(a, [...(grouped.get(a) ?? []), nameOf.get(b)]);
-  const list = (names) => (names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+  for (const [a, b] of dependencies.cyclePairs) grouped.set(a, [...(grouped.get(a) ?? []), nameOf.get(b)]);
   const parts = [...grouped].map(([area, names]) => `<code>${esc(nameOf.get(area))}</code> with ${list(names.map((each) => `<code>${esc(each)}</code>`))}`);
-  return `${count(dependencies.mutualPairs.length, 'pair')} of areas import each other: ${parts.join('; ')}.`;
+  return `${count(dependencies.cyclePairs.length, 'pair')} of areas import each other: ${parts.join('; ')}. In each, the import back up is red and the other is outlined.`;
+}
+
+/** The order's method in words, and the pairs it could not decide. */
+export function orderNote(dependencies) {
+  const { method, areas, limit, upwardFiles } = dependencies.order;
+  const nameOf = new Map(dependencies.areas.map((each) => [each.path, each.name]));
+  const how =
+    method === 'exact'
+      ? `The order is exact: every order of the ${areas} areas was weighed, up to ${limit}.`
+      : `The order is approximate: ${areas} areas are more than the ${limit} an exact search weighs, so it is a greedy order improved by moving one area at a time.`;
+  const left = `${count(upwardFiles, 'import file')} point${upwardFiles === 1 ? 's' : ''} up.`;
+  const undecided = dependencies.undecidedPairs.map(([a, b]) => `<code>${esc(nameOf.get(a))}</code> and <code>${esc(nameOf.get(b))}</code>`);
+  const tie = undecided.length ? ` The order could not decide ${list(undecided)}: each imports the other in the same number of files, so which half is red is arbitrary until a pin in the description file says.` : '';
+  return `${how} ${left}${tie}`;
 }
 
 export function renderDependencies(model) {

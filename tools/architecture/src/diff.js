@@ -99,24 +99,22 @@ function areaRows(before, after) {
 function dependencyRows(before, after) {
   const names = new Map([...nameOfArea(before), ...nameOfArea(after)]);
   const label = (path) => names.get(path) ?? path;
-  const pairKey = (pair) => pair.join('\0');
-  const pairs = (model) => model.dependencies.mutualPairs.map((pair) => ({ pair }));
-  const wasPairs = new Set(pairs(before).map((each) => pairKey(each.pair)));
-  const isPairs = new Set(pairs(after).map((each) => pairKey(each.pair)));
-  const inNewPair = (cell) => isPairs.has(pairKey([cell.from, cell.to])) || isPairs.has(pairKey([cell.to, cell.from]));
-  const inOldPair = (cell) => wasPairs.has(pairKey([cell.from, cell.to])) || wasPairs.has(pairKey([cell.to, cell.from]));
+  const key = (cell) => `${cell.from}\0${cell.to}`;
+  const up = (model) => model.dependencies.cells.filter((each) => each.kind === 'upward');
+  const wasUp = new Set(up(before).map(key));
+  const isUp = new Set(up(after).map(key));
 
-  const pairRows = compareSets(pairs(before), pairs(after), (each) => pairKey(each.pair), {
-    added: ({ pair }) => row('Dependency', 'changed', `${label(pair[0])} and ${label(pair[1])} now import each other`, pair, call('new mutual pair')),
-    removed: ({ pair }) => row('Dependency', 'changed', `${label(pair[0])} and ${label(pair[1])} no longer import each other`, pair),
+  // An import that starts or stops pointing up is the change; its files moving is not. Its cycle partner is not listed apart.
+  const upRows = compareSets(up(before), up(after), key, {
+    added: (cell) => row('Dependency', 'added', `${label(cell.from)} importing ${label(cell.to)} now points up${cell.cycle ? ', closing a cycle' : ''}`, [cell.from, cell.to], call('new upward import')),
+    removed: (cell) => row('Dependency', 'removed', `${label(cell.from)} importing ${label(cell.to)} no longer points up`, [cell.from, cell.to]),
   });
-  const cellRows = compareSets(before.dependencies.cells, after.dependencies.cells, (each) => `${each.from}\0${each.to}`, {
-    added: (cell) => (inNewPair(cell) ? null : row('Dependency', 'added', `${label(cell.from)} now imports ${label(cell.to)}`, [cell.from, cell.to])),
-    removed: (cell) => (inOldPair(cell) ? null : row('Dependency', 'removed', `${label(cell.from)} no longer imports ${label(cell.to)}`, [cell.from, cell.to])),
-    changed: (a, b) => (a.kind !== b.kind && ![a.kind, b.kind].includes('mutual') ? row('Dependency', 'changed', `${label(b.from)} importing ${label(b.to)} is now ${b.kind}`, [b.from, b.to]) : null),
+  // An import that is not up on either side is still a dependency that arrived or left.
+  const cellRows = compareSets(before.dependencies.cells, after.dependencies.cells, key, {
+    added: (cell) => (isUp.has(key(cell)) ? null : row('Dependency', 'added', `${label(cell.from)} now imports ${label(cell.to)}`, [cell.from, cell.to])),
+    removed: (cell) => (wasUp.has(key(cell)) ? null : row('Dependency', 'removed', `${label(cell.from)} no longer imports ${label(cell.to)}`, [cell.from, cell.to])),
   });
-  // A pair row stands for both of its cells, so neither is listed again.
-  return [...pairRows, ...cellRows];
+  return [...upRows, ...cellRows];
 }
 
 // ---- deployment ------------------------------------------------------------

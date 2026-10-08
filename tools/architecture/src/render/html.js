@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 import { renderChanges } from './changes.js';
 import { renderContext } from './context.js';
-import { renderDependencies, mutualSummary } from './dependencies.js';
+import { renderDependencies, cycleSummary, orderNote } from './dependencies.js';
 import { renderDiagram } from './diagram.js';
 import { renderModules } from './modules.js';
 
@@ -54,6 +54,7 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Cockpit Architecture</title>
 <style>${styles}</style>
 </head>
@@ -110,17 +111,18 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
 
   <section id="deps">
   <h2>Dependencies</h2>
-  <p class="sectionnote">Each cell counts the files in the row's area importing the column's area, in the layer order of the description file. The number beside a row is that area's source lines, tests excluded.</p>
+  <p class="sectionnote">Each cell counts the files in the row's area importing the column's area, in dependency-chain order: each area stands above what it imports. The number beside a row is that area's source lines, tests excluded.</p>
   <div class="legend">
-    <span><i class="sw d-down"></i>Depends on a layer below</span>
-    <span><i class="sw d-up"></i>Depends on a layer above</span>
-    <span><i class="sw d-red"></i>Two areas depending on each other</span>${mutedAreas.length ? `
+    <span><i class="sw d-down"></i>Imports an area below</span>
+    <span><i class="sw d-up"></i>Imports an area above, against the order</span>
+    <span><i class="sw d-part"></i>The other half of a cycle</span>${mutedAreas.length ? `
     <span><i class="sw d-muted"></i>Muted: everything reads ${mutedAreas.map((each) => `<code>${esc(each.name)}</code>`).join(', ')}</span>` : ''}
   </div>
+  <p class="sectionnote">${orderNote(model.dependencies)}</p>
   <div class="diagram">
     ${renderDependencies(model)}
   </div>
-  <p class="sectionnote">${mutualSummary(model.dependencies)}</p>
+  <p class="sectionnote">${cycleSummary(model.dependencies)}</p>
   </section>
 
   <section id="deployment">
