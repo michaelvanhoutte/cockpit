@@ -3,6 +3,7 @@ import {
   expect,
   fileOnto,
   itemRow,
+  openDashboard,
   openInbox,
   press,
   swipeRow,
@@ -75,13 +76,20 @@ test.describe('Triage', () => {
       // keeps the menu, so there the ✓ must never show. It is not drawn on an
       // Inbox row either ("Take the ✓ off Inbox rows", issue 880), so the row
       // is filed on a Panel first.
-      if (isMobile) return;
-      await itemRow(page, thought).hover();
-      await expect(itemRow(page, thought).getByRole('button', { name: 'Mark done' })).toHaveCount(0);
+      if (!isMobile) {
+        await itemRow(page, thought).hover();
+        await expect(itemRow(page, thought).getByRole('button', { name: 'Mark done' })).toHaveCount(0);
+      }
 
       await fileOnto(page, thought, 'Panel 1', isMobile);
+      if (isMobile) await openDashboard(page, 'Dashboard 1', isMobile);
+      await expect(itemRow(page, thought)).toBeVisible();
       const mark = itemRow(page, thought).getByRole('button', { name: 'Mark done' });
+      // Drawn but unseen, asked of the DOM because the role query skips what is
+      // invisible: a ✓ missing altogether would pass toBeHidden too.
+      await expect(itemRow(page, thought).locator('button[aria-label="Mark done"]')).toHaveCount(1);
       await expect(mark).toBeHidden();
+      if (isMobile) return;
       await itemRow(page, thought).hover();
       await expect(mark).toBeVisible();
 
