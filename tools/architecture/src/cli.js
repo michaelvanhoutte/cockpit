@@ -33,11 +33,10 @@ export function parseArgs(argv) {
     const value = () => argv[(i += 1)];
     if (arg === '--help' || arg === '-h') args.help = true;
     else if (arg === '--json') args.json = true;
-    else if (arg === '--out') args.out = value();
-    else if (arg === '--root') args.root = value();
-    else if (arg === '--model') {
-      args.model = value();
-      if (!args.model) args.invalid ??= '--model needs a path';
+    else if (arg === '--out' || arg === '--root' || arg === '--model') {
+      const next = value();
+      if (!next || next.startsWith('--')) args.invalid ??= `${arg} needs a path`;
+      else args[arg.slice(2)] = next;
     } else args.unknown ??= arg;
   }
   return args;

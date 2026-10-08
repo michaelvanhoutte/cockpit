@@ -43,6 +43,16 @@ describe('The architecture page', () => {
       expect(html).toContain('>vectorize</text>');
     });
 
+    it('draws GitHub Pages with each published report at its path, and not at all without a Pages deploy', () => {
+      const publish = 'name: Publish\non:\n  workflow_call:\njobs:\n  p:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/download-artifact@v4\n        with:\n          name: architecture-report\n          path: site/architecture/\n      - uses: actions/upload-pages-artifact@v3\n        with:\n          path: site/\n      - uses: actions/deploy-pages@v4\n';
+      const draw = (workflows) => renderHtml(buildModel({ wrangler: { file: 'w.jsonc', text: wrangler }, workflows, commit: null, date: null }));
+      const html = draw([{ file: 'publish.yml', text: publish }]);
+      expect(html).toContain('GitHub Pages');
+      expect(html).toContain('>/architecture/</text>');
+      expect(html).toContain('>architecture-report</text>');
+      expect(page()).not.toContain('GitHub Pages');
+    });
+
     it('draws local development from the local environment, below GitHub', () => {
       const html = renderHtml(buildModel({ wrangler: { file: 'w.jsonc', text: JSON.stringify({ name: 'w', env: { local: { name: 'w-local', d1_databases: [{ binding: 'DB', database_name: 'dev' }] } } }) }, workflows: [{ file: 'd.yml', text: deploy }], commit: null, date: null }));
       expect(html).toContain('Local development');

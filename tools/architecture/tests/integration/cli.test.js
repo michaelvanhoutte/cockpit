@@ -65,6 +65,12 @@ describe('A run that cannot read a file it needs fails and writes nothing', () =
   });
 });
 
+describe('A flag that needs a path and is given none is refused', () => {
+  it.each([['--out'], ['--root', '--json'], ['--model']])('exits 2 for %s', async (...argv) => {
+    expect(await main(argv)).toBe(2);
+  });
+});
+
 describe('This repository\'s own config and workflows draw without error', () => {
   it('reads the real Worker config and every real workflow, including the environments it declares', async () => {
     const run = await draw(checkout);
@@ -75,5 +81,7 @@ describe('This repository\'s own config and workflows draw without error', () =>
     const deploys = Object.fromEntries(deployment.workflows.map((each) => [each.file, each.deploys.map((d) => d.environment)]));
     expect(deploys['deploy-staging.yml']).toEqual(['staging']);
     expect(deploys['deploy-production.yml']).toEqual(['production']);
+    expect(deployment.pages.workflow).toBe('publish.yml');
+    expect(deployment.pages.reports).toEqual(expect.arrayContaining([{ artifact: 'architecture-report', path: '/architecture/' }, { artifact: 'test-explorer-report', path: '/' }]));
   });
 });

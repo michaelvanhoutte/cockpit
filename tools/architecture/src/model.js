@@ -148,7 +148,8 @@ function startsOf(on) {
   for (const [event, config] of Object.entries(events)) {
     const branches = asList(config?.branches);
     if (event === 'push') {
-      starts.push({ event, text: branches.length === 1 && branches[0] === 'main' ? 'every merge' : branches.length ? `a push to ${branches.join(', ')}` : 'every push' });
+      const tagsOnly = branches.length === 0 && asList(config?.tags).length > 0;
+      starts.push({ event, text: branches.length === 1 && branches[0] === 'main' ? 'every merge' : branches.length ? `a push to ${branches.join(', ')}` : tagsOnly ? 'a tag push' : 'every push' });
     } else if (event === 'pull_request') {
       starts.push({ event, text: 'every pull request' });
     } else if (event === 'schedule') {
@@ -172,10 +173,11 @@ function deployedBy(step) {
   const wranglerAction = typeof step.uses === 'string' && step.uses.startsWith('cloudflare/wrangler-action');
   const command = wranglerAction ? step.with?.command : step.run;
   if (typeof command !== 'string') return null;
-  const deploys = wranglerAction ? /^\s*(?:wrangler\s+)?deploy\b/.test(command) : /\bwrangler\s+deploy\b/.test(command);
-  if (!deploys) return null;
-  const flag = command.match(ENV_FLAG);
-  const name = flag ? (flag[1] ?? flag[2] ?? flag[3]) : '';
+  const deploy = command.match(wranglerAction ? /^\s*(?:wrangler\s+)?deploy\b/ : /\bwrangler\s+deploy\b/);
+  if (!deploy) return null;
+  // Only this command's own flag: a later command on the same line is not its environment.
+  const flag = command.slice(deploy.index).split(/&&|\|\||;|\n/)[0].match(ENV_FLAG);
+  const name = flag ? (flag[1] ?? flag[2] ?? flag[3]) : wranglerAction && typeof step.with?.environment === 'string' ? step.with.environment : '';
   return name === '' ? PRODUCTION : name;
 }
 
@@ -190,14 +192,41 @@ export function parseWorkflow(file, text) {
 
   const deploys = new Set();
   const calls = new Set();
+  const steps = [];
   for (const job of Object.values(value.jobs)) {
     if (typeof job?.uses === 'string' && job.uses.startsWith('./.github/workflows/')) calls.add(job.uses.slice('./.github/workflows/'.length));
     for (const step of asList(job?.steps)) {
-      const environment = step && typeof step === 'object' ? deployedBy(step) : null;
+      if (step === null || typeof step !== 'object') continue;
+      steps.push(step);
+      const environment = deployedBy(step);
       if (environment !== null) deploys.add(environment);
     }
   }
-  return { file, name: typeof value.name === 'string' ? value.name : file, starts: startsOf(value.on), deploys: [...deploys], calls: [...calls] };
+  return { file, name: typeof value.name === 'string' ? value.name : file, starts: startsOf(value.on), deploys: [...deploys], calls: [...calls], pages: pagesOf(steps) };
+}
+
+const usesAction = (step, action) => typeof step.uses === 'string' && step.uses.startsWith(`${action}@`);
+const slashes = (value) => String(value).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+
+/**
+ * The reports a workflow puts on GitHub Pages: null unless it deploys Pages
+ * (`actions/deploy-pages`). Each `actions/download-artifact` step whose path
+ * lies inside the directory `actions/upload-pages-artifact` publishes is one
+ * report, with the address it lands at: the directory itself is the site's
+ * root, `<directory>/stability/` is `/stability/`.
+ */
+function pagesOf(steps) {
+  if (!steps.some((step) => usesAction(step, 'actions/deploy-pages'))) return null;
+  const site = slashes(steps.find((step) => usesAction(step, 'actions/upload-pages-artifact'))?.with?.path ?? '.');
+  const reports = [];
+  for (const step of steps) {
+    if (!usesAction(step, 'actions/download-artifact') || typeof step.with?.name !== 'string') continue;
+    const target = slashes(step.with.path ?? '.');
+    const inside = site === '.' ? target : target === site ? '' : target.startsWith(`${site}/`) ? target.slice(site.length + 1) : null;
+    if (inside === null) continue;
+    reports.push({ artifact: step.with.name, path: inside === '' || inside === '.' ? '/' : `/${inside}/` });
+  }
+  return { reports };
 }
 
 /**
@@ -220,9 +249,12 @@ export function buildModel({ wrangler, workflows, commit, date, repo = null }) {
     };
   });
 
+  const publisher = parsed.find((workflow) => workflow.pages);
+
   return {
     drawnFrom: { commit, date, repo },
     deployment: {
+      pages: publisher ? { workflow: publisher.file, reports: publisher.pages.reports } : null,
       environments: environments.map((environment) => ({
         ...environment,
         deployedBy: read.filter((workflow) => workflow.deploys.some((each) => each.environment === environment.name)).map((workflow) => workflow.file),

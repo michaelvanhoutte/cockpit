@@ -45,11 +45,11 @@ export function renderDiagram(model) {
       .map((deploy) => ({ workflow, column: deployed.findIndex((each) => each.name === deploy.environment) }))
       .filter((each) => each.column >= 0),
   );
-  const piped = workflows.filter((workflow) => workflow.calledBy.length > 0);
+  const pages = model.deployment.pages;
 
   // ---- the left column, whose width the longest workflow row sets
   const rowText = workflows.map((workflow) => `${workflow.file} · ${startsLabel(workflow)}`);
-  const leftWidth = Math.max(330, 28 + longest(rowText) * SANS + 16, 28 + longest(piped.map((each) => `${each.file} · called by ${each.calledBy.join(', ')}`)) * SANS);
+  const leftWidth = Math.max(330, 28 + longest(rowText) * SANS + 16, 28 + longest((pages?.reports ?? []).map((each) => `${each.path} ${each.artifact}`)) * SANS);
   const innerLeft = PAD * 2;
   const innerWidth = leftWidth - PAD * 2;
 
@@ -74,14 +74,16 @@ export function renderDiagram(model) {
   });
   let leftBottom = actionsTop + actionsHeight + 16;
 
-  if (piped.length > 0) {
+  if (pages) {
     const top = leftBottom + 4;
-    const height = 44 + piped.length * 20;
+    const height = 44 + Math.max(pages.reports.length, 1) * 20;
+    const labelWidth = longest(pages.reports.map((each) => each.path)) * MONO + 12;
     parts.push(
       `<rect class="soft" x="${PAD}" y="${top - 4}" width="${leftWidth}" height="${height + 16}" rx="6"/>`,
       `<rect class="box" x="${innerLeft}" y="${top + 12}" width="${innerWidth}" height="${height - 8}" rx="4"/>`,
-      `<text class="t-h" x="${innerLeft + 12}" y="${top + 36}">GitHub Pages</text>`,
-      ...piped.map((workflow, index) => `<text class="t-i" x="${innerLeft + 12}" y="${top + 60 + index * 20}">${esc(workflow.file)} <tspan class="t-m">· called by ${esc(workflow.calledBy.join(', '))}</tspan></text>`),
+      `<text class="t-h" x="${innerLeft + 12}" y="${top + 36}">GitHub Pages <tspan class="t-m">published by ${esc(pages.workflow)}</tspan></text>`,
+      pages.reports.length === 0 ? `<text class="t-m" x="${innerLeft + 12}" y="${top + 60}">no report downloaded</text>` : '',
+      ...pages.reports.map((report, index) => `<text class="t-h" x="${innerLeft + 12}" y="${top + 60 + index * 20}">${esc(report.path)}</text><text class="t-i" x="${innerLeft + 12 + labelWidth}" y="${top + 60 + index * 20}">${esc(report.artifact)}</text>`),
     );
     leftBottom = top - 4 + height + 16 + 16;
   }
@@ -132,10 +134,11 @@ export function renderDiagram(model) {
   );
   for (const { environment, deployer, width, x: left } of columns) {
     const deployedBy = deployer ? `deployed ${deployer.starts.map((start) => start.text).join(' and ')}` : 'no workflow deploys it';
+    const others = environment.deployedBy.length - 1;
     parts.push(
       `<rect class="worker" x="${left}" y="${columnsTop}" width="${width}" height="${columnHeight}" rx="5"/>`,
       `<text class="t-w" x="${left + 16}" y="${columnsTop + 28}">${esc(environment.name)}</text>`,
-      `<text class="t-m" x="${left + 16}" y="${columnsTop + 50}">${esc(deployedBy)}${deployer ? ` (${esc(deployer.file)})` : ''}</text>`,
+      `<text class="t-m" x="${left + 16}" y="${columnsTop + 50}">${esc(deployedBy)}${deployer ? ` (${esc(deployer.file)}${others > 0 ? ` +${others}` : ''})` : ''}</text>`,
       environment.worker ? `<text class="t-m" x="${left + 16}" y="${columnsTop + 70}">Worker ${esc(environment.worker)}</text>` : '',
       ...environment.resources.map((resource, index) => {
         const y = columnsTop + 104 + index * RESOURCE_ROW;

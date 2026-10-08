@@ -17,6 +17,9 @@ The Deployment view shows:
 - **Every workflow in `.github/workflows/`**, with what starts it ("every merge", "by hand", a
   schedule's time, "called by" the workflows that call it) and the environment its Wrangler deploy
   names, if any.
+- **GitHub Pages**, read from the workflow that deploys it: each report it downloads, with the
+  artifact name and the address on the site it lands at (`/`, `/stability/`, `/architecture/`, ...).
+  No Pages deploy, no box.
 - **The commit and the date of that commit** the page was drawn from.
 
 ## Reading it without running it

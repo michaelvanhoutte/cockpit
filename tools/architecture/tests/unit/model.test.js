@@ -146,10 +146,60 @@ describe('Deployment', () => {
       expect(drawn('x.yml', wrangler('deploy --env qa')).deploys).toEqual([{ environment: 'qa', declared: false }]);
     });
 
+    it('reads only the deploy command\'s own --env, and a wrangler-action\'s environment input', () => {
+      const run = (script) => `name: W\non: push\njobs:\n  go:\n    runs-on: ubuntu-latest\n    steps:\n      - run: ${script}\n`;
+      expect(drawn('a.yml', run('"pnpm wrangler deploy && pnpm wrangler d1 migrations apply x --env staging"')).deploys).toEqual([{ environment: 'production', declared: true }]);
+      const action = 'name: W\non: push\njobs:\n  go:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: cloudflare/wrangler-action@v3\n        with:\n          command: deploy\n          environment: staging\n';
+      expect(drawn('b.yml', action).deploys).toEqual([{ environment: 'staging', declared: true }]);
+    });
+
+    it('says "a tag push" for a push on tags alone', () => {
+      expect(drawn('release.yml', workflow('  push:\n    tags: [v*]')).starts.map((each) => each.text)).toEqual(['a tag push']);
+    });
+
     it('lists the workflows that deploy an environment on that environment', () => {
       const built = model(config(), [{ file: 'deploy-staging.yml', text: wrangler('deploy --env staging') }]);
       expect(environment(built, 'staging').deployedBy).toEqual(['deploy-staging.yml']);
       expect(environment(built, 'production').deployedBy).toEqual([]);
+    });
+  });
+
+  describe('GitHub Pages holds the reports a publishing workflow downloads, each at the address it lands at', () => {
+    const publishing = (steps, header = 'name: Publish\non:\n  workflow_call:') =>
+      `${header}\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n${steps.map((each) => `      - ${each}`).join('\n')}\n`;
+    const download = (name, dir) => `uses: actions/download-artifact@v4\n        with:\n          name: ${name}\n          path: ${dir}`;
+    const upload = 'uses: actions/upload-pages-artifact@v3\n        with:\n          path: site/';
+    const pagesOf = (text) => model(config(), [{ file: 'publish.yml', text }]).deployment.pages;
+
+    it('lists each downloaded report with its path, the site directory itself being the root', () => {
+      const pages = pagesOf(
+        publishing([
+          download('test-explorer-report', 'site/'),
+          download('ci-stability-report', 'site/stability/'),
+          download('architecture-report', 'site/architecture'),
+          'uses: ./.github/actions/find-artifact',
+          upload,
+          'uses: actions/deploy-pages@v4',
+        ]),
+      );
+      expect(pages).toEqual({
+        workflow: 'publish.yml',
+        reports: [
+          { artifact: 'test-explorer-report', path: '/' },
+          { artifact: 'ci-stability-report', path: '/stability/' },
+          { artifact: 'architecture-report', path: '/architecture/' },
+        ],
+      });
+    });
+
+    it('leaves out a download that lands outside the published directory', () => {
+      const pages = pagesOf(publishing([download('elsewhere', 'tmp/'), download('mine', 'site/x/'), upload, 'uses: actions/deploy-pages@v4']));
+      expect(pages.reports).toEqual([{ artifact: 'mine', path: '/x/' }]);
+    });
+
+    it('draws no Pages box for a workflow set that deploys no Pages', () => {
+      expect(pagesOf(publishing([download('a', 'site/'), upload]))).toBeNull();
+      expect(model().deployment.pages).toBeNull();
     });
   });
 
