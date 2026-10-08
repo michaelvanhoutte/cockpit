@@ -1,6 +1,7 @@
-import { afterEach } from 'vitest';
+import { afterAll, afterEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
+import { Editor } from '@milkdown/core';
 import { endSelection } from '../src/selection';
 
 // vitest doesn't enable jest-style test globals by default, so
@@ -11,6 +12,48 @@ afterEach(cleanup);
 // A selection is held by the tab, not by a rendered list, so a test that picked
 // a row would otherwise hand it to the next.
 afterEach(() => endSelection());
+
+/**
+ * Hold a file's teardown until the description editor's timers have fired.
+ *
+ * Building a Milkdown editor arms a 3-second timeout per stage
+ * (`@milkdown/ctx`'s `Timer`, its default `createTimer` timeout) that nothing
+ * clears, not even `destroy()`, and that calls the global
+ * `removeEventListener` when it fires. A file ending within 3 seconds of its
+ * last editor tears jsdom down first, so the timeout throws a `ReferenceError`
+ * Vitest reports as an unhandled error, failing a run whose tests all passed.
+ *
+ * The clock and the wait are the real ones, taken before any test can fake
+ * them: an editor built under a faked `Date` would otherwise look days old.
+ */
+const MILKDOWN_TIMER_TIMEOUT_MS = 3000;
+const now = Date.now;
+const realSetTimeout = setTimeout;
+const pause = (ms: number) => new Promise((settle) => realSetTimeout(settle, ms));
+let editorsBuilding = 0;
+let lastEditorBuiltAt: number | null = null;
+const make = Editor.make.bind(Editor);
+Editor.make = () => {
+  const editor = make();
+  const create = editor.create;
+  return Object.assign(editor, {
+    create: async () => {
+      editorsBuilding += 1;
+      try {
+        return await create();
+      } finally {
+        editorsBuilding -= 1;
+        lastEditorBuiltAt = now();
+      }
+    },
+  });
+};
+afterAll(async () => {
+  while (editorsBuilding > 0) await pause(50);
+  if (lastEditorBuiltAt === null) return;
+  const remaining = lastEditorBuiltAt + MILKDOWN_TIMER_TIMEOUT_MS + 50 - now();
+  if (remaining > 0) await pause(remaining);
+});
 
 /**
  * What ProseMirror needs from a DOM that jsdom does not have. The description
