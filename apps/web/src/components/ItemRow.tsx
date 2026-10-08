@@ -78,6 +78,7 @@ export function ItemRow({
   item,
   itemType,
   workspaceId,
+  inInbox = false,
   onMoveTo,
   onAddTo,
   onOpen,
@@ -103,6 +104,12 @@ export function ItemRow({
    */
   itemType?: ItemType | undefined;
   workspaceId: string;
+  /**
+   * That this row is drawn in the Inbox rather than on a Panel or a Filter
+   * panel ("Take the ✓ off Inbox rows", issue 880), which is what withholds
+   * its ✓.
+   */
+  inInbox?: boolean;
   /**
    * Asked to move this item somewhere, and handed the control the menu was
    * opened from so whatever opens can put the focus back there.
@@ -1285,8 +1292,12 @@ export function ItemRow({
             pointer hovering the row, so never on touch, which keeps the menu and
             the long press, and never while a selection is held, like every other
             single-row action. Invisible rather than absent at rest, so the row
-            keeps its width and its title does not re-truncate under the pointer. */}
-        {!selecting?.revealed && (
+            keeps its width and its title does not re-truncate under the pointer.
+
+            Not drawn on an Inbox row: the Inbox is for deciding where an Item
+            belongs, and a ✓ under the pointer made finishing it the easiest
+            thing to do there (issue 880). Its menu keeps Status ▸ Done. */}
+        {!inInbox && !selecting?.revealed && (
           <button
             type="button"
             aria-label="Mark done"

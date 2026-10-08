@@ -596,7 +596,7 @@ describe('Triage', () => {
 
     describe('the row’s own ✓ marks it done the way the menu’s Done does, and offers it back', () => {
       const situations = [
-        { situation: 'an Inbox row', item: anItem(), extra: {} },
+        { situation: 'a row on a panel with nothing else to say', item: anItem(), extra: {} },
         {
           situation: 'a row on a panel',
           item: anItem(),
@@ -2110,6 +2110,24 @@ describe('Selection', () => {
       aRow({ selecting: { picked, revealed, onPick: vi.fn(), onEndSelection: vi.fn() } });
 
       expect(screen.queryByRole('button', { name: 'Mark done' }) !== null).toBe(shown);
+    });
+
+    it('draws no ✓ on an Inbox row, whose menu still offers Status ▸ Done', async () => {
+      const user = userEvent.setup();
+      aRow({ extra: { inInbox: true } });
+
+      expect(screen.queryByRole('button', { name: 'Mark done' })).toBeNull();
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: /^Status/ }));
+
+      expect(await screen.findByRole('menuitemradio', { name: 'Done' })).toBeVisible();
+    });
+
+    it('draws the ✓ on a row that is not in the Inbox', () => {
+      aRow({ extra: { inInbox: false } });
+
+      expect(screen.getByRole('button', { name: 'Mark done' })).toBeInTheDocument();
     });
 
     it('leaves the menu trigger available and opening where nothing is selected', async () => {
