@@ -52,10 +52,9 @@ export type { BatchRead } from './backfill-meanings.js';
  * **It queues nothing.** The nightly filing summary that once did is gone
  * ("Drop the nightly filing summary, keep the sentence you wrote", issue 392);
  * what runs is the guest reset, the sign-in history and provider call
- * purges, and re-arming any
- * Gmail or pulled-connection check that was lost, with each Gmail
- * connection's full reconcile started again - each idempotent, so a tick run
- * twice changes nothing the first did not.
+ * purges, and re-arming any Gmail or pulled-connection check that was lost,
+ * with each Gmail connection's full reconcile started again - each
+ * idempotent, so a tick run twice changes nothing the first did not.
  */
 export async function handleScheduled(controller: ScheduledController, env: Env): Promise<void> {
   void controller;

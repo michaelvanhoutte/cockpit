@@ -156,12 +156,15 @@ export const CLAUDE_RETRIES: RetryPolicy = {
   },
 };
 
-/** What a failed answer asked to be waited for, where it is a reasonable amount. */
+/** What a failed answer asked to be waited for, in seconds or as a date, where it is a reasonable amount. */
 function askedFor(headers: Headers | undefined): number | null {
-  const ms = Number.parseFloat(headers?.get('retry-after-ms') ?? '');
-  const seconds = Number.parseFloat(headers?.get('retry-after') ?? '');
-  const asked = Number.isNaN(ms) ? (Number.isNaN(seconds) ? null : seconds * 1000) : ms;
-  return asked !== null && asked >= 0 && asked < 60_000 ? asked : null;
+  const after = headers?.get('retry-after') ?? '';
+  const asked = [
+    Number.parseFloat(headers?.get('retry-after-ms') ?? ''),
+    Number.parseFloat(after) * 1000,
+    Date.parse(after) - Date.now(),
+  ].find((ms) => !Number.isNaN(ms));
+  return asked !== undefined && asked >= 0 && asked < 60_000 ? asked : null;
 }
 
 /** The SDK's own default: half a second, doubling per attempt, with up to a quarter off. */

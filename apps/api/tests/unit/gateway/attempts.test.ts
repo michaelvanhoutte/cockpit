@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { callThrough, type CallAbout, type RetryPolicy } from '../../../src/gateway/attempts.js';
 
 /**
@@ -34,6 +34,10 @@ const around = {
   },
 };
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('AI usage', () => {
   describe('a record that cannot be kept never costs a note its clean-up', () => {
     it.each([
@@ -59,7 +63,6 @@ describe('AI usage', () => {
       expect(answer).toBe('the answer');
       expect(complained).toHaveBeenCalledTimes(attempts.length);
       expect(String(complained.mock.calls[0]![0])).toContain('was not recorded: the record could not be written');
-      complained.mockRestore();
     });
 
     it('still fails with the call’s own failure, not the record’s', async () => {
@@ -75,7 +78,7 @@ describe('AI usage', () => {
           around,
         ),
       ).rejects.toThrow('overloaded');
-      complained.mockRestore();
+      expect(complained).toHaveBeenCalled();
     });
   });
 });

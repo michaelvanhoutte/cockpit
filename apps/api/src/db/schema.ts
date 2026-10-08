@@ -338,9 +338,11 @@ export const signIns = sqliteTable(
  * 917), written by the gateway (`src/gateway/`) once the attempt has settled.
  * Kept 12 months and removed by the nightly run, like `sign_ins`.
  *
- * **No foreign key to `users` or `tenants`, and no copied name.** A row
- * outlives the user it names, so their spend can still be counted, and a
- * name kept here would keep personal data past their deletion.
+ * **No foreign key to `users` or `tenants`, and nothing copied from them
+ * but their ids.** A row outlives the user it names, so their spend can
+ * still be counted. Those ids are made from the person's name
+ * (`user-anna`), so a row keeps that slug for its 12 months, and is handed
+ * on with the id to whoever is next added under the same name.
  *
  * **Never the prompt, the answer, or more of a key than its last 4
  * characters** - what the Console shows beside the workspace id.
