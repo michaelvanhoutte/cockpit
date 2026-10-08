@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { SELF, applyD1Migrations, env, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
-import type { Connector, ConnectorHost } from '@cockpit/connector-sdk';
+import type { Connector, ConnectorHost, SourceItem } from '@cockpit/connector-sdk';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { handleQueue, handleScheduled } from '../../../src/jobs/index.js';
 import { open, seal, sealingKey } from '../../../src/connectors/credential-crypto.js';
@@ -237,6 +237,19 @@ async function nextChecksRun(): Promise<void> {
   for (const check of await alarmFires()) await deliver(check);
 }
 
+/** A page at the fake source, as the connector would read it. */
+function aPage(sourceId: string): SourceItem {
+  return {
+    source: 'notion',
+    sourceId,
+    sourceLink: null,
+    sender: null,
+    sourceTimestamp: null,
+    title: `Page ${sourceId}`,
+    capturedMessage: `What page ${sourceId} says`,
+  };
+}
+
 /** Connects a Gmail mailbox holding nothing labelled, the whole walk a browser makes, as gmail-import.test.ts does. */
 async function connectGmail(): Promise<void> {
   gmailHolds({ labels: labelsAnswer(), historyId: '777', threads: [], history: [], historyLapsed: false });
@@ -301,7 +314,7 @@ afterEach(() => {
 });
 
 describe('Connector management', () => {
-  describe('a pulled connection is checked about every five minutes while it is connected, and never after it is disconnected', () => {
+  describe('a connection to a source Cockpit pulls from is checked about every five minutes while it is connected, and never after it is disconnected', () => {
     it('is checked as soon as it is connected, and again when its next check falls due about five minutes on', async () => {
       await connectedAndChecked();
       expect(fake.runs).toBe(1);
@@ -353,7 +366,7 @@ describe('Connector management', () => {
     });
   });
 
-  describe('an account with a Gmail connection as well keeps both checked, on its one alarm', () => {
+  describe('an account with a Gmail connection as well keeps both checked', () => {
     it('checks the Gmail connection and the pulled one, and each again when it falls due', async () => {
       await connectGmail();
       await connectedAndChecked();
@@ -373,8 +386,8 @@ describe('Connector management', () => {
     });
   });
 
-  describe('a pulled connector reads back exactly the private state it last saved for that connection', () => {
-    it('reads nothing before it saved anything, what it saved in the last check after, and never another connection’s', async () => {
+  describe('a source Cockpit pulls from picks up where it last said it got to, for that connection alone', () => {
+    it('starts from nothing, then from where the last check said, and never from another connection’s place', async () => {
       const read: unknown[] = [];
       everyRun(async (host, run) => {
         read.push(await host.getState());
@@ -390,11 +403,11 @@ describe('Connector management', () => {
     });
   });
 
-  describe('a pulled connector gets its connection’s credential opened, and a refreshed one it hands back is what the next check gets', () => {
+  describe('a source Cockpit pulls from is reached with its connection’s own sign-in, and a renewed one it hands back is what the next check uses', () => {
     it.each([
       { situation: 'nothing handed back', handsBack: null, nextGets: 'the-first-credential' },
       { situation: 'a refreshed one handed back', handsBack: 'a-refreshed-credential', nextGets: 'a-refreshed-credential' },
-    ])('the next check gets the right one, with $situation', async ({ handsBack, nextGets }) => {
+    ])('the next check uses the right one, with $situation', async ({ handsBack, nextGets }) => {
       const got: string[] = [];
       runsIn(
         async (host) => {
@@ -411,7 +424,7 @@ describe('Connector management', () => {
       expect(got).toEqual(['the-first-credential', nextGets]);
     });
 
-    it('a refresh is not kept where the account was connected again while the check ran, and what that stored is whole', async () => {
+    it('a renewal is not kept where the account was connected again while the check ran, and that connection’s sign-in stays whole', async () => {
       const got: string[] = [];
       runsIn(
         async (host) => {
@@ -442,21 +455,15 @@ describe('Connector management', () => {
     });
   });
 
-  describe('an Item a pulled connector emits is filed once per source id in the connection’s Workspace, and queued for clean-up and for reading its meaning', () => {
-    const anItem = (sourceId: string) => ({
-      source: 'notion' as const,
-      sourceId,
-      title: `Page ${sourceId}`,
-      capturedMessage: `What page ${sourceId} says`,
-    });
+  describe('each thing a source Cockpit pulls from brings in is one Item in the connection’s Workspace, cleaned up and read for its meaning', () => {
 
-    it('files a new source id as an open Item there, and asks for both', async () => {
+    it('something new is an open Item there, and is cleaned up and read', async () => {
       // Both set, so neither is left unasked because this environment could not have run it.
       env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
       env.EMBEDDINGS_STAND_IN = 'true';
       const answers: string[] = [];
       everyRun(async (host) => {
-        answers.push(await host.emitItem(anItem('page-1')));
+        answers.push(await host.emitItem(aPage('page-1')));
       });
       await connectedAndChecked();
 
@@ -468,10 +475,10 @@ describe('Connector management', () => {
       expect(asked.sort()).toEqual(['clean-up-a-note', 'read-what-a-note-means']);
     });
 
-    it('the same source id in a later check is already known, and no second Item', async () => {
+    it('the same thing brought in by a later check is already known, and no second Item', async () => {
       const answers: string[] = [];
       everyRun(async (host) => {
-        answers.push(await host.emitItem(anItem('page-1')));
+        answers.push(await host.emitItem(aPage('page-1')));
       });
       await connectedAndChecked();
       await nextChecksRun();
@@ -480,9 +487,9 @@ describe('Connector management', () => {
       expect(await itemsFrom()).toHaveLength(1);
     });
 
-    it('files every one of more than a hundred in one check', async () => {
+    it('every one of more than a hundred brought in by one check is an Item', async () => {
       everyRun(async (host) => {
-        for (let page = 0; page < 101; page += 1) await host.emitItem(anItem(`page-${page}`));
+        for (let page = 0; page < 101; page += 1) await host.emitItem(aPage(`page-${page}`));
       });
       await connectedAndChecked();
 
@@ -490,14 +497,14 @@ describe('Connector management', () => {
     });
   });
 
-  describe('a source-state change reaches the Item the connection filed for that source id', () => {
+  describe('something finished at the source is done on the Item the connection brought in for it', () => {
     it.each([
-      { situation: 'resolved, for a page it filed', sourceId: 'page-1', done: true },
-      { situation: 'resolved, for a page it never filed', sourceId: 'page-unknown', done: false },
+      { situation: 'a page it brought in is done', sourceId: 'page-1', done: true },
+      { situation: 'a page it never brought in changes nothing', sourceId: 'page-unknown', done: false },
     ])('$situation', async ({ sourceId, done }) => {
       runsIn(
         async (host) => {
-          await host.emitItem({ source: 'notion', sourceId: 'page-1', title: 'Page 1' });
+          await host.emitItem(aPage('page-1'));
         },
         async (host) => {
           await host.emitSourceStateChange({ sourceId, change: 'resolved', observedAt: new Date().toISOString() });
@@ -512,17 +519,22 @@ describe('Connector management', () => {
     });
   });
 
-  describe('a pulled connection is checked one run at a time', () => {
-    it('a check delivered while one is running does nothing', async () => {
+  describe('a connection to a source Cockpit pulls from is checked one run at a time', () => {
+    it('a check queued again and delivered while one is still running does nothing', async () => {
       const id = await connect();
       const [check] = await checksQueue();
       everyRun(async () => {
-        if (fake.runs === 1) await deliver(check!);
+        if (fake.runs > 1) return;
+        // Queued again while this run still holds its time - which only an
+        // alarm firing early could do, so it is arranged rather than driven.
+        await inTheStore((sql) =>
+          sql.exec('UPDATE pulled_connections SET queued_at = ? WHERE source_account_id = ?', new Date().toISOString(), id),
+        );
+        await deliver(check!);
       });
       await deliver(check!);
 
       expect(fake.runs).toBe(1);
-      void id;
     });
 
     it('the same check delivered twice is one run', async () => {
@@ -554,23 +566,23 @@ describe('Connector management', () => {
   });
 
   describe('a check that fails loses nothing and says why', () => {
-    it('one that fails after filing, before saving where it got to, is read again from where it last saved', async () => {
+    it('one that fails after bringing something in, before saying where it got to, is picked up from where it last said', async () => {
       const read: unknown[] = [];
       const answers: string[] = [];
       runsIn(
         async (host) => {
           read.push(await host.getState());
-          answers.push(await host.emitItem({ source: 'notion', sourceId: 'page-1', title: 'Page 1' }));
+          answers.push(await host.emitItem(aPage('page-1')));
           await host.setState({ after: 'page-1' });
         },
         async (host) => {
           read.push(await host.getState());
-          answers.push(await host.emitItem({ source: 'notion', sourceId: 'page-2', title: 'Page 2' }));
+          answers.push(await host.emitItem(aPage('page-2')));
           throw new Error('the source stopped answering');
         },
         async (host) => {
           read.push(await host.getState());
-          answers.push(await host.emitItem({ source: 'notion', sourceId: 'page-2', title: 'Page 2' }));
+          answers.push(await host.emitItem(aPage('page-2')));
           await host.setState({ after: 'page-2' });
         },
       );
@@ -609,7 +621,7 @@ describe('Connector management', () => {
       const answers: string[] = [];
       everyRun(async (host) => {
         await disconnect(id);
-        answers.push(await host.emitItem({ source: 'notion', sourceId: 'page-1', title: 'Page 1' }));
+        answers.push(await host.emitItem(aPage('page-1')));
         await host.setState({ after: 'page-1' });
       });
       id = await connect();

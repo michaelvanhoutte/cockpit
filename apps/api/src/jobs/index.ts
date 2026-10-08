@@ -53,8 +53,8 @@ export type { BatchRead } from './backfill-meanings.js';
  * **It queues nothing.** The nightly filing summary that once did is gone
  * ("Drop the nightly filing summary, keep the sentence you wrote", issue 392);
  * what runs is the guest reset, the sign-in history purge, and re-arming any
- * Gmail check that was lost with each Gmail connection's full reconcile
- * started again - each idempotent, so a tick run twice changes nothing the
+ * Gmail or pulled-connection check that was lost, with each Gmail
+ * connection's full reconcile started again - each idempotent, so a tick run twice changes nothing the
  * first did not.
  */
 export async function handleScheduled(controller: ScheduledController, env: Env): Promise<void> {
@@ -67,7 +67,9 @@ export async function handleScheduled(controller: ScheduledController, env: Env)
 /**
  * Every account holding a Gmail connection has its check armed again where it
  * was lost ("Bring in the conversations already labelled Cockpit as tasks",
- * issue 725) - one account failing is logged inside, and the rest go on.
+ * issue 725), and so does every account holding a pulled connection ("Check a
+ * pulled connector on its cadence through the generic host", issue 891) - one
+ * account failing is logged inside, and the rest go on.
  */
 async function keepCheckingGmail(env: Env): Promise<void> {
   try {

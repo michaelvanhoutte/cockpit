@@ -571,8 +571,9 @@ export async function resetGuestAccount(env: Env): Promise<'reset' | 'no guest a
  * tasks", issue 725) - the nightly guard against an alarm that was lost,
  * which would otherwise stop the check without a word - and starts each
  * connection's full reconcile again, the nightly sweep that corrects what the
- * history missed (issue 727). Answers how many it armed; one account failing
- * is logged and costs only itself.
+ * history missed (issue 727) - and does the same for its pulled connections
+ * (issue 891), the one alarm checking both. Answers how many it armed; one
+ * account failing is logged and costs only itself.
  */
 export async function keepEveryAccountCheckingGmail(env: Env): Promise<number> {
   let armed = 0;
