@@ -147,6 +147,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     PULLED_CONNECTIONS,
     LAYOUT_ROW_TITLES,
     PULLED_OPEN_WANTED,
+    PULLED_LINK_CHOICE,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -284,6 +285,34 @@ const PULLED_OPEN_WANTED: Change = {
       sql: 'ALTER TABLE `pulled_links` ADD COLUMN `open_wanted` integer CONSTRAINT "pulled_links_open_wanted_is_flag" CHECK(open_wanted IS NULL OR open_wanted IN (0, 1))',
     },
   ],
+};
+
+/**
+ * The choice a pulled connector's Item came in under, kept on its link
+ * ("Close a pulled connector's Items its complete listing no longer sees",
+ * issue 938) - one nullable column on `pulled_links`; `schema.ts` says what it
+ * carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** the statement landed or did not; the change is
+ *   recorded only once it has, in the same `transactionSync` (store.ts).
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** none. Every existing link takes
+ *   null, which no complete listing closes: they behave as they did.
+ * - **What is in each environment:** no environment holds a pulled link
+ *   outside tests yet; any that does keeps its rows whole.
+ * - **Rolled back after it has run:** an older release names the columns it
+ *   reads and ignores this one; links filed meanwhile keep their choice for
+ *   when the newer release serves again.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const PULLED_LINK_CHOICE: Change = {
+  name: '0062-pulled-link-choice',
+  statements: [{ sql: 'ALTER TABLE `pulled_links` ADD COLUMN `choice` text' }],
 };
 
 /**
