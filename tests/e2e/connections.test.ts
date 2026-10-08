@@ -51,7 +51,7 @@ test.describe('Connector management', () => {
       isMobile,
     }) => {
       // Settings is the pointer's, by decision: a phone has no way to it.
-      test.skip(isMobile, 'a phone has no Settings');
+      test.skip(isMobile, 'a phone has no Connections, only Appearance');
       await openFirstWorkspace(page, isMobile);
       const workspace = uniqueTitle('Connected');
       await makeWorkspace(page, workspace, isMobile);

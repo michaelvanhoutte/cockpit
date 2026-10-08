@@ -16,7 +16,7 @@ test.describe('Appearance', () => {
     const PAGE = 'rgb(27, 28, 33)';
     const SURFACE = 'rgb(36, 37, 43)';
 
-    test('is dark on the logon page, on a Dashboard and in a menu opened over it', async ({ page, isMobile }) => {
+    test('is dark on the logon page, on a Dashboard and in a menu opened over it, and is chosen in Settings, on a phone too', async ({ page, isMobile }) => {
       // Asked as soon as the document exists, before the app has drawn a thing.
       await page.goto('/signin', { waitUntil: 'domcontentloaded' });
       expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe(PAGE);
@@ -31,6 +31,31 @@ test.describe('Appearance', () => {
       const menu = page.getByRole('menu');
       await expect(menu).toBeVisible();
       expect(await menu.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(SURFACE);
+      await page.keyboard.press('Escape');
+      await expect(menu).toBeHidden();
+
+      const choose = async (choice: RegExp) => {
+        await press(page.getByRole('button', { name: 'Profile' }), isMobile);
+        await press(page.getByRole('menuitem', { name: 'Settings…', exact: true }), isMobile);
+        const settings = page.getByRole('dialog', { name: 'Settings' });
+        await expect(settings).toBeVisible();
+        // A phone holds Appearance alone; at a desk it is one section among the rest.
+        await expect(settings.getByRole('button', { name: 'Types', exact: true })).toHaveCount(isMobile ? 0 : 1);
+        if (!isMobile) await press(settings.getByRole('button', { name: 'Appearance', exact: true }), isMobile);
+        await press(settings.getByRole('radio', { name: choice }), isMobile);
+        await press(settings.getByRole('button', { name: 'Close', exact: true }), isMobile);
+        await expect(settings).toBeHidden();
+      };
+
+      await choose(/^Light/);
+      expect(await groundOf(page)).not.toBe(PAGE);
+
+      await page.reload();
+      await expect(dashboardBar(page)).toBeVisible();
+      expect(await groundOf(page)).not.toBe(PAGE);
+
+      await choose(/^Dark/);
+      expect(await groundOf(page)).toBe(PAGE);
     });
   });
 });

@@ -515,7 +515,7 @@ function TheShell() {
    * Connections, for the workspace it was started from, saying how it went.
    * The redirect keeps its address (`/w/<workspace>?connections=...`,
    * `connections.ts`); this reads it once and clears it, so Back does not
-   * open Settings again. Settings is not offered on a phone, and a workspace
+   * open Settings again. Connections is not offered on a phone, and a workspace
    * this person cannot see gets no window - the parameter is cleared either way.
    */
   const { outcome: backFromTheSource, forget: forgetTheTrip } = useConnections();
@@ -915,12 +915,10 @@ function TheShell() {
                 <DropdownMenu.Label className="px-2 py-1 text-xs text-ink-faint">
                   {me ? `Signed in as ${me.user.name}` : 'Signed in'}
                 </DropdownMenu.Label>
-                {/* Not on a phone, by decision: the same room the Inbox column asks for. */}
-                {roomForTheInbox && (
-                  <DropdownMenu.Item onSelect={() => openSettings('types')} className={menuItemClass}>
-                    Settings…
-                  </DropdownMenu.Item>
-                )}
+                {/* On a phone it holds Appearance alone: the rest is for a desk, by decision (the room the Inbox column asks for). */}
+                <DropdownMenu.Item onSelect={() => openSettings(roomForTheInbox ? 'types' : 'appearance')} className={menuItemClass}>
+                  Settings…
+                </DropdownMenu.Item>
                 {/* An admin only, which is a courtesy: the server is what refuses everybody else (auth/admin.ts). */}
                 {roomForTheInbox && me?.user.role === ADMIN && (
                   <DropdownMenu.Item onSelect={() => setManaging('platform')} className={menuItemClass}>
@@ -1203,13 +1201,14 @@ function TheShell() {
           in a page, because there is no page: the shell is the one thing that
           is always drawn inside a workspace. Drawn only while open, so its code
           is fetched when it is first asked for. */}
-      {managing === 'settings' && roomForTheInbox && (
+      {managing === 'settings' && (
         <Suspense fallback={null}>
           <SettingsWindow
             on={settingsOn}
             startsIn={params.workspaceId}
             outcome={connectOutcome}
             guest={me?.user.id === GUEST_USER_ID}
+            onlyAppearance={!roomForTheInbox}
             onClose={() => setManaging(null)}
             returnFocusTo={profileControl.current}
           />

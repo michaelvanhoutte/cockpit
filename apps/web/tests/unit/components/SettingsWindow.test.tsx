@@ -143,7 +143,7 @@ describe('Across the app', () => {
   });
 
   describe('each section of Settings is headed by the name of its entry', () => {
-    it.each(['Types', 'Connections', 'Agent settings', 'MCP'])('heads %s with its own name', async (name) => {
+    it.each(['Types', 'Connections', 'Agent settings', 'MCP', 'Appearance'])('heads %s with its own name', async (name) => {
       const user = userEvent.setup();
       open('types');
       await user.click(entry(name));
