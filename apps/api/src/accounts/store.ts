@@ -782,7 +782,6 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
       const connectingGmail =
         name === 'connect_source_account' &&
         (payload as CommandPayload<'connect_source_account'>).connectorId === GMAIL;
-      this.#schedulePulledChecks(accountName);
       await this.#keepCheckingGmail(accountName, connectingGmail);
     }
     // A switch of mark checks at once, as connecting does: that check records
@@ -1026,15 +1025,11 @@ export class AccountStore extends DurableObject<Env> implements AccountStoreRpc 
     }
   }
 
-  /** Gives each pulled connection without a check one due now, as connecting it asks (issue 891). */
-  #schedulePulledChecks(accountName: string): void {
-    schedulePulledChecks(this.#database(), accountName, pulledConnectorIds(this.env), new Date());
-  }
 
   /**
    * Sets the alarm for whichever check is due first - Gmail's, while a Gmail
-   * connection is held, and the earliest pulled connection's - and clears it
-   * where there is nothing to check. Where the store cannot be read just now,
+   * connection is held, and the earliest pulled connection's, a connection
+   * just made being due now - and clears it where there is nothing to check. Where the store cannot be read just now,
    * it is tried again in five minutes, so a passing failure costs one run
    * rather than the check. The account's name is kept beside the alarm, since
    * an alarm arrives naming nothing.
