@@ -1,41 +1,42 @@
 /* The same palette as the other reports', because they are pages of one site
    and a reader moving between them should not feel handed to another tool.
-   Dark by default, light where the reader's system asks for it. */
+   Both palettes are here and the reader's system chooses; neither is forced. */
 :root {
-  --bg: #0f1115;
-  --card: #161922;
-  --ink-1: #f0f1f4;
-  --ink-2: #b7bcc9;
-  --ink-3: #98a0b2;
-  --line: #262b38;
-  --accent: #6ea8fe;
-  --soft: #1b1f29;
-  --red: #f07462;
-  --amber: #e2a54b;
-  --green: #62c08a;
-  --neutral: #7c8798;
-  --red-soft: #3a1f1d;
-  --amber-soft: #3a2e17;
+  color-scheme: light dark;
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --ink-1: #14171f;
+  --ink-2: #414858;
+  --ink-3: #5f6779;
+  --line: #dcdfe6;
+  --accent: #1f5fd1;
+  --soft: #eef0f4;
+  --red: #c0392b;
+  --amber: #a86c12;
+  --green: #2c7a4b;
+  --neutral: #8a94a4;
+  --red-soft: #fbeceb;
+  --amber-soft: #fbf1df;
   --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-@media (prefers-color-scheme: light) {
+@media (prefers-color-scheme: dark) {
   :root {
-    --bg: #f6f7f9;
-    --card: #ffffff;
-    --ink-1: #14171f;
-    --ink-2: #414858;
-    --ink-3: #5f6779;
-    --line: #dcdfe6;
-    --accent: #1f5fd1;
-    --soft: #eef0f4;
-    --red: #c0392b;
-    --amber: #a86c12;
-    --green: #2c7a4b;
-    --neutral: #8a94a4;
-    --red-soft: #fbeceb;
-    --amber-soft: #fbf1df;
+    --bg: #0f1115;
+    --card: #161922;
+    --ink-1: #f0f1f4;
+    --ink-2: #b7bcc9;
+    --ink-3: #98a0b2;
+    --line: #262b38;
+    --accent: #6ea8fe;
+    --soft: #1b1f29;
+    --red: #f07462;
+    --amber: #e2a54b;
+    --green: #62c08a;
+    --neutral: #7c8798;
+    --red-soft: #3a1f1d;
+    --amber-soft: #3a2e17;
   }
 }
 
@@ -102,11 +103,12 @@ nav.views a { color: var(--accent); text-decoration: none; }
 .dsm td { width: 34px; height: 30px; text-align: center; background: var(--soft); color: var(--ink-1); border-radius: 3px; }
 .dsm td.self { background: var(--line); }
 .dsm td.dn { background: color-mix(in srgb, var(--accent) 28%, var(--card)); }
-.dsm td.up { background: color-mix(in srgb, var(--amber) 38%, var(--card)); }
-.dsm td.cyc { background: var(--red); color: var(--bg); font-weight: 600; }
+.dsm td.up { background: var(--red); color: var(--bg); font-weight: 600; }
+.dsm td.part { outline: 2px solid var(--red); outline-offset: -2px; }
 .dsm td.env { background: var(--soft); color: var(--ink-3); }
 .d-down { background: color-mix(in srgb, var(--accent) 40%, var(--card)); }
-.d-up { background: color-mix(in srgb, var(--amber) 50%, var(--card)); }
+.d-up { background: var(--red); }
+.d-part { background: color-mix(in srgb, var(--accent) 40%, var(--card)); outline: 2px solid var(--red); outline-offset: -2px; border-radius: 3px; }
 .d-muted { background: var(--line); }
 
 footer { margin-top: 40px; color: var(--ink-3); font-size: 12.5px; }

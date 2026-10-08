@@ -67,6 +67,7 @@ describe('A run that cannot read a file it needs fails and writes nothing', () =
     { situation: 'the description file does not parse', make: () => fixture({ description: 'layers: [\n' }) },
     { situation: 'the description file leaves out what it must hold', make: () => fixture({ description: 'layers: []\n' }) },
     { situation: 'there are no workflows', make: () => fixture({ workflows: {} }) },
+    { situation: 'a pin names an area that does not exist', make: () => fixture({ description: descriptionFile({ layers: [{ title: 'L', role: 'core', areas: [{ path: 'apps/api/src/http', description: 'd' }] }], pins: [{ above: 'apps/api/src/http', below: 'apps/api/src/typo' }] }).text }) },
   ])('exits non-zero with neither page nor model when $situation', async ({ make }) => {
     const run = await draw(make());
     expect(run.code).toBe(1);
@@ -153,9 +154,9 @@ describe('Dependencies', () => {
     });
     const { dependencies } = await modelOf(root);
     expect(dependencies.cells.map((each) => [each.from, each.to, each.files, each.kind])).toEqual([
-      ['apps/api/src/http', 'apps/api/src/auth', 1, 'mutual'],
+      ['apps/api/src/http', 'apps/api/src/auth', 1, 'partner'],
       ['apps/api/src/http', 'packages/shared', 1, 'downward'],
-      ['apps/api/src/auth', 'apps/api/src/http', 1, 'mutual'],
+      ['apps/api/src/auth', 'apps/api/src/http', 1, 'upward'],
     ]);
     expect(dependencies.areas.map((each) => [each.path, each.lines])).toEqual([['apps/api/src/http', 2], ['apps/api/src/auth', 2], ['packages/shared', 1]]);
   });
@@ -167,6 +168,13 @@ describe('Dependencies', () => {
     expect(dependencies.cells.find((each) => each.from === 'apps/web/src' && each.to === 'packages/shared')?.files).toBeGreaterThan(10);
     for (const each of dependencies.cells) expect([paths.includes(each.from), paths.includes(each.to)]).toEqual([true, true]);
     for (const each of dependencies.areas.filter((one) => one.path !== 'packages/config')) expect(each.lines).toBeGreaterThan(0);
-    expect(dependencies.cells.filter((each) => each.kind === 'mutual' && (each.from === 'apps/api/src/*' || each.to === 'apps/api/src/*'))).toEqual([]);
+    expect(dependencies.cells.filter((each) => each.cycle && (each.from === 'apps/api/src/*' || each.to === 'apps/api/src/*'))).toEqual([]);
+  });
+
+  it('orders this repository’s own areas by the exact search, so a repository that outgrows it shows here before it shows on a night', async () => {
+    const { dependencies } = await modelOf(checkout);
+    expect(dependencies.order.method).toBe('exact');
+    expect(dependencies.order.areas).toBeLessThanOrEqual(dependencies.order.limit);
+    expect(dependencies.areas.at(-1).path).toBe('apps/api/src/*');
   });
 });
