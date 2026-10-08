@@ -98,6 +98,9 @@ layers:
       - path: apps/api/src/embeddings
         name: 'embeddings'
         description: 'Reads what a note means with Workers AI, so a note that repeats another can be flagged.'
+      - path: apps/api/src/gateway
+        name: 'gateway'
+        description: 'Makes and retries every paid provider call, and records each attempt in D1 for 12 months.'
       - path: apps/api/src/accounts
         name: 'accounts'
         description: 'The AccountStore Durable Object, one per account: its SQLite schema, change log, command service, backup and restore.'
