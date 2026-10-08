@@ -2050,6 +2050,16 @@ describe('Selection', () => {
       await fileWhatIsPicked(user, 'Falcon');
       await screen.findByText('3 items moved to Falcon');
       reRead();
+      // The server refuses to take off what is not on the panel. Installed
+      // before the add, since the Undo is built with the send in force then.
+      const real = held.send;
+      held.send = vi.fn((args: unknown) => {
+        const { name, payload } = args as { name: string; payload: { itemId: string; panelId: string } };
+        const filed = held.filings.some((f) => f.itemId === payload.itemId && f.panelId === payload.panelId);
+        return name === 'remove_item_from_panel' && !filed
+          ? Promise.reject(new CommandRefused(409, 'it is not on that panel'))
+          : real(args as never);
+      }) as typeof held.send;
       await user.click(screen.getByRole('button', { name: 'Also show on…' }));
       await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Anna' }));
       await screen.findByText('3 items added to Anna');
