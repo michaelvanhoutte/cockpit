@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
+import { dashboardScope, pickAll, shownOn } from '../selection';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isPhoneWidth, uuidv7, type Dashboard, type PanelKind, type WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
@@ -502,6 +503,20 @@ export function DashboardBar({
       },
     },
     ...collapseEntry(dashboard),
+    // Every row the open Dashboard's Panels show, picked in one go ("Select
+    // across every panel of a dashboard", issue 863). On the open Dashboard's
+    // menu only, since its Panels are the ones on screen to be picked. Its own
+    // group, after Collapse panels.
+    ...(dashboard.id === openDashboardId
+      ? [
+          {
+            label: 'Select all items',
+            separatorBefore: true,
+            keepsFocus: true,
+            onSelect: () => pickAll(dashboardScope(dashboard.id), shownOn(dashboardScope(dashboard.id))),
+          },
+        ]
+      : []),
     // The workspace's, not the dashboard's: offered from any dashboard so the
     // tab can be found where a person is already looking.
     {

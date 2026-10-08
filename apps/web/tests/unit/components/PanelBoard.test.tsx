@@ -876,9 +876,9 @@ describe('Panels', () => {
         openMenu('Project Falcon');
 
         expect(screen.queryByRole('menuitem', { name: new RegExp(`^${gone}`) })).toBeNull();
-        // And the count, so they cannot come back under other words: rename,
-        // sort, move to another dashboard, delete.
-        expect(screen.getAllByRole('menuitem')).toHaveLength(4);
+        // And the count, so they cannot come back under other words: select
+        // all, rename, sort, move to another dashboard, delete.
+        expect(screen.getAllByRole('menuitem')).toHaveLength(5);
       },
     );
   });

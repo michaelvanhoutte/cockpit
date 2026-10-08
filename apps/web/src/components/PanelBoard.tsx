@@ -1,5 +1,6 @@
 import { Fragment, Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
+import { DashboardSelection } from './DashboardSelection';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   GRID_COLUMNS,
@@ -1549,6 +1550,11 @@ export function PanelBoard({
           />
         </div>
       )}
+
+      {/* The one bar for what is picked across this Dashboard's Panels. Last
+          in the board, so it is stuck to the foot of the Dashboard's column
+          however far the Panels above it scroll. */}
+      <DashboardSelection workspaceId={workspaceId} dashboardId={dashboard.id} />
 
       {beingFiltered && (
         // No fallback: the chunk is small, and there is nothing on screen yet
