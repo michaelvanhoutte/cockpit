@@ -65,7 +65,7 @@ Third-party APIs are the hardest horizontal dependency: sandboxes are often unav
 
 1. **L1/F1:** third parties never appear.
 2. **L2/F2 and per-change L3/F3 runs** use local fakes or recorded fixtures, built from real recorded responses rather than hand-invented shapes, living in the repository.
-3. **Live contract tests:** a small separate suite runs against the real APIs, never per-change and never on a schedule - when a prompt it holds changes, and by hand - purely to verify the fixtures still match reality. A failure makes updating the fixture priority work.
+3. **Live contract tests:** a small separate suite runs against the real APIs, never per-change - when a prompt it holds changes and by hand, and weekly for the suites that spend nothing on a model - purely to verify the fixtures still match reality. A failure makes updating the fixture priority work.
 
 Without rule 3 the pyramid has a silent failure mode: every level green against a fake of Slack while real Slack has changed. Rule 3 is what makes rules 1 and 2 safe.
 

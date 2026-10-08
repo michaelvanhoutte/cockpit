@@ -37,7 +37,7 @@ const A_PNG_BASE64 =
  * instead: apps/api/tests/integration/http/note-cleanup.test.ts drives a real
  * capture through the real queue to the real consumer, and
  * apps/api/tests/contract/clean-up-a-note.v11.test.ts asks the real model
- * nightly.
+ * whenever the prompt changes.
  *
  * **The row's mark and the form's picker for the other readings have no walk
  * here either, and for a sharper reason** ("Offer the other readings when a
