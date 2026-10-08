@@ -3,6 +3,7 @@ import { snapshotQuery } from '../api/queries';
 import { stillOpen } from '../filing';
 import { dashboardScope, endSelection, useHeldTo, useSelection } from '../selection';
 import { SelectionBar } from './SelectionBar';
+import { useEditingSeveral } from './useEditingSeveral';
 import { useFilingSeveral } from './useFilingSeveral';
 
 /**
@@ -13,7 +14,8 @@ import { useFilingSeveral } from './useFilingSeveral';
  * **Drawn once by the board rather than by each Panel**, because the selection
  * is the Dashboard's: a bar per Panel could say only how many of its own rows
  * were picked. Moving files every picked Item, from whichever Panel, the way
- * the Inbox's bar files its own (`useFilingSeveral`).
+ * the Inbox's bar files its own (`useFilingSeveral`), and editing a field of
+ * every one the same way (`useEditingSeveral`).
  *
  * **It also keeps the selection honest.** It is what holds the Dashboard's
  * scope to the rows its Panels show between them, and what ends it when the
@@ -43,6 +45,7 @@ export function DashboardSelection({
     scope,
     picked,
   });
+  const editing = useEditingSeveral({ workspaceId, picked, filing: filingSeveral.filing });
 
   return (
     <>
@@ -51,7 +54,10 @@ export function DashboardSelection({
           onBoard
           count={picked.length}
           filing={filingSeveral.filing}
-          refusal={filingSeveral.refusal}
+          refusal={[filingSeveral.refusal, editing.refusal].filter(Boolean).join(' ') || null}
+          saving={editing.saving}
+          editMenu={editing.menu}
+          dateField={editing.dateField}
           onMoveTo={filingSeveral.ask}
           onClear={() => endSelection(scope)}
         />

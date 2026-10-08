@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 
 /**
@@ -18,6 +18,9 @@ export function SelectionBar({
   count,
   filing,
   refusal,
+  saving,
+  editMenu,
+  dateField,
   onMoveTo,
   onClear,
   onBoard = false,
@@ -28,6 +31,12 @@ export function SelectionBar({
   filing: boolean;
   /** Why the filing stopped, if it stopped. */
   refusal: string | null;
+  /** Which Item of how many an edit is sending, while one is: the count then says so, and Move to… and Edit wait. */
+  saving: { at: number; of: number } | null;
+  /** Edit ▾ (`useEditingSeveral`), which sits between Move to… and Clear. */
+  editMenu: ReactNode;
+  /** The date field Pick a date… opens, drawn under the buttons. */
+  dateField?: ReactNode;
   onMoveTo: () => void;
   onClear: () => void;
   /** That this is a Dashboard's bar, drawn as a card beside the Inbox rather than as the foot of a list. */
@@ -38,27 +47,58 @@ export function SelectionBar({
   const pinned = !useRoomForTheInbox();
 
   /**
-   * Publishes the bar's height as `--selection-bar-h` while it is pinned, so
-   * the undo offer lifts above it the way it lifts above the agents' dock
-   * (`AgentDock.tsx` does the same with `--dock-h`). Less the safe-area edge,
-   * which the bar's own padding holds and the offer adds again. Observed rather
-   * than read once, since a refusal line makes it taller; guarded for a test
-   * runner, which has no layout engine to observe with.
+   * Publishes how far the bar's top is from the screen's foot as
+   * `--selection-bar-h`, so the undo offer lifts above it the way it lifts
+   * above the agents' dock (`AgentDock.tsx` does the same with `--dock-h`):
+   * an edit keeps the selection held ("Change the type, priority, due date or
+   * status of every selected item from the selection bar", issue 864), and the
+   * offer it makes would otherwise cover the count and Move to… of the bar the
+   * next edit is made from.
+   *
+   * **Pinned, that is the bar's height; on the board it is where the bar has
+   * got to**, which moves as the page and the Panel scroll. Less the dock and
+   * the safe-area edge, which the offer adds again itself. Observed rather than
+   * read once, since a refusal line makes it taller; guarded for a test runner,
+   * which has no layout engine to observe with. The Inbox's own bar says
+   * nothing: it holds a fifth of the screen at the left, clear of the offer.
    */
   useLayoutEffect(() => {
     const el = bar.current;
-    if (!el || !pinned) return;
+    if (!el || (!pinned && !onBoard)) return;
     const root = document.documentElement;
-    const publish = () =>
-      root.style.setProperty('--selection-bar-h', `calc(${el.offsetHeight}px - var(--edge-bottom))`);
-    publish();
+    const publishNow = () => {
+      frame = 0;
+      const lift = pinned
+        ? `${el.offsetHeight}px - var(--edge-bottom)`
+        : `max(0px, ${Math.round(window.innerHeight - el.getBoundingClientRect().top)}px - var(--dock-h, 0px) - var(--edge-bottom))`;
+      root.style.setProperty('--selection-bar-h', `calc(${lift})`);
+    };
+    // Once a frame at most: a scroll fires many times a frame, and each read
+    // here is a layout.
+    let frame = 0;
+    const publish = () => {
+      if (frame === 0) frame = requestAnimationFrame(publishNow);
+    };
+    publishNow();
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(publish) : null;
     observer?.observe(el);
+    if (!pinned) {
+      // **And everything it stands in**, since on a board shorter than the
+      // window the bar sits after the last row: an edit that finishes Items
+      // takes rows away, the bar rises, and neither a scroll nor a resize says
+      // so - the very offer that edit makes would be left over the bar.
+      for (let up = el.parentElement; up; up = up.parentElement) observer?.observe(up);
+      window.addEventListener('resize', publish);
+      window.addEventListener('scroll', publish, { capture: true, passive: true });
+    }
     return () => {
+      cancelAnimationFrame(frame);
       observer?.disconnect();
+      window.removeEventListener('resize', publish);
+      window.removeEventListener('scroll', publish, { capture: true });
       root.style.removeProperty('--selection-bar-h');
     };
-  }, [pinned]);
+  }, [pinned, onBoard]);
 
   return (
     // **Stuck to the foot of the list, not placed after it.** A panel's rows
@@ -95,32 +135,40 @@ export function SelectionBar({
               : 'border-t border-shade/5'
         }`}
       >
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium tabular-nums text-accent-deep">
-            {count} selected
+        {/* Wraps, so the Inbox's column - a fifth of the screen - puts the buttons
+          on a line of their own under the count rather than breaking each
+          label across two. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="whitespace-nowrap text-sm font-medium tabular-nums text-accent-deep">
+            {saving ? `Saving ${saving.at} of ${saving.of}…` : `${count} selected`}
           </span>
-          <button
-            type="button"
-            className="ml-auto rounded-sm border border-accent/40 bg-surface px-2 py-1 text-sm hover:border-accent disabled:opacity-50"
-            disabled={filing}
-            onClick={onMoveTo}
-          >
-            {filing ? 'Moving…' : 'Move to…'}
-          </button>
-          <button
-            type="button"
-            className="rounded-sm px-2 py-1 text-sm text-ink-soft hover:text-ink disabled:opacity-50"
-            disabled={filing}
-            onClick={onClear}
-          >
-            Clear
-          </button>
+          <div className="ml-auto flex items-center gap-2 whitespace-nowrap">
+            <button
+              type="button"
+              className="rounded-sm border border-accent/40 bg-surface px-2 py-1 text-sm hover:border-accent disabled:opacity-50"
+              disabled={filing || saving !== null}
+              onClick={onMoveTo}
+            >
+              {filing ? 'Moving…' : 'Move to…'}
+            </button>
+            {editMenu}
+            <button
+              type="button"
+              className="rounded-sm px-2 py-1 text-sm text-ink-soft hover:text-ink disabled:opacity-50"
+              disabled={filing || saving !== null}
+              onClick={onClear}
+            >
+              Clear
+            </button>
+          </div>
         </div>
+
+        {dateField}
 
         {/* Where a refusal is said when the picker has already closed - which is
           what a filing that stopped part way through does, because some of it
           happened. What is left is still picked, so this sits above the ticks
-          it is about. */}
+          it is about. An edit's says how many were not changed and why. */}
         {refusal && (
           <p role="alert" className="pt-1 text-sm text-over-ink">
             {refusal}
