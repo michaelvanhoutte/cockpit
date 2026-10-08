@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { parseDocument } from 'yaml';
 
 import { main } from '../../src/cli.js';
 import { descriptionFile } from '../support/description.js';
@@ -110,9 +111,22 @@ describe('Modules', () => {
     const { modules } = JSON.parse(readFileSync(run.model, 'utf8'));
     const page = readFileSync(run.out, 'utf8');
     const boxes = [...page.matchAll(/<rect class="[a-z]+" data-area="([^"]*)" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/g)].map((each) => ({ area: each[1], x: +each[2], y: +each[3], w: +each[4], h: +each[5] }));
-    expect(boxes.map((each) => each.area).sort()).toEqual(modules.layers.flatMap((layer) => layer.areas).map((each) => each.path).sort());
+    // A package a source names is its connector's box, which the next test counts.
+    const packages = modules.connectors.flatMap((each) => (each.package ? [each.package.path] : []));
+    expect(boxes.map((each) => each.area).sort()).toEqual(modules.layers.flatMap((layer) => layer.areas).map((each) => each.path).filter((each) => !packages.includes(each)).sort());
     for (const [at, a] of boxes.entries()) for (const b of boxes.slice(at + 1)) expect(a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h, `${a.area} meets ${b.area}`).toBe(false);
     expect(page.match(/<line class="edge"/g)?.length).toBeGreaterThan(5);
+  });
+
+  it('draws a box for every source this repository declares, and the Worker round them', async () => {
+    const run = await draw(checkout);
+    expect(run.code).toBe(0);
+    const declared = parseDocument(readFileSync(path.join(checkout, 'tools/architecture/description.yml'), 'utf8')).toJS().sources.map((each) => each.id);
+    const page = readFileSync(run.out, 'utf8');
+    expect(declared.length).toBeGreaterThan(0);
+    const boxes = [...page.matchAll(/<rect class="[a-z]+" data-connector="([^"]*)"/g)].map((each) => each[1]);
+    expect(boxes.sort()).toEqual([...declared].sort());
+    expect(page).toMatch(/<rect class="wline" data-worker="cockpit"/);
   });
 
   it('finds the areas on disk by the description file’s own rules: folders, root files, packages, never tests or dependencies', async () => {
@@ -133,7 +147,6 @@ describe('Modules', () => {
     const { modules } = await modelOf(root);
     const found = Object.fromEntries(modules.layers.flatMap((layer) => layer.areas).map((each) => [each.path, each]));
     expect(Object.keys(found).sort()).toEqual(['apps/api/src/*', 'apps/api/src/http', 'apps/web/src', 'packages/connectors/teams', 'packages/shared']);
-    expect(found['packages/shared'].sources).toEqual([]);
     expect(found['packages/connectors/teams'].breaches).toEqual([{ file: 'src/index.ts', import: '@cockpit/shared' }]);
     expect(found['apps/api/src/*'].files).toBe(1);
   });

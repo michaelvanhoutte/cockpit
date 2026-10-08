@@ -19,17 +19,22 @@ scan:
   tests: '(^|/)(tests?|__tests__|__mocks__)/|\.(test|spec)\.[cm]?[jt]sx?$'
   ignore: [node_modules, dist, build, coverage, out, .wrangler, .turbo]
 
-# Names of a source of items. A core area whose code (identifiers, strings and
-# JSX text, never comments) uses one is marked. `words` are whole words in any
-# case; the words of a phrase may be joined by a space, - or _, or a change of
-# case. "teams" is also plain English, so it marks more than the connector's
-# own routes; each mark is a file to look at, not a verdict.
+# Names of a source of items, each drawn as a connector box on Modules. `words`
+# are whole words in any case; the words of a phrase may be joined by a space,
+# - or _, or a change of case. A core file whose file name carries one is that
+# connector's code living in the core. `package` is the connector's own package;
+# a source without one is drawn dashed red, with no package.
 sources:
   - { id: gmail, name: Gmail, words: [gmail] }
   - { id: claude-code, name: Claude Code, words: [claude code] }
-  - { id: teams, name: Microsoft Teams, words: [teams] }
+  - { id: teams, name: Microsoft Teams, words: [teams], package: packages/connectors/teams }
 
-# Files the source scan skips. The composition root is the one core file that
+# Parts shipped on their own, outside the Worker's release: each is drawn as a
+# box beside the Worker's outline. `path` is the folder that holds it.
+releasedOnItsOwn:
+  - { name: Teams app, path: packages/connectors/teams/teams-app, description: 'Its manifest, zipped and uploaded to Teams by hand.' }
+
+# Files the connector count skips. The composition root is the one core file that
 # may name connectors: the application knows them only as the list in this file
 # (docs/architecture.md, "Connectors: plugin-shaped, host-blind").
 exemptFromSources:

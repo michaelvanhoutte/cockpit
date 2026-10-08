@@ -53,9 +53,8 @@ function areaRows(before, after) {
     },
   });
 
-  // A mark is one source (or one import beyond the SDK) in one area, with the files that carry it: a file joining a mark that stands is a new mark to look at too.
+  // A mark is one import beyond the SDK in one area, with the files that carry it: a file joining a mark that stands is a new mark to look at too.
   const marks = (areas, field, make) => areas.flatMap((area) => area[field].map((each) => make(area, each)));
-  const sourceMark = (area, source) => ({ key: `${area.path}\0${source.id}`, area, what: source.name, files: source.files });
   const breachMark = (area, breach) => ({ key: `${area.path}\0${breach.import}`, area, what: breach.import, files: [breach.file] });
   const breaches = (list) => [...list.reduce((byKey, each) => byKey.set(each.key, { ...each, files: [...(byKey.get(each.key)?.files ?? []), ...each.files] }), new Map()).values()];
   const wheres = (mark, files) => files.map((file) => `${mark.area.path}/${file}`);
@@ -73,15 +72,6 @@ function areaRows(before, after) {
       },
     });
   const files = (count) => `${count} more ${count === 1 ? 'file' : 'files'}`;
-  const sourceRows = markRows((model) => marks(areasOf(model), 'sources', sourceMark), {
-    flag: 'new source mark',
-    named: {
-      added: (m) => `${m.area.name} names ${m.what}`,
-      removed: (m) => `${m.area.name} no longer names ${m.what}`,
-      more: (m, count) => `${m.area.name} names ${m.what} in ${files(count)}`,
-      fewer: (m, count) => `${m.area.name} names ${m.what} in ${count} fewer files`,
-    },
-  });
   const breachRows = markRows((model) => breaches(marks(areasOf(model), 'breaches', breachMark)), {
     flag: 'new breach',
     named: {
@@ -91,7 +81,21 @@ function areaRows(before, after) {
       fewer: (m, count) => `${m.area.name} imports ${m.what} in ${count} fewer files`,
     },
   });
-  return [...rows, ...sourceRows, ...breachRows];
+  return [...rows, ...breachRows];
+}
+
+// ---- connectors ------------------------------------------------------------
+
+/** A connector's code in the core arriving or leaving; a file merely mentioning its name is not one. */
+function connectorRows(before, after) {
+  const filesOf = (model) =>
+    (model.modules.connectors ?? []).flatMap((connector) => connector.inCore.flatMap((here) => here.files.map((file) => ({ key: `${connector.id}\0${here.area}/${file}`, name: connector.name, where: `${here.area}/${file}`, area: here.area }))));
+  const names = nameOfArea(after);
+  const inArea = (each) => names.get(each.area) ?? nameOfArea(before).get(each.area) ?? each.area;
+  return compareSets(filesOf(before), filesOf(after), (each) => each.key, {
+    added: (each) => row('Connector', 'added', `${each.name} code arrived in the core: ${each.where.slice(each.area.length + 1)} in ${inArea(each)}`, [each.where], call('connector file in the core')),
+    removed: (each) => row('Connector', 'removed', `${each.name} code left the core: ${each.where.slice(each.area.length + 1)} in ${inArea(each)}`, [each.where]),
+  });
 }
 
 // ---- dependencies ----------------------------------------------------------
@@ -166,6 +170,6 @@ function deploymentRows(before, after) {
 
 /** Every row, in the order a reader should meet them: call-outs first, then by view. */
 export function diffModels(before, after) {
-  const rows = [...areaRows(before, after), ...dependencyRows(before, after), ...deploymentRows(before, after)];
+  const rows = [...areaRows(before, after), ...connectorRows(before, after), ...dependencyRows(before, after), ...deploymentRows(before, after)];
   return rows.map((each, index) => ({ each, index })).sort((a, b) => Number(b.each.flag.tone === 'call') - Number(a.each.flag.tone === 'call') || a.index - b.index).map(({ each }) => each);
 }

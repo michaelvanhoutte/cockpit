@@ -57,7 +57,13 @@ export function parseDescription(file, text) {
     object(each, where);
     const words = array(each.words, `${where}.words`).map((word, at) => string(word, `${where}.words[${at}]`));
     if (words.length === 0) fail(`${where}.words must name at least one word`);
-    return { id: string(each.id, `${where}.id`), name: string(each.name, `${where}.name`), words };
+    return { id: string(each.id, `${where}.id`), name: string(each.name, `${where}.name`), words, package: each.package === undefined ? null : string(each.package, `${where}.package`) };
+  });
+
+  const releasedOnItsOwn = value.releasedOnItsOwn === undefined ? [] : array(value.releasedOnItsOwn, 'releasedOnItsOwn').map((each, index) => {
+    const where = `releasedOnItsOwn[${index}]`;
+    object(each, where);
+    return { name: string(each.name, `${where}.name`), path: string(each.path, `${where}.path`).replace(/\/+$/, ''), description: string(each.description, `${where}.description`) };
   });
 
   const exemptFromSources = value.exemptFromSources === undefined ? [] : array(value.exemptFromSources, 'exemptFromSources').map((each, index) => string(each, `exemptFromSources[${index}]`));
@@ -109,6 +115,7 @@ export function parseDescription(file, text) {
     scan: { testFile, extensions: array(scan.extensions, 'scan.extensions').map((each, index) => string(each, `scan.extensions[${index}]`)), ignore: array(scan.ignore, 'scan.ignore').map((each, index) => string(each, `scan.ignore[${index}]`)) },
     discover,
     sources,
+    releasedOnItsOwn,
     exemptFromSources,
     readByEveryone,
     connectorRule: { sdk: string(rule.sdk, 'connectorRule.sdk'), scope: string(rule.scope, 'connectorRule.scope') },

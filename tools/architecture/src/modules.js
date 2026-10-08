@@ -4,15 +4,17 @@
  *
  * Every area on disk appears: the description file gives it its wording and
  * its layer, and one it does not mention is marked undescribed. An area the
- * file describes that is no longer on disk is marked gone. The marks (source
- * code in the core, a connector package importing anything but the SDK) are
+ * file describes that is no longer on disk is marked gone. Every source the
+ * file declares is a connector, with its package (present, or gone when named
+ * and not on disk) and the core files built for it. The marks (a connector
+ * package importing anything but the SDK, connector code in the core) are
  * shown and decide nothing.
  */
 
 import path from 'node:path/posix';
 
 import { isCodeFile, isTestFile } from './description.js';
-import { codeOf, importsOf, names } from './scan.js';
+import { importsOf, names } from './scan.js';
 
 export function buildContext(description) {
   return { cockpit: description.context.cockpit, people: description.context.people, services: description.context.services };
@@ -40,21 +42,34 @@ function breachesOf(area, files, rule) {
   return found.sort((a, b) => a.import.localeCompare(b.import) || a.file.localeCompare(b.file));
 }
 
-/** The declared sources whose names a core area's code uses, each with the files that use one. */
-function sourcesIn(area, files, sources) {
-  const own = folderOf(area);
-  const coded = files.map((each) => ({ file: path.relative(own, each.file), code: codeOf(each.text) }));
-  return sources
-    .map((source) => ({ id: source.id, name: source.name, files: coded.filter((each) => names(each.code, source)).map((each) => each.file).sort() }))
+/** A file's name without its folders or its extension: the words a connector's name is looked for in. */
+const stemOf = (file) => path.basename(file).replace(/\.[^.]+$/, '');
+
+/**
+ * The core files built for one source: those whose file name carries its words,
+ * grouped by area. Files inside the source's own package are the connector's
+ * already, and the composition root is exempt.
+ */
+function builtFor(source, coreAreas, exempt) {
+  const own = source.package ? `${source.package}/` : null;
+  return coreAreas
+    .map(({ area, code }) => ({
+      area: area.path,
+      files: code
+        .filter((each) => !exempt.includes(each.file) && !(own && each.file.startsWith(own)) && names(stemOf(each.file), source))
+        .map((each) => path.relative(folderOf(area), each.file))
+        .sort(),
+    }))
     .filter((each) => each.files.length > 0);
 }
 
 /**
  * @param {object} description the parsed description file
  * @param {{ path: string, package: boolean, role: string, files: { file: string, text: string|null }[] }[]} candidates every folder discovery found
+ * @param {{ name: string, main: string|null, environments: string[] }[]} [workers] the Workers the Worker config deploys
  */
-export function buildModules(description, candidates) {
-  const { scan, sources, exemptFromSources, connectorRule } = description;
+export function buildModules(description, candidates, workers = []) {
+  const { scan, sources, exemptFromSources, connectorRule, releasedOnItsOwn } = description;
   const onDisk = new Map();
   for (const candidate of candidates) {
     const real = candidate.files.filter((each) => !isTestFile(scan, each.file));
@@ -66,12 +81,10 @@ export function buildModules(description, candidates) {
 
   const measure = (areaPath, role) => {
     const found = onDisk.get(areaPath);
-    if (!found) return { files: 0, sources: [], breaches: [] };
-    const subject = { path: areaPath };
+    if (!found) return { files: 0, breaches: [] };
     return {
       files: found.code.length,
-      sources: role === 'core' ? sourcesIn(subject, found.code.filter((each) => !exemptFromSources.includes(each.file)), sources) : [],
-      breaches: role === 'connector' ? breachesOf(subject, found.code, connectorRule) : [],
+      breaches: role === 'connector' ? breachesOf({ path: areaPath }, found.code, connectorRule) : [],
     };
   };
 
@@ -100,14 +113,34 @@ export function buildModules(description, candidates) {
   if (missing.length > 0) layers.push({ title: null, note: '', undescribed: true, areas: missing });
 
   const areas = layers.flatMap((layer) => layer.areas);
+  const coreAreas = areas.filter((each) => each.role === 'core' && onDisk.has(each.path)).map((area) => ({ area, code: onDisk.get(area.path).code }));
+  const connectors = sources.map((source) => ({
+    id: source.id,
+    name: source.name,
+    package: source.package ? { path: source.package, state: onDisk.has(source.package) ? 'present' : 'gone' } : null,
+    inCore: builtFor(source, coreAreas, exemptFromSources),
+  }));
+
+  const parts = releasedOnItsOwn.map((each) => ({
+    name: each.name,
+    path: each.path,
+    description: each.description,
+    state: candidates.some((candidate) => candidate.files.some((file) => file.file.startsWith(`${each.path}/`))) ? 'present' : 'gone',
+  }));
+
+  // Everything with code that runs is bundled into each Worker; a folder of shared config is not.
+  const bundled = areas.filter((each) => each.role !== 'other' && each.state !== 'gone').map((each) => each.path);
+
   return {
     layers,
-    sources: sources.map((each) => ({ id: each.id, name: each.name })),
+    connectors,
+    releasedOnItsOwn: parts,
+    workers: workers.map((each) => ({ name: each.name, main: each.main, environments: each.environments, areas: bundled })),
     counts: {
       areas: areas.length,
       undescribed: areas.filter((each) => each.state === 'undescribed').length,
       gone: areas.filter((each) => each.state === 'gone').length,
-      coreNamingASource: areas.filter((each) => each.sources.length > 0).length,
+      connectorFilesInCore: connectors.reduce((total, each) => total + each.inCore.reduce((sum, here) => sum + here.files.length, 0), 0),
       connectorBreaches: areas.filter((each) => each.breaches.length > 0).length,
     },
   };

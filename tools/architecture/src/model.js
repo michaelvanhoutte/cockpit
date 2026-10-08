@@ -115,6 +115,7 @@ function environmentOf(name, own, top, isTop) {
     name,
     kind: ENVIRONMENT_KINDS[name] ?? 'environment',
     worker: isTop ? (top.name ?? null) : (own.name ?? (top.name ? `${top.name}-${name}` : null)),
+    main: own.main ?? top.main ?? null,
     resources,
   };
 }
@@ -126,6 +127,22 @@ export function environmentsOf(config) {
     environmentOf(PRODUCTION, config, config, true),
     ...Object.entries(declared).map(([name, own]) => environmentOf(name, own ?? {}, config, false)),
   ];
+}
+
+/**
+ * The Workers the config deploys: environments running the same entry point are one Worker's code under
+ * different names (production and staging), so each distinct entry point is one release, named for the
+ * first environment that runs it.
+ */
+export function workersOf(environments) {
+  const workers = new Map();
+  for (const environment of environments) {
+    const key = environment.main ?? environment.worker ?? environment.name;
+    const found = workers.get(key) ?? { name: environment.worker ?? environment.name, main: environment.main, environments: [] };
+    found.environments.push(environment.name);
+    workers.set(key, found);
+  }
+  return [...workers.values()];
 }
 
 // ---- workflows -------------------------------------------------------------
@@ -251,7 +268,7 @@ export function buildModel({ wrangler, workflows, description: descriptionFile, 
 
   const publisher = parsed.find((workflow) => workflow.pages);
 
-  const modules = buildModules(description, candidates);
+  const modules = buildModules(description, candidates, workersOf(environments));
   return {
     drawnFrom: { commit, date, repo },
     context: buildContext(description),

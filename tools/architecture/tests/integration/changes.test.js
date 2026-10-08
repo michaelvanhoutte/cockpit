@@ -99,12 +99,12 @@ describe('What changed', () => {
     it('lists both nights’ changes when the live report is two nights old', async () => {
       const { root, ids } = repository([
         base,
-        { 'apps/api/src/http/app.ts': "export const a = 'gmail';\n" },
+        { 'apps/api/src/http/gmail.ts': "export const a = 1;\n" },
         { '.github/workflows/deploy.yml': WORKFLOW.replace('Tests', 'Deploy'), 'apps/api/wrangler.jsonc': '{ "name": "w" }\n' },
       ]);
       const text = await whatChanged(root, published(ids[0]));
-      expect(text).toContain('http names Gmail');
-      expect(text).toContain('new source mark');
+      expect(text).toContain('Gmail code arrived in the core');
+      expect(text).toContain('connector file in the core');
       expect(text).toContain('Deploy is a new workflow');
       expect(text).toContain('production loses KV namespace CACHE abc');
       expect(text).toContain(ids[0].slice(0, 7));
@@ -191,14 +191,14 @@ describe('What changed', () => {
     );
 
     it('compares with a live model that names its commit abbreviated', async () => {
-      const { root: repo, ids } = repository([base, { 'apps/api/src/http/app.ts': "export const a = 'gmail';\n" }]);
-      expect(await whatChanged(repo, published(ids[0].slice(0, 9)))).toContain('http names Gmail');
+      const { root: repo, ids } = repository([base, { 'apps/api/src/http/gmail.ts': "export const a = 1;\n" }]);
+      expect(await whatChanged(repo, published(ids[0].slice(0, 9)))).toContain('Gmail code arrived in the core');
     });
 
     it('compares with a model fetched from an address', async () => {
-      const { root: repo, ids } = repository([base, { 'apps/api/src/http/app.ts': "export const a = 'gmail';\n" }]);
+      const { root: repo, ids } = repository([base, { 'apps/api/src/http/gmail.ts': "export const a = 1;\n" }]);
       const url = await serve((_, response) => response.end(readFileSync(published(ids[0]), 'utf8')));
-      expect(await whatChanged(repo, url)).toContain('http names Gmail');
+      expect(await whatChanged(repo, url)).toContain('Gmail code arrived in the core');
     });
   });
 });

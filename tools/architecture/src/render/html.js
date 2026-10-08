@@ -26,10 +26,6 @@ const esc = (value) =>
 
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
-/** What the red dot means, with the sources the description file declares and how many cards carry it. */
-const sourceMarkLegend = (counts, sources) =>
-  `Core area naming ${sources.map((each) => each.name).join(', ') || 'a source'}, or a connector importing beyond the SDK${counts.coreNamingASource + counts.connectorBreaches ? ` (${counts.coreNamingASource + counts.connectorBreaches} areas)` : ''}`;
-
 const day = (iso) => iso.slice(0, 10);
 
 /**
@@ -46,7 +42,8 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
       ? `<span>commit <a href="${esc(`https://github.com/${repo}/commit/${commit}`)}" target="_blank" rel="noopener"><b>${esc(commit.slice(0, 7))}</b></a></span>`
       : `<span>commit <b>${esc(commit.slice(0, 7))}</b></span>`;
   const { environments, workflows } = model.deployment;
-  const { counts, sources } = model.modules;
+  const { counts, connectors } = model.modules;
+  const fileCount = counts.connectorFilesInCore;
   const mutedAreas = model.dependencies.areas.filter((each) => each.muted);
 
   return `<!doctype html>
@@ -97,14 +94,17 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
 
   <section id="modules">
   <h2>Modules</h2>
-  <p class="sectionnote">Every area of the web app, the API and the packages, each on the row below everything that imports it. Only the shortest chain of imports is drawn, each arrow labelled with the files that make it. The marks are shown and nothing fails on them.</p>
+  <p class="sectionnote">Every area of the web app, the API and the packages, each on the row below everything that imports it, and a box per connector the description file declares. Only the shortest chain of imports is drawn, each arrow labelled with the files that make it. The marks are shown and nothing fails on them.</p>
   <div class="legend">
     <span><i class="ln"></i>Imports an area below</span>
     <span><i class="ln up"></i>An import back up the chain, closing a cycle, with its files; a tie where both halves are the same size</span>
-    <span><i class="sw d-red"></i>${esc(sourceMarkLegend(counts, sources))}</span>
+    <span><i class="ln core"></i>Connector code living in the core: move it into the connector${fileCount ? ` (${plural(fileCount, 'file')})` : ''}</span>
+    <span><i class="sw d-red"></i>A connector with no package of its own, or whose package is gone${connectors.length ? ` (${connectors.filter((each) => !each.package || each.package.state === 'gone').length} of ${connectors.length})` : ''}</span>
+    <span><i class="sw d-red"></i>A connector package importing beyond the SDK${counts.connectorBreaches ? ` (${counts.connectorBreaches})` : ''}</span>
     <span><i class="sw d-amber"></i>Undescribed${counts.undescribed ? ` (${counts.undescribed})` : ''}</span>
     <span><i class="sw d-red"></i>Gone: described, not on disk${counts.gone ? ` (${counts.gone})` : ''}</span>
     <span><i class="sw d-green"></i>Connector package importing only the SDK</span>
+    <span><i class="sw d-worker"></i>Released together, in one deploy</span>
   </div>
   <div class="diagram">
     ${renderModules(model)}

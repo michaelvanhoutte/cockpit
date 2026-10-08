@@ -72,7 +72,7 @@ describe('The architecture page', () => {
     const html = renderHtml({
       drawnFrom: { commit: null, date: null, repo: null },
       context: { cockpit: { name: 'x', summary: 'x', runs: '' }, people: [], services: [] },
-      modules: { layers: [], sources: [], counts: { areas: 0, undescribed: 0, gone: 0, coreNamingASource: 0, connectorBreaches: 0 } },
+      modules: { layers: [], connectors: [], releasedOnItsOwn: [], workers: [], counts: { areas: 0, undescribed: 0, gone: 0, connectorFilesInCore: 0, connectorBreaches: 0 } },
       dependencies: { areas: [], cells: [], cyclePairs: [], undecidedPairs: [], order: { method: 'exact', areas: 0, limit: 18, upwardFiles: 0 } },
       deployment: { environments: [{ name: 'x', kind: 'environment', worker: '<b>w</b>', resources: [], deployedBy: [] }], workflows: [] },
     });
@@ -137,13 +137,14 @@ describe('Modules', () => {
       expect(html).toContain('>Not in the description file</text>');
     });
 
-    it('marks a core area naming a source with the files, and a connector breaching the rule with the import', () => {
+    it('leaves out a file that only mentions a source and marks a connector breaching the rule with the import', () => {
       const html = viewOf(
         { layers: [{ title: 'L', note: '', role: 'core', areas: [{ path: 'apps/api/src/a', description: 'd' }, { path: 'packages/connectors/x', description: 'd', role: 'connector' }] }] },
-        [on('apps/api/src/a', { 'gmail-check.ts': 'const gmail = 1;' }), on('packages/connectors/x', { 'src/a.ts': "import '@cockpit/shared';" }, 'connector')],
+        [on('apps/api/src/a', { 'labels.ts': "const gmail = 'Gmail';" }), on('packages/connectors/x', { 'src/a.ts': "import '@cockpit/shared';" }, 'connector')],
       );
-      expect(html).toContain('Names Gmail in 1 file');
-      expect(html).toContain('>gmail-check.ts</text>');
+      expect(html).not.toContain('Names Gmail');
+      expect(html).not.toContain('labels.ts');
+      expect(html).not.toContain('class="edge-core"');
       expect(html).toContain('Imports @cockpit/shared');
       expect(html).toContain('>src/a.ts</text>');
       expect(html).not.toContain('Imports only the connector SDK');
@@ -155,11 +156,21 @@ describe('Modules', () => {
       expect(html).toMatch(/class="clean"/);
     });
 
-    it('shows the first few files under a mark and counts the rest', () => {
-      const files = Object.fromEntries(Array.from({ length: 7 }, (_, index) => [`f${index}.ts`, 'gmail']));
-      const html = viewOf(described('apps/api/src/a'), [on('apps/api/src/a', files)]);
-      expect(html).toContain('Names Gmail in 7 files');
+    it('shows the first few files under a breach and counts the rest', () => {
+      const files = Object.fromEntries(Array.from({ length: 7 }, (_, index) => [`f${index}.ts`, "import '@cockpit/shared';"]));
+      const html = viewOf({ layers: [{ title: 'L', note: '', role: 'connector', areas: [{ path: 'packages/connectors/x', description: 'd' }] }] }, [on('packages/connectors/x', files, 'connector')]);
       expect(html).toContain('>+4 more</text>');
+    });
+
+    it('draws a connector box for each source, with a dashed red line to each core area holding its files, and the one Worker round it all', () => {
+      const html = viewOf(
+        { layers: [{ title: 'L', note: '', role: 'core', areas: [{ path: 'apps/api/src/a', description: 'd' }] }], sources: [{ id: 'gmail', name: 'Gmail', words: ['gmail'] }] },
+        [on('apps/api/src/a', { 'gmail.ts': '', 'gmail-check.ts': '' })],
+      );
+      expect(html).toMatch(/<rect class="ghost" data-connector="gmail"/);
+      expect(html).toContain('No package of its own');
+      expect(html).toContain('>2 files</text>');
+      expect(html).toContain('One release: the Worker cockpit');
     });
   });
 
