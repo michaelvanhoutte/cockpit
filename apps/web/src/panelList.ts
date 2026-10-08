@@ -95,17 +95,79 @@ export function usePanelListCollapsed(
  */
 export type PanelListEntry = { panelId: string; title: string; count: number | null; hidden: boolean };
 
+/** A Section as the list names it: a sub-heading over the Panels under it, never a target. */
+export type PanelListSection = { section: string };
+
+/** A row of Panels, or the Section standing between rows. */
+export type PanelListRow = readonly PanelListEntry[] | PanelListSection;
+
+export const isListedSection = (row: PanelListRow): row is PanelListSection => 'section' in row;
+
+/** Every Panel in the rows, in reading order; a Section is no Panel. */
+export const entriesIn = (rows: readonly PanelListRow[]): PanelListEntry[] =>
+  rows.flatMap((row) => (isListedSection(row) ? [] : row));
+
 /**
  * What the board hands the column: every Panel of the Dashboard, a row at a
- * time in reading order, and the way to bring one to the top. Published rather
- * than read from the snapshot because the board is what knows which Panels a
- * Dashboard filter leaves drawn, and which count each header shows.
+ * time in reading order with each Section in its place, and the way to bring
+ * one to the top. Published rather than read from the snapshot because the
+ * board is what knows which Panels a Dashboard filter leaves drawn, and which
+ * count each header shows.
  */
 export type PanelListing = {
   dashboardId: string;
-  rows: readonly (readonly PanelListEntry[])[];
+  rows: readonly PanelListRow[];
   jumpTo: (panelId: string) => void;
 };
+
+/**
+ * The rows a search leaves ("Hide a Section the filter empties, and head Go to
+ * panel's Panels with their Sections", issue 898). A Panel stays when `keeps`
+ * says so or when the title of the Section it is under matches; **a Section
+ * stays with the Panels that stay under it**, so a Panel matched by its own
+ * name has its Section's heading above it and one above every Section has none.
+ * `listAll` is no search, or one that matched a whole Dashboard or Workspace:
+ * every row stays, and every Section with it, empty ones too.
+ */
+export function rowsLeftBy(
+  rows: readonly PanelListRow[],
+  needle: string,
+  keeps: (entry: PanelListEntry) => boolean,
+  listAll = needle === '',
+): PanelListRow[] {
+  const left: PanelListRow[] = [];
+  let under: PanelListSection | null = null;
+  let headed = true;
+  for (const row of rows) {
+    if (isListedSection(row)) {
+      under = row;
+      headed = listAll;
+      if (listAll) left.push(row);
+      continue;
+    }
+    const sectionMatches = under !== null && needle !== '' && under.section.toLowerCase().includes(needle);
+    const kept = listAll ? row : row.filter((entry) => sectionMatches || keeps(entry));
+    if (kept.length === 0) continue;
+    if (under && !headed) {
+      left.push(under);
+      headed = true;
+    }
+    left.push(kept);
+  }
+  return left;
+}
+
+/** A flat run of Panels and Sections, as a snapshot is read into, as the rows the list draws: a run between Sections is one row. */
+export function rowsOfRun(run: readonly (PanelListEntry | PanelListSection)[]): PanelListRow[] {
+  const rows: PanelListRow[] = [];
+  for (const one of run) {
+    const last = rows.at(-1);
+    if ('section' in one) rows.push(one);
+    else if (last && !isListedSection(last)) rows[rows.length - 1] = [...last, one];
+    else rows.push([one]);
+  }
+  return rows;
+}
 
 let published: PanelListing | null = null;
 const listeners = new Set<() => void>();

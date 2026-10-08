@@ -148,6 +148,34 @@ export function withSectionDeleted(rows: readonly LayoutRow[], nth: number): Lay
 }
 
 /**
+ * The rows a board draws while a Dashboard filter hides the Panels in
+ * `hidden` ("Hide a Section the filter empties, and head Go to panel's Panels
+ * with their Sections", issue 898), each with the place it has in `rows`, which
+ * is what it is keyed by. Null `hidden` is no filter: every row is drawn, a
+ * Section with nothing under it too. Filtered, a row with no Panel left goes,
+ * and **a Section is drawn only while a row between it and the next Section
+ * still has a Panel drawn**.
+ */
+export function rowsDrawnWithout(
+  rows: readonly LayoutRow[],
+  hidden: ReadonlySet<string> | null,
+): { place: number; row: LayoutRow }[] {
+  if (!hidden) return rows.map((row, place) => ({ place, row }));
+  const left = rows.map((row, place) => ({
+    place,
+    row: rowIsSection(row) ? row : { ...row, cells: row.cells.filter((cell) => !hidden.has(cell.panelId)) },
+  }));
+  return left.filter(({ row, place }) => {
+    if (!rowIsSection(row)) return row.cells.length > 0;
+    for (const { row: after } of left.slice(place + 1)) {
+      if (rowIsSection(after)) return false;
+      if (after.cells.length > 0) return true;
+    }
+    return false;
+  });
+}
+
+/**
  * The share of its row each cell takes, as a fraction of one.
  *
  * **Spans are proportions, not widths.** They need not sum to anything: a row

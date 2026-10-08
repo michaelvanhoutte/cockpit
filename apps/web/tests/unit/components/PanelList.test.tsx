@@ -17,17 +17,21 @@ import type { Reach, ReachWorkspace } from '../../../src/panelReach';
  */
 type Row = [string, number | null, boolean?][];
 
-function aListing(rows: Row[], jumpTo = vi.fn(), dashboardId = 'today'): PanelListing {
+/** A bare string stands for a Section of that title. */
+function aListing(rows: (Row | string)[], jumpTo = vi.fn(), dashboardId = 'today'): PanelListing {
   return {
     dashboardId,
     jumpTo,
     rows: rows.map((row) =>
-      row.map(([title, count, hidden]) => ({ panelId: `id-${title}`, title, count, hidden: hidden ?? false })),
+      typeof row === 'string'
+        ? { section: row }
+        : row.map(([title, count, hidden]) => ({ panelId: `id-${title}`, title, count, hidden: hidden ?? false })),
     ),
   };
 }
 
-type Titles = [string, number | null, boolean?][];
+/** A Dashboard's Panels in order; a bare string stands for a Section of that title. */
+type Titles = ([string, number | null, boolean?] | string)[];
 
 /** A Workspace as the list reads it: its Dashboards, each with its Panels. */
 function aWorkspace(
@@ -45,7 +49,11 @@ function aWorkspace(
     dashboards: dashboards.map(([dashboardId, dashboardName, titles]) => ({
       id: dashboardId,
       name: dashboardName,
-      entries: titles.map(([title, count, hidden]) => ({ panelId: `id-${title}`, title, count, hidden: hidden ?? false })),
+      entries: titles.map((one) =>
+        typeof one === 'string'
+          ? { section: one }
+          : { panelId: `id-${one[0]}`, title: one[0], count: one[1], hidden: one[2] ?? false },
+      ),
     })),
     ...over,
   };
@@ -971,6 +979,115 @@ describe('Dashboards', () => {
       });
     });
   });
+  /**
+   * "Hide a Section the filter empties, and head Go to panel's Panels with
+   * their Sections", issue 898. Which Sections the board and a snapshot hand
+   * over is PanelBoard.test.tsx and panelReach.test.tsx; what the column does
+   * with them is here.
+   */
+  describe('a Section is a sub-heading between the rows, never a target, and its title is searched like a Panel’s name', () => {
+    /** The column top to bottom: `# ` before a heading, then the entries' titles. */
+    const order = () =>
+      [...shownList()!.querySelectorAll('h5, li button')].map((one) =>
+        one.tagName === 'H5' ? `# ${one.textContent}` : (one.querySelector('span')?.textContent ?? ''),
+      );
+    const sectioned = (jumpTo = vi.fn()) =>
+      aListing([[['Inbound', 1]], [['Triage', 2]], 'This week', [['Reply', 3], ['Call', 4]], 'Later', [['Plan', 5]]], jumpTo);
+
+    it('draws the heading where the hairline between two rows would be, and none above the first Panels', () => {
+      render(<Held listing={sectioned()} startsHidden={false} />);
+
+      expect(order()).toEqual(['Inbound', 'Triage', '# This week', 'Reply', 'Call', '# Later', 'Plan']);
+      expect(screen.getAllByRole('list').map((row) => row.className.includes('border-b'))).toEqual([true, false, false, false]);
+    });
+
+    it('draws it inside its Dashboard’s group in Workspace', async () => {
+      const user = userEvent.setup();
+      const reach = wide({
+        workspaces: [
+          aWorkspace('work', 'Work', [
+            ['today', 'Today', [['One', 1], 'Week', ['Two', 2]]],
+            ['research', 'Research', [['Papers', 4]]],
+          ]),
+          HOME(),
+        ],
+      });
+      render(<Held listing={aListing([[['One', 1]]])} reach={reach} />);
+      await user.keyboard('{Shift>}G{/Shift}');
+
+      expect(order()).toEqual(['One', '# Week', 'Two', 'Papers']);
+      expect(screen.getByRole('heading', { name: 'Week' }).closest('section')).toBe(
+        screen.getByRole('heading', { name: 'Today' }).closest('section'),
+      );
+    });
+
+    it('is skipped by ↓ and ↑, and is no target', async () => {
+      const user = userEvent.setup();
+      const jumpTo = vi.fn();
+      render(<Held listing={sectioned(jumpTo)} />);
+
+      await user.keyboard('g');
+      await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}');
+      expect(highlighted()).toEqual(['Reply3']);
+      expect(jumpTo).toHaveBeenLastCalledWith('id-Reply');
+
+      await user.keyboard('{ArrowUp}');
+      expect(highlighted()).toEqual(['Triage2']);
+    });
+
+    it('goes to the first Panel under a Section on Enter where only its title matches, never to the Section', async () => {
+      const user = userEvent.setup();
+      const jumpTo = vi.fn();
+      render(<Held listing={sectioned(jumpTo)} />);
+
+      await user.keyboard('g');
+      await user.keyboard('later');
+      await user.keyboard('{Enter}');
+
+      expect(jumpTo).toHaveBeenCalledExactlyOnceWith('id-Plan');
+    });
+
+    it('lists a Section whose Panels are all hidden by the filter', () => {
+      render(<Held listing={aListing([[['Inbound', 1]], 'Filtered out', [['Gone', 0, true]]])} startsHidden={false} />);
+
+      expect(order()).toEqual(['Inbound', '# Filtered out', 'Gone']);
+    });
+
+    it.each([
+      { situation: 'a Section’s title', typed: 'this week', shown: ['# This week', 'Reply', 'Call'] },
+      { situation: 'a title in any capitalisation', typed: 'LATER', shown: ['# Later', 'Plan'] },
+      { situation: 'a Panel’s name under a Section', typed: 'call', shown: ['# This week', 'Call'] },
+      { situation: 'a Panel’s name above every Section', typed: 'inbound', shown: ['Inbound'] },
+    ])('narrows to $situation, with its Panels and heading', async ({ typed, shown }) => {
+      const user = userEvent.setup();
+      render(<Held listing={sectioned()} />);
+
+      await user.keyboard('g');
+      await user.keyboard(typed);
+
+      expect(order()).toEqual(shown);
+    });
+
+    it('keeps every Panel under a Section whose title matches, in Workspace too', async () => {
+      const user = userEvent.setup();
+      const reach = wide({
+        workspaces: [
+          aWorkspace('work', 'Work', [
+            ['today', 'Today', [['One', 1], 'Week', ['Two', 2], ['Three', 3], 'Later', ['Four', 4]]],
+            ['research', 'Research', [['Papers', 4]]],
+          ]),
+          HOME(),
+        ],
+      });
+      render(<Held listing={aListing([[['One', 1]]])} reach={reach} />);
+
+      await user.keyboard('{Shift>}G{/Shift}');
+      await user.keyboard('week');
+
+      expect(order()).toEqual(['# Week', 'Two', 'Three']);
+    });
+  });
+
   describe('the column is resized by dragging its left edge, and a double-click puts it back', () => {
     const edge = () => screen.getByRole('separator', { name: /resize Go to panel/ });
     const drawnWidth = () => shownList()!.style.width;

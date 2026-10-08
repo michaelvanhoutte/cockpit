@@ -8,6 +8,7 @@ import {
   movedBeside,
   movedRow,
   movedToOwnRow,
+  rowsDrawnWithout,
   rowsToSave,
   sharesOf,
   stackedOnPhone,
@@ -467,6 +468,75 @@ describe('Layouts', () => {
         { height: null, title: 'This week', cells: [] },
         { height: 300, cells: [cell('a', 6)] },
       ]);
+    });
+  });
+
+  /**
+   * While a Dashboard filter is on ("Hide a Section the filter empties, and
+   * head Go to panel's Panels with their Sections", issue 898).
+   */
+  describe('while filtered, a Section is drawn only while a row between it and the next Section has a Panel drawn', () => {
+    const band = (title: string): LayoutRow => ({ height: null, title, cells: [] });
+    const lines = (rows: readonly LayoutRow[], hidden: ReadonlySet<string> | null) =>
+      rowsDrawnWithout(rows, hidden).map(({ row }) => row.title ?? row.cells.map((one) => one.panelId).join(' '));
+
+    it.each([
+      {
+        situation: 'a matching Panel under it',
+        rows: [band('Now'), aRow([cell('a', 12)])],
+        hidden: new Set<string>(),
+        drawn: ['Now', 'a'],
+      },
+      {
+        situation: 'every Panel under it hidden',
+        rows: [band('Now'), aRow([cell('a', 12)]), aRow([cell('b', 12)])],
+        hidden: new Set(['a', 'b']),
+        drawn: [],
+      },
+      {
+        situation: 'a Panel under it on a later row, the first row hidden',
+        rows: [band('Now'), aRow([cell('a', 12)]), aRow([cell('b', 12)])],
+        hidden: new Set(['a']),
+        drawn: ['Now', 'b'],
+      },
+      {
+        situation: 'nothing under it',
+        rows: [aRow([cell('a', 12)]), band('Empty')],
+        hidden: new Set<string>(),
+        drawn: ['a'],
+      },
+      {
+        situation: 'two Sections, only the second with a match',
+        rows: [band('One'), aRow([cell('a', 12)]), band('Two'), aRow([cell('b', 12)])],
+        hidden: new Set(['a']),
+        drawn: ['Two', 'b'],
+      },
+      {
+        situation: 'a Section with nothing under it before one with a match',
+        rows: [band('Empty'), band('Full'), aRow([cell('a', 12)])],
+        hidden: new Set<string>(),
+        drawn: ['Full', 'a'],
+      },
+      {
+        situation: 'a Panel above every Section, its Section emptied',
+        rows: [aRow([cell('a', 12)]), band('One'), aRow([cell('b', 12)])],
+        hidden: new Set(['b']),
+        drawn: ['a'],
+      },
+    ])('with $situation, it draws $drawn', ({ rows, hidden, drawn }) => {
+      expect(lines(rows, hidden)).toEqual(drawn);
+    });
+
+    it('draws every row, a Section with nothing under it too, where no filter is on', () => {
+      const rows = [band('Empty'), aRow([cell('a', 12)]), band('Last')];
+
+      expect(lines(rows, null)).toEqual(['Empty', 'a', 'Last']);
+    });
+
+    it('keeps each row at the place it has among all the rows', () => {
+      const rows = [band('One'), aRow([cell('a', 12)]), band('Two'), aRow([cell('b', 12)])];
+
+      expect(rowsDrawnWithout(rows, new Set(['a'])).map(({ place }) => place)).toEqual([2, 3]);
     });
   });
 });

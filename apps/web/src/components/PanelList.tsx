@@ -3,8 +3,8 @@ import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { clearDashboardFilter } from '../dashboardFilter';
 import { isTypedInto, somethingIsOpenOverThePage } from '../inboxCollapsed';
 import { browserStore } from '../lastVisited';
-import { PANEL_LIST_KEY, togglesThePanelList } from '../panelList';
-import type { PanelListEntry, PanelListing } from '../panelList';
+import { entriesIn, isListedSection, PANEL_LIST_KEY, rowsLeftBy, rowsOfRun, togglesThePanelList } from '../panelList';
+import type { PanelListEntry, PanelListing, PanelListRow } from '../panelList';
 import { usePanelListWidth } from '../panelListWidth';
 import { useReach } from '../panelReach';
 import type { Reach, ReachDashboard, ReachWorkspace, Scope } from '../panelReach';
@@ -111,10 +111,8 @@ export function PanelList({
   const matches = (name: string) => needle !== '' && name.toLowerCase().includes(needle);
 
   const rows = listing?.rows ?? [];
-  const total = rows.reduce((sum, row) => sum + row.length, 0);
-  const shownRows = rows
-    .map((row) => row.filter((entry) => needle === '' || entry.title.toLowerCase().includes(needle)))
-    .filter((row) => row.length > 0);
+  const total = entriesIn(rows).length;
+  const shownRows = rowsLeftBy(rows, needle, (entry) => matches(entry.title));
   const onThisDashboard = (entry: PanelListEntry): Target => ({
     ...entry,
     workspaceId: reach.workspaceId,
@@ -130,25 +128,26 @@ export function PanelList({
           .map((workspace) => {
             const workspaceMatches = scope === 3 && matches(workspace.name);
             const groups = workspace.dashboards
-              .map((dashboard) => ({
-                dashboard,
-                targets: dashboard.entries
-                  .filter(
-                    (entry) =>
-                      needle === '' ||
-                      workspaceMatches ||
-                      matches(dashboard.name) ||
-                      entry.title.toLowerCase().includes(needle),
-                  )
-                  .map((entry): Target => ({ ...entry, workspaceId: workspace.id, dashboardId: dashboard.id })),
-              }))
+              .map((dashboard) => {
+                const left = rowsLeftBy(
+                  rowsOfRun(dashboard.entries),
+                  needle,
+                  (entry) => matches(entry.title),
+                  needle === '' || workspaceMatches || matches(dashboard.name),
+                );
+                return {
+                  dashboard,
+                  rows: left,
+                  targets: entriesIn(left).map((entry): Target => ({ ...entry, workspaceId: workspace.id, dashboardId: dashboard.id })),
+                };
+              })
               .filter((group) => group.targets.length > 0);
             return { workspace, groups, unread: workspace.state !== 'ready' && (needle === '' || workspaceMatches) };
           })
           .filter((section) => section.groups.length > 0 || section.unread);
   const flat: Target[] =
     scope === 1
-      ? shownRows.flat().map(onThisDashboard)
+      ? entriesIn(shownRows).map(onThisDashboard)
       : sections.flatMap((section) => section.groups.flatMap((group) => group.targets));
   const current = at < 0 ? -1 : Math.min(at, Math.max(flat.length - 1, 0));
 
@@ -160,7 +159,7 @@ export function PanelList({
   useEffect(() => {
     const want = pending.current;
     if (want === null || !listing || listing.dashboardId !== want.dashboardId) return;
-    if (listing.rows.flat().some((entry) => entry.panelId === want.panelId && !entry.hidden)) {
+    if (entriesIn(listing.rows).some((entry) => entry.panelId === want.panelId && !entry.hidden)) {
       pending.current = null;
       listing.jumpTo(want.panelId);
     }
@@ -402,6 +401,30 @@ export function PanelList({
     );
   };
 
+  /**
+   * Rows of Panels, each Section a sub-heading in place of the hairline between
+   * rows (`hairlines`): the heading is no entry, so the keys never reach it.
+   */
+  const listedRows = (
+    list: readonly PanelListRow[],
+    toTarget: (entry: PanelListEntry) => Target,
+    hairlines: boolean,
+    indent = '',
+  ) =>
+    list.map((row, place) => {
+      if (isListedSection(row)) return <SectionHeading key={`section-${place}`} title={row.section} indent={indent} />;
+      const next = list[place + 1];
+      return (
+        <ul
+          // Rows have no identity of their own; the Panels in them do.
+          key={row.map((entry) => entry.panelId).join()}
+          className={`${indent} ${hairlines && next && !isListedSection(next) ? 'border-b border-shade/10 pb-1 mb-1' : ''}`.trim()}
+        >
+          {row.map((entry) => entryButton(toTarget(entry)))}
+        </ul>
+      );
+    });
+
   const scopeTitle = (chosen: Scope): string => {
     if (!available[chosen]) {
       return chosen === 2 ? 'Only one Dashboard in this Workspace' : 'Only one Workspace';
@@ -509,16 +532,7 @@ export function PanelList({
         <div className="min-h-0 flex-1 overflow-y-auto">
           {noPanels && <p className="px-4 py-1.5 text-sm text-ink-faint">No Panels on this Dashboard.</p>}
           {noMatch && <p className="px-4 py-1.5 text-sm text-ink-faint">No Panel matches.</p>}
-          {scope === 1 &&
-            shownRows.map((row, place) => (
-              <ul
-                // Rows have no identity of their own; the Panels in them do.
-                key={row.map((entry) => entry.panelId).join()}
-                className={place < shownRows.length - 1 ? 'border-b border-shade/10 pb-1 mb-1' : ''}
-              >
-                {row.map((entry) => entryButton(onThisDashboard(entry)))}
-              </ul>
-            ))}
+          {scope === 1 && listedRows(shownRows, onThisDashboard, true)}
           {sections.map(({ workspace, groups, unread }) => (
             <section key={workspace.id}>
               {scope === 3 && <WorkspaceHeading workspace={workspace} />}
@@ -527,9 +541,14 @@ export function PanelList({
                   {workspace.state === 'failed' ? 'Could not be read.' : 'Loading…'}
                 </p>
               )}
-              {groups.map(({ dashboard, targets }) => (
+              {groups.map(({ dashboard, rows: groupRows }) => (
                 <DashboardGroup key={dashboard.id} dashboard={dashboard} underWorkspace={scope === 3}>
-                  {targets.map(entryButton)}
+                  {listedRows(
+                    groupRows,
+                    (entry) => ({ ...entry, workspaceId: workspace.id, dashboardId: dashboard.id }),
+                    false,
+                    scope === 3 ? 'pl-[1.1rem]' : 'pl-2',
+                  )}
                 </DashboardGroup>
               ))}
             </section>
@@ -580,8 +599,17 @@ function DashboardGroup({
       >
         {dashboard.name}
       </h4>
-      <ul className={underWorkspace ? 'pl-[1.1rem]' : 'pl-2'}>{children}</ul>
+      {children}
     </section>
+  );
+}
+
+/** A Section's title over the Panels under it, drawn where the hairline between rows would be; `indent` is the group's own. */
+function SectionHeading({ title, indent }: { title: string; indent: string }) {
+  return (
+    <h5 className={`${indent} truncate px-4 pt-1.5 pb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint`.trim()}>
+      {title}
+    </h5>
   );
 }
 
