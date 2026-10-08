@@ -1,4 +1,4 @@
-import type { Item, Source } from '@cockpit/shared';
+import type { CapturedSource, Item } from '@cockpit/shared';
 
 /**
  * The connector SPI (architecture §6.2). Two-sided contract:
@@ -20,7 +20,7 @@ export interface ConnectorManifest {
    * Absent is no: Connect leaves for the source at once.
    */
   asksFirst?: boolean;
-  source: Source;
+  source: CapturedSource;
   /** Whether the source can push (webhooks) in addition to being pulled. */
   supportsPush: boolean;
   /**
@@ -101,14 +101,16 @@ export interface ConnectedAccountIdentity {
  */
 export type SourceItem = Pick<
   Item,
-  | 'source'
   | 'sourceId'
   | 'sourceLink'
   | 'sender'
   | 'sourceTimestamp'
   | 'title'
   | 'capturedMessage'
->;
+> & {
+  /** Still one a capture may name; reading is open (`sourceSchema`), writing is not changed here. */
+  source: CapturedSource;
+};
 
 /** What the host did with an emitted item: `filed` as a new Item, or `already-known` and left as it was. */
 export type EmittedItem = 'filed' | 'already-known';

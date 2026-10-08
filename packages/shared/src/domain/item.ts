@@ -8,11 +8,32 @@ import { plainWords } from './plain-words.js';
  */
 
 /**
- * Where an Item came from. 'internal' means created inside Cockpit; 'mcp' means
- * an app connected to Cockpit captured it, the app's registered name being the
- * Item's `sender`. Like 'teams', it is not one of `STORED_SOURCES`.
+ * A connector's id: lowercase words joined by `-`, `_` or `.`. What a source
+ * is called on the wire, so a client can draw one it has never heard of as the
+ * id itself (`connectorNamed`).
  */
-export const sourceSchema = z.enum([
+export const connectorIdSchema = z
+  .string()
+  .max(64)
+  .regex(/^[a-z][a-z0-9._-]*$/, 'a connector id is lowercase words joined by - _ or .');
+
+/**
+ * Where an Item came from, as it is read: 'internal' means created inside
+ * Cockpit, 'mcp' that an app connected to Cockpit captured it (the app's
+ * registered name being the Item's `sender`), and anything else is the id of
+ * the connector that made it. The old values keep their meaning; `mail` is
+ * still what a Gmail Item reads as until it is stored under `gmail`.
+ *
+ * **Open on purpose**: a closed list here would need the next source added in
+ * the contract, and a client that parses a snapshot would refuse an Item
+ * from a source it was not built with. `capturedSourceSchema` is the closed
+ * list of what a capture may still say.
+ */
+export const sourceSchema = connectorIdSchema;
+export type Source = z.infer<typeof sourceSchema>;
+
+/** The sources a capture may name - what is written, unlike `sourceSchema`, which is what is read. */
+export const capturedSourceSchema = z.enum([
   'internal',
   'mail',
   'slack',
@@ -21,7 +42,7 @@ export const sourceSchema = z.enum([
   'teams',
   'mcp',
 ]);
-export type Source = z.infer<typeof sourceSchema>;
+export type CapturedSource = z.infer<typeof capturedSourceSchema>;
 
 /**
  * The five sources the store's own `source` column has ever held, and the only
@@ -44,7 +65,7 @@ export const storedSourceSchema = z.enum(STORED_SOURCES);
 export type StoredSource = z.infer<typeof storedSourceSchema>;
 
 /** Whether the store's `source` column can hold this source as it stands. */
-export function isStoredSource(source: Source): source is StoredSource {
+export function isStoredSource(source: string): source is StoredSource {
   return (STORED_SOURCES as readonly string[]).includes(source);
 }
 
@@ -80,7 +101,7 @@ export const itemDescriptionSchema = z.string().trim().max(60_000);
  * identifiers rather than be made up.
  */
 export const capturedFromSchema = z.object({
-  source: sourceSchema,
+  source: capturedSourceSchema,
   sourceId: z.string().trim().min(1).max(500),
   sourceLink: z.url().max(2_000).optional(),
   sender: z.string().trim().min(1).max(TITLE_LENGTH).optional(),

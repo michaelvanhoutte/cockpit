@@ -693,6 +693,9 @@ describe('Triage', () => {
       // Named as the form names it, never by the stored source (issue 724).
       { situation: 'came from Teams', item: { source: 'teams', sender: 'Ada' }, shows: 'Microsoft Teams · Ada' },
       { situation: 'came from Gmail', item: { source: 'mail', sender: 'Anna' }, shows: 'Gmail · Anna' },
+      { situation: 'came from Gmail as its connector', item: { source: 'gmail', sender: 'Anna' }, shows: 'Gmail · Anna' },
+      // A connector nothing in Cockpit names reads as its id (issue 925).
+      { situation: 'came from a connector nothing names', item: { source: 'outlook', sender: 'Anna' }, shows: 'outlook · Anna' },
     ] as const)('an item that $situation says $shows where the source goes', ({ item, shows }) => {
       mockUseCommand.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
       render(<ItemRow item={anItem({ ...item })} workspaceId="ws-work" />);
