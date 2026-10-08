@@ -1,6 +1,5 @@
 import { Fragment, Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { DashboardSelection } from './DashboardSelection';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   GRID_COLUMNS,
@@ -60,6 +59,7 @@ import { arrangedWith, arrangedWithRow, placementFor, rowPlacementFor } from '..
 import type { DrawnRow } from '../panels/dragging';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { forgetPanelsCollapsed, usePanelsCollapsed } from '../panelsCollapsed';
+import { DashboardSelection } from './DashboardSelection';
 import { PANEL_GAP, PanelCard } from './PanelCard';
 import { publishPanelList, withdrawPanelList } from '../panelList';
 import { settleTheShowRequest, useShowRequest } from '../showItem';

@@ -220,6 +220,11 @@ export function pickAll(scope: string, ids: Iterable<string>) {
 }
 
 const lists = new Map<symbol, ShownRows>();
+const sameReport = (a: ShownRows, b: ShownRows) =>
+  a.scope === b.scope &&
+  !!a.hidden === !!b.hidden &&
+  a.ids.length === b.ids.length &&
+  a.ids.every((id, at) => id === b.ids[at]);
 const listsListeners = new Set<() => void>();
 const listsChanged = () => {
   for (const listener of listsListeners) listener();
@@ -236,7 +241,7 @@ export function useShowing(scope: string, ids: readonly string[], hidden = false
     lists.set(key, { scope, ids, hidden });
     // A board redraws its lists with the same rows far more often than with
     // different ones, and each report would otherwise wake the pruning.
-    if (was && was.scope === scope && !!was.hidden === hidden && was.ids.length === ids.length && was.ids.every((id, at) => id === ids[at])) return;
+    if (was && sameReport(was, { scope, ids, hidden })) return;
     listsChanged();
   }, [key, scope, ids, hidden]);
   useEffect(

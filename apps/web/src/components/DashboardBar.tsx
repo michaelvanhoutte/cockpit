@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { dashboardScope, pickAll, shownOn } from '../selection';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isPhoneWidth, uuidv7, type Dashboard, type PanelKind, type WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
+import { dashboardScope, pickAll, shownOn } from '../selection';
 import { refusalFrom, snapshotQuery, useCommand, useSendCommand } from '../api/queries';
 import {
   NO_DASHBOARD_FILTER,
