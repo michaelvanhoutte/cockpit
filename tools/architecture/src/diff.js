@@ -88,11 +88,14 @@ function areaRows(before, after) {
 
 /** A connector's code in the core arriving or leaving; a file merely mentioning its name is not one. */
 function connectorRows(before, after) {
-  const filesOf = (model) =>
-    (model.modules.connectors ?? []).flatMap((connector) => connector.inCore.flatMap((here) => here.files.map((file) => ({ key: `${connector.id}\0${here.area}/${file}`, name: connector.name, where: `${here.area}/${file}`, area: here.area }))));
+  // Only a connector declared the same way in both models is compared: declaring a source, or moving its package, changes which files count without any file moving.
+  const same = (a, b) => (a.package?.path ?? null) === (b.package?.path ?? null);
+  const stable = (model, other) => (model.modules.connectors ?? []).filter((each) => (other.modules.connectors ?? []).some((there) => there.id === each.id && same(there, each)));
+  const filesOf = (model, other) =>
+    stable(model, other).flatMap((connector) => connector.inCore.flatMap((here) => here.files.map((file) => ({ key: `${connector.id}\0${here.area}/${file}`, name: connector.name, where: `${here.area}/${file}`, area: here.area }))));
   const names = nameOfArea(after);
   const inArea = (each) => names.get(each.area) ?? nameOfArea(before).get(each.area) ?? each.area;
-  return compareSets(filesOf(before), filesOf(after), (each) => each.key, {
+  return compareSets(filesOf(before, after), filesOf(after, before), (each) => each.key, {
     added: (each) => row('Connector', 'added', `${each.name} code arrived in the core: ${each.where.slice(each.area.length + 1)} in ${inArea(each)}`, [each.where], call('connector file in the core')),
     removed: (each) => row('Connector', 'removed', `${each.name} code left the core: ${each.where.slice(each.area.length + 1)} in ${inArea(each)}`, [each.where]),
   });

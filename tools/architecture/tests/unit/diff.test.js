@@ -120,6 +120,22 @@ describe('What changed', () => {
       expect(rows).toEqual(expected);
     });
 
+    it('lists no connector file when the source is newly declared or its package changes, since no file moved', () => {
+      const gmailInCore = [folder('apps/api/src/http', { 'app.ts': 'export const a = 1;', 'gmail.ts': '' }), jobs];
+      const drawn = (sources) =>
+        buildModel({
+          wrangler: { file: 'apps/api/wrangler.jsonc', text: '{ "name": "w" }' },
+          workflows: [{ file: 'w0.yml', text: WORKFLOW }],
+          description: descriptionFile({ layers: [{ title: 'API', note: '', role: 'core', areas: both }], sources }),
+          candidates: gmailInCore,
+          commit: null,
+          date: null,
+        });
+      const gmail = { id: 'gmail', name: 'Gmail', words: ['gmail'] };
+      expect(diffModels(drawn([]), drawn([gmail]))).toEqual([]);
+      expect(diffModels(drawn([gmail]), drawn([{ ...gmail, package: 'packages/connectors/gmail' }]))).toEqual([]);
+    });
+
     it('puts what the reader is meant to see first', () => {
       const before = draw({ areas: both, candidates: [http, jobs] });
       const after = draw({ areas: both, candidates: [folder('apps/api/src/http', { 'app.ts': 'export const a = 1;', 'gmail.ts': '' }), jobs], workflows: [WORKFLOW, WORKFLOW.replace('Tests', 'Deploy')] });
