@@ -433,7 +433,6 @@ export function DashboardBar({
    * so rather than disappearing, and rather than being offered and then
    * refused.
    */
-  const showAllItems = () => setAllItemsTab(workspaceId, true);
   /**
    * Hides the tab, and leaves it for the first dashboard if it is the page on
    * screen: a page that is not in the bar is not somewhere to stay.
@@ -502,14 +501,6 @@ export function DashboardBar({
       },
     },
     ...collapseEntry(dashboard),
-    // The workspace's, not the dashboard's: offered from any dashboard so the
-    // tab can be found where a person is already looking.
-    {
-      label: allItemsOn ? 'Hide all items' : 'Show all items',
-      separatorBefore: true,
-      keepsFocus: true,
-      onSelect: () => (allItemsOn ? hideAllItems() : showAllItems()),
-    },
   ];
 
   /*
@@ -629,7 +620,7 @@ export function DashboardBar({
         // none of the tab drag, so it stays where it is while they move.
         <SurfaceMenu
           label="Actions for All items"
-          entries={[{ label: 'Hide all items', onSelect: hideAllItems }]}
+          entries={[{ label: 'Hide All items tab', onSelect: hideAllItems }]}
         >
           <Link
             to="/w/$workspaceId/items"
@@ -672,7 +663,7 @@ export function DashboardBar({
         <div className="ml-auto flex shrink-0 items-end gap-1 pl-2">
           <RowMenu
             label="Actions for All items"
-            entries={[{ label: 'Hide all items', onSelect: hideAllItems }]}
+            entries={[{ label: 'Hide All items tab', onSelect: hideAllItems }]}
             onChrome
           />
         </div>

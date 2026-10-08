@@ -79,3 +79,9 @@ export function useAllItemsTab(workspaceId: string | undefined): boolean {
   useSyncExternalStore(subscribe, () => version, () => 0);
   return workspaceId !== undefined && readAllItemsTab(browserStore(), workspaceId);
 }
+
+/** Whether each workspace shows the tab, for a menu that offers it for several at once. */
+export function useAllItemsTabs(): (workspaceId: string) => boolean {
+  useSyncExternalStore(subscribe, () => version, () => 0);
+  return (workspaceId) => readAllItemsTab(browserStore(), workspaceId);
+}
