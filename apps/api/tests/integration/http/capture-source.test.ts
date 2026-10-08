@@ -111,7 +111,7 @@ const settings = env as unknown as Record<string, string | undefined>;
  * environment's registry, read on the way out of the real route.
  */
 describe('Connector management', () => {
-  describe('a source is called what its connector calls itself, and a source no longer registered by its id', () => {
+  describe('a source is called what its connector calls itself, configured here or not, and a source nothing names by its id', () => {
     afterEach(() => {
       delete env.TEST_CONNECTORS;
     });
@@ -121,7 +121,7 @@ describe('Connector management', () => {
       { situation: 'a connector registered here alone, by its manifest', bot: true, id: 'outlook', called: 'Outlook' },
       { situation: 'Gmail, by the name the core still gives it', bot: true, id: 'gmail', called: 'Gmail' },
       { situation: 'Claude Code, by the name the core still gives it', bot: true, id: 'claude-code', called: 'Claude Code' },
-      { situation: 'Teams where its bot is not configured: unnamed', bot: false, id: 'teams', called: undefined },
+      { situation: 'Teams where its bot is not configured, by its manifest still', bot: false, id: 'teams', called: 'Microsoft Teams' },
       { situation: 'an app connected to Cockpit: never named here', bot: true, id: 'mcp', called: undefined },
     ])('$situation', async ({ bot, id, called }) => {
       env.TEST_CONNECTORS = [OUTLOOK];

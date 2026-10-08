@@ -1,5 +1,5 @@
 import type { Connector } from '@cockpit/connector-sdk';
-import { createTeamsConnector } from '@cockpit/connector-teams';
+import { TEAMS_IDENTITY, createTeamsConnector } from '@cockpit/connector-teams';
 import type { Env } from '../env.js';
 import { NAMED_SOURCES } from '../domain/named-sources.js';
 
@@ -41,14 +41,23 @@ export function connectors(env: Env): Connector[] {
 }
 
 /**
+ * Every connector package Cockpit carries, by who it is, whether or not this
+ * environment configures it: an Item it made keeps its name where it can no
+ * longer connect or push. One line per package, beside its line above.
+ */
+const KNOWN_CONNECTORS: readonly { readonly id: string; readonly displayName: string }[] = [TEAMS_IDENTITY];
+
+/**
  * What each source is called on screen, by connector id ("Take source names
- * out of the shared contract", issue 927): every registered connector by its
- * manifest's name, and the sources the core still names itself
- * (`domain/named-sources.ts`), which win over a registered one of the same id.
- * A source no longer registered is absent, and so reads as its id.
+ * out of the shared contract", issue 927): every connector package by its own
+ * name, configured here or not, every registered connector by its manifest's,
+ * and the sources the core still names itself (`domain/named-sources.ts`),
+ * which win over a connector of the same id. An id nothing names is absent,
+ * and so reads as itself.
  */
 export function sourceNames(env: Env): Record<string, string> {
   return {
+    ...Object.fromEntries(KNOWN_CONNECTORS.map(({ id, displayName }) => [id, displayName])),
     ...Object.fromEntries(connectors(env).map(({ manifest }) => [manifest.id, manifest.displayName])),
     ...NAMED_SOURCES,
   };

@@ -82,8 +82,9 @@ export const workspaceSnapshotSchema = z.object({
   claudeCodeFailing: z.string().nullable().default(null),
   /**
    * What each source is called on screen, by its connector id ("Take source
-   * names out of the shared contract", issue 927): every connector the
-   * environment registers, by its manifest's name. Carried here so a cold
+   * names out of the shared contract", issue 927): every connector
+   * Cockpit carries, by its manifest's name, whether or not this environment
+   * configures it. Carried here so a cold
    * open draws the names from the stored copy with no request of its own. An
    * id missing from it reads as itself; `internal` and `mcp` are never in it.
    * Optional rather than defaulted, unlike `attachments` above: a stored copy
