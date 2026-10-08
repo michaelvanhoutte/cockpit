@@ -147,6 +147,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     PULLED_CONNECTIONS,
     LAYOUT_ROW_TITLES,
     PULLED_OPEN_WANTED,
+    gmailItemsUnderTheirConnector(accountId),
     PULLED_LINK_CHOICE,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
@@ -286,6 +287,68 @@ const PULLED_OPEN_WANTED: Change = {
     },
   ],
 };
+
+/**
+ * Every Gmail Item names its connector, `gmail`, in `source_connector` ("Store
+ * Gmail Items under their connector id", issue 926), the way `asStored`
+ * (domain/items.ts) writes a new one. `source` keeps `mail`, so its CHECK -
+ * frozen, the Items table having children under RESTRICT - is never touched.
+ * Scoped to the account's own rows, though a store holds no other.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `UPDATE` of one column, and only where it is empty.
+ *   `pnpm backup:export` runs before the deploy that carries it.
+ * - **If it stops halfway:** it cannot. One statement, committed with the
+ *   record that it ran in one `transactionSync` (store.ts), so an account has
+ *   every Gmail Item rewritten or none.
+ * - **The second time it runs:** it does not, having been recorded; and its
+ *   `WHERE` matches nothing once applied, so a retry changes nothing.
+ * - **Rows that already break the rule:** a `mail` row already naming another
+ *   connector is left as it is, reading as that connector as it already does;
+ *   `leavesAlone` counts them and the store logs the count.
+ * - **What is in each environment:** real Gmail Items in staging and
+ *   production, rewritten in place on each account's first open after the
+ *   deploy; no parameter count grows with them.
+ * - **The windows it can be interrupted in.** *Before it runs*: nothing has
+ *   changed. *After it*: the read serves a Gmail Item as `mail` still
+ *   (`itemColumns`, repo.ts), so every installed client reads it as before.
+ * - **Rolled back after it has run:** a release from "Read a connector id as
+ *   an Item's source" (issue 925, merge 2fd8efb9) on reads the rewritten rows
+ *   as `gmail` - which a client built before that release refuses, so roll
+ *   back no further than this release while such clients remain. A release
+ *   before it cannot read `gmail` at all: 2fd8efb9 is the earliest rollback
+ *   target. **A rollback also leaves rows this never revisits**, being
+ *   recorded (deployment.md, "Migrations and rollback", on one-shot
+ *   backfills): a Gmail Item captured meanwhile is stored `mail` with no
+ *   connector, and one edited under 2fd8efb9 as `internal` naming `gmail`.
+ *   Both serve `mail` through the alias, so "Take source names out of the
+ *   shared contract" (issue 927) carries these statements again, and covers
+ *   the `internal` form, before it removes it.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+function gmailItemsUnderTheirConnector(accountId: string): Change {
+  return {
+    name: '0062-gmail-items-under-their-connector',
+    leavesAlone: {
+      count: {
+        sql: `SELECT count(*) AS n FROM items
+               WHERE tenant_id = ? AND source = 'mail' AND source_connector IS NOT NULL AND source_connector <> 'gmail'`,
+        params: [accountId],
+      },
+      because: 'Gmail Items already naming another connector were left as they are',
+    },
+    statements: [
+      {
+        sql: `UPDATE items SET source_connector = 'gmail'
+               WHERE tenant_id = ? AND source = 'mail' AND source_connector IS NULL`,
+        params: [accountId],
+      },
+    ],
+  };
+}
 
 /**
  * The choice a pulled connector's Item came in under, kept on its link
@@ -4372,11 +4435,11 @@ export function guestDemoStatements(accountId: string, day: string): readonly St
     const madeAt = hoursBefore(demoAgeInHours(item, itemsSoFar, inbox !== undefined));
     // Before midnight, like `madeAt`: the nightly reset runs early in the
     // day, and a start later than it would be a start in the future.
-    // Gmail is stored as `mail`; Teams keeps `internal` and names its connector (`asStored`).
+    // Gmail keeps `mail` and names its connector, Teams keeps `internal` and names its own (`asStored`).
     const stored = !item.via
       ? { source: 'internal', sourceConnector: null }
       : item.via.source === 'gmail'
-        ? { source: 'mail', sourceConnector: null }
+        ? { source: 'mail', sourceConnector: 'gmail' }
         : { source: 'internal', sourceConnector: 'teams' };
     const startedAt = item.started === undefined ? null : hoursBefore(item.started * 24 + 2);
     statements.push({

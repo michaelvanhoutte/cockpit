@@ -50,15 +50,19 @@ describe('Capture', () => {
 
   /**
    * The wire's source is the connector id the store names, whatever it is
-   * (issue 925). Nothing writes `gmail` or `outlook` yet, so the store is
-   * arranged directly: the one case where the interface cannot reach the
-   * behaviour.
+   * ("Read a connector id as an Item's source", issue 925) - except Gmail's,
+   * served as `mail` while a client built before that release may still be
+   * installed: it parses a snapshot strictly and refuses `gmail` ("Store
+   * Gmail Items under their connector id", issue 926). Nothing writes
+   * `outlook`, and nothing can name a connector on an Item captured inside
+   * Cockpit, so the store is arranged directly: the one case where the
+   * interface cannot reach the behaviour.
    */
   describe('an Item whose connector the store names is served under that connector', () => {
     it.each([
-      { situation: 'Gmail', connector: 'gmail' },
-      { situation: 'a connector nothing in Cockpit names', connector: 'outlook' },
-    ])('$situation', async ({ connector }) => {
+      { situation: 'Gmail, still served as mail to clients that know no other name', connector: 'gmail', served: 'mail' },
+      { situation: 'a connector nothing in Cockpit names', connector: 'outlook', served: 'outlook' },
+    ])('$situation', async ({ connector, served }) => {
       const itemId = '018f0000-0000-7000-8000-000000000011';
       const captured = await asUser('http://cockpit.test/v1/commands/capture_item', {
         method: 'POST',
@@ -81,7 +85,7 @@ describe('Capture', () => {
       expect(snapshot.status).toBe(200);
       // Parsed the way the web client parses it, so a source the contract refuses fails here.
       const held = workspaceSnapshotSchema.parse(await snapshot.json()).items.find((item) => item.id === itemId)!;
-      expect(held.source).toBe(connector);
+      expect(held.source).toBe(served);
     });
   });
 });

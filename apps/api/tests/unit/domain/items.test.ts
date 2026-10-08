@@ -90,7 +90,9 @@ describe('Capture', () => {
   describe('an item is written where the store can hold it, whatever it came in through', () => {
     it.each([
       { source: 'internal' as const, column: 'internal', connector: null },
-      { source: 'mail' as const, column: 'mail', connector: null },
+      // Gmail's: under its connector, keeping the `mail` the column already holds.
+      { source: 'mail' as const, column: 'mail', connector: 'gmail' },
+      { source: 'gmail' as const, column: 'mail', connector: 'gmail' },
       { source: 'whatsapp' as const, column: 'whatsapp', connector: null },
       // The one the column's own CHECK was not created with, which is the
       // whole reason there are two columns.

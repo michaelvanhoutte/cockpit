@@ -15,7 +15,8 @@ export const TEAMS = 'teams';
 /**
  * A Gmail mailbox, whose conversations labelled `Cockpit` - or starred -
  * become tasks ("Connect a Gmail account to a workspace, and disconnect it",
- * issue 724). Its Items carry the source `mail`, which reads "Gmail" too.
+ * issue 724). Its Items are stored under this id and served as the source
+ * `mail`, which reads "Gmail" too.
  */
 export const GMAIL = 'gmail';
 
