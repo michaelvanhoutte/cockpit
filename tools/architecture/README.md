@@ -2,7 +2,7 @@
 
 Answers, without reading the code: **how is Cockpit built.** Draws it from the checked-out repository
 alone — no network, no secrets — as one HTML page and a model beside it. This slice draws **Context**,
-**Modules** and **Deployment**; the other views of the report ("Draw Cockpit's architecture every night,
+**Modules**, **Dependencies** and **Deployment**; the other views of the report ("Draw Cockpit's architecture every night,
 logical and physical", issue 869) are later slices.
 
 **Context** shows the people and outside services [`description.yml`](description.yml) declares, around Cockpit.
@@ -26,9 +26,26 @@ are its own in the file, so a source whose name is also plain English (`teams`) 
 connector's own code; each mark is a file to look at. `exemptFromSources` lists files the scan skips: the
 composition root, the one core file that names connectors.
 
+**Dependencies** is a matrix of those areas in the description file's order. A cell counts the files in the
+row's area that import the column's area, and the number beside a row is that area's source lines, tests
+excluded. How an import is attributed:
+
+| Import | Counted against |
+|---|---|
+| a relative path | the area holding the file it lands on (`./x`, `./x.js` and a folder's index all resolve) |
+| a workspace package by name, or a path inside it | the package's area, by the `name` in its `package.json` |
+| an import within the same area, a test file's import, a third-party package | nothing |
+
+A file importing an area twice counts once; type-only imports and re-exports count. A mark's direction is the
+order of the file: an import of a later area is *downward*, of an earlier one *upward*, and two areas
+importing each other are both *mutual*. `readByEveryone` in the description file lists the areas every other
+area reads (today the API's root files, which hold `env.ts`); every cell on their row or column is muted and
+never mutual. A line under the matrix names the mutual pairs. Dynamic `import()` is read like any other
+import, and a path no area holds is dropped.
+
 **The description file holds the wording, the layout and the rules**, and the generator none: the layers
-and their order, each area's description and role (`core`, `connector` or `other`), the sources and
-their words, what is a test, and the people and services of Context. An area it does not mention still
+and their order, each area's name, description and role (`core`, `connector` or `other`), the sources and
+their words, what is a test, which areas everything reads, and the people and services of Context. An area it does not mention still
 appears. A new area is described by adding it to a layer; a folder the generator should look in is a
 `discover` entry. `pnpm --filter @cockpit/architecture test` fails if the file leaves an area on this
 repository's disk undescribed or describes one that is gone.
@@ -95,6 +112,6 @@ is told; `render/` draws what it is handed.
 
 ## Tests
 
-`pnpm --filter @cockpit/architecture test` runs both tiers: the model, the Context and Modules views and the page under `tests/unit/`,
+`pnpm --filter @cockpit/architecture test` runs both tiers: the model, the Context, Modules and Dependencies views and the page under `tests/unit/`,
 and the CLI over a fixture repository and over this repository's own checkout, with the workflow wiring
 read from `nightly.yml` and `publish.yml` and the areas found by the file's rules, under `tests/integration/`.

@@ -132,3 +132,41 @@ describe('Modules', () => {
     expect(modules.counts.areas).toBeGreaterThan(10);
   });
 });
+
+describe('Dependencies', () => {
+  const modelOf = async (root) => {
+    const run = await draw(root);
+    expect(run.code).toBe(0);
+    return JSON.parse(readFileSync(run.model, 'utf8'));
+  };
+
+  it('reads a package’s name from its manifest, so another area importing it by name is counted against it', async () => {
+    const root = fixture({
+      files: {
+        'apps/api/src/http/app.ts': "import { z } from '@cockpit/shared';\nimport { y } from '../auth/session.js';",
+        'apps/api/src/auth/session.ts': "export const y = 1;\nexport * from '../http/app.js';",
+        'apps/api/src/http/app.test.ts': "import '../mcp/x.js';",
+        'packages/shared/package.json': '{ "name": "@cockpit/shared" }',
+        'packages/shared/src/index.ts': 'export const z = 1;\n',
+      },
+      description: descriptionFile({ layers: [{ title: 'L', role: 'core', areas: ['apps/api/src/http', 'apps/api/src/auth', 'packages/shared'].map((path) => ({ path, description: 'd' })) }] }).text,
+    });
+    const { dependencies } = await modelOf(root);
+    expect(dependencies.cells.map((each) => [each.from, each.to, each.files, each.kind])).toEqual([
+      ['apps/api/src/http', 'apps/api/src/auth', 1, 'mutual'],
+      ['apps/api/src/http', 'packages/shared', 1, 'downward'],
+      ['apps/api/src/auth', 'apps/api/src/http', 1, 'mutual'],
+    ]);
+    expect(dependencies.areas.map((each) => [each.path, each.lines])).toEqual([['apps/api/src/http', 2], ['apps/api/src/auth', 2], ['packages/shared', 1]]);
+  });
+
+  it('draws this repository’s own areas: the web app leans on shared, the root files are muted, and every cell sits on two real areas', async () => {
+    const { dependencies } = await modelOf(checkout);
+    const paths = dependencies.areas.map((each) => each.path);
+    expect(dependencies.areas.find((each) => each.muted)?.path).toBe('apps/api/src/*');
+    expect(dependencies.cells.find((each) => each.from === 'apps/web/src' && each.to === 'packages/shared')?.files).toBeGreaterThan(10);
+    for (const each of dependencies.cells) expect([paths.includes(each.from), paths.includes(each.to)]).toEqual([true, true]);
+    for (const each of dependencies.areas.filter((one) => one.path !== 'packages/config')) expect(each.lines).toBeGreaterThan(0);
+    expect(dependencies.cells.filter((each) => each.kind === 'mutual' && (each.from === 'apps/api/src/*' || each.to === 'apps/api/src/*'))).toEqual([]);
+  });
+});

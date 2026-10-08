@@ -18,6 +18,7 @@ import { parseDocument } from 'yaml';
 
 import { parseDescription } from './description.js';
 import { ReadError } from './errors.js';
+import { buildDependencies } from './dependencies.js';
 import { buildContext, buildModules } from './modules.js';
 
 export { ReadError };
@@ -250,10 +251,12 @@ export function buildModel({ wrangler, workflows, description: descriptionFile, 
 
   const publisher = parsed.find((workflow) => workflow.pages);
 
+  const modules = buildModules(description, candidates);
   return {
     drawnFrom: { commit, date, repo },
     context: buildContext(description),
-    modules: buildModules(description, candidates),
+    modules,
+    dependencies: buildDependencies(description, candidates, modules),
     deployment: {
       pages: publisher ? { workflow: publisher.file, reports: publisher.pages.reports } : null,
       environments: environments.map((environment) => ({

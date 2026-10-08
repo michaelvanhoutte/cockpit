@@ -84,6 +84,7 @@ export function buildModules(description, candidates) {
       described.add(area.path);
       return {
         path: area.path,
+        name: area.name,
         description: area.description,
         role: area.role,
         state: onDisk.has(area.path) ? 'described' : 'gone',
@@ -95,7 +96,7 @@ export function buildModules(description, candidates) {
   const missing = [...onDisk.keys()]
     .filter((each) => !described.has(each))
     .sort()
-    .map((each) => ({ path: each, description: null, role: onDisk.get(each).role, state: 'undescribed', ...measure(each, onDisk.get(each).role) }));
+    .map((each) => ({ path: each, name: each, description: null, role: onDisk.get(each).role, state: 'undescribed', ...measure(each, onDisk.get(each).role) }));
   if (missing.length > 0) layers.push({ title: null, note: '', undescribed: true, areas: missing });
 
   const areas = layers.flatMap((layer) => layer.areas);
