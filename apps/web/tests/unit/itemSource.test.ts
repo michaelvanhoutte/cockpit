@@ -40,6 +40,16 @@ describe('Connector management', () => {
         opens: { name: 'Microsoft Teams', link: 'https://teams.microsoft.com/l/message/19:abc/1' },
       },
       { situation: 'an item with no link', item: itemFrom('mail', null), opens: null },
+      {
+        situation: 'a real Gmail link on an item from its connector',
+        item: itemFrom('gmail', 'https://mail.google.com/mail/u/0/#inbox/18c0ffee'),
+        opens: { name: 'Gmail', link: 'https://mail.google.com/mail/u/0/#inbox/18c0ffee' },
+      },
+      {
+        situation: 'a link from a connector nothing names',
+        item: itemFrom('outlook', 'https://outlook.example/m/1'),
+        opens: { name: 'outlook', link: 'https://outlook.example/m/1' },
+      },
     ])('$situation', ({ item, opens }) => {
       expect(openableAtSource(item)).toEqual(opens);
     });

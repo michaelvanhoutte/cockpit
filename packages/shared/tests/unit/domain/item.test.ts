@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { connectorNamed } from '../../../src/domain/source-account.js';
 import {
   TITLE_LENGTH,
   UNTITLED,
@@ -384,6 +385,75 @@ describe('Capture', () => {
       { situation: 'a description longer than the cap', over: { description: 'x'.repeat(70_000) } },
     ])('reads back an item with $situation', ({ over }) => {
       expect(itemSchema.safeParse(anItem(over)).success).toBe(true);
+    });
+  });
+});
+
+/**
+ * L1: what a source is called on the wire is a decision over a string. That a
+ * client reads a whole snapshot holding one is proved here by parsing it the
+ * way the web client does (`fetchSnapshot`), since that parse is where an
+ * older, closed list refused an Item it had not been built with (issue 925).
+ */
+describe('Connector management', () => {
+  describe('an Item’s source is any connector id, beside the ones Cockpit itself makes', () => {
+    const anItem = (source: string) => ({
+      id: '018f0000-0000-7000-8000-000000000001',
+      tenantId: 't',
+      workspaceId: 'ws-1',
+      workspaceDecided: true,
+      capturedMessage: null,
+      source,
+      sourceId: null,
+      sourceLink: null,
+      sender: 'Ada',
+      sourceTimestamp: null,
+      sourceResolvedAt: null,
+      title: 'A title',
+      description: null,
+      textsSettledAt: null,
+      textsProposedAt: null,
+      readings: null,
+      proposedPanelId: null,
+      proposedPanelReason: null,
+      typeId: null,
+      nextAction: null,
+      completedAt: null,
+      startedAt: null,
+      priority: null,
+      dueDate: null,
+      dueDateSetAt: null,
+      unseen: false,
+      deletedAt: null,
+      createdAt: '2026-09-30T10:00:00.000Z',
+      updatedAt: '2026-09-30T10:00:00.000Z',
+    });
+
+    it.each([
+      { situation: 'Cockpit’s own', source: 'internal', accepted: true },
+      { situation: 'an app connection’s', source: 'mcp', accepted: true },
+      { situation: 'what a Gmail Item reads as today', source: 'mail', accepted: true },
+      { situation: 'Gmail’s connector', source: 'gmail', accepted: true },
+      { situation: 'Teams’ connector', source: 'teams', accepted: true },
+      { situation: 'a connector nothing in Cockpit names', source: 'outlook', accepted: true },
+      { situation: 'a connector id with a dash', source: 'claude-code', accepted: true },
+      { situation: 'nothing at all', source: '', accepted: false },
+      { situation: 'words with a space in them', source: 'out look', accepted: false },
+      { situation: 'a web address', source: 'https://evil.example', accepted: false },
+      { situation: 'capitals', source: 'Gmail', accepted: false },
+    ])('an Item from $situation source is read: $accepted', ({ source, accepted }) => {
+      expect(itemSchema.safeParse(anItem(source)).success).toBe(accepted);
+    });
+  });
+
+  describe('a connector id reads as the connector’s name, or as itself where nothing names it', () => {
+    it.each([
+      { connectorId: 'gmail', shows: 'Gmail' },
+      { connectorId: 'mail', shows: 'Gmail' },
+      { connectorId: 'teams', shows: 'Microsoft Teams' },
+      { connectorId: 'outlook', shows: 'outlook' },
+    ])('$connectorId reads as $shows', ({ connectorId, shows }) => {
+      expect(connectorNamed(connectorId)).toBe(shows);
     });
   });
 });
