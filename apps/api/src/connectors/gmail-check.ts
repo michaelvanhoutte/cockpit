@@ -286,7 +286,7 @@ export async function checkGmail(env: Env, host: GmailCheckHost, now: Date): Pro
   // The clean-up every captured Item gets, once the run's own writes are done.
   for (const itemId of broughtIn) {
     await enqueueCleanUp(env, host.accountName, itemId, 'gmail-check');
-    await enqueueReadingItsMeaning(env, host.accountName, itemId);
+    await enqueueReadingItsMeaning(env, host.accountName, itemId, 'gmail-check');
   }
   return { moreToDo };
 }

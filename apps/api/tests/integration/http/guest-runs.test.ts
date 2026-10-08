@@ -197,6 +197,8 @@ describe('Agents', () => {
       const run = await runOf(runId);
       expect(run).toMatchObject({ itemId, agentId, status: 'working', waiting: false, sessionUrl: demoAddress('session', runId) });
       expect(reachedTheNetwork).toEqual([]);
+      // A simulated run is not a paid call, so it leaves no record (issue 902).
+      expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM provider_calls').first<{ n: number }>())!.n).toBe(0);
     });
 
     it('asks the queue for one step, about fifteen seconds on, and for nothing else', async () => {

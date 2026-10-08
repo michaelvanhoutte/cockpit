@@ -99,7 +99,7 @@ export async function readWhatTheseNotesMean(
     await account.forgetWhatAnItemMeans(itemId);
   }
 
-  const { readings, failure } = await readEachOrFallBack(embeddings, toRead);
+  const { readings, failure } = await readEachOrFallBack(embeddings, accountName, toRead);
 
   // What was read lands before the failure is reported, the same promise a
   // single reading already keeps: the calls already paid for are not spent
@@ -133,11 +133,15 @@ export async function readWhatTheseNotesMean(
  */
 async function readEachOrFallBack(
   embeddings: EmbeddingService,
+  accountName: string,
   toRead: readonly { itemId: string; text: string }[],
 ): Promise<{ readings: { itemId: string; reading: number[] }[]; failure?: Error }> {
   if (toRead.length === 0) return { readings: [] };
   try {
-    const meanings = await embeddings.readMeanings(toRead.map((one) => one.text));
+    const meanings = await embeddings.readMeanings(
+      toRead.map((one) => one.text),
+      { accountName, itemId: null, triggeredBy: 'backfill' },
+    );
     return { readings: toRead.map((one, at) => ({ itemId: one.itemId, reading: meanings[at]! })) };
   } catch {
     // Fall through to one at a time below.
@@ -145,7 +149,7 @@ async function readEachOrFallBack(
   const readings: { itemId: string; reading: number[] }[] = [];
   for (const one of toRead) {
     try {
-      readings.push({ itemId: one.itemId, reading: await embeddings.readMeaning(one.text) });
+      readings.push({ itemId: one.itemId, reading: await embeddings.readMeaning(one.text, { accountName, itemId: one.itemId, triggeredBy: 'backfill' }) });
     } catch (error) {
       return { readings, failure: error instanceof Error ? error : new Error(String(error)) };
     }

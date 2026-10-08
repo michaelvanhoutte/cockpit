@@ -134,6 +134,7 @@ import {
   type GmailRefusal,
 } from '../connectors/gmail.js';
 import { guestConnectionGate, isTheGuest } from '../auth/guest-connections.js';
+import { providerCallsIn } from '../gateway/record.js';
 import { countForGuest, countryOf, referrerHostOf } from '../auth/sign-in-history.js';
 import {
   GUEST_ACCOUNT_NAME,
@@ -1605,7 +1606,10 @@ const routes = app
       return c.json({ accepted: false, message: NO_SEALING_KEY_MESSAGE }, 200);
     }
 
-    const outcome = await testClaudeCodeConnection(routineUrl, token, c.env.CLAUDE_CODE_ROUTINES_ORIGIN);
+    const outcome = await testClaudeCodeConnection(routineUrl, token, c.env.CLAUDE_CODE_ROUTINES_ORIGIN, {
+      record: providerCallsIn(c.env),
+      accountName: c.get('visitor').accountName,
+    });
     if (!outcome.accepted) return c.json(outcome, 200);
 
     // Both halves sealed together, so the routine's own address is exactly as
@@ -1658,7 +1662,10 @@ const routes = app
     }
 
     const { routineUrl, token } = JSON.parse(opened) as { routineUrl: string; token: string };
-    const outcome = await testClaudeCodeConnection(routineUrl, token, c.env.CLAUDE_CODE_ROUTINES_ORIGIN);
+    const outcome = await testClaudeCodeConnection(routineUrl, token, c.env.CLAUDE_CODE_ROUTINES_ORIGIN, {
+      record: providerCallsIn(c.env),
+      accountName: c.get('visitor').accountName,
+    });
     if (!outcome.accepted) return c.json(outcome, 200);
 
     await change(c, 'mark_source_account_tested', {
@@ -1819,6 +1826,13 @@ const routes = app
       token,
       text,
       c.env.CLAUDE_CODE_ROUTINES_ORIGIN ? { origin: c.env.CLAUDE_CODE_ROUTINES_ORIGIN } : {},
+      {
+        record: providerCallsIn(c.env),
+        accountName: c.get('visitor').accountName,
+        itemId,
+        operation: 'start-an-agent',
+        triggeredBy: 'agent-started',
+      },
     );
     if (answer.answered === 'refused') {
       await settle({ status: 'failed', reason: answer.message, connectionFailing: answer.connection });
@@ -1952,7 +1966,7 @@ const routes = app
       // said", issue 407) - so a note is compared against the Inbox as soon as
       // it lands, whether or not this environment can also clean it up. Where
       // it can, the cleanup's own rewrite queues a second read of its own.
-      c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, captured.itemId));
+      c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, captured.itemId, 'captured-in-app'));
     }
     return c.json(result, 200);
   })

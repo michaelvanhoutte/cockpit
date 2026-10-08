@@ -31,7 +31,14 @@ export function periodStart(days, now) {
   return new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
-const PAID_BY = Object.freeze({ 'cockpit-anthropic-key': "Cockpit's Anthropic key" });
+const PAID_BY = Object.freeze({
+  'cockpit-anthropic-key': "Cockpit's Anthropic key",
+  'cloudflare-workers-ai': 'Cloudflare Workers AI',
+  'claude-plan': "The person's own Claude plan",
+});
+
+/** What a kind's `paidByAccount` names: the Anthropic workspace, or the routine fired. */
+const ACCOUNT_IS = Object.freeze({ 'claude-plan': 'routine' });
 
 /** The columns, in the order Excel shows them, each reading one record. */
 const COLUMNS = Object.freeze([
@@ -55,7 +62,7 @@ const COLUMNS = Object.freeze([
 
 function paidBy(record) {
   const details = [
-    record.paidByAccount && `workspace ${record.paidByAccount}`,
+    record.paidByAccount && `${ACCOUNT_IS[record.paidBy] ?? 'workspace'} ${record.paidByAccount}`,
     record.paidByKeyEnding && `key ending ${record.paidByKeyEnding}`,
   ].filter(Boolean);
   const who = PAID_BY[record.paidBy] ?? record.paidBy;

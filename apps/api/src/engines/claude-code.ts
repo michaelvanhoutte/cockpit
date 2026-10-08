@@ -1,4 +1,5 @@
 import type { ClaudeCodeOutcome } from '@cockpit/shared';
+import { callThrough, inRealTime, NEVER_RETRIED, type CallAbout, type Outcome, type Recorder, type Trigger } from '../gateway/attempts.js';
 
 /**
  * Firing a workspace's Claude Code routine: the test a connect, an edit or a
@@ -34,6 +35,34 @@ const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  */
 export function isRoutineTriggerUrl(url: string, origin: string = ANTHROPIC_ORIGIN): boolean {
   return new RegExp(`^${escaped(origin)}/v1/claude_code/routines/[^/]+/fire$`).test(url);
+}
+
+/**
+ * Whom a fire is for, as its record names it ("Record every paid provider call
+ * through one gateway", issue 902). A routine runs on the person's own Claude
+ * plan, so the record names the routine that was fired and no token counts.
+ */
+export interface FireFor {
+  record: Recorder;
+  accountName: string;
+  /** The Item an agent was started on; `null` for a connection test. */
+  itemId: string | null;
+  operation: 'start-an-agent' | 'test-a-connection';
+  triggeredBy: Extract<Trigger, 'agent-started' | 'connection-test'>;
+}
+
+/** Claude said no with this status; thrown inside the gateway so the attempt is recorded as an error. */
+class RoutineRefused extends Error {
+  constructor(readonly status: number) {
+    super(`the routine answered ${status}`);
+  }
+}
+
+function routineOutcome(error: unknown): Outcome {
+  if (error instanceof RoutineRefused) return { outcome: 'error', status: error.status };
+  return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
+    ? { outcome: 'timed-out' }
+    : { outcome: 'error', status: null };
 }
 
 /** The one-line instruction the test session is fired with. */
@@ -103,7 +132,8 @@ export async function fireRoutine(
   routineUrl: string,
   token: string,
   text: string,
-  options: { origin?: string; timeoutMs?: number } = {},
+  options: { origin?: string; timeoutMs?: number },
+  callFor: FireFor,
 ): Promise<FireAnswer> {
   if (!isRoutineTriggerUrl(routineUrl, options.origin)) {
     return {
@@ -113,33 +143,56 @@ export async function fireRoutine(
     };
   }
 
+  const about: CallAbout = {
+    accountName: callFor.accountName,
+    itemId: callFor.itemId,
+    operation: callFor.operation,
+    promptVersion: null,
+    triggeredBy: callFor.triggeredBy,
+    provider: 'anthropic',
+    model: 'claude-code-routine',
+    // The routine's id is in the address and is not the token: it names which
+    // routine was fired, and nothing can fire it without the token.
+    paidBy: { kind: 'claude-plan', account: routineUrl.split('/').at(-2)!, keyEnding: null },
+  };
   let response: Response;
   try {
-    response = await fetch(routineUrl, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${token}`,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
+    response = await callThrough(
+      about,
+      async () => {
+        const answered = await fetch(routineUrl, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ text }),
+          // The trigger address is checked above and never re-derived from
+          // whatever comes back, so a redirect is never followed - there is
+          // nowhere a real acceptance from Anthropic would ever send this. It
+          // comes back as the 3xx itself, which is not `ok` and so reads as
+          // Claude not reached. **`manual`, never `error`**: the Workers runtime
+          // accepts only `follow` and `manual`, and `error` threw before any
+          // request left, so every fire read as unreachable (issue 571; the
+          // integration tests replace `fetch` and could not see it, the browser
+          // walk in tests/e2e/agents.test.ts is what does).
+          redirect: 'manual',
+          signal: AbortSignal.timeout(options.timeoutMs ?? FIRE_TIMEOUT_MS),
+        });
+        if (!answered.ok) throw new RoutineRefused(answered.status);
+        return { value: answered, tokens: null };
       },
-      body: JSON.stringify({ text }),
-      // The trigger address is checked above and never re-derived from
-      // whatever comes back, so a redirect is never followed - there is
-      // nowhere a real acceptance from Anthropic would ever send this. It
-      // comes back as the 3xx itself, which is not `ok` and so reads as
-      // Claude not reached. **`manual`, never `error`**: the Workers runtime
-      // accepts only `follow` and `manual`, and `error` threw before any
-      // request left, so every fire read as unreachable (issue 571; the
-      // integration tests replace `fetch` and could not see it, the browser
-      // walk in tests/e2e/agents.test.ts is what does).
-      redirect: 'manual',
-      signal: AbortSignal.timeout(options.timeoutMs ?? FIRE_TIMEOUT_MS),
-    });
-  } catch {
+      { ...NEVER_RETRIED, outcomeOf: routineOutcome },
+      // A stand-in origin is not Anthropic, so the fire is not a paid call and
+      // records nothing, as the embeddings stand-in does.
+      inRealTime(options.origin ? async () => {} : callFor.record),
+    );
+  } catch (error) {
+    if (error instanceof RoutineRefused) return { answered: 'refused', ...refusalFor(error.status) };
     return { answered: 'unknown' };
   }
 
-  if (!response.ok) return { answered: 'refused', ...refusalFor(response.status) };
   let body: unknown = null;
   try {
     body = await response.json();
@@ -158,9 +211,16 @@ export async function fireRoutine(
 export async function testClaudeCodeConnection(
   routineUrl: string,
   token: string,
-  origin?: string,
+  origin: string | undefined,
+  callFor: Omit<FireFor, 'operation' | 'triggeredBy' | 'itemId'>,
 ): Promise<ClaudeCodeOutcome> {
-  const answer = await fireRoutine(routineUrl, token, TEST_PROMPT, origin ? { origin } : {});
+  const answer = await fireRoutine(
+    routineUrl,
+    token,
+    TEST_PROMPT,
+    origin ? { origin } : {},
+    { ...callFor, itemId: null, operation: 'test-a-connection', triggeredBy: 'connection-test' },
+  );
   if (answer.answered === 'accepted') return { accepted: true };
   if (answer.answered === 'refused') return { accepted: false, message: answer.message };
   return { accepted: false, message: 'Claude could not be reached.' };
