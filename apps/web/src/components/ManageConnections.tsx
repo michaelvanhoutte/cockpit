@@ -226,9 +226,7 @@ export default function ManageConnections({
   const registered = (registry.data?.connectors ?? [])
     // The two named cards win over a registered connector of the same id.
     .filter((connector) => connector.id !== GMAIL && connector.id !== CLAUDE_CODE)
-    .map(
-    (connector): Card => ({ id: connector.id, name: connector.displayName, text: connector.cardText }),
-  );
+    .map((connector): Card => ({ id: connector.id, name: connector.displayName, text: connector.cardText }));
   const cards = [
     ...(section !== 'agents' ? [GMAIL_CARD, ...registered] : []),
     ...(section !== 'sources' ? [CLAUDE_CODE_CARD] : []),

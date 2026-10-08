@@ -265,6 +265,26 @@ describe('Connector management', () => {
       }
     });
 
+    it('lists no source whose client is not configured', async () => {
+      const id = settings.FAKE_SOURCE_CLIENT_ID;
+      delete settings.FAKE_SOURCE_CLIENT_ID;
+      try {
+        expect((await listed()).map((one) => one.id)).not.toContain(FIXED);
+      } finally {
+        settings.FAKE_SOURCE_CLIENT_ID = id;
+      }
+    });
+
+    it('lists nothing where the environment has no key to seal a credential with', async () => {
+      const key = settings.CONNECTOR_CREDENTIAL_KEY;
+      delete settings.CONNECTOR_CREDENTIAL_KEY;
+      try {
+        expect(await listed()).toEqual([]);
+      } finally {
+        settings.CONNECTOR_CREDENTIAL_KEY = key;
+      }
+    });
+
     it('lists no source that has no sign-in', async () => {
       expect((await listed()).map((one) => one.id)).not.toContain(NO_SIGN_IN);
     });

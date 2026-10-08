@@ -956,7 +956,8 @@ const sourceAccountsRoute = createRoute({
  * what the Connections window draws a card from, so adding a source adds its
  * card without a change to the web app. One that is not registered, such as
  * Teams where its bot is not configured, is not listed; neither is one with
- * no sign-in, since its card would have a Connect that goes nowhere.
+ * no sign-in or no client or sealing key configured, since its card would
+ * have a Connect that goes nowhere.
  */
 const registeredConnectorsRoute = createRoute({
   method: 'get',
@@ -1547,15 +1548,16 @@ const routes = app
     // connections, the same reasoning the attachment download route records.
     return c.json({ sourceAccounts: await account.sourceAccounts(workspaceId) }, 200);
   })
-  .openapi(registeredConnectorsRoute, (c) =>
-    c.json(
+  .openapi(registeredConnectorsRoute, async (c) => {
+    // Listed only where Connect would go through: the sign-in, client and
+    // sealing key the connect route requires.
+    const sealable = (await sealingKey(c.env.CONNECTOR_CREDENTIAL_KEY)) !== null;
+    return c.json(
       {
         connectors: connectors(c.env)
           .filter(({ manifest }) => {
-            // Listed only where Connect would go through: the same sign-in and
-            // client the connect route reads.
             const sign = signInOf(c.env, manifest.id);
-            return sign !== null && clientOf(c.env, sign.auth) !== null;
+            return sealable && sign !== null && clientOf(c.env, sign.auth) !== null;
           })
           .map(({ manifest }) => ({
             id: manifest.id,
@@ -1565,8 +1567,8 @@ const routes = app
           })),
       },
       200,
-    ),
-  )
+    );
+  })
   .openapi(connectedAppsRoute, async (c) => {
     return c.json({ apps: await connectedAppsOf(c.env, c.get('visitor').userId) }, 200);
   })
