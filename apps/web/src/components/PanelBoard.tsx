@@ -917,7 +917,6 @@ export function PanelBoard({
     // The room above, or the pull-up, goes as the board opens, in the page
     // itself so what is measured next reflects it.
     const opening = !collapsed;
-    const base = opening ? 0 : room;
     if (opening && room !== 0) {
       if (rowsRef.current) rowsRef.current.style.marginTop = '';
       setRoom(0);
@@ -934,7 +933,7 @@ export function PanelBoard({
     if (scroller) scroller.scrollTop = next.scrollTop;
     // Added to what is already there, and so taken back where a header that
     // had to be held down by room can now be held by scrolling.
-    if (!opening) setRoom(Math.abs(base + next.shift) < 0.5 ? 0 : base + next.shift);
+    if (!opening) setRoom(Math.abs(room + next.shift) < 0.5 ? 0 : room + next.shift);
     // Once per collapse and once per opening, which is what `collapsed` changes
     // with; the room it reads is whatever the last of them left.
     // eslint-disable-next-line react-hooks/exhaustive-deps

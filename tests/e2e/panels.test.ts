@@ -756,7 +756,9 @@ test.describe('Panels', () => {
 
       await page.mouse.up();
 
-      // Open again, and the panel dropped is where scrolling alone reaches: the room above that held it while it was in the air is gone, so it is the first row, directly below the Dashboard bar.
+      // Open again, and the panel dropped is where scrolling alone reaches: the
+      // room above that held it in the air is gone, so it is the first row,
+      // directly below the Dashboard bar.
       await expect(page.getByRole('region', { name: one }).getByRole('listitem')).toHaveCount(0);
       await expect
         .poll(async () => (await page.getByRole('region', { name: one }).boundingBox())!.height)
@@ -862,9 +864,7 @@ test.describe('Panels', () => {
         .poll(async () => (await page.getByRole('region', { name: shortOne }).boundingBox())!.height)
         .toBeLessThan(100);
       await page.mouse.move(...(await centreOf(headerOf(shortOne))), { steps: 8 });
-      await page.evaluate(
-        () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
-      );
+      await settle();
       await page.mouse.up();
       expect((await shortSaved).status()).toBe(200);
       await expect
