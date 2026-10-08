@@ -355,6 +355,17 @@ test.describe('Selection', () => {
       const high = (title: string) => itemRow(page, title).getByRole('img', { name: 'High priority' });
       await startSelecting(page, first, isMobile);
       await addToSelection(page, third, isMobile);
+
+      // The offer an edit makes stays clear of the bar, and of the menu the
+      // next edit is made from: a second field is set straight after the first,
+      // while the offer is still up, and a click on a choice it covered would
+      // fail here as intercepted.
+      await chooseFromEdit(page, 'Status', 'In progress', isMobile);
+      await expect(page.getByText('Status set to In progress on 2 items')).toBeVisible();
+      const offer = page.getByRole('status').filter({ hasText: 'Status set to' }).locator(':scope > div');
+      const bar = (await page.getByText('2 selected').locator('xpath=../..').boundingBox())!;
+      const offered = (await offer.boundingBox())!;
+      expect(offered.y + offered.height <= bar.y || bar.y + bar.height <= offered.y).toBe(true);
       await chooseFromEdit(page, 'Priority', 'High', isMobile);
       await expect(high(first)).toBeVisible();
       await expect(high(third)).toBeVisible();

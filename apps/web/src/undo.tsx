@@ -247,9 +247,13 @@ export function UndoWhatJustHappened({ children }: { children: React.ReactNode }
           // **And the selection bar pinned to the screen**,
           // `--selection-bar-h` (`SelectionBar.tsx`), where the Inbox has no
           // room beside the dashboards: it holds the same edge, and an offer
-          // drawn over it covers **Move to…**. Unset, so zero, wherever the
-          // bar stays in its own list.
-          className={BOTTOM_CENTRE_STRIP}
+          // drawn over it covers **Move to…**. A Dashboard's bar publishes
+          // where it stands on the board, so the offer clears it there too.
+          // Unset, so zero, for the Inbox's, which stays in its own column.
+          //
+          // **Hidden while Edit ▾ is open** (`EditSeveralMenu.tsx`): it is
+          // drawn above menus, so it would cover their lowest entries.
+          className={`${BOTTOM_CENTRE_STRIP} [:root[data-editing-several]_&]:invisible`}
         >
           <div className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-toast px-4 py-2.5 text-sm text-white shadow-lg">
             {held.split && !failure ? (

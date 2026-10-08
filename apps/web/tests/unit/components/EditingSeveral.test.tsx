@@ -259,6 +259,20 @@ describe('Selection', () => {
       expect(sent.map((c) => c.name)).toEqual(['set_priority', 'set_started']);
     });
 
+    it('stands the undo offer aside while Edit is open, and brings it back when it closes', async () => {
+      const user = show(TWO_PANELS);
+      await tick(user, CHASE.title);
+      await choose(user, 'Priority', 'High');
+      const offer = await screen.findByRole('status');
+      expect(offer).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Edit ▾' }));
+      expect(document.documentElement).toHaveAttribute('data-editing-several');
+
+      await user.keyboard('{Escape}');
+      expect(document.documentElement).not.toHaveAttribute('data-editing-several');
+    });
+
     it('offers one Undo for the run, and says which Items were not changed', async () => {
       const user = show(TWO_PANELS);
       await tick(user, BART.title);

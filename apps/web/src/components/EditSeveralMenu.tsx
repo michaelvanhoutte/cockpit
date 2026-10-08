@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import type { Item, ItemStatus, ItemType, Priority } from '@cockpit/shared';
 import { sharedValue, type BulkField, type BulkValue } from '../bulkEdit';
@@ -35,6 +35,12 @@ interface Choice {
  * field, which closes the one it is leaving, and so none hangs down over the
  * undo offer drawn over the bar's own foot (`undo.tsx`), which covers whatever
  * is under it.
+ *
+ * **While it is open the undo offer stands aside** (`data-editing-several` on
+ * the root, which `undo.tsx` hides itself by): the offer is drawn above menus,
+ * and on a phone it is as wide as the screen, so it would sit over the lowest
+ * entries of the very menu the next edit is made from. It comes back when the
+ * menu closes, if its ten seconds have not run out by then.
  */
 export function EditSeveralMenu({
   picked,
@@ -53,6 +59,13 @@ export function EditSeveralMenu({
 }) {
   /** That the menu closed to hand the focus to the date field, which the menu's own return of it would take back. */
   const handingOnFocus = useRef(false);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const root = document.documentElement;
+    root.setAttribute('data-editing-several', '');
+    return () => root.removeAttribute('data-editing-several');
+  }, [open]);
   const now = new Date();
   /** Whether this is a desk-width screen, where a submenu has room beside the menu. */
   const roomBesideTheMenu = useRoomForTheInbox();
@@ -106,7 +119,7 @@ export function EditSeveralMenu({
   };
 
   return (
-    <DropdownMenu.Root>
+    <DropdownMenu.Root open={open} onOpenChange={setOpen}>
       <DropdownMenu.Trigger asChild>
         <button
           type="button"

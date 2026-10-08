@@ -97,7 +97,7 @@ export function useEditingSeveral({
   };
 
   const applyDate = () => {
-    if (!date) return;
+    if (!date || running.current || filing) return;
     void set('dueDate', date, dueDateLabel(date) ?? date);
     setDate('');
   };

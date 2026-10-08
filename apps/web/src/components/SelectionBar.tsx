@@ -47,27 +47,45 @@ export function SelectionBar({
   const pinned = !useRoomForTheInbox();
 
   /**
-   * Publishes the bar's height as `--selection-bar-h` while it is pinned, so
-   * the undo offer lifts above it the way it lifts above the agents' dock
-   * (`AgentDock.tsx` does the same with `--dock-h`). Less the safe-area edge,
-   * which the bar's own padding holds and the offer adds again. Observed rather
-   * than read once, since a refusal line makes it taller; guarded for a test
-   * runner, which has no layout engine to observe with.
+   * Publishes how far the bar's top is from the screen's foot as
+   * `--selection-bar-h`, so the undo offer lifts above it the way it lifts
+   * above the agents' dock (`AgentDock.tsx` does the same with `--dock-h`):
+   * an edit keeps the selection held ("Change the type, priority, due date or
+   * status of every selected item from the selection bar", issue 864), and the
+   * offer it makes would otherwise cover the count and Move to… of the bar the
+   * next edit is made from.
+   *
+   * **Pinned, that is the bar's height; on the board it is where the bar has
+   * got to**, which moves as the page and the Panel scroll. Less the dock and
+   * the safe-area edge, which the offer adds again itself. Observed rather than
+   * read once, since a refusal line makes it taller; guarded for a test runner,
+   * which has no layout engine to observe with. The Inbox's own bar says
+   * nothing: it holds a fifth of the screen at the left, clear of the offer.
    */
   useLayoutEffect(() => {
     const el = bar.current;
-    if (!el || !pinned) return;
+    if (!el || (!pinned && !onBoard)) return;
     const root = document.documentElement;
-    const publish = () =>
-      root.style.setProperty('--selection-bar-h', `calc(${el.offsetHeight}px - var(--edge-bottom))`);
+    const publish = () => {
+      const lift = pinned
+        ? `${el.offsetHeight}px - var(--edge-bottom)`
+        : `max(0px, ${Math.round(window.innerHeight - el.getBoundingClientRect().top)}px - var(--dock-h, 0px) - var(--edge-bottom))`;
+      root.style.setProperty('--selection-bar-h', `calc(${lift})`);
+    };
     publish();
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(publish) : null;
     observer?.observe(el);
+    if (!pinned) {
+      window.addEventListener('resize', publish);
+      window.addEventListener('scroll', publish, { capture: true, passive: true });
+    }
     return () => {
       observer?.disconnect();
+      window.removeEventListener('resize', publish);
+      window.removeEventListener('scroll', publish, { capture: true });
       root.style.removeProperty('--selection-bar-h');
     };
-  }, [pinned]);
+  }, [pinned, onBoard]);
 
   return (
     // **Stuck to the foot of the list, not placed after it.** A panel's rows
