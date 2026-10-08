@@ -11,6 +11,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { compareWithPrevious } from './compare.js';
 import { buildModel, ReadError } from './model.js';
 import { readCheckout } from './read.js';
 import { renderHtml } from './render/html.js';
@@ -23,6 +24,7 @@ const USAGE = `Usage: node src/cli.js [options]
   --json           write the model instead of the page
   --model <path>   also write the model, as --json would, to this path
   --root <path>    the checkout to draw (default: the repository this tool is in)
+  --previous <location>  the previous report's model, a file or an address; What changed compares with the commit it names
   --help
 `;
 
@@ -33,7 +35,7 @@ export function parseArgs(argv) {
     const value = () => argv[(i += 1)];
     if (arg === '--help' || arg === '-h') args.help = true;
     else if (arg === '--json') args.json = true;
-    else if (arg === '--out' || arg === '--root' || arg === '--model') {
+    else if (arg === '--out' || arg === '--root' || arg === '--model' || arg === '--previous') {
       const next = value();
       if (!next || next.startsWith('--')) args.invalid ??= `${arg} needs a path`;
       else args[arg.slice(2)] = next;
@@ -68,8 +70,13 @@ export async function main(argv) {
   let model;
   let page;
   try {
-    model = buildModel(readCheckout(path.resolve(args.root ?? path.join(here, '../../..'))));
-    page = args.json ? modelJson(model) : renderHtml(model);
+    const root = path.resolve(args.root ?? path.join(here, '../../..'));
+    const checkout = readCheckout(root);
+    model = buildModel(checkout);
+    // Only the page shows the comparison, so only the page pays for the second drawing.
+    const comparison = args.json ? null : await compareWithPrevious({ root, model, description: checkout.description, previous: args.previous });
+    if (comparison) process.stderr.write(`what changed: ${comparison.state === 'compared' ? `${comparison.changes.length} changes since ${comparison.from.commit.slice(0, 7)}` : comparison.state === 'first' ? 'first report' : comparison.reason}\n`);
+    page = args.json ? modelJson(model) : renderHtml(model, { comparison });
   } catch (error) {
     if (error instanceof ReadError) {
       process.stderr.write(`${error.message}\n`);

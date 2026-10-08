@@ -99,7 +99,11 @@ jobs:
   # 871). Reads no API, so unlike the reports above it needs no token and no
   # permission beyond the checkout. It does install its own package, which
   # parses YAML and JSONC rather than carrying a parser of each; the filter
-  # keeps that to those few packages, not the whole workspace.
+  # keeps that to those few packages, not the whole workspace. What changed
+  # ("Show what changed in Cockpit's architecture since the last report", issue
+  # 874) draws the commit the live report names, so the checkout holds the whole
+  # history, and the live model is the one thing fetched; a model that cannot be
+  # fetched costs that section, never the night.
   architecture:
     name: Architecture
     runs-on: ubuntu-latest
@@ -107,14 +111,20 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: package.json
           cache: pnpm
       - run: pnpm install --frozen-lockfile --filter @cockpit/architecture
-      - name: Draw how Cockpit is deployed
-        run: node tools/architecture/src/cli.js --out tools/architecture/out/index.html --model tools/architecture/out/model.json
+      - name: Draw how Cockpit is built and what changed since the live report
+        run: >-
+          node tools/architecture/src/cli.js
+          --out tools/architecture/out/index.html
+          --model tools/architecture/out/model.json
+          --previous "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/architecture/model.json"
       - uses: actions/upload-artifact@v4
         with:
           name: architecture-report

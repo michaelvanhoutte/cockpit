@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { renderChanges } from './changes.js';
 import { renderContext } from './context.js';
 import { renderDependencies, mutualSummary } from './dependencies.js';
 import { renderDiagram } from './diagram.js';
@@ -33,10 +34,10 @@ const day = (iso) => iso.slice(0, 10);
 
 /**
  * @param {ReturnType<import('../model.js').buildModel>} model
- * @param {{ explorerHref?: string, stabilityHref?: string, leadTimeHref?: string, selectionHref?: string }} [options]
+ * @param {{ explorerHref?: string, stabilityHref?: string, leadTimeHref?: string, selectionHref?: string, comparison?: object }} [options] `comparison` is what compare.js answered; without one the section says there is nothing to compare
  * @returns {string} a complete HTML document
  */
-export function renderHtml(model, { explorerHref = '../', stabilityHref = '../stability/', leadTimeHref = '../lead-time/', selectionHref = '../selection/' } = {}) {
+export function renderHtml(model, { explorerHref = '../', stabilityHref = '../stability/', leadTimeHref = '../lead-time/', selectionHref = '../selection/', comparison = { state: 'unavailable', reason: 'no earlier report was given to compare against' } } = {}) {
   const styles = readFileSync(path.join(here, 'styles.css'), 'utf8');
   const { commit, date, repo } = model.drawnFrom;
   const commitCell = !commit
@@ -77,8 +78,13 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
       <span><a href="${esc(leadTimeHref)}"><b>Lead time &rarr;</b></a></span>
       <span><a href="${esc(selectionHref)}"><b>Selection &rarr;</b></a></span>
     </div>
-    <nav class="views" aria-label="Views"><a href="#context">Context</a><a href="#modules">Modules</a><a href="#deps">Dependencies</a><a href="#deployment">Deployment</a></nav>
+    <nav class="views" aria-label="Views"><a href="#changes">What changed</a><a href="#context">Context</a><a href="#modules">Modules</a><a href="#deps">Dependencies</a><a href="#deployment">Deployment</a></nav>
   </header>
+
+  <section id="changes">
+  <h2>What changed</h2>
+  ${renderChanges(comparison)}
+  </section>
 
   <section id="context">
   <h2>Context</h2>

@@ -1,9 +1,36 @@
 # Architecture
 
 Answers, without reading the code: **how is Cockpit built.** Draws it from the checked-out repository
-alone — no network, no secrets — as one HTML page and a model beside it. This slice draws **Context**,
-**Modules**, **Dependencies** and **Deployment**; the other views of the report ("Draw Cockpit's architecture every night,
-logical and physical", issue 869) are later slices.
+alone — no secrets, and a network only for the previous report's model — as one HTML page and a model beside it. It draws **What changed**,
+**Context**, **Modules**, **Dependencies** and **Deployment** ("Draw Cockpit's architecture every night, logical and
+physical", issue 869).
+
+**What changed** lists what the areas, marks, dependencies, environments, resources and workflows gained, lost or changed
+since the commit the live report was drawn from, with the previous report's model read from `--previous` (a file or an
+address). Only that model's commit is used: the generator draws that commit again and diffs the two models, so a change
+to the generator alone lists nothing, and a night missed loses nothing, the comparison being with whatever was last
+published. A row is the change, where it is and a flag; these are called out and listed first:
+
+| Flag | When |
+|---|---|
+| new source mark | a core area names a source, or names it in more files |
+| new breach | a connector package imports beyond the SDK, or in more files |
+| new mutual pair | two areas now import each other |
+| undescribed, gone | an area is new and the description file does not mention it, or is described and no longer on disk |
+
+File counts, line counts and a cell's number of importing files move with every merge and are not changes. Where there
+is nothing to compare the section says which and lists nothing, and the run goes on:
+
+| Situation | The page says |
+|---|---|
+| no `--previous`, or no live report yet (no such file, a 404) | the first report; or that no earlier report was given |
+| the model cannot be fetched or read, or names no commit | there is nothing to compare, and why |
+| its commit is not in this checkout's history, or cannot be drawn | the same |
+| no merge since | nothing changed |
+
+The earlier commit is checked out into a temporary `git worktree`, removed afterwards. A commit with no description
+file is drawn with the current one, and the section says so; one missing the Worker config or the workflows cannot be
+drawn.
 
 **Context** shows the people and outside services [`description.yml`](description.yml) declares, around Cockpit.
 
@@ -78,7 +105,9 @@ once a night, and by hand from the Actions tab when a night was missed. It uploa
 [test-selection page](../selection/README.md). A missing artifact costs this page and never the site.
 
 The job installs this package's own dependencies (`yaml` and `jsonc-parser`, so neither file format is
-parsed by hand) and nothing else; it needs no token.
+parsed by hand) and nothing else; it needs no token. It checks out the whole history, so the commit the live report
+names can be drawn, and fetches the live `model.json` from the site, the only thing it fetches; a failed fetch
+costs the What changed section, never the night.
 
 ## Running it
 
@@ -92,6 +121,7 @@ cd tools/architecture
 node src/cli.js                            # the repository this tool is in
 node src/cli.js --model out/model.json     # writes the page and, beside it, the model
 node src/cli.js --root ../other-checkout   # a different checkout
+node src/cli.js --previous https://michaelvanhoutte.github.io/cockpit/architecture/model.json   # What changed against the live report
 node src/cli.js --help
 ```
 
@@ -102,11 +132,11 @@ previous report stays live. Nothing is written until both are built.
 ## How a page gets built
 
 ```
-readCheckout(root)  →  buildModel(...)  →  renderHtml(model)  →  out/index.html
-   (src/read.js)        (src/model.js)       (src/render/)        (out/model.json)
+readCheckout(root)  →  buildModel(...)  →  compareWithPrevious(...)  →  renderHtml(model, { comparison })  →  out/index.html
+   (src/read.js)        (src/model.js)       (src/compare.js, src/diff.js)   (src/render/)                  (out/model.json)
 ```
 
-`read.js` is the only file that touches the checkout and git; `model.js` (with `description.js`,
+`read.js` is the only file that touches the checkout, git, the previous model and the earlier commit's checkout; `diff.js` is a pure function of two models; `model.js` (with `description.js`,
 `scan.js` and `modules.js`) is a pure function of the file texts, the areas read off disk and the commit it
 is told; `render/` draws what it is handed.
 
