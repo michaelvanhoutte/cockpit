@@ -64,9 +64,15 @@ export async function checkPulledConnection(
     }
     const host = pulledHost(env, begun, run, (itemId) => filed(job.accountName, itemId));
     // Before the source is read, so a change a person made that it has not
-    // heard yet is pushed first and wins over what the read finds.
-    await mirrorWhatWasChanged(connector, host, run);
+    // heard yet is pushed first and wins over what the read finds. A push that
+    // fails does not stop the read - what waits still wins over it - but is
+    // the run's failure once the read is done.
+    const pushFailed = await mirrorWhatWasChanged(connector, host, run).then(
+      () => null,
+      (error: unknown) => ({ error }),
+    );
     await connector.sync(host);
+    if (pushFailed) throw pushFailed.error;
   } catch (error) {
     failing = error instanceof Error ? error.message : String(error);
     logged(begun.connectorId, 'error', `a check of connection ${job.sourceAccountId} failed`, failing);

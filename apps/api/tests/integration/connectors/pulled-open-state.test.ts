@@ -42,6 +42,8 @@ const fake = {
   confirms: (wanted: OpenStateWanted[]): string[] => wanted.map((one) => one.sourceId),
   /** What the connector that does not mirror was asked, if ever. */
   silentAsked: 0,
+  /** Whether the connector's push throws. */
+  throws: false,
 };
 
 function connectorNamed(id: string, mirrors: boolean): Connector {
@@ -65,6 +67,7 @@ function connectorNamed(id: string, mirrors: boolean): Connector {
         return [];
       }
       fake.handed.push(wanted);
+      if (fake.throws) throw new Error('the source refused');
       return fake.confirms(wanted);
     },
   };
@@ -246,6 +249,7 @@ beforeEach(async () => {
   fake.runs = 0;
   fake.handed = [];
   fake.silentAsked = 0;
+  fake.throws = false;
   known.clear();
   fake.confirms = (wanted) => wanted.map((one) => one.sourceId);
   runsIn(async () => {});
@@ -364,6 +368,19 @@ describe('Connector management', () => {
       await nextChecksRun();
 
       expect(fake.handed).toEqual([[{ sourceId: 'page-1', open: false }], [{ sourceId: 'page-1', open: false }]]);
+    });
+
+    it('still reads the source when pushing a change fails, and hands the change again at the next check', async () => {
+      fake.throws = true;
+      runsIn(bringsIn('page-1'));
+      await connectedAndChecked();
+      await change('set_done', 'page-1', true);
+
+      await checkMadeDueRuns();
+      await nextChecksRun();
+
+      expect(fake.runs).toBe(3);
+      expect(fake.handed).toHaveLength(2);
     });
 
     it('hands over every one of more than a hundred waiting', async () => {
