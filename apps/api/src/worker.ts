@@ -20,7 +20,7 @@ import { SHARE_TARGET_PATH } from '@cockpit/shared';
 import { answerShare } from './share-target.js';
 import { AUTHORIZE_PATH, isAnsweredByTheAuthorizationServer } from './mcp/paths.js';
 import { AccountStoreBase } from './accounts/store.js';
-import { pulledConnectorIds } from './connectors/registry.js';
+import { mirroringConnectorIds, pulledConnectorIds } from './connectors/registry.js';
 
 export type { AppType } from './index.js';
 
@@ -32,6 +32,10 @@ export type { AppType } from './index.js';
 export class AccountStore extends AccountStoreBase {
   protected pulledConnectorIds(): readonly string[] {
     return pulledConnectorIds(this.env);
+  }
+
+  protected mirroringConnectorIds(): readonly string[] {
+    return mirroringConnectorIds(this.env);
   }
 }
 

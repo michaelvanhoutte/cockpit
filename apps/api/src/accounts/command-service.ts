@@ -9,6 +9,7 @@ import {
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import { dropWhatWasWanted, wantOpenStateMirrored } from './mirrored-open-state.js';
+import { dropPulledWanted, wantPulledOpenStateMirrored } from './pulled-open-state.js';
 import {
   accountItemFormPresentation,
   agentRunActivity,
@@ -816,13 +817,17 @@ function runToReopen(
  * nothing of Gmail in return. Everything else that opens or closes an Item
  * records that as wanted of a source mirroring its open state, in the same
  * transaction (`mirrored-open-state.ts`).
+ *
+ * **`mirroring`** is which pulled connectors mirror open state, the registry's
+ * to say: a person's Done, Dismiss or their undo records the wanted state on
+ * the Item's link at one of them (`pulled-open-state.ts`, issue 893).
  */
 export function runCommand<N extends CommandName>(
   db: AccountDb,
   tenantId: string,
   name: N,
   payload: CommandPayload<N>,
-  { fromTheSource = false }: { fromTheSource?: boolean } = {},
+  { fromTheSource = false, mirroring = [] }: { fromTheSource?: boolean; mirroring?: readonly string[] } = {},
 ): CommandResult {
   if (commandAlreadyApplied(db, payload.commandId)) {
     return { ok: true, applied: false };
@@ -2196,6 +2201,15 @@ export function runCommand<N extends CommandName>(
         if (held.connectorId === GMAIL && held.externalAccountKey) {
           dropWhatWasWanted(tx, tenantId, held.workspaceId, held.externalAccountKey);
         }
+        // And a pulled source's: a later connection of the account never
+        // pushes what a person changed before this one went (issue 893).
+        if (held.externalAccountKey) {
+          dropPulledWanted(tx, tenantId, {
+            workspaceId: held.workspaceId,
+            connectorId: held.connectorId,
+            externalAccountKey: held.externalAccountKey,
+          });
+        }
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -2608,7 +2622,10 @@ export function runCommand<N extends CommandName>(
             .set(asStored(updated))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
-          if (!fromTheSource) wantOpenStateMirrored(tx, tenantId, existing, updated);
+          if (!fromTheSource) {
+            wantOpenStateMirrored(tx, tenantId, existing, updated);
+            wantPulledOpenStateMirrored(tx, tenantId, existing, updated, mirroring);
+          }
           // The Item's Status is what ends a run, in the one transaction as the
           // change; an Undo that names a run it ended brings it back.
           if (
