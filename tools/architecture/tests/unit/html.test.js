@@ -24,11 +24,30 @@ describe('The architecture page', () => {
     });
   });
 
-  it('draws each environment with its resources and each workflow with the environment it deploys', () => {
-    const html = page();
-    expect(html).toContain('id="env-staging"');
-    expect(html).toContain('cockpit-staging');
-    expect(html).toMatch(/Deploy staging[\s\S]*every merge[\s\S]*&rarr; staging/);
+  describe('the deployment is drawn as a diagram', () => {
+    it('draws an environment per column with its resources, and an arrow from the workflow that deploys it', () => {
+      const html = page();
+      expect(html).toContain('<svg');
+      expect(html).toContain('>staging</text>');
+      expect(html).toContain('cockpit-staging');
+      expect(html).toMatch(/class="t-hl"[^>]*>deploy-staging\.yml/);
+      expect(html).toContain('marker-end="url(#arrow)"');
+    });
+
+    it('lays out a further environment as a further column, clear of the one before it', () => {
+      const three = JSON.stringify({ name: 'w', d1_databases: [{ binding: 'DB', database_name: 'a' }], env: { staging: {}, qa: { vectorize: [{ binding: 'V', name: 'idx' }] } } });
+      const html = renderHtml(buildModel({ wrangler: { file: 'w.jsonc', text: three }, workflows: [{ file: 'd.yml', text: deploy.replace('staging', 'qa') }], commit: null, date: null }));
+      const columns = [...html.matchAll(/<rect class="worker" x="([\d.]+)" y="[\d.]+" width="([\d.]+)"/g)].map((each) => [Number(each[1]), Number(each[2])]);
+      expect(columns).toHaveLength(3);
+      for (let i = 1; i < columns.length; i += 1) expect(columns[i][0]).toBeGreaterThanOrEqual(columns[i - 1][0] + columns[i - 1][1]);
+      expect(html).toContain('>vectorize</text>');
+    });
+
+    it('draws local development from the local environment, below GitHub', () => {
+      const html = renderHtml(buildModel({ wrangler: { file: 'w.jsonc', text: JSON.stringify({ name: 'w', env: { local: { name: 'w-local', d1_databases: [{ binding: 'DB', database_name: 'dev' }] } } }) }, workflows: [{ file: 'd.yml', text: deploy }], commit: null, date: null }));
+      expect(html).toContain('Local development');
+      expect(html).toContain('>dev</text>');
+    });
   });
 
   it('opens from disk: styles inline, no script, no remote address but links a reader follows', () => {
