@@ -3971,4 +3971,123 @@ describe('Layouts', () => {
       expect(screen.queryByLabelText('New title for This week')).toBeNull();
     });
   });
+
+  /**
+   * A Section dragged by its band ("Drag a Section between a Dashboard's rows,
+   * and keep Panels off its line", issue 897). Where it is placed is
+   * apps/web/tests/unit/panels/dragging.test.ts; what is asked here is that the
+   * board wires the band to it, and sends one save.
+   */
+  describe('a Section is dragged by its band, and nothing shares its line', () => {
+    /** What is on each row: a Section's title, or the Panels across it. */
+    const onTheBoard = () =>
+      [...document.querySelectorAll('[data-panel-row]')].map((row) =>
+        row.hasAttribute('data-section')
+          ? (row.textContent ?? '')
+          : [...row.querySelectorAll('[data-panel-cell]')].map((cell) => cell.getAttribute('data-panel-cell')!),
+      );
+    const sentOnTheBoard = (mutate: ReturnType<typeof vi.fn>) => {
+      const [asked] = mutate.mock.calls.at(-1)!;
+      return asked.payload.rows.map((row: { title?: string; cells: { panelId: string }[] }) =>
+        row.title ?? row.cells.map((cell) => cell.panelId),
+      );
+    };
+    const bandOf = (title: string) => screen.getByRole('heading', { name: title }).closest('header')!;
+    const takeBand = (title: string) => {
+      fireEvent.pointerDown(bandOf(title), { button: 0, pointerId: 1, pointerType: 'mouse' });
+      layOut();
+    };
+    const moveTo = (y: number) => fireEvent.pointerMove(boardEl(), { pointerId: 1, clientX: 300, clientY: y });
+    const letGoAt = (y: number) => fireEvent.pointerUp(boardEl(), { pointerId: 1, clientX: 300, clientY: y });
+
+    it.each([
+      { situation: 'to above the first row', y: 10, becomes: ['This week', ['falcon'], ['reading']] },
+      { situation: 'to the gap between two rows', y: 110, becomes: [['falcon'], 'This week', ['reading']] },
+    ])('sends one save placing it $situation by the pointer’s height', ({ y, becomes }) => {
+      const { mutate } = showBoard({ layouts: [{ ...withASection, rows: [withASection.rows[0]!, withASection.rows[2]!, withASection.rows[1]!] }], settles: false });
+      takeBand('This week');
+
+      moveTo(y);
+      expect(onTheBoard()).toEqual(becomes);
+      letGoAt(y);
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(sentOnTheBoard(mutate)).toEqual(becomes);
+    });
+
+    it('draws the band lifted while it is in the air', () => {
+      showBoard({ layouts: [withASection] });
+
+      takeBand('This week');
+
+      expect(bandOf('This week').className).toContain('opacity-40');
+    });
+
+    it('sends nothing for a Section released where it started, and puts the rows back on Escape', () => {
+      const { mutate } = showBoard({ layouts: [withASection] });
+      takeBand('This week');
+      moveTo(10);
+      moveTo(180);
+
+      letGoAt(180);
+      expect(mutate).not.toHaveBeenCalled();
+
+      takeBand('This week');
+      moveTo(10);
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(onTheBoard()).toEqual([['falcon'], 'This week', ['reading']]);
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('shows nothing happening for a Panel dropped on a Section’s line', () => {
+      const { mutate } = showBoard({ layouts: [withASection] });
+
+      dragTo('Project Falcon', { x: 300, y: 172 });
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(onTheBoard()).toEqual([['falcon'], 'This week', ['reading']]);
+    });
+
+    it('gives a Panel dropped in the gap under a Section a row of its own there', () => {
+      const { mutate } = showBoard({ layouts: [withASection], settles: false });
+
+      // Let go on the window: the Panel's header is drawn under another parent by then, and the board is what holds the pointer.
+      dragTo('Project Falcon', { x: 300, y: 233 }, false);
+      fireEvent.pointerUp(window, { pointerId: 1, clientX: 300, clientY: 233 });
+
+      expect(sentOnTheBoard(mutate)).toEqual(['This week', ['falcon'], ['reading']]);
+    });
+
+    it('draws no line to size a Section’s row, and keeps the line under the row above it', () => {
+      showBoard({ layouts: [withASection] });
+
+      // Under the first row (sizing it) and under the last (sizing it): none under the Section.
+      expect(screen.getAllByTestId('row-line')).toHaveLength(2);
+    });
+
+    it('is not picked up from its menu button, while it is renamed, or on a phone', async () => {
+      const { user } = showBoard({ layouts: [withASection] });
+
+      fireEvent.pointerDown(menuButtonOf('This week'), { button: 0, pointerId: 1, pointerType: 'mouse' });
+      expect(seamsAreOpen()).toBe(false);
+
+      await user.click(menuButtonOf('This week'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+      fireEvent.pointerDown(screen.getByLabelText('New title for This week').closest('header')!, {
+        button: 0,
+        pointerId: 1,
+        pointerType: 'mouse',
+      });
+      expect(seamsAreOpen()).toBe(false);
+    });
+
+    it('is not picked up on a phone', () => {
+      screenIs(375);
+      showBoard({ layouts: [withASection] });
+
+      fireEvent.pointerDown(bandOf('This week'), { button: 0, pointerId: 1, pointerType: 'mouse' });
+
+      expect(seamsAreOpen()).toBe(false);
+    });
+  });
 });
