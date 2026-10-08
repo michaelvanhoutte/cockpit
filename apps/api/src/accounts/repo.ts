@@ -1,5 +1,5 @@
 import { alias } from 'drizzle-orm/sqlite-core';
-import { and, asc, desc, eq, exists, gt, gte, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
 import type { Column } from 'drizzle-orm';
 import {
   CLAUDE_CODE,
@@ -435,11 +435,17 @@ export function listLayoutRows(
       layoutId: layoutRows.layoutId,
       rowIndex: layoutRows.rowIndex,
       height: layoutRows.height,
+      title: layoutRows.title,
     })
     .from(layoutRows)
     .where(and(eq(layoutRows.tenantId, tenantId), eq(layoutRows.layoutId, layoutId)))
     .orderBy(asc(layoutRows.rowIndex))
     .all();
+}
+
+/** One layout's rows as the snapshot draws them, which is what a save from a tab that predates Sections is placed against. */
+export function storedRowsOf(db: AccountDb, tenantId: string, layoutId: string): LayoutRow[] {
+  return rowsOf(listLayoutRows(db, tenantId, layoutId), listPlacements(db, tenantId, layoutId));
 }
 
 /** One layout's cells, in the order they are drawn in: by row, then along it. */
@@ -547,6 +553,7 @@ export function listLayoutsInWorkspace(
       layoutId: layoutRows.layoutId,
       rowIndex: layoutRows.rowIndex,
       height: layoutRows.height,
+      title: layoutRows.title,
     })
     .from(layoutRows)
     .innerJoin(layouts, eq(layoutRows.layoutId, layouts.id))
@@ -573,26 +580,29 @@ export function listLayoutsInWorkspace(
 /**
  * One layout's rows, assembled from the two lists that carry them.
  *
- * **The rows are what the arrangement is**, so a row with no cells is dropped
- * rather than drawn: a save writes both lists in one transaction and never
- * leaves an empty one behind, but a row whose only panel was deleted is exactly
- * that state, and a blank line on the dashboard is not what a deleted panel
- * should look like.
+ * **The rows are what the arrangement is**, so a row with no cells and no title
+ * is dropped rather than drawn: a save writes both lists in one transaction and
+ * never leaves an empty one behind, but a row whose only panel was deleted is
+ * exactly that state, and a blank line on the dashboard is not what a deleted
+ * panel should look like. **A titled row is a Section** and is kept with no
+ * cells, which is all it ever holds; a row of Panels carries no title at all,
+ * so it reads exactly as it did before Sections.
  *
  * Both lists arrive ordered, so this only groups.
  */
 function rowsOf(
-  heights: readonly { rowIndex: number; height: number | null }[],
+  heights: readonly { rowIndex: number; height: number | null; title: string | null }[],
   cells: readonly { panelId: string; rowIndex: number; span: number }[],
 ): LayoutRow[] {
   return heights
-    .map((row) => ({
+    .map((row): LayoutRow => ({
       height: row.height,
+      ...(row.title === null ? {} : { title: row.title }),
       cells: cells
         .filter((cell) => cell.rowIndex === row.rowIndex)
         .map(({ panelId, span }) => ({ panelId, span })),
     }))
-    .filter((row) => row.cells.length > 0);
+    .filter((row) => row.cells.length > 0 || row.title !== undefined);
 }
 
 /**
@@ -1487,9 +1497,7 @@ export function unfiledItemsInWorkspace(
 
 /**
  * One Item a settled filing's refresh reads again: the note and the two texts
- * it carries now are what the panel choice is read from (`choose-a-panel.v1`).
- * Also what a correction's re-read reads, whose history row records the
- * suggested Panel it started from (issue 614).
+ * it carries now are what the panel choice is read from (`choose-a-panel.v2`).
  */
 export interface UnfiledCandidate {
   id: string;
@@ -1501,94 +1509,73 @@ export interface UnfiledCandidate {
 }
 
 /**
- * Every item in the whole account with a captured note whose texts nobody has
- * settled - the rest of the inbox a correction re-proposes texts for
- * ("Re-read the rest of the inbox the moment you fix a title", issue 399).
+ * The notes filed in one Workspace since `since`, each with the meaning stored
+ * for it from `model`, `null` where nothing has read it yet - what a filing's
+ * refresh of the rest of the Inbox weighs the unfiled Items against
+ * (`itemsToReadAgain`, `domain/panel-refresh.ts`; "Cut what cleaning up a
+ * captured note costs", issue 887).
  *
- * **The whole account, not one Workspace.** How this person writes is a
- * property of the account, not of the Workspace a note happens to sit in
- * (`docs/text-learning.md`, "Scope: per account") - unlike
- * `unfiledItemsInWorkspace` beside it, which is scoped because *where* a note
- * belongs is a Workspace question.
- *
- * **`texts_settled_at IS NULL` is the one filter `unfiledItemsInWorkspace`
- * does not need.** A settled Item is exactly the one this correction just
- * came from, or one a person already took over by hand - either way not a
- * candidate for a fresh proposal, and this filter is what keeps both out
- * without naming the correcting Item specially.
- *
- * **`inALiveWorkspace` is the other.** `unfiledItemsInWorkspace` is only ever
- * asked about the Workspace a filing just settled in, live by construction at
- * that moment - this query has no such caller-supplied liveness to lean on,
- * being account-wide, so it states the check itself. Without it, an Item
- * whose Workspace was later deleted would pass every other clause here and
- * become a permanent candidate: nothing can ever settle its texts (no UI
- * reaches it), so it would be re-read, and a model call spent on it, on every
- * correction anywhere in the account for as long as the account exists.
+ * **A filing is a `decision_history` row**, the record of a settled routing
+ * and the same one that fires the refresh. A reading emptied because its
+ * Item's texts were reads as none (`forgetMeaning`).
  */
-export function itemsWithUnsettledTexts(
+export function filingMeaningsSince(
   db: AccountDb,
   tenantId: string,
-): UnfiledCandidate[] {
+  workspaceId: string,
+  since: string,
+  model: string,
+): (number[] | null)[] {
   return db
-    .select({
-      id: items.id,
-      workspaceId: items.workspaceId,
-      title: items.title,
-      description: items.description,
-      capturedMessage: items.capturedMessage,
-      proposedPanelId: items.proposedPanelId,
-    })
-    .from(items)
-    .where(
+    .select({ reading: itemMeanings.reading })
+    .from(decisionHistory)
+    .leftJoin(
+      itemMeanings,
       and(
-        eq(items.tenantId, tenantId),
-        isNull(items.completedAt),
-        isNull(items.deletedAt),
-        isNotNull(items.capturedMessage),
-        isNull(items.textsSettledAt),
-        notFiledOnALivePanel(db, tenantId),
-        inALiveWorkspace(db, tenantId),
+        eq(itemMeanings.itemId, decisionHistory.itemId),
+        eq(itemMeanings.tenantId, tenantId),
+        eq(itemMeanings.model, model),
       ),
     )
-    .orderBy(desc(items.createdAt))
+    .where(
+      and(
+        eq(decisionHistory.tenantId, tenantId),
+        eq(decisionHistory.workspaceId, workspaceId),
+        gt(decisionHistory.decidedAt, since),
+      ),
+    )
     .all()
-    .map((row) => ({
-      id: row.id,
-      workspaceId: row.workspaceId,
-      title: row.title,
-      description: row.description,
-      capturedMessage: row.capturedMessage!,
-      proposedPanelId: row.proposedPanelId,
-    }));
+    .map((row) => (row.reading === null || row.reading.length === 0 ? null : row.reading));
 }
 
+/** How many ids one query names: a Durable Object's SQLite takes 100 bound values, and the tenant and model are two of them. */
+const IDS_PER_QUERY = 50;
+
 /**
- * Whether an Item's own Workspace still exists - `delete_workspace` tombstones
- * only the Workspace row and leaves every Item pointing at it exactly where it
- * was, the same fact `command-service.ts`'s own `liveDestinationPanel` states
- * for a Panel's Workspace, so nothing else in `itemsWithUnsettledTexts` above
- * excludes one on its own.
- *
- * **An undecided Item passes regardless.** `workspace_decided = false` is
- * what shows an Item in every Workspace's Inbox at once ("Capture something
- * before you know which workspace it belongs to", issue 165), so its own
- * `workspace_id` is where it happened to be captured rather than where it is
- * reachable from - the same reading `unfiledItemsInWorkspace`'s own `or(...)`
- * clause already gives it.
+ * The meaning stored from `model` for each of these Items, `null` for one
+ * nothing has read - in the order given.
  */
-function inALiveWorkspace(db: AccountDb, tenantId: string) {
-  return or(
-    eq(items.workspaceDecided, false),
-    exists(
-      db
-        .select({ one: sql`1` })
-        .from(workspaces)
-        .where(
-          and(eq(workspaces.tenantId, tenantId), isNull(workspaces.deletedAt), eq(workspaces.id, items.workspaceId)),
-        ),
-    ),
-  );
+export function meaningsOfItems(
+  db: AccountDb,
+  tenantId: string,
+  itemIds: readonly string[],
+  model: string,
+): { itemId: string; reading: number[] | null }[] {
+  const held = new Map<string, number[]>();
+  for (let from = 0; from < itemIds.length; from += IDS_PER_QUERY) {
+    const group = itemIds.slice(from, from + IDS_PER_QUERY);
+    for (const row of db
+      .select({ itemId: itemMeanings.itemId, reading: itemMeanings.reading })
+      .from(itemMeanings)
+      .where(and(eq(itemMeanings.tenantId, tenantId), eq(itemMeanings.model, model), inArray(itemMeanings.itemId, group)))
+      .all()) {
+      held.set(row.itemId, row.reading);
+    }
+  }
+  return itemIds.map((itemId) => {
+    const reading = held.get(itemId);
+    return { itemId, reading: reading === undefined || reading.length === 0 ? null : reading };
+  });
 }
 
 export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean {

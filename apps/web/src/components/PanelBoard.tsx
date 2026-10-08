@@ -8,6 +8,7 @@ import {
   NO_CONDITIONS,
   panelGathers,
   panelHoldsText,
+  rowIsSection,
   uuidv7,
 } from '@cockpit/shared';
 import type {
@@ -47,11 +48,17 @@ import {
   drawnRows,
   layoutToDraw,
   movedBeside,
+  rowsToSave,
+  stacked,
   stackedOnPhone,
   sameArrangement,
   sharesOf,
   withRowHeight,
+  withSectionDeleted,
+  withSectionRenamed,
 } from '../panels/arrangement';
+import { publishBoardRows, withdrawBoardRows } from '../panels/boardRows';
+import { SectionBand } from './SectionBand';
 import { dashboardTabAt } from '../panels/dashboardDrop';
 import type { TabRect } from '../panels/dashboardDrop';
 import { DeleteQuestion } from './DeleteQuestion';
@@ -366,12 +373,25 @@ export function PanelBoard({
   } | null>(null);
 
   const drawnWith = layoutToDraw(layouts, dashboard.id, screenWidth);
-  const stored = phone
-    ? stackedOnPhone(layouts.find((layout) => layout.dashboardId === dashboard.id) ?? null, panels)
-    : drawnRows(drawnWith, panels, acrossWidth);
+  const ownLayout = layouts.find((layout) => layout.dashboardId === dashboard.id) ?? null;
+  const stored = phone ? stackedOnPhone(ownLayout, panels) : drawnRows(drawnWith, panels, acrossWidth);
+  /**
+   * What a Section's add, rename and delete are applied to: the Dashboard's
+   * own arrangement, which on a phone is not what is drawn, and on a Dashboard
+   * nobody has arranged is the Panels as drawn at this width (`boardRows.ts`).
+   * A Section is changed on a phone and while filtered too, since neither
+   * gesture moves a Panel.
+   */
+  const arrangement = draft ?? drawnRows(ownLayout, panels, acrossWidth);
+  useEffect(() => {
+    publishBoardRows(dashboard.id, arrangement);
+  });
+  useEffect(() => () => withdrawBoardRows(dashboard.id), [dashboard.id]);
+  const [renamingSection, setRenamingSection] = useState<{ nth: number; title: string } | null>(null);
   // The preview while a drag is on, then a draft that has been sent and is
-  // waiting for the store to agree, then what the store holds.
-  const shown = dragging?.preview ?? sizing ?? draft ?? stored;
+  // waiting for the store to agree, then what the store holds. A phone draws
+  // its stacking of the draft, which only a Section's change makes there.
+  const shown = dragging?.preview ?? sizing ?? (draft && phone ? stacked(draft) : draft) ?? stored;
   /**
    * Read from the list rather than kept beside the id, for the reason the list
    * of dashboards does it: a panel deleted in another tab is gone
@@ -480,7 +500,7 @@ export function PanelBoard({
     sent.current = null;
   };
 
-  const saveArrangement = (layoutId: string, rows: readonly LayoutRow[]) => {
+  const saveArrangement = (layoutId: string, rows: readonly LayoutRow[], afterwards?: () => void) => {
     command.mutate(
       {
         name: 'save_layout',
@@ -490,18 +510,15 @@ export function PanelBoard({
           workspaceId,
           dashboardId: dashboard.id,
           layoutId,
-          // Named field by field rather than sent as read, so a row that
-          // arrived from a snapshot with something extra on it cannot carry
-          // that back into a command the schema then refuses.
-          rows: rows.map((row) => ({
-            height: row.height,
-            cells: row.cells.map((cell) => ({ panelId: cell.panelId, span: cell.span })),
-          })),
+          // This client sends every Section it has, so none sent means none.
+          carriesSections: true,
+          rows: rowsToSave(rows),
         },
       },
       {
         onSuccess: () => {
           void settle();
+          afterwards?.();
         },
         /**
          * A refused arrangement is put back, rather than left on screen under
@@ -563,10 +580,39 @@ export function PanelBoard({
     //
     if (sameArrangement(next, sent.current ?? stored)) return;
     command.reset();
+    // The rename's refusal is said in its band, so a rename left open would
+    // claim this gesture's refusal as its own.
+    setRenamingSection(null);
     setDraft(next);
     // A dashboard nobody has arranged gets its one layout from this first
     // move, under an id made here (`save_layout`).
     saveArrangement(drawnWith?.id ?? firstLayoutId(), next);
+  };
+
+  /**
+   * A Section renamed or deleted, kept in the Dashboard's own arrangement and
+   * held as the draft until the store agrees - on a phone too, so a second
+   * change made before the re-read is made to this one rather than undoing it.
+   */
+  const changeSections = (next: LayoutRow[], afterwards?: () => void) => {
+    command.reset();
+    setDraft(next);
+    saveArrangement(ownLayout?.id ?? firstLayoutId(), next, afterwards);
+  };
+
+  /** A Section is told apart only by its place, so it is named by how many come before it. */
+  const sectionNth = new Map<number, number>();
+  shown.forEach((row, place) => {
+    if (rowIsSection(row)) sectionNth.set(place, sectionNth.size);
+  });
+
+  const renameSection = () => {
+    if (!renamingSection) return;
+    const trimmed = renamingSection.title.trim();
+    if (!trimmed) return;
+    changeSections(withSectionRenamed(arrangement, renamingSection.nth, trimmed), () =>
+      setRenamingSection(null),
+    );
   };
 
   /**
@@ -744,7 +790,8 @@ export function PanelBoard({
   const [jumpTo] = useState(() => (panelId: string) => jumpRef.current(panelId));
   // Every Panel, whatever the Dashboard filter leaves undrawn: the column says
   // which are hidden, and going to one clears the filter.
-  const listed = shown.map((row) =>
+  // A Section is not a Panel, so the column does not list it.
+  const listed = shown.filter((row) => !rowIsSection(row)).map((row) =>
     row.cells.map((cell) => {
       const panel = panels.find((one) => one.id === cell.panelId);
       return {
@@ -1335,13 +1382,14 @@ export function PanelBoard({
 
       {/* Only the arrangement's. A refused add or rename is said where the
           name still is - in the dialog, or in the panel's own header. */}
-      {refusalFor('save_layout') && (
+      {/* A Section being renamed says its own, in its band. */}
+      {refusalFor('save_layout') && !renamingSection && (
         <p role="alert" className="px-4 py-2 text-sm text-over-ink">
           {refusalFor('save_layout')}
         </p>
       )}
 
-      {panels.length === 0 ? (
+      {shown.length === 0 ? (
         // An invitation rather than an apology: it says what a dashboard is for
         // instead of reporting that this one is empty ("Modernise the app
         // shell", issue 125). No control of its own - Add a panel is on the
@@ -1369,6 +1417,49 @@ export function PanelBoard({
           className="flex min-w-0 flex-col"
         >
           {drawn.map(({ row, place: rowIndex }) => {
+            if (rowIsSection(row)) {
+              const nth = sectionNth.get(rowIndex)!;
+              const title = row.title;
+              return (
+                <Fragment key={rowIndex}>
+                  <RowSeam
+                    dragging={dragging !== null}
+                    sizes={!arrangeable || rowIndex === 0 || rowIsSection(shown[rowIndex - 1]!) ? null : rowIndex - 1}
+                    onTake={takeLine}
+                    onMove={lineTo}
+                    onLetGo={letGoOfLine}
+                    onFitToContents={fitRowToContents}
+                  />
+                  {/* A row the drag measures like any other, with nothing
+                      across it to land beside: a Panel let go on it stays
+                      where it was (`panels/dragging.ts`). */}
+                  <div data-panel-row="" data-section="">
+                    <SectionBand
+                      title={title}
+                      renaming={renamingSection?.nth === nth ? renamingSection.title : null}
+                      onRenamingChange={(next) => setRenamingSection({ nth, title: next })}
+                      onStartRenaming={() => {
+                        command.reset();
+                        setRenaming(null);
+                        setDeleting(null);
+                        setRenamingSection({ nth, title });
+                      }}
+                      onRename={renameSection}
+                      onStopRenaming={() => {
+                        setRenamingSection(null);
+                        command.reset();
+                      }}
+                      onDelete={() => {
+                        setRenamingSection(null);
+                        changeSections(withSectionDeleted(arrangement, nth));
+                      }}
+                      refusal={renamingSection?.nth === nth ? refusalFor('save_layout') : null}
+                      busy={command.isPending}
+                    />
+                  </div>
+                </Fragment>
+              );
+            }
             const shares = sharesOf(row);
             return (
               // Keyed by where the row is, not by what is on it. A row has no
@@ -1383,7 +1474,7 @@ export function PanelBoard({
                   // A seam sets the height of the row *above* it, so every row
                   // has exactly one line under it to pull and the seam over the
                   // first row has none to set.
-                  sizes={!arrangeable || rowIndex === 0 ? null : rowIndex - 1}
+                  sizes={!arrangeable || rowIndex === 0 || rowIsSection(shown[rowIndex - 1]!) ? null : rowIndex - 1}
                   onTake={takeLine}
                   onMove={lineTo}
                   onLetGo={letGoOfLine}
@@ -1552,7 +1643,7 @@ export function PanelBoard({
               a row, the line that sets that row's height. */}
           <RowSeam
             dragging={dragging !== null}
-            sizes={arrangeable && shown.length ? shown.length - 1 : null}
+            sizes={arrangeable && shown.length && !rowIsSection(shown.at(-1)!) ? shown.length - 1 : null}
             onTake={takeLine}
             onMove={lineTo}
             onLetGo={letGoOfLine}

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
-import { ITEM_TYPE_COLORS, MAX_ROW_HEIGHT, MIN_ROW_HEIGHT } from '@cockpit/shared';
+import { ITEM_TYPE_COLORS, MAX_ROW_HEIGHT, MIN_ROW_HEIGHT, NAME_MAX_LENGTH } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
   DASHBOARD_ID,
@@ -605,6 +605,12 @@ describe('Panels', () => {
         override: { height: MIN_ROW_HEIGHT - 1 },
       },
       { situation: 'a row before the first one', override: { row_index: -1 } },
+      // A Section's title, from the same constant the contract refuses it by.
+      { situation: 'a Section with an empty title', override: { title: '' } },
+      {
+        situation: 'a Section titled past the longest a title may be',
+        override: { title: 'x'.repeat(NAME_MAX_LENGTH + 1) },
+      },
     ])('refuses $situation', async ({ override }) => {
       const layoutId = nextId();
       await putLayout({ id: layoutId });

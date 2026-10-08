@@ -1,12 +1,12 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { ClaudeAiService, type ItemToPlace } from '../../src/ai/index.js';
-import { buildChooseAPanel } from '../../src/ai/prompts/choose-a-panel.v1.js';
+import { buildChooseAPanel } from '../../src/ai/prompts/choose-a-panel.v2.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
 
 /**
  * The contract tier for a settled filing's refresh of the rest of an inbox:
- * the real Claude API, the real prompt, no fake anywhere, scheduled and never
- * on a pull request - `clean-up-a-note.v10.test.ts`'s class comment says why,
+ * the real Claude API, the real prompt, no fake anywhere, run on a pull request
+ * that changes a prompt and by hand, never on a schedule - `clean-up-a-note.v11.test.ts`'s class comment says why,
  * and a failure here is priority work for the same reasons.
  *
  * **The same routing properties that file holds the full prompt to**, on a
@@ -33,7 +33,7 @@ const choosing = new ClaudeAiService(key, process.env.ANTHROPIC_WORKSPACE_ID || 
   spent.input += usage.input_tokens;
   spent.output += usage.output_tokens;
 });
-afterAll(() => console.log(`choose-a-panel.v1: ${JSON.stringify(spent)}`));
+afterAll(() => console.log(`choose-a-panel.v2: ${JSON.stringify(spent)}`));
 
 /**
  * An Item as a refresh finds it: the note, and the two texts capture proposed
@@ -51,7 +51,7 @@ async function choose(
   history: readonly DecisionHistoryEntry[] = [],
 ) {
   const answer = await choosing.choosePanel(item, panels, history, []);
-  // Said out loud, for the same reason `clean-up-a-note.v10.test.ts`'s `read` does.
+  // Said out loud, for the same reason `clean-up-a-note.v11.test.ts`'s `read` does.
   if (!('panel' in answer)) throw new Error(`nothing usable came back: ${answer.discarded}`);
   return answer.panel;
 }
@@ -60,7 +60,7 @@ describe('Triage', () => {
   it('has a key to ask with', () => {
     expect(key, 'set ANTHROPIC_API_KEY, or put it in apps/api/.dev.vars').not.toBe('');
     // The cases below are only evidence about the version and model they ran against.
-    expect(buildChooseAPanel(anItem('a note'), [], [], [])).toMatchObject({ version: 'v1', model: 'claude-haiku-4-5' });
+    expect(buildChooseAPanel(anItem('a note'), [], [], [])).toMatchObject({ version: 'v2', model: 'claude-haiku-4-5' });
   });
 
   describe('a refresh offers an item the panel it clearly belongs on, and only where one does', () => {
@@ -101,7 +101,7 @@ describe('Triage', () => {
   });
 
   /**
-   * `clean-up-a-note.v10.test.ts`'s "a proposal follows a correction recorded
+   * `clean-up-a-note.v11.test.ts`'s "a proposal follows a correction recorded
    * in the decision history", on this prompt: the note fits either panel
    * equally, so naming the corrected one is a call the history alone drives.
    */
@@ -135,4 +135,12 @@ describe('Triage', () => {
       expect(chosen.map((panel) => panel?.panelId)).toEqual(Array(5).fill(panels[1]!.id));
     });
   });
+
+  /*
+   * **No case for the cache.** With fifty filings of ordinary length the
+   * prompt stays under the 4,096 tokens Haiku 4.5 caches at all, so a second
+   * item reads nothing back (measured on issue 887's pull request). The
+   * breakpoints stay: below the minimum they cost nothing, and an account
+   * with longer notes clears it.
+   */
 });

@@ -1328,6 +1328,63 @@ test.describe('Panels', () => {
   });
 });
 
+test.describe('Layouts', () => {
+  /**
+   * A Section, a titled row of the board holding no Panels ("Add, rename and
+   * delete a titled Section on a Dashboard", issue 896). In the browser
+   * because the chain crosses the question, the band's own menu and the store,
+   * and only a browser drives the menu; how it is drawn and what it offers are
+   * apps/web/tests/unit/components/PanelBoard.test.tsx, where it is kept is
+   * apps/api/tests/integration/http/sections.test.ts.
+   */
+  test.describe('adding, renaming and deleting a Section work end to end, and deleting asks nothing', () => {
+    test('lands at the foot from + Panel, keeps its title across a reload, and goes from its own menu with no question', async ({
+      page,
+      isMobile,
+    }) => {
+      await ownDashboard(page, isMobile);
+      const falcon = uniqueTitle('Project Falcon');
+      await addPanel(page, falcon, isMobile);
+      const rows = page.locator('main [data-panel-row]');
+
+      const week = uniqueTitle('This week');
+      const added = answerTo(page, 'save_layout');
+      await press(page.getByRole('button', { name: '+ Panel' }), isMobile);
+      await page.getByLabel('Name of the new panel').fill(week);
+      await press(
+        page.locator('label').filter({ has: page.getByRole('radio', { name: /Section/ }) }),
+        isMobile,
+      );
+      await expect(page.getByRole('dialog', { name: 'What is the new section called?' })).toBeVisible();
+      // Typed before Section was chosen, and still there under the Section's label.
+      await page.getByLabel('Title of the new section').press('Enter');
+      expect((await added).status()).toBe(200);
+      await expect(rows.last().getByRole('heading', { name: week })).toBeVisible();
+      await page.reload();
+      await expect(rows.last().getByRole('heading', { name: week })).toBeVisible();
+
+      const later = uniqueTitle('Later');
+      const renamed = answerTo(page, 'save_layout');
+      await press(page.getByRole('button', { name: `Actions for ${week}` }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Rename' }), isMobile);
+      await page.getByLabel(`New title for ${week}`).fill(later);
+      await press(page.getByRole('button', { name: 'Save' }), isMobile);
+      expect((await renamed).status()).toBe(200);
+      await expect(page.getByRole('heading', { name: later })).toBeVisible();
+      await page.reload();
+      await expect(rows.last().getByRole('heading', { name: later })).toBeVisible();
+
+      const deleted = answerTo(page, 'save_layout');
+      await press(page.getByRole('button', { name: `Actions for ${later}` }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Delete' }), isMobile);
+      expect((await deleted).status()).toBe(200);
+      await expect(page.getByRole('alertdialog')).toHaveCount(0);
+      await expect(page.getByRole('heading', { name: later })).toHaveCount(0);
+      await expect.poll(() => panelsOnScreen(page)).toEqual([falcon]);
+    });
+  });
+});
+
 /** How many times wider one panel is drawn than another beside it on its row. */
 async function shareOfTheRow(page: Page, wider: string, narrower: string): Promise<number> {
   const of = async (name: string) =>

@@ -58,7 +58,7 @@ It cuts the other way too: where a constraint *is* reachable, only a test throug
 - Replace a boundary at the edge (the API client, the repository, the clock), not deep inside the code under test.
 - **Assert on outcomes, not interactions** — what the code produced, not the sequence of calls it made. Choreographing mock calls survives real breakage and is a violation.
 
-**Third parties.** Never at L1/F1. At L2/F2 and per-change L3/F3, use local fakes or fixtures recorded from real responses (not hand-invented shapes), checked in — faked at the *network* boundary, by replacing `fetch`, so the application does its own request against its own client (`apps/api/tests/integration/issuer.ts`, and the model in `tests/integration/http/note-cleanup.test.ts`). Live contract tests run on a schedule only, to verify the fixtures still match reality; a failing one makes updating the fixture priority work, and is never fixed by running it again.
+**Third parties.** Never at L1/F1. At L2/F2 and per-change L3/F3, use local fakes or fixtures recorded from real responses (not hand-invented shapes), checked in — faked at the *network* boundary, by replacing `fetch`, so the application does its own request against its own client (`apps/api/tests/integration/issuer.ts`, and the model in `tests/integration/http/note-cleanup.test.ts`). Live contract tests run when the prompt they hold changes and by hand, never per change otherwise; only the suites that spend nothing on a model also run weekly. They verify the fixtures still match reality; a failing one makes updating the fixture priority work, and is never fixed by running it again.
 
 **A model is a third party whose answer differs every time**, so its contract tests hold a *behaviour* rather than a shape: the property the prompt was written to get, and preferably one that has been measured failing. A contract run with no credential is red, never skipped.
 
@@ -70,7 +70,7 @@ Folders per level, inside the package that owns them — a folder is a boundary 
 
 ```
 apps/api/tests/{unit,integration}/
-apps/api/tests/contract/                         the live contract tests: scheduled only
+apps/api/tests/contract/                         the live contract tests: on a prompt change and by hand; the free ones weekly too
 apps/web/tests/{unit,service}/
 packages/shared/tests/unit/
 packages/connectors/*/tests/{unit,contract}/    a connector's own logic, and its own live tier

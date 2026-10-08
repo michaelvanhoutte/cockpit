@@ -86,3 +86,14 @@ A Dashboard has one arrangement, its Layout, and **nothing on screen offers a ch
 **Changing the arrangement changes the Layout drawn, and asks nothing.** Dragging a Panel goes into it, whatever screen you are on.
 
 **A Dashboard that has never been arranged is drawn to fit the screen it is on**: the Panels in the order they were added, on rows of a count that keeps a Panel worth reading — one across on a phone, three on a laptop, four on anything wider; a phone stacks them in that order too. It has no Layout at all, and the first move records one from what was drawn.
+
+## Sections: a title across the board
+
+**A Section is a row of its own in a Dashboard's Layout, holding only a title**, drawn full width as a band tinted in the Workspace's accent with its title in small uppercase accent letters: no count, no box, and a height nobody sets.
+
+- **Adding.** *Section* is the fourth choice in the question **+ Panel** asks, after Items, Text and Filter; chosen, the question reads *What is the new section called?* It lands at the foot of the board, where a new Panel lands, and the first Section on a Dashboard nobody has arranged records its Layout from what was drawn.
+- **Its title** is required, trimmed, one line of at most 60 characters, and need not be unique, even against a Panel's.
+- **Its menu** offers Rename and Delete only. **Delete takes effect without asking**, since only a title is lost.
+- **It is not a Panel**: never offered for filing, in *Move to*, in a Filter panel's Panel condition or in Group by Panel, never listed in *Go to panel*, and never counted where Panels are.
+- **It stays** with nothing under it, beside another Section, and when the Panel under it is deleted. On a phone it is drawn in its place in the column.
+- **While a Dashboard filter is on, no Section is drawn.**

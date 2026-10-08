@@ -163,6 +163,18 @@ async function correctTitle(itemId: string, title: string) {
   });
   expect(response.status).toBe(200);
 }
+/** Files an item onto an empty panel - the settled filing that has the rest of the Inbox read again. */
+async function fileOnto(itemId: string, panelId: string): Promise<void> {
+  const response = await postChange('move_item_to_panel', {
+    commandId: nextId(),
+    issuedAt: '2026-09-16T10:00:01.000Z',
+    workspaceId: WORKSPACE_ID,
+    itemId,
+    panelId,
+    order: [itemId],
+  });
+  expect(response.status).toBe(200);
+}
 
 type RewriteRow = {
   id: string;
@@ -466,7 +478,7 @@ describe('What Cockpit changed', () => {
       });
     });
 
-    it('a re-read after you edit another item looks at the title and description, from the panel the item had', async () => {
+    it('a refresh after you file another item looks at the panel alone, from the panel the item had', async () => {
       env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
       const panelId = await aPanel(WORKSPACE_ID, `${WORKSPACE_ID}-dashboard-1`);
       theModelIs({ says: { ...A_READING, panel: { panelId, reason: 'it fits' } } });
@@ -481,7 +493,7 @@ describe('What Cockpit changed', () => {
         timeout: 15_000,
         interval: 50,
       });
-      await correctTitle(other, 'My own title for this one');
+      await fileOnto(other, panelId);
 
       await vi.waitFor(async () => expect(await rowsFor(itemId)).toHaveLength(2), {
         timeout: 15_000,
@@ -489,7 +501,7 @@ describe('What Cockpit changed', () => {
       });
       const [reread] = await rowsFor(itemId);
       expect({ looksAt: reread!.looks_at, panelBefore: reread!.panel_before_id }).toEqual({
-        looksAt: 'texts',
+        looksAt: 'panel',
         panelBefore: panelId,
       });
     });
@@ -603,7 +615,7 @@ describe('What Cockpit changed', () => {
         timeout: 15_000,
         interval: 50,
       });
-      await correctTitle(other, 'My own title for this one');
+      await fileOnto(other, panelId);
       await vi.waitFor(async () => expect(await rowsFor(itemId)).toHaveLength(2), {
         timeout: 15_000,
         interval: 50,
@@ -663,8 +675,9 @@ describe('What Cockpit changed', () => {
   });
 
   describe('a later, separate re-proposal is its own new record', () => {
-    it('adds a second record for the item once a correction elsewhere re-reads it too', async () => {
+    it('adds a second record for the item once a filing elsewhere has its panel read again', async () => {
       env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
+      const panelId = await aPanel(WORKSPACE_ID, `${WORKSPACE_ID}-dashboard-1`);
       const itemId = await captureANote();
       await vi.waitFor(async () => expect(await statusOf(itemId)).toBe('rewritten'), {
         timeout: 15_000,
@@ -672,16 +685,15 @@ describe('What Cockpit changed', () => {
       });
       expect(await rowsFor(itemId)).toHaveLength(1);
 
-      // A different item's correction is what fires the account-wide re-read
-      // ("Re-read the rest of the inbox the moment you fix a title", issue
-      // 399) - `itemId`'s own texts are still Cockpit's (nothing here ever
-      // settled them), so it is re-read along with everything else unsettled.
+      // A different item's filing is what fires the refresh of the rest of
+      // the Inbox ("Re-propose the rest of the inbox the moment you file
+      // one", issue 300), and `itemId` is still in it.
       const other = await captureANote({ itemId: nextId() });
       await vi.waitFor(async () => expect(await statusOf(other)).toBe('rewritten'), {
         timeout: 15_000,
         interval: 50,
       });
-      await correctTitle(other, 'My own title for this one');
+      await fileOnto(other, panelId);
 
       await vi.waitFor(async () => expect(await rowsFor(itemId)).toHaveLength(2), {
         timeout: 15_000,

@@ -25,7 +25,7 @@ host does the rest ("Save a Teams message to Cockpit", issue 486).
 - **The keys are public and rotate.** They are found through
   `https://login.botframework.com/v1/.well-known/openidconfiguration`, never
   written down here. `tests/contract/` asks the real endpoint whether that is
-  still true, on a schedule.
+  still true, in the contract run.
 - **What identifies a save is the click, not the message.** Every press of Save
   saves an Item to the Inbox, and where the meaning-reading job runs, Cockpit's
   own possible-duplicate mark is what says two are one note. So the name is
@@ -97,7 +97,7 @@ one-time developer setup per environment (issue 486, "Out of scope").
 
 - `tests/unit/` — every refusal and every reading, against tokens minted in the
   test. No network.
-- `tests/contract/` — scheduled only: Microsoft still publishes the metadata,
+- `tests/contract/` — the contract run only: Microsoft still publishes the metadata,
   the key set and the issuer this package assumes.
 - The route, the identity resolution and the Item that comes out of it are
   proved in `apps/api/tests/integration/http/teams-ingress.test.ts`, entered the

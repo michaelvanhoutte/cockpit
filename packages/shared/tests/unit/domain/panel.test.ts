@@ -8,6 +8,7 @@ import {
   panelPlace,
   panelSchema,
   panelTakesItems,
+  rowInputSchema,
   type FilterCondition,
 } from '../../../src/domain/panel.js';
 
@@ -22,6 +23,48 @@ const DUE_TODAY: FilterCondition = { field: 'dueDate', window: 'today', orOverdu
 const PRIORITY_HIGH: FilterCondition = { field: 'priority', values: ['high'] };
 const TYPE_OKR: FilterCondition = { field: 'type', values: ['type-okr'] };
 const PANEL_Q3: FilterCondition = { field: 'panel', values: ['panel-q3'] };
+
+describe('Layouts', () => {
+  /**
+   * A Section's title, as a saved arrangement carries it ("Add, rename and
+   * delete a titled Section on a Dashboard", issue 896). That a refusal reaches
+   * the person through the real route is
+   * apps/api/tests/integration/http/panels.test.ts.
+   */
+  describe('a Section’s title is required, trimmed, one line, at most 60 characters, and need not be unique', () => {
+    const section = (title: string) => rowInputSchema.safeParse({ height: null, title, cells: [] });
+
+    it.each([
+      { situation: 'a blank title', title: '', kept: null },
+      { situation: 'a title of spaces only', title: '   ', kept: null },
+      { situation: 'a title with spaces around it', title: '  This week  ', kept: 'This week' },
+      { situation: 'a title of 60 characters', title: 'x'.repeat(60), kept: 'x'.repeat(60) },
+      { situation: 'a title of 61 characters', title: 'x'.repeat(61), kept: null },
+      { situation: 'a title with a line break', title: 'This\nweek', kept: null },
+    ])('$situation', ({ title, kept }) => {
+      const parsed = section(title);
+      expect(parsed.success ? parsed.data.title : null).toBe(kept);
+    });
+
+    it('takes the same title twice in one arrangement, and the title a Panel has', () => {
+      // Nothing about a Section's title is compared with anything else's: the
+      // schema reads one row at a time, and the store asks no question of it.
+      const rows = [
+        { height: null, title: 'Falcon', cells: [] },
+        { height: null, title: 'Falcon', cells: [] },
+      ];
+      expect(rows.map((row) => rowInputSchema.safeParse(row).success)).toEqual([true, true]);
+    });
+
+    it.each([
+      { situation: 'a Section holding a Panel', row: { height: null, title: 'Now', cells: [{ panelId: 'p', span: 12 }] } },
+      { situation: 'a Section given a height', row: { height: 300, title: 'Now', cells: [] } },
+      { situation: 'a row with neither a title nor a Panel', row: { height: null, cells: [] } },
+    ])('refuses $situation', ({ row }) => {
+      expect(rowInputSchema.safeParse(row).success).toBe(false);
+    });
+  });
+});
 
 describe('Panels', () => {
   describe('a panel kept from before Never propose existed reads as proposed like any other', () => {

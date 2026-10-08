@@ -68,6 +68,7 @@ import {
   listPlacements,
   listWorkspaces,
   settleDuplicate,
+  storedRowsOf,
   textCorrectionExistsFor,
 } from './repo.js';
 import { attachmentFromCommand } from '../domain/attachments.js';
@@ -104,6 +105,7 @@ import {
   panelNameForMove,
   panelNamed,
   panelsNotOn,
+  withStoredSections,
 } from '../domain/panels.js';
 import { inBatchesOf } from '../domain/statements.js';
 import {
@@ -682,6 +684,8 @@ function removedFromItsLayouts(
     .where(
       and(
         eq(layoutRows.tenantId, tenantId),
+        // A Section holds no panels and stays with nothing under it.
+        isNull(layoutRows.title),
         // Both halves carry `tenant_id` like every other query here does
         // (architecture, "One store per account, and `tenant_id` stays").
         // A store holds one account, so nothing else could match today -
@@ -1292,7 +1296,13 @@ export function runCommand<N extends CommandName>(
       // before every dashboard kept a single layout, still naming a layout
       // that went with its Screen size. Either way it means this dashboard.
       const layoutId = layoutOfDashboard(db, tenantId, dashboard.id)?.id ?? cmd.layoutId;
-      const arrangement = arrangementRows(tenantId, layoutId, cmd.rows);
+      // A tab that predates Sections sends none, and its save keeps the ones
+      // stored; a tab that knows them says so, and what it sends is the whole
+      // answer, Sections included (`withStoredSections`).
+      const rows = cmd.carriesSections
+        ? cmd.rows
+        : withStoredSections(cmd.rows, storedRowsOf(db, tenantId, layoutId));
+      const arrangement = arrangementRows(tenantId, layoutId, rows);
       db.transaction((tx) => {
         tx.insert(layouts)
           .values({ id: layoutId, tenantId, dashboardId: dashboard.id, createdAt: cmd.issuedAt })

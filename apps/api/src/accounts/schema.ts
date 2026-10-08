@@ -20,6 +20,7 @@ import {
   ITEM_TYPE_COLORS,
   MAX_ROW_HEIGHT,
   MIN_ROW_HEIGHT,
+  NAME_MAX_LENGTH,
   PANEL_FORMATS,
   STORED_PANEL_KINDS,
   prioritySchema,
@@ -631,6 +632,13 @@ export const layoutRows = sqliteTable(
       .references(() => layouts.id, { onDelete: 'restrict' }),
     rowIndex: integer('row_index').notNull(),
     height: integer('height'),
+    /**
+     * A Section's title, and null on a row of Panels ("Add, rename and delete
+     * a titled Section on a Dashboard", issue 896). A titled row holds no
+     * placements; it is kept on reading back where an untitled one with none
+     * is dropped (`rowsOf`, repo.ts).
+     */
+    title: text('title'),
   },
   (t) => [
     primaryKey({ columns: [t.layoutId, t.rowIndex] }),
@@ -639,6 +647,10 @@ export const layoutRows = sqliteTable(
     check(
       'layout_rows_height_is_a_height',
       sql.raw(`height IS NULL OR height BETWEEN ${MIN_ROW_HEIGHT} AND ${MAX_ROW_HEIGHT}`),
+    ),
+    check(
+      'layout_rows_title_is_a_title',
+      sql.raw(`title IS NULL OR length(title) BETWEEN 1 AND ${NAME_MAX_LENGTH}`),
     ),
   ],
 );

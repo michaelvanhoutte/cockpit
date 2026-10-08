@@ -4,6 +4,7 @@ import {
   FIRST_WORKSPACE_NAME,
   GRID_COLUMNS,
   MOST_ACROSS,
+  NAME_MAX_LENGTH,
   demoAddress,
   filterGroupingSchema,
   filterMatchSchema,
@@ -144,6 +145,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     gettingStarted(accountId),
     END_RUNS_ON_CLOSED_ITEMS,
     PULLED_CONNECTIONS,
+    LAYOUT_ROW_TITLES,
     PULLED_OPEN_WANTED,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
@@ -221,6 +223,38 @@ const PULLED_CONNECTIONS: Change = {
 };
 
 /**
+ * A Section's title on a Layout's row ("Add, rename and delete a titled Section
+ * on a Dashboard", issue 896) - one nullable column on `layout_rows`, null on
+ * every row of Panels; `schema.ts` says what it carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** it cannot. One statement, committed with the
+ *   record that it ran in one `transactionSync` (store.ts).
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** none can. Every existing row
+ *   takes NULL, which the CHECK accepts, and reads as the row of Panels it was.
+ * - **What is in each environment:** staging and production Layouts are real
+ *   and keep their rows; nothing is rewritten.
+ * - **Rolled back after it has run:** an older release reads rows by explicit
+ *   column and drops a row with no placements, so a Section is not drawn; its
+ *   next save of that Dashboard replaces the rows whole and the titles go.
+ *   Accepted, since only titles are lost.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const LAYOUT_ROW_TITLES: Change = {
+  name: '0060-layout-row-titles',
+  statements: [
+    {
+      sql: `ALTER TABLE \`layout_rows\` ADD COLUMN \`title\` text CONSTRAINT "layout_rows_title_is_a_title" CHECK(title IS NULL OR length(title) BETWEEN 1 AND ${NAME_MAX_LENGTH})`,
+    },
+  ],
+};
+
+/**
  * What Cockpit wants a pulled source to show of an Item's open state, kept on
  * the link the host holds for the Item ("Mirror an Item's open state back to
  * a pulled source through the generic host", issue 893) - one column on
@@ -244,7 +278,7 @@ const PULLED_CONNECTIONS: Change = {
  *   changes, so this one applies the next time the account is opened.
  */
 const PULLED_OPEN_WANTED: Change = {
-  name: '0060-pulled-open-wanted',
+  name: '0061-pulled-open-wanted',
   statements: [
     {
       sql: 'ALTER TABLE `pulled_links` ADD COLUMN `open_wanted` integer CONSTRAINT "pulled_links_open_wanted_is_flag" CHECK(open_wanted IS NULL OR open_wanted IN (0, 1))',
