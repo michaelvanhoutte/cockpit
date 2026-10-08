@@ -14,7 +14,8 @@ Built once a night by the `Lead time` job of
 per merge, and by hand from the Actions tab when a night was missed. It is uploaded as the
 `lead-time-report` artifact, and that same run's own `Publish` job takes it live into
 **<https://michaelvanhoutte.github.io/cockpit/lead-time/>**, beside the test explorer, the
-[CI stability page](../ci-stability/README.md) and the [test-selection page](../selection/README.md) —
+[CI stability page](../ci-stability/README.md), the [test-selection page](../selection/README.md) and the
+[architecture page](../architecture/README.md) —
 the same night, not waiting on the next merge. A missing artifact costs this page and never the site.
 The published site carries `model.json` beside the page.
 

@@ -17,7 +17,8 @@ builds this page once a night, for the request-cost reason the
 [lead-time page](../lead-time/README.md) gives for its own nightly job; a dispatch of that
 workflow by hand covers a missed night. That same run's own `Publish` job takes the artifact
 live at **<https://michaelvanhoutte.github.io/cockpit/selection/>**, alongside the test explorer,
-the [CI stability page](../ci-stability/README.md) and the lead-time page — the same night, not
+the [CI stability page](../ci-stability/README.md), the lead-time page and the
+[architecture page](../architecture/README.md) — the same night, not
 waiting on the next merge, and absent only from this one corner of the site when the job itself
 fails. The published site carries `model.json` beside the page.
 

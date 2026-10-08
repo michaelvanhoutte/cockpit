@@ -93,6 +93,33 @@ jobs:
           name: test-selection-report
           path: tools/selection/out/
 
+  # How Cockpit is deployed, drawn from the checkout alone: every environment
+  # the Worker config declares with the resources it binds, and every workflow
+  # ("Draw Cockpit's deployment every night, beside the other reports", issue
+  # 871). Reads no API, so unlike the reports above it needs no token and no
+  # permission beyond the checkout. It does install its own package, which
+  # parses YAML and JSONC rather than carrying a parser of each; the filter
+  # keeps that to those few packages, not the whole workspace.
+  architecture:
+    name: Architecture
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter @cockpit/architecture
+      - name: Draw how Cockpit is deployed
+        run: node tools/architecture/src/cli.js --out tools/architecture/out/index.html --model tools/architecture/out/model.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: architecture-report
+          path: tools/architecture/out/
+
   # Puts tonight's reports live, alongside whatever the last merge to `main`
   # published — `!cancelled()` so one report's failed build still lets the
   # other's page out, the same tolerance `needs` already gives the jobs above.
@@ -100,7 +127,7 @@ jobs:
   # schedule that started the run, only on being on `main`.
   publish:
     name: Publish
-    needs: [lead-time, selection]
+    needs: [lead-time, selection, architecture]
     if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
     permissions:
       contents: read
