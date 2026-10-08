@@ -593,6 +593,14 @@ describe('Dashboards', () => {
       expect(screen.queryByText('No Panel matches.')).toBeNull();
     });
 
+    it('draws no heading on a Dashboard of Sections alone, which has no Panel to go to', () => {
+      render(<Held listing={aListing(['Alpha', 'Beta'])} startsHidden={false} />);
+
+      expect(screen.getByText('No Panels on this Dashboard.')).toBeInTheDocument();
+      expect(screen.queryByText('Alpha')).toBeNull();
+      expect(screen.queryByText('Beta')).toBeNull();
+    });
+
     it('cuts a long name short', () => {
       render(<Held listing={aListing([[['A name so long that it would never fit in a column of this width', 1]]])} startsHidden={false} />);
 

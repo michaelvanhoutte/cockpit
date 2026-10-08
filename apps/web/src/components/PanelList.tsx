@@ -112,7 +112,8 @@ export function PanelList({
 
   const rows = listing?.rows ?? [];
   const total = entriesIn(rows).length;
-  const shownRows = rowsLeftBy(rows, needle, (entry) => matches(entry.title));
+  // A Dashboard of Sections alone has nothing to go to, so their titles stand under "No Panels" for nothing.
+  const shownRows = total === 0 ? [] : rowsLeftBy(rows, needle, (entry) => matches(entry.title));
   const onThisDashboard = (entry: PanelListEntry): Target => ({
     ...entry,
     workspaceId: reach.workspaceId,
