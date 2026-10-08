@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { WORKSPACE_THEMES, themeOf, uuidv7 } from '@cockpit/shared';
 import type { Workspace, WorkspaceList, WorkspaceTheme } from '@cockpit/shared';
@@ -11,7 +11,7 @@ import {
   useSendCommand,
   workspacesQuery,
 } from '../api/queries';
-import { setAllItemsTab, useAllItemsTabs } from '../allItemsTab';
+import { setAllItemsTab, useAllItemsOnScreen, useAllItemsTabs } from '../allItemsTab';
 import { litForChrome } from '../chrome';
 import { keepingTheOpenItem } from '../itemForm';
 import { survivingWorkspace } from '../landing';
@@ -335,26 +335,19 @@ export function WorkspaceTabs({
    * workspace's first dashboard when that workspace's *All items* is the page on
    * screen - a page that is not in the bar is not somewhere to stay - and never
    * moves you for another workspace's tab. The first dashboard is read from the
-   * snapshot, which the page on screen has already loaded for its own workspace.
+   * snapshot the page on screen already holds, since its route loaded it.
    */
-  const onItemsOf = useRouterState({
-    select: (state) => /^\/w\/([^/]+)\/items\/?$/.exec(state.location.pathname)?.[1] ?? null,
-  });
-  const switchAllItemsTab = async (workspaceId: string, on: boolean) => {
+  const onItemsOf = useAllItemsOnScreen();
+  const switchAllItemsTab = (workspaceId: string, on: boolean) => {
     setAllItemsTab(workspaceId, on);
     if (on || onItemsOf !== workspaceId) return;
-    try {
-      const first = (await queryClient.ensureQueryData(snapshotQuery(workspaceId))).dashboards[0];
-      if (first) {
-        void navigate({
-          to: '/w/$workspaceId/d/$dashboardId',
-          params: { workspaceId, dashboardId: first.id },
-          search: keepingTheOpenItem,
-        });
-      }
-    } catch {
-      // The tab is already off; staying on a page that is not in the bar is
-      // better than a failure with nowhere to show it.
+    const first = queryClient.getQueryData(snapshotQuery(workspaceId).queryKey)?.dashboards[0];
+    if (first) {
+      void navigate({
+        to: '/w/$workspaceId/d/$dashboardId',
+        params: { workspaceId, dashboardId: first.id },
+        search: keepingTheOpenItem,
+      });
     }
   };
 
@@ -369,7 +362,7 @@ export function WorkspaceTabs({
       label: allItemsTabOn(ws.id) ? 'Hide All items tab' : 'Show All items tab',
       separatorBefore: true,
       keepsFocus: true,
-      onSelect: () => void switchAllItemsTab(ws.id, !allItemsTabOn(ws.id)),
+      onSelect: () => switchAllItemsTab(ws.id, !allItemsTabOn(ws.id)),
     },
     // Apart from the way in, since it is the one that cannot be put back.
     { label: 'Delete', destructive: true, separatorBefore: true, onSelect: (from) => startDeleting(ws, from) },

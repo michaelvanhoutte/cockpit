@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { useRouterState } from '@tanstack/react-router';
 import { browserStore } from './lastVisited';
 
 /**
@@ -78,6 +79,13 @@ export function setAllItemsTab(workspaceId: string, on: boolean): void {
 export function useAllItemsTab(workspaceId: string | undefined): boolean {
   useSyncExternalStore(subscribe, () => version, () => 0);
   return workspaceId !== undefined && readAllItemsTab(browserStore(), workspaceId);
+}
+
+/** The workspace whose *All items* is the page on screen (`router.tsx`), or null on any other page. */
+export function useAllItemsOnScreen(): string | null {
+  return useRouterState({
+    select: (state) => /^\/w\/([^/]+)\/items\/?$/.exec(state.location.pathname)?.[1] ?? null,
+  });
 }
 
 /** Whether each workspace shows the tab, for a menu that offers it for several at once. */

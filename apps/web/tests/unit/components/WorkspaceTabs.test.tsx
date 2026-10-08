@@ -145,8 +145,15 @@ function showTabs(
     answer.sendFails ? Promise.reject(answer.sendFails) : Promise.resolve(),
   );
   mockUseSendCommand.mockImplementation(() => sent as never);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // The page on screen holds its workspace's snapshot, its route having loaded it.
+  if (held.onAllItemsOf) {
+    client.setQueryData(['snapshot', held.onAllItemsOf], {
+      dashboards: [{ id: `${held.onAllItemsOf}-first` }, { id: `${held.onAllItemsOf}-second` }],
+    });
+  }
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={client}>
       <WorkspaceTabs bar={THEME.bar} bringIntoView={() => {}}>
         <button type="button">Add a workspace</button>
       </WorkspaceTabs>
@@ -332,7 +339,6 @@ describe('Workspace management', () => {
 
       expect(readAllItemsTab(localStorage, 'ws-personal')).toBe(false);
       expect(readAllItemsTab(localStorage, 'ws-work')).toBe(true);
-      await new Promise((resolve) => setTimeout(resolve, 20));
       expect(wentTo.calls).toEqual([]);
     });
   });

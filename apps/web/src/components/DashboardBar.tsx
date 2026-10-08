@@ -423,17 +423,6 @@ export function DashboardBar({
   }, [beingDeleted, drag.strip, openDashboardId]);
 
   /**
-   * What can be done to this dashboard. One entry for changing it rather than a
-   * Rename beside it: the form is what renames, and it is where a dashboard's
-   * second field will go when it has one.
-   *
-   * **A workspace's last dashboard cannot be deleted** - the one place the app
-   * refuses to delete something, because a workspace with no dashboard has no
-   * view at all (functional definition, "Container hierarchy"). The entry says
-   * so rather than disappearing, and rather than being offered and then
-   * refused.
-   */
-  /**
    * Hides the tab, and leaves it for the first dashboard if it is the page on
    * screen: a page that is not in the bar is not somewhere to stay.
    */
@@ -478,6 +467,17 @@ export function DashboardBar({
             },
           ];
 
+  /**
+   * What can be done to this dashboard. One entry for changing it rather than a
+   * Rename beside it: the form is what renames, and it is where a dashboard's
+   * second field will go when it has one.
+   *
+   * **A workspace's last dashboard cannot be deleted** - the one place the app
+   * refuses to delete something, because a workspace with no dashboard has no
+   * view at all (functional definition, "Container hierarchy"). The entry says
+   * so rather than disappearing, and rather than being offered and then
+   * refused.
+   */
   const entriesFor = (dashboard: Dashboard): MenuEntry[] => [
     {
       label: 'Edit…',
