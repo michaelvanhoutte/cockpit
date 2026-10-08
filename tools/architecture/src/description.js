@@ -60,6 +60,8 @@ export function parseDescription(file, text) {
     return { id: string(each.id, `${where}.id`), name: string(each.name, `${where}.name`), words };
   });
 
+  const exemptFromSources = value.exemptFromSources === undefined ? [] : array(value.exemptFromSources, 'exemptFromSources').map((each, index) => string(each, `exemptFromSources[${index}]`));
+
   const rule = object(value.connectorRule, 'connectorRule');
 
   const context = object(value.context, 'context');
@@ -89,6 +91,7 @@ export function parseDescription(file, text) {
     scan: { testFile, extensions: array(scan.extensions, 'scan.extensions').map((each, index) => string(each, `scan.extensions[${index}]`)), ignore: array(scan.ignore, 'scan.ignore').map((each, index) => string(each, `scan.ignore[${index}]`)) },
     discover,
     sources,
+    exemptFromSources,
     connectorRule: { sdk: string(rule.sdk, 'connectorRule.sdk'), scope: string(rule.scope, 'connectorRule.scope') },
     context: {
       cockpit: { name: string(cockpit.name, 'context.cockpit.name'), summary: string(cockpit.summary, 'context.cockpit.summary'), runs: cockpit.runs === undefined ? '' : string(cockpit.runs, 'context.cockpit.runs') },

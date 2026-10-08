@@ -103,6 +103,18 @@ describe('Modules', () => {
       expect(find(modules, 'packages/connectors/gmail')).toMatchObject({ sources: [], breaches: [] });
     });
 
+    it('does not mark a core file the description file exempts, and still marks its neighbours', () => {
+      const found = find(
+        modulesOf({
+          layers: [layer([area('apps/api/src/connectors')])],
+          candidates: [folder('apps/api/src/connectors', { 'registry.ts': 'import gmail from "g";', 'other.ts': 'gmail' })],
+          overrides: { exemptFromSources: ['apps/api/src/connectors/registry.ts'] },
+        }),
+        'apps/api/src/connectors',
+      );
+      expect(found.sources).toEqual([{ id: 'gmail', name: 'Gmail', files: ['other.ts'] }]);
+    });
+
     it('does not read a file it was given no text for', () => {
       const found = find(modulesOf({ layers: [layer([area('apps/api/src/x')])], candidates: [folder('apps/api/src/x', { 'a.json': null, 'b.ts': 'export {}' })] }), 'apps/api/src/x');
       expect(found.sources).toEqual([]);

@@ -22,13 +22,18 @@ scan:
 # Names of a source of items. A core area whose code (identifiers, strings and
 # JSX text, never comments) uses one is marked. `words` are whole words in any
 # case; the words of a phrase may be joined by a space, - or _, or a change of
-# case. Teams is not declared: its connector is a package behind the SDK, and
-# the core says "Microsoft Teams" only as a display name. Declare it with
-# words that only the product is called ("teams" is also plain English) to
-# see those too.
+# case. "teams" is also plain English, so it marks more than the connector's
+# own routes; each mark is a file to look at, not a verdict.
 sources:
   - { id: gmail, name: Gmail, words: [gmail] }
   - { id: claude-code, name: Claude Code, words: [claude code] }
+  - { id: teams, name: Microsoft Teams, words: [teams] }
+
+# Files the source scan skips. The composition root is the one core file that
+# may name connectors: the application knows them only as the list in this file
+# (docs/architecture.md, "Connectors: plugin-shaped, host-blind").
+exemptFromSources:
+  - apps/api/src/connectors/registry.ts
 
 # A connector package may import its SDK and nothing else of ours: not the
 # shared contract, not the app. `scope` is the prefix of our own packages.

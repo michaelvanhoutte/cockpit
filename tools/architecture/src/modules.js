@@ -54,7 +54,7 @@ function sourcesIn(area, files, sources) {
  * @param {{ path: string, package: boolean, role: string, files: { file: string, text: string|null }[] }[]} candidates every folder discovery found
  */
 export function buildModules(description, candidates) {
-  const { scan, sources, connectorRule } = description;
+  const { scan, sources, exemptFromSources, connectorRule } = description;
   const onDisk = new Map();
   for (const candidate of candidates) {
     const real = candidate.files.filter((each) => !isTestFile(scan, each.file));
@@ -70,7 +70,7 @@ export function buildModules(description, candidates) {
     const subject = { path: areaPath };
     return {
       files: found.code.length,
-      sources: role === 'core' ? sourcesIn(subject, found.code, sources) : [],
+      sources: role === 'core' ? sourcesIn(subject, found.code.filter((each) => !exemptFromSources.includes(each.file)), sources) : [],
       breaches: role === 'connector' ? breachesOf(subject, found.code, connectorRule) : [],
     };
   };

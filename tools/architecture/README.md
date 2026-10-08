@@ -22,9 +22,9 @@ The marks are shown and nothing fails on them:
 
 A name counts in identifiers, strings and JSX text and never in a comment, as a whole word in any case:
 `gmail`, `GMAIL`, `GmailMark` and `gmail_check` name Gmail; `gmailish` does not. The words of a source
-are its own in the file, so a source whose name is also plain English (`teams`) is declared by what only
-the product is called. Teams is not declared today: its connector sits behind the SDK, and the core says
-"Microsoft Teams" only as a display name.
+are its own in the file, so a source whose name is also plain English (`teams`) marks more than the
+connector's own code; each mark is a file to look at. `exemptFromSources` lists files the scan skips: the
+composition root, the one core file that names connectors.
 
 **The description file holds the wording, the layout and the rules**, and the generator none: the layers
 and their order, each area's description and role (`core`, `connector` or `other`), the sources and
