@@ -616,6 +616,9 @@ function rowsOf(
  * finished with", issue 154), and leaving them out here is what makes that true
  * of the rows this returns rather than only of the type describing them.
  */
+/** What a Gmail Item is served as, until the contract step takes it away (`source` below). */
+const SERVED_FOR_GMAIL = 'mail';
+
 const itemColumns = {
   id: items.id,
   tenantId: items.tenantId,
@@ -628,8 +631,17 @@ const itemColumns = {
    * everywhere else. Coalesced here, so nothing above this file has to know
    * that a CHECK on a table with four children is why there are two
    * (`STORED_SOURCES` in the contract).
+   *
+   * **Except a Gmail Item, still served as `mail`**: the expand-side alias of
+   * "Store Gmail Items under their connector id" (issue 926). A client built
+   * before "Read a connector id as an Item's source" (issue 925) parses every
+   * snapshot strictly against a closed list of sources and fails the whole
+   * Workspace on `gmail`. "Take source names out of the shared contract"
+   * (issue 927) removes this once installed clients have updated. The only
+   * place it is said: every Item the API serves is read through here.
    */
-  source: sql<Source>`coalesce(${items.sourceConnector}, ${items.source})`.as('source'),
+  source: sql<Source>`case when ${items.sourceConnector} = ${GMAIL} then ${SERVED_FOR_GMAIL}
+                           else coalesce(${items.sourceConnector}, ${items.source}) end`.as('source'),
   sourceId: items.sourceId,
   sourceLink: items.sourceLink,
   sender: items.sender,

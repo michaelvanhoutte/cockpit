@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, inject, it } from 'vitest';
+import { beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { abortAllDurableObjects, applyD1Migrations, env } from 'cloudflare:test';
 import type { SqlStorage } from '@cloudflare/workers-types';
 import { accountChanges } from '../../../src/accounts/changes.js';
@@ -311,9 +311,12 @@ const rowsFor: {
     params: (name) => [name],
   },
   {
+    // From Gmail, the way every Gmail Item was stored before
+    // `0062-gmail-items-under-their-connector`: the conversation below is
+    // linked to it, and every update after meets a Gmail Item as it is.
     table: 'items',
     sql: `INSERT INTO items (id, tenant_id, workspace_id, source, title, status, unseen, created_at, updated_at)
-          VALUES ('it-before', ?, 'ws-before', 'internal', 'Captured before the update', 'task', 0, ?, ?)`,
+          VALUES ('it-before', ?, 'ws-before', 'mail', 'Captured before the update', 'task', 0, ?, ?)`,
     params: (name) => [name, AT, AT],
   },
   {
@@ -1988,6 +1991,168 @@ describe('Agents', () => {
       });
 
       expect(await runsIn(name)).toEqual(once);
+    });
+  });
+});
+
+/**
+ * "Store Gmail Items under their connector id" (issue 926): every Gmail Item
+ * an account already holds is rewritten to name `gmail` beside the `mail` its
+ * source column keeps. Integration because it is a rewrite of rows that
+ * already exist, against a store that holds them; what a person then sees of
+ * a Gmail Item is held at apps/api/tests/integration/http/capture-source.test.ts
+ * and gmail-import.test.ts.
+ */
+const GMAIL_ITEMS = '0062-gmail-items-under-their-connector';
+
+/** What the change logs when it leaves Gmail Items naming another connector alone. */
+const LEFT_ALONE = 'Gmail Items already naming another connector were left as they are';
+
+interface Held {
+  id: string;
+  source: string;
+  connector: string | null;
+}
+
+/** Every Item the store holds, by id, with the two columns its source is stored in. */
+const sourcesIn = (name: string) =>
+  inStoreAsItIs(name, (sql) =>
+    sql
+      .exec<{ id: string; source: string; source_connector: string | null }>(
+        'SELECT id, source, source_connector FROM items ORDER BY id',
+      )
+      .toArray(),
+  );
+
+/**
+ * A store from just before the change, filled as every other case here is -
+ * `it-before` being a Gmail Item - and holding `held` besides. An entry naming
+ * `it-before` restores it with the source given instead.
+ */
+async function storeHolding(name: string, held: readonly Held[]): Promise<void> {
+  await agedTo(name, justBefore(GMAIL_ITEMS));
+  await fillWithWhatIsAlreadyThere(name);
+  await inStoreAsItIs(name, (sql) => {
+    for (const one of held) {
+      sql.exec(
+        `INSERT INTO items (id, tenant_id, workspace_id, source, source_connector, title, status, unseen, created_at, updated_at)
+           VALUES (?, ?, 'ws-before', ?, ?, ?, 'task', 0, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET source = excluded.source, source_connector = excluded.source_connector`,
+        one.id,
+        name,
+        one.source,
+        one.connector,
+        `Held as ${one.source}`,
+        AT,
+        AT,
+      );
+    }
+  });
+}
+
+/** The rows the change logged as left alone, by how many it counted. */
+function leftAloneIn(lines: unknown[][]): number[] {
+  return lines
+    .map(([line]) => String(line))
+    .filter((line) => line.includes(LEFT_ALONE))
+    .map((line) => (JSON.parse(line) as { level: string; data: { rows: number } }))
+    .map((logged) => {
+      expect(logged.level).toBe('warn');
+      return logged.data.rows;
+    });
+}
+
+describe('Capture', () => {
+  describe('a Gmail Item is stored under its connector, gmail', () => {
+    it('one stored before is rewritten to name it, and nothing else about it changes', async () => {
+      const name = 'aged-store-gmail-item-whole';
+      await agedTo(name, justBefore(GMAIL_ITEMS));
+      await fillWithWhatIsAlreadyThere(name);
+      // A Gmail Item as bringing in a conversation wrote it, every column it
+      // fills filled - so a statement touching more than the one column shows.
+      await inStoreAsItIs(name, (sql) =>
+        sql.exec(
+          `INSERT INTO items (id, tenant_id, workspace_id, source, source_id, source_link, sender, source_timestamp,
+                              captured_message, title, description, status, unseen, priority, due_date,
+                              completed_at, created_at, updated_at)
+             VALUES ('it-gmail-whole', ?, 'ws-before', 'mail', 'thread-whole', 'https://mail.google.com/mail/#all/thread-whole',
+                     'Pieter Claes', ?, 'Invoice 42', 'Invoice 42', 'Please pay by Friday', 'task', 1, 'high', '2026-08-20',
+                     ?, ?, ?)`,
+          name,
+          AT,
+          LATER,
+          AT,
+          LATEST,
+        ),
+      );
+      const rowOf = () =>
+        inStoreAsItIs(name, (sql) => sql.exec("SELECT * FROM items WHERE id = 'it-gmail-whole'").toArray()[0]);
+      const before = await rowOf();
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(await rowOf()).toEqual({ ...before, source: 'mail', source_connector: 'gmail' });
+    });
+  });
+});
+
+describe('Accounts', () => {
+  describe('every account comes up to date with its Gmail Items under their connector, and nothing else rewritten', () => {
+    const own = { id: 'it-own', source: 'internal', connector: null };
+    const fromTeams = { id: 'it-teams', source: 'internal', connector: 'teams' };
+    const fromAnApp = { id: 'it-app', source: 'internal', connector: 'mcp' };
+
+    it.each([
+      {
+        situation: 'Gmail Items beside Items of your own, from Teams and from an app: only the Gmail ones change',
+        held: [own, fromTeams, fromAnApp, { id: 'it-gmail', source: 'mail', connector: null }],
+        rewritten: ['it-before', 'it-gmail'],
+        logged: [],
+      },
+      {
+        situation: 'a Gmail Item already naming another connector: left as it is, and logged',
+        held: [{ id: 'it-elsewhere', source: 'mail', connector: 'outlook' }],
+        rewritten: ['it-before'],
+        logged: [1],
+      },
+      {
+        situation: 'no Gmail Items: nothing changes',
+        held: [own, fromTeams, { id: 'it-before', source: 'internal', connector: null }],
+        rewritten: [],
+        logged: [],
+      },
+      {
+        situation: '150 Gmail Items: every one rewritten',
+        held: Array.from({ length: 150 }, (_, nth) => ({
+          id: `it-gmail-${String(nth).padStart(3, '0')}`,
+          source: 'mail',
+          connector: null,
+        })),
+        rewritten: [
+          'it-before',
+          ...Array.from({ length: 150 }, (_, nth) => `it-gmail-${String(nth).padStart(3, '0')}`),
+        ],
+        logged: [],
+      },
+    ])('$situation', async ({ situation, held, rewritten, logged }) => {
+      const name = `aged-store-gmail-${held.length}-${rewritten.length}`;
+      await storeHolding(name, held);
+      const before = await sourcesIn(name);
+
+      const log = vi.spyOn(console, 'log');
+      try {
+        // Opening the store is what applies it, as the first request of the
+        // day does for a real account.
+        expect(await storeNamed(name).workspaces(name), situation).toMatchObject({ status: 'ok' });
+        expect(leftAloneIn(log.mock.calls)).toEqual(logged);
+      } finally {
+        log.mockRestore();
+      }
+
+      // Compared whole, so a row changed that should not have been shows.
+      expect(await sourcesIn(name)).toEqual(
+        before.map((row) => (rewritten.includes(row.id) ? { ...row, source_connector: 'gmail' } : row)),
+      );
     });
   });
 });

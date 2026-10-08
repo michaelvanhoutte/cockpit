@@ -1537,6 +1537,12 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   }
 
   #apply(change: Change): void {
+    if (change.leavesAlone) {
+      const { count, because } = change.leavesAlone;
+      const rows = this.ctx.storage.sql.exec<{ n: number }>(count.sql, ...(count.params ?? [])).one().n;
+      // The count alone: nothing a row holds belongs in a log.
+      if (rows > 0) console.log(JSON.stringify({ level: 'warn', message: because, data: { change: change.name, rows } }));
+    }
     for (const statement of change.statements) {
       this.ctx.storage.sql.exec(statement.sql, ...(statement.params ?? []));
     }

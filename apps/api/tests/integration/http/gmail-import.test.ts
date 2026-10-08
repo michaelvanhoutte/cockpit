@@ -237,7 +237,7 @@ beforeEach(async () => {
 
 describe('Capture', () => {
   describe('every conversation labelled Cockpit is exactly one open Item in the connecting Workspace’s Inbox', () => {
-    it('three labelled at connect are three Tasks there, carrying what each conversation says, and none elsewhere', async () => {
+    it('three labelled at connect are three Tasks there, carrying what each conversation says, stored under the connector gmail, and none elsewhere', async () => {
       mailboxWith(3);
       await connect();
 
@@ -252,6 +252,15 @@ describe('Capture', () => {
         sourceLink: 'https://mail.google.com/mail/?authuser=anna%40example.com#all/thread-001',
         typeId: TASK_TYPE_ID,
       });
+      // "Store Gmail Items under their connector id" (issue 926): a fact about
+      // the store, so read there - folded into this case rather than one of its
+      // own, this file being one Durable Object construction from the pool's
+      // stack ceiling (`Maximum call stack size exceeded`, aged-store.test.ts).
+      expect(
+        await inTheStore((sql) => [
+          ...sql.exec("SELECT DISTINCT source, source_connector FROM items WHERE source_id LIKE 'thread-%'"),
+        ]),
+      ).toEqual([{ source: 'mail', source_connector: 'gmail' }]);
       expect(await inboxOf(OTHER_WORKSPACE_ID)).toEqual([]);
     });
 

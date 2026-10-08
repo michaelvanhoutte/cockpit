@@ -278,7 +278,8 @@ describe('Accounts', () => {
   /** An Item from Gmail or Teams names who it is from and opens at an address the app turns into its own page. */
   describe('a seeded item from Gmail or Teams is written with its source, its sender and a demo address', () => {
     it.each([
-      { situation: 'Gmail', source: 'gmail', stored: ['mail', null] },
+      // Under its connector, as every Gmail Item is stored, keeping the `mail` the column already holds.
+      { situation: 'Gmail', source: 'gmail', stored: ['mail', 'gmail'] },
       // Teams is not one of the five sources the column holds, so it names its connector beside it.
       { situation: 'Microsoft Teams', source: 'teams', stored: ['internal', 'teams'] },
     ] as const)('$situation', ({ source, stored }) => {
