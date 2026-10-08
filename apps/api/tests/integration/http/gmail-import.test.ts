@@ -1154,6 +1154,9 @@ describe('Connector management', () => {
       expect(next).toBeLessThanOrEqual(5 * 60_000);
 
       await connect(granted('anna-in-atlas'), OTHER_WORKSPACE_ID);
+      // Armed for now, so the check may already be running - with no alarm set
+      // until it ends - so wait for it to arm the next one before looking.
+      await runningCheckFinishes();
 
       await disconnect(WORKSPACE_ID, '018f0000-0000-7000-8000-0000000725a1');
       expect(await nextCheck()).not.toBeNull();
