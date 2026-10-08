@@ -87,7 +87,7 @@ function walk(dir, out) {
  * @returns {Import[]}
  */
 export function readImports(root, rules) {
-  const packages = new Set(sourcePackages(rules));
+  const packages = new Set(sourcePackages(root, rules));
   const exists = (path) => existsSync(join(root, path));
   const imports = [];
   for (const folder of rules.core) {
@@ -110,22 +110,37 @@ export function readImports(root, rules) {
   return imports;
 }
 
-/** @param {Rules} rules */
-function sourcePackages(rules) {
-  return Object.values(rules.sources).flatMap((source) => (source.package ? [source.package] : []));
+/**
+ * Every package that is a source: those the declaration names, and every
+ * workspace package under packages/connectors, declared or not.
+ * @param {string} root absolute repository root
+ * @param {Rules} rules
+ */
+export function sourcePackages(root, rules) {
+  const found = new Set(Object.values(rules.sources).flatMap((source) => (source.package ? [source.package] : [])));
+  const folder = join(root, 'packages/connectors');
+  if (existsSync(folder)) {
+    for (const name of readdirSync(folder)) {
+      const manifest = join(folder, name, 'package.json');
+      if (existsSync(manifest)) found.add(JSON.parse(readFileSync(manifest, 'utf8')).name);
+    }
+  }
+  return [...found];
 }
 
 /** Lower-case letters and digits only, so `ConnectClaudeCode` names `claude-code`. */
 const squash = (text) => text.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /**
- * The declared sources a file's path names.
+ * The declared sources a file's path names: one of its folders, or its file
+ * name without the extension, contains the source's name. The path as a whole
+ * is not squashed, so a name cannot be spelled across two segments.
  * @param {string} path
  * @param {Rules} rules
  */
 export function sourcesNamedBy(path, rules) {
-  const squashed = squash(path);
-  return Object.keys(rules.sources).filter((id) => squashed.includes(squash(id)));
+  const segments = path.split('/').map((segment, index, all) => squash(index === all.length - 1 ? segment.replace(/\.[^.]*$/, '') : segment));
+  return Object.keys(rules.sources).filter((id) => segments.some((segment) => segment.includes(squash(id))));
 }
 
 /**
@@ -152,9 +167,9 @@ export function findBreaches(imports, rules) {
   const order = rules.areas.order;
   const rank = new Map(order.flatMap((tier, index) => tier.map((area) => [area, index])));
   const breaches = new Map();
-  const add = (importer, imported, rule) => {
-    const key = `${importer} -> ${imported}`;
-    if (!breaches.has(key)) breaches.set(key, { importer, imported, rule });
+  const add = (from, to, rule) => {
+    const key = `${from} -> ${to}`;
+    if (!breaches.has(key)) breaches.set(key, { from, to, rule });
   };
   for (const { importer, imported } of imports) {
     // Rule 2: source code in the core.
@@ -176,7 +191,12 @@ export function findBreaches(imports, rules) {
     // Rule 1: the direction between API areas.
     const from = areaOf(importer, rules);
     const to = areaOf(imported, rules);
-    if (from === null || to === null || from === 'root' || to === 'root' || from === to) continue;
+    if (from === null || to === null || from === 'root' || from === to) continue;
+    if (to === 'root') {
+      const file = imported.slice(rules.areas.folder.length + 1);
+      if (!rules.areas.sharedRoot.includes(file)) add(importer, imported, `${from} may not import the composition root file ${file}`);
+      continue;
+    }
     if (!rank.has(from)) add(importer, imported, `${from} is not a declared area`);
     else if (!rank.has(to)) add(importer, imported, `${to} is not a declared area`);
     else if (rank.get(to) <= rank.get(from)) add(importer, imported, `${from} may not import ${to}`);
@@ -193,13 +213,11 @@ const keyOf = (entry) => `${entry.from} -> ${entry.to}`;
  * @param {{ from: string, to: string }[]} allowlist
  * @returns {string[]}
  */
-export function tree(breaches, allowlist) {
+export function failuresAgainst(breaches, allowlist) {
   const allowed = new Set(allowlist.map(keyOf));
-  const present = new Set(breaches.map((b) => keyOf({ from: b.importer, to: b.imported })));
+  const present = new Set(breaches.map(keyOf));
   return [
-    ...breaches
-      .filter((b) => !allowed.has(keyOf({ from: b.importer, to: b.imported })))
-      .map((b) => `${b.importer} imports ${b.imported}: ${b.rule}`),
+    ...breaches.filter((b) => !allowed.has(keyOf(b))).map((b) => `${b.from} imports ${b.to}: ${b.rule}`),
     ...allowlist
       .filter((entry) => !present.has(keyOf(entry)))
       .map((entry) => `allowlist entry no longer needed, remove it: ${keyOf(entry)}`),
@@ -220,20 +238,46 @@ export function shrinkFailures(allowlist, baseAllowlist) {
 }
 
 /**
- * The merge base's copy of the declaration's allowlist.
- * @param {string} text the base copy's JSON, or null when the file did not exist there
- * @returns {{ from: string, to: string }[] | null}
+ * What a change relaxed in the rules themselves, against the merge base's copy.
+ * Additions are fine (a source, a core folder, an area anywhere that keeps every
+ * "above" relation the base had); removing a source or core folder, changing the
+ * registry, widening the root lists or breaking a relation is not.
+ * @param {Rules} rules
+ * @param {Rules} base
+ * @returns {string[]}
  */
-export function baseAllowlistOf(text) {
-  if (text === null) return null;
-  return JSON.parse(text).allowlist;
+export function relaxations(rules, base) {
+  const out = [];
+  for (const id of Object.keys(base.sources)) {
+    if (!(id in rules.sources)) out.push(`source ${id} was removed`);
+    else if (base.sources[id].package && base.sources[id].package !== rules.sources[id].package) out.push(`source ${id} no longer names its package ${base.sources[id].package}`);
+  }
+  for (const folder of base.core) if (!rules.core.includes(folder)) out.push(`core folder ${folder} was removed`);
+  if (rules.registry !== base.registry) out.push(`the registry changed from ${base.registry} to ${rules.registry}`);
+  if (rules.areas.folder !== base.areas.folder) out.push(`the areas folder changed from ${base.areas.folder} to ${rules.areas.folder}`);
+  for (const file of rules.areas.root) if (!base.areas.root.includes(file)) out.push(`${file} was added to the composition root`);
+  for (const file of rules.areas.sharedRoot) if (!(base.areas.sharedRoot ?? []).includes(file)) out.push(`${file} was added to the root files any area may import`);
+  const rank = (declaration) => new Map(declaration.areas.order.flatMap((tier, index) => tier.map((area) => [area, index])));
+  const before = rank(base);
+  const now = rank(rules);
+  const areas = [...before.keys()];
+  for (const a of areas) {
+    for (const b of areas) {
+      if (a >= b) continue;
+      const wasAbove = before.get(a) < before.get(b);
+      const wasLevel = before.get(a) === before.get(b);
+      const holds = now.has(a) && now.has(b) && (wasAbove ? now.get(a) < now.get(b) : wasLevel ? now.get(a) === now.get(b) : now.get(a) > now.get(b));
+      if (!holds) out.push(wasAbove ? `${a} no longer stays above ${b}` : wasLevel ? `${a} and ${b} no longer share a tier` : `${b} no longer stays above ${a}`);
+    }
+  }
+  return out;
 }
 
 /**
  * @typedef {{ sources: Record<string, { package?: string }>, core: string[], registry: string,
- *   areas: { folder: string, root: string[], order: string[][] }, allowlist: { from: string, to: string }[] }} Rules
+ *   areas: { folder: string, root: string[], sharedRoot: string[], order: string[][] }, allowlist: { from: string, to: string }[] }} Rules
  * @typedef {{ importer: string, imported: string, typeOnly: boolean }} Import
- * @typedef {{ importer: string, imported: string, rule: string }} Breach
+ * @typedef {{ from: string, to: string, rule: string }} Breach
  */
 
 export const RULES_PATH = 'scripts/import-rules.json';
@@ -246,29 +290,29 @@ export function readRules(root) {
 /** Every failure over the real tree, given the base copy's allowlist or why there is none. */
 export function checkTree(root, base) {
   const rules = readRules(root);
-  const failures = tree(findBreaches(readImports(root, rules), rules), rules.allowlist);
+  const failures = failuresAgainst(findBreaches(readImports(root, rules), rules), rules.allowlist);
   if (base.error) failures.push(`cannot read the merge base's copy of ${RULES_PATH}, so the shrink-only check cannot run: ${base.error}`);
-  else if (base.allowlist) failures.push(...shrinkFailures(rules.allowlist, base.allowlist));
+  else if (base.rules) failures.push(...shrinkFailures(rules.allowlist, base.rules.allowlist), ...relaxations(rules, base.rules));
   return failures;
 }
 
 /**
- * The merge base's copy of the declaration's allowlist, for `checkTree`.
+ * The merge base's copy of the declaration, for `checkTree`.
  * A pull request has its base placed by scripts/lib/merge-base.mjs, and one that
  * cannot be placed or read is an error, never a skipped check. A push in CI has
  * no base to compare with. Anywhere else (a session's own checkout) the base is
  * `git merge-base HEAD origin/main`, and a checkout with no `main` to name is
  * skipped rather than failed, since there is nothing to fetch it from.
  * @param {{ event?: string, ci: boolean, git: (args: string[]) => string }} how
- * @returns {{ allowlist: { from: string, to: string }[] | null, error?: string, skipped?: string }}
+ * @returns {{ rules: Rules | null, error?: string, skipped?: string }}
  */
 export function readBase({ event, ci, git }) {
   let base = null;
   if (event === 'pull_request') {
     base = placeMergeBase(event, git, () => {}).mergeBase;
-    if (!base) return { allowlist: null, error: 'no merge base could be placed for this pull request (is the checkout shallow?)' };
+    if (!base) return { rules: null, error: 'no merge base could be placed for this pull request (is the checkout shallow?)' };
   } else if (ci) {
-    return { allowlist: null, skipped: 'not a pull request, so there is no merge base to compare with' };
+    return { rules: null, skipped: 'not a pull request, so there is no merge base to compare with' };
   } else {
     for (const against of ['origin/main', 'main']) {
       try {
@@ -278,13 +322,13 @@ export function readBase({ event, ci, git }) {
         // try the next name
       }
     }
-    if (!base) return { allowlist: null, skipped: 'no main to take a merge base from' };
+    if (!base) return { rules: null, skipped: 'no main to take a merge base from' };
   }
   try {
     git(['cat-file', '-e', `${base}^{commit}`]);
-    if (git(['ls-tree', base, '--', RULES_PATH]) === '') return { allowlist: null, skipped: `${RULES_PATH} does not exist at the merge base yet` };
-    return { allowlist: baseAllowlistOf(git(['show', `${base}:${RULES_PATH}`])) };
+    if (git(['ls-tree', base, '--', RULES_PATH]) === '') return { rules: null, skipped: `${RULES_PATH} does not exist at the merge base yet` };
+    return { rules: JSON.parse(git(['show', `${base}:${RULES_PATH}`])) };
   } catch (error) {
-    return { allowlist: null, error: error.message };
+    return { rules: null, error: error.message };
   }
 }

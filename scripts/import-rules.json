@@ -20,6 +20,9 @@
       "env.ts",
       "share-target.ts"
     ],
+    "sharedRoot": [
+      "env.ts"
+    ],
     "order": [
       [
         "http"

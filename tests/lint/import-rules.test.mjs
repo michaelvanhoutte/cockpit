@@ -10,18 +10,22 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
 import {
-  baseAllowlistOf,
-  checkTree,
+    checkTree,
+  failuresAgainst,
   findBreaches,
+  relaxations,
+  sourcePackages,
+  sourcesNamedBy,
   readBase,
   shrinkFailures,
   specifiersOf,
-  tree,
 } from '../../scripts/lib/import-rules.mjs';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -32,7 +36,8 @@ const rules = {
   registry: 'apps/api/src/connectors/registry.ts',
   areas: {
     folder: 'apps/api/src',
-    root: ['worker.ts', 'env.ts'],
+    root: ['worker.ts', 'env.ts', 'index.ts'],
+    sharedRoot: ['env.ts'],
     order: [['http'], ['jobs'], ['accounts'], ['db'], ['ai', 'embeddings'], ['domain']],
   },
   allowlist: [],
@@ -44,10 +49,10 @@ const breachesOf = (importer, imported) => findBreaches([{ importer, imported, t
 describe('rule 1: an area imports only areas below it', () => {
   it('fails an accounts file importing a jobs file, naming both files and the rule', () => {
     const [breach] = breachesOf(api('accounts/store.ts'), api('jobs/debounce.ts'));
-    assert.equal(breach.importer, api('accounts/store.ts'));
-    assert.equal(breach.imported, api('jobs/debounce.ts'));
+    assert.equal(breach.from, api('accounts/store.ts'));
+    assert.equal(breach.to, api('jobs/debounce.ts'));
     assert.equal(breach.rule, 'accounts may not import jobs');
-    assert.match(tree([breach], [])[0], /accounts\/store\.ts imports .*jobs\/debounce\.ts: accounts may not import jobs/);
+    assert.match(failuresAgainst([breach], [])[0], /accounts\/store\.ts imports .*jobs\/debounce\.ts: accounts may not import jobs/);
   });
 
   it('passes a jobs file importing an accounts file', () => {
@@ -101,15 +106,15 @@ describe('rule 2: the core does not import source code', () => {
 });
 
 describe('rule 3: the allowlist can only shrink', () => {
-  const breach = { importer: api('accounts/store.ts'), imported: api('jobs/debounce.ts'), rule: 'accounts may not import jobs' };
-  const entry = { from: breach.importer, to: breach.imported };
+  const breach = { from: api('accounts/store.ts'), to: api('jobs/debounce.ts'), rule: 'accounts may not import jobs' };
+  const entry = { from: breach.from, to: breach.to };
 
   it('passes a breach that is on the allowlist', () => {
-    assert.deepEqual(tree([breach], [entry]), []);
+    assert.deepEqual(failuresAgainst([breach], [entry]), []);
   });
 
   it('fails an allowlist entry whose import is gone, naming the entry to remove', () => {
-    const failures = tree([], [entry]);
+    const failures = failuresAgainst([], [entry]);
     assert.equal(failures.length, 1);
     assert.match(failures[0], /remove it: .*accounts\/store\.ts -> .*jobs\/debounce\.ts/);
   });
@@ -136,7 +141,6 @@ describe('rule 3: the allowlist can only shrink', () => {
     assert.match(readBase({ event: 'pull_request', ci: true, git }).error, /bad object/);
 
     assert.ok(readBase({ event: 'push', ci: true, git: failing }).skipped);
-    assert.deepEqual(baseAllowlistOf(JSON.stringify({ allowlist: [entry] })), [entry]);
   });
 });
 
@@ -163,5 +167,89 @@ describe("today's tree", () => {
     const base = readBase({ event: process.env.GITHUB_EVENT_NAME, ci: process.env.GITHUB_ACTIONS === 'true', git });
     if (base.skipped) console.log(`# shrink-only comparison skipped: ${base.skipped}`);
     assert.deepEqual(checkTree(repo, base), []);
+  });
+});
+
+describe('root files as import targets', () => {
+  it('lets any area import a shared root file, and flags an area importing the other root files', () => {
+    assert.deepEqual(breachesOf(api('db/client.ts'), api('env.ts')), []);
+    for (const file of ['index.ts', 'worker.ts']) {
+      const [breach] = breachesOf(api('db/client.ts'), api(file));
+      assert.equal(breach.rule, `db may not import the composition root file ${file}`);
+    }
+  });
+});
+
+describe('naming a source', () => {
+  it('matches a source inside a folder or a file name, however it is cased or hyphenated', () => {
+    assert.deepEqual(sourcesNamedBy('apps/web/src/components/ConnectClaudeCode.tsx', rules), ['claude-code']);
+    assert.deepEqual(sourcesNamedBy('apps/api/src/gmail/check.ts', rules), ['gmail']);
+  });
+
+  it('does not match a name spelled across two segments, or an extension', () => {
+    assert.deepEqual(sourcesNamedBy('apps/api/src/tea/ms.ts', rules), []);
+    assert.deepEqual(sourcesNamedBy('apps/api/src/gma/il.ts', rules), []);
+    assert.deepEqual(sourcesNamedBy('apps/api/src/notes.gmail', rules), []);
+  });
+});
+
+describe('source packages', () => {
+  it('counts every package under packages/connectors, declared or not', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'import-rules-'));
+    try {
+      mkdirSync(join(dir, 'packages/connectors/slack'), { recursive: true });
+      writeFileSync(join(dir, 'packages/connectors/slack/package.json'), JSON.stringify({ name: '@cockpit/connector-slack' }));
+      assert.deepEqual(sourcePackages(dir, rules).sort(), ['@cockpit/connector-slack', '@cockpit/connector-teams']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('relaxing the rules themselves', () => {
+  const change = (edit) => {
+    const copy = structuredClone(rules);
+    edit(copy);
+    return copy;
+  };
+
+  it('passes unchanged rules, and additions that keep every relation', () => {
+    assert.deepEqual(relaxations(rules, rules), []);
+    const added = change((r) => {
+      r.sources.slack = {};
+      r.core.push('packages/other');
+      r.areas.root = ['worker.ts', 'env.ts'];
+      r.areas.order.splice(2, 0, ['audit']);
+    });
+    assert.deepEqual(relaxations(added, rules), []);
+  });
+
+  it('fails a removed source, a removed core folder, a changed registry and a dropped package, naming each', () => {
+    const failures = relaxations(
+      change((r) => {
+        delete r.sources.gmail;
+        r.sources.teams = {};
+        r.core = ['apps/api'];
+        r.registry = 'apps/api/src/other.ts';
+      }),
+      rules,
+    );
+    assert.deepEqual(failures.length, 5);
+    assert.match(failures.join('\n'), /source gmail was removed/);
+    assert.match(failures.join('\n'), /source teams no longer names its package/);
+    assert.match(failures.join('\n'), /core folder apps\/web was removed/);
+    assert.match(failures.join('\n'), /registry changed/);
+  });
+
+  it('fails widening the root lists', () => {
+    const failures = relaxations(change((r) => { r.areas.root.push('app.ts'); r.areas.sharedRoot.push('index.ts'); }), rules);
+    assert.match(failures.join('\n'), /app\.ts was added to the composition root/);
+    assert.match(failures.join('\n'), /index\.ts was added to the root files any area may import/);
+  });
+
+  it('fails reordering, removing or merging areas', () => {
+    assert.match(relaxations(change((r) => { r.areas.order = [['jobs'], ['http'], ['accounts'], ['db'], ['ai', 'embeddings'], ['domain']]; }), rules).join('\n'), /http no longer stays above jobs/);
+    assert.match(relaxations(change((r) => { r.areas.order = r.areas.order.filter((tier) => tier[0] !== 'jobs'); }), rules).join('\n'), /http no longer stays above jobs/);
+    assert.match(relaxations(change((r) => { r.areas.order[4] = ['ai']; r.areas.order.splice(5, 0, ['embeddings']); }), rules).join('\n'), /ai and embeddings no longer share a tier/);
   });
 });
