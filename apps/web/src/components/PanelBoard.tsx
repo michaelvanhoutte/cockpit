@@ -311,9 +311,16 @@ export function PanelBoard({
    * What the Dashboard could not scroll to keep the anchor: room above the
    * board where positive, the board pulled up where negative. It outlives the
    * drag, since taking it away on the drop would move the dropped Panel; the
-   * next anchoring takes back what scrolling can now hold.
+   * next anchoring takes back what scrolling can now hold. A pull-up is only
+   * for a Panel in the air: the board opening takes it back.
    */
   const [room, setRoom] = useState(0);
+  /**
+   * What the Dashboard could not scroll to hold a Panel dropped low, as empty
+   * room below the open board so the Dashboard can scroll into it. It goes
+   * once the person scrolls up past it, or at the next drag.
+   */
+  const [below, setBelow] = useState(0);
   /** Where the pointer last was during a panel drag, for the scroll that moves the page under a still hand. */
   const pointerAt = useRef<{ x: number; y: number } | null>(null);
   /** The control a question was opened from, so the focus can go back to it. */
@@ -880,10 +887,17 @@ export function PanelBoard({
     lastTap.current = { at, opened: false, panelId };
   };
 
+  /** Room below the board, set in the page at once so what is measured and scrolled next reflects it. */
+  const leaveBelow = (px: number) => {
+    if (rowsRef.current) rowsRef.current.style.marginBottom = px ? `${px}px` : '';
+    setBelow(px);
+  };
+
   /**
    * Puts the anchored header back under the pointer once the board has
    * collapsed or opened: the Dashboard scrolls by the difference, and what it
-   * cannot scroll becomes room above the board or the board pulled up
+   * cannot scroll becomes room above the board, the board pulled up while a
+   * Panel is in the air, or room below the board once it is open
    * (`panels/anchoring.ts`). A header that has gone (deleted in another tab)
    * leaves everything as it fell.
    */
@@ -903,6 +917,7 @@ export function PanelBoard({
       const was = scroller.scrollTop;
       rowsRef.current.style.marginTop = '';
       setRoom(0);
+      leaveBelow(0);
       scroller.scrollTop = was - room;
       const top = held?.toTop ? headerTop(held.panelId) : null;
       if (held && top !== null) {
@@ -915,22 +930,47 @@ export function PanelBoard({
       }
       return;
     }
+    // A pull-up goes as the board opens, and the room below as the next drag
+    // picks a Panel up, in the page itself so what is measured next reflects it.
+    const opening = !collapsed;
+    const base = opening && room < 0 ? 0 : room;
+    if (base !== room && rowsRef.current) rowsRef.current.style.marginTop = '';
+    if (!opening) leaveBelow(0);
     const now = held ? headerTop(held.panelId) : null;
-    if (!held || now === null) return;
+    if (!held || now === null) {
+      if (base !== room) setRoom(base);
+      return;
+    }
     const next = anchored({
       wanted: held.top,
       now,
       scrollTop: scroller?.scrollTop ?? 0,
       maxScrollTop: scroller ? scroller.scrollHeight - scroller.clientHeight : 0,
+      opening,
+      room: base,
     });
+    leaveBelow(next.below);
     if (scroller) scroller.scrollTop = next.scrollTop;
     // Added to what is already there, and so taken back where a header that
     // had to be held down by room can now be held by scrolling.
-    setRoom((room) => (Math.abs(room + next.shift) < 0.5 ? 0 : room + next.shift));
+    setRoom(Math.abs(base + next.shift) < 0.5 ? 0 : base + next.shift);
     // Once per collapse and once per opening, which is what `collapsed` changes
     // with; the room it reads is whatever the last of them left.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collapsed]);
+
+  // The room below goes once the person has scrolled up past it: it is out of
+  // view by then, and the scroll position still fits without it, so nothing
+  // on screen moves.
+  useEffect(() => {
+    const scroller = dashboardScroller();
+    if (below === 0 || !scroller) return;
+    const onScroll = () => {
+      if (scroller.scrollTop + scroller.clientHeight <= scroller.scrollHeight - below + 0.5) setBelow(0);
+    };
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, [below]);
 
   /**
    * Picks a panel up. Nothing is sent; the board just starts drawing it moved.
@@ -1355,7 +1395,7 @@ export function PanelBoard({
           // The browser taking it back - a touch that became a scroll, the
           // window losing focus. The panels go back where they were.
           onPointerCancel={abandon}
-          style={room !== 0 ? { marginTop: room } : undefined}
+          style={room !== 0 || below !== 0 ? { marginTop: room, marginBottom: below } : undefined}
           className="flex min-w-0 flex-col"
         >
           {drawn.map(({ row, place: rowIndex }) => {
