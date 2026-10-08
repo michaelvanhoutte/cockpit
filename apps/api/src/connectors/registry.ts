@@ -49,3 +49,10 @@ export function pulledConnectorIds(env: Env): string[] {
     .filter((c) => c.manifest.pulled === true)
     .map((c) => c.manifest.id);
 }
+
+/** The pulled connectors that mirror an Item's open state back to their source (issue 893). */
+export function mirroringConnectorIds(env: Env): string[] {
+  return connectors(env)
+    .filter((c) => c.manifest.pulled === true && c.manifest.mirrorsOpenState === true)
+    .map((c) => c.manifest.id);
+}

@@ -1,4 +1,4 @@
-import type { ConnectorHost, EmittedItem, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
+import type { Connector, ConnectorHost, EmittedItem, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
 import type { Env } from '../env.js';
 import {
   AccountNotInRegisterError,
@@ -62,12 +62,31 @@ export async function checkPulledConnection(
     if (!connector?.manifest.pulled) {
       throw new Error(`this version of Cockpit does not check ${begun.connectorId}`);
     }
-    await connector.sync(pulledHost(env, begun, run, (itemId) => filed(job.accountName, itemId)));
+    const host = pulledHost(env, begun, run, (itemId) => filed(job.accountName, itemId));
+    // Before the source is read, so a change a person made that it has not
+    // heard yet is pushed first and wins over what the read finds.
+    await mirrorWhatWasChanged(connector, host, run);
+    await connector.sync(host);
   } catch (error) {
     failing = error instanceof Error ? error.message : String(error);
     logged(begun.connectorId, 'error', `a check of connection ${job.sourceAccountId} failed`, failing);
   }
   await run.end(failing);
+}
+
+/**
+ * Hands a connector that mirrors open state every one still waiting, and
+ * stops waiting for those it confirms; the rest are handed again next run
+ * ("Mirror an Item's open state back to a pulled source through the generic
+ * host", issue 893). A source id the connector confirms that was not handed
+ * is ignored.
+ */
+async function mirrorWhatWasChanged(connector: Connector, host: ConnectorHost, run: PulledRun): Promise<void> {
+  if (!connector.manifest.mirrorsOpenState || !connector.mirrorOpenState) return;
+  const wanted = await run.openStatesWaiting();
+  if (wanted.length === 0) return;
+  const confirmed = new Set(await connector.mirrorOpenState(host, wanted));
+  await run.confirmOpenStates(wanted.filter((one) => confirmed.has(one.sourceId)));
 }
 
 /** What a connector may do with the one connection this run holds. */

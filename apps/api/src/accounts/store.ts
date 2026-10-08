@@ -34,20 +34,23 @@ import { admittedCalls } from '../connectors/claude-code-hooks.js';
 import { checkGmail } from '../connectors/gmail-check.js';
 import { gmailCheckHost, holdsGmailConnection, sweepGmailNightly } from './gmail.js';
 import { labelChangeWaiting } from './mirrored-open-state.js';
+import { bringPulledCheckForward } from './pulled-open-state.js';
 import {
   applyPulledSourceChange,
   beginPulledRun,
+  confirmPulledOpenStates,
   endPulledRun,
   filePulledItem,
   pulledSealedCredential,
   pulledState,
+  pulledOpenStatesWaiting,
   queueDuePulledChecks,
   resealPulledCredential,
   savePulledState,
   schedulePulledChecks,
   type PulledRunBegun,
 } from './pulled.js';
-import type { EmittedItem, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
+import type { EmittedItem, OpenStateWanted, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
 import { APP_CAPTURES_PER_MINUTE } from '../mcp/create-item.js';
 import {
   deleteAllRows,
@@ -190,6 +193,8 @@ function spentAllowance(error: unknown): Answer<never> {
 export abstract class AccountStoreBase extends DurableObject<Env> implements AccountStoreRpc {
   /** The connectors Cockpit pulls from, whose connections this store keeps a check armed for ("Check a pulled connector on its cadence through the generic host", issue 891). */
   protected abstract pulledConnectorIds(): readonly string[];
+  /** Which connectors mirror an Item's open state back to their source - the registry's to say (issue 893). */
+  protected abstract mirroringConnectorIds(): readonly string[];
 
   #db: AccountDb | null = null;
   #upToDate = false;
@@ -783,7 +788,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     name: N,
     payload: CommandPayload<N>,
   ): Promise<Answer<CommandResult>> {
-    const answer = this.#answer(accountName, (db) => runCommand(db, accountName, name, payload));
+    const answer = this.#answer(accountName, (db) =>
+      runCommand(db, accountName, name, payload, { mirroring: this.mirroringConnectorIds() }),
+    );
     if (answer.status === 'ok' && GMAIL_LIFECYCLE.has(name)) {
       const connectingGmail =
         name === 'connect_source_account' &&
@@ -804,6 +811,17 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       labelChangeWaiting(this.#database(), accountName, (payload as { itemId: string }).itemId)
     ) {
       await this.#keepCheckingGmail(accountName, true);
+    }
+    // The same for a pulled source that mirrors: its check is made due now,
+    // and the alarm set for it (issue 893). Not for an agent run finishing,
+    // which no pulled source has ever been handed.
+    if (
+      answer.status === 'ok' &&
+      answer.value.applied &&
+      PERSON_OPENS_OR_CLOSES.has(name) &&
+      bringPulledCheckForward(this.#database(), accountName, (payload as { itemId: string }).itemId, new Date())
+    ) {
+      await this.#arm(accountName);
     }
     return answer;
   }
@@ -918,6 +936,23 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   ): Answer<'changed' | 'unchanged' | 'disconnected'> {
     return this.#answer(accountName, (db) =>
       applyPulledSourceChange(db, accountName, sourceAccountId, runId, change),
+    );
+  }
+
+  /** The open states waiting for the source of the connection a run holds (issue 893). */
+  pulledOpenStatesWaiting(accountName: string, sourceAccountId: string, runId: string): Answer<OpenStateWanted[]> {
+    return this.#answer(accountName, (db) => pulledOpenStatesWaiting(db, accountName, sourceAccountId, runId));
+  }
+
+  /** Clears the open states the connector confirmed (issue 893). */
+  confirmPulledOpenStates(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    confirmed: readonly OpenStateWanted[],
+  ): Answer<'confirmed' | 'not this run'> {
+    return this.#answer(accountName, (db) =>
+      confirmPulledOpenStates(db, accountName, sourceAccountId, runId, confirmed),
     );
   }
 
@@ -1503,6 +1538,8 @@ const GMAIL_LIFECYCLE: ReadonlySet<CommandName> = new Set<CommandName>([
  * for Gmail brings the check forward to now ("Take the Cockpit label off in
  * Gmail when its task is done in Cockpit", issue 728).
  */
+/** The changes a person makes that open or close an Item - the ones a pulled source mirrors (issue 893). */
+const PERSON_OPENS_OR_CLOSES: ReadonlySet<CommandName> = new Set<CommandName>(['set_done', 'set_dismissed']);
 const OPENS_OR_CLOSES: ReadonlySet<CommandName> = new Set<CommandName>(['set_done', 'set_dismissed', 'finish_agent_run']);
 
 /**

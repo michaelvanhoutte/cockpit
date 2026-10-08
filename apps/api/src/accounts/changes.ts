@@ -144,6 +144,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     gettingStarted(accountId),
     END_RUNS_ON_CLOSED_ITEMS,
     PULLED_CONNECTIONS,
+    PULLED_OPEN_WANTED,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -215,6 +216,38 @@ const PULLED_CONNECTIONS: Change = {
     },
     {
       sql: 'CREATE UNIQUE INDEX IF NOT EXISTS `pulled_links_one_per_item` ON `pulled_links` (`item_id`)',
+    },
+  ],
+};
+
+/**
+ * What Cockpit wants a pulled source to show of an Item's open state, kept on
+ * the link the host holds for the Item ("Mirror an Item's open state back to
+ * a pulled source through the generic host", issue 893) - one column on
+ * `pulled_links`; `schema.ts` says what it carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** the statement landed or did not; the change is
+ *   recorded only once it has, in the same `transactionSync` (store.ts).
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** none. Every existing link takes
+ *   null, which the CHECK accepts: nothing is waiting for any source.
+ * - **What is in each environment:** no environment holds a pulled link
+ *   outside tests yet; any that does keeps its rows whole.
+ * - **Rolled back after it has run:** an older release names the columns it
+ *   reads, ignores this one, and mirrors nothing - which loses nothing, the
+ *   source being read afresh on its next check.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const PULLED_OPEN_WANTED: Change = {
+  name: '0060-pulled-open-wanted',
+  statements: [
+    {
+      sql: 'ALTER TABLE `pulled_links` ADD COLUMN `open_wanted` integer CONSTRAINT "pulled_links_open_wanted_is_flag" CHECK(open_wanted IS NULL OR open_wanted IN (0, 1))',
     },
   ],
 };

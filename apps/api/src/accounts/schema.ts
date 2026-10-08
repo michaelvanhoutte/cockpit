@@ -1893,11 +1893,21 @@ export const pulledLinks = sqliteTable(
       .notNull()
       .references(() => items.id, { onDelete: 'restrict' }),
     linkedAt: text('linked_at').notNull(),
+    /**
+     * What Cockpit wants the source to show of the Item's open state until the
+     * connector confirms it ("Mirror an Item's open state back to a pulled
+     * source through the generic host", issue 893): open (1) or closed (0),
+     * written with the Item's own change, and null once the source holds it -
+     * or while Cockpit wants nothing of the source. One state per link, so
+     * only the latest of a quick close and reopen is ever handed over.
+     */
+    openWanted: integer('open_wanted', { mode: 'boolean' }),
   },
   (t) => [
     primaryKey({ columns: [t.workspaceId, t.connectorId, t.externalAccountKey, t.sourceId] }),
     uniqueIndex('pulled_links_one_per_item').on(t.itemId),
     check('pulled_links_linked_at_is_timestamp', isTimestamp('linked_at')),
+    check('pulled_links_open_wanted_is_flag', sql.raw('open_wanted IS NULL OR open_wanted IN (0, 1)')),
   ],
 );
 

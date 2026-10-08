@@ -29,7 +29,7 @@ import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 import type { RefreshAsk } from '../jobs/debounce.js';
-import type { EmittedItem, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
+import type { EmittedItem, OpenStateWanted, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
 import type { PulledRunBegun } from './pulled.js';
 
 export type { AccountSnapshot } from './answer.js';
@@ -318,6 +318,10 @@ export interface PulledRun {
     ids: { itemId: string; commandId: string },
   ): Promise<EmittedItem | 'disconnected'>;
   applySourceChange(change: SourceStateChange): Promise<'changed' | 'unchanged' | 'disconnected'>;
+  /** Every open state a person set that the source has not confirmed (issue 893). */
+  openStatesWaiting(): Promise<OpenStateWanted[]>;
+  /** Clears the ones the source confirmed, each only where still what was handed over (issue 893). */
+  confirmOpenStates(confirmed: readonly OpenStateWanted[]): Promise<'confirmed' | 'not this run'>;
   end(failing: string | null): Promise<null>;
 }
 
@@ -405,6 +409,9 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
         unwrap(await store.filePulledItem(accountName, sourceAccountId, runId, item, ids)),
       applySourceChange: async (change) =>
         unwrap(await store.applyPulledSourceChange(accountName, sourceAccountId, runId, change)),
+      openStatesWaiting: async () => unwrap(await store.pulledOpenStatesWaiting(accountName, sourceAccountId, runId)),
+      confirmOpenStates: async (confirmed) =>
+        unwrap(await store.confirmPulledOpenStates(accountName, sourceAccountId, runId, confirmed)),
       end: async (failing) => unwrap(await store.endPulledRun(accountName, sourceAccountId, runId, failing)),
     }),
   };

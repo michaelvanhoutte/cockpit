@@ -18,7 +18,7 @@ import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 import type { RefreshAsk } from '../jobs/debounce.js';
-import type { EmittedItem, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
+import type { EmittedItem, OpenStateWanted, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
 import type { PulledRunBegun } from './pulled.js';
 
 /**
@@ -396,6 +396,17 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     runId: string,
     change: SourceStateChange,
   ): Awaitable<Answer<'changed' | 'unchanged' | 'disconnected'>>;
+  pulledOpenStatesWaiting(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+  ): Awaitable<Answer<OpenStateWanted[]>>;
+  confirmPulledOpenStates(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    confirmed: readonly OpenStateWanted[],
+  ): Awaitable<Answer<'confirmed' | 'not this run'>>;
   endPulledRun(
     accountName: string,
     sourceAccountId: string,
