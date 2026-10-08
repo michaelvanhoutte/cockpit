@@ -1,0 +1,159 @@
+{
+  "sources": {
+    "gmail": {},
+    "teams": {
+      "package": "@cockpit/connector-teams"
+    },
+    "claude-code": {}
+  },
+  "core": [
+    "apps/api",
+    "apps/web",
+    "packages/shared"
+  ],
+  "registry": "apps/api/src/connectors/registry.ts",
+  "areas": {
+    "folder": "apps/api/src",
+    "root": [
+      "worker.ts",
+      "index.ts",
+      "env.ts",
+      "share-target.ts"
+    ],
+    "sharedRoot": [
+      "env.ts"
+    ],
+    "order": [
+      [
+        "http"
+      ],
+      [
+        "mcp"
+      ],
+      [
+        "jobs"
+      ],
+      [
+        "connectors"
+      ],
+      [
+        "auth"
+      ],
+      [
+        "accounts"
+      ],
+      [
+        "db"
+      ],
+      [
+        "ai",
+        "embeddings"
+      ],
+      [
+        "domain"
+      ]
+    ]
+  },
+  "allowlist": [
+    {
+      "from": "apps/api/src/accounts/changes.ts",
+      "to": "apps/api/src/auth/register.ts"
+    },
+    {
+      "from": "apps/api/src/accounts/gmail.ts",
+      "to": "apps/api/src/auth/register.ts"
+    },
+    {
+      "from": "apps/api/src/accounts/gmail.ts",
+      "to": "apps/api/src/connectors/gmail-check.ts"
+    },
+    {
+      "from": "apps/api/src/accounts/gmail.ts",
+      "to": "apps/api/src/connectors/gmail.ts"
+    },
+    {
+      "from": "apps/api/src/accounts/index.ts",
+      "to": "apps/api/src/auth/register.ts"
+    },
+    {
+      "from": "apps/api/src/accounts/index.ts",
+      "to": "apps/api/src/jobs/debounce.ts"
+    },
+    {
+      "from": "apps/api/src/accounts/new-user.ts",
+      "to": "apps/api/src/auth/oidc.ts"
+    },
+    {
+      "from": "apps/api/src/accounts/rpc.ts",
+      "to": "apps/api/src/jobs/debounce.ts"
+    },
+    {
+      "from": "apps/api/src/accounts/store.ts",
+      "to": "apps/api/src/accounts/gmail.ts"
+    },
+    {
+      "from": "apps/api/src/accounts/store.ts",
+      "to": "apps/api/src/auth/register.ts"
+    },
+    {
+      "from": "apps/api/src/accounts/store.ts",
+      "to": "apps/api/src/connectors/claude-code-hooks.ts"
+    },
+    {
+      "from": "apps/api/src/accounts/store.ts",
+      "to": "apps/api/src/connectors/gmail-check.ts"
+    },
+    {
+      "from": "apps/api/src/accounts/store.ts",
+      "to": "apps/api/src/jobs/debounce.ts"
+    },
+    {
+      "from": "apps/api/src/accounts/store.ts",
+      "to": "apps/api/src/mcp/create-item.ts"
+    },
+    {
+      "from": "apps/api/src/auth/attachment-link.ts",
+      "to": "apps/api/src/connectors/credential-crypto.ts"
+    },
+    {
+      "from": "apps/api/src/auth/return-path.ts",
+      "to": "apps/api/src/mcp/paths.ts"
+    },
+    {
+      "from": "apps/api/src/connectors/gmail-check.ts",
+      "to": "apps/api/src/jobs/enrichment.ts"
+    },
+    {
+      "from": "apps/api/src/connectors/push-host.ts",
+      "to": "apps/api/src/jobs/enrichment.ts"
+    },
+    {
+      "from": "apps/api/src/http/app.ts",
+      "to": "apps/api/src/connectors/claude-code-hooks.ts"
+    },
+    {
+      "from": "apps/api/src/http/app.ts",
+      "to": "apps/api/src/connectors/claude-code.ts"
+    },
+    {
+      "from": "apps/api/src/http/app.ts",
+      "to": "apps/api/src/connectors/gmail.ts"
+    },
+    {
+      "from": "apps/api/src/http/app.ts",
+      "to": "apps/api/src/connectors/teams.ts"
+    },
+    {
+      "from": "apps/web/src/components/ManageConnections.tsx",
+      "to": "apps/web/src/components/ChangeGmailFollows.tsx"
+    },
+    {
+      "from": "apps/web/src/components/ManageConnections.tsx",
+      "to": "apps/web/src/components/ConnectClaudeCode.tsx"
+    },
+    {
+      "from": "apps/web/src/components/ManageConnections.tsx",
+      "to": "apps/web/src/components/ConnectGmail.tsx"
+    }
+  ]
+}
