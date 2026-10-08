@@ -1,6 +1,9 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { afterAll, describe, expect, it } from 'vitest';
-import { ClaudeAiService, type ProposalRead } from '../../src/ai/index.js';
+import { ClaudeAiService, type CallFor, type ProposalRead } from '../../src/ai/index.js';
+
+/** Whom these calls are for: nobody's, and no record is kept of them, the service being handed no recorder. */
+const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, triggeredBy: null };
 import { TITLE_LENGTH } from '@cockpit/shared';
 import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v11.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
@@ -70,7 +73,7 @@ const WAYS = [
   {
     situation: 'read on capture',
     ask: (note: string, corrections: readonly TextCorrectionEntry[]) =>
-      reading.cleanUpNote(note, [], [], [], corrections, NO_STOOD),
+      reading.cleanUpNote(note, [], [], [], corrections, NO_STOOD, A_CONTRACT_RUN),
   },
 ];
 
@@ -150,7 +153,7 @@ async function read(
   corrections: readonly TextCorrectionEntry[] = [],
   stood: WhatStood | null = NO_STOOD,
 ) {
-  const answer = await reading.cleanUpNote(note, panels, history, recentlyCaptured, corrections, stood);
+  const answer = await reading.cleanUpNote(note, panels, history, recentlyCaptured, corrections, stood, A_CONTRACT_RUN);
   // Said out loud, because a discarded answer is the one failure whose reason
   // is otherwise only in the logs of a scheduled run nobody was watching.
   if (!('proposal' in answer)) throw new Error(`nothing usable came back: ${answer.discarded}`);
@@ -744,8 +747,8 @@ describe('Capture', () => {
         usages.push(usage);
       });
 
-      expect('proposal' in (await service.cleanUpNote('offerte leverancier nog aftekenen', [], [], [], [], NO_STOOD))).toBe(true);
-      expect('proposal' in (await service.cleanUpNote('book the room for the CAPA review', [], [], [], [], NO_STOOD))).toBe(true);
+      expect('proposal' in (await service.cleanUpNote('offerte leverancier nog aftekenen', [], [], [], [], NO_STOOD, A_CONTRACT_RUN))).toBe(true);
+      expect('proposal' in (await service.cleanUpNote('book the room for the CAPA review', [], [], [], [], NO_STOOD, A_CONTRACT_RUN))).toBe(true);
 
       expect(usages[1]!.cache_read_input_tokens ?? 0).toBeGreaterThan(0);
     });
@@ -765,8 +768,8 @@ describe('Capture', () => {
       });
       const history = fiftyFilings(TWO_PANELS);
 
-      expect('proposal' in (await service.cleanUpNote('offerte leverancier nog aftekenen', TWO_PANELS, history, ['still waiting'], [], NO_STOOD))).toBe(true);
-      expect('proposal' in (await service.cleanUpNote('book the room for the CAPA review', TWO_PANELS, history, ['and another'], [], NO_STOOD))).toBe(true);
+      expect('proposal' in (await service.cleanUpNote('offerte leverancier nog aftekenen', TWO_PANELS, history, ['still waiting'], [], NO_STOOD, A_CONTRACT_RUN))).toBe(true);
+      expect('proposal' in (await service.cleanUpNote('book the room for the CAPA review', TWO_PANELS, history, ['and another'], [], NO_STOOD, A_CONTRACT_RUN))).toBe(true);
 
       const first = usages[0]!;
       const second = usages[1]!;

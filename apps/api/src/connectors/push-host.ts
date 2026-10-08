@@ -151,7 +151,7 @@ function connectedHost(
       // them: only where the Item was actually written, so a redelivered save
       // buys no second model call.
       if (!result.applied) return 'already-known';
-      around.waitUntil(enqueueCleanUp(around.env, pointer.accountName, itemId));
+      around.waitUntil(enqueueCleanUp(around.env, pointer.accountName, itemId, `connector:${connectorId}`));
       around.waitUntil(enqueueReadingItsMeaning(around.env, pointer.accountName, itemId));
       return 'filed';
     },

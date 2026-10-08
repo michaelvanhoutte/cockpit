@@ -331,3 +331,58 @@ export const signIns = sqliteTable(
     check('sign_ins_at_is_timestamp', isTimestamp('at')),
   ],
 );
+
+/**
+ * One row per attempt at a call to a provider that may cost money ("Record
+ * every Claude call Cockpit makes, and keep the record for 12 months", issue
+ * 917), written by the gateway (`src/gateway/`) once the attempt has settled.
+ * Kept 12 months and removed by the nightly run, like `sign_ins`.
+ *
+ * **No foreign key to `users` or `tenants`, and nothing copied from them
+ * but their ids.** A row outlives the user it names, so their spend can
+ * still be counted. Those ids are made from the person's name
+ * (`user-anna`), so a row keeps that slug for its 12 months, and is handed
+ * on with the id to whoever is next added under the same name.
+ *
+ * **Never the prompt, the answer, or more of a key than its last 4
+ * characters** - what the Console shows beside the workspace id.
+ */
+export const providerCalls = sqliteTable(
+  'provider_calls',
+  {
+    id: integer('id').primaryKey(),
+    /** When the attempt started. */
+    at: text('at').notNull(),
+    /** What was asked: `clean-up-a-note`, `choose-a-panel`. */
+    operation: text('operation').notNull(),
+    /** The prompt file the call was built from, e.g. `clean-up-a-note.v11`. */
+    promptVersion: text('prompt_version'),
+    /** What started it: `captured-in-app`, `mcp`, `connector:teams`, `gmail-check`, `panel-settled`. */
+    triggeredBy: text('triggered_by'),
+    accountName: text('account_name'),
+    userId: text('user_id'),
+    itemId: text('item_id'),
+    provider: text('provider').notNull(),
+    model: text('model').notNull(),
+    /** Whose money: `cockpit-anthropic-key`. */
+    paidBy: text('paid_by').notNull(),
+    /** Which of theirs: the Anthropic workspace id, where the key is scoped to one. */
+    paidByAccount: text('paid_by_account'),
+    /** The key's last 4 characters, as the Console shows them. */
+    paidByKeyEnding: text('paid_by_key_ending'),
+    outcome: text('outcome').$type<'ok' | 'error' | 'timed-out'>().notNull(),
+    /** The provider's HTTP status, where it answered with one. */
+    status: integer('status'),
+    durationMs: integer('duration_ms').notNull(),
+    tokensIn: integer('tokens_in'),
+    cacheRead: integer('cache_read'),
+    cacheWrite: integer('cache_write'),
+    tokensOut: integer('tokens_out'),
+  },
+  (table) => [
+    // What the nightly purge and an export's period both range over.
+    index('provider_calls_at').on(table.at),
+    check('provider_calls_at_is_timestamp', isTimestamp('at')),
+    check('provider_calls_outcome_is_known', sql`outcome IN ('ok', 'error', 'timed-out')`),
+  ],
+);

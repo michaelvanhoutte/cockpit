@@ -69,6 +69,16 @@
       ]
     },
     {
+      "key": "AI usage",
+      "label": "AI usage",
+      "parent": "Accounts",
+      "sourcePatterns": [
+        "apps/api/src/gateway/attempts.ts",
+        "apps/api/src/gateway/record.ts",
+        "apps/api/src/ai/index.ts"
+      ]
+    },
+    {
       "key": "Backup",
       "label": "Backup",
       "parent": "Accounts",

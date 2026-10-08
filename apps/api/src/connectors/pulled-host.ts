@@ -38,12 +38,13 @@ import { getConnector } from './registry.js';
  *
  * `filed` is what an Item newly filed asks for - the jobs capture's own route
  * queues - handed in by the queue consumer, since a connector may not import
- * the jobs it runs under.
+ * the jobs it runs under - told which connector filed it, for the record of
+ * the call its clean-up makes.
  */
 export async function checkPulledConnection(
   env: Env,
   job: { accountName: string; sourceAccountId: string },
-  filed: (accountName: string, itemId: string) => Promise<void>,
+  filed: (accountName: string, itemId: string, connectorId: string) => Promise<void>,
 ): Promise<void> {
   let account: Account;
   try {
@@ -62,7 +63,7 @@ export async function checkPulledConnection(
     if (!connector?.manifest.pulled) {
       throw new Error(`this version of Cockpit does not check ${begun.connectorId}`);
     }
-    const host = pulledHost(env, begun, run, (itemId) => filed(job.accountName, itemId));
+    const host = pulledHost(env, begun, run, (itemId) => filed(job.accountName, itemId, begun.connectorId));
     // Before the source is read, so a change a person made that it has not
     // heard yet is pushed first and wins over what the read finds. A push that
     // fails does not stop the read - what waits still wins over it - but is

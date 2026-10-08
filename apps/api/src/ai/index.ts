@@ -1,5 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env.js';
+import { callThrough, type CallAbout, type Outcome, type Recorder, type RetryPolicy, type Trigger } from '../gateway/attempts.js';
+import { providerCallsIn } from '../gateway/record.js';
 import { buildCleanUpANote } from './prompts/clean-up-a-note.v11.js';
 import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v2.js';
 import { readPanelChoice, readProposal, type PanelRead, type ProposalRead } from './note-texts.js';
@@ -8,6 +10,21 @@ import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.
 
 export type { NoteTexts, PanelRead, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
 export type { ItemToPlace } from './prompts/choose-a-panel.v2.js';
+
+/**
+ * The prompt files the two calls are built from, as a record names them -
+ * changed with the import above them when a prompt gets a new version.
+ */
+const CLEAN_UP_A_NOTE = 'clean-up-a-note.v11';
+const CHOOSE_A_PANEL = 'choose-a-panel.v2';
+
+/** Whom and what a call is for, as its record names it ("Record every Claude call Cockpit makes", issue 917). */
+export interface CallFor {
+  accountName: string;
+  itemId: string | null;
+  /** `null` for a job queued before what started it was carried on the message. */
+  triggeredBy: Trigger | null;
+}
 
 /**
  * The AI layer behind a project-owned interface (architecture, "AI layer"):
@@ -69,6 +86,8 @@ export interface AiService {
    * which the Item survives by keeping the text capture wrote. A call that
    * *fails* - no network, a 5xx, a rate limit - throws, because that is worth
    * retrying and a discarded proposal is not.
+   *
+   * `callFor` names whom the call is for in its record, never in the prompt.
    */
   cleanUpNote(
     capturedMessage: string,
@@ -77,6 +96,7 @@ export interface AiService {
     recentlyCaptured: readonly string[],
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood | null,
+    callFor: CallFor,
   ): Promise<ProposalRead>;
 
   /**
@@ -91,6 +111,7 @@ export interface AiService {
     panels: readonly { id: string; name: string }[],
     history: readonly DecisionHistoryEntry[],
     recentlyCaptured: readonly string[],
+    callFor: CallFor,
   ): Promise<PanelRead>;
 }
 
@@ -105,20 +126,76 @@ export interface AiService {
  */
 export function aiFor(env: Env): AiService | null {
   if (!env.ANTHROPIC_API_KEY) return null;
-  return new ClaudeAiService(env.ANTHROPIC_API_KEY, env.ANTHROPIC_WORKSPACE_ID);
+  return new ClaudeAiService(env.ANTHROPIC_API_KEY, env.ANTHROPIC_WORKSPACE_ID, undefined, providerCallsIn(env));
+}
+
+/**
+ * How Claude's failures are retried, now that the gateway does it rather than
+ * the SDK, so each attempt is a record of its own: once, on what the SDK
+ * itself retried - a connection that failed or timed out, and a 408, 409, 429
+ * or 5xx unless the API said not to - after what the API asked for, or about
+ * half a second.
+ */
+export const CLAUDE_RETRIES: RetryPolicy = {
+  retries: 1,
+  outcomeOf(error: unknown): Outcome {
+    if (error instanceof Anthropic.APIConnectionTimeoutError) return { outcome: 'timed-out' };
+    if (error instanceof Anthropic.APIError && error.status !== undefined) {
+      return { outcome: 'error', status: error.status };
+    }
+    return { outcome: 'error', status: null };
+  },
+  retryAfter(error: unknown, attempt: number): number | null {
+    if (error instanceof Anthropic.APIConnectionError) return backoff(attempt);
+    if (!(error instanceof Anthropic.APIError) || error.status === undefined) return null;
+    const told = error.headers?.get('x-should-retry');
+    if (told === 'false') return null;
+    const retryable = told === 'true' || [408, 409, 429].includes(error.status) || error.status >= 500;
+    if (!retryable) return null;
+    return askedFor(error.headers) ?? backoff(attempt);
+  },
+};
+
+/** What a failed answer asked to be waited for, in seconds or as a date, where it is a reasonable amount. */
+function askedFor(headers: Headers | undefined): number | null {
+  const after = headers?.get('retry-after') ?? '';
+  const asked = [
+    Number.parseFloat(headers?.get('retry-after-ms') ?? ''),
+    Number.parseFloat(after) * 1000,
+    Date.parse(after) - Date.now(),
+  ].find((ms) => !Number.isNaN(ms));
+  return asked !== undefined && asked >= 0 && asked < 60_000 ? asked : null;
+}
+
+/** The SDK's own default: half a second, doubling per attempt, with up to a quarter off. */
+function backoff(attempt: number): number {
+  return Math.min(500 * 2 ** (attempt - 1), 8_000) * (1 - Math.random() * 0.25);
 }
 
 /** The Claude-backed implementation. Constructed by `aiFor` and nowhere else. */
 export class ClaudeAiService implements AiService {
   readonly #client: Anthropic;
   readonly #onUsage: ((model: string, usage: Anthropic.Usage) => void) | undefined;
+  readonly #record: Recorder;
+  readonly #paidBy: CallAbout['paidBy'];
 
   /**
    * `onUsage` hears every successful call's model and token counts. Only the
    * contract tier passes one, to say what a prompt costs to run.
+   *
+   * `record` is handed every attempt's record; `aiFor` passes the one that
+   * writes D1, and the contract tier, whose calls are not product usage,
+   * passes none.
    */
-  constructor(apiKey: string, workspaceId?: string, onUsage?: (model: string, usage: Anthropic.Usage) => void) {
+  constructor(
+    apiKey: string,
+    workspaceId?: string,
+    onUsage?: (model: string, usage: Anthropic.Usage) => void,
+    record: Recorder = async () => {},
+  ) {
     this.#onUsage = onUsage;
+    this.#record = record;
+    this.#paidBy = { kind: 'cockpit-anthropic-key', account: workspaceId ?? null, keyEnding: apiKey.slice(-4) };
     this.#client = new Anthropic({
       apiKey,
       // The header is only sent where there is one to send: a key scoped to the
@@ -126,14 +203,16 @@ export class ClaudeAiService implements AiService {
       // workspace-scoped key needs nothing (see `Env.ANTHROPIC_WORKSPACE_ID`).
       ...(workspaceId ? { defaultHeaders: { 'anthropic-workspace-id': workspaceId } } : {}),
       /**
-       * Bounded on purpose, both of them. The queue is what retries this job,
-       * with a delay a rate limit can actually recover in, so the SDK's own
-       * retries exist only to ride out a blip - and a call left to the default
-       * ten minutes would hold a queue consumer open for a note nobody is
-       * waiting for.
+       * Bounded on purpose. The queue is what retries this job, with a delay a
+       * rate limit can actually recover in, and a call left to the default ten
+       * minutes would hold a queue consumer open for a note nobody is waiting
+       * for.
+       *
+       * **No retries of the SDK's own**: the gateway makes the one retry that
+       * rides out a blip (`CLAUDE_RETRIES`), so that each attempt is recorded.
        */
       timeout: 60_000,
-      maxRetries: 1,
+      maxRetries: 0,
     });
   }
 
@@ -144,9 +223,10 @@ export class ClaudeAiService implements AiService {
     recentlyCaptured: readonly string[],
     corrections: readonly TextCorrectionEntry[],
     stood: WhatStood | null,
+    callFor: CallFor,
   ): Promise<ProposalRead> {
     const prompt = buildCleanUpANote({ panels, history, recentlyCaptured }, corrections, stood);
-    const answer = await this.#ask(prompt, capturedMessage);
+    const answer = await this.#ask(prompt, capturedMessage, { ...callFor, operation: 'clean-up-a-note', promptVersion: CLEAN_UP_A_NOTE });
     return 'refused' in answer ? { discarded: answer.refused } : readProposal(answer.text, panels.map((panel) => panel.id));
   }
 
@@ -155,13 +235,14 @@ export class ClaudeAiService implements AiService {
     panels: readonly { id: string; name: string }[],
     history: readonly DecisionHistoryEntry[],
     recentlyCaptured: readonly string[],
+    callFor: CallFor,
   ): Promise<PanelRead> {
     const prompt = buildChooseAPanel(item, panels, history, recentlyCaptured);
-    const answer = await this.#ask(prompt, prompt.message);
+    const answer = await this.#ask(prompt, prompt.message, { ...callFor, operation: 'choose-a-panel', promptVersion: CHOOSE_A_PANEL });
     return 'refused' in answer ? { discarded: answer.refused } : readPanelChoice(answer.text, panels.map((panel) => panel.id));
   }
 
-  /** One call, constrained to the prompt's own schema: its text, or that the model declined. */
+  /** One call through the gateway, constrained to the prompt's own schema: its text, or that the model declined. */
   async #ask(
     // `effort` is null for a model that refuses the field (`choose-a-panel.v2`).
     prompt: {
@@ -171,8 +252,51 @@ export class ClaudeAiService implements AiService {
       schema: Record<string, unknown>;
     },
     content: string,
+    callFor: CallFor & { operation: string; promptVersion: string },
   ): Promise<{ text: string | undefined } | { refused: string }> {
-    const answer = await this.#client.messages.create({
+    const about: CallAbout = { ...callFor, provider: 'anthropic', model: prompt.model, paidBy: this.#paidBy };
+    const answer = await callThrough(
+      about,
+      async () => {
+        const answer = await this.#askOnce(prompt, content);
+        const usage = answer.usage;
+        return {
+          value: answer,
+          tokens: {
+            tokensIn: usage.input_tokens,
+            cacheRead: usage.cache_read_input_tokens ?? null,
+            cacheWrite: usage.cache_creation_input_tokens ?? null,
+            tokensOut: usage.output_tokens,
+          },
+        };
+      },
+      CLAUDE_RETRIES,
+      {
+        record: this.#record,
+        clock: () => Date.now(),
+        now: () => new Date(),
+        wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      },
+    );
+    // A refusal is the model declining, not a fault: it reaches here as a
+    // successful call with nothing usable in it, which is exactly what a
+    // discarded proposal is.
+    this.#onUsage?.(prompt.model, answer.usage);
+    if (answer.stop_reason === 'refusal') return { refused: 'the model declined the note' };
+    return { text: answer.content.find((block) => block.type === 'text')?.text };
+  }
+
+  /** One attempt, as the API is asked it. */
+  async #askOnce(
+    prompt: {
+      model: string;
+      effort: 'low' | null;
+      system: { instructions: string; stable: string; recent: string };
+      schema: Record<string, unknown>;
+    },
+    content: string,
+  ): Promise<Anthropic.Message> {
+    return this.#client.messages.create({
       model: prompt.model,
       /**
        * Room for the reasoning as well as the answer, since thinking is on by
@@ -228,12 +352,5 @@ export class ClaudeAiService implements AiService {
         ...(prompt.effort ? { effort: prompt.effort } : {}),
       } as Anthropic.OutputConfig,
     });
-
-    // A refusal is the model declining, not a fault: it reaches here as a
-    // successful call with nothing usable in it, which is exactly what a
-    // discarded proposal is.
-    this.#onUsage?.(prompt.model, answer.usage);
-    if (answer.stop_reason === 'refusal') return { refused: 'the model declined the note' };
-    return { text: answer.content.find((block) => block.type === 'text')?.text };
   }
 }

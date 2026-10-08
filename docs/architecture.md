@@ -318,10 +318,11 @@ src/
 ├── connectors/    # host side only: the registry wiring connector packages in, and the
 │                  # generic /ingress/:connector webhook route (§6.2). No source-specific code.
 ├── jobs/          # queue consumers + cron handlers: sync schedules, reconciliation (§6.3)
-└── ai/            # the AI layer behind an interface (§6.4)
+├── ai/            # the AI layer behind an interface (§6.4)
+└── gateway/       # makes, retries and records every paid provider call (provider_calls)
 ```
 
-The dependency rule is one-directional: `domain` imports nothing from the other layers, which makes the L1 tier a property of the design rather than a mocking exercise. Between the API's areas the direction is `http` → `mcp` → `jobs` → `connectors` → `auth` → `accounts` → `db` → `ai`, `embeddings` → `domain`, and CI fails an import that runs against it; `scripts/import-rules.json` declares it, with the breaches not yet removed as an allowlist that can only shrink.
+The dependency rule is one-directional: `domain` imports nothing from the other layers, which makes the L1 tier a property of the design rather than a mocking exercise. Between the API's areas the direction is `http` → `mcp` → `jobs` → `connectors` → `auth` → `accounts` → `db` → `ai`, `embeddings` → `gateway` → `domain`, and CI fails an import that runs against it; `scripts/import-rules.json` declares it, with the breaches not yet removed as an allowlist that can only shrink.
 
 ### 6.2 Connectors: plugin-shaped, host-blind
 
@@ -429,6 +430,7 @@ Two standing rules follow: **never block paint on auth** (paint the cached snaps
   | When | once per note captured, and once per unfiled Item a filing could have changed (at most 20 per filing), in queue jobs. Nothing sweeps what already exists, a correction sends nothing, and the guest account sends nothing. |
   | Retention | whatever Anthropic's own commercial terms say for API traffic on this account, which is the thing to read before a second field is ever added to that request — it is not something this repository can assert. Zero-retention arrangements are the provider's to grant, so if the answer ever has to be "nothing is kept", that is a conversation with them rather than a change here. |
   | What comes back | a title and a description, and the other readings of the same note where it finds any (issue 297) - every one of them refused unless it fits the same shapes the Item's own form enforces, and written onto that one Item. |
+  | What is recorded | one row per attempt in D1's `provider_calls` ("Record every Claude call Cockpit makes, and keep the record for 12 months", issue 917): when, which operation and prompt version, what started it, the account and user id, the model, the workspace id and the key's last 4 characters, the outcome, the duration and the token counts. Never the note, the answer, or more of the key. Kept 12 months, and kept when the user is deleted. |
 
   **What would make this flow bigger is a decision, not an implementation detail.** Sending more of the account than the row above lists changes what leaves this system — so it belongs in an issue that says so, and in this table.
 - **Secrets** live in the platform's secret store; the public repository contains `.env.example` files only.

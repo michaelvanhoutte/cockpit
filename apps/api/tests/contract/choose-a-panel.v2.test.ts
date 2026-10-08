@@ -1,5 +1,8 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { ClaudeAiService, type ItemToPlace } from '../../src/ai/index.js';
+import { ClaudeAiService, type CallFor, type ItemToPlace } from '../../src/ai/index.js';
+
+/** Whom these calls are for: nobody's, and no record is kept of them, the service being handed no recorder. */
+const A_CONTRACT_RUN: CallFor = { accountName: 'contract-tests', itemId: null, triggeredBy: null };
 import { buildChooseAPanel } from '../../src/ai/prompts/choose-a-panel.v2.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
 
@@ -50,7 +53,7 @@ async function choose(
   panels: readonly { id: string; name: string }[],
   history: readonly DecisionHistoryEntry[] = [],
 ) {
-  const answer = await choosing.choosePanel(item, panels, history, []);
+  const answer = await choosing.choosePanel(item, panels, history, [], A_CONTRACT_RUN);
   // Said out loud, for the same reason `clean-up-a-note.v11.test.ts`'s `read` does.
   if (!('panel' in answer)) throw new Error(`nothing usable came back: ${answer.discarded}`);
   return answer.panel;

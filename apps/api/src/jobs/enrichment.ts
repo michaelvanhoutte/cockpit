@@ -7,6 +7,7 @@ import {
   NotFoundInAccountError,
 } from '../accounts/index.js';
 import { aiFor } from '../ai/index.js';
+import type { Trigger } from '../gateway/attempts.js';
 import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
 import type { PanelRead, RoutingCandidate } from '../ai/index.js';
 import {
@@ -93,6 +94,12 @@ export interface CleanUpJob {
    * again once a release has passed with nothing this old left to arrive.
    */
   attemptId?: string | undefined;
+  /**
+   * What captured the note - the app, MCP, a connector - for the record of
+   * the call this job makes (issue 917). Optional for one release, for the
+   * reason `attemptId` is: a message from before it existed records none.
+   */
+  triggeredBy?: Trigger | undefined;
 }
 
 /**
@@ -190,12 +197,18 @@ export interface CheckPulledConnectionJob {
 
 const refreshAskSchema = z.object({ at: z.number().int().nonnegative(), id: z.uuid() });
 
+const triggerSchema = z.union([
+  z.enum(['captured-in-app', 'mcp', 'gmail-check', 'panel-settled']),
+  z.templateLiteral(['connector:', z.string().min(1).max(64)]),
+]);
+
 export const enrichmentJobSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('clean-up-a-note'),
     accountName: z.string().min(1),
     itemId: z.uuid(),
     attemptId: z.uuid().optional(),
+    triggeredBy: triggerSchema.optional(),
   }),
   z.object({
     kind: z.literal('read-what-a-note-means'),
@@ -271,7 +284,12 @@ async function recordHistory(write: () => Promise<unknown>): Promise<void> {
   }
 }
 
-export async function enqueueCleanUp(env: Env, accountName: string, itemId: string): Promise<void> {
+export async function enqueueCleanUp(
+  env: Env,
+  accountName: string,
+  itemId: string,
+  triggeredBy: Trigger,
+): Promise<void> {
   /**
    * **Read before anything here awaits, not after.** An async function's own
    * body runs synchronously up to its first `await`, so this is read at
@@ -370,7 +388,7 @@ export async function enqueueCleanUp(env: Env, accountName: string, itemId: stri
     return;
   }
 
-  const job: EnrichmentJob = { kind: 'clean-up-a-note', accountName, itemId, attemptId };
+  const job: EnrichmentJob = { kind: 'clean-up-a-note', accountName, itemId, attemptId, triggeredBy };
   try {
     await env.ENRICHMENT.send(job);
   } catch (error) {
@@ -522,6 +540,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
       recentlyCaptured,
       promptCorrections,
       promptStood,
+      { accountName: job.accountName, itemId: item.id, triggeredBy: job.triggeredBy ?? null },
     );
   } catch (error) {
     await recordHistory(() =>
@@ -952,7 +971,11 @@ export async function reproposePanels(env: Env, job: ReproposePanelsJob): Promis
       let read: PanelRead = { panel: null };
       if (panels.length > 0) {
         const { history, recentlyCaptured } = await account.routingContext(candidate.workspaceId, candidate.id);
-        read = await ai.choosePanel(candidate, panels, history, recentlyCaptured);
+        read = await ai.choosePanel(candidate, panels, history, recentlyCaptured, {
+          accountName: job.accountName,
+          itemId: candidate.id,
+          triggeredBy: 'panel-settled',
+        });
       }
       if (!('panel' in read)) {
         await recordHistory(() =>
