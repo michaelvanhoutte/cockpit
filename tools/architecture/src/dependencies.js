@@ -108,7 +108,9 @@ export function buildDependencies(description, candidates, modules) {
 
   // Each cycle once, the area standing higher first.
   const cyclePairs = cells.filter((each) => each.kind === 'partner').map((each) => [each.from, each.to]);
-  const pinned = (a, b) => pins.some(([above, below]) => (above === a && below === b) || (above === b && below === a));
+  // A pin decides a pair directly or through a chain of pins.
+  const pinnedAbove = (a, b, seen = new Set()) => pins.some(([above, below]) => above === a && (below === b || (!seen.has(below) && seen.add(below) && pinnedAbove(below, b, seen))));
+  const pinned = (a, b) => pinnedAbove(a, b) || pinnedAbove(b, a);
   const undecidedPairs = cyclePairs.filter(([a, b]) => filesOf(a, b) === filesOf(b, a) && !pinned(a, b));
 
   return {

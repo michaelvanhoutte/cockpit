@@ -123,6 +123,16 @@ describe('Dependencies', () => {
       expect(dependencies.undecidedPairs).toEqual([]);
     });
 
+    it('does not call a pair undecided when a chain of pins through a third area decided it', () => {
+      const dependencies = dependenciesOf({
+        areas: [at('a'), at('b'), at('c')],
+        overrides: { pins: [{ above: at('a'), below: at('c') }, { above: at('c'), below: at('b') }] },
+        candidates: [folder(at('a'), manyFiles(2, 'b')), folder(at('b'), manyFiles(2, 'a')), folder(at('c'), { 'g.ts': 'export {}' })],
+      });
+      expect(dependencies.cyclePairs).toEqual([[at('a'), at('b')]]);
+      expect(dependencies.undecidedPairs).toEqual([]);
+    });
+
     it('marks a one-way import up, under a pin, with no outlined partner', () => {
       const dependencies = marked(manyFiles(1, 'b'), { 'g.ts': 'export {}' }, { pins: [{ above: at('b'), below: at('a') }] });
       expect(cells(dependencies)).toEqual([['a', 'b', 1, 'upward']]);
