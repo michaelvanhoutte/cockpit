@@ -605,6 +605,9 @@ function rowsOf(
     .filter((row) => row.cells.length > 0 || row.title !== undefined);
 }
 
+/** What a Gmail Item is served as, until the contract step takes it away (`source` below). */
+const SERVED_FOR_GMAIL = 'mail';
+
 /**
  * The columns an item is read by, named for the reason `workspaceColumns` above
  * is named: a bare `select()` names every column the table declares, so the
@@ -616,9 +619,6 @@ function rowsOf(
  * finished with", issue 154), and leaving them out here is what makes that true
  * of the rows this returns rather than only of the type describing them.
  */
-/** What a Gmail Item is served as, until the contract step takes it away (`source` below). */
-const SERVED_FOR_GMAIL = 'mail';
-
 const itemColumns = {
   id: items.id,
   tenantId: items.tenantId,
@@ -626,11 +626,11 @@ const itemColumns = {
   workspaceDecided: items.workspaceDecided,
   /**
    * Where the Item came from, which is two columns and one answer ("Save a
-   * Teams message to Cockpit", issue 486): `source_connector` where the
-   * source is one the `source` column's own CHECK cannot hold, and `source`
-   * everywhere else. Coalesced here, so nothing above this file has to know
-   * that a CHECK on a table with four children is why there are two
-   * (`STORED_SOURCES` in the contract).
+   * Teams message to Cockpit", issue 486): `source_connector` wherever a
+   * connector is named - every source the `source` column's own CHECK cannot
+   * hold, and Gmail - and `source` everywhere else. Coalesced here, so nothing
+   * above this file has to know that a CHECK on a table with four children is
+   * why there are two (`STORED_SOURCES` in the contract).
    *
    * **Except a Gmail Item, still served as `mail`**: the expand-side alias of
    * "Store Gmail Items under their connector id" (issue 926). A client built

@@ -318,7 +318,13 @@ const PULLED_OPEN_WANTED: Change = {
  *   as `gmail` - which a client built before that release refuses, so roll
  *   back no further than this release while such clients remain. A release
  *   before it cannot read `gmail` at all: 2fd8efb9 is the earliest rollback
- *   target.
+ *   target. **A rollback also leaves rows this never revisits**, being
+ *   recorded (deployment.md, "Migrations and rollback", on one-shot
+ *   backfills): a Gmail Item captured meanwhile is stored `mail` with no
+ *   connector, and one edited under 2fd8efb9 as `internal` naming `gmail`.
+ *   Both serve `mail` through the alias, so "Take source names out of the
+ *   shared contract" (issue 927) carries these statements again, and covers
+ *   the `internal` form, before it removes it.
  * - **A backup restored from before it:** the restore replays the recorded
  *   changes, so this one applies the next time the account is opened.
  */

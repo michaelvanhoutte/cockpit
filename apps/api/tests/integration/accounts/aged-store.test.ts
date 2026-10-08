@@ -2139,7 +2139,7 @@ describe('Accounts', () => {
       await storeHolding(name, held);
       const before = await sourcesIn(name);
 
-      const log = vi.spyOn(console, 'log');
+      const log = vi.spyOn(console, 'warn');
       try {
         // Opening the store is what applies it, as the first request of the
         // day does for a real account.
