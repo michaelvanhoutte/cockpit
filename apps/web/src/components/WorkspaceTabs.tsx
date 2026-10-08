@@ -11,7 +11,9 @@ import {
   useSendCommand,
   workspacesQuery,
 } from '../api/queries';
+import { setAllItemsTab, useAllItemsOnScreen, useAllItemsTabs } from '../allItemsTab';
 import { litForChrome } from '../chrome';
+import { keepingTheOpenItem } from '../itemForm';
 import { survivingWorkspace } from '../landing';
 import { useTabDrag } from '../tabDrag';
 import { DeleteQuestion } from './DeleteQuestion';
@@ -59,6 +61,7 @@ export function WorkspaceTabs({
   const params = useParams({ strict: false });
   const command = useCommand();
   const send = useSendCommand();
+  const allItemsTabOn = useAllItemsTabs();
 
   /**
    * The workspace whose form is open, and the draft in it: the name typed so
@@ -327,12 +330,40 @@ export function WorkspaceTabs({
     setSaveRefusal(null);
   };
 
+  /**
+   * Switches a workspace's *All items* tab on or off. Hiding it leaves for the
+   * workspace's first dashboard when that workspace's *All items* is the page on
+   * screen - a page that is not in the bar is not somewhere to stay - and never
+   * moves you for another workspace's tab. The first dashboard is read from the
+   * snapshot the page on screen already holds, since its route loaded it.
+   */
+  const onItemsOf = useAllItemsOnScreen();
+  const switchAllItemsTab = (workspaceId: string, on: boolean) => {
+    setAllItemsTab(workspaceId, on);
+    if (on || onItemsOf !== workspaceId) return;
+    const first = queryClient.getQueryData(snapshotQuery(workspaceId).queryKey)?.dashboards[0];
+    if (first) {
+      void navigate({
+        to: '/w/$workspaceId/d/$dashboardId',
+        params: { workspaceId, dashboardId: first.id },
+        search: keepingTheOpenItem,
+      });
+    }
+  };
+
   /** What can be done to this workspace. */
   const entriesFor = (ws: Workspace): MenuEntry[] => [
     // One entry for changing a workspace rather than a Rename beside it: the
     // form is what renames, and two ways to reach the same box is one more
     // thing to choose between.
     { label: 'Edit…', onSelect: (from) => startEditing(ws, from) },
+    // A group of its own: it switches a tab of the workspace, and is no edit to it.
+    {
+      label: allItemsTabOn(ws.id) ? 'Hide All items tab' : 'Show All items tab',
+      separatorBefore: true,
+      keepsFocus: true,
+      onSelect: () => switchAllItemsTab(ws.id, !allItemsTabOn(ws.id)),
+    },
     // Apart from the way in, since it is the one that cannot be put back.
     { label: 'Delete', destructive: true, separatorBefore: true, onSelect: (from) => startDeleting(ws, from) },
   ];

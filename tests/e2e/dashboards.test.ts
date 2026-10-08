@@ -22,6 +22,7 @@ import {
   switchTo,
   test,
   uniqueTitle,
+  workspaceTab,
 } from './support/app';
 
 /**
@@ -251,7 +252,7 @@ test.describe('Dashboards', () => {
      * apps/web/tests/unit/allItems.test.ts, and that the address turns the tab
      * on is apps/web/tests/unit/router.test.tsx.
      */
-    test('shows the tab from a dashboard’s menu, lists a finished item, and reopens it from its form', async ({
+    test('shows the tab from the workspace’s menu, lists a finished item, and reopens it from its form', async ({
       page,
       isMobile,
     }) => {
@@ -274,7 +275,7 @@ test.describe('Dashboards', () => {
 
       await openDashboard(page, 'Dashboard 1', isMobile);
       await expect(dashboardBar(page).getByRole('link', { name: 'All items' })).toHaveCount(0);
-      await chooseRowAction(page, 'Dashboard 1', 'Show all items', isMobile);
+      await chooseTabAction(page, workspaceTab(page, workspace), 'Show All items tab', isMobile);
 
       // After the dashboards, and open on it: the tab is the one marked, the
       // dashboard behind it is not.
@@ -459,7 +460,7 @@ test.describe('Dashboards', () => {
       // its own height back), a second Dashboard with its own, and enough items
       // that All items is taller than the window.
       await openDashboard(page, 'Dashboard 1', isMobile);
-      await chooseRowAction(page, 'Dashboard 1', 'Show all items', isMobile);
+      await chooseTabAction(page, workspaceTab(page, workspace), 'Show All items tab', isMobile);
       const [, , workspaceId, , dashboardId] = new URL(page.url()).pathname.split('/');
       const known = await page.request.get('/v1/item-types');
       const [aType] = ((await known.json()) as { itemTypes: { id: string }[] }).itemTypes;

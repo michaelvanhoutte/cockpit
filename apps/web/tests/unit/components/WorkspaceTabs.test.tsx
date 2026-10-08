@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -6,6 +6,7 @@ import type { Workspace, WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
 import { WorkspaceTabs } from '../../../src/components/WorkspaceTabs';
+import { readAllItemsTab, setAllItemsTab } from '../../../src/allItemsTab';
 
 /**
  * F1: what is under test is the strip's own behaviour - what its menu offers,
@@ -14,7 +15,13 @@ import { WorkspaceTabs } from '../../../src/components/WorkspaceTabs';
  * in apps/api/tests/integration/http/workspaces.test.ts; that the gestures
  * reach a real menu is tests/e2e/workspace-management.test.ts.
  */
-const held = vi.hoisted(() => ({ workspaces: [] as Workspace[], items: 0, here: 'ws-work' }));
+const held = vi.hoisted(() => ({
+  workspaces: [] as Workspace[],
+  items: 0,
+  here: 'ws-work',
+  /** The workspace whose All items page is on screen, or null. */
+  onAllItemsOf: null as string | null,
+}));
 
 const wentTo = vi.hoisted(() => ({ calls: [] as unknown[] }));
 vi.mock('@tanstack/react-router', () => ({
@@ -40,6 +47,10 @@ vi.mock('@tanstack/react-router', () => ({
     wentTo.calls.push(to);
   },
   useParams: () => ({ workspaceId: held.here }),
+  useRouterState: ({ select }: { select: (state: unknown) => unknown }) =>
+    select({
+      location: { pathname: held.onAllItemsOf ? `/w/${held.onAllItemsOf}/items` : `/w/${held.here}` },
+    }),
 }));
 
 vi.mock('../../../src/api/queries', async (importOriginal) => {
@@ -57,6 +68,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => {
       queryFn: (): Promise<WorkspaceSnapshot> =>
         Promise.resolve({
           items: Array.from({ length: held.items }, (_, i) => ({ id: `item-${i}` })),
+          dashboards: [{ id: `${workspaceId}-first` }, { id: `${workspaceId}-second` }],
         } as WorkspaceSnapshot),
     }),
   };
@@ -93,12 +105,14 @@ function showTabs(
     error?: Error;
     here?: string;
     items?: number;
+    onAllItemsOf?: string;
     sendFails?: Error;
   } = {},
 ) {
   held.workspaces = names.map((name) => aWorkspace(name));
   held.items = answer.items ?? 0;
   held.here = answer.here ?? held.workspaces[0]!.id;
+  held.onAllItemsOf = answer.onAllItemsOf ?? null;
   wentTo.calls = [];
   const asked: { error: Error | null; variables: unknown } = { error: null, variables: null };
   const mutate = vi.fn((args: AskedFor, options?: { onSuccess?: () => void; onError?: () => void }) => {
@@ -131,8 +145,15 @@ function showTabs(
     answer.sendFails ? Promise.reject(answer.sendFails) : Promise.resolve(),
   );
   mockUseSendCommand.mockImplementation(() => sent as never);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // The page on screen holds its workspace's snapshot, its route having loaded it.
+  if (held.onAllItemsOf) {
+    client.setQueryData(['snapshot', held.onAllItemsOf], {
+      dashboards: [{ id: `${held.onAllItemsOf}-first` }, { id: `${held.onAllItemsOf}-second` }],
+    });
+  }
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={client}>
       <WorkspaceTabs bar={THEME.bar} bringIntoView={() => {}}>
         <button type="button">Add a workspace</button>
       </WorkspaceTabs>
@@ -185,13 +206,14 @@ describe('Workspace management', () => {
   describe('what can be done to a workspace is on the tab it is', () => {
     // The list this replaces was two presses away in the header's menu, and
     // then a row to find. What each entry does is the rules below.
-    it('offers editing and deleting on the tab itself', async () => {
+    it('offers editing, the All items tab and deleting on the tab itself', async () => {
       showTabs(['Work', 'Personal', 'Acme']);
 
       await menuOf('Personal');
 
       expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
         'Edit…',
+        'Show All items tab',
         'Delete',
       ]);
     });
@@ -225,15 +247,15 @@ describe('Workspace management', () => {
 
       await user.click(await screen.findByRole('button', { name: 'Actions for Personal' }));
 
-      expect(entriesOfTheOpenMenu()).toEqual(['Edit…', '---', 'Delete']);
+      expect(entriesOfTheOpenMenu()).toEqual(['Edit…', '---', 'Show All items tab', '---', 'Delete']);
     });
 
-    it('is exactly Edit…, a separator and Delete, on the open workspace’s tab as well', async () => {
+    it('is exactly Edit…, the All items tab, then Delete, in groups, on the open workspace’s tab as well', async () => {
       showTabs(['Work', 'Personal'], { here: 'ws-work' });
 
       await menuOf('Work');
 
-      expect(entriesOfTheOpenMenu()).toEqual(['Edit…', '---', 'Delete']);
+      expect(entriesOfTheOpenMenu()).toEqual(['Edit…', '---', 'Show All items tab', '---', 'Delete']);
     });
 
     it('is not offered for a workspace you are not on', async () => {
@@ -252,6 +274,72 @@ describe('Workspace management', () => {
       await user.click(await screen.findByRole('button', { name: 'Cancel' }));
 
       await waitFor(() => expect(button).toHaveFocus());
+    });
+  });
+
+  describe('a workspace’s menu switches that workspace’s All items tab', () => {
+    beforeEach(() => localStorage.clear());
+    afterEach(() => localStorage.clear());
+
+    it('turns the open workspace’s tab on, and then offers to hide it', async () => {
+      const { user } = showTabs(['Work', 'Personal'], { here: 'ws-work' });
+
+      await user.click(await screen.findByRole('button', { name: 'Actions for Work' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Show All items tab' }));
+
+      expect(readAllItemsTab(localStorage, 'ws-work')).toBe(true);
+      await user.click(await screen.findByRole('button', { name: 'Actions for Work' }));
+      expect(screen.getByRole('menuitem', { name: 'Hide All items tab' })).toBeVisible();
+      expect(screen.queryByRole('menuitem', { name: 'Show All items tab' })).toBeNull();
+    });
+
+    it('turns another workspace’s tab on and leaves the open one’s as it was', async () => {
+      showTabs(['Work', 'Personal'], { here: 'ws-work' });
+
+      await menuOf('Personal');
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Show All items tab' }));
+
+      expect(readAllItemsTab(localStorage, 'ws-personal')).toBe(true);
+      expect(readAllItemsTab(localStorage, 'ws-work')).toBe(false);
+    });
+
+    it('returns to the workspace’s first dashboard when hidden while on its All items', async () => {
+      setAllItemsTab('ws-work', true);
+      showTabs(['Work', 'Personal'], { here: 'ws-work', onAllItemsOf: 'ws-work' });
+
+      await menuOf('Work');
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Hide All items tab' }));
+
+      expect(readAllItemsTab(localStorage, 'ws-work')).toBe(false);
+      await waitFor(() =>
+        expect(wentTo.calls).toMatchObject([
+          { to: '/w/$workspaceId/d/$dashboardId', params: { workspaceId: 'ws-work', dashboardId: 'ws-work-first' } },
+        ]),
+      );
+    });
+
+    it('stays on the dashboard when hidden while on a dashboard', async () => {
+      setAllItemsTab('ws-work', true);
+      showTabs(['Work', 'Personal'], { here: 'ws-work' });
+
+      await menuOf('Work');
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Hide All items tab' }));
+
+      expect(readAllItemsTab(localStorage, 'ws-work')).toBe(false);
+      expect(wentTo.calls).toEqual([]);
+    });
+
+    it('stays on this workspace’s All items when another workspace’s tab is hidden', async () => {
+      setAllItemsTab('ws-work', true);
+      setAllItemsTab('ws-personal', true);
+      showTabs(['Work', 'Personal'], { here: 'ws-work', onAllItemsOf: 'ws-work' });
+
+      await menuOf('Personal');
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Hide All items tab' }));
+
+      expect(readAllItemsTab(localStorage, 'ws-personal')).toBe(false);
+      expect(readAllItemsTab(localStorage, 'ws-work')).toBe(true);
+      expect(wentTo.calls).toEqual([]);
     });
   });
 
