@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { main } from '../../src/cli.js';
+import { descriptionFile } from '../support/description.js';
 
 const checkout = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const dirs = [];
@@ -27,9 +28,15 @@ afterEach(() => {
 const WORKFLOW = 'name: Tests\non:\n  pull_request:\njobs:\n  go:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n';
 
 /** A repository holding just what the generator reads, with the given text for each file. */
-function fixture({ config = '{ // comment\n "name": "w", }\n', workflows = { 'tests.yml': WORKFLOW } } = {}) {
+function fixture({ config = '{ // comment\n "name": "w", }\n', workflows = { 'tests.yml': WORKFLOW }, files = {}, description = descriptionFile().text } = {}) {
   const root = tmp();
   mkdirSync(path.join(root, 'apps/api'), { recursive: true });
+  mkdirSync(path.join(root, 'tools/architecture'), { recursive: true });
+  writeFileSync(path.join(root, 'tools/architecture/description.yml'), description);
+  for (const [name, text] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
+    writeFileSync(path.join(root, name), text);
+  }
   mkdirSync(path.join(root, '.github/workflows'), { recursive: true });
   writeFileSync(path.join(root, 'apps/api/wrangler.jsonc'), config);
   for (const [name, text] of Object.entries(workflows)) writeFileSync(path.join(root, '.github/workflows', name), text);
@@ -49,13 +56,16 @@ describe('A run that cannot read a file it needs fails and writes nothing', () =
     const run = await draw(fixture());
     expect(run.code).toBe(0);
     expect(JSON.parse(readFileSync(run.model, 'utf8')).deployment.workflows.map((each) => each.file)).toEqual(['tests.yml']);
-    expect(readFileSync(run.out, 'utf8')).toContain('<h1>Deployment</h1>');
+    expect(readFileSync(run.out, 'utf8')).toContain('<h1>Architecture</h1>');
   });
 
   it.each([
     { situation: 'the Worker config does not parse', make: () => fixture({ config: '{ "name": ' }) },
     { situation: 'a workflow does not parse', make: () => fixture({ workflows: { 'tests.yml': WORKFLOW, 'bad.yml': 'on: [\n' } }) },
     { situation: 'the Worker config is missing', make: () => { const root = fixture(); rmSync(path.join(root, 'apps/api/wrangler.jsonc')); return root; } },
+    { situation: 'the description file is missing', make: () => { const root = fixture(); rmSync(path.join(root, 'tools/architecture/description.yml')); return root; } },
+    { situation: 'the description file does not parse', make: () => fixture({ description: 'layers: [\n' }) },
+    { situation: 'the description file leaves out what it must hold', make: () => fixture({ description: 'layers: []\n' }) },
     { situation: 'there are no workflows', make: () => fixture({ workflows: {} }) },
   ])('exits non-zero with neither page nor model when $situation', async ({ make }) => {
     const run = await draw(make());
@@ -83,5 +93,42 @@ describe('This repository\'s own config and workflows draw without error', () =>
     expect(deploys['deploy-production.yml']).toEqual(['production']);
     expect(deployment.pages.workflow).toBe('publish.yml');
     expect(deployment.pages.reports).toEqual(expect.arrayContaining([{ artifact: 'architecture-report', path: '/architecture/' }, { artifact: 'test-explorer-report', path: '/' }]));
+  });
+});
+
+describe('Modules', () => {
+  const modelOf = async (root) => {
+    const run = await draw(root);
+    expect(run.code).toBe(0);
+    return JSON.parse(readFileSync(run.model, 'utf8'));
+  };
+
+  it('finds the areas on disk by the description file’s own rules: folders, root files, packages, never tests or dependencies', async () => {
+    const root = fixture({
+      files: {
+        'apps/web/src/main.tsx': 'export {}',
+        'apps/api/src/http/app.ts': 'export {}',
+        'apps/api/src/index.ts': 'export {}',
+        'apps/api/src/only-tests/a.test.ts': 'export {}',
+        'apps/api/src/node_modules/dep/x.ts': 'export {}',
+        'packages/shared/package.json': '{}',
+        'packages/shared/src/index.ts': '// gmail only in a comment\nexport {};',
+        'packages/not-a-package/x.ts': 'export {}',
+        'packages/connectors/teams/package.json': '{}',
+        'packages/connectors/teams/src/index.ts': "import '@cockpit/shared';",
+      },
+    });
+    const { modules } = await modelOf(root);
+    const found = Object.fromEntries(modules.layers.flatMap((layer) => layer.areas).map((each) => [each.path, each]));
+    expect(Object.keys(found).sort()).toEqual(['apps/api/src/*', 'apps/api/src/http', 'apps/web/src', 'packages/connectors/teams', 'packages/shared']);
+    expect(found['packages/shared'].sources).toEqual([]);
+    expect(found['packages/connectors/teams'].breaches).toEqual([{ file: 'src/index.ts', import: '@cockpit/shared' }]);
+    expect(found['apps/api/src/*'].files).toBe(1);
+  });
+
+  it('describes every area on this repository’s disk today, and none that is no longer there', async () => {
+    const { modules } = await modelOf(checkout);
+    expect(modules.layers.flatMap((layer) => layer.areas).filter((each) => each.state !== 'described').map((each) => `${each.state}: ${each.path}`)).toEqual([]);
+    expect(modules.counts.areas).toBeGreaterThan(10);
   });
 });

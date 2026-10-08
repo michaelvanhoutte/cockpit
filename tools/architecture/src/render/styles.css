@@ -10,6 +10,12 @@
   --line: #262b38;
   --accent: #6ea8fe;
   --soft: #1b1f29;
+  --red: #f07462;
+  --amber: #e2a54b;
+  --green: #62c08a;
+  --neutral: #7c8798;
+  --red-soft: #3a1f1d;
+  --amber-soft: #3a2e17;
   --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
@@ -24,6 +30,12 @@
     --line: #dcdfe6;
     --accent: #1f5fd1;
     --soft: #eef0f4;
+    --red: #c0392b;
+    --amber: #a86c12;
+    --green: #2c7a4b;
+    --neutral: #8a94a4;
+    --red-soft: #fbeceb;
+    --amber-soft: #fbf1df;
   }
 }
 
@@ -37,6 +49,7 @@ code { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
 .eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em; font-size: 12px; font-weight: 600; margin: 0 0 8px; }
 h1 { font-size: 28px; margin: 0 0 12px; }
 h2 { font-size: 18px; margin: 32px 0 4px; }
+section { scroll-margin-top: 12px; }
 .standfirst { color: var(--ink-2); max-width: 760px; margin: 0 0 20px; }
 .sectionnote { color: var(--ink-3); font-size: 13px; margin: 0 0 12px; max-width: 760px; }
 
@@ -48,10 +61,27 @@ h2 { font-size: 18px; margin: 32px 0 4px; }
 .diagram { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-top: 12px; }
 .diagram svg { display: block; width: 100%; height: auto; }
 
+nav.views { display: flex; gap: 8px 18px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; }
+nav.views a { color: var(--accent); text-decoration: none; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 13px; color: var(--ink-3); margin: 0 0 4px; }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.sw { flex: none; width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+
 /* The diagram's own shapes and type */
+.ext { fill: var(--bg); stroke: var(--line); }
+.link { stroke: var(--neutral); stroke-width: 1.2; fill: none; }
+.breach { fill: var(--card); stroke: var(--red); stroke-width: 1.5; }
+.undescribed { fill: var(--amber-soft); stroke: var(--amber); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.clean { fill: var(--card); stroke: var(--green); stroke-width: 1.5; }
+.ghost { fill: var(--red-soft); stroke: var(--red); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.d-red { fill: var(--red); background: var(--red); } .d-amber { fill: var(--amber); background: var(--amber); }
+.d-green { fill: var(--green); background: var(--green); }
+.t-red { font: 600 12.5px var(--sans); fill: var(--red); }
+.t-amber { font: 600 12.5px var(--sans); fill: var(--amber); }
 .box { fill: var(--card); stroke: var(--line); stroke-width: 1; }
 .soft { fill: var(--soft); stroke: var(--line); stroke-width: 1; }
-.worker { fill: var(--card); stroke: var(--accent); stroke-width: 1.5; }
+.worker, .cockpit { fill: var(--card); stroke: var(--accent); stroke-width: 1.5; }
 .wline { fill: none; stroke: var(--accent); stroke-width: 1.5; }
 .arrowhead { fill: var(--accent); }
 .t-h { font: 600 13px var(--mono); fill: var(--ink-1); }

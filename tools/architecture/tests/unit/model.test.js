@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildModel, describeCron, ReadError } from '../../src/model.js';
+import { descriptionFile } from '../support/description.js';
 
 /** A Worker config in the shape the real one has: JSONC, with comments and a trailing comma. */
 const config = (overrides = {}) =>
@@ -35,7 +36,7 @@ const config = (overrides = {}) =>
   ).replace('{\n', '{\n  // a comment, as the real file has many\n').replace(/\n}$/, ',\n}');
 
 const model = (wrangler = config(), workflows = []) =>
-  buildModel({ wrangler: { file: 'apps/api/wrangler.jsonc', text: wrangler }, workflows, commit: 'abc1234def', date: '2026-10-08T13:03:04+02:00' });
+  buildModel({ wrangler: { file: 'apps/api/wrangler.jsonc', text: wrangler }, workflows, description: descriptionFile(), commit: 'abc1234def', date: '2026-10-08T13:03:04+02:00' });
 
 const environment = (built, name) => built.deployment.environments.find((each) => each.name === name);
 const named = (resources, kind) => resources.filter((each) => each.kind === kind).map((each) => each.name);
