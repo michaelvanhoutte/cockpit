@@ -771,6 +771,109 @@ test.describe('Panels', () => {
 
       await page.reload();
       await expect.poll(() => rowsOnScreen(page)).toEqual([[three, four], [five], [one, two]]);
+
+      // **The first Panel taken from the top and dropped into the last row**
+      // leaves the Dashboard unable to scroll far enough to hold its header
+      // where it was let go: the shortfall is room below the board, never the
+      // board pulled up out of reach. What lies between the last row and the end of the
+      // Dashboard with nothing to make up is what "no empty space" is measured against.
+      const gapBelowRows = async () => {
+        const rows = await rowsOnScreen(page);
+        const last = rows[rows.length - 1]!;
+        const lastBox = (await page.getByRole('region', { name: last[0]! }).boundingBox())!;
+        return dashboard.evaluate(
+          (el, lastBottom) => ({
+            gap: el.getBoundingClientRect().top - el.scrollTop + el.scrollHeight - lastBottom,
+            fits: el.scrollHeight <= el.clientHeight,
+          }),
+          lastBox.y + lastBox.height,
+        );
+      };
+      // Empty room below the last row: whatever the Dashboard scrolls past the
+      // usual gap, a board shorter than the screen having none to scroll.
+      const roomBelow = async () => {
+        const { gap, fits } = await gapBelowRows();
+        return fits ? 0 : gap - usualGap;
+      };
+      const toTheFoot = () =>
+        dashboard.evaluate((el) => {
+          el.scrollTop = el.scrollHeight;
+        });
+      const toTheTop = () =>
+        dashboard.evaluate((el) => {
+          el.scrollTop = 0;
+        });
+      const settle = () =>
+        page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      await toTheFoot();
+      const usualGap = (await gapBelowRows()).gap;
+      await toTheTop();
+
+      /** Takes the first Panel of the first row and lets it go on the last row's first Panel, returning where it was let go. */
+      const dropFirstOnLast = async () => {
+        const rows = await rowsOnScreen(page);
+        const taken = rows[0]![0]!;
+        const onto = rows[rows.length - 1]![0]!;
+        const saved = answerTo(page, 'save_layout');
+        await page.mouse.move(...(await centreOf(headerOf(taken))));
+        await page.mouse.down();
+        await expect
+          .poll(async () => (await page.getByRole('region', { name: onto }).boundingBox())!.height)
+          .toBeLessThan(100);
+        await page.mouse.move(...(await centreOf(headerOf(onto))), { steps: 8 });
+        await settle();
+        const letGo = await headerTop(taken);
+        await page.mouse.up();
+        expect((await saved).status()).toBe(200);
+        await expect
+          .poll(async () => (await page.getByRole('region', { name: onto }).boundingBox())!.height)
+          .toBeGreaterThan(300);
+        return { taken, onto, letGo };
+      };
+
+      const bar = dashboardBar(page);
+      const dropped = await dropFirstOnLast();
+      await expect.poll(async () => Math.abs((await headerTop(dropped.taken)) - dropped.letGo) <= 1).toBe(true);
+
+      // Scrolled to the top, the first row's header is below the Dashboard bar
+      // rather than under it.
+      await toTheTop();
+      const firstRow = (await rowsOnScreen(page))[0]![0]!;
+      const barBottom = (await bar.boundingBox())!.y + (await bar.boundingBox())!.height;
+      expect(await headerTop(firstRow)).toBeGreaterThanOrEqual(barBottom - 1);
+
+      // **The room went with that scroll, and nothing on screen moved when it
+      // did**; back at the foot the page ends at the last row.
+      const seenAt = await headerTop(firstRow);
+      await settle();
+      expect(await headerTop(firstRow)).toBe(seenAt);
+      expect(await dashboard.evaluate((el) => el.scrollTop)).toBe(0);
+      await toTheFoot();
+      expect(Math.abs(await roomBelow())).toBeLessThanOrEqual(1);
+
+      // **A drag started with the room still there** holds the header under
+      // the pointer, and once it is let go high no earlier room remains below.
+      await toTheTop();
+      const again = await dropFirstOnLast();
+      const [holdX, holdY] = await centreOf(headerOf(again.taken));
+      const heldAt = await headerTop(again.taken);
+      await page.mouse.move(holdX, holdY);
+      await page.mouse.down();
+      await expect
+        .poll(async () => (await page.getByRole('region', { name: again.onto }).boundingBox())!.height)
+        .toBeLessThan(100);
+      await expect.poll(async () => Math.abs((await headerTop(again.taken)) - heldAt) <= 1).toBe(true);
+      // Carried up to the top row, where scrolling alone can hold the header,
+      // so any room left below afterwards is the earlier drop's.
+      const top = (await rowsOnScreen(page))[0]![0]!;
+      await page.mouse.move(...(await centreOf(headerOf(top))), { steps: 8 });
+      await settle();
+      await page.mouse.up();
+      await expect
+        .poll(async () => (await page.getByRole('region', { name: again.onto }).boundingBox())!.height)
+        .toBeGreaterThan(300);
+      await toTheFoot();
+      expect(Math.abs(await roomBelow())).toBeLessThanOrEqual(1);
     });
   });
 
