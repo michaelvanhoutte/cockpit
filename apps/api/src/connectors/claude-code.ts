@@ -178,13 +178,15 @@ export async function fireRoutine(
           // integration tests replace `fetch` and could not see it, the browser
           // walk in tests/e2e/agents.test.ts is what does).
           redirect: 'manual',
-      signal: AbortSignal.timeout(options.timeoutMs ?? FIRE_TIMEOUT_MS),
+          signal: AbortSignal.timeout(options.timeoutMs ?? FIRE_TIMEOUT_MS),
         });
         if (!answered.ok) throw new RoutineRefused(answered.status);
         return { value: answered, tokens: null };
       },
       { ...NEVER_RETRIED, outcomeOf: routineOutcome },
-      inRealTime(callFor.record),
+      // A stand-in origin is not Anthropic, so the fire is not a paid call and
+      // records nothing, as the embeddings stand-in does.
+      inRealTime(options.origin ? async () => {} : callFor.record),
     );
   } catch (error) {
     if (error instanceof RoutineRefused) return { answered: 'refused', ...refusalFor(error.status) };

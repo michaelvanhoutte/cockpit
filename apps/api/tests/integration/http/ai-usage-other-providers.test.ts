@@ -333,5 +333,29 @@ describe('AI usage', () => {
 
       expect(await records()).toEqual([]);
     });
+
+    it('records nothing for a routine fired at a stand-in origin', async () => {
+      const origin = 'http://stand-in.localhost:9999';
+      env.CLAUDE_CODE_ROUTINES_ORIGIN = origin;
+      vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (!url.startsWith(origin)) throw new Error(`nothing in a test may reach ${url}`);
+        return new Response(JSON.stringify({ claude_code_session_url: SESSION_URL }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      });
+      try {
+        const connected = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections/claude-code/connect`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ routineUrl: `${origin}/v1/claude_code/routines/rt-workspace-1/fire`, token: 'a-routine-token' }),
+        });
+        expect(await connected.json()).toEqual({ accepted: true });
+        expect(await records()).toEqual([]);
+      } finally {
+        delete env.CLAUDE_CODE_ROUTINES_ORIGIN;
+      }
+    });
   });
 });
