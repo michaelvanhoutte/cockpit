@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { uuidv7 } from '@cockpit/shared';
 import { snapshotQuery, workspacesQuery } from '../api/queries';
+import { useAppearance } from '../appearance';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { useCapture } from '../capture';
 import { useOutbox } from '../captureOutboxSender';
@@ -36,8 +37,11 @@ import { browserWakeLock, useScreenWakeLock, type WakeLockApi } from '../wakeLoc
  * light until first switched whatever the phone's own setting says. While shown
  * dark it flags the document (`CAR_DARK_FLAG`); the page heading, the Write | Car
  * switch, the shell's edge and the band under the tabs are styled from that flag
- * in `styles.css`. The flag is cleared on switching light and on leaving, so
- * Write and every other screen are never dark.
+ * in `styles.css`. The flag is set too whenever the app is dark ("Keep the Car
+ * view dark whenever the app is", issue 845), and the switch is hidden then,
+ * since pressing it would change nothing; it returns, with this choice as it
+ * was, once the app is light. The flag is cleared on switching light and on
+ * leaving, so Write and every other screen are never dark by it.
  *
  * Fetched behind the shell with the Capture form (`captureForm.ts`), so none of
  * it is in the first bundle.
@@ -182,10 +186,14 @@ function Driving({
   const [provisional, setProvisional] = useState('');
   const [recent, setRecent] = useState<Recent[]>([]);
   const store = dictating?.store ?? browserStore();
-  const [dark, setDark] = useState(() => readCarDark(store));
+  /** This view's own choice, kept while the app is dark and not shown then. */
+  const [chosenDark, setDark] = useState(() => readCarDark(store));
+  const appDark = useAppearance() === 'dark';
+  /** The night look: the view's own choice, or the app being dark. */
+  const dark = chosenDark || appDark;
   const toggleDark = () => {
-    writeCarDark(store, !dark);
-    setDark(!dark);
+    writeCarDark(store, !chosenDark);
+    setDark(!chosenDark);
   };
   // Before the view first paints, so opening it dark never shows a light frame.
   useLayoutEffect(() => {
@@ -446,33 +454,35 @@ function Driving({
           >
             {tag}
           </button>
-          <button
-            type="button"
-            onClick={toggleDark}
-            aria-pressed={dark}
-            aria-label="Dark view"
-            title={dark ? 'Switch to the light view' : 'Switch to the dark view'}
-            className={`inline-flex min-h-9 min-w-9 items-center justify-center rounded-md border px-2 ${d(
-              'border-shade/10 bg-field text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink',
-              'border-white/10 bg-night-card text-night-ink-soft',
-            )}`}
-          >
-            {dark ? (
-              <svg viewBox="0 0 16 16" className="size-4" aria-hidden="true">
-                <circle cx="8" cy="8" r="3" fill="currentColor" />
-                <path
-                  d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6 13 13M3 13l1.4-1.4M11.6 4.4 13 3"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 16 16" className="size-4" aria-hidden="true">
-                <path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5Z" fill="currentColor" />
-              </svg>
-            )}
-          </button>
+          {!appDark && (
+            <button
+              type="button"
+              onClick={toggleDark}
+              aria-pressed={chosenDark}
+              aria-label="Dark view"
+              title={chosenDark ? 'Switch to the light view' : 'Switch to the dark view'}
+              className={`inline-flex min-h-9 min-w-9 items-center justify-center rounded-md border px-2 ${d(
+                'border-shade/10 bg-field text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink',
+                'border-white/10 bg-night-card text-night-ink-soft',
+              )}`}
+            >
+              {chosenDark ? (
+                <svg viewBox="0 0 16 16" className="size-4" aria-hidden="true">
+                  <circle cx="8" cy="8" r="3" fill="currentColor" />
+                  <path
+                    d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6 13 13M3 13l1.4-1.4M11.6 4.4 13 3"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 16 16" className="size-4" aria-hidden="true">
+                  <path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5Z" fill="currentColor" />
+                </svg>
+              )}
+            </button>
+          )}
           <span>{SCREEN_LINES[screen]}</span>
         </div>
         {recent.length > 0 && (

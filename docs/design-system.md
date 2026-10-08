@@ -85,7 +85,7 @@ The whole app, logon page included, when the device is set to dark or the choice
 
 ## The dark Car view
 
-Switched on from inside the Car view, for capturing at night, and independent of the app's own appearance above. **Dimmed, not inverted**: a near-black ground, grey text, each surface one notch lighter. The top bar is unchanged. The tokens are `night*` in `styles.css`; every text is at least 4.5:1 on what it is drawn on (held by a test), except the set-apart placeholder and provisional words at 3:1.
+Switched on from inside the Car view, for capturing at night, **and always on while the app is dark**: either one gives the night look, and the moon/sun switch is hidden while the app is dark and returns, with its own remembered choice as it was, once the app is light. The Car view's flag (`data-car-dark`) and stored choice are its own and untouched by the app's. **Dimmed, not inverted**: a near-black ground, grey text, each surface one notch lighter. The top bar is unchanged. The tokens are `night*` in `styles.css`; every text is at least 4.5:1 on what it is drawn on (held by a test), except the set-apart placeholder and provisional words at 3:1.
 
 | Where | Value |
 |---|---|
