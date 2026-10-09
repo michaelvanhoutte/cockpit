@@ -33,6 +33,8 @@ export interface PulledRunStarted {
   /** Who the connection is at the source, and whose Workspace - what the ids of the Items it files are derived from. */
   workspaceId: string;
   externalAccountKey: string;
+  /** The choice the connection holds as the run starts, or null where it holds none (issue 942). */
+  choice: string | null;
 }
 
 export type PulledRunBegun = PulledRunStarted | { status: 'already running' | 'not queued' | 'disconnected' };
@@ -152,6 +154,7 @@ export function beginPulledRun(
     connectorId: connection.connectorId,
     workspaceId: connection.workspaceId,
     externalAccountKey: connection.externalAccountKey,
+    choice: connection.choice,
   };
 }
 
@@ -445,6 +448,7 @@ function connectionOf(db: AccountDb, accountName: string, sourceAccountId: strin
       externalAccountKey: connectorAccounts.externalAccountKey,
       sealedCredential: connectorAccounts.encryptedCredential,
       credentialNonce: connectorAccounts.credentialNonce,
+      choice: connectorAccounts.choice,
     })
     .from(connectorAccounts)
     .where(and(eq(connectorAccounts.tenantId, accountName), eq(connectorAccounts.id, sourceAccountId)))

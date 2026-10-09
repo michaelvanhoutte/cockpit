@@ -80,8 +80,20 @@ export const registeredConnectorSchema = z.object({
   id: z.string(),
   displayName: z.string(),
   cardText: z.string(),
-  /** Whether connecting asks the person something before it leaves for the source. */
+  /** Whether connecting asks the person something before it leaves for the source: true where `choice` is present. */
   asksFirst: z.boolean(),
+  /**
+   * The one choice the connection makes, asked before the sign-in and
+   * changeable later ("Ask a connection's one choice on connecting, and change
+   * it later", issue 942): the connector's own question and options, a value
+   * each stored as given. Absent for a connector that asks nothing.
+   */
+  choice: z
+    .object({
+      question: z.string(),
+      options: z.object({ value: z.string(), label: z.string() }).array().min(1),
+    })
+    .optional(),
   /**
    * What the window says when this connector refuses a grant, by the code the
    * redirect back names: the connector's own sentences, listed here because

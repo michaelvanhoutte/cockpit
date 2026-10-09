@@ -199,6 +199,10 @@ const api = start(
     'exec',
     'wrangler',
     'dev',
+    // The same Worker with one fake pulled connector registered beside the
+    // registry's own, so a walk can reach a connection's one choice
+    // (apps/api/tests/e2e-worker.ts; `pnpm dev` registers none).
+    'tests/e2e-worker.ts',
     // The environment with no Workers AI binding, for the reason scripts/dev.mjs
     // passes it: a local run cannot reach one, and a CI runner has no Cloudflare
     // account to reach it with (apps/api/wrangler.jsonc).

@@ -150,6 +150,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     gmailItemsUnderTheirConnector(accountId),
     PULLED_LINK_CHOICE,
     gmailItemsUnderTheirConnectorAgain(accountId),
+    CONNECTION_CHOICE,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -377,6 +378,35 @@ function gmailItemsUnderTheirConnector(accountId: string): Change {
 const PULLED_LINK_CHOICE: Change = {
   name: '0063-pulled-link-choice',
   statements: [{ sql: 'ALTER TABLE `pulled_links` ADD COLUMN `choice` text' }],
+};
+
+/**
+ * The one choice a connection made when it was connected ("Ask a connection's
+ * one choice on connecting, and change it later", issue 942) - one nullable
+ * column on `connector_accounts`; `schema.ts` says what it carries. Gmail's
+ * `follows` column stays its own and unread by this.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that writes to a row.
+ * - **If it stops halfway:** the statement landed or did not; the change is
+ *   recorded only once it has, in the same `transactionSync` (store.ts).
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** none. Every existing connection
+ *   takes null, which a connector that declares no choice reads as it always
+ *   has.
+ * - **What is in each environment:** Teams, Gmail and Claude Code connections,
+ *   none of which declares a choice; all keep their rows whole.
+ * - **Rolled back after it has run:** an older release names the columns it
+ *   reads and ignores this one; a choice made meanwhile is kept for when the
+ *   newer release serves again.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const CONNECTION_CHOICE: Change = {
+  name: '0065-connection-choice',
+  statements: [{ sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `choice` text' }],
 };
 
 /**

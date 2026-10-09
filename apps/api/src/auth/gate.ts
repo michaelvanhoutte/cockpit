@@ -380,6 +380,15 @@ export interface ConnectAttempt extends Attempt {
    * else, is the label's.
    */
   readonly follows?: GmailMark;
+  /**
+   * The value of the one choice a described source's connection makes, as the
+   * Connect window asked it ("Ask a connection's one choice on connecting, and
+   * change it later", issue 942). Carried here, where the browser cannot
+   * choose it, so a callback is never handed a choice the person did not make
+   * at the start; the callback checks it against the connector's options
+   * before it is stored. Absent for a source that asks nothing.
+   */
+  readonly choice?: string;
 }
 
 function attemptCookieName(url: string): string {
@@ -453,7 +462,7 @@ export function attemptHeld(c: Context): SignInAttempt | null {
 export function connectAttemptHeld(c: Context): ConnectAttempt | null {
   const held = readAttempt(getCookie(c, connectCookieName(c.req.url)));
   if (!held) return null;
-  const { workspaceId, accountName, connectorId, follows } = held.also;
+  const { workspaceId, accountName, connectorId, follows, choice } = held.also;
   if (typeof workspaceId !== 'string' || !workspaceId) return null;
   if (typeof accountName !== 'string' || !accountName) return null;
   return {
@@ -464,6 +473,7 @@ export function connectAttemptHeld(c: Context): ConnectAttempt | null {
     accountName,
     connectorId: typeof connectorId === 'string' && connectorId ? connectorId : 'teams',
     follows: follows === 'star' ? 'star' : 'label',
+    ...(typeof choice === 'string' && choice ? { choice } : {}),
   };
 }
 

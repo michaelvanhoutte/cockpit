@@ -95,6 +95,37 @@ test.describe('Connector management', () => {
       const again = await openSettings(page, 'Connections', isMobile);
       await expect(again.getByText(/Nothing connected yet/)).toBeVisible();
 
+      // A connector that declares one choice ("Ask a connection's one choice on
+      // connecting, and change it later", issue 942), against the fake pulled
+      // connector the stack registers beside the registry's own
+      // (apps/api/tests/e2e-worker.ts): the one place the question, the redirect
+      // that carries the answer and the stored row meet in a browser. What is
+      // stored, refused and handed to the connector is held below
+      // (apps/api/tests/integration/connectors/connection-choice.test.ts).
+      await press(again.getByRole('button', { name: 'Connect Fake Pages' }), isMobile);
+      const asked = page.getByRole('dialog', { name: 'Connect Fake Pages' });
+      await expect(asked.getByRole('radio', { name: 'Starred pages' })).toBeChecked();
+      await press(asked.getByText('Every page'), isMobile);
+      await press(asked.getByRole('button', { name: 'Connect' }), isMobile);
+      await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
+      const pagesBack = page.getByRole('dialog', { name: 'Settings' });
+      await expect(pagesBack.getByText('Fake Pages · Every page')).toBeVisible();
+
+      await chooseRowAction(page, 'michael@example.com', 'Change…', isMobile);
+      const changing = page.getByRole('dialog', { name: 'Change michael@example.com' });
+      await expect(changing.getByRole('radio', { name: 'Every page' })).toBeChecked();
+      await press(changing.getByText('Starred pages'), isMobile);
+      await press(changing.getByRole('button', { name: 'Save' }), isMobile);
+      await expect(changing).toHaveCount(0);
+      await expect(pagesBack.getByText('Fake Pages · Starred pages')).toBeVisible();
+
+      await closeSettings(page, isMobile);
+      const pagesAgain = await openSettings(page, 'Connections', isMobile);
+      await expect(pagesAgain.getByText('Fake Pages · Starred pages')).toBeVisible();
+      await chooseRowAction(page, 'michael@example.com', 'Disconnect', isMobile);
+      await press(page.getByRole('button', { name: 'Yes, disconnect michael@example.com' }), isMobile);
+      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+
       // Gmail, beside it ("Connect a Gmail account to a workspace, and
       // disconnect it", issue 724): a step before Google, which Cancel leaves
       // without going anywhere, and then the same trip out and back.

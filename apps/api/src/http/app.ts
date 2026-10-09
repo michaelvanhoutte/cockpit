@@ -269,6 +269,14 @@ function gmailNotConnectedBecause(reason: string, reply: { error?: string | null
   return 'refused';
 }
 
+/**
+ * The options a connection's connector offers for its one choice, or none where
+ * it declares none - Gmail's own `follows` is not one (issue 942).
+ */
+function choiceOptionsOf(env: Env, connectorId: string) {
+  return connectorId === GMAIL ? undefined : getConnector(env, connectorId)?.manifest.choice?.options;
+}
+
 /** A connection that will not be completed, logged the way a refused sign-in is. */
 function refuseConnection(
   c: Context,
@@ -1557,7 +1565,18 @@ const routes = app
     // store is a different SQLite database entirely - so there is no
     // workspace id this request could name that reaches somebody else's
     // connections, the same reasoning the attachment download route records.
-    return c.json({ sourceAccounts: await account.sourceAccounts(workspaceId) }, 200);
+    // A described source's choice is stored as its value, and said in its
+    // connector's words here, where the registry is known (issue 942).
+    return c.json(
+      {
+        sourceAccounts: (await account.sourceAccounts(workspaceId)).map((held) => {
+          const options = choiceOptionsOf(c.env, held.connectorId);
+          const label = options?.find((option) => option.value === held.follows)?.label;
+          return label === undefined ? held : { ...held, followsLabel: label };
+        }),
+      },
+      200,
+    );
   })
   .openapi(registeredConnectorsRoute, async (c) => {
     // Listed only where Connect would go through: the sign-in, client and
@@ -1574,7 +1593,10 @@ const routes = app
             id: manifest.id,
             displayName: manifest.displayName,
             cardText: manifest.cardText,
-            asksFirst: manifest.asksFirst === true,
+            asksFirst: manifest.choice !== undefined,
+            ...(manifest.choice
+              ? { choice: { question: manifest.choice.question, options: manifest.choice.options.map((option) => ({ ...option })) } }
+              : {}),
             refusals: signInOf(c.env, manifest.id)?.auth.refusals ?? {},
           })),
       },
@@ -1958,6 +1980,21 @@ const routes = app
     return c.json(result, 200);
   })
   .openapi(commandRoute('set_gmail_follows'), async (c) => c.json(await change(c, 'set_gmail_follows', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_connection_choice'), async (c) => {
+    const cmd = c.req.valid('json');
+    // The value has to be one the connection's connector offers, which only
+    // this layer can say: the store is blind to connectors. Read from this
+    // Workspace's own connections, so another Workspace's reads as missing
+    // here as the command itself would refuse it (issue 942).
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    const held = (await account.sourceAccounts(cmd.workspaceId)).find((one) => one.id === cmd.sourceAccountId);
+    if (!held) throw new NotFoundInAccountError(`source account ${cmd.sourceAccountId} not found`);
+    const options = choiceOptionsOf(c.env, held.connectorId);
+    if (!options?.some((option) => option.value === cmd.choice)) {
+      throw new RefusedByAccountError('that is not a choice this connection offers');
+    }
+    return c.json(await account.applyChange('set_connection_choice', cmd), 200);
+  })
   .openapi(commandRoute('set_workspace_theme'), async (c) => c.json(await change(c, 'set_workspace_theme', c.req.valid('json')), 200))
   .openapi(commandRoute('delete_workspace'), async (c) => c.json(await change(c, 'delete_workspace', c.req.valid('json')), 200))
   .openapi(commandRoute('capture_item'), async (c) => {
@@ -2358,6 +2395,14 @@ const routes = app
     const workspaceId = c.req.param('workspaceId');
     const sign = signInOf(c.env, c.req.param('connectorId'));
     if (!sign) return c.notFound();
+    // The choice the connector asks, answered before anybody leaves: a value
+    // among its options, or the Connect is refused and nothing is started
+    // (issue 942). A source that asks nothing carries nothing.
+    const asked = sign.connector.manifest.choice;
+    const choice = c.req.query('choice');
+    if (asked && !asked.options.some((option) => option.value === choice)) {
+      return refuseConnection(c, workspaceId, 'the choice is not one the source offers');
+    }
     try {
       // Theirs, and still there - asked before anybody is sent away, so a
       // Workspace deleted in another tab refuses here rather than after a
@@ -2378,6 +2423,7 @@ const routes = app
         workspaceId,
         accountName: c.get('visitor').accountName,
         connectorId: sign.connector.manifest.id,
+        ...(asked && choice ? { choice } : {}),
       };
       rememberConnectAttempt(c, attempt);
       // `client.clientId`, never the setting again: the two have to be
@@ -2430,6 +2476,14 @@ const routes = app
       return refuseConnection(c, undefined, 'the connection was started by another account');
     }
 
+    // The choice the attempt carries is the one the person made at the start;
+    // one that is not among the connector's options is refused and nothing is
+    // stored (issue 942).
+    const asked = sign.connector.manifest.choice;
+    if (asked && !asked.options.some((option) => option.value === attempt!.choice)) {
+      return refuseConnection(c, attempt!.workspaceId, 'the choice is not one the source offers');
+    }
+
     try {
       const client = clientOf(c.env, sign.auth);
       const key = await sealingKey(c.env.CONNECTOR_CREDENTIAL_KEY);
@@ -2464,6 +2518,7 @@ const routes = app
         externalAccountKey: account.key,
         displayName: account.displayName,
         ...sealed,
+        ...(asked ? { choice: attempt!.choice! } : {}),
       });
       // **After the connection is stored, and only then.** The register's index
       // is what lets a saved message find this Workspace later ("Save a Teams
