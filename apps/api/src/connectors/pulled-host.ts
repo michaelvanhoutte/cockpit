@@ -101,10 +101,12 @@ async function mirrorWhatWasChanged(connector: Connector, connectorId: string, h
     const set = new Set(ids);
     return wanted.filter((one) => set.has(one.sourceId));
   };
-  const refused = named(gaveUp);
+  const held = named(confirmed);
+  // An id named both ways is confirmed: the source holds it, so nothing was refused.
+  const refused = named(gaveUp).filter((one) => !held.includes(one));
   // A give-up clears exactly as a confirmation does; it is logged only where
   // it cleared, since a run that lost its connection cleared nothing.
-  const cleared = await run.confirmOpenStates([...named(confirmed), ...refused]);
+  const cleared = await run.confirmOpenStates([...held, ...refused]);
   if (cleared !== 'confirmed') return;
   for (const one of refused) {
     logged(

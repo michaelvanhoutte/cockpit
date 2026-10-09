@@ -152,7 +152,7 @@ export function openStatesWaiting(
 }
 
 /**
- * Clears what the source confirmed holding - each only where it is still
+ * Clears what the source confirmed holding or the connector gave up on - each only where it is still
  * what was handed over, so a change made while the connector pushed is kept
  * waiting. One statement per link, so no statement's parameters grow with how
  * many were waiting.
