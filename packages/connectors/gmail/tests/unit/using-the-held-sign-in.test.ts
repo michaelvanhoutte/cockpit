@@ -74,15 +74,16 @@ describe('Connector management', () => {
       await expect(world.connector().sync(signedInHost())).rejects.toThrow(SIGN_IN_REFUSED);
     });
 
-    it('does not fail on Google only failing to answer a refresh this time', async () => {
+    it('does not fail on Google only failing to answer a refresh this time, as the core did not', async () => {
       const world = new GmailWorld();
       world.refreshAnswer = { status: 503, body: {} };
+      const host = signedInHost({ expiresAt: null });
 
-      const failure = await world.connector().sync(signedInHost({ expiresAt: null })).catch((error: unknown) => error as Error);
+      await expect(world.connector().sync(host)).resolves.toBeUndefined();
 
-      expect(failure).toBeInstanceOf(Error);
-      expect((failure as Error).message).toMatch(/503/);
-      expect((failure as Error).message).not.toBe(SIGN_IN_REFUSED);
+      expect(host.logged.map((line) => line.level)).toEqual(['warn']);
+      expect(JSON.stringify(host.logged[0]!.data)).toMatch(/503/);
+      expect(host.state).toBeNull();
     });
 
     it.each([

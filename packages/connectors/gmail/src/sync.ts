@@ -122,6 +122,14 @@ export async function syncMailbox(host: ConnectorHost, config: GmailConnectorCon
     // save must not hide why the run stopped.
     await run.keep().catch(() => undefined);
     if (error instanceof OutOfCalls) return { moreToDo: true };
+    // Gmail or Google not answering this time is a blip, as it was in the core:
+    // logged and left for the next run, where a thrown error would put
+    // "Failing" on the Connections window for five minutes. What is wrong for
+    // good (a sign-in refused, no label) still throws.
+    if (error instanceof NotAnswering) {
+      host.log('warn', 'a Gmail connection could not be checked this time', { cause: error.message });
+      return;
+    }
     throw error;
   }
 }
