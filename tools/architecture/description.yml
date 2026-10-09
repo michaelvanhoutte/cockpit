@@ -25,7 +25,7 @@ scan:
 # connector's code living in the core. `package` is the connector's own package;
 # a source without one is drawn dashed red, with no package.
 sources:
-  - { id: gmail, name: Gmail, words: [gmail] }
+  - { id: gmail, name: Gmail, words: [gmail], package: packages/connectors/gmail }
   - { id: claude-code, name: Claude Code, words: [claude code] }
   - { id: teams, name: Microsoft Teams, words: [teams], package: packages/connectors/teams }
 
@@ -155,3 +155,6 @@ layers:
       - path: packages/connectors/teams
         name: 'connectors/teams'
         description: 'The Microsoft Teams connector: a Save to Cockpit message action, verified as a genuine Bot Framework call.'
+      - path: packages/connectors/gmail
+        name: 'connectors/gmail'
+        description: 'The Gmail connector: conversations labelled Cockpit, or starred, arrive as Tasks, and their label or star follows the Task. Not yet registered.'

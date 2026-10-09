@@ -18,6 +18,7 @@ on:
     paths:
       - 'apps/api/src/ai/**'
       - 'apps/api/tests/contract/**'
+      - 'packages/connectors/gmail/tests/contract/**'
       - 'apps/api/vitest.contract.config.ts'
       - '.github/workflows/contract.yml'
   schedule:
@@ -44,6 +45,16 @@ jobs:
       # signing keys are published to anyone - and first, because a failure
       # here costs nothing and a failure below costs the model's time.
       - run: pnpm --filter @cockpit/connector-teams test:contract
+      # Gmail's own, in its connector package ("Build Gmail as a connector
+      # package on the SDK, unregistered", issue 943): the same dedicated test
+      # mailbox the API's suite below uses, and a skip, not a failure, without
+      # it. Free, so it runs weekly too. The API's copy goes with Gmail's code
+      # when it leaves the core (issue 944).
+      - run: pnpm --filter @cockpit/connector-gmail test:contract
+        env:
+          GMAIL_CONTRACT_CLIENT_ID: ${{ secrets.GMAIL_CONTRACT_CLIENT_ID }}
+          GMAIL_CONTRACT_CLIENT_SECRET: ${{ secrets.GMAIL_CONTRACT_CLIENT_SECRET }}
+          GMAIL_CONTRACT_REFRESH_TOKEN: ${{ secrets.GMAIL_CONTRACT_REFRESH_TOKEN }}
       # A missing secret presents as a workflow that goes green having done
       # nothing, which is the failure docs/deployment.md records for
       # `CLAUDE_CODE_OAUTH_TOKEN`. Each suite itself refuses to run without its

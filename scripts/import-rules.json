@@ -1,6 +1,8 @@
 {
   "sources": {
-    "gmail": {},
+    "gmail": {
+      "package": "@cockpit/connector-gmail"
+    },
     "teams": {
       "package": "@cockpit/connector-teams"
     },
