@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { handleQueue } from '../../../src/jobs/index.js';
+import { GMAIL_RECONNECT_REASON } from '../../../src/accounts/changes.js';
 import { seal, sealingKey } from '../../../src/connectors/credential-crypto.js';
 import { ACCOUNT_NAME, WORKSPACE_ID, asUser, seedRegister, signInAs, startFromEmpty, storeNamed } from '../seed.js';
 import {
@@ -212,9 +213,11 @@ describe('Connector management', () => {
       gmailHolds({ labels: labelsAnswer(), historyId: '777', threads: [], history: [], historyLapsed: false });
       const id = await connectedTheOldWay();
 
-      // Its check before a reconnect: no sign-in it can read, nothing filed, nothing asked of Gmail.
+      // Its check before a reconnect: no sign-in it can read, nothing filed,
+      // nothing asked of Gmail - and the row still says why in the words it
+      // was marked with.
       await deliver(await aCheckIsQueued());
-      expect((await gmailRow())?.failingBecause).toMatch(/Connect again/);
+      expect((await gmailRow())?.failingBecause).toBe(GMAIL_RECONNECT_REASON);
       expect(gmailCalls).toEqual([]);
       expect(refreshes).toEqual([]);
 

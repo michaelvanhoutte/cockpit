@@ -1,5 +1,5 @@
 import type { Connector } from '@cockpit/connector-sdk';
-import { credentialIn } from './credential.js';
+import { refreshTokenToRevoke } from './credential.js';
 import { endpointsOf, type GmailConnectorConfig } from './mailbox.js';
 import { gmailAccountFrom, gmailSignIn } from './sign-in.js';
 import { mirrorOpenStates, syncMailbox } from './sync.js';
@@ -62,14 +62,14 @@ export function createGmailConnector(config: GmailConnectorConfig): Connector {
      * same mailbox. A failure is the host's to log; it never fails the disconnect.
      */
     async revoke(credentials) {
-      const held = credentialIn(credentials);
-      if (!held) throw new Error('the stored sign-in could not be read to revoke');
+      const refreshToken = refreshTokenToRevoke(credentials);
+      if (!refreshToken) throw new Error('the stored sign-in could not be read to revoke');
       const { revocationEndpoint } = await endpointsOf(config);
       if (!revocationEndpoint) throw new Error('the issuer names nowhere to revoke a sign-in');
       const response = await (config.fetch ?? fetch)(revocationEndpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ token: held.refreshToken }),
+        body: new URLSearchParams({ token: refreshToken }),
         signal: AbortSignal.timeout(REVOKE_TIMEOUT_MS),
       });
       if (!response.ok) throw new Error(`Google answered ${response.status} to a revoke`);

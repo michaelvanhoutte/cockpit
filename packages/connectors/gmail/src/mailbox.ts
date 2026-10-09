@@ -23,15 +23,25 @@ import { labelChangeRefusal } from './messages.js';
  * generic host ("Switch Gmail onto the generic host, and take it out of the
  * core", issue 944). The Workers free plan allows 50 calls out per invocation,
  * and a busy first run spends these 40 and one more, reading the issuer's
- * discovery document once per isolate; its store round trips and queue sends
- * (about five per conversation filed) count against the separate 1,000 for
- * Cloudflare's own services. apps/api's gmail-on-the-host.test.ts holds a run
- * to both.
+ * discovery document once per isolate. Its store round trips and queue sends
+ * (about five per conversation filed) are taken to count against the separate
+ * 1,000 for Cloudflare's own services - an assumption: Cloudflare's limits page
+ * names R2, KV and D1 as such services and says nothing of Durable Objects or
+ * Queues. apps/api's gmail-on-the-host.test.ts holds a run to both.
  */
 export const CALLS_PER_RUN = 40;
 
 /** What the connection says while Google no longer accepts its sign-in. */
 export const SIGN_IN_REFUSED = 'Google no longer accepts the sign-in. Connect again.';
+
+/**
+ * What the connection says while it holds a sign-in this connector cannot
+ * read - in practice one made before Gmail was a connector, so the words the
+ * application marked it with when it moved, which a failing run would
+ * otherwise replace within minutes ("Switch Gmail onto the generic host, and
+ * take it out of the core", issue 944).
+ */
+export const SIGN_IN_UNREADABLE = 'Gmail connects a new way now. Reconnect it to carry on.';
 
 /** What a connector of this package needs to have been told about itself. */
 export interface GmailConnectorConfig {
@@ -100,7 +110,7 @@ export function mailboxOf(host: ConnectorHost, config: GmailConnectorConfig): Pr
   const held = run;
   held.mailbox ??= (async () => {
     const credential = credentialIn(await host.getCredentials());
-    if (!credential) throw new SignInLost('the stored sign-in could not be read. Connect again.');
+    if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
     return new Mailbox(host, config, credential, held.calls);
   })();
   return held.mailbox;

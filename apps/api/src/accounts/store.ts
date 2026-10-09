@@ -823,8 +823,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     if (answer.status === 'ok' && CONNECTION_LIFECYCLE.has(name)) await this.#arm(accountName);
     // A pulled source that mirrors has its check made due now, and the alarm
     // set for it, so a person's change reaches it within seconds rather than
-    // at the next five-minute check (issue 893). Not for an agent run
-    // finishing, which no pulled source has ever been handed.
+    // at the next five-minute check (issue 893).
     if (
       answer.status === 'ok' &&
       answer.value.applied &&
@@ -1490,8 +1489,16 @@ const CONNECTION_LIFECYCLE: ReadonlySet<CommandName> = new Set<CommandName>([
   'delete_workspace',
 ]);
 
-/** The changes a person makes that open or close an Item - the ones a pulled source mirrors (issue 893). */
-const PERSON_OPENS_OR_CLOSES: ReadonlySet<CommandName> = new Set<CommandName>(['set_done', 'set_dismissed']);
+/**
+ * The changes a person makes that open or close an Item - the ones a pulled
+ * source mirrors (issue 893). `finish_agent_run` among them, since "Agent
+ * finished: Done" closes a Gmail Task as marking it done does (issue 944).
+ */
+const PERSON_OPENS_OR_CLOSES: ReadonlySet<CommandName> = new Set<CommandName>([
+  'set_done',
+  'set_dismissed',
+  'finish_agent_run',
+]);
 
 /**
  * Where the account the alarm's checks are for is kept, in the object's

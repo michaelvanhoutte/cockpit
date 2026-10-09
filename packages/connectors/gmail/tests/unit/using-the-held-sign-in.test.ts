@@ -90,10 +90,14 @@ describe('Connector management', () => {
       { situation: 'holding nothing', credential: {} },
       { situation: 'not JSON', credential: { credential: 'sealed garbage' } },
       { situation: 'holding no refresh token', credential: { credential: JSON.stringify({ access_token: 'x' }) } },
-    ])('fails, asking to connect again, on a stored sign-in $situation', async ({ credential }) => {
+      {
+        situation: 'sealed before Gmail was a connector',
+        credential: { credential: JSON.stringify({ mailboxKey: 'google-anna', refreshToken: 'old', accessToken: null }) },
+      },
+    ])('fails, asking to reconnect, on a stored sign-in $situation', async ({ credential }) => {
       const world = new GmailWorld();
 
-      await expect(world.connector().sync(new FakeHost({ credential }))).rejects.toThrow(/Connect again/);
+      await expect(world.connector().sync(new FakeHost({ credential }))).rejects.toThrow(/Reconnect it to carry on/);
     });
   });
 

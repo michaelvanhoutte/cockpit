@@ -2554,6 +2554,9 @@ export function runCommand<N extends CommandName>(
             .set(asStored(settled))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
+          // As set_done records it: "Agent finished: Done" on a Gmail Task
+          // takes its label off (issue 944).
+          wantPulledOpenStateMirrored(tx, tenantId, item, settled, mirroring);
         }
         tx.insert(commands).values(commandRow).run();
       });

@@ -444,8 +444,8 @@ export const GMAIL_RECONNECT_REASON = 'Gmail connects a new way now. Reconnect i
  *   has a `choice` and is left working. One reconnected under this release
  *   and then again under an older one keeps its `choice` with the core's
  *   credential: it is not marked, and its first generic run fails with the
- *   connector's own "Connect again", so it reads as needing a reconnect all
- *   the same.
+ *   connector's own words for a sign-in it cannot read, which are these, so
+ *   it reads as needing a reconnect all the same.
  * - **What is in each environment:** real Gmail connections, Items and Gmail
  *   rows in staging and production; only the connections gain a failure row.
  *   The guest account's seeded Gmail row is a demonstration nothing checks,
@@ -453,7 +453,9 @@ export const GMAIL_RECONNECT_REASON = 'Gmail connects a new way now. Reconnect i
  * - **The windows it can be interrupted in.** A deploy during the old alarm's
  *   Gmail check leaves Gmail's tables as that check left them, never read
  *   again. A generic run for a connection not yet reconnected finds no
- *   credential it can read, files nothing, and fails with "Connect again".
+ *   credential it can read, files nothing, and fails in these same words
+ *   (`SIGN_IN_UNREADABLE`, the Gmail connector's), so the mark reads the same
+ *   after it.
  * - **Rolled back after it has run:** an older release reads the failure row
  *   as a failing connection until its own check succeeds and clears it; a
  *   connection reconnected under this release holds a credential the older
