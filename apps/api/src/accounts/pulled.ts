@@ -405,10 +405,12 @@ export function confirmPulledOpenStates(
 }
 
 /**
- * Ends a run: its lease goes, the next check is due five minutes on, and the
- * connection's row says why it failed - or, for a run that worked, when it
- * was last checked and nothing about failing. A run that no longer holds its
- * connection ends nothing, since another has it or it has gone.
+ * Ends a run: its lease goes, the next check is due five minutes on - or soon
+ * where the run worked and said there is more to do, a failed run's hint being
+ * ignored - and the connection's row says why it failed - or, for a run that
+ * worked, when it was last checked and nothing about failing. A run that no
+ * longer holds its connection ends nothing, since another has it or it has
+ * gone.
  */
 export function endPulledRun(
   db: AccountDb,
@@ -417,12 +419,13 @@ export function endPulledRun(
   runId: string,
   failing: string | null,
   now: Date,
+  moreToDo = false,
 ): void {
   if (!runHolds(db, accountName, sourceAccountId, runId)) return;
   const at = now.toISOString();
   db.transaction((tx) => {
     tx.update(pulledConnections)
-      .set({ runId: null, leaseUntil: null, dueAt: nextCheckAfter(now) })
+      .set({ runId: null, leaseUntil: null, dueAt: nextCheckAfter(now, failing === null && moreToDo) })
       .where(and(eq(pulledConnections.tenantId, accountName), eq(pulledConnections.sourceAccountId, sourceAccountId)))
       .run();
     if (failing === null) {

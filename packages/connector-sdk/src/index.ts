@@ -327,11 +327,23 @@ export interface PushHost {
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void;
 }
 
+/** What a run of `sync` may say about itself. */
+export interface SyncAnswer {
+  /** The run stopped before it had read all the source holds: check this connection again soon. */
+  moreToDo?: boolean;
+}
+
 export interface Connector {
   manifest: ConnectorManifest;
 
-  /** Pull changes from the source. Sync strategy is the connector's private business. */
-  sync(host: ConnectorHost): Promise<void>;
+  /**
+   * Pull changes from the source. Sync strategy is the connector's private
+   * business. It may answer `{ moreToDo: true }` where it stopped short of
+   * what the source holds (at its own call budget, say), and the host then
+   * checks the connection again soon rather than at its usual cadence;
+   * answering nothing is the usual cadence. A run that fails answers nothing.
+   */
+  sync(host: ConnectorHost): Promise<void | SyncAnswer>;
 
   /**
    * The step turning a sign-in's reply into the account it connected, for a

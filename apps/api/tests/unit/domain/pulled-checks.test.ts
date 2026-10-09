@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   PULLED_CHECK_EVERY_MS,
   PULLED_CHECK_LEASE_MS,
+  PULLED_CHECK_SOON_MS,
   leaseFrom,
   nextCheckAfter,
   whatADeliveryDoes,
@@ -35,6 +36,12 @@ describe('Connector management', () => {
       expect(leaseFrom(NOW)).toBe(at(PULLED_CHECK_LEASE_MS));
       expect(nextCheckAfter(NOW)).toBe(at(5 * 60_000));
       expect(PULLED_CHECK_LEASE_MS).toBeGreaterThan(PULLED_CHECK_EVERY_MS);
+    });
+
+    it('a run that says there is more to do is followed by a check soon, well inside the usual cadence', () => {
+      expect(nextCheckAfter(NOW, true)).toBe(at(PULLED_CHECK_SOON_MS));
+      expect(nextCheckAfter(NOW, false)).toBe(at(PULLED_CHECK_EVERY_MS));
+      expect(PULLED_CHECK_SOON_MS).toBeLessThan(PULLED_CHECK_EVERY_MS);
     });
   });
 });

@@ -9,6 +9,12 @@
 export const PULLED_CHECK_EVERY_MS = 5 * 60_000;
 
 /**
+ * How soon a connection is checked again after a run that said there is more
+ * to do - the same for every connector, which cannot ask for another time.
+ */
+export const PULLED_CHECK_SOON_MS = 10_000;
+
+/**
  * How long a queued or running check holds its connection. Longer than a run
  * takes, so a live run is never joined by a second; and the most a check that
  * was lost - a dropped message, a run whose Worker went away - delays the next.
@@ -47,7 +53,10 @@ export function leaseFrom(now: Date): string {
   return new Date(now.getTime() + PULLED_CHECK_LEASE_MS).toISOString();
 }
 
-/** When the next check is due, after one that ended at `now`. */
-export function nextCheckAfter(now: Date): string {
-  return new Date(now.getTime() + PULLED_CHECK_EVERY_MS).toISOString();
+/**
+ * When the next check is due, after one that ended at `now`: soon where the
+ * run said there is more to do, the usual cadence otherwise.
+ */
+export function nextCheckAfter(now: Date, moreToDo = false): string {
+  return new Date(now.getTime() + (moreToDo ? PULLED_CHECK_SOON_MS : PULLED_CHECK_EVERY_MS)).toISOString();
 }

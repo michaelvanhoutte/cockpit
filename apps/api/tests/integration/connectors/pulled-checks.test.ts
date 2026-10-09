@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { SELF, applyD1Migrations, env, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
-import type { Connector, ConnectorHost, SourceItem } from '@cockpit/connector-sdk';
+import type { Connector, ConnectorHost, SourceItem, SyncAnswer } from '@cockpit/connector-sdk';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { handleQueue, handleScheduled } from '../../../src/jobs/index.js';
 import { open, seal, sealingKey } from '../../../src/connectors/credential-crypto.js';
@@ -50,9 +50,11 @@ const OTHER_WORKSPACE_ID = 'ws-atlas';
 
 const fake = {
   /** What the runs do, one script per run in order; the last repeats. */
-  scripts: [] as ((host: ConnectorHost, run: number) => Promise<void>)[],
+  scripts: [] as ((host: ConnectorHost, run: number) => Promise<void | SyncAnswer>)[],
   /** How many runs have started. */
   runs: 0,
+  /** Whether handing it an open state to mirror fails, which fails the run after its read. */
+  mirrorFails: false,
 };
 
 /** A source Cockpit pulls from, whose every run does what the case scripted. */
@@ -64,22 +66,27 @@ const fakePulled: Connector = {
     source: 'notion',
     supportsPush: false,
     pulled: true,
+    mirrorsOpenState: true,
     auth: { kind: 'none' },
+  },
+  async mirrorOpenState() {
+    if (fake.mirrorFails) throw new Error('the source refused the change');
+    return [];
   },
   async sync(host) {
     fake.runs += 1;
     const script = fake.scripts[Math.min(fake.runs, fake.scripts.length) - 1];
-    await script?.(host, fake.runs);
+    return script?.(host, fake.runs);
   },
 };
 
 /** What every run does, from the next one on. */
-function everyRun(script: (host: ConnectorHost, run: number) => Promise<void>): void {
+function everyRun(script: (host: ConnectorHost, run: number) => Promise<void | SyncAnswer>): void {
   fake.scripts = [script];
 }
 
 /** What the next runs do, one each, the last repeating. */
-function runsIn(...scripts: ((host: ConnectorHost, run: number) => Promise<void>)[]): void {
+function runsIn(...scripts: ((host: ConnectorHost, run: number) => Promise<void | SyncAnswer>)[]): void {
   fake.scripts = scripts;
 }
 
@@ -301,6 +308,7 @@ beforeEach(async () => {
   held = [];
   holdTheQueue();
   fake.runs = 0;
+  fake.mirrorFails = false;
   everyRun(async () => {});
   env.TEST_CONNECTORS = [fakePulled];
   gmailIsEmpty();
@@ -617,6 +625,75 @@ describe('Connector management', () => {
       const row = (await connectionsOf()).find((one) => one.id === id)!;
       expect(row.failingBecause).toBeNull();
       expect(Date.parse(row.lastTestedAt!)).toBeGreaterThanOrEqual(before);
+    });
+  });
+
+  describe('a check that says there is more to do is followed by another soon, and one that says nothing by the usual cadence', () => {
+    it('is checked again within seconds after saying there is more to do, and back at about five minutes once it says nothing', async () => {
+      runsIn(
+        async () => ({ moreToDo: true }),
+        async () => {},
+      );
+      await connectedAndChecked();
+      const soon = (await nextAlarm())! - Date.now();
+      expect(soon).toBeGreaterThan(0);
+      expect(soon).toBeLessThanOrEqual(10_000);
+
+      await nextChecksRun();
+      expect(fake.runs).toBe(2);
+      const usual = (await nextAlarm())! - Date.now();
+      expect(usual).toBeGreaterThan(4 * 60_000);
+      expect(usual).toBeLessThanOrEqual(5 * 60_000);
+    });
+
+    it('is checked at the usual cadence after saying nothing', async () => {
+      runsIn(async () => {});
+      await connectedAndChecked();
+      expect((await nextAlarm())! - Date.now()).toBeGreaterThan(4 * 60_000);
+    });
+
+    it('is scheduled as a failure is when it fails after saying there is more to do', async () => {
+      runsIn(
+        async (host) => {
+          await host.emitItem(aPage('page-1'));
+        },
+        async () => ({ moreToDo: true }),
+      );
+      const id = await connectedAndChecked();
+      const res = await asUser('http://cockpit.test/v1/commands/set_done', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: crypto.randomUUID(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: WORKSPACE_ID,
+          itemId: (await itemsFrom())[0]!.id,
+          done: true,
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      // Marking it done brings the check forward, so the alarm queues it by itself.
+      fake.mirrorFails = true;
+      for (const check of await checksQueue()) await deliver(check);
+      expect(fake.runs).toBe(2);
+      expect((await connectionsOf()).find((row) => row.id === id)?.failingBecause).toBe('the source refused the change');
+      expect((await nextAlarm())! - Date.now()).toBeGreaterThan(4 * 60_000);
+    });
+
+    it('leaves the next check as it stands when the run no longer holds its connection', async () => {
+      const marker = new Date(Date.now() + 3 * 3_600_000).toISOString();
+      everyRun(async () => {
+        await inTheStore((sql) => {
+          sql.exec('UPDATE pulled_connections SET run_id = ?, due_at = ?', 'another-run', marker);
+        });
+        return { moreToDo: true };
+      });
+      await connectedAndChecked();
+      const dues = await inTheStore((sql) =>
+        [...sql.exec<{ due_at: string }>('SELECT due_at FROM pulled_connections')].map((row) => row.due_at),
+      );
+      expect(dues).toEqual([marker]);
     });
   });
 
