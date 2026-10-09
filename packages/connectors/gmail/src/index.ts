@@ -10,11 +10,11 @@ import { mirrorOpenStates, syncMailbox } from './sync.js';
  * Task in Cockpit takes the label or star off or puts it back
  * ("Build Gmail as a connector package on the SDK, unregistered", issue 943).
  *
- * **Not registered yet**: the application's registry does not list it, so a
- * running Cockpit is unchanged ("Switch Gmail onto the generic host, and take it
- * out of the core", issue 944). It reads only the generic credential shape the
- * generic sign-in seals, so no stored Gmail credential is read and every
- * connection reconnects.
+ * Registered by the application wherever its Google client is configured
+ * ("Switch Gmail onto the generic host, and take it out of the core", issue
+ * 944). It reads only the generic credential shape the generic sign-in seals,
+ * so no credential the core stored is read and every connection made before
+ * reconnects.
  *
  * Everything this package knows about Gmail is in its README.
  */

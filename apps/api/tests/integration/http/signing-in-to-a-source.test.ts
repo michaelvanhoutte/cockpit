@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import type { Connector } from '@cockpit/connector-sdk';
+import { GMAIL_REFUSALS } from '@cockpit/connector-gmail';
 import {
   OTHER_USER_ID,
   USER_ID,
@@ -292,8 +293,23 @@ describe('Connector management', () => {
         }
       ).connectors;
 
-    it('lists Teams with the name and text its manifest gives, and a source registered nowhere else', async () => {
+    it('lists Gmail and Teams with the name and text their manifests give, and a source registered nowhere else', async () => {
       expect(await listed()).toEqual([
+        {
+          id: 'gmail',
+          displayName: 'Gmail',
+          cardText:
+            'Sign in with Google. Conversations you label Cockpit, or star, become tasks, and the label or star follows the task.',
+          asksFirst: true,
+          choice: {
+            question: 'Bring in conversations',
+            options: [
+              { value: 'label', label: 'Labelled Cockpit' },
+              { value: 'star', label: 'Starred (flagged in Outlook)' },
+            ],
+          },
+          refusals: GMAIL_REFUSALS,
+        },
         {
           id: 'teams',
           displayName: 'Microsoft Teams',
@@ -322,7 +338,7 @@ describe('Connector management', () => {
       const bot = settings.MS_BOT_APP_ID;
       delete settings.MS_BOT_APP_ID;
       try {
-        expect((await listed()).map((one) => one.id)).toEqual([FIXED, EXTRAS]);
+        expect((await listed()).map((one) => one.id)).toEqual(['gmail', FIXED, EXTRAS]);
       } finally {
         settings.MS_BOT_APP_ID = bot;
       }

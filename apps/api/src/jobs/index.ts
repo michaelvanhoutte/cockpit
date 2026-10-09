@@ -1,6 +1,6 @@
 import type { Message, MessageBatch, ScheduledController } from '@cloudflare/workers-types';
 import type { Env } from '../env.js';
-import { keepEveryAccountCheckingGmail, resetGuestAccount } from '../accounts/index.js';
+import { keepEveryAccountChecking, resetGuestAccount } from '../accounts/index.js';
 import { purgeOldSignIns } from '../auth/sign-in-history.js';
 import { purgeOldProviderCalls } from '../gateway/record.js';
 import {
@@ -52,8 +52,7 @@ export type { BatchRead } from './backfill-meanings.js';
  * **It queues nothing.** The nightly filing summary that once did is gone
  * ("Drop the nightly filing summary, keep the sentence you wrote", issue 392);
  * what runs is the guest reset, the sign-in history and provider call
- * purges, and re-arming any Gmail or pulled-connection check that was lost,
- * with each Gmail connection's full reconcile started again - each
+ * purges, and re-arming any pulled-connection check that was lost - each
  * idempotent, so a tick run twice changes nothing the first did not.
  */
 export async function handleScheduled(controller: ScheduledController, env: Env): Promise<void> {
@@ -61,7 +60,7 @@ export async function handleScheduled(controller: ScheduledController, env: Env)
   await resetTheGuestAccount(env);
   await purgeTheOldSignIns(env);
   await purgeTheOldProviderCalls(env);
-  await keepCheckingGmail(env);
+  await keepCheckingPulledConnections(env);
 }
 
 /**
@@ -85,20 +84,19 @@ async function purgeTheOldProviderCalls(env: Env): Promise<void> {
 }
 
 /**
- * Every account holding a Gmail connection has its check armed again where it
- * was lost ("Bring in the conversations already labelled Cockpit as tasks",
- * issue 725), and so does every account holding a pulled connection ("Check a
- * pulled connector on its cadence through the generic host", issue 891) - one
- * account failing is logged inside, and the rest go on.
+ * Every account holding a pulled connection has its alarm armed again where it
+ * was lost ("Check a pulled connector on its cadence through the generic
+ * host", issue 891) - one account failing is logged inside, and the rest go
+ * on.
  */
-async function keepCheckingGmail(env: Env): Promise<void> {
+async function keepCheckingPulledConnections(env: Env): Promise<void> {
   try {
-    await keepEveryAccountCheckingGmail(env);
+    await keepEveryAccountChecking(env);
   } catch (error) {
     console.error(
       JSON.stringify({
         level: 'error',
-        message: `Gmail checks were not looked at tonight: ${
+        message: `pulled connections' checks were not looked at tonight: ${
           error instanceof Error ? error.message : String(error)
         }`,
       }),

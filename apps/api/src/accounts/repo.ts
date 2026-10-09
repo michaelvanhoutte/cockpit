@@ -12,7 +12,6 @@ import {
   type Attachment,
   type Dashboard,
   type Filing,
-  type GmailMark,
   type HiddenAgent,
   type Item,
   type ItemFormPresentation,
@@ -29,7 +28,7 @@ import {
   type StoredPanelKind,
   type Workspace,
 } from '@cockpit/shared';
-import { CLAUDE_CODE, GMAIL, GMAIL_FOLLOWS_LABEL } from '../domain/named-sources.js';
+import { CLAUDE_CODE } from '../domain/named-sources.js';
 import type { AccountDb } from './client.js';
 import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments.js';
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
@@ -2331,7 +2330,6 @@ export function sourceAccountsIn(
       connectedAt: connectorAccounts.connectedAt,
       lastTestedAt: connectorAccounts.lastTestedAt,
       failingBecause: connectionFailures.reason,
-      follows: connectorAccounts.follows,
       choice: connectorAccounts.choice,
     })
     .from(connectorAccounts)
@@ -2347,21 +2345,10 @@ export function sourceAccountsIn(
     // order moves between reads is one whose rows jump under the pointer.
     .orderBy(asc(connectorAccounts.connectedAt), asc(connectorAccounts.id))
     .all()
-    // What it follows, in Gmail's words, for Gmail alone: the column moves
-    // with Gmail ("Move Gmail out of the core, onto the connector SDK", issue
-    // 875), while the contract carries only a value and a label (issue 927).
-    //
-    // Any other connector's is the generic choice its connection stored, as the
-    // value alone: the label is the connector's own and is put beside it where
-    // the registry is known (issue 942). Gmail's `follows` column is never
-    // read for it.
-    .map(({ follows, choice, ...account }) =>
-      account.connectorId === GMAIL
-        ? { ...account, follows, followsLabel: GMAIL_FOLLOWS_LABEL[follows] }
-        : choice === null
-          ? account
-          : { ...account, follows: choice },
-    );
+    // What it follows is the choice its connection stored, as the value alone:
+    // the label is the connector's own and is put beside it where the registry
+    // is known (issue 942).
+    .map(({ choice, ...account }) => (choice === null ? account : { ...account, follows: choice }));
 }
 
 /**
@@ -2435,7 +2422,6 @@ export function getSourceAccount(
       workspaceId: string;
       connectorId: string;
       externalAccountKey: string | null;
-      follows: GmailMark;
       choice: string | null;
     }
   | undefined {
@@ -2445,7 +2431,6 @@ export function getSourceAccount(
       workspaceId: connectorAccounts.workspaceId,
       connectorId: connectorAccounts.connectorId,
       externalAccountKey: connectorAccounts.externalAccountKey,
-      follows: connectorAccounts.follows,
       choice: connectorAccounts.choice,
     })
     .from(connectorAccounts)

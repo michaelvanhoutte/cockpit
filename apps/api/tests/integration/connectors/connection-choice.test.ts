@@ -296,7 +296,7 @@ describe('Connector management', () => {
       const back = await comeBack(CHOOSES, session, started);
 
       expect(back.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=connected`);
-      // Never in Gmail's column, which keeps what every other row has.
+      // Never in the old `follows` column, which keeps its default.
       expect(await storedRows()).toEqual([{ connector_id: CHOOSES, choice: 'all', follows: 'label' }]);
       expect(await listed(WORKSPACE_ID)).toMatchObject([{ follows: 'all', followsLabel: 'Every page' }]);
     });

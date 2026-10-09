@@ -157,4 +157,4 @@ layers:
         description: 'The Microsoft Teams connector: a Save to Cockpit message action, verified as a genuine Bot Framework call.'
       - path: packages/connectors/gmail
         name: 'connectors/gmail'
-        description: 'The Gmail connector: conversations labelled Cockpit, or starred, arrive as Tasks, and their label or star follows the Task. Not yet registered.'
+        description: 'The Gmail connector: conversations labelled Cockpit, or starred, arrive as Tasks, and their label or star follows the Task.'

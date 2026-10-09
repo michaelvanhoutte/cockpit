@@ -1,13 +1,12 @@
-import { and, eq, exists, inArray, isNull, notExists, sql } from 'drizzle-orm';
+import { and, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
 import {
   agentsShownOnDashboard,
   hookNamesSession,
   runBlocksAStart,
 } from '@cockpit/shared';
-import { CLAUDE_CODE, GMAIL } from '../domain/named-sources.js';
+import { CLAUDE_CODE } from '../domain/named-sources.js';
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
-import { dropWhatWasWanted, wantOpenStateMirrored } from './mirrored-open-state.js';
 import { dropPulledWanted, wantPulledOpenStateMirrored } from './pulled-open-state.js';
 import {
   accountItemFormPresentation,
@@ -22,7 +21,6 @@ import {
   dashboards,
   DEAD_STATUS_VALUE,
   decisionHistory,
-  gmailChecks,
   hiddenDashboardAgents,
   items,
   itemTypes,
@@ -31,6 +29,7 @@ import {
   panelItems,
   panelPlacements,
   panels,
+  pulledConnections,
   textCorrections,
   workspaces,
 } from './schema.js';
@@ -811,15 +810,13 @@ function runToReopen(
  * the work it wraps had happened. See `client.ts`.
  *
  * **`fromTheSource`** marks a change a source reported rather than one a
- * person made ("Take the Cockpit label off in Gmail when its task is done in
- * Cockpit", issue 728): what Gmail says is already so there, so it asks
- * nothing of Gmail in return. Everything else that opens or closes an Item
- * records that as wanted of a source mirroring its open state, in the same
- * transaction (`mirrored-open-state.ts`).
+ * person made (issue 728): what the source says is already so there, so it
+ * asks nothing of the source in return.
  *
  * **`mirroring`** is which pulled connectors mirror open state, the registry's
  * to say: a person's Done, Dismiss or their undo records the wanted state on
- * the Item's link at one of them (`pulled-open-state.ts`, issue 893).
+ * the Item's link at one of them, in the same transaction
+ * (`pulled-open-state.ts`, issue 893).
  */
 export function runCommand<N extends CommandName>(
   db: AccountDb,
@@ -2059,7 +2056,6 @@ export function runCommand<N extends CommandName>(
       if (!getWorkspace(db, tenantId, cmd.workspaceId)) {
         throw new WorkspaceNotFoundError(cmd.workspaceId);
       }
-      const follows = cmd.follows ?? 'label';
       db.transaction((tx) => {
         // The choice the account at this source already held in this Workspace,
         // to tell a reconnect that changes it from one that does not (issue 942).
@@ -2092,15 +2088,10 @@ export function runCommand<N extends CommandName>(
             // Claude accepting a test session for Claude Code
             // ("Connect a workspace to Claude Code", issue 569) - so
             // `issuedAt` is as true a "last worked" as a dedicated test.
-            // Not for Gmail, whose row says when its mailbox was last
-            // checked, which connecting does not do ("Bring in the
-            // conversations already labelled Cockpit as tasks", issue 725).
-            lastTestedAt: cmd.connectorId === GMAIL ? null : cmd.issuedAt,
-            // What the Connect window chose ("Connect Gmail by star, and
-            // bring in conversations starred from then on", issue 822).
-            follows,
+            lastTestedAt: cmd.issuedAt,
             // What the Connect window asked of a connector that declares a
-            // choice (issue 942); never Gmail's `follows` above.
+            // choice (issue 942). The old `follows` column takes its default
+            // and is read by nothing.
             choice: cmd.choice ?? null,
           })
           // **Named at the account, not at the id, and that is the rule
@@ -2123,7 +2114,7 @@ export function runCommand<N extends CommandName>(
               encryptedCredential: cmd.sealedCredential,
               credentialNonce: cmd.credentialNonce,
               updatedAt: cmd.issuedAt,
-              ...(cmd.connectorId === GMAIL ? { follows } : { lastTestedAt: cmd.issuedAt }),
+              lastTestedAt: cmd.issuedAt,
               // Asked again on a reconnect, so the answer replaces the stored
               // one; a reconnect that asked nothing leaves it.
               ...(cmd.choice !== undefined ? { choice: cmd.choice } : {}),
@@ -2162,18 +2153,21 @@ export function runCommand<N extends CommandName>(
             ),
           )
           .run();
-        // Connecting a mailbox again brings in everything labelled from the
-        // start, so a reconnect after a failing sign-in finds whatever it
-        // missed; what is already in is found again by its link (issue 725).
-        // By star, it records a fresh position, so only what is starred
-        // after it comes in (issue 822) - and what was still to reach Gmail
-        // under the other mark is dropped, as Disconnect drops it.
-        if (cmd.connectorId === GMAIL) {
-          dropWhatWasWanted(tx, tenantId, cmd.workspaceId, cmd.externalAccountKey, follows);
-          tx.delete(gmailChecks)
-            .where(
+        // A pulled connection connected again is checked now with its new
+        // sign-in rather than at its next check, which may be five minutes off
+        // after a run that failed for want of it (issue 944). One already
+        // queued or running keeps its time: that check ends by setting the
+        // next, as every run does.
+        tx.update(pulledConnections)
+          .set({ dueAt: cmd.issuedAt })
+          .where(
+            and(
+              eq(pulledConnections.tenantId, tenantId),
+              isNull(pulledConnections.queuedAt),
+              isNull(pulledConnections.runId),
+              gt(pulledConnections.dueAt, cmd.issuedAt),
               inArray(
-                gmailChecks.sourceAccountId,
+                pulledConnections.sourceAccountId,
                 tx
                   .select({ id: connectorAccounts.id })
                   .from(connectorAccounts)
@@ -2186,9 +2180,9 @@ export function runCommand<N extends CommandName>(
                     ),
                   ),
               ),
-            )
-            .run();
-        }
+            ),
+          )
+          .run();
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -2247,49 +2241,15 @@ export function runCommand<N extends CommandName>(
             ),
           )
           .run();
-        // Disconnecting stops the mirroring: a change still waiting for Gmail
-        // goes with the connection, never pushed by a later one.
-        if (held.connectorId === GMAIL && held.externalAccountKey) {
-          dropWhatWasWanted(tx, tenantId, held.workspaceId, held.externalAccountKey);
-        }
-        // And a pulled source's: a later connection of the account never
-        // pushes what a person changed before this one went (issue 893).
+        // Disconnecting stops the mirroring: a later connection of the
+        // account never pushes what a person changed before this one went
+        // (issue 893).
         if (held.externalAccountKey) {
           dropPulledWanted(tx, tenantId, {
             workspaceId: held.workspaceId,
             connectorId: held.connectorId,
             externalAccountKey: held.externalAccountKey,
           });
-        }
-        tx.insert(commands).values(commandRow).run();
-      });
-      break;
-    }
-    case 'set_gmail_follows': {
-      const cmd = payload as CommandPayload<'set_gmail_follows'>;
-      // The same 404 Disconnect gives: a connection gone meanwhile, another
-      // Workspace's, or not Gmail's, is refused and nothing is stored
-      // ("Change what a Gmail connection follows, without reconnecting",
-      // issue 824).
-      const held = getSourceAccount(db, tenantId, cmd.sourceAccountId);
-      if (!held || held.workspaceId !== cmd.workspaceId || held.connectorId !== GMAIL || !held.externalAccountKey) {
-        throw new SourceAccountNotFoundError(cmd.sourceAccountId);
-      }
-      const mailboxKey = held.externalAccountKey;
-      db.transaction((tx) => {
-        // The mark already followed changes nothing, the position included.
-        if (held.follows !== cmd.follows) {
-          tx.update(connectorAccounts)
-            .set({ follows: cmd.follows, updatedAt: cmd.issuedAt })
-            .where(and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.id, cmd.sourceAccountId)))
-            .run();
-          // Together, as connecting again does: what was still to reach Gmail
-          // under the other mark is dropped, and the position goes, so the
-          // check the switch arms counts from here.
-          dropWhatWasWanted(tx, tenantId, held.workspaceId, mailboxKey, cmd.follows);
-          tx.delete(gmailChecks)
-            .where(and(eq(gmailChecks.tenantId, tenantId), eq(gmailChecks.sourceAccountId, cmd.sourceAccountId)))
-            .run();
         }
         tx.insert(commands).values(commandRow).run();
       });
@@ -2594,7 +2554,6 @@ export function runCommand<N extends CommandName>(
             .set(asStored(settled))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
-          wantOpenStateMirrored(tx, tenantId, item, settled);
         }
         tx.insert(commands).values(commandRow).run();
       });
@@ -2705,7 +2664,6 @@ export function runCommand<N extends CommandName>(
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
           if (!fromTheSource) {
-            wantOpenStateMirrored(tx, tenantId, existing, updated);
             wantPulledOpenStateMirrored(tx, tenantId, existing, updated, mirroring);
           }
           // The Item's Status is what ends a run, in the one transaction as the

@@ -4,9 +4,9 @@ Conversations a person labels `Cockpit`, or stars, arrive in Cockpit as Tasks. A
 label or star taken off closes the Task, put back reopens it, and closing or
 reopening the Task in Cockpit does the same to the label or star. Built on the
 connector SDK alone ("Build Gmail as a connector package on the SDK,
-unregistered", issue 943). **Not registered**: the application does not list it
-yet, so a running Cockpit is unchanged ("Switch Gmail onto the generic host, and
-take it out of the core", issue 944).
+unregistered", issue 943), and registered wherever `GMAIL_CLIENT_ID` and
+`GMAIL_CLIENT_SECRET` are set ("Switch Gmail onto the generic host, and take it
+out of the core", issue 944).
 
 ## The quirks, which is what this file is for
 
@@ -52,8 +52,8 @@ take it out of the core", issue 944).
   that is still waiting for Gmail. A complete listing therefore costs a read per
   marked conversation, and runs on connecting, on a lapsed position and when
   the choice changes: not on a schedule.
-- **A run has a call budget** (`CALLS_PER_RUN`, 40, the figure Gmail had in its
-  own alarm; issue 944 sets it from a measurement on the generic host). The
+- **A run has a call budget** (`CALLS_PER_RUN`, 40, measured on the generic host
+  against the free plan's 50 calls out per invocation; issue 944). The
   refresh of an access token is spent from it too, and so are the pushes of
   waiting open states, which share it with the read after them. A run that
   reaches it saves where it was and answers `{ moreToDo: true }`. **Where it was
@@ -104,8 +104,6 @@ take it out of the core", issue 944).
 
 ## Not yet known
 
-- **How many calls a run really makes on the generic host.** The budget is
-  inherited, not measured (issue 944).
 - **Whether `tests/contract/` still passes.** It reaches a dedicated mailbox and
   skips without the three `GMAIL_CONTRACT_*` secrets, so it did not run when this
   was written; it carries over the core's suite unchanged.

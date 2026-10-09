@@ -363,8 +363,6 @@ const commandSenders = {
   // from here (`connectSourceAccountSchema`, @cockpit/shared).
   disconnect_source_account: (p: CommandPayload<'disconnect_source_account'>, o?: ClientRequestOptions) =>
     api.v1.commands.disconnect_source_account.$post({ json: p }, o),
-  set_gmail_follows: (p: CommandPayload<'set_gmail_follows'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_gmail_follows.$post({ json: p }, o),
   set_connection_choice: (p: CommandPayload<'set_connection_choice'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_connection_choice.$post({ json: p }, o),
   reorder_workspaces: (p: CommandPayload<'reorder_workspaces'>, o?: ClientRequestOptions) =>

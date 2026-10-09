@@ -151,6 +151,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     PULLED_LINK_CHOICE,
     gmailItemsUnderTheirConnectorAgain(accountId),
     CONNECTION_CHOICE,
+    gmailConnectionsReconnect(accountId),
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -408,6 +409,75 @@ const CONNECTION_CHOICE: Change = {
   name: '0065-connection-choice',
   statements: [{ sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `choice` text' }],
 };
+
+/** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */
+export const GMAIL_RECONNECT_REASON = 'Gmail connects a new way now. Reconnect it to carry on.';
+
+/**
+ * Every Gmail connection made while Gmail ran in the core reads as needing a
+ * reconnect ("Switch Gmail onto the generic host, and take it out of the
+ * core", issue 944): its credential is in the shape the core's own check
+ * sealed, which the Gmail connector never reads, so it is marked failing and
+ * its row offers Reconnect. The reconnect stores a new credential on the same
+ * connection, and clears the mark as any reconnect does. Nothing is migrated:
+ * Gmail's own tables and its Items stay as they are, unread.
+ *
+ * **Which credential shape is told by `choice`**: the generic sign-in always
+ * stores Gmail's choice (label or star), and the core never did, so a Gmail
+ * connection with no `choice` holds the core's credential. The store cannot
+ * tell by the credential itself, which it never opens.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `INSERT` into `connection_failures`, of a row per
+ *   Gmail connection that has none. No connection, Item, link or Gmail row is
+ *   rewritten. `pnpm backup:export` runs before the deploy that carries it.
+ * - **If it stops halfway:** it cannot. One statement, committed with the
+ *   record that it ran in one `transactionSync` (store.ts), so an account has
+ *   every such connection marked or none.
+ * - **The second time it runs:** it does not, having been recorded; and a
+ *   connection already marked failing keeps the reason it has (`DO NOTHING`),
+ *   which already offers Reconnect.
+ * - **Rows that break the rule:** a Gmail connection already in the generic
+ *   shape - reconnected under this release, rolled back and forward again -
+ *   has a `choice` and is left working. One reconnected under this release
+ *   and then again under an older one keeps its `choice` with the core's
+ *   credential: it is not marked, and its first generic run fails with the
+ *   connector's own "Connect again", so it reads as needing a reconnect all
+ *   the same.
+ * - **What is in each environment:** real Gmail connections, Items and Gmail
+ *   rows in staging and production; only the connections gain a failure row.
+ *   The guest account's seeded Gmail row is a demonstration nothing checks,
+ *   and is left alone.
+ * - **The windows it can be interrupted in.** A deploy during the old alarm's
+ *   Gmail check leaves Gmail's tables as that check left them, never read
+ *   again. A generic run for a connection not yet reconnected finds no
+ *   credential it can read, files nothing, and fails with "Connect again".
+ * - **Rolled back after it has run:** an older release reads the failure row
+ *   as a failing connection until its own check succeeds and clears it; a
+ *   connection reconnected under this release holds a credential the older
+ *   check cannot read, and shows failing. Nothing is lost either way.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+function gmailConnectionsReconnect(accountId: string): Change {
+  return {
+    name: '0066-gmail-connections-reconnect',
+    statements:
+      accountId === GUEST_ACCOUNT_NAME
+        ? []
+        : [
+            {
+              sql: `INSERT INTO connection_failures (source_account_id, tenant_id, reason, failed_at)
+                     SELECT id, tenant_id, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM connector_accounts
+                     WHERE tenant_id = ? AND connector_id = 'gmail' AND choice IS NULL
+                     ON CONFLICT (source_account_id) DO NOTHING`,
+              params: [GMAIL_RECONNECT_REASON, accountId],
+            },
+          ],
+  };
+}
 
 /**
  * Every Gmail Item stored the one way `asStored` (domain/items.ts) writes it,

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
-import { SELF, applyD1Migrations, env, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
+import { applyD1Migrations, env, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import type { Connector, ConnectorHost, SourceItem, SyncAnswer } from '@cockpit/connector-sdk';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { handleQueue, handleScheduled } from '../../../src/jobs/index.js';
@@ -13,10 +13,7 @@ import {
   seedRegister,
   startFromEmpty,
   storeNamed,
-  signInAs,
 } from '../seed.js';
-import { gmailHolds, gmailIsEmpty, issuerIsReachable, issuerWillIdentify } from '../issuer.js';
-import { labelsAnswer } from '../../gmail-payloads.js';
 
 /**
  * Integration level, through the account's real store, its real alarm and the
@@ -26,10 +23,10 @@ import { labelsAnswer } from '../../gmail-payloads.js';
  * across the queue between the two ("Check a pulled connector on its cadence
  * through the generic host", issue 891).
  *
- * **Against a fake pulled connector**, registered here in place of the
- * registry's own list: no real source is pulled through this host until Gmail
- * moves onto it ("Move Gmail out of the core, onto the connector SDK", issue
- * 875). Each case scripts what its `sync` does.
+ * **Against a fake pulled connector**, registered here beside the registry's
+ * own list, so each rule of the host is proved against a source whose `sync`
+ * the case scripts rather than against Gmail's own behaviour - which its
+ * package proves, and gmail-on-the-host.test.ts runs through this host.
  *
  * **A connection is made through the store's own change**, the one the
  * generic connect route writes ("Connect and disconnect a source through one
@@ -258,39 +255,6 @@ function aPage(sourceId: string): SourceItem {
   };
 }
 
-/** Connects a Gmail mailbox holding nothing labelled, the whole walk a browser makes, as gmail-import.test.ts does. */
-async function connectGmail(): Promise<void> {
-  gmailHolds({ labels: labelsAnswer(), historyId: '777', threads: [], history: [], historyLapsed: false });
-  await issuerIsReachable();
-  const session = await signInAs();
-  const started = await SELF.fetch(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections/gmail/connect`, {
-    redirect: 'manual',
-    headers: { cookie: session },
-  });
-  const asked = new URL(started.headers.get('location')!);
-  const attempt = started.headers
-    .getSetCookie()
-    .map((cookie) => cookie.split(';')[0]!)
-    .find((cookie) => cookie.startsWith('cockpit_connect='))!;
-  issuerWillIdentify({ email: 'anna@example.com', subject: 'google-anna', nonce: asked.searchParams.get('nonce')! }, 'a-code', {
-    refresh_token: 'anna-refresh',
-    access_token: 'access-for-anna',
-    expires_in: 3599,
-    scope: 'openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.modify',
-  });
-  const back = await SELF.fetch(
-    `http://cockpit.test/v1/connections/gmail/callback?code=a-code&state=${asked.searchParams.get('state')}`,
-    { redirect: 'manual', headers: { cookie: `${session}; ${attempt}` } },
-  );
-  expect(back.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=gmail-connected`);
-}
-
-/** When the Workspace's Gmail connection was last checked. */
-async function gmailLastChecked(): Promise<string | null> {
-  const rows = (await connectionsOf()) as (ConnectionRow & { connectorId: string })[];
-  return rows.find((row) => row.connectorId === 'gmail')?.lastTestedAt ?? null;
-}
-
 /**
  * The alarm firing, each time for when it was set, until `runs` checks have
  * run in all - for connections whose next checks fall due moments apart.
@@ -311,7 +275,6 @@ beforeEach(async () => {
   fake.mirrorFails = false;
   everyRun(async () => {});
   env.TEST_CONNECTORS = [fakePulled];
-  gmailIsEmpty();
 });
 
 afterEach(() => {
@@ -372,26 +335,6 @@ describe('Connector management', () => {
       expect(await nextAlarm()).not.toBeNull();
       await nextChecksRun();
       expect(fake.runs).toBe(2);
-    });
-  });
-
-  describe('an account with a Gmail connection as well keeps both checked', () => {
-    it('checks the Gmail connection and the pulled one, and each again when it falls due', async () => {
-      await connectGmail();
-      await connectedAndChecked();
-      for (let waited = 0; waited < 10_000 && (await gmailLastChecked()) === null; waited += 25) {
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-      const gmailFirst = await gmailLastChecked();
-      expect(gmailFirst).not.toBeNull();
-      expect(fake.runs).toBe(1);
-
-      for (let fired = 0; fired < 6 && (fake.runs < 2 || (await gmailLastChecked()) === gmailFirst); fired += 1) {
-        await nextChecksRun();
-      }
-
-      expect(fake.runs).toBe(2);
-      expect(await gmailLastChecked()).not.toBe(gmailFirst);
     });
   });
 

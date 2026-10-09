@@ -70,18 +70,6 @@
       "to": "apps/api/src/auth/register.ts"
     },
     {
-      "from": "apps/api/src/accounts/gmail.ts",
-      "to": "apps/api/src/auth/register.ts"
-    },
-    {
-      "from": "apps/api/src/accounts/gmail.ts",
-      "to": "apps/api/src/connectors/gmail-check.ts"
-    },
-    {
-      "from": "apps/api/src/accounts/gmail.ts",
-      "to": "apps/api/src/connectors/gmail.ts"
-    },
-    {
       "from": "apps/api/src/accounts/index.ts",
       "to": "apps/api/src/auth/register.ts"
     },
@@ -99,15 +87,7 @@
     },
     {
       "from": "apps/api/src/accounts/store.ts",
-      "to": "apps/api/src/accounts/gmail.ts"
-    },
-    {
-      "from": "apps/api/src/accounts/store.ts",
       "to": "apps/api/src/auth/register.ts"
-    },
-    {
-      "from": "apps/api/src/accounts/store.ts",
-      "to": "apps/api/src/connectors/gmail-check.ts"
     },
     {
       "from": "apps/api/src/accounts/store.ts",
@@ -126,24 +106,8 @@
       "to": "apps/api/src/mcp/paths.ts"
     },
     {
-      "from": "apps/api/src/connectors/gmail-check.ts",
-      "to": "apps/api/src/jobs/enrichment.ts"
-    },
-    {
       "from": "apps/api/src/connectors/push-host.ts",
       "to": "apps/api/src/jobs/enrichment.ts"
-    },
-    {
-      "from": "apps/api/src/http/app.ts",
-      "to": "apps/api/src/connectors/gmail.ts"
-    },
-    {
-      "from": "apps/web/src/components/ManageConnections.tsx",
-      "to": "apps/web/src/components/ChangeGmailFollows.tsx"
-    },
-    {
-      "from": "apps/web/src/components/ManageConnections.tsx",
-      "to": "apps/web/src/components/ConnectGmail.tsx"
     }
   ],
   "engines": [

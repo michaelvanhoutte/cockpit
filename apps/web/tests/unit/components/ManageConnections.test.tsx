@@ -289,76 +289,6 @@ describe('Connector management', () => {
       expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
       expect(screen.queryByRole('alert')).toBeNull();
     });
-  });
-
-  /** "Connect a Gmail account to a workspace, and disconnect it", issue 724. */
-  describe('Gmail is connected through three steps before Google, and the window says how it went', () => {
-    it('Connect on the Gmail card shows the three steps, and says the label and the task stay in step', async () => {
-      showWindow();
-
-      await userEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
-
-      const steps = await screen.findByRole('dialog', { name: 'Connect Gmail to Work' });
-      expect(steps).toHaveTextContent(/1\. Create a label called Cockpit in Gmail/);
-      expect(steps).toHaveTextContent(/2\. Sign in with Google\..*Advanced, then Go to Cockpit/);
-      expect(steps).toHaveTextContent(/3\. Label any conversation Cockpit/);
-      expect(steps).toHaveTextContent(/The label and the task stay in step/);
-      // The card says it too, before anybody presses anything.
-      expect(screen.getByText(/Finishing the task takes the label off/)).toBeInTheDocument();
-    });
-
-    it('Sign in with Google leaves for this workspace’s own Gmail connect address', async () => {
-      const leaving = vi.fn();
-      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
-      showWindow();
-
-      await userEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
-      await userEvent.click(await screen.findByRole('button', { name: 'Sign in with Google' }));
-
-      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/gmail/connect');
-    });
-
-    it('Cancel stays, back on the connections list', async () => {
-      const leaving = vi.fn();
-      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
-      showWindow();
-
-      await userEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
-      await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
-
-      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Connect Gmail to Work' })).toBeNull());
-      expect(screen.getByRole('button', { name: 'Connect Gmail' })).toBeInTheDocument();
-      expect(leaving).not.toHaveBeenCalled();
-    });
-
-    it.each([
-      {
-        situation: 'connected',
-        outcome: 'gmail-connected' as const,
-        says: 'Connected. Conversations labelled Cockpit arrive in this workspace’s Inbox within a minute.',
-      },
-      {
-        situation: 'connected by star',
-        outcome: 'gmail-star-connected' as const,
-        says: 'Connected. Conversations you star or flag from now on arrive in this workspace’s Inbox within a few minutes.',
-      },
-      { situation: 'refused', outcome: 'refused' as const, says: /^That did not connect\. Nothing was stored\./ },
-      { situation: 'cancelled', outcome: 'cancelled' as const, says: 'Connecting was cancelled. Nothing was stored.' },
-      {
-        situation: 'without the permission to change mail',
-        outcome: 'gmail-permission-missing' as const,
-        says: /tick the Gmail box on Google’s last screen\.$/,
-      },
-      {
-        situation: 'without a refresh token',
-        outcome: 'gmail-no-refresh-token' as const,
-        says: /Remove Cockpit under third-party access in your Google account, then connect again\.$/,
-      },
-    ])('back from Google, $situation, it says so', async ({ outcome, says }) => {
-      showWindow(outcome);
-
-      expect(await screen.findByText(says)).toBeInTheDocument();
-    });
 
     it.each([
       {
@@ -388,109 +318,6 @@ describe('Connector management', () => {
       showWindow('refused', undefined, false, because);
 
       expect(await screen.findByText(says)).toBeInTheDocument();
-    });
-
-    it('a connected Gmail account is a row named by its address, reading the label it follows', async () => {
-      held.sourceAccounts = [
-        {
-          ...ADA,
-          id: 'account-anna',
-          connectorId: 'gmail',
-          displayName: 'anna@example.com',
-          lastTestedAt: null,
-          follows: 'label', followsLabel: 'label Cockpit',
-        },
-      ];
-
-      showWindow('gmail-connected');
-
-      expect(await screen.findByText('anna@example.com')).toBeInTheDocument();
-      expect(await screen.findByText('Gmail · label Cockpit')).toBeInTheDocument();
-      await userEvent.click(screen.getByRole('button', { name: 'Actions for anna@example.com' }));
-      expect(await screen.findByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
-    });
-  });
-
-  /** "Connect Gmail by star, and bring in conversations starred from then on", issue 822. */
-  describe('the Gmail Connect window offers one mark to follow, the label to start, and its steps follow the choice', () => {
-    it('opens with the label chosen, and the steps include creating the label', async () => {
-      showWindow();
-
-      await userEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
-
-      const steps = await screen.findByRole('dialog', { name: 'Connect Gmail to Work' });
-      expect(within(steps).getByRole('radio', { name: 'Labelled Cockpit' })).toBeChecked();
-      expect(within(steps).getByRole('radio', { name: 'Starred (flagged in Outlook)' })).not.toBeChecked();
-      expect(steps).toHaveTextContent(/Create a label called Cockpit in Gmail/);
-    });
-
-    it('choosing the star drops creating the label, says only stars from now on count, and connects by star', async () => {
-      const leaving = vi.fn();
-      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
-      showWindow();
-      await userEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
-      const steps = await screen.findByRole('dialog', { name: 'Connect Gmail to Work' });
-
-      await userEvent.click(within(steps).getByRole('radio', { name: 'Starred (flagged in Outlook)' }));
-
-      expect(steps).not.toHaveTextContent(/Create a label called Cockpit/);
-      expect(steps).toHaveTextContent(/1\. Sign in with Google\./);
-      expect(steps).toHaveTextContent(
-        /2\. Star any conversation in Gmail, or flag it in Outlook,.*Only conversations starred or flagged from now on become tasks/,
-      );
-      await userEvent.click(within(steps).getByRole('button', { name: 'Sign in with Google' }));
-      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/gmail/connect?follows=star');
-    });
-  });
-
-  /** "Change what a Gmail connection follows, without reconnecting", issue 824. */
-  describe('a Gmail row’s menu changes the mark it follows, starting at the one followed now', () => {
-    const ANNA: SourceAccount = {
-      ...ADA,
-      id: 'account-anna',
-      connectorId: 'gmail',
-      displayName: 'anna@example.com',
-      follows: 'star', followsLabel: 'starred',
-    };
-
-    async function changeWhatIsFollowed(): Promise<HTMLElement> {
-      await userEvent.click(await screen.findByRole('button', { name: 'Actions for anna@example.com' }));
-      await userEvent.click(await screen.findByRole('menuitem', { name: 'Change what’s followed…' }));
-      return screen.findByRole('dialog', { name: 'What anna@example.com follows' });
-    }
-
-    it.each([
-      { situation: 'choosing the label sends the switch for this workspace and this row', choose: 'Labelled Cockpit', sends: 'label' },
-      { situation: 'Save with the star still chosen sends nothing', choose: null, sends: null },
-    ])('$situation', async ({ choose, sends }) => {
-      held.sourceAccounts = [ANNA, ADA];
-      showWindow();
-
-      const choice = await changeWhatIsFollowed();
-      expect(within(choice).getByRole('radio', { name: 'Starred (flagged in Outlook)' })).toBeChecked();
-      if (choose) await userEvent.click(within(choice).getByRole('radio', { name: choose }));
-      await userEvent.click(within(choice).getByRole('button', { name: 'Save' }));
-
-      if (sends) {
-        expect(sent).toHaveBeenCalledTimes(1);
-        expect(sent.mock.calls[0]![0]).toMatchObject({
-          name: 'set_gmail_follows',
-          payload: { workspaceId: 'ws-work', sourceAccountId: 'account-anna', follows: sends },
-        });
-      } else {
-        expect(sent).not.toHaveBeenCalled();
-        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'What anna@example.com follows' })).toBeNull());
-      }
-    });
-
-    it('is offered on a Gmail row only', async () => {
-      held.sourceAccounts = [ADA];
-      showWindow();
-
-      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Ada Lovelace' }));
-
-      expect(screen.getByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
-      expect(screen.queryByRole('menuitem', { name: 'Change what’s followed…' })).toBeNull();
     });
   });
 
@@ -606,51 +433,88 @@ describe('Connector management', () => {
     });
   });
 
-  /** "Bring in the conversations already labelled Cockpit as tasks", issue 725. */
-  describe('a Gmail row shows when its mailbox was last checked, and why it is failing', () => {
-    const checkedAt = '2026-10-04T09:00:00.000Z';
-    it.each([
-      { situation: 'never checked yet', lastTestedAt: null, failingBecause: null, reads: 'Gmail · label Cockpit', failing: null },
-      {
-        situation: 'following the star, never checked yet',
-        follows: 'star', followsLabel: 'starred',
-        lastTestedAt: null,
-        failingBecause: null,
-        reads: 'Gmail · starred',
-        failing: null,
-      },
-      {
-        situation: 'following the star, after a check',
-        follows: 'star', followsLabel: 'starred',
-        lastTestedAt: checkedAt,
-        failingBecause: null,
-        reads: `Gmail · starred · last checked ${new Date(checkedAt).toLocaleString()}`,
-        failing: null,
-      },
-      {
-        situation: 'after a check',
-        lastTestedAt: checkedAt,
-        failingBecause: null,
-        reads: `Gmail · label Cockpit · last checked ${new Date(checkedAt).toLocaleString()}`,
-        failing: null,
-      },
-      {
-        situation: 'failing',
-        lastTestedAt: checkedAt,
-        failingBecause: 'there is no label called Cockpit in this account.',
-        reads: `Gmail · label Cockpit · last checked ${new Date(checkedAt).toLocaleString()}`,
-        failing: 'Failing: there is no label called Cockpit in this account.',
-      },
-    ])('$situation', async ({ lastTestedAt, failingBecause, reads, failing, ...rest }) => {
-      const followed = 'follows' in rest ? rest : { follows: 'label', followsLabel: 'label Cockpit' };
-      held.sourceAccounts = [
-        { ...ADA, id: 'account-anna', connectorId: 'gmail', displayName: 'anna@example.com', lastTestedAt, failingBecause, ...followed },
-      ];
 
+  /** "Switch Gmail onto the generic host, and take it out of the core", issue 944. */
+  describe('a failing connection says why, and its row offers Reconnect, which signs in again under the choice it holds', () => {
+    const GMAIL_CARD = {
+      id: 'gmail',
+      displayName: 'Gmail',
+      cardText: 'Sign in with Google.',
+      asksFirst: true,
+      choice: {
+        question: 'Bring in conversations',
+        options: [
+          { value: 'label', label: 'Labelled Cockpit' },
+          { value: 'star', label: 'Starred (flagged in Outlook)' },
+        ],
+      },
+    };
+    const ANNA: SourceAccount = {
+      ...ADA,
+      id: 'account-anna',
+      connectorId: 'gmail',
+      displayName: 'anna@example.com',
+      failingBecause: 'Gmail connects a new way now. Reconnect it to carry on.',
+    };
+
+    beforeEach(() => {
+      held.registry = [TEAMS_CARD, GMAIL_CARD];
+    });
+
+    it.each([
+      {
+        situation: 'a row that made no choice starts the question at the first option',
+        account: ANNA,
+        starts: 'Labelled Cockpit',
+        leaves: '/v1/workspaces/ws-work/connections/gmail/connect?choice=label',
+      },
+      {
+        situation: 'a row that made one starts the question at it',
+        account: { ...ANNA, follows: 'star', followsLabel: 'Starred (flagged in Outlook)' },
+        starts: 'Starred (flagged in Outlook)',
+        leaves: '/v1/workspaces/ws-work/connections/gmail/connect?choice=star',
+      },
+    ])('$situation', async ({ account, starts, leaves }) => {
+      const leaving = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
+      held.sourceAccounts = [account];
       showWindow();
 
-      expect(await screen.findByText(reads)).toBeInTheDocument();
-      expect(screen.queryByText(/^Failing:/)?.textContent ?? null).toBe(failing);
+      expect(await screen.findByText(`Failing: ${ANNA.failingBecause}`)).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Actions for anna@example.com' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Reconnect' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Gmail' });
+      expect(within(asked).getByRole('radio', { name: starts })).toBeChecked();
+      expect(leaving).not.toHaveBeenCalled();
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(leaving).toHaveBeenCalledWith(leaves);
+    });
+
+    it('a failing row of a connector that asks nothing leaves for its sign-in at once', async () => {
+      const leaving = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
+      held.sourceAccounts = [{ ...ADA, failingBecause: 'Microsoft no longer accepts the sign-in.' }];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Ada Lovelace' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Reconnect' }));
+
+      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/teams/connect');
+    });
+
+    it.each([
+      { situation: 'a row that is not failing', account: { ...ANNA, failingBecause: null } },
+      { situation: 'a failing row of a source this environment cannot sign in to', account: { ...ANNA, connectorId: 'outlook' } },
+      { situation: 'a failing Claude Code row, which is edited rather than signed in to', account: { ...CLAUDE, failingBecause: 'Claude refused.' } },
+    ])('offers no Reconnect on $situation', async ({ account }) => {
+      held.sourceAccounts = [account];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: `Actions for ${account.displayName}` }));
+
+      expect(screen.getByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'Reconnect' })).toBeNull();
     });
   });
 
@@ -705,7 +569,7 @@ describe('Connector management', () => {
       showWindow(undefined, undefined, true);
 
       await screen.findByText(/Nothing connected yet/);
-      expect(screen.getAllByText('Sign in with Google to connect your own')).toHaveLength(3);
+      expect(screen.getAllByText('Sign in with Google to connect your own')).toHaveLength(2);
       expect(screen.queryByRole('button', { name: /^Connect / })).toBeNull();
     });
 
@@ -747,18 +611,9 @@ describe('Connector management', () => {
       expect(await screen.findByRole('button', { name: 'Connect Notion' })).toBeInTheDocument();
       expect(screen.getByText('Pages become tasks.')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Connect Microsoft Teams' })).toBeNull();
-      // The two named cards stay, as before.
-      expect(screen.getByRole('button', { name: 'Connect Gmail' })).toBeInTheDocument();
+      // The one named card stays, and no source is drawn that the registry does not hold.
       expect(screen.getByRole('button', { name: 'Connect Claude Code' })).toBeInTheDocument();
-    });
-
-    it('draws the named Gmail card once even when the registry holds a connector of that id', async () => {
-      held.registry = [{ id: 'gmail', displayName: 'Gmail again', cardText: 'x', asksFirst: false }];
-
-      showWindow();
-
-      expect(await screen.findByRole('button', { name: 'Connect Gmail' })).toBeInTheDocument();
-      expect(screen.queryByText('Gmail again')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Connect Gmail' })).toBeNull();
     });
 
     it('shows Teams’ card with its manifest’s text', async () => {

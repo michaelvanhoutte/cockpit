@@ -19,11 +19,14 @@ import { labelChangeRefusal } from './messages.js';
  */
 
 /**
- * How many calls to Google one run may make. The Workers free plan allows 50
- * outbound requests per invocation, and a run also makes store round trips and
- * queue sends beside these: this is the figure Gmail had inside its own alarm,
- * kept until it is measured on the generic host ("Switch Gmail onto the generic
- * host, and take it out of the core", issue 944).
+ * How many calls to Google one run may make, set from a measurement on the
+ * generic host ("Switch Gmail onto the generic host, and take it out of the
+ * core", issue 944). The Workers free plan allows 50 calls out per invocation,
+ * and a busy first run spends these 40 and one more, reading the issuer's
+ * discovery document once per isolate; its store round trips and queue sends
+ * (about five per conversation filed) count against the separate 1,000 for
+ * Cloudflare's own services. apps/api's gmail-on-the-host.test.ts holds a run
+ * to both.
  */
 export const CALLS_PER_RUN = 40;
 

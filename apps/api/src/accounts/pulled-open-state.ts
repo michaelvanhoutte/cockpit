@@ -1,14 +1,12 @@
 import { and, eq, exists, gt, inArray, isNotNull, isNull } from 'drizzle-orm';
 import type { OpenStateWanted } from '@cockpit/connector-sdk';
 import type { AccountDb } from './client.js';
-import { isOpen } from './mirrored-open-state.js';
 import { connectorAccounts, pulledConnections, pulledLinks } from './schema.js';
 
 /**
  * What a person's change to an Item asks of a pulled source that mirrors its
  * open state, through the generic host ("Mirror an Item's open state back to
- * a pulled source through the generic host", issue 893) - the generic form of
- * `mirrored-open-state.ts`, naming no source.
+ * a pulled source through the generic host", issue 893), naming no source.
  *
  * **Wanted state, not an event**: the link the host keeps for the Item records
  * what Cockpit wants the source to show until the connector confirms it,
@@ -23,6 +21,11 @@ import { connectorAccounts, pulledConnections, pulledLinks } from './schema.js';
  */
 
 type InATransaction = Parameters<Parameters<AccountDb['transaction']>[0]>[0];
+
+/** Open is neither done nor dismissed: what a mirrored source's own mark stands for. */
+export function isOpen(item: { completedAt: string | null; deletedAt: string | null }): boolean {
+  return item.completedAt === null && item.deletedAt === null;
+}
 
 /**
  * Records the open state an Item has just moved to as wanted of its link -

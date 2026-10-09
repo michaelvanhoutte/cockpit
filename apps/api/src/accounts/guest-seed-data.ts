@@ -120,7 +120,7 @@ export type DemoAgentName = (typeof GUEST_DEMO_AGENTS)[number]['name'];
  *
  * **Rows nothing outside Cockpit ever reads.** The credential is a placeholder
  * that opens nothing, and every path that would use a connection skips the
- * guest account by identity (`holdsGmailConnection`, accounts/gmail.ts), so
+ * guest account by identity (`schedulePulledChecks`, accounts/pulled.ts), so
  * neither is checked against Google or Microsoft and neither can show as
  * failing. A seeded row is also never a way to connect for real: the guest's
  * connection changes are refused at the route (auth/guest-connections.ts).
