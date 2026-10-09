@@ -395,9 +395,11 @@ function everyWorkspaceCanSee(args: CommandArgs): boolean {
 }
 
 function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
-  if (args.name === 'disconnect_source_account' ||
+  if (
+    args.name === 'disconnect_source_account' ||
     args.name === 'set_gmail_follows' ||
-    args.name === 'set_connection_choice') {
+    args.name === 'set_connection_choice'
+  ) {
     // Its own query, outside any workspace snapshot - the same reason
     // `itemTypesQuery` is. Waited for rather than
     // dropped, so the row is gone from the list by the time the window stops

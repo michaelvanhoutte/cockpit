@@ -399,6 +399,18 @@ describe('Connector management', () => {
       expect(await waitingOpenStates()).toEqual([null]);
     });
 
+    it('drops an open state still waiting when the account is connected again under another choice', async () => {
+      const first = await connectedUnder('starred');
+      await nextCheckRuns();
+      await dismissedPageOne();
+      expect(await waitingOpenStates()).toEqual([0]);
+
+      const started = await startConnecting(CHOOSES, first.session, 'all');
+      await comeBack(CHOOSES, first.session, started);
+
+      expect(await waitingOpenStates()).toEqual([null]);
+    });
+
     it('keeps what was waiting when the choice already held is chosen again', async () => {
       const id = await connectedDirectly('starred');
       await dismissedPageOne();

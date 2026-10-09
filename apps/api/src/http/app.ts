@@ -269,6 +269,14 @@ function gmailNotConnectedBecause(reason: string, reply: { error?: string | null
   return 'refused';
 }
 
+/**
+ * The options a connection's connector offers for its one choice, or none where
+ * it declares none - Gmail's own `follows` is not one (issue 942).
+ */
+function choiceOptionsOf(env: Env, connectorId: string) {
+  return connectorId === GMAIL ? undefined : getConnector(env, connectorId)?.manifest.choice?.options;
+}
+
 /** A connection that will not be completed, logged the way a refused sign-in is. */
 function refuseConnection(
   c: Context,
@@ -1562,7 +1570,7 @@ const routes = app
     return c.json(
       {
         sourceAccounts: (await account.sourceAccounts(workspaceId)).map((held) => {
-          const options = held.connectorId === GMAIL ? undefined : getConnector(c.env, held.connectorId)?.manifest.choice?.options;
+          const options = choiceOptionsOf(c.env, held.connectorId);
           const label = options?.find((option) => option.value === held.follows)?.label;
           return label === undefined ? held : { ...held, followsLabel: label };
         }),
@@ -1981,7 +1989,7 @@ const routes = app
     const account = await openAccount(c.env, c.get('visitor').accountName);
     const held = (await account.sourceAccounts(cmd.workspaceId)).find((one) => one.id === cmd.sourceAccountId);
     if (!held) throw new NotFoundInAccountError(`source account ${cmd.sourceAccountId} not found`);
-    const options = held.connectorId === GMAIL ? undefined : getConnector(c.env, held.connectorId)?.manifest.choice?.options;
+    const options = choiceOptionsOf(c.env, held.connectorId);
     if (!options?.some((option) => option.value === cmd.choice)) {
       throw new RefusedByAccountError('that is not a choice this connection offers');
     }

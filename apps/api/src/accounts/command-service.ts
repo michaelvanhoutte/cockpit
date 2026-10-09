@@ -2060,21 +2060,21 @@ export function runCommand<N extends CommandName>(
         throw new WorkspaceNotFoundError(cmd.workspaceId);
       }
       const follows = cmd.follows ?? 'label';
-      // The choice the account at this source already held in this Workspace,
-      // to tell a reconnect that changes it from one that does not (issue 942).
-      const choiceBefore = db
-        .select({ choice: connectorAccounts.choice })
-        .from(connectorAccounts)
-        .where(
-          and(
-            eq(connectorAccounts.tenantId, tenantId),
-            eq(connectorAccounts.workspaceId, cmd.workspaceId),
-            eq(connectorAccounts.connectorId, cmd.connectorId),
-            eq(connectorAccounts.externalAccountKey, cmd.externalAccountKey),
-          ),
-        )
-        .get()?.choice;
       db.transaction((tx) => {
+        // The choice the account at this source already held in this Workspace,
+        // to tell a reconnect that changes it from one that does not (issue 942).
+        const choiceBefore = tx
+          .select({ choice: connectorAccounts.choice })
+          .from(connectorAccounts)
+          .where(
+            and(
+              eq(connectorAccounts.tenantId, tenantId),
+              eq(connectorAccounts.workspaceId, cmd.workspaceId),
+              eq(connectorAccounts.connectorId, cmd.connectorId),
+              eq(connectorAccounts.externalAccountKey, cmd.externalAccountKey),
+            ),
+          )
+          .get()?.choice;
         tx.insert(connectorAccounts)
           .values({
             id: cmd.sourceAccountId,
