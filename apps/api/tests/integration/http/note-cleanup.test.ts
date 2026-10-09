@@ -1238,7 +1238,8 @@ describe('Triage', () => {
         (
           await postChange('set_title', {
             commandId: nextId(),
-            issuedAt: '2026-09-09T10:00:02.000Z',
+            // From the clock, since only the last 30 days' corrections are read.
+            issuedAt: new Date().toISOString(),
             workspaceId: WORKSPACE_ID,
             itemId: corrected,
             title: 'My own way of saying it',
