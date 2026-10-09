@@ -25,6 +25,7 @@ import { ISSUER, issuerIsForgotten, issuerIsReachable, issuerWillIdentify } from
 
 const FIXED = 'fake-fixed-urls';
 const NO_SIGN_IN = 'fake-no-sign-in';
+const EXTRAS = 'fake-extras';
 
 const settings = env as unknown as Record<string, string | undefined>;
 
@@ -64,6 +65,50 @@ const noSignIn: Connector = {
   async sync() {},
 };
 
+/** What the fake source below was asked to revoke, and whether it is to refuse. */
+const revoked: { credential: string }[] = [];
+let revokeFails = false;
+
+const REASON = 'The source did not let Cockpit stay signed in.';
+
+/**
+ * A source that wants more of its sign-in: offline access asked for and a
+ * consent screen forced (and an attempt to also move the redirect address,
+ * which is not its to move), a grant without a refresh token refused with a
+ * reason the window can say, and the grant ended at the source on disconnect.
+ */
+const withExtras: Connector = {
+  manifest: {
+    ...fixedUrls.manifest,
+    id: EXTRAS,
+    displayName: 'A source that asks for more',
+    cardText: 'A source that asks for more.',
+    auth: {
+      kind: 'oauth2',
+      endpoints: { authorizationUrl: `${ISSUER}/authorize`, tokenUrl: `${ISSUER}/token` },
+      scopes: ['read'],
+      clientSettings: { id: 'FAKE_SOURCE_CLIENT_ID', secret: 'FAKE_SOURCE_CLIENT_SECRET' },
+      authorizationParams: {
+        access_type: 'offline',
+        prompt: 'select_account consent',
+        redirect_uri: 'https://elsewhere.test/steal',
+      },
+      refusals: { 'no-refresh-token': REASON },
+    },
+  },
+  async sync() {},
+  accountFrom({ tokenResponse }) {
+    if (typeof tokenResponse.access_token !== 'string') return null;
+    if (typeof tokenResponse.refresh_token !== 'string') return { refused: 'no-refresh-token' };
+    if (tokenResponse.refresh_token === 'unlisted') return { refused: 'a-code-nobody-listed' };
+    return { key: `account-of-${tokenResponse.access_token}`, displayName: `Source account ${tokenResponse.access_token}` };
+  },
+  async revoke(credentials) {
+    revoked.push({ credential: credentials.credential! });
+    if (revokeFails) throw new Error('the source could not be reached');
+  },
+};
+
 interface StoredRow extends Record<string, string> {
   connector_id: string;
   external_account_key: string;
@@ -96,7 +141,9 @@ beforeEach(async () => {
   await startFromEmpty();
   await seedRegister();
   await alsoWorkspaces();
-  env.TEST_CONNECTORS = [fixedUrls, noSignIn];
+  env.TEST_CONNECTORS = [fixedUrls, noSignIn, withExtras];
+  revoked.length = 0;
+  revokeFails = false;
   settings.FAKE_SOURCE_CLIENT_ID = 'the-fake-source-client';
   settings.FAKE_SOURCE_CLIENT_SECRET = 'the-fake-source-secret';
 });
@@ -234,7 +281,13 @@ describe('Connector management', () => {
     const listed = async () =>
       (
         (await (await asUser('http://cockpit.test/v1/connectors')).json()) as {
-          connectors: { id: string; displayName: string; cardText: string; asksFirst: boolean }[];
+          connectors: {
+            id: string;
+            displayName: string;
+            cardText: string;
+            asksFirst: boolean;
+            refusals: Record<string, string>;
+          }[];
         }
       ).connectors;
 
@@ -245,12 +298,21 @@ describe('Connector management', () => {
           displayName: 'Microsoft Teams',
           cardText: 'Sign in with Microsoft. Cockpit reads who you are and nothing else.',
           asksFirst: false,
+          refusals: {},
         },
         {
           id: FIXED,
           displayName: 'A source with fixed addresses',
           cardText: 'A source reached at fixed addresses.',
           asksFirst: false,
+          refusals: {},
+        },
+        {
+          id: EXTRAS,
+          displayName: 'A source that asks for more',
+          cardText: 'A source that asks for more.',
+          asksFirst: false,
+          refusals: { 'no-refresh-token': REASON },
         },
       ]);
     });
@@ -259,7 +321,7 @@ describe('Connector management', () => {
       const bot = settings.MS_BOT_APP_ID;
       delete settings.MS_BOT_APP_ID;
       try {
-        expect((await listed()).map((one) => one.id)).toEqual([FIXED]);
+        expect((await listed()).map((one) => one.id)).toEqual([FIXED, EXTRAS]);
       } finally {
         settings.MS_BOT_APP_ID = bot;
       }
@@ -287,6 +349,148 @@ describe('Connector management', () => {
 
     it('lists no source that has no sign-in', async () => {
       expect((await listed()).map((one) => one.id)).not.toContain(NO_SIGN_IN);
+    });
+  });
+
+  describe('a source can ask more of its sign-in than the plain request', () => {
+    it('adds the parameters its description declares to the redirect, and none where it declares none', async () => {
+      await issuerIsReachable();
+      const session = await signInAs(USER_ID);
+
+      const extras = (await startConnecting(EXTRAS, session)).asked!;
+      const plain = (await startConnecting(FIXED, session)).asked!;
+      const teams = (await startConnecting('teams', session)).asked!;
+
+      expect(Object.fromEntries(extras.searchParams)).toMatchObject({
+        access_type: 'offline',
+        prompt: 'select_account consent',
+        // Asking for more does not move where the answer goes.
+        redirect_uri: `https://cockpit.test/v1/connections/${EXTRAS}/callback`,
+      });
+      for (const asked of [plain, teams]) {
+        expect(asked.searchParams.has('access_type')).toBe(false);
+        expect(asked.searchParams.get('prompt')).toBe('select_account');
+      }
+    });
+  });
+
+  describe('a grant the source’s account step refuses stores nothing and says why', () => {
+    async function comeBack(grant: Record<string, unknown>) {
+      await issuerIsReachable();
+      const session = await signInAs(USER_ID);
+      const { asked, attempt } = await startConnecting(EXTRAS, session);
+      issuerWillIdentify({ email: 'nobody@example.com', nonce: asked!.searchParams.get('nonce')! }, 'a-code', grant);
+      return SELF.fetch(
+        `http://cockpit.test/v1/connections/${EXTRAS}/callback?${new URLSearchParams({
+          code: 'a-code',
+          state: asked!.searchParams.get('state')!,
+        })}`,
+        { redirect: 'manual', headers: { cookie: `${session}; ${attempt}` } },
+      );
+    }
+
+    it.each([
+      {
+        situation: 'a reason the description lists',
+        grant: { access_token: 'ada' },
+        goes: `/w/${WORKSPACE_ID}?connections=refused&by=${EXTRAS}&because=no-refresh-token`,
+      },
+      {
+        situation: 'a reason nobody listed',
+        grant: { access_token: 'ada', refresh_token: 'unlisted' },
+        goes: `/w/${WORKSPACE_ID}?connections=refused`,
+      },
+    ])('connects nothing for $situation', async ({ grant, goes }) => {
+      const back = await comeBack(grant);
+
+      expect(back.headers.get('location')).toBe(goes);
+      expect(await storedRows()).toEqual([]);
+    });
+
+    it('connects the account when the step accepts the grant', async () => {
+      const back = await comeBack({ access_token: 'ada', refresh_token: 'r1' });
+
+      expect(back.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=connected`);
+      expect((await storedRows()).map((row) => row.external_account_key)).toEqual(['account-of-ada']);
+    });
+  });
+
+  describe('disconnecting ends the source’s sign-in unless another workspace holds the same account', () => {
+    async function connectAs(connectorId: string, workspaceId: string, grant: Record<string, unknown>) {
+      await issuerIsReachable();
+      const session = await signInAs(USER_ID);
+      const { asked, attempt } = await startConnecting(connectorId, session, workspaceId);
+      issuerWillIdentify({ email: 'nobody@example.com', nonce: asked!.searchParams.get('nonce')! }, 'a-code', grant);
+      await SELF.fetch(
+        `http://cockpit.test/v1/connections/${connectorId}/callback?${new URLSearchParams({
+          code: 'a-code',
+          state: asked!.searchParams.get('state')!,
+        })}`,
+        { redirect: 'manual', headers: { cookie: `${session}; ${attempt}` } },
+      );
+    }
+
+    async function disconnect(workspaceId: string, connectorId: string): Promise<Response> {
+      const rows = (
+        (await (await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/connections`)).json()) as {
+          sourceAccounts: { id: string; connectorId: string }[];
+        }
+      ).sourceAccounts;
+      return asUser('http://cockpit.test/v1/commands/disconnect_source_account', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: crypto.randomUUID(),
+          issuedAt: '2026-09-18T10:00:00.000Z',
+          workspaceId,
+          sourceAccountId: rows.find((one) => one.connectorId === connectorId)!.id,
+        }),
+      });
+    }
+
+    const GRANT = { access_token: 'ada', refresh_token: 'the-refresh-token' };
+
+    it('revokes with the opened credential when this workspace is the only holder', async () => {
+      await connectAs(EXTRAS, WORKSPACE_ID, GRANT);
+
+      const res = await disconnect(WORKSPACE_ID, EXTRAS);
+
+      expect(res.status).toBe(200);
+      expect(await storedRows()).toEqual([]);
+      expect(revoked.map((one) => JSON.parse(one.credential).refresh_token)).toEqual(['the-refresh-token']);
+    });
+
+    it('does not revoke while another workspace holds the same account, and does once the last lets go', async () => {
+      await connectAs(EXTRAS, WORKSPACE_ID, GRANT);
+      await connectAs(EXTRAS, 'ws-atlas', GRANT);
+
+      await disconnect(WORKSPACE_ID, EXTRAS);
+      expect(revoked).toEqual([]);
+      expect(await storedRows()).toHaveLength(1);
+
+      await disconnect('ws-atlas', EXTRAS);
+      expect(revoked).toHaveLength(1);
+    });
+
+    it('still disconnects when the revoke fails', async () => {
+      await connectAs(EXTRAS, WORKSPACE_ID, GRANT);
+      revokeFails = true;
+
+      const res = await disconnect(WORKSPACE_ID, EXTRAS);
+
+      expect(res.status).toBe(200);
+      expect(await storedRows()).toEqual([]);
+      expect(revoked).toHaveLength(1);
+    });
+
+    it('disconnects as it always did for a source that supplies no revoke', async () => {
+      await connectAs(FIXED, WORKSPACE_ID, { access_token: 'ada' });
+
+      const res = await disconnect(WORKSPACE_ID, FIXED);
+
+      expect(res.status).toBe(200);
+      expect(await storedRows()).toEqual([]);
+      expect(revoked).toEqual([]);
     });
   });
 });

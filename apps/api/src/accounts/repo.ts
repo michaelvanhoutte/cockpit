@@ -2395,11 +2395,12 @@ export function sealedCredentialOf(
   db: AccountDb,
   tenantId: string,
   sourceAccountId: string,
-): { sealedCredential: string; credentialNonce: string } | undefined {
+): { sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | undefined {
   return db
     .select({
       sealedCredential: connectorAccounts.encryptedCredential,
       credentialNonce: connectorAccounts.credentialNonce,
+      externalAccountKey: connectorAccounts.externalAccountKey,
     })
     .from(connectorAccounts)
     .where(

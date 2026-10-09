@@ -1,7 +1,7 @@
 import { lazy, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { workspacesQuery } from '../api/queries';
-import type { ConnectOutcome } from '../connections';
+import type { ConnectOutcome, RefusedBecause } from '../connections';
 import { SettingsModal } from './SettingsModal';
 
 // One chunk each, fetched when its section is first shown: only the modal is
@@ -18,6 +18,8 @@ export type SettingsKey = 'types' | 'connections' | 'agents' | 'mcp' | 'appearan
 export interface ConnectOutcomeFor {
   workspaceId: string;
   outcome: ConnectOutcome;
+  /** Which connector refused the grant and why, where its own account step did. */
+  because?: RefusedBecause;
 }
 
 /**
@@ -108,6 +110,7 @@ function ConnectionsOf({
       workspaceId={chosen.id}
       workspaceName={chosen.name}
       outcome={outcome?.workspaceId === chosen.id ? outcome.outcome : undefined}
+      because={outcome?.workspaceId === chosen.id ? outcome.because : undefined}
       open
       onClose={onClose}
       picker={

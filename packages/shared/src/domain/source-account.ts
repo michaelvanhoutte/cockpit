@@ -82,6 +82,13 @@ export const registeredConnectorSchema = z.object({
   cardText: z.string(),
   /** Whether connecting asks the person something before it leaves for the source. */
   asksFirst: z.boolean(),
+  /**
+   * What the window says when this connector refuses a grant, by the code the
+   * redirect back names: the connector's own sentences, listed here because
+   * an address cannot be trusted to carry words. Absent from a release before
+   * it, which reads as none.
+   */
+  refusals: z.record(z.string(), z.string()).default({}),
 });
 export type RegisteredConnector = z.infer<typeof registeredConnectorSchema>;
 

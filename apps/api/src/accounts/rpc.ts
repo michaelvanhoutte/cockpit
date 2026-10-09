@@ -242,11 +242,15 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     connectorId: string,
     externalAccountKey: string,
   ): Awaitable<Answer<{ id: string } | null>>;
-  /** The sealed credential of one connection, for the connector about to use it (issue 486). */
+  /**
+   * The sealed credential of one connection, for the connector about to use it
+   * (issue 486), with the key the source names the account by - what a
+   * disconnect asks whether another Workspace still holds.
+   */
   sealedCredential(
     accountName: string,
     sourceAccountId: string,
-  ): Awaitable<Answer<{ sealedCredential: string; credentialNonce: string } | null>>;
+  ): Awaitable<Answer<{ sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | null>>;
   /**
    * The sealed credential of one Claude Code connection this Workspace holds,
    * for the test route about to fire it (issue 569) - `missing` where the row

@@ -671,7 +671,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   sealedCredential(
     accountName: string,
     sourceAccountId: string,
-  ): Answer<{ sealedCredential: string; credentialNonce: string } | null> {
+  ): Answer<{ sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | null> {
     return this.#answer(
       accountName,
       (db) => sealedCredentialOf(db, accountName, sourceAccountId) ?? null,
