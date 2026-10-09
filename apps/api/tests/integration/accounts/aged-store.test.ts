@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { abortAllDurableObjects, applyD1Migrations, env } from 'cloudflare:test';
 import type { SqlStorage } from '@cloudflare/workers-types';
-import { accountChanges } from '../../../src/accounts/changes.js';
+import { GMAIL_RECONNECT_REASON, accountChanges } from '../../../src/accounts/changes.js';
 import { inStoreAsItIs, storeNamed } from '../seed.js';
 
 /**
@@ -445,6 +445,21 @@ const rowsFor: {
     table: 'gmail_conversations',
     sql: `INSERT INTO gmail_conversations (tenant_id, workspace_id, mailbox_key, thread_id, item_id, label_wanted, linked_at)
           VALUES (?, 'ws-before', 'google-somebody', 'thread-before', 'it-before', 0, ?)`,
+    params: (name) => [name, AT],
+  },
+  {
+    // Where the Gmail connection's check had got to, and the Teams one failing,
+    // so `0066-gmail-connections-reconnect` meets a checkpoint it must leave
+    // alone and a failure it must not replace.
+    table: 'gmail_checks',
+    sql: `INSERT INTO gmail_checks (source_account_id, tenant_id, history_id, page_token, started_at, listed_at)
+          VALUES ('cn-gmail-before', ?, '4815', NULL, ?, ?)`,
+    params: (name) => [name, AT, AT],
+  },
+  {
+    table: 'connection_failures',
+    sql: `INSERT INTO connection_failures (source_account_id, tenant_id, reason, failed_at)
+          VALUES ('cn-before', ?, 'Microsoft no longer accepts the sign-in', ?)`,
     params: (name) => [name, AT],
   },
   {
@@ -1841,6 +1856,85 @@ describe('Connector management', () => {
   });
 });
 
+/**
+ * `0066-gmail-connections-reconnect` ("Switch Gmail onto the generic host, and
+ * take it out of the core", issue 944) meets the Gmail connection the core
+ * made - with its checkpoint, its conversation and the Item it became - beside
+ * a failing Teams connection. Integration because it is one statement over
+ * rows that already exist; that the row's menu offers Reconnect for it is
+ * ManageConnections' own (F1).
+ */
+const GMAIL_RECONNECT = '0066-gmail-connections-reconnect';
+
+/** Every row the change could reach or must not: the connections, their failures, and Gmail's own rows. */
+const connectorRowsIn = (name: string) =>
+  inStoreAsItIs(name, (sql) => ({
+    connections: sql.exec('SELECT * FROM connector_accounts ORDER BY id').toArray(),
+    failures: sql.exec('SELECT * FROM connection_failures ORDER BY source_account_id').toArray(),
+    links: sql.exec('SELECT * FROM gmail_conversations').toArray(),
+    checkpoints: sql.exec('SELECT * FROM gmail_checks').toArray(),
+    items: sql.exec('SELECT * FROM items ORDER BY id').toArray(),
+  }));
+
+describe('Connector management', () => {
+  describe('a Gmail connection made before Gmail moved onto the generic host reads as needing a reconnect, and nothing else about the account changes', () => {
+    it.each([
+      { situation: 'connected the old way: marked as needing a reconnect', choice: null, marked: true },
+      { situation: 'already reconnected the new way: left working', choice: 'label', marked: false },
+    ])('$situation', async ({ situation, choice, marked }) => {
+      const name = `aged-store-gmail-reconnect-${choice ?? 'old'}`;
+      await agedTo(name, justBefore(GMAIL_RECONNECT));
+      await fillWithWhatIsAlreadyThere(name);
+      if (choice) {
+        await inStoreAsItIs(name, (sql) => sql.exec("UPDATE connector_accounts SET choice = ? WHERE id = 'cn-gmail-before'", choice));
+      }
+      const before = await connectorRowsIn(name);
+
+      expect(await storeNamed(name).workspaces(name), situation).toMatchObject({ status: 'ok' });
+
+      const after = await connectorRowsIn(name);
+      // The Teams connection keeps the failure it had; the Gmail one gains one or does not.
+      expect(after.failures).toEqual([
+        ...before.failures,
+        ...(marked
+          ? [
+              {
+                source_account_id: 'cn-gmail-before',
+                tenant_id: name,
+                reason: GMAIL_RECONNECT_REASON,
+                failed_at: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/),
+              },
+            ]
+          : []),
+      ]);
+      // Compared whole: the connections, Gmail's links and checkpoint, and every Item, as they were.
+      expect({ ...after, failures: [] }).toEqual({ ...before, failures: [] });
+
+      const shown = await storeNamed(name).sourceAccounts(name, 'ws-before');
+      const gmail = shown.status === 'ok' ? shown.value.find((one) => one.connectorId === 'gmail') : undefined;
+      expect(gmail?.failingBecause ?? null).toBe(marked ? GMAIL_RECONNECT_REASON : null);
+    });
+
+    it('marks it once: brought up again, or the change somehow run a second time, nothing more changes', async () => {
+      const name = 'aged-store-gmail-reconnect-twice';
+      await agedTo(name, justBefore(GMAIL_RECONNECT));
+      await fillWithWhatIsAlreadyThere(name);
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      const once = await connectorRowsIn(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      // Its statement again, as a retry over a store somehow already marked would run it.
+      await inStoreAsItIs(name, (sql) => {
+        for (const statement of accountChanges(name).find((one) => one.name === GMAIL_RECONNECT)!.statements) {
+          sql.exec(statement.sql, ...(statement.params ?? []));
+        }
+      });
+
+      expect(await connectorRowsIn(name)).toEqual(once);
+    });
+  });
+});
+
 describe('Workspace management', () => {
   /**
    * The other half of "an account nobody has opened starts with one workspace"
@@ -2024,8 +2118,7 @@ describe('Agents', () => {
  * an account already holds is rewritten to name `gmail` beside the `mail` its
  * source column keeps. Integration because it is a rewrite of rows that
  * already exist, against a store that holds them; what a person then sees of
- * a Gmail Item is held at apps/api/tests/integration/http/capture-source.test.ts
- * and gmail-import.test.ts.
+ * a Gmail Item is held at apps/api/tests/integration/http/capture-source.test.ts.
  */
 const GMAIL_ITEMS = '0062-gmail-items-under-their-connector';
 

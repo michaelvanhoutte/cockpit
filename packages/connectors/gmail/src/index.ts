@@ -1,5 +1,5 @@
 import type { Connector } from '@cockpit/connector-sdk';
-import { credentialIn } from './credential.js';
+import { refreshTokenToRevoke } from './credential.js';
 import { endpointsOf, type GmailConnectorConfig } from './mailbox.js';
 import { gmailAccountFrom, gmailSignIn } from './sign-in.js';
 import { mirrorOpenStates, syncMailbox } from './sync.js';
@@ -10,11 +10,11 @@ import { mirrorOpenStates, syncMailbox } from './sync.js';
  * Task in Cockpit takes the label or star off or puts it back
  * ("Build Gmail as a connector package on the SDK, unregistered", issue 943).
  *
- * **Not registered yet**: the application's registry does not list it, so a
- * running Cockpit is unchanged ("Switch Gmail onto the generic host, and take it
- * out of the core", issue 944). It reads only the generic credential shape the
- * generic sign-in seals, so no stored Gmail credential is read and every
- * connection reconnects.
+ * Registered by the application wherever its Google client is configured
+ * ("Switch Gmail onto the generic host, and take it out of the core", issue
+ * 944). It reads only the generic credential shape the generic sign-in seals,
+ * so no credential the core stored is read and every connection made before
+ * reconnects.
  *
  * Everything this package knows about Gmail is in its README.
  */
@@ -62,14 +62,14 @@ export function createGmailConnector(config: GmailConnectorConfig): Connector {
      * same mailbox. A failure is the host's to log; it never fails the disconnect.
      */
     async revoke(credentials) {
-      const held = credentialIn(credentials);
-      if (!held) throw new Error('the stored sign-in could not be read to revoke');
+      const refreshToken = refreshTokenToRevoke(credentials);
+      if (!refreshToken) throw new Error('the stored sign-in could not be read to revoke');
       const { revocationEndpoint } = await endpointsOf(config);
       if (!revocationEndpoint) throw new Error('the issuer names nowhere to revoke a sign-in');
       const response = await (config.fetch ?? fetch)(revocationEndpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ token: held.refreshToken }),
+        body: new URLSearchParams({ token: refreshToken }),
         signal: AbortSignal.timeout(REVOKE_TIMEOUT_MS),
       });
       if (!response.ok) throw new Error(`Google answered ${response.status} to a revoke`);

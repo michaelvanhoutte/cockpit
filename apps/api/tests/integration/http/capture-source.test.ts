@@ -117,23 +117,24 @@ describe('Connector management', () => {
     });
 
     it.each([
-      { situation: 'Teams, by its manifest', bot: true, id: 'teams', called: 'Microsoft Teams' },
-      { situation: 'a connector registered here alone, by its manifest', bot: true, id: 'outlook', called: 'Outlook' },
-      { situation: 'Gmail, by the name the core still gives it', bot: true, id: 'gmail', called: 'Gmail' },
-      { situation: 'Claude Code, by the name the core still gives it', bot: true, id: 'claude-code', called: 'Claude Code' },
-      { situation: 'Teams where its bot is not configured, by its manifest still', bot: false, id: 'teams', called: 'Microsoft Teams' },
-      { situation: 'an app connected to Cockpit: never named here', bot: true, id: 'mcp', called: undefined },
-    ])('$situation', async ({ bot, id, called }) => {
+      { situation: 'Teams, by its manifest', unset: null, id: 'teams', called: 'Microsoft Teams' },
+      { situation: 'a connector registered here alone, by its manifest', unset: null, id: 'outlook', called: 'Outlook' },
+      { situation: 'Gmail, by its manifest', unset: null, id: 'gmail', called: 'Gmail' },
+      { situation: 'Claude Code, by the name the core still gives it', unset: null, id: 'claude-code', called: 'Claude Code' },
+      { situation: 'Teams where its bot is not configured, by its manifest still', unset: 'MS_BOT_APP_ID', id: 'teams', called: 'Microsoft Teams' },
+      { situation: 'Gmail where its Google client is not configured, by its manifest still', unset: 'GMAIL_CLIENT_ID', id: 'gmail', called: 'Gmail' },
+      { situation: 'an app connected to Cockpit: never named here', unset: null, id: 'mcp', called: undefined },
+    ])('$situation', async ({ unset, id, called }) => {
       env.TEST_CONNECTORS = [OUTLOOK];
-      const kept = settings.MS_BOT_APP_ID;
-      if (!bot) delete settings.MS_BOT_APP_ID;
+      const kept = unset ? settings[unset] : undefined;
+      if (unset) delete settings[unset];
       try {
         const snapshot = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
         expect(snapshot.status).toBe(200);
         const { sourceNames } = workspaceSnapshotSchema.parse(await snapshot.json());
         expect(sourceNames?.[id]).toBe(called);
       } finally {
-        settings.MS_BOT_APP_ID = kept;
+        if (unset) settings[unset] = kept;
       }
     });
   });

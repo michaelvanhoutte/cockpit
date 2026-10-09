@@ -10,7 +10,7 @@ import type {
   SourceAccount,
   Workspace,
 } from '@cockpit/shared';
-import { CLAUDE_CODE, GMAIL } from '../domain/named-sources.js';
+import { CLAUDE_CODE } from '../domain/named-sources.js';
 import { itemLabel, panelTakesItems } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, AgentRunToFire, Answer } from './answer.js';
@@ -32,9 +32,7 @@ import {
 } from './backup.js';
 import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
 import { HOOK_CALLS_PER_MINUTE, admittedCalls } from './call-window.js';
-import { checkGmail } from '../connectors/gmail-check.js';
-import { gmailCheckHost, holdsGmailConnection, sweepGmailNightly } from './gmail.js';
-import { labelChangeWaiting } from './mirrored-open-state.js';
+import { PULLED_CHECK_EVERY_MS } from '../domain/pulled-checks.js';
 import { bringPulledCheckForward } from './pulled-open-state.js';
 import {
   applyPulledSourceChange,
@@ -809,11 +807,10 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
 
   /**
    * Applies one change to the account, idempotently - and keeps the account's
-   * checks armed exactly while it holds a connection to check: a Gmail or
-   * pulled connection checks at once, and the last one going takes the check
-   * with it ("Bring in the conversations already labelled Cockpit as tasks",
-   * issue 725; "Check a pulled connector on its cadence through the generic
-   * host", issue 891).
+   * alarm armed exactly while it holds a pulled connection to check: one just
+   * made is due at once, and the last one going takes the alarm with it
+   * ("Check a pulled connector on its cadence through the generic host",
+   * issue 891).
    */
   async applyChange<N extends CommandName>(
     accountName: string,
@@ -823,30 +820,10 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     const answer = this.#answer(accountName, (db) =>
       runCommand(db, accountName, name, payload, { mirroring: this.mirroringConnectorIds() }),
     );
-    if (answer.status === 'ok' && GMAIL_LIFECYCLE.has(name)) {
-      const connectingGmail =
-        name === 'connect_source_account' &&
-        (payload as CommandPayload<'connect_source_account'>).connectorId === GMAIL;
-      await this.#keepCheckingGmail(accountName, connectingGmail);
-    }
-    // A switch of mark checks at once, as connecting does: that check records
-    // where the new mark starts counting ("Change what a Gmail connection
-    // follows, without reconnecting", issue 824).
-    if (answer.status === 'ok' && answer.value.applied && name === 'set_gmail_follows') {
-      await this.#keepCheckingGmail(accountName, true);
-    }
-    // Within seconds rather than at the next five-minute check.
-    if (
-      answer.status === 'ok' &&
-      answer.value.applied &&
-      OPENS_OR_CLOSES.has(name) &&
-      labelChangeWaiting(this.#database(), accountName, (payload as { itemId: string }).itemId)
-    ) {
-      await this.#keepCheckingGmail(accountName, true);
-    }
-    // The same for a pulled source that mirrors: its check is made due now,
-    // and the alarm set for it (issue 893). Not for an agent run finishing,
-    // which no pulled source has ever been handed.
+    if (answer.status === 'ok' && CONNECTION_LIFECYCLE.has(name)) await this.#arm(accountName);
+    // A pulled source that mirrors has its check made due now, and the alarm
+    // set for it, so a person's change reaches it within seconds rather than
+    // at the next five-minute check (issue 893).
     if (
       answer.status === 'ok' &&
       answer.value.applied &&
@@ -859,29 +836,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   }
 
   /**
-   * Arms the Gmail check where the account holds a Gmail connection and
-   * nothing has it armed - what the nightly run asks of every account, so an
-   * alarm that was lost is found within a day (issue 725) - and starts each
-   * connection's full reconcile again, the nightly sweep that corrects what
-   * the history missed (issue 727).
-   */
-  async keepCheckingGmail(accountName: string): Promise<Answer<'armed' | 'already armed' | 'nothing to check'>> {
-    const holds = this.#answer(accountName, (db) => {
-      if (!holdsGmailConnection(db, accountName)) return false;
-      sweepGmailNightly(db, accountName, new Date().toISOString());
-      return true;
-    });
-    if (holds.status !== 'ok') return holds;
-    if (!holds.value) return { status: 'ok', value: 'nothing to check' };
-    if ((await this.ctx.storage.getAlarm()) !== null) return { status: 'ok', value: 'already armed' };
-    await this.#keepCheckingGmail(accountName, true);
-    return { status: 'ok', value: 'armed' };
-  }
-
-  /**
    * Arms the check of the account's pulled connections where it holds one
    * and nothing has the alarm armed - the nightly guard against a lost alarm,
-   * as `keepCheckingGmail` is for Gmail (issue 891).
+   * which would otherwise stop the checks without a word (issue 891).
    */
   async keepCheckingPulledConnections(
     accountName: string,
@@ -1021,14 +978,13 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   }
 
   /**
-   * The account's one alarm, serving both checks it keeps: Gmail's own, when
-   * it is due, and queueing a check of each pulled connection that is due
-   * (issue 891), which the Worker's queue consumer then runs. Then the alarm
-   * is set for whichever is due next.
+   * The account's one alarm: it queues a check of each pulled connection that
+   * is due (issue 891), which the Worker's queue consumer then runs, and is
+   * set for whichever is due next. **It opens no credential**: the Worker
+   * running the check does (docs/architecture.md, "Connectors").
    *
    * **Due by when the alarm was set for, not by when it fired**, so a run
-   * forced early does what the alarm was armed to do, and a pulled check
-   * falling due before Gmail's does not run Gmail early.
+   * forced early does what the alarm was armed to do.
    *
    * **Always re-armed while a connection remains, whatever the run did**,
    * since an alarm nobody sets again stops silently.
@@ -1038,43 +994,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     if (!accountName) return;
     const setFor = this.ctx.storage.kv.get<number>(ALARM_SET_FOR);
     const dueBy = new Date(Math.max(Date.now(), setFor ?? 0));
-    await this.#checkGmailIfDue(accountName, setFor);
     await this.#queueDuePulledChecks(accountName, dueBy);
     await this.#arm(accountName);
-  }
-
-  /**
-   * The Gmail check: every Gmail connection of the account, as far as one
-   * run's calls go, then the next run five minutes out - or ten seconds out
-   * while what is labelled has not all been brought in yet, so connecting a
-   * busy mailbox does not take hours (issue 725).
-   *
-   * **The next run is asked for again after the run**, so a connection made
-   * while it ran - which asked for a check now - is not put off by it.
-   */
-  async #checkGmailIfDue(accountName: string, setFor: number | undefined): Promise<void> {
-    const dueAtStart = this.ctx.storage.kv.get<number>(GMAIL_CHECK_DUE);
-    if (dueAtStart !== undefined && setFor !== undefined && dueAtStart > setFor) return;
-    let moreToDo = false;
-    try {
-      this.#bringUpToDate(accountName);
-      if (!holdsGmailConnection(this.#database(), accountName)) return;
-      ({ moreToDo } = await checkGmail(this.env, gmailCheckHost(this.#database(), accountName), new Date()));
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          message: `the Gmail check of account ${accountName} failed, and runs again`,
-          cause: error instanceof Error ? error.message : String(error),
-        }),
-      );
-    }
-    const next = Date.now() + (moreToDo ? GMAIL_CHECK_SOON_MS : GMAIL_CHECK_EVERY_MS);
-    const askedMeanwhile = this.ctx.storage.kv.get<number>(GMAIL_CHECK_DUE);
-    this.ctx.storage.kv.put(
-      GMAIL_CHECK_DUE,
-      askedMeanwhile !== undefined && askedMeanwhile !== dueAtStart ? Math.min(askedMeanwhile, next) : next,
-    );
   }
 
   /**
@@ -1113,11 +1034,10 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   }
 
   /**
-   * Sets the alarm for whichever check is due first - Gmail's, while a Gmail
-   * connection is held, and the earliest pulled connection's, a connection
-   * just made being due now - and clears it where there is nothing to check.
-   * Where the store cannot be read just now, it is tried again in five
-   * minutes, so a passing failure costs one run rather than the check. The
+   * Sets the alarm for the earliest pulled connection's check, a connection
+   * just made being due now, and clears it where there is nothing to check.
+   * Where the store cannot be read just now, it is tried again at the
+   * cadence, so a passing failure costs one run rather than the check. The
    * account's name is kept beside the alarm, since an alarm arrives naming
    * nothing.
    */
@@ -1125,15 +1045,10 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     let next: number | null;
     try {
       this.#bringUpToDate(accountName);
-      const db = this.#database();
-      const gmail = holdsGmailConnection(db, accountName)
-        ? (this.ctx.storage.kv.get<number>(GMAIL_CHECK_DUE) ?? Date.now())
-        : null;
-      const pulledDue = schedulePulledChecks(db, accountName, this.pulledConnectorIds(), new Date());
-      const pulled = pulledDue === null ? null : Date.parse(pulledDue);
-      next = gmail === null ? pulled : pulled === null ? gmail : Math.min(gmail, pulled);
+      const pulledDue = schedulePulledChecks(this.#database(), accountName, this.pulledConnectorIds(), new Date());
+      next = pulledDue === null ? null : Date.parse(pulledDue);
     } catch {
-      next = Date.now() + GMAIL_CHECK_EVERY_MS;
+      next = Date.now() + PULLED_CHECK_EVERY_MS;
     }
     if (next === null) {
       await this.ctx.storage.deleteAlarm();
@@ -1142,17 +1057,6 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     this.ctx.storage.kv.put(CHECKS_ACCOUNT, accountName);
     this.ctx.storage.kv.put(ALARM_SET_FOR, next);
     await this.ctx.storage.setAlarm(next);
-  }
-
-  /**
-   * Asks for the Gmail check now where `now`, and otherwise leaves when it is
-   * due as it was; then arms the alarm for whatever is due first.
-   */
-  async #keepCheckingGmail(accountName: string, now: boolean): Promise<void> {
-    if (now && holdsGmailConnection(this.#database(), accountName)) {
-      this.ctx.storage.kv.put(GMAIL_CHECK_DUE, Date.now());
-    }
-    await this.#arm(accountName);
   }
 
   /**
@@ -1575,44 +1479,38 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
 }
 
 /**
- * The changes that can add or take away a Gmail connection, after which the
- * check is armed or cleared (issue 725): connecting, disconnecting, and a
- * Workspace going with its connections.
+ * The changes that can add or take away a connection, after which the alarm
+ * is armed or cleared (issue 891): connecting, disconnecting, and a Workspace
+ * going with its connections.
  */
-const GMAIL_LIFECYCLE: ReadonlySet<CommandName> = new Set<CommandName>([
+const CONNECTION_LIFECYCLE: ReadonlySet<CommandName> = new Set<CommandName>([
   'connect_source_account',
   'disconnect_source_account',
   'delete_workspace',
 ]);
 
-/** The changes a person makes that open or close an Item - the ones a pulled source mirrors (issue 893). */
-const PERSON_OPENS_OR_CLOSES: ReadonlySet<CommandName> = new Set<CommandName>(['set_done', 'set_dismissed']);
-
 /**
- * The changes that can open or close an Item, after which a change waiting
- * for Gmail brings the check forward to now ("Take the Cockpit label off in
- * Gmail when its task is done in Cockpit", issue 728).
+ * The changes a person makes that open or close an Item - the ones a pulled
+ * source mirrors (issue 893). `finish_agent_run` among them, since "Agent
+ * finished: Done" closes a Gmail Task as marking it done does (issue 944).
  */
-const OPENS_OR_CLOSES: ReadonlySet<CommandName> = new Set<CommandName>(['set_done', 'set_dismissed', 'finish_agent_run']);
+const PERSON_OPENS_OR_CLOSES: ReadonlySet<CommandName> = new Set<CommandName>([
+  'set_done',
+  'set_dismissed',
+  'finish_agent_run',
+]);
 
 /**
  * Where the account the alarm's checks are for is kept, in the object's
- * key-value storage beside its alarm. Named for Gmail, the first check, and
- * kept so: every store armed before the pulled checks holds its name here.
+ * key-value storage beside its alarm. Named for the first check, Gmail's
+ * own, and kept so: every store armed before the pulled checks holds its
+ * name here, and a store whose alarm was armed by that check is checked
+ * through the generic host when it next fires.
  */
 const CHECKS_ACCOUNT = 'gmail-check-account';
 
-/** When the Gmail check is next due, as a time in milliseconds; absent is now. */
-const GMAIL_CHECK_DUE = 'gmail-check-due';
-
 /** The time the alarm was last set for, which is what its checks are due by when it fires. */
 const ALARM_SET_FOR = 'alarm-set-for';
-
-/** How often each account's Gmail connections are checked. */
-export const GMAIL_CHECK_EVERY_MS = 5 * 60_000;
-
-/** How soon the next run comes while a check has more to bring in than one run reached. */
-export const GMAIL_CHECK_SOON_MS = 10_000;
 
 /** Where the time one refresh last ran is kept - named for the account for the same reason. */
 function refreshRanKey(accountName: string, refresh: string): string {

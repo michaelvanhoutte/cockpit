@@ -85,11 +85,12 @@ export function typeToCaptureAs(types: readonly ItemType[], noteTypeId: string):
 }
 
 /**
- * The Type a conversation labelled in Gmail is brought in as: the account's
- * own Task, labelling being somebody saying it is theirs to do ("Bring in the
- * conversations already labelled Cockpit as tasks", issue 725) - and, where
- * the account no longer has its Task, whatever any other capture nobody chose
- * a Type for takes.
+ * The Type a pulled connector's Item arrives as where its manifest says
+ * `task`: the account's own Task, a conversation labelled or starred being
+ * somebody saying it is theirs to do ("Bring in the conversations already
+ * labelled Cockpit as tasks", issue 725; issue 939) - and, where the account
+ * no longer has its Task, whatever any other capture nobody chose a Type for
+ * takes.
  */
 export function typeToBringInAs(
   types: readonly ItemType[],

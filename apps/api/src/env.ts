@@ -143,9 +143,10 @@ export interface Env {
    * permission to change mail and is published unverified, so Google warns on
    * it and caps it at 100 users; the sign-in client asks for neither and must
    * stay clear of both. Optional for the reason the Microsoft pair is: an
-   * environment without them refuses Connect and works in every other way.
-   * Both are secrets per environment (docs/deployment.md, "A Google Cloud
-   * project for Gmail").
+   * environment without them does not register Gmail (`connectors/registry.ts`),
+   * so offers no way to connect it, and works in every other way. Both are
+   * secrets per environment (docs/deployment.md, "A Google Cloud project for
+   * Gmail").
    */
   GMAIL_CLIENT_ID?: string;
   GMAIL_CLIENT_SECRET?: string;
@@ -157,7 +158,9 @@ export interface Env {
    * ("Bring in the conversations already labelled Cockpit as tasks", issue
    * 725). Absent from every environment block for the reason
    * `CLAUDE_CODE_ROUTINES_ORIGIN` below is: a deployment that set it would
-   * send its access tokens wherever it pointed.
+   * send its access tokens wherever it pointed. **Believed only where it names
+   * a local host** (`standIn`, connectors/registry.ts), so one set by mistake
+   * is ignored; `OIDC_ISSUER` is read the same way for Gmail.
    */
   GMAIL_API_ORIGIN?: string;
   /**
@@ -289,11 +292,11 @@ export interface Env {
   /**
    * Connectors registered beside the registry's own list
    * (`connectors/registry.ts`). Set by nothing in any deployment, nor in
-   * `pnpm dev`: the backend suite puts a fake pulled connector here, since no
-   * real source is pulled through the generic host until Gmail moves onto it
-   * ("Check a pulled connector on its cadence through the generic host",
-   * issue 891). An object rather than a var, so only code running beside the
-   * Worker can set it.
+   * `pnpm dev`: the backend suite puts fake connectors here, so a rule of the
+   * generic host is proved against a source it scripts rather than against
+   * Gmail's own behaviour ("Check a pulled connector on its cadence through
+   * the generic host", issue 891). An object rather than a var, so only code
+   * running beside the Worker can set it.
    */
   TEST_CONNECTORS?: readonly Connector[];
 }

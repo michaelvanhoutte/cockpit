@@ -39,16 +39,19 @@ function ChoiceQuestion({
 interface Asked {
   displayName: string;
   choice: ConnectorChoice;
+  /** The option to start at - a reconnect's own choice - where it is one of the options. */
+  startAt?: string | undefined;
 }
 
 /**
  * The step before the source ("Ask a connection's one choice on connecting,
  * and change it later", issue 942): the connector's own question, answered
  * before Connect leaves, the answer riding the address to the sign-in that
- * carries it back. Starts at the connector's first option every time it opens.
+ * carries it back. Starts at the connector's first option every time it opens,
+ * or at a reconnected row's own choice.
  *
- * **Nested over `ManageConnections`'s window**, as `ConnectGmail` is, so Cancel
- * leaves the connections list exactly where it was.
+ * **Nested over `ManageConnections`'s window**, so Cancel leaves the
+ * connections list exactly where it was.
  */
 export function ConnectWithChoice({
   connector,
@@ -84,7 +87,10 @@ export function ConnectWithChoice({
 }
 
 function Question({ connector, onConnect }: { connector: Asked; onConnect: (value: string) => void }) {
-  const [value, setValue] = useState(connector.choice.options[0]!.value);
+  const [value, setValue] = useState(
+    connector.choice.options.find((option) => option.value === connector.startAt)?.value ??
+      connector.choice.options[0]!.value,
+  );
   return (
     <>
       <div className="min-h-0 flex-1 overflow-y-auto">

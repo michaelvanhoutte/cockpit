@@ -14,7 +14,6 @@ import {
   AGENT_ENGINES,
   AGENT_RUN_STATUSES,
   associationKindSchema,
-  GMAIL_MARKS,
   GRID_COLUMNS,
   ITEM_FORM_PRESENTATIONS,
   ITEM_TYPE_COLORS,
@@ -30,7 +29,6 @@ import type {
   AgentEngine,
   AgentRunStatus,
   AssociationKind,
-  GmailMark,
   ItemFormPresentation,
   ItemReading,
   PanelFormat,
@@ -39,6 +37,16 @@ import type {
   StoredPanelKind,
   StoredSource,
 } from '@cockpit/shared';
+
+/**
+ * The marks the old Gmail tables and `connector_accounts.follows` may hold,
+ * for their CHECKs alone: since "Switch Gmail onto the generic host, and take
+ * it out of the core" (issue 944) nothing reads or writes those columns, and
+ * Gmail's choice is the connection's generic `choice`. Here rather than in the
+ * contract for the reason the dead `items` columns below are.
+ */
+const GMAIL_MARKS = ['label', 'star'] as const;
+type GmailMark = (typeof GMAIL_MARKS)[number];
 
 /**
  * The values the three dead columns on `items` are allowed to hold.
@@ -1624,11 +1632,11 @@ export const connectorAccounts = sqliteTable(
      */
     lastTestedAt: text('last_tested_at'),
     /**
-     * The one mark a Gmail connection follows, label or star ("Connect Gmail
-     * by star, and bring in conversations starred from then on", issue 822).
-     * Defaulted to the label, which is what every connection made before the
-     * star followed; read for Gmail alone, and the default on every other
-     * connector's row means nothing.
+     * The one mark a Gmail connection followed while Gmail ran in the core
+     * ("Connect Gmail by star, and bring in conversations starred from then
+     * on", issue 822). Read by nothing since "Switch Gmail onto the generic
+     * host, and take it out of the core" (issue 944), every row taking its
+     * default; dropping it is a later contract step.
      */
     follows: text('follows').notNull().default('label').$type<GmailMark>(),
     /**
@@ -1637,9 +1645,10 @@ export const connectorAccounts = sqliteTable(
      * connecting, and change it later", issue 942): the connector's own value,
      * opaque here and checked against its options before it is written. Null
      * for a connector that declares none and for a connection made before
-     * this existed. Never Gmail's, whose `follows` above stays its own. No
-     * CHECK, for the reason `connector_id` has none: which values exist is the
-     * connector's to say.
+     * this existed - a Gmail connection made in the core among them, which is
+     * what marks it as needing a reconnect (`0066-gmail-connections-reconnect`,
+     * changes.ts). No CHECK, for the reason `connector_id` has none: which
+     * values exist is the connector's to say.
      */
     choice: text('choice'),
   },
@@ -1786,6 +1795,11 @@ export const claudeCodeHookArrivals = sqliteTable(
  * its task is done in Cockpit", issue 728): on (1) or off (0), written with
  * the Item's own change, and null once Gmail holds it - or while Cockpit
  * wants nothing of Gmail.
+ *
+ * **Read and written by nothing** since Gmail moved onto the generic host
+ * ("Switch Gmail onto the generic host, and take it out of the core", issue
+ * 944), whose links are `pulled_links`; kept, with `gmail_checks` below, until
+ * a later contract step drops them.
  */
 export const gmailConversations = sqliteTable(
   'gmail_conversations',

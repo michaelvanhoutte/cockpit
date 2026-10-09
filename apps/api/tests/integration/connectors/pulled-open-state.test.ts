@@ -307,6 +307,38 @@ describe('Connector management', () => {
       expect(fake.handed).toEqual([handed]);
     });
 
+    it('an agent run finishing it as done is handed over at a check made due now', async () => {
+      runsIn(bringsIn('page-1'));
+      await connectedAndChecked();
+      const runId = crypto.randomUUID();
+      await inTheStore((sql) =>
+        sql.exec(
+          `INSERT INTO agent_runs (id, tenant_id, workspace_id, item_id, agent_id, status, started_at)
+           SELECT ?, tenant_id, workspace_id, id, 'agent-1', 'working', ? FROM items WHERE id = ?`,
+          runId,
+          new Date().toISOString(),
+          known.get('page-1'),
+        ),
+      );
+
+      const res = await asUser('http://cockpit.test/v1/commands/finish_agent_run', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: crypto.randomUUID(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: WORKSPACE_ID,
+          runId,
+          itemId: known.get('page-1'),
+          outcome: 'done',
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      await checkMadeDueRuns();
+      expect(fake.handed).toEqual([[{ sourceId: 'page-1', open: false }]]);
+    });
+
     it('marking it done and then reopening it before the check hands over only that it is open', async () => {
       runsIn(bringsIn('page-1'));
       await connectedAndChecked();

@@ -21,7 +21,6 @@ import {
   agentEngineSchema,
 } from './domain/agent.js';
 import { itemFormPresentationSchema } from './domain/item-form-presentation.js';
-import { gmailMarkSchema } from './domain/source-account.js';
 import { itemTypeColorSchema, itemTypeNameSchema } from './domain/item-type.js';
 import {
   filterConditionSchema,
@@ -721,10 +720,10 @@ export const proposeItemPanelSchema = commandEnvelopeSchema
 export type ProposeItemPanelCommand = z.infer<typeof proposeItemPanelSchema>;
 
 /**
- * connect_source_account — a Workspace's Teams or Gmail sign-in, once the
+ * connect_source_account — a Workspace's sign-in to a source, once the
  * source has said who it was and the credential has been sealed ("Connect a
- * Microsoft Teams source account", issue 485; "Connect a Gmail account to a
- * workspace, and disconnect it", issue 724).
+ * Microsoft Teams source account", issue 485; "Connect and disconnect a
+ * source through one generic sign-in flow", issue 892).
  *
  * **Written by the callback route, never posted as JSON by a client** - the
  * same standing `add_attachment` above has, and for a sharper reason: the
@@ -744,12 +743,6 @@ export const connectSourceAccountSchema = commandEnvelopeSchema.extend({
   /** The credential as it is stored: sealed bytes, and the nonce they were sealed under. */
   sealedCredential: z.string().min(1),
   credentialNonce: z.string().min(1),
-  /**
-   * What a Gmail connection follows, as chosen in the Connect window ("Connect
-   * Gmail by star, and bring in conversations starred from then on", issue
-   * 822) - the label where it is absent. Read for Gmail alone.
-   */
-  follows: gmailMarkSchema.optional(),
   /**
    * The value of the one choice a connector declares, as the person made it
    * before the sign-in ("Ask a connection's one choice on connecting, and
@@ -772,20 +765,6 @@ export const disconnectSourceAccountSchema = commandEnvelopeSchema.extend({
   sourceAccountId: z.string().min(1),
 });
 export type DisconnectSourceAccountCommand = z.infer<typeof disconnectSourceAccountSchema>;
-
-/**
- * set_gmail_follows - the one mark a Gmail connection follows, switched
- * without connecting again ("Change what a Gmail connection follows, without
- * reconnecting", issue 824). The switch counts from its own moment, as
- * connecting does: the history position is dropped with any change still
- * waiting for Gmail under the other mark. Switching to the mark already
- * followed changes nothing.
- */
-export const setGmailFollowsSchema = commandEnvelopeSchema.extend({
-  sourceAccountId: z.string().min(1),
-  follows: gmailMarkSchema,
-});
-export type SetGmailFollowsCommand = z.infer<typeof setGmailFollowsSchema>;
 
 /**
  * set_connection_choice - the one choice a connection made, changed without
@@ -900,7 +879,6 @@ export const commandSchemas = {
   propose_item_panel: proposeItemPanelSchema,
   connect_source_account: connectSourceAccountSchema,
   disconnect_source_account: disconnectSourceAccountSchema,
-  set_gmail_follows: setGmailFollowsSchema,
   set_connection_choice: setConnectionChoiceSchema,
   mark_source_account_tested: markSourceAccountTestedSchema,
   set_duplicate_settled: setDuplicateSettledSchema,

@@ -355,19 +355,10 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    */
   destroy(): Awaitable<void>;
   /**
-   * Arms the account's Gmail check where it holds a Gmail connection and
-   * nothing has the check armed ("Bring in the conversations already
-   * labelled Cockpit as tasks", issue 725), and starts each connection's
-   * full reconcile again ("Close a Gmail task when its label comes off, and
-   * reopen it when it goes back", issue 727) - what the nightly run asks of
-   * every account.
-   */
-  keepCheckingGmail(accountName: string): Awaitable<Answer<'armed' | 'already armed' | 'nothing to check'>>;
-  /**
    * Arms the check of the account's pulled connections where it holds one and
    * nothing has the alarm armed ("Check a pulled connector on its cadence
    * through the generic host", issue 891) - what the nightly run asks of every
-   * account, beside `keepCheckingGmail`.
+   * account.
    */
   keepCheckingPulledConnections(
     accountName: string,

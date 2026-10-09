@@ -1,6 +1,5 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import type { GmailMark } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import { ATTACHMENT_LINK_PREFIX } from './attachment-link.js';
 import type { Attempt } from './oidc.js';
@@ -369,17 +368,9 @@ export interface ConnectAttempt extends Attempt {
   readonly accountName: string;
   /**
    * Which source it was started for, so each callback refuses an attempt
-   * started for another ("Connect a Gmail account to a workspace, and
-   * disconnect it", issue 724). A cookie from before this field was Teams'.
+   * started for another (issue 892).
    */
   readonly connectorId: string;
-  /**
-   * What a Gmail connection is to follow, as the Connect window chose it
-   * ("Connect Gmail by star, and bring in conversations starred from then
-   * on", issue 822). A cookie from before this field, or carrying anything
-   * else, is the label's.
-   */
-  readonly follows?: GmailMark;
   /**
    * The value of the one choice a described source's connection makes, as the
    * Connect window asked it ("Ask a connection's one choice on connecting, and
@@ -462,7 +453,7 @@ export function attemptHeld(c: Context): SignInAttempt | null {
 export function connectAttemptHeld(c: Context): ConnectAttempt | null {
   const held = readAttempt(getCookie(c, connectCookieName(c.req.url)));
   if (!held) return null;
-  const { workspaceId, accountName, connectorId, follows, choice } = held.also;
+  const { workspaceId, accountName, connectorId, choice } = held.also;
   if (typeof workspaceId !== 'string' || !workspaceId) return null;
   if (typeof accountName !== 'string' || !accountName) return null;
   return {
@@ -472,7 +463,6 @@ export function connectAttemptHeld(c: Context): ConnectAttempt | null {
     workspaceId,
     accountName,
     connectorId: typeof connectorId === 'string' && connectorId ? connectorId : 'teams',
-    follows: follows === 'star' ? 'star' : 'label',
     ...(typeof choice === 'string' && choice ? { choice } : {}),
   };
 }

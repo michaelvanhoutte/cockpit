@@ -13,8 +13,6 @@ import { refusalFrom, snapshotQuery, useCommand, useConnectClaudeCode, useTestCl
 import type { ConnectOutcome, RefusedBecause } from '../connections';
 import { sourceNamed, type SourceNames } from '../itemSource';
 import { ConnectEngine } from './engines';
-import { ChangeGmailFollows } from './ChangeGmailFollows';
-import { ConnectGmail } from './ConnectGmail';
 import { ChangeConnectionChoice, ConnectWithChoice, type ConnectorChoice } from './ConnectionChoice';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
@@ -41,17 +39,10 @@ async function fetchRegisteredConnectors(): Promise<RegisteredConnectorList> {
 }
 
 /**
- * What a trip that did not connect says, by why: each names the one thing that
- * would make the next attempt go through, and every other reason is plain
- * `refused`, for which trying again is the whole advice.
+ * What a trip that did not connect says where its connector gave no sentence
+ * of its own: trying again is the whole advice.
  */
-const REFUSED_BECAUSE: Partial<Record<ConnectOutcome, string>> = {
-  refused: 'That did not connect. Nothing was stored. Try again.',
-  'gmail-permission-missing':
-    'Google did not give Cockpit permission to change your mail, so nothing was stored. Connect again, and tick the Gmail box on Google’s last screen.',
-  'gmail-no-refresh-token':
-    'Google did not let Cockpit stay signed in, so nothing was stored. Remove Cockpit under third-party access in your Google account, then connect again.',
-};
+const REFUSED = 'That did not connect. Nothing was stored. Try again.';
 
 /**
  * **Never served from a copy.** The window says what is connected *now*, and
@@ -90,24 +81,15 @@ function connectPath(workspaceId: string, connectorId: string, choice?: string):
 }
 
 /**
- * The two sources the registry does not hold, named here and nowhere else in
- * this app: Gmail until it moves onto the connector SDK ("Move Gmail out of
- * the core, onto the connector SDK", issue 875), and Claude Code until
- * "Decide how Claude Code and other outbound integrations sit behind a
- * boundary" (issue 879). Every other card comes from the registry ("List the
- * registry's connectors in the Connections window", issue 894), and every
- * name a row says from the Workspace's snapshot ("Take source names out of
- * the shared contract", issue 927), so adding a source touches no file in
- * this app.
+ * The one source the registry does not hold, named here and nowhere else in
+ * this app: Claude Code, until "Decide how Claude Code and other outbound
+ * integrations sit behind a boundary" (issue 879). Every other card comes from
+ * the registry ("List the registry's connectors in the Connections window",
+ * issue 894), and every name a row says from the Workspace's snapshot ("Take
+ * source names out of the shared contract", issue 927), so adding a source
+ * touches no file in this app.
  */
-const GMAIL = 'gmail';
 const CLAUDE_CODE = 'claude-code';
-const GMAIL_CARD: Card = {
-  id: GMAIL,
-  name: 'Gmail',
-  // That the label and the task stay in step (issue 724).
-  text: 'Label a conversation Cockpit in Gmail and it becomes a task here. Finishing the task takes the label off. Cockpit reads labelled mail only.',
-};
 const CLAUDE_CODE_CARD: Card = {
   id: CLAUDE_CODE,
   name: 'Claude Code',
@@ -127,10 +109,10 @@ interface Card {
 const GUEST_SENTENCE = 'Sign in with Google to connect your own';
 
 /**
- * What a connected row says under its name: the source, what it follows where
- * it follows something, in the connector's own words (Gmail's label or star,
- * issues 724 and 822), and when it last worked - for a connection that follows
- * something, when it was last checked (issue 725).
+ * What a connected row says under its name: the source, the choice it made
+ * where its connector asks one, in the connector's own words (issue 942), and
+ * when it last worked - for a connection that made a choice, when it was last
+ * checked (issue 725).
  */
 function rowDetail(account: SourceAccount, names: SourceNames): string {
   const source = sourceNamed(names, account.connectorId);
@@ -176,8 +158,8 @@ export default function ManageConnections({
   guest = false,
 }: {
   /**
-   * Which cards and rows: the sources under Connections (Gmail and what the
-   * registry holds), Claude Code under Agent settings (Settings,
+   * Which cards and rows: the sources under Connections (what the registry
+   * holds), Claude Code under Agent settings (Settings,
    * `SettingsWindow.tsx`). Absent, every kind is shown.
    */
   section?: 'sources' | 'agents' | undefined;
@@ -226,17 +208,15 @@ export default function ManageConnections({
   const [claudeCodeForm, setClaudeCodeForm] = useState(false);
   const [claudeCodeFormPending, setClaudeCodeFormPending] = useState(false);
   const [claudeCodeMessage, setClaudeCodeMessage] = useState<string | null>(null);
-  const [gmailSteps, setGmailSteps] = useState(false);
-  /** The card whose connector's question is being asked before Connect leaves (issue 942). */
-  const [asking, setAsking] = useState<(Card & { choice: ConnectorChoice }) | null>(null);
+  /**
+   * The card whose connector's question is being asked before Connect leaves
+   * (issue 942) - and the option to start at, where a row is being reconnected.
+   */
+  const [asking, setAsking] = useState<(Card & { choice: ConnectorChoice; startAt?: string | undefined }) | null>(null);
   const askingOpenedFrom = useRef<HTMLElement | null>(null);
   /** The row whose choice is being changed with *Change…* (issue 942). */
   const [changingChoice, setChangingChoice] = useState<SourceAccount | null>(null);
   const choiceOpenedFrom = useRef<HTMLElement | null>(null);
-  const gmailOpenedFrom = useRef<HTMLElement | null>(null);
-  /** The Gmail row whose mark is being changed ("Change what a Gmail connection follows, without reconnecting", issue 824). */
-  const [changingFollows, setChangingFollows] = useState<SourceAccount | null>(null);
-  const followsOpenedFrom = useRef<HTMLElement | null>(null);
   const askedFrom = useRef<HTMLElement | null>(null);
   const claudeCodeOpenedFrom = useRef<HTMLElement | null>(null);
   /**
@@ -248,8 +228,8 @@ export default function ManageConnections({
   const testClaudeCode = useTestClaudeCodeConnection(workspaceId);
 
   const registered = (registry.data?.connectors ?? [])
-    // The two named cards win over a registered connector of the same id.
-    .filter((connector) => connector.id !== GMAIL && connector.id !== CLAUDE_CODE)
+    // The named card wins over a registered connector of the same id.
+    .filter((connector) => connector.id !== CLAUDE_CODE)
     .map((connector): Card => ({
       id: connector.id,
       name: connector.displayName,
@@ -263,7 +243,7 @@ export default function ManageConnections({
       ).find(([code]) => code === because.code)?.[1]
     : undefined;
   const cards = [
-    ...(section !== 'agents' ? [GMAIL_CARD, ...registered] : []),
+    ...(section !== 'agents' ? registered : []),
     ...(section !== 'sources' ? [CLAUDE_CODE_CARD] : []),
   ];
   const connected = (data?.sourceAccounts ?? []).filter(
@@ -305,8 +285,6 @@ export default function ManageConnections({
   const close = () => {
     stopAsking();
     setClaudeCodeForm(false);
-    setGmailSteps(false);
-    setChangingFollows(null);
     setAsking(null);
     setChangingChoice(null);
     onClose();
@@ -323,6 +301,20 @@ export default function ManageConnections({
   /** What a connected row's connector asks, where it asks anything - and so whether the row offers *Change…*. */
   const choiceOf = (connectorId: string): ConnectorChoice | undefined =>
     registry.data?.connectors.find((connector) => connector.id === connectorId)?.choice;
+  /**
+   * Signs a failing row in again through its connector: the question first
+   * where it asks one, starting at the row's own answer, and the same trip as
+   * Connect - which stores the new sign-in on the same row, ending what said
+   * it was failing (issue 944).
+   */
+  const reconnect = (account: SourceAccount, openedFrom: HTMLElement | null) => {
+    const card = registered.find((one) => one.id === account.connectorId);
+    if (!card) return;
+    if (card.choice) {
+      askingOpenedFrom.current = openedFrom;
+      setAsking({ ...card, choice: card.choice, startAt: account.follows });
+    } else connectRegistered(card.id);
+  };
 
   // Named apart from the imported `refusal` above, which builds an Error from
   // a failed read rather than the string this reads off a failed command.
@@ -347,27 +339,9 @@ export default function ManageConnections({
           Connected.
         </p>
       )}
-      {/* No count: the conversations are brought in after this, not before
-          (issue 724). */}
-      {outcome === 'gmail-connected' && (
-        <p role="status" className="pt-3 text-sm text-ink-soft">
-          Connected. Conversations labelled Cockpit arrive in this workspace’s Inbox within a minute.
-        </p>
-      )}
-      {outcome === 'gmail-star-connected' && (
-        <p role="status" className="pt-3 text-sm text-ink-soft">
-          Connected. Conversations you star or flag from now on arrive in this workspace’s Inbox within a few
-          minutes.
-        </p>
-      )}
-      {outcome === 'cancelled' && (
-        <p role="status" className="pt-3 text-sm text-ink-soft">
-          Connecting was cancelled. Nothing was stored.
-        </p>
-      )}
-      {outcome && REFUSED_BECAUSE[outcome] && (
+      {outcome === 'refused' && (
         <p role="alert" className="pt-3 text-sm text-over-ink">
-          {(outcome === 'refused' && refusalGiven) || REFUSED_BECAUSE[outcome]}
+          {refusalGiven ?? REFUSED}
         </p>
       )}
 
@@ -421,23 +395,19 @@ export default function ManageConnections({
                           },
                         ]
                       : []),
-                    // The same choice Connect offers, without signing in
-                    // again ("Change what a Gmail connection follows, without
-                    // reconnecting", issue 824).
-                    ...(account.connectorId === GMAIL
+                    // A failing row of a connector this environment can sign
+                    // in to: signing in again is what ends it (issue 944).
+                    ...(account.failingBecause && registered.some((card) => card.id === account.connectorId)
                       ? [
                           {
-                            label: 'Change what’s followed…',
-                            onSelect: (openedFrom: HTMLElement | null) => {
-                              followsOpenedFrom.current = openedFrom;
-                              setChangingFollows(account);
-                            },
+                            label: 'Reconnect',
+                            onSelect: (openedFrom: HTMLElement | null) => reconnect(account, openedFrom),
                           },
                         ]
                       : []),
                     // The connector's own choice, changed without signing in
                     // again (issue 942).
-                    ...(account.connectorId !== GMAIL && account.connectorId !== CLAUDE_CODE && choiceOf(account.connectorId)
+                    ...(account.connectorId !== CLAUDE_CODE && choiceOf(account.connectorId)
                       ? [
                           {
                             label: 'Change…',
@@ -528,10 +498,7 @@ export default function ManageConnections({
                 // not reading them side by side - a screen reader, or a test.
                 aria-label={`Connect ${card.name}`}
                 onClick={(event) => {
-                  if (card.id === GMAIL) {
-                    gmailOpenedFrom.current = event.currentTarget;
-                    setGmailSteps(true);
-                  } else if (card.id === CLAUDE_CODE) openClaudeCodeForm(event.currentTarget);
+                  if (card.id === CLAUDE_CODE) openClaudeCodeForm(event.currentTarget);
                   else if (card.choice) {
                     askingOpenedFrom.current = event.currentTarget;
                     setAsking({ ...card, choice: card.choice });
@@ -556,23 +523,8 @@ export default function ManageConnections({
         onPendingChange={setClaudeCodeFormPending}
       />
 
-      <ConnectGmail
-        open={gmailSteps}
-        workspaceId={workspaceId}
-        workspaceName={workspaceName}
-        returnFocusTo={gmailOpenedFrom.current}
-        onClose={() => setGmailSteps(false)}
-      />
-
-      <ChangeGmailFollows
-        account={changingFollows}
-        workspaceId={workspaceId}
-        returnFocusTo={followsOpenedFrom.current}
-        onClose={() => setChangingFollows(null)}
-      />
-
       <ConnectWithChoice
-        connector={asking ? { displayName: asking.name, choice: asking.choice } : null}
+        connector={asking ? { displayName: asking.name, choice: asking.choice, startAt: asking.startAt } : null}
         onConnect={(value) => asking && connectRegistered(asking.id, value)}
         onClose={() => setAsking(null)}
         returnFocusTo={askingOpenedFrom.current}

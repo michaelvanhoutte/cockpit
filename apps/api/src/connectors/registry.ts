@@ -1,4 +1,5 @@
 import type { Connector } from '@cockpit/connector-sdk';
+import { GMAIL_IDENTITY, createGmailConnector } from '@cockpit/connector-gmail';
 import { TEAMS_IDENTITY, createTeamsConnector } from '@cockpit/connector-teams';
 import type { Env } from '../env.js';
 import { NAMED_SOURCES } from '../domain/named-sources.js';
@@ -19,9 +20,21 @@ import { NAMED_SOURCES } from '../domain/named-sources.js';
  * source through one generic sign-in flow", issue 892).
  */
 export function connectors(env: Env): Connector[] {
+  const gmailIssuer = standIn(env.OIDC_ISSUER);
+  const gmailApi = standIn(env.GMAIL_API_ORIGIN);
   return [
-    // gmailConnector, slackConnector, notionConnector - each lands as its own
-    // packages/connectors/* package importing only @cockpit/connector-sdk.
+    ...(env.GMAIL_CLIENT_ID?.trim() && env.GMAIL_CLIENT_SECRET?.trim()
+      ? [
+          createGmailConnector({
+            clientId: env.GMAIL_CLIENT_ID.trim(),
+            clientSecret: env.GMAIL_CLIENT_SECRET.trim(),
+            // The stub issuer and its stand-in mailbox locally and in the
+            // browser suite; Google's own wherever else (`standIn`).
+            ...(gmailIssuer ? { issuer: gmailIssuer } : {}),
+            ...(gmailApi ? { apiOrigin: gmailApi } : {}),
+          }),
+        ]
+      : []),
     ...(env.MS_BOT_APP_ID
       ? [
           createTeamsConnector({
@@ -41,11 +54,36 @@ export function connectors(env: Env): Connector[] {
 }
 
 /**
+ * An address a local stack points a connector at in place of the source's own,
+ * believed only where it is one: a loopback host or a name under `.localhost`
+ * or `.test`, which nothing deployed can be reached at. **Gmail's issuer and
+ * API origin are read through this** because a deployment that set either
+ * would send its mailbox tokens wherever it pointed; so a value set in
+ * deployed configuration by mistake is ignored rather than obeyed, and Google's
+ * own is used.
+ */
+export function standIn(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed || !URL.canParse(trimmed)) return null;
+  const host = new URL(trimmed).hostname.toLowerCase();
+  const local =
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '[::1]' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.test');
+  return local ? trimmed : null;
+}
+
+/**
  * Every connector package Cockpit carries, by who it is, whether or not this
  * environment configures it: an Item it made keeps its name where it can no
  * longer connect or push. One line per package, beside its line above.
  */
-const KNOWN_CONNECTORS: readonly { readonly id: string; readonly displayName: string }[] = [TEAMS_IDENTITY];
+const KNOWN_CONNECTORS: readonly { readonly id: string; readonly displayName: string }[] = [
+  GMAIL_IDENTITY,
+  TEAMS_IDENTITY,
+];
 
 /**
  * What each source is called on screen, by connector id ("Take source names

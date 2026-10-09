@@ -119,6 +119,20 @@ describe('Connector management', () => {
       expect(gone.revoked).toEqual(['the-refresh-token']);
     });
 
+    it('revokes the refresh token of a connection made before Gmail was a connector, never reconnected', async () => {
+      const gone = new GmailWorld();
+      const sealedByTheCore = JSON.stringify({
+        mailboxKey: 'google-anna',
+        refreshToken: 'the-old-refresh-token',
+        accessToken: null,
+        accessTokenExpiresAt: null,
+      });
+
+      await gone.connector().revoke!({ credential: sealedByTheCore });
+
+      expect(gone.revoked).toEqual(['the-old-refresh-token']);
+    });
+
     it('revokes where the issuer’s discovery document says, when it was not told', async () => {
       const seen: string[] = [];
       const fetched: typeof fetch = async (input, init) => {

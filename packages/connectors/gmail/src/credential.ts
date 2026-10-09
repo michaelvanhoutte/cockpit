@@ -39,6 +39,25 @@ export function credentialIn(opened: Record<string, string>): GmailCredential | 
 }
 
 /**
+ * The refresh token to hand back to Google on disconnecting: the generic
+ * credential's, or - for a connection made before Gmail was a connector and
+ * never reconnected - the one the core sealed as `refreshToken`, so its grant
+ * is cancelled too (issue 944). Read for revoking alone: nothing else of that
+ * shape is used.
+ */
+export function refreshTokenToRevoke(opened: Record<string, string>): string | null {
+  const held = credentialIn(opened);
+  if (held) return held.refreshToken;
+  try {
+    const parsed: unknown = JSON.parse(opened.credential ?? '');
+    const { refreshToken } = (parsed ?? {}) as Record<string, unknown>;
+    return typeof refreshToken === 'string' && refreshToken ? refreshToken : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * How long before it lapses an access token is no longer used: a run that
  * starts on a token with seconds left would have it refused halfway.
  */

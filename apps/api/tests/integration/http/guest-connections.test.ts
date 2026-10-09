@@ -170,8 +170,8 @@ describe('Connector management', () => {
 
     it.each([
       { situation: 'disconnect', command: 'disconnect_source_account', extra: {} },
-      // "Change what a Gmail connection follows, without reconnecting", issue 824.
-      { situation: 'switch to the star', command: 'set_gmail_follows', extra: { follows: 'star' } },
+      // "Ask a connection's one choice on connecting, and change it later", issue 942.
+      { situation: 'switch to the star', command: 'set_connection_choice', extra: { choice: 'star' } },
     ])('keeps the Gmail row the guest tries to $situation as it was', async ({ command, extra }) => {
       const cookie = await continueAsGuest();
       const workspaceId = await guestWorkspace(cookie);
@@ -219,7 +219,7 @@ describe('Connector management', () => {
     });
 
     it('still lets a named person start a Gmail connect', async () => {
-      const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections/gmail/connect`, {
+      const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections/gmail/connect?choice=label`, {
         redirect: 'manual',
       });
 

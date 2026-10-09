@@ -595,27 +595,15 @@ export async function resetGuestAccount(env: Env): Promise<'reset' | 'no guest a
 }
 
 /**
- * Re-arms the Gmail check of every account holding a Gmail connection whose
- * check is not armed ("Bring in the conversations already labelled Cockpit as
- * tasks", issue 725) - the nightly guard against an alarm that was lost,
- * which would otherwise stop the check without a word - and starts each
- * connection's full reconcile again, the nightly sweep that corrects what the
- * history missed (issue 727) - and does the same for its pulled connections
- * (issue 891), the one alarm checking both. Answers how many it armed; one
- * account failing is logged and costs only itself.
+ * Re-arms the alarm of every account holding a pulled connection whose alarm
+ * is not armed ("Check a pulled connector on its cadence through the generic
+ * host", issue 891) - the nightly guard against an alarm that was lost, which
+ * would otherwise stop the checks without a word. Answers how many it armed;
+ * one account failing is logged and costs only itself.
  */
-export async function keepEveryAccountCheckingGmail(env: Env): Promise<number> {
+export async function keepEveryAccountChecking(env: Env): Promise<number> {
   let armed = 0;
   for (const accountName of await registeredAccountNames(env)) {
-    try {
-      const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName));
-      if (unwrap(await store.keepCheckingGmail(accountName)) === 'armed') armed += 1;
-    } catch (error) {
-      notLookedAt(accountName, 'Gmail check', error);
-    }
-    // Its pulled connections too, and whatever Gmail's answered ("Check a
-    // pulled connector on its cadence through the generic host", issue 891):
-    // the same alarm checks both.
     try {
       const store = env.ACCOUNT.get(env.ACCOUNT.idFromName(accountName));
       if (unwrap(await store.keepCheckingPulledConnections(accountName)) === 'armed') armed += 1;

@@ -16,13 +16,14 @@ import { historyAnswer, historyRecord, labelsAnswer, modifyAnswer, plainThread, 
  * itself against a dedicated test mailbox (docs/testing-strategy.md, "Third
  * parties"; "Bring in the conversations already labelled Cockpit as tasks",
  * issue 725), moved into the connector's package ("Build Gmail as a connector
- * package on the SDK, unregistered", issue 943; the core's copy stays until
- * Gmail leaves it). **Never per change** (.github/workflows/contract.yml), for
+ * package on the SDK, unregistered", issue 943; the core's copy went with
+ * Gmail's code, issue 944). **Never per change** (.github/workflows/contract.yml), for
  * the reason the Bot Framework one is: it reaches the network, and what it
  * holds is Google's decision rather than ours.
  *
  * What only this tier can prove: that Gmail still answers in the shapes
- * tests/gmail-payloads.ts records - which every tier below is faked with - and
+ * tests/gmail-payloads.ts records - which every tier below is faked with, the
+ * application's own Gmail-on-the-host cases among them - and
  * that the connector's own readers still make sense of a live answer. A
  * failure means those payloads describe a Gmail that no longer exists, and
  * updating them is priority work, never something to re-run until it passes.

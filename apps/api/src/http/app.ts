@@ -39,7 +39,7 @@ import {
   type CommandPayload,
   type CommandResult,
 } from '@cockpit/shared';
-import { CLAUDE_CODE, CLAUDE_CODE_NAME, GMAIL } from '../domain/named-sources.js';
+import { CLAUDE_CODE, CLAUDE_CODE_NAME } from '../domain/named-sources.js';
 import {
   AccountNotInRegisterError,
   AccountNotUpToDateError,
@@ -110,28 +110,14 @@ import {
   RETIRED_PATHS,
   type GatedEnv,
 } from '../auth/gate.js';
-import {
-  endpointsFor,
-  exchangeCode,
-  gmailIssuerFor,
-  issuerFor,
-  keysOf,
-  revokeToken,
-} from '../auth/issuer.js';
-import { authorizationUrl, identityFrom, newAttempt, replyBelongsTo, type Refusal } from '../auth/oidc.js';
+import { endpointsFor, exchangeCode, issuerFor, keysOf } from '../auth/issuer.js';
+import { authorizationUrl, identityFrom, newAttempt, replyBelongsTo } from '../auth/oidc.js';
 import { returnPathFrom } from '../auth/return-path.js';
 import { connectedAppsOf, disconnectApp } from '../mcp/connected-apps.js';
 import { revokeAppsOf } from '../mcp/revoke.js';
 import { open, seal, sealingKey, type Sealed } from '../connectors/credential-crypto.js';
 import { accountSignedIn, authorizationRequest, clientOf, signInOf } from '../connectors/sign-in.js';
 import { revokeAfterDisconnect } from '../connectors/revoke.js';
-import {
-  gmailAccountFrom,
-  gmailAuthorizationUrl,
-  gmailCredentialFrom,
-  revocableIn,
-  type GmailRefusal,
-} from '../connectors/gmail.js';
 import { guestConnectionGate, isTheGuest } from '../auth/guest-connections.js';
 import { providerCallsIn } from '../gateway/record.js';
 import { countForGuest, countryOf, referrerHostOf } from '../auth/sign-in-history.js';
@@ -204,28 +190,16 @@ function refuse(c: Context, reason: string, cause?: unknown) {
 }
 
 /**
- * Where Google is told to send the browser back, for Gmail's own Google client
- * ("Connect a Gmail account to a workspace, and disconnect it", issue 724).
- * Every source described to the generic flow has its address from
- * `callbackUrlFor` (connectors/sign-in.ts).
- */
-function gmailCallbackUrl(c: Context): string {
-  return new URL('/v1/connections/gmail/callback', c.env.APP_ORIGIN).toString();
-}
-
-/**
  * Back to the Workspace, with the window that asked open over it and saying
  * how it went ("Connect a Microsoft Teams source account", issue 485).
  *
  * **It went through, or it did not**, which is the whole contract with the
- * client (`apps/web/src/connections.ts`) - with Gmail's going through a value
- * of its own, because what comes next differs ("Connect a Gmail account to a
- * workspace, and disconnect it", issue 724). Why it did not goes to the log,
- * and reaches the address **only where the person can act on it**, which so
- * far is Gmail's alone: they cancelled, or Google's consent screen was left
- * with the Gmail permission unticked or handed no refresh token. Every other reason names something an
- * attacker got wrong or something only an operator can fix, and for those the
- * window offers the one thing that helps, which is Connect again.
+ * client (`apps/web/src/connections.ts`). Why it did not goes to the log, and
+ * reaches the address **only where the person can act on it**: a refusal the
+ * connector's own account step gave, as its connector and code (issue 941).
+ * Every other reason names something an attacker got wrong or something only
+ * an operator can fix, and for those the window offers the one thing that
+ * helps, which is Connect again.
  *
  * A browser holding no attempt has no Workspace to be sent back to, so it
  * lands where the app decides - which is what a stray navigation to this
@@ -234,7 +208,7 @@ function gmailCallbackUrl(c: Context): string {
 function backToConnections(
   c: Context,
   workspaceId: string | undefined,
-  outcome: 'connected' | 'gmail-connected' | 'gmail-star-connected' | NotConnected,
+  outcome: 'connected' | 'refused',
   /**
    * A refusal a connector's own account step gave: who, and its code. Codes
    * only - the window finds the sentence in the connector's listing.
@@ -251,30 +225,9 @@ function backToConnections(
   );
 }
 
-/** How a connection that did not go through is told in the window it started from. */
-type NotConnected = 'refused' | 'cancelled' | 'gmail-permission-missing' | 'gmail-no-refresh-token';
-
-/**
- * What the window is told of a refused Gmail connection: the few reasons the
- * person can act on by name, and every other as plain `refused`. A cancel is
- * Google's `access_denied`, believed only once the state matched
- * (`replyBelongsTo`). Teams has none of these: Microsoft answers
- * `access_denied` for a tenant that needs its admin's approval too, which is
- * not a cancel, so its refusals all stay `refused`.
- */
-function gmailNotConnectedBecause(reason: string, reply: { error?: string | null }): NotConnected {
-  if (reason === ('the issuer refused the sign-in' satisfies Refusal) && reply.error === 'access_denied') return 'cancelled';
-  if (reason === ('the permission to change mail was not granted' satisfies GmailRefusal)) return 'gmail-permission-missing';
-  if (reason === ('Google gave no refresh token' satisfies GmailRefusal)) return 'gmail-no-refresh-token';
-  return 'refused';
-}
-
-/**
- * The options a connection's connector offers for its one choice, or none where
- * it declares none - Gmail's own `follows` is not one (issue 942).
- */
+/** The options a connection's connector offers for its one choice, or none where it declares none (issue 942). */
 function choiceOptionsOf(env: Env, connectorId: string) {
-  return connectorId === GMAIL ? undefined : getConnector(env, connectorId)?.manifest.choice?.options;
+  return getConnector(env, connectorId)?.manifest.choice?.options;
 }
 
 /** A connection that will not be completed, logged the way a refused sign-in is. */
@@ -283,7 +236,6 @@ function refuseConnection(
   workspaceId: string | undefined,
   reason: string,
   cause?: unknown,
-  told: NotConnected = 'refused',
   because?: { connectorId: string; code: string },
 ) {
   console.error(
@@ -295,79 +247,7 @@ function refuseConnection(
         : { cause: cause instanceof Error ? cause.message : String(cause) }),
     }),
   );
-  return backToConnections(c, workspaceId, told, because);
-}
-
-/**
- * What this environment needs before Gmail can be connected: its Google
- * client, its secret, and the key a credential is sealed under. Answers `null`
- * where any of them is missing, which is a deployment nobody has configured
- * for this rather than anything a person did (`src/env.ts`). A described
- * source's client is read from the settings its connector names (`clientOf`,
- * connectors/sign-in.ts).
- */
-async function whatConnectingGmailNeeds(
-  env: Env,
-): Promise<{ clientId: string; clientSecret: string; key: CryptoKey } | null> {
-  const clientId = env.GMAIL_CLIENT_ID?.trim();
-  const clientSecret = env.GMAIL_CLIENT_SECRET?.trim();
-  if (!clientId || !clientSecret) return null;
-  const key = await sealingKey(env.CONNECTOR_CREDENTIAL_KEY);
-  return key ? { clientId, clientSecret, key } : null;
-}
-
-/**
- * Revokes a Gmail connection's sign-in at Google, once the connection itself
- * is already gone ("Connect a Gmail account to a workspace, and disconnect
- * it", issue 724) - because a token that can change mail should not outlive
- * it. **Never throws and never retries**: the row is gone whatever Google
- * answers, and anything that went wrong is logged.
- *
- * **Not while another Workspace of this account holds the same mailbox**:
- * Google revokes the whole grant, not one token, so revoking here would cut
- * that connection off too. Another Cockpit account holding the same mailbox
- * is in a store this one cannot read, and is not protected.
- */
-async function revokeGmailSignIn(env: Env, account: Account, sealed: Sealed): Promise<void> {
-  try {
-    const key = await sealingKey(env.CONNECTOR_CREDENTIAL_KEY);
-    const opened = key ? await open(sealed, key) : null;
-    const held = opened ? revocableIn(opened) : null;
-    const mailboxKey = held?.mailboxKey;
-    if (mailboxKey) {
-      const stillHeld = await Promise.all(
-        (await account.workspaces()).map((workspace) => account.connectionUnder(workspace.id, GMAIL, mailboxKey)),
-      );
-      if (stillHeld.some(Boolean)) {
-        console.info(
-          JSON.stringify({
-            level: 'info',
-            message: 'a Gmail connection was disconnected, and not revoked: another workspace still holds the mailbox',
-          }),
-        );
-        return;
-      }
-    }
-    const token = held?.refreshToken;
-    if (!token) {
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          message: 'a Gmail connection was disconnected, but its sign-in could not be opened to revoke',
-        }),
-      );
-      return;
-    }
-    await revokeToken(await endpointsFor(gmailIssuerFor(env)), token);
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        level: 'error',
-        message: 'a Gmail connection was disconnected, but revoking its sign-in failed',
-        cause: error instanceof Error ? error.message : String(error),
-      }),
-    );
-  }
+  return backToConnections(c, workspaceId, 'refused', because);
 }
 
 /**
@@ -1949,25 +1829,20 @@ const routes = app
   // Microsoft Teams source account", issue 485).
   .openapi(commandRoute('disconnect_source_account'), async (c) => {
     const cmd = c.req.valid('json');
-    // A Gmail sign-in is read before it is forgotten, so it can be revoked at
-    // Google once it has been ("Connect a Gmail account to a workspace, and
-    // disconnect it", issue 724). Only this Workspace's own row is read, and
-    // reading nothing is the same disconnect as before: the command below is
-    // what decides, and refuses, whether there is anything to disconnect.
+    // A source that revokes has its credential read before it is forgotten,
+    // and its revoke called once the row has gone (issue 941). Only this
+    // Workspace's own row is read, and reading nothing is the same disconnect
+    // as before: the command below is what decides, and refuses, whether
+    // there is anything to disconnect.
     const account = await openAccount(c.env, c.get('visitor').accountName);
     const heldConnector = (await account.sourceAccounts(cmd.workspaceId).catch(() => [])).find(
       (held) => held.id === cmd.sourceAccountId,
     );
-    const isGmail = heldConnector?.connectorId === GMAIL;
-    const sealed = isGmail ? await account.sealedCredential(cmd.sourceAccountId) : null;
-    // A described source's own revoke, read the same way: its credential
-    // before the row goes, its revoke once it has (issue 941).
     const revocable = heldConnector ? getConnector(c.env, heldConnector.connectorId) : undefined;
     const sealedToRevoke = revocable?.revoke ? await account.sealedCredential(cmd.sourceAccountId) : null;
     const result = await account.applyChange('disconnect_source_account', cmd);
     // After the row is gone and only then: a revoke that fails or hangs must
     // never keep it.
-    if (sealed && result.applied) await revokeGmailSignIn(c.env, account, sealed);
     if (revocable && sealedToRevoke && result.applied) {
       await revokeAfterDisconnect(
         c.env,
@@ -1979,7 +1854,6 @@ const routes = app
     }
     return c.json(result, 200);
   })
-  .openapi(commandRoute('set_gmail_follows'), async (c) => c.json(await change(c, 'set_gmail_follows', c.req.valid('json')), 200))
   .openapi(commandRoute('set_connection_choice'), async (c) => {
     const cmd = c.req.valid('json');
     // The value has to be one the connection's connector offers, which only
@@ -2267,123 +2141,15 @@ const routes = app
   })
   // --- connecting a source account: two navigations, like signing in ---------
   /**
-   * Sends the browser to Google to connect a Gmail account, through Gmail's
-   * own client and asking for the permission to change mail ("Connect a Gmail
-   * account to a workspace, and disconnect it", issue 724). The generic pair below
-   * in every other respect: behind the gate, the Workspace and account
-   * carried in the attempt cookie, refused before anybody leaves where the
-   * Workspace is gone or the environment cannot connect.
-   *
-   * **`?follows=star` connects it by star** ("Connect Gmail by star, and bring
-   * in conversations starred from then on", issue 822), carried in the cookie
-   * beside the Workspace; anything else is the label.
-   */
-  .get('/v1/workspaces/:workspaceId/connections/gmail/connect', async (c) => {
-    const workspaceId = c.req.param('workspaceId');
-    try {
-      const account = await openAccount(c.env, c.get('visitor').accountName);
-      if (!(await account.workspaces()).some((workspace) => workspace.id === workspaceId)) {
-        return refuseConnection(c, workspaceId, 'no such workspace');
-      }
-      const needed = await whatConnectingGmailNeeds(c.env);
-      if (!needed) {
-        return refuseConnection(c, workspaceId, 'this environment cannot connect Gmail');
-      }
-      const endpoints = await endpointsFor(gmailIssuerFor(c.env));
-      const attempt = {
-        ...newAttempt(),
-        workspaceId,
-        accountName: c.get('visitor').accountName,
-        connectorId: GMAIL,
-        follows: c.req.query('follows') === 'star' ? ('star' as const) : ('label' as const),
-      };
-      rememberConnectAttempt(c, attempt);
-      return c.redirect(
-        await gmailAuthorizationUrl(endpoints, needed.clientId, gmailCallbackUrl(c), attempt),
-        302,
-      );
-    } catch (error) {
-      return refuseConnection(c, workspaceId, 'Google could not be reached', error);
-    }
-  })
-  /**
-   * Where Google sends the browser back. **One encrypted credential or
-   * nothing**: the attempt is spent before anything is acted on, so a reply
-   * delivered twice cannot write a second row, and nothing is stored until
-   * Google has said whose mailbox it is, handed over a refresh token, granted
-   * the permission to change mail and the result has been sealed. A token
-   * issued but not stored leaves nothing behind; the code being single-use,
-   * connecting again is the remedy.
-   */
-  .get('/v1/connections/gmail/callback', async (c) => {
-    const held = connectAttemptHeld(c);
-    forgetConnectAttempt(c);
-    const attempt = held?.connectorId === GMAIL ? held : null;
-    const reply = c.req.query();
-
-    const wrong = replyBelongsTo(attempt, reply);
-    if (wrong) return refuseConnection(c, attempt?.workspaceId, wrong, undefined, gmailNotConnectedBecause(wrong, reply));
-    // Whose store the row lands in is the session's to say, for the reason
-    // the generic callback gives.
-    if (attempt!.accountName !== c.get('visitor').accountName) {
-      return refuseConnection(c, undefined, 'the connection was started by another account');
-    }
-
-    try {
-      const needed = await whatConnectingGmailNeeds(c.env);
-      if (!needed) {
-        return refuseConnection(c, attempt!.workspaceId, 'this environment cannot connect Gmail');
-      }
-      const endpoints = await endpointsFor(gmailIssuerFor(c.env));
-      const exchanged = await exchangeCode(
-        endpoints,
-        { clientId: needed.clientId, clientSecret: needed.clientSecret },
-        { code: reply.code!, codeVerifier: attempt!.codeVerifier, redirectUri: gmailCallbackUrl(c) },
-      );
-      if (!exchanged) return refuseConnection(c, attempt!.workspaceId, 'the exchange was refused');
-
-      const now = new Date();
-      const mailbox = await gmailAccountFrom(
-        exchanged.idToken,
-        keysOf(endpoints),
-        { issuer: endpoints.issuer, clientId: needed.clientId, nonce: attempt!.nonce },
-        now,
-      );
-      if (typeof mailbox === 'string') return refuseConnection(c, attempt!.workspaceId, mailbox);
-      const kept = gmailCredentialFrom(exchanged.asIssued, mailbox.key, now);
-      // Refused before anything is stored: a grant without a refresh token,
-      // or without the permission asked for, is one Cockpit never keeps.
-      if (typeof kept === 'string') return refuseConnection(c, attempt!.workspaceId, kept, undefined, gmailNotConnectedBecause(kept, reply));
-
-      const connectedAt = now.toISOString();
-      await change(c, 'connect_source_account', {
-        commandId: uuidv7(),
-        issuedAt: connectedAt,
-        workspaceId: attempt!.workspaceId,
-        sourceAccountId: uuidv7(),
-        connectorId: GMAIL,
-        externalAccountKey: mailbox.key,
-        displayName: mailbox.address,
-        ...(await seal(kept.credential, needed.key)),
-        follows: attempt!.follows ?? 'label',
-      });
-      return backToConnections(c, attempt!.workspaceId, attempt!.follows === 'star' ? 'gmail-star-connected' : 'gmail-connected');
-    } catch (error) {
-      return refuseConnection(c, attempt!.workspaceId, 'the connection could not be finished', error);
-    }
-  })
-  /**
    * Sends the browser to a source to be asked whose account this is, for any
    * registered connector whose manifest describes an OAuth sign-in, keeping
    * what it has to come back with and which Workspace asked ("Connect and
    * disconnect a source through one generic sign-in flow", issue 892; Teams
    * was the first, "Connect a Microsoft Teams source account", issue 485).
    *
-   * **Registered after Gmail's own pair above, which is how Gmail's still
-   * wins for `gmail`** until it is described the same way ("Move Gmail out of
-   * the core, onto the connector SDK", issue 875). **An id nothing is
-   * registered under, or one whose sign-in is `none`, is not found** rather
-   * than refused: there is no connector here to have refused anything.
+   * **An id nothing is registered under, or one whose sign-in is `none`, is
+   * not found** rather than refused: there is no connector here to have
+   * refused anything.
    *
    * **Behind the gate**, and that is the whole shape of it: connecting is
    * something a signed-in person does to one of their own Workspaces, so the
@@ -2498,7 +2264,6 @@ const routes = app
           attempt!.workspaceId,
           signedIn.refusal,
           undefined,
-          'refused',
           signedIn.because === undefined ? undefined : { connectorId, code: signedIn.because },
         );
       }

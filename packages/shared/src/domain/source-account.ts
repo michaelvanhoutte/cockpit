@@ -1,18 +1,6 @@
 import { z } from 'zod';
 
 /**
- * The one mark a Gmail connection follows ("Connect Gmail by star, and bring
- * in conversations starred from then on", issue 822): the `Cockpit` label, or
- * the star - which is what Outlook's flag for follow-up sets on Gmail mail.
- * The label is the one chosen to start, and every connection made before the
- * star existed follows it. What Gmail's own commands carry; a connection's row
- * reads `follows` below, which names no source.
- */
-export const GMAIL_MARKS = ['label', 'star'] as const;
-export type GmailMark = (typeof GMAIL_MARKS)[number];
-export const gmailMarkSchema = z.enum(GMAIL_MARKS);
-
-/**
  * A source account a Workspace has connected - a Microsoft Teams sign-in
  * ("Connect a Microsoft Teams source account", issue 485), a Claude Code
  * routine trigger (issue 569), and whatever else is connected later.
@@ -53,11 +41,11 @@ export const sourceAccountSchema = z.object({
    */
   failingBecause: z.string().nullable().default(null),
   /**
-   * What the connection follows, where its connector follows anything at all
-   * - today Gmail alone (issue 822): the connector's own value, opaque to
-   * everything else ("Take source names out of the shared contract", issue
-   * 927). A bare string beside `followsLabel` rather than one object, so a
-   * client built before either still parses Gmail's `label` or `star` here.
+   * The one choice the connection made, where its connector declares one
+   * (issue 942): the connector's own value, opaque to everything else ("Take
+   * source names out of the shared contract", issue 927). A bare string beside
+   * `followsLabel` rather than one object, so a client built before either
+   * still parses it.
    */
   follows: z.string().optional(),
   /** What the row says it follows, in the connector's own words; absent from a release before it, which then reads as `follows` itself. */

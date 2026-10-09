@@ -1,6 +1,8 @@
 import { vi } from 'vitest';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
-import { modifyAnswer } from '../gmail-payloads.js';
+// The Gmail connector's own recorded shapes, which its contract suite keeps
+// true to Gmail (packages/connectors/gmail/tests/contract).
+import { modifyAnswer } from '../../../../packages/connectors/gmail/tests/gmail-payloads.js';
 
 /**
  * A Google that can be reached from inside a test.
@@ -238,8 +240,9 @@ export async function identityToken({
 /**
  * Gmail's API, on the same faked network ("Bring in the conversations already
  * labelled Cockpit as tasks", issue 725): one mailbox, answering the calls the
- * connector reads in the shapes Gmail answers them (../gmail-payloads.ts), and
- * Google's token endpoint refreshing an access token beside it.
+ * Gmail connector reads in the shapes Gmail answers them (the connector's own
+ * tests/gmail-payloads.ts), and Google's token endpoint refreshing an access
+ * token beside it - what the generic host is proved running Gmail against.
  */
 export const GMAIL_API = 'https://gmail.googleapis.com';
 
@@ -248,7 +251,7 @@ interface Mailbox {
   historyId: string;
   /** Every conversation's `threads.get` answer, in the order `threads.list` lists them. */
   threads: { id: string; labelled: boolean; answer: unknown }[];
-  /** What changed, as `users.history.list` records it (../gmail-payloads.ts `historyRecord`), oldest first; each record's id is its position. */
+  /** What changed, as `users.history.list` records it (the connector's `historyRecord`), oldest first; each record's id is its position. */
   history: { id: string }[];
   /** Whether Gmail has forgotten the positions it was asked from - it keeps them for about a week. */
   historyLapsed: boolean;

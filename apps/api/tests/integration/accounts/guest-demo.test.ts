@@ -5,7 +5,6 @@ import type { SourceAccount, Workspace, WorkspaceSnapshot } from '@cockpit/share
 import { accountChanges } from '../../../src/accounts/changes.js';
 import { GUEST_ACCOUNT_NAME } from '../../../src/auth/register.js';
 import { inStoreAsItIs, seedRegister, startFromEmpty, storeNamed } from '../seed.js';
-import { gmailCalls, gmailIsEmpty } from '../issuer.js';
 import { handleScheduled } from '../../../src/jobs/index.js';
 
 /**
@@ -327,36 +326,45 @@ describe('Accounts', () => {
     });
 
     /**
-     * The nightly job re-arms the check of every account holding a Gmail
-     * connection, and the guest holds three. Armed, it would ask Google about
-     * a mailbox that does not exist and mark the row failing - so what is
-     * asked is that the night leaves the guest's check unarmed and the rows
-     * as they were, and that a check run on the guest anyway reads nothing.
+     * The nightly job re-arms the check of every account holding a pulled
+     * connection, and the guest holds three Gmail ones. Checked, each would
+     * ask Google about a mailbox that does not exist and mark the row failing -
+     * so what is asked is that the night leaves the guest's alarm unarmed and
+     * the rows as they were, and that an alarm fired on the guest anyway
+     * queues no check.
      */
-    it('never arms or runs a Gmail check for the guest, so its rows never fail', async () => {
+    it('never checks the guest’s seeded connections, so its rows never fail', async () => {
       await continueAsGuest();
-      gmailIsEmpty();
+      const queued: unknown[] = [];
+      const realQueue = env.ENRICHMENT;
+      env.ENRICHMENT = {
+        send: async (body: unknown) => void queued.push(body),
+        sendBatch: async () => {},
+      } as unknown as typeof env.ENRICHMENT;
       const alarmOf = () =>
         runInDurableObject(storeNamed(GUEST_ACCOUNT_NAME), (_instance, state) => state.storage.getAlarm());
 
-      await handleScheduled({} as never, env);
+      try {
+        await handleScheduled({} as never, env);
+        expect(await alarmOf()).toBeNull();
 
+        // An alarm that fires anyway, with the account named.
+        await runInDurableObject(storeNamed(GUEST_ACCOUNT_NAME), async (_instance, state) => {
+          state.storage.kv.put('gmail-check-account', GUEST_ACCOUNT_NAME);
+          await state.storage.setAlarm(Date.now());
+        });
+        await runDurableObjectAlarm(storeNamed(GUEST_ACCOUNT_NAME));
+      } finally {
+        env.ENRICHMENT = realQueue;
+      }
+
+      expect(queued.filter((job) => (job as { kind: string }).kind === 'check-a-pulled-connection')).toEqual([]);
       expect(await alarmOf()).toBeNull();
-
-      // A check that runs anyway: the alarm fires with the account named.
-      await runInDurableObject(storeNamed(GUEST_ACCOUNT_NAME), async (_instance, state) => {
-        state.storage.kv.put('gmail-check-account', GUEST_ACCOUNT_NAME);
-        await state.storage.setAlarm(Date.now());
-      });
-      await runDurableObjectAlarm(storeNamed(GUEST_ACCOUNT_NAME));
-
-      expect(gmailCalls).toEqual([]);
-      expect(await alarmOf()).toBeNull();
-      const counts = await inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) => ({
-        failing: sql.exec('SELECT COUNT(*) AS n FROM connection_failures').one().n,
-        checks: sql.exec('SELECT COUNT(*) AS n FROM gmail_checks').one().n,
-      }));
-      expect(counts).toEqual({ failing: 0, checks: 0 });
+      const failing = await inStoreAsItIs(
+        GUEST_ACCOUNT_NAME,
+        (sql) => sql.exec('SELECT COUNT(*) AS n FROM connection_failures').one().n,
+      );
+      expect(failing).toBe(0);
     });
   });
 
