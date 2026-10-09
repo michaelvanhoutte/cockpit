@@ -55,7 +55,7 @@ describe('Connector management', () => {
         { sub: 's', tid: 'atlas', oid: 'ada' },
         { sub: 's', tid: 'atlas', oid: 'michael' },
         { sub: 's', tid: 'novy', oid: 'ada' },
-      ].map((claims) => accountFor(claims)!.key);
+      ].map((claims) => (accountFor(claims) as { key: string }).key);
 
       expect(new Set(keys).size).toBe(3);
     });

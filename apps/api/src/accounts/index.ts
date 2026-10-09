@@ -277,7 +277,7 @@ export interface Account {
    */
   sealedCredential(
     sourceAccountId: string,
-  ): Promise<{ sealedCredential: string; credentialNonce: string } | null>;
+  ): Promise<{ sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | null>;
   /**
    * The sealed credential of one Claude Code connection this Workspace holds,
    * for the test route about to fire it ("Connect a workspace to Claude

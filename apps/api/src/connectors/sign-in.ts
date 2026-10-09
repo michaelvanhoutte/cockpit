@@ -79,6 +79,7 @@ export async function authorizationRequest(
     callbackUrlFor(env, sign.connector.manifest.id),
     attempt,
     scopes.join(' '),
+    sign.auth.authorizationParams,
   );
 }
 
@@ -87,11 +88,17 @@ export type SignInRefusal =
   | 'the exchange was refused'
   | 'the identity could not be read'
   | 'the identity answers a different sign-in'
-  | 'the account could not be read';
+  | 'the account could not be read'
+  | 'the grant was refused';
 
 export type AccountSignedIn =
   | { readonly signedIn: true; readonly account: ConnectedAccountIdentity; readonly asIssued: string }
-  | { readonly signedIn: false; readonly refusal: SignInRefusal };
+  | {
+      readonly signedIn: false;
+      readonly refusal: SignInRefusal;
+      /** The code the connector's own account step gave for the grant it refused, where it listed one. */
+      readonly because?: string;
+    };
 
 /**
  * Spends the code the source sent the browser back with and says whose
@@ -149,6 +156,16 @@ export async function accountSignedIn(
   if (!tokenResponse) return refused('the account could not be read');
   const account = sign.connector.accountFrom?.({ claims, tokenResponse }) ?? null;
   if (!account) return refused('the account could not be read');
+  if ('refused' in account) {
+    // Only a code the description lists is carried on: the window has a
+    // sentence for those, and anything else is a plain refusal.
+    const listed = Object.hasOwn(sign.auth.refusals ?? {}, account.refused);
+    return {
+      signedIn: false,
+      refusal: 'the grant was refused',
+      ...(listed ? { because: account.refused } : {}),
+    };
+  }
   return { signedIn: true, account, asIssued };
 }
 

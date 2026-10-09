@@ -71,6 +71,30 @@ export interface OAuthDescriptor {
   scopes: string[];
   /** The names of the environment settings holding the client the source issued this Cockpit. */
   clientSettings: { id: string; secret: string };
+  /**
+   * Further parameters the source's authorization request is sent with, as the
+   * source documents them (an offline-access request, a forced consent
+   * screen). Added to the redirect as given; the parameters that make the
+   * request this Cockpit's own (client, redirect address, scope, state, nonce,
+   * PKCE) cannot be replaced by it. Absent: the request is the plain one.
+   */
+  authorizationParams?: Record<string, string>;
+  /**
+   * The reasons `accountFrom` may refuse a grant for, each a code mapped to the
+   * sentence the Connections window shows the person. Data, so the window can
+   * show a reason without the connector running; a code not listed here is
+   * shown as a plain refusal.
+   */
+  refusals?: Record<string, string>;
+}
+
+/**
+ * What `Connector.accountFrom` answers for a grant it will not accept: one of
+ * the codes the sign-in description lists under `refusals`. The host then
+ * stores nothing and the Connections window says why.
+ */
+export interface SignInRefused {
+  refused: string;
 }
 
 /** What the host hands `Connector.accountFrom` once the source has answered a sign-in. */
@@ -288,10 +312,23 @@ export interface Connector {
   /**
    * The step turning a sign-in's reply into the account it connected, for a
    * connector whose manifest `auth` is `oauth2`. Pure: answers `null` where
-   * the reply names nobody, which the host treats as a refused sign-in. A
-   * connector with `auth` of `none` is never signed in and is never asked.
+   * the reply names nobody, which the host treats as a refused sign-in, and
+   * `{ refused }` where it names somebody but the grant is not the one asked
+   * for (a permission left unticked, no way to stay signed in). A connector
+   * with `auth` of `none` is never signed in and is never asked.
    */
-  accountFrom?(reply: SignInReply): ConnectedAccountIdentity | null;
+  accountFrom?(reply: SignInReply): ConnectedAccountIdentity | SignInRefused | null;
+
+  /**
+   * Ends the sign-in at the source, for a connector whose source keeps a grant
+   * that should not outlive the connection. Called with the connection's
+   * opened credential (as `getCredentials` gives it) once the connection is
+   * already deleted, and only when no other Workspace holds the same account
+   * at the source - revoking cuts those off too, so the host checks. **A
+   * failure, thrown or rejected, never fails the disconnect**: it is logged and
+   * not retried. Absent: nothing is revoked.
+   */
+  revoke?(credentials: Record<string, string>): Promise<void>;
 
   /**
    * Optional push ingress. The host routes POST /ingress/:connectorId/* here

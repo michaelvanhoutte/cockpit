@@ -113,6 +113,22 @@ export function newAttempt(random: Pick<Crypto, 'getRandomValues'> = crypto): At
 }
 
 /**
+ * What makes an authorization request this application's own, which a
+ * connector's extra parameters cannot replace: asking the source for more
+ * does not get to choose where the answer goes or what it must match.
+ */
+const OWN_PARAMETERS: ReadonlySet<string> = new Set([
+  'client_id',
+  'redirect_uri',
+  'response_type',
+  'scope',
+  'state',
+  'nonce',
+  'code_challenge',
+  'code_challenge_method',
+]);
+
+/**
  * Where to send the browser to be asked who it is.
  *
  * `code_challenge` is the SHA-256 of the verifier rather than the verifier
@@ -126,6 +142,7 @@ export async function authorizationUrl(
   redirectUri: string,
   attempt: Attempt,
   scopes: string = SCOPES,
+  extra: Readonly<Record<string, string>> = {},
 ): Promise<string> {
   const url = new URL(endpoints.authorizationEndpoint);
   url.searchParams.set('client_id', clientId);
@@ -137,6 +154,9 @@ export async function authorizationUrl(
   url.searchParams.set('code_challenge', await challengeFor(attempt.codeVerifier));
   url.searchParams.set('code_challenge_method', 'S256');
   url.searchParams.set('prompt', 'select_account');
+  for (const [name, value] of Object.entries(extra)) {
+    if (!OWN_PARAMETERS.has(name)) url.searchParams.set(name, value);
+  }
   return url.toString();
 }
 

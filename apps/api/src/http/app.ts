@@ -124,6 +124,7 @@ import { connectedAppsOf, disconnectApp } from '../mcp/connected-apps.js';
 import { revokeAppsOf } from '../mcp/revoke.js';
 import { open, seal, sealingKey, type Sealed } from '../connectors/credential-crypto.js';
 import { accountSignedIn, authorizationRequest, clientOf, signInOf } from '../connectors/sign-in.js';
+import { revokeAfterDisconnect } from '../connectors/revoke.js';
 import {
   gmailAccountFrom,
   gmailAuthorizationUrl,
@@ -234,10 +235,18 @@ function backToConnections(
   c: Context,
   workspaceId: string | undefined,
   outcome: 'connected' | 'gmail-connected' | 'gmail-star-connected' | NotConnected,
+  /**
+   * A refusal a connector's own account step gave: who, and its code. Codes
+   * only - the window finds the sentence in the connector's listing.
+   */
+  because?: { connectorId: string; code: string },
 ) {
   if (!workspaceId) return c.redirect('/', 302);
+  const why = because
+    ? `&by=${encodeURIComponent(because.connectorId)}&because=${encodeURIComponent(because.code)}`
+    : '';
   return c.redirect(
-    `/w/${encodeURIComponent(workspaceId)}?connections=${outcome}`,
+    `/w/${encodeURIComponent(workspaceId)}?connections=${outcome}${why}`,
     302,
   );
 }
@@ -267,6 +276,7 @@ function refuseConnection(
   reason: string,
   cause?: unknown,
   told: NotConnected = 'refused',
+  because?: { connectorId: string; code: string },
 ) {
   console.error(
     JSON.stringify({
@@ -277,7 +287,7 @@ function refuseConnection(
         : { cause: cause instanceof Error ? cause.message : String(cause) }),
     }),
   );
-  return backToConnections(c, workspaceId, told);
+  return backToConnections(c, workspaceId, told, because);
 }
 
 /**
@@ -1565,6 +1575,7 @@ const routes = app
             displayName: manifest.displayName,
             cardText: manifest.cardText,
             asksFirst: manifest.asksFirst === true,
+            refusals: signInOf(c.env, manifest.id)?.auth.refusals ?? {},
           })),
       },
       200,
@@ -1922,14 +1933,28 @@ const routes = app
     // reading nothing is the same disconnect as before: the command below is
     // what decides, and refuses, whether there is anything to disconnect.
     const account = await openAccount(c.env, c.get('visitor').accountName);
-    const isGmail = (await account.sourceAccounts(cmd.workspaceId).catch(() => [])).some(
-      (held) => held.id === cmd.sourceAccountId && held.connectorId === GMAIL,
+    const heldConnector = (await account.sourceAccounts(cmd.workspaceId).catch(() => [])).find(
+      (held) => held.id === cmd.sourceAccountId,
     );
+    const isGmail = heldConnector?.connectorId === GMAIL;
     const sealed = isGmail ? await account.sealedCredential(cmd.sourceAccountId) : null;
+    // A described source's own revoke, read the same way: its credential
+    // before the row goes, its revoke once it has (issue 941).
+    const revocable = heldConnector ? getConnector(c.env, heldConnector.connectorId) : undefined;
+    const sealedToRevoke = revocable?.revoke ? await account.sealedCredential(cmd.sourceAccountId) : null;
     const result = await account.applyChange('disconnect_source_account', cmd);
     // After the row is gone and only then: a revoke that fails or hangs must
     // never keep it.
     if (sealed && result.applied) await revokeGmailSignIn(c.env, account, sealed);
+    if (revocable && sealedToRevoke && result.applied) {
+      await revokeAfterDisconnect(
+        c.env,
+        revocable,
+        account,
+        { accountName: c.get('visitor').accountName, workspaceId: cmd.workspaceId },
+        sealedToRevoke,
+      );
+    }
     return c.json(result, 200);
   })
   .openapi(commandRoute('set_gmail_follows'), async (c) => c.json(await change(c, 'set_gmail_follows', c.req.valid('json')), 200))
@@ -2413,7 +2438,16 @@ const routes = app
       }
 
       const signedIn = await accountSignedIn(c.env, sign, client, reply.code!, attempt!, new Date());
-      if (!signedIn.signedIn) return refuseConnection(c, attempt!.workspaceId, signedIn.refusal);
+      if (!signedIn.signedIn) {
+        return refuseConnection(
+          c,
+          attempt!.workspaceId,
+          signedIn.refusal,
+          undefined,
+          'refused',
+          signedIn.because === undefined ? undefined : { connectorId, code: signedIn.because },
+        );
+      }
       const { account, asIssued } = signedIn;
 
       // Sealed here, so the credential exists in the clear only inside this
@@ -2446,7 +2480,9 @@ const routes = app
       // already live (found in review, PR 491). Retried once first, since
       // the write upserts on the same four key columns reconnecting the
       // same account would anyway; a repair by hand is exactly a reconnect.
-      if (sign.connector.manifest.supportsPush) {
+      // And a source that revokes: the register is where a disconnect finds
+      // out whether another Workspace holds the same account.
+      if (sign.connector.manifest.supportsPush || sign.connector.revoke) {
         const where = { accountName: c.get('visitor').accountName, workspaceId: attempt!.workspaceId };
         try {
           await rememberConnection(c.env, where, connectorId, account.key, connectedAt);
@@ -2459,7 +2495,7 @@ const routes = app
               JSON.stringify({
                 level: 'error',
                 message:
-                  'a source account connected, but is not yet reachable for a saved message - reconnecting the same account repairs it',
+                  'a source account connected, but is not in the register of connections - a saved message cannot find it, and a disconnect elsewhere may revoke its sign-in for it; reconnecting the same account repairs it',
                 cause: secondError instanceof Error ? secondError.message : String(secondError),
                 firstAttempt: firstError instanceof Error ? firstError.message : String(firstError),
               }),

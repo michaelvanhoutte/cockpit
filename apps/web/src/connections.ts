@@ -41,7 +41,23 @@ const OUTCOMES: readonly unknown[] = [
 
 export interface ConnectionsSearch {
   connections?: ConnectOutcome;
+  /**
+   * Which connector refused and its code for why, where a connector's own
+   * account step refused the grant. Only codes: the sentence comes from the
+   * connector's listing (`ManageConnections`), so an address cannot put its
+   * own words on screen.
+   */
+  by?: string;
+  because?: string;
 }
+
+/** Who refused a grant, and the code it gave. */
+export interface RefusedBecause {
+  connectorId: string;
+  code: string;
+}
+
+const CODE = /^[A-Za-z0-9._-]{1,64}$/;
 
 /**
  * What the address is allowed to carry of this, dropping anything else - a
@@ -52,7 +68,12 @@ export interface ConnectionsSearch {
  * where a search parameter can be declared at all.
  */
 export function connectionsSearch(search: Record<string, unknown>): ConnectionsSearch {
-  return OUTCOMES.includes(search.connections) ? { connections: search.connections as ConnectOutcome } : {};
+  if (!OUTCOMES.includes(search.connections)) return {};
+  const connections = search.connections as ConnectOutcome;
+  const { by, because } = search;
+  return connections === 'refused' && typeof by === 'string' && typeof because === 'string' && CODE.test(by) && CODE.test(because)
+    ? { connections, by, because }
+    : { connections };
 }
 
 /**
@@ -62,18 +83,23 @@ export function connectionsSearch(search: Record<string, unknown>): ConnectionsS
  * entry the trip back made instead of stacking a third on top of it - the same
  * movement `useItemForm` makes for the same reason.
  */
-export function useConnections(): { outcome: ConnectOutcome | undefined; forget: () => void } {
+export function useConnections(): {
+  outcome: ConnectOutcome | undefined;
+  because: RefusedBecause | undefined;
+  forget: () => void;
+} {
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as ConnectionsSearch;
 
   return {
     outcome: search.connections,
+    because: search.by && search.because ? { connectorId: search.by, code: search.because } : undefined,
     forget: () =>
       void navigate({
         to: '.',
         replace: true,
         search: (was) => {
-          const { connections: _done, ...rest } = was as ConnectionsSearch;
+          const { connections: _done, by: _by, because: _because, ...rest } = was as ConnectionsSearch;
           return rest;
         },
       }),

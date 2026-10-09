@@ -517,12 +517,16 @@ function TheShell() {
    * open Settings again. Connections is not offered on a phone, and a workspace
    * this person cannot see gets no window - the parameter is cleared either way.
    */
-  const { outcome: backFromTheSource, forget: forgetTheTrip } = useConnections();
+  const { outcome: backFromTheSource, because: refusedBecause, forget: forgetTheTrip } = useConnections();
   useEffect(() => {
     if (!backFromTheSource || !data) return;
     const workspaceId = params.workspaceId;
     if (roomForTheInbox && workspaceId && data.workspaces.some((ws) => ws.id === workspaceId)) {
-      openSettings('connections', { workspaceId, outcome: backFromTheSource });
+      openSettings('connections', {
+        workspaceId,
+        outcome: backFromTheSource,
+        ...(refusedBecause ? { because: refusedBecause } : {}),
+      });
     }
     forgetTheTrip();
     // eslint-disable-next-line react-hooks/exhaustive-deps

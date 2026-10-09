@@ -10,7 +10,7 @@ import {
 } from '@cockpit/shared';
 import { api, refusal } from '../api/client';
 import { refusalFrom, snapshotQuery, useCommand, useConnectClaudeCode, useTestClaudeCodeConnection } from '../api/queries';
-import type { ConnectOutcome } from '../connections';
+import type { ConnectOutcome, RefusedBecause } from '../connections';
 import { sourceNamed, type SourceNames } from '../itemSource';
 import { ConnectEngine } from './engines';
 import { ChangeGmailFollows } from './ChangeGmailFollows';
@@ -161,6 +161,7 @@ export default function ManageConnections({
   workspaceName,
   /** How the last connect attempt went, where the browser has just come back from one. */
   outcome,
+  because,
   open,
   onClose,
   returnFocusTo,
@@ -185,6 +186,8 @@ export default function ManageConnections({
   workspaceId: string;
   workspaceName: string;
   outcome?: ConnectOutcome | undefined;
+  /** Which connector refused the grant, and the code it gave, where its own account step did. */
+  because?: RefusedBecause | undefined;
   open: boolean;
   onClose: () => void;
   returnFocusTo?: HTMLElement | null | undefined;
@@ -236,6 +239,12 @@ export default function ManageConnections({
     // The two named cards win over a registered connector of the same id.
     .filter((connector) => connector.id !== GMAIL && connector.id !== CLAUDE_CODE)
     .map((connector): Card => ({ id: connector.id, name: connector.displayName, text: connector.cardText }));
+  /** The connector's own sentence for why it refused, where the listing holds one for the code. */
+  const refusalGiven = because
+    ? Object.entries(
+        registry.data?.connectors.find((connector) => connector.id === because.connectorId)?.refusals ?? {},
+      ).find(([code]) => code === because.code)?.[1]
+    : undefined;
   const cards = [
     ...(section !== 'agents' ? [GMAIL_CARD, ...registered] : []),
     ...(section !== 'sources' ? [CLAUDE_CODE_CARD] : []),
@@ -336,7 +345,7 @@ export default function ManageConnections({
       )}
       {outcome && REFUSED_BECAUSE[outcome] && (
         <p role="alert" className="pt-3 text-sm text-over-ink">
-          {REFUSED_BECAUSE[outcome]}
+          {(outcome === 'refused' && refusalGiven) || REFUSED_BECAUSE[outcome]}
         </p>
       )}
 

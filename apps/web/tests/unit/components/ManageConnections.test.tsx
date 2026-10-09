@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { SourceAccount } from '@cockpit/shared';
 import ManageConnections from '../../../src/components/ManageConnections';
-import type { ConnectOutcome } from '../../../src/connections';
+import type { ConnectOutcome, RefusedBecause } from '../../../src/connections';
 import { useCommand, useConnectClaudeCode, useTestClaudeCodeConnection } from '../../../src/api/queries';
 
 /**
@@ -21,7 +21,7 @@ import { useCommand, useConnectClaudeCode, useTestClaudeCodeConnection } from '.
 const held = vi.hoisted(() => ({
   sourceAccounts: [] as SourceAccount[],
   /** What the registry's list answers with: Teams, as in an environment that has its bot. */
-  registry: [] as { id: string; displayName: string; cardText: string; asksFirst: boolean }[],
+  registry: [] as { id: string; displayName: string; cardText: string; asksFirst: boolean; refusals?: Record<string, string> }[],
   /** What the Claude Code connection's hooks read answers with (issue 572). */
   hooks: { url: '', secret: '', domain: '', lastArrivedAt: null as string | null },
   /** The connection each hooks read was for. */
@@ -113,7 +113,12 @@ let testedClaudeCode: ReturnType<typeof vi.fn>;
  */
 type TestOutcome = { accepted: true } | { accepted: false; message: string } | 'network-failure';
 
-function showWindow(outcome?: ConnectOutcome, testOutcome: TestOutcome = { accepted: true }, guest = false) {
+function showWindow(
+  outcome?: ConnectOutcome,
+  testOutcome: TestOutcome = { accepted: true },
+  guest = false,
+  because?: RefusedBecause,
+) {
   sent = vi.fn();
   testedClaudeCode = vi.fn(
     (_sourceAccountId: string, opts: { onSuccess?: (r: unknown) => void; onError?: () => void }) => {
@@ -149,6 +154,7 @@ function showWindow(outcome?: ConnectOutcome, testOutcome: TestOutcome = { accep
         workspaceId="ws-work"
         workspaceName="Work"
         {...(outcome ? { outcome } : {})}
+        {...(because ? { because } : {})}
         guest={guest}
         open
         onClose={() => {}}
@@ -343,6 +349,36 @@ describe('Connector management', () => {
       },
     ])('back from Google, $situation, it says so', async ({ outcome, says }) => {
       showWindow(outcome);
+
+      expect(await screen.findByText(says)).toBeInTheDocument();
+    });
+
+    it.each([
+      {
+        situation: 'a reason the connector listed',
+        because: { connectorId: 'notion', code: 'no-offline' },
+        says: 'Notion did not let Cockpit stay signed in. Nothing was stored.',
+      },
+      {
+        situation: 'a reason its listing does not hold',
+        because: { connectorId: 'notion', code: 'typed-into-the-address' },
+        says: /^That did not connect\. Nothing was stored\. Try again\.$/,
+      },
+      {
+        situation: 'a code that is a name every object has',
+        because: { connectorId: 'notion', code: 'constructor' },
+        says: /^That did not connect\. Nothing was stored\. Try again\.$/,
+      },
+      {
+        situation: 'a connector that is not listed',
+        because: { connectorId: 'nobody', code: 'no-offline' },
+        says: /^That did not connect\. Nothing was stored\. Try again\.$/,
+      },
+    ])('back from a source whose own step refused the grant, with $situation, it says what the listing gives', async ({ because, says }) => {
+      held.registry = [
+        { id: 'notion', displayName: 'Notion', cardText: 'Pages.', asksFirst: false, refusals: { 'no-offline': 'Notion did not let Cockpit stay signed in. Nothing was stored.' } },
+      ];
+      showWindow('refused', undefined, false, because);
 
       expect(await screen.findByText(says)).toBeInTheDocument();
     });

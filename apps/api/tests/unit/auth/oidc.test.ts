@@ -279,6 +279,32 @@ describe('Sign-in', () => {
       });
     });
 
+    it('adds the extra parameters a connector declares, and cannot move what makes the request this application’s', async () => {
+      const url = new URL(
+        await authorizationUrl(endpoints, CLIENT_ID, 'https://app.test/back', attempt, 'read', {
+          access_type: 'offline',
+          prompt: 'select_account consent',
+          redirect_uri: 'https://elsewhere.test/steal',
+          state: 'chosen-by-the-connector',
+          scope: 'everything',
+        }),
+      );
+      expect(Object.fromEntries(url.searchParams)).toMatchObject({
+        access_type: 'offline',
+        prompt: 'select_account consent',
+        redirect_uri: 'https://app.test/back',
+        state: attempt.state,
+        scope: 'read',
+      });
+    });
+
+    it('is the plain request where none are declared', async () => {
+      const plain = await authorizationUrl(endpoints, CLIENT_ID, 'https://app.test/back', attempt);
+      const none = await authorizationUrl(endpoints, CLIENT_ID, 'https://app.test/back', attempt, undefined, {});
+      expect(none).toBe(plain);
+      expect(new URL(plain).searchParams.has('access_type')).toBe(false);
+    });
+
     it('sends the challenge rather than the verifier', async () => {
       const url = new URL(await authorizationUrl(endpoints, CLIENT_ID, 'https://app.test/back', attempt));
       const challenge = url.searchParams.get('code_challenge');
