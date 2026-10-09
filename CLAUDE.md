@@ -129,7 +129,9 @@ It names a SHA because for the seconds after a push GitHub's head is still the p
 
 **A remote or cloud session has no `gh` to run that loop in.** Poll `pull_request_read`'s `get_check_runs`/`get` through the GitHub MCP tools, and schedule the next check with `send_later` rather than trusting the PR-activity webhook, which does not fire on every transition.
 
-**A finding is not handled until its own review thread says so**, because a push only adds an *Outdated* badge and GitHub never resolves a thread itself. Reply naming the commit that fixed it and what changed, then resolve; where the fix did not land or was declined on purpose, reply saying which and leave the thread open. Never resolve without a reply, and never on the strength of a commit message rather than the committed code. `gh pr view` does not show thread state — query `reviewThreads` for the ids, then `addPullRequestReviewThreadReply` and `resolveReviewThread`.
+**A finding is not handled until its own review thread says so**, because a push only adds an *Outdated* badge and GitHub never resolves a thread itself. Reply naming the commit that fixed it and what changed, then resolve; where the fix did not land or was declined on purpose, reply saying which, with a one-line reason for a decline, and leave the thread open. Never resolve without a reply, and never on the strength of a commit message rather than the committed code. `gh pr view` does not show thread state — query `reviewThreads` for the ids, then `addPullRequestReviewThreadReply` and `resolveReviewThread`.
+
+**List each declined finding of a local `/code-review` or `/security-review` in the pull request body's `## Review` paragraph, with a one-line reason**, because local reviews post no thread and `/periodic-review` learns what the reviewer got wrong from the body.
 
 **Merge `main` into the branch only when GitHub reports the pull request conflicted.** It lands squashed and CI already tests the branch merged with `main`, so a clean merge buys nothing that lands and only restarts CI.
 

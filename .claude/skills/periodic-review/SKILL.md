@@ -1,11 +1,11 @@
 ---
 name: periodic-review
-description: Cockpit's process for periodically reading what had to be corrected after a build and the review comments left on merged pull requests since the last run, working out where each mistake got through, and proposing the fix that stops the next build repeating it - a numbered table the person approves, then one `unsliced` ticket per approved lesson and one closed record issue per run. Use every few weeks, or when asked to review recent pull requests or issues for process gaps. Hands each approved lesson through `scoping`, `engineering-plan` and `github-issue`; never edits code, workflows, or guidance itself.
+description: Cockpit's process for periodically reading what had to be corrected after a build, the review comments left on merged pull requests and the review findings declined there since the last run, working out where each mistake got through or what the review got wrong, and proposing the fix that stops the next build or review repeating it - a numbered table the person approves, then one `unsliced` ticket per approved lesson and one closed record issue per run. Use every few weeks, or when asked to review recent pull requests or issues for process gaps. Hands each approved lesson through `scoping`, `engineering-plan` and `github-issue`; never edits code, workflows, or guidance itself.
 ---
 
 # Learning from what got through
 
-A mistake that shipped and was fixed is evidence of where the harness let it through. This turns that evidence into a proposal the person decides on, not a report — a report gets read once and a ticket gets built. Harness cost and speed belong to [harness-cost-review](../harness-cost-review/SKILL.md), and corrections inside a live session to [session-review](../session-review/SKILL.md).
+A mistake that shipped and was fixed is evidence of where the harness let it through, and a review finding declined on purpose is evidence the reviewer got something wrong. This turns that evidence into a proposal the person decides on, not a report — a report gets read once and a ticket gets built. Harness cost and speed belong to [harness-cost-review](../harness-cost-review/SKILL.md), and corrections inside a live session to [session-review](../session-review/SKILL.md).
 
 Every read and filing uses REST (`gh api repos/{owner}/{repo}/...`) or the GitHub MCP tools: a cloud session blocks GraphQL.
 
@@ -30,7 +30,7 @@ gh api "search/issues?q=repo:{owner}/{repo}+is:pr+is:merged+merged:>=<start>&per
 gh api "search/issues?q=repo:{owner}/{repo}+is:issue+is:closed+closed:>=<start>+-label:periodic-review&per_page=100" --jq '.items[] | {number, title, body}'
 ```
 
-Two kinds of instance count:
+Three kinds of instance count:
 
 - **Correction**: a merged issue or pull request that fixes, reworks or reverses behaviour an earlier built issue shipped, where that issue can be named. A planned follow-up (the next child of a split ticket, the cleanup after a migration) or new scope added on top is not one.
 - **Review comment**: a comment or review left on a pull request merged in the window, by a person or a bot. A finding lands in three places, so read all three for each pull request:
@@ -41,11 +41,13 @@ gh api repos/{owner}/{repo}/issues/<n>/comments   # top-level, including bots
 gh api repos/{owner}/{repo}/pulls/<n>/reviews     # review bodies
 ```
 
-Count a comment restated on another surface once; add `--paginate` for long lists.
+- **Declined finding**: a review finding declined on a pull request merged in the window, with its reason, read from the same three surfaces and from the body's review summary (already fetched above).
+
+Count a comment or decline restated on another surface once; add `--paginate` for long lists.
 
 ### 3. Place each instance
 
-Open the original issue and pull request and decide where the mistake got through, which decides the fix:
+Open the original issue and pull request and decide where the mistake got through, which decides the fix. A declined finding is placed by what the review got wrong instead (it flagged something intended, misread the change's intent, or raised a nit not worth a round), and its fix is a rule for the reviewer: an edit to CLAUDE.md's "Review findings" section saying what not to flag and why, since local `/code-review` follows CLAUDE.md and `/security-review` has no local file of its own.
 
 | Where it got through | Proposed fix |
 |---|---|
@@ -56,7 +58,7 @@ Open the original issue and pull request and decide where the mistake got throug
 
 ### 4. Group and qualify
 
-Group instances that teach the same lesson, by the mistake and not the wording. A lesson qualifies on one correction, or on at least two review comments of the same kind. Where a class has two or more instances, the fix is one invariant test, not a patch per instance.
+Group instances that teach the same lesson, by the mistake and not the wording. A lesson qualifies on one correction, or on at least two review comments, or two declined findings, of the same kind. Where a class has two or more instances, the fix is one invariant test, not a patch per instance.
 
 Drop a lesson whose fix already landed, that an open issue covers (match on body, not title), or that the previous record rejected, unless an instance since then is new.
 
@@ -68,7 +70,7 @@ Drop a lesson whose fix already landed, that an open issue covers (match on body
 
 ### 6. Propose, file, record
 
-Show the candidates in the conversation as a numbered table, recurring classes first: lesson, instances (issue or pull request numbers), the row of step 3, proposed fix with net lines. The person approves, edits or rejects each; file nothing before they answer.
+Show the candidates in the conversation as a numbered table, recurring classes first: lesson, instances (issue or pull request numbers), the row of step 3, proposed fix with net lines. Mark a reviewer lesson as one for the reviewer. The person approves, edits or rejects each; file nothing before they answer.
 
 Hand each approved one through [scoping](../scoping/SKILL.md), [engineering-plan](../engineering-plan/SKILL.md) and [github-issue](../github-issue/SKILL.md), as an `unsliced` ticket, its instances in **Problem**.
 
