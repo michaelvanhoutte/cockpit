@@ -337,7 +337,8 @@ export interface PulledRun {
   openStatesWaiting(): Promise<OpenStateWanted[]>;
   /** Clears the ones the source confirmed, each only where still what was handed over (issue 893). */
   confirmOpenStates(confirmed: readonly OpenStateWanted[]): Promise<'confirmed' | 'not this run'>;
-  end(failing: string | null): Promise<null>;
+  /** `moreToDo` asks for the next check soon, and is ignored where the run failed (issue 957). */
+  end(failing: string | null, moreToDo?: boolean): Promise<null>;
 }
 
 /**
@@ -432,7 +433,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       openStatesWaiting: async () => unwrap(await store.pulledOpenStatesWaiting(accountName, sourceAccountId, runId)),
       confirmOpenStates: async (confirmed) =>
         unwrap(await store.confirmPulledOpenStates(accountName, sourceAccountId, runId, confirmed)),
-      end: async (failing) => unwrap(await store.endPulledRun(accountName, sourceAccountId, runId, failing)),
+      end: async (failing, moreToDo) =>
+        unwrap(await store.endPulledRun(accountName, sourceAccountId, runId, failing, moreToDo)),
     }),
   };
 }

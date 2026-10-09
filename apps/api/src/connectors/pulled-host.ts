@@ -21,7 +21,9 @@ import { getConnector } from './registry.js';
  * store's alarm queues `check-a-pulled-connection` naming the account and the
  * connection; this takes the connection's lease, opens its credential - which
  * the store never does, the key being the Worker's - runs `sync`, and gives the
- * lease back with the next check five minutes on.
+ * lease back with the next check five minutes on - or soon, where `sync`
+ * answered that there is more to do ("Check a pulled connector again soon when
+ * its run says there is more to do", issue 957).
  *
  * **Every call is safe to repeat.** An Item's ids derive from the connection
  * and the source id, so emitting it again is already known; private state is
@@ -59,6 +61,7 @@ export async function checkPulledConnection(
   const run = account.pulledRun(job.sourceAccountId, begun.runId);
   const connector = getConnector(env, begun.connectorId);
   let failing: string | null = null;
+  let moreToDo = false;
   try {
     if (!connector?.manifest.pulled) {
       throw new Error(`this version of Cockpit does not check ${begun.connectorId}`);
@@ -72,13 +75,14 @@ export async function checkPulledConnection(
       () => null,
       (error: unknown) => ({ error }),
     );
-    await connector.sync(host);
+    const answer = await connector.sync(host);
+    moreToDo = answer?.moreToDo === true;
     if (pushFailed) throw pushFailed.error;
   } catch (error) {
     failing = error instanceof Error ? error.message : String(error);
     logged(begun.connectorId, 'error', `a check of connection ${job.sourceAccountId} failed`, failing);
   }
-  await run.end(failing);
+  await run.end(failing, moreToDo);
 }
 
 /**

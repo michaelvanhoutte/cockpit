@@ -434,6 +434,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     sourceAccountId: string,
     runId: string,
     failing: string | null,
+    moreToDo?: boolean,
   ): Awaitable<Answer<null>>;
 }
 
