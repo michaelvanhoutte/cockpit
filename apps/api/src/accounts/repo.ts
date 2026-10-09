@@ -2332,6 +2332,7 @@ export function sourceAccountsIn(
       lastTestedAt: connectorAccounts.lastTestedAt,
       failingBecause: connectionFailures.reason,
       follows: connectorAccounts.follows,
+      choice: connectorAccounts.choice,
     })
     .from(connectorAccounts)
     .leftJoin(connectionFailures, eq(connectionFailures.sourceAccountId, connectorAccounts.id))
@@ -2349,8 +2350,17 @@ export function sourceAccountsIn(
     // What it follows, in Gmail's words, for Gmail alone: the column moves
     // with Gmail ("Move Gmail out of the core, onto the connector SDK", issue
     // 875), while the contract carries only a value and a label (issue 927).
-    .map(({ follows, ...account }) =>
-      account.connectorId === GMAIL ? { ...account, follows, followsLabel: GMAIL_FOLLOWS_LABEL[follows] } : account,
+    //
+    // Any other connector's is the generic choice its connection stored, as the
+    // value alone: the label is the connector's own and is put beside it where
+    // the registry is known (issue 942). Gmail's `follows` column is never
+    // read for it.
+    .map(({ follows, choice, ...account }) =>
+      account.connectorId === GMAIL
+        ? { ...account, follows, followsLabel: GMAIL_FOLLOWS_LABEL[follows] }
+        : choice === null
+          ? account
+          : { ...account, follows: choice },
     );
 }
 
@@ -2420,7 +2430,14 @@ export function getSourceAccount(
   tenantId: string,
   sourceAccountId: string,
 ):
-  | { id: string; workspaceId: string; connectorId: string; externalAccountKey: string | null; follows: GmailMark }
+  | {
+      id: string;
+      workspaceId: string;
+      connectorId: string;
+      externalAccountKey: string | null;
+      follows: GmailMark;
+      choice: string | null;
+    }
   | undefined {
   return db
     .select({
@@ -2429,6 +2446,7 @@ export function getSourceAccount(
       connectorId: connectorAccounts.connectorId,
       externalAccountKey: connectorAccounts.externalAccountKey,
       follows: connectorAccounts.follows,
+      choice: connectorAccounts.choice,
     })
     .from(connectorAccounts)
     .where(

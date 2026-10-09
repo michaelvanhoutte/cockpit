@@ -22,7 +22,7 @@ export function isConnectionChange(path: string): boolean {
   return (
     /^\/v1\/workspaces\/[^/]+\/connections\//.test(path) ||
     /^\/v1\/connections\//.test(path) ||
-    /^\/v1\/commands\/(connect_source_account|disconnect_source_account|set_gmail_follows|mark_source_account_tested)$/.test(
+    /^\/v1\/commands\/(connect_source_account|disconnect_source_account|set_gmail_follows|set_connection_choice|mark_source_account_tested)$/.test(
       path,
     )
   );

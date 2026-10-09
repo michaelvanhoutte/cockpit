@@ -750,6 +750,15 @@ export const connectSourceAccountSchema = commandEnvelopeSchema.extend({
    * 822) - the label where it is absent. Read for Gmail alone.
    */
   follows: gmailMarkSchema.optional(),
+  /**
+   * The value of the one choice a connector declares, as the person made it
+   * before the sign-in ("Ask a connection's one choice on connecting, and
+   * change it later", issue 942) - opaque here, and written by the callback
+   * route only after it has checked it against the connector's options.
+   * Absent for a connector that asks nothing; on a reconnect, absent leaves
+   * the stored one alone.
+   */
+  choice: z.string().min(1).max(200).optional(),
 });
 export type ConnectSourceAccountCommand = z.infer<typeof connectSourceAccountSchema>;
 
@@ -777,6 +786,21 @@ export const setGmailFollowsSchema = commandEnvelopeSchema.extend({
   follows: gmailMarkSchema,
 });
 export type SetGmailFollowsCommand = z.infer<typeof setGmailFollowsSchema>;
+
+/**
+ * set_connection_choice - the one choice a connection made, changed without
+ * connecting again ("Ask a connection's one choice on connecting, and change it
+ * later", issue 942). The value is opaque to the store and checked against the
+ * connector's options by the route before this is applied; naming another
+ * Workspace's connection is refused. Changing it drops any open state still
+ * waiting to reach the source, which a change under the old choice no longer
+ * applies to; choosing the one already held changes nothing.
+ */
+export const setConnectionChoiceSchema = commandEnvelopeSchema.extend({
+  sourceAccountId: z.string().min(1),
+  choice: z.string().min(1).max(200),
+});
+export type SetConnectionChoiceCommand = z.infer<typeof setConnectionChoiceSchema>;
 
 /**
  * mark_source_account_tested - a connection proven to still work without
@@ -877,6 +901,7 @@ export const commandSchemas = {
   connect_source_account: connectSourceAccountSchema,
   disconnect_source_account: disconnectSourceAccountSchema,
   set_gmail_follows: setGmailFollowsSchema,
+  set_connection_choice: setConnectionChoiceSchema,
   mark_source_account_tested: markSourceAccountTestedSchema,
   set_duplicate_settled: setDuplicateSettledSchema,
 } as const;

@@ -15,6 +15,7 @@ import { sourceNamed, type SourceNames } from '../itemSource';
 import { ConnectEngine } from './engines';
 import { ChangeGmailFollows } from './ChangeGmailFollows';
 import { ConnectGmail } from './ConnectGmail';
+import { ChangeConnectionChoice, ConnectWithChoice, type ConnectorChoice } from './ConnectionChoice';
 import { DeleteQuestion } from './DeleteQuestion';
 import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
@@ -81,8 +82,11 @@ const sourceAccountsQuery = (workspaceId: string) =>
  * It comes back to `/w/<workspaceId>?connections=connected|refused`, which is
  * what reopens this window over the Workspace it was started from.
  */
-function connectPath(workspaceId: string, connectorId: string): string {
-  return `/v1/workspaces/${encodeURIComponent(workspaceId)}/connections/${encodeURIComponent(connectorId)}/connect`;
+function connectPath(workspaceId: string, connectorId: string, choice?: string): string {
+  const path = `/v1/workspaces/${encodeURIComponent(workspaceId)}/connections/${encodeURIComponent(connectorId)}/connect`;
+  // The answer to the connector's one question, which the Worker carries
+  // through the source in the attempt it keeps (issue 942).
+  return choice === undefined ? path : `${path}?choice=${encodeURIComponent(choice)}`;
 }
 
 /**
@@ -115,6 +119,8 @@ interface Card {
   id: string;
   name: string;
   text: string;
+  /** What its connector asks before Connect leaves, where it asks anything (issue 942). */
+  choice?: ConnectorChoice | undefined;
 }
 
 /** What the guest is told in place of every way to connect. */
@@ -221,6 +227,12 @@ export default function ManageConnections({
   const [claudeCodeFormPending, setClaudeCodeFormPending] = useState(false);
   const [claudeCodeMessage, setClaudeCodeMessage] = useState<string | null>(null);
   const [gmailSteps, setGmailSteps] = useState(false);
+  /** The card whose connector's question is being asked before Connect leaves (issue 942). */
+  const [asking, setAsking] = useState<(Card & { choice: ConnectorChoice }) | null>(null);
+  const askingOpenedFrom = useRef<HTMLElement | null>(null);
+  /** The row whose choice is being changed with *Change…* (issue 942). */
+  const [changingChoice, setChangingChoice] = useState<SourceAccount | null>(null);
+  const choiceOpenedFrom = useRef<HTMLElement | null>(null);
   const gmailOpenedFrom = useRef<HTMLElement | null>(null);
   /** The Gmail row whose mark is being changed ("Change what a Gmail connection follows, without reconnecting", issue 824). */
   const [changingFollows, setChangingFollows] = useState<SourceAccount | null>(null);
@@ -238,7 +250,12 @@ export default function ManageConnections({
   const registered = (registry.data?.connectors ?? [])
     // The two named cards win over a registered connector of the same id.
     .filter((connector) => connector.id !== GMAIL && connector.id !== CLAUDE_CODE)
-    .map((connector): Card => ({ id: connector.id, name: connector.displayName, text: connector.cardText }));
+    .map((connector): Card => ({
+      id: connector.id,
+      name: connector.displayName,
+      text: connector.cardText,
+      choice: connector.choice,
+    }));
   /** The connector's own sentence for why it refused, where the listing holds one for the code. */
   const refusalGiven = because
     ? Object.entries(
@@ -290,6 +307,8 @@ export default function ManageConnections({
     setClaudeCodeForm(false);
     setGmailSteps(false);
     setChangingFollows(null);
+    setAsking(null);
+    setChangingChoice(null);
     onClose();
   };
 
@@ -298,9 +317,12 @@ export default function ManageConnections({
    * with this window open over it - a whole-page navigation like signing in,
    * rather than a popup nothing else in this app uses.
    */
-  const connectRegistered = (connectorId: string) => {
-    window.location.assign(connectPath(workspaceId, connectorId));
+  const connectRegistered = (connectorId: string, choice?: string) => {
+    window.location.assign(connectPath(workspaceId, connectorId, choice));
   };
+  /** What a connected row's connector asks, where it asks anything - and so whether the row offers *Change…*. */
+  const choiceOf = (connectorId: string): ConnectorChoice | undefined =>
+    registry.data?.connectors.find((connector) => connector.id === connectorId)?.choice;
 
   // Named apart from the imported `refusal` above, which builds an Error from
   // a failed read rather than the string this reads off a failed command.
@@ -413,6 +435,19 @@ export default function ManageConnections({
                           },
                         ]
                       : []),
+                    // The connector's own choice, changed without signing in
+                    // again (issue 942).
+                    ...(account.connectorId !== GMAIL && account.connectorId !== CLAUDE_CODE && choiceOf(account.connectorId)
+                      ? [
+                          {
+                            label: 'Change…',
+                            onSelect: (openedFrom: HTMLElement | null) => {
+                              choiceOpenedFrom.current = openedFrom;
+                              setChangingChoice(account);
+                            },
+                          },
+                        ]
+                      : []),
                     {
                       label: 'Disconnect',
                       destructive: true,
@@ -497,7 +532,10 @@ export default function ManageConnections({
                     gmailOpenedFrom.current = event.currentTarget;
                     setGmailSteps(true);
                   } else if (card.id === CLAUDE_CODE) openClaudeCodeForm(event.currentTarget);
-                  else connectRegistered(card.id);
+                  else if (card.choice) {
+                    askingOpenedFrom.current = event.currentTarget;
+                    setAsking({ ...card, choice: card.choice });
+                  } else connectRegistered(card.id);
                 }}
                 disabled={command.isPending || testClaudeCode.isPending || claudeCodeFormPending}
                 className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
@@ -531,6 +569,21 @@ export default function ManageConnections({
         workspaceId={workspaceId}
         returnFocusTo={followsOpenedFrom.current}
         onClose={() => setChangingFollows(null)}
+      />
+
+      <ConnectWithChoice
+        connector={asking ? { displayName: asking.name, choice: asking.choice } : null}
+        onConnect={(value) => asking && connectRegistered(asking.id, value)}
+        onClose={() => setAsking(null)}
+        returnFocusTo={askingOpenedFrom.current}
+      />
+
+      <ChangeConnectionChoice
+        account={changingChoice}
+        choice={changingChoice ? (choiceOf(changingChoice.connectorId) ?? null) : null}
+        workspaceId={workspaceId}
+        returnFocusTo={choiceOpenedFrom.current}
+        onClose={() => setChangingChoice(null)}
       />
 
       <CloseWindow disabled={command.isPending || testClaudeCode.isPending || claudeCodeFormPending} />

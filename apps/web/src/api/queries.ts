@@ -395,13 +395,16 @@ function everyWorkspaceCanSee(args: CommandArgs): boolean {
 }
 
 function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
-  if (args.name === 'disconnect_source_account' || args.name === 'set_gmail_follows') {
+  if (args.name === 'disconnect_source_account' ||
+    args.name === 'set_gmail_follows' ||
+    args.name === 'set_connection_choice') {
     // Its own query, outside any workspace snapshot - the same reason
     // `itemTypesQuery` is. Waited for rather than
     // dropped, so the row is gone from the list by the time the window stops
     // saying the disconnect is in flight ("Connect a Microsoft Teams source
     // account", issue 485) - or names the mark it was switched to ("Change
-    // what a Gmail connection follows, without reconnecting", issue 824).
+    // what a Gmail connection follows, without reconnecting", issue 824) - or
+    // its connector's choice (issue 942).
     return queryClient.invalidateQueries({
       queryKey: ['sourceAccounts', args.payload.workspaceId],
     });

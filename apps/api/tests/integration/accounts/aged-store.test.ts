@@ -1811,8 +1811,32 @@ describe('Connector management', () => {
       const after = await held();
       expect(before.connections.map((row) => row.connector_id)).toEqual(['teams', 'gmail']);
       expect(before.links).toHaveLength(1);
-      expect(after.connections).toEqual(before.connections.map((row) => ({ ...row, follows: 'label' })));
+      // Later updates add columns of their own, which an older row takes empty.
+      expect(after.connections).toEqual(before.connections.map((row) => ({ ...row, follows: 'label', choice: null })));
       expect(after.links).toEqual(before.links.map((row) => ({ ...row, mark: 'label' })));
+    });
+  });
+});
+
+describe('Connector management', () => {
+  /**
+   * `0065-connection-choice` ("Ask a connection's one choice on connecting, and
+   * change it later", issue 942) meets connections stored before a connector
+   * could ask anything of one.
+   */
+  describe('every connection stored before a connector could ask a choice holds none', () => {
+    it('reads no choice for each, and changes nothing else either holds', async () => {
+      const name = 'aged-store-before-the-choice';
+      await agedTo(name, justBefore('0065-connection-choice'));
+      await fillWithWhatIsAlreadyThere(name);
+      const held = () =>
+        inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM connector_accounts ORDER BY id').toArray());
+      const before = await held();
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(before.map((row) => row.connector_id)).toEqual(['teams', 'gmail']);
+      expect(await held()).toEqual(before.map((row) => ({ ...row, choice: null })));
     });
   });
 });

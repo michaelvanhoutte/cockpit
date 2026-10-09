@@ -1631,6 +1631,17 @@ export const connectorAccounts = sqliteTable(
      * connector's row means nothing.
      */
     follows: text('follows').notNull().default('label').$type<GmailMark>(),
+    /**
+     * The one choice the connection made when it was connected, for a
+     * connector that declares one ("Ask a connection's one choice on
+     * connecting, and change it later", issue 942): the connector's own value,
+     * opaque here and checked against its options before it is written. Null
+     * for a connector that declares none and for a connection made before
+     * this existed. Never Gmail's, whose `follows` above stays its own. No
+     * CHECK, for the reason `connector_id` has none: which values exist is the
+     * connector's to say.
+     */
+    choice: text('choice'),
   },
   (t) => [
     // What the window reads: one Workspace's accounts, oldest first.

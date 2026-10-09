@@ -131,6 +131,8 @@ function pulledHost(
   let opened: { sealed: Sealed; credential: string } | null = null;
 
   return {
+    choice: begun.choice,
+
     log: (level, message, data) => logged(connectorId, level, message, data),
 
     getState: () => run.state(),

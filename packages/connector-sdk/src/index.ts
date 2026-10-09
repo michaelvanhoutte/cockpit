@@ -16,10 +16,12 @@ export interface ConnectorManifest {
   /** What the source's card in the Connections window says it does. */
   cardText: string;
   /**
-   * Whether connecting asks the person something before the sign-in starts.
-   * Absent is no: Connect leaves for the source at once.
+   * The one choice a connection makes, asked of the person before the sign-in
+   * starts and changeable later without signing in again ("Ask a connection's
+   * one choice on connecting, and change it later", issue 942). Absent: nothing
+   * is asked and Connect leaves for the source at once.
    */
-  asksFirst?: boolean;
+  choice?: ConnectionChoice;
   source: CapturedSource;
   /** Whether the source can push (webhooks) in addition to being pulled. */
   supportsPush: boolean;
@@ -43,6 +45,19 @@ export interface ConnectorManifest {
    */
   arrivesAs?: 'note' | 'task';
   auth: OAuthDescriptor | { kind: 'none' };
+}
+
+/**
+ * What a connector asks of a person once per connection: a question and the
+ * options that answer it, each a value the connector keeps and the label the
+ * Connections window shows. The host stores the value as given and never reads
+ * it; only a value among the options is ever stored.
+ */
+export interface ConnectionChoice {
+  /** What the window asks, e.g. "Bring in conversations". */
+  question: string;
+  /** At least one; the first is the one offered to start. */
+  options: readonly { value: string; label: string }[];
 }
 
 /**
@@ -244,6 +259,15 @@ export interface ConnectedAccountHost {
  * global fetch of host endpoints.
  */
 export interface ConnectorHost extends ConnectedAccountHost {
+  /**
+   * The value of the connection's choice as stored when this run started, or
+   * `null` for a connector that declares none (or a connection made before it
+   * did). A connector learns the person changed it by comparing this with the
+   * value it last ran under, which it keeps in its own state, and resets what
+   * it listed; there is no event to miss.
+   */
+  readonly choice: string | null;
+
   /** Opaque private state per connector+account: cursors, sync bookkeeping. */
   getState(): Promise<unknown>;
   setState(state: unknown): Promise<void>;

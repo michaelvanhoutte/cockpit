@@ -2060,6 +2060,20 @@ export function runCommand<N extends CommandName>(
         throw new WorkspaceNotFoundError(cmd.workspaceId);
       }
       const follows = cmd.follows ?? 'label';
+      // The choice the account at this source already held in this Workspace,
+      // to tell a reconnect that changes it from one that does not (issue 942).
+      const choiceBefore = db
+        .select({ choice: connectorAccounts.choice })
+        .from(connectorAccounts)
+        .where(
+          and(
+            eq(connectorAccounts.tenantId, tenantId),
+            eq(connectorAccounts.workspaceId, cmd.workspaceId),
+            eq(connectorAccounts.connectorId, cmd.connectorId),
+            eq(connectorAccounts.externalAccountKey, cmd.externalAccountKey),
+          ),
+        )
+        .get()?.choice;
       db.transaction((tx) => {
         tx.insert(connectorAccounts)
           .values({
@@ -2085,6 +2099,9 @@ export function runCommand<N extends CommandName>(
             // What the Connect window chose ("Connect Gmail by star, and
             // bring in conversations starred from then on", issue 822).
             follows,
+            // What the Connect window asked of a connector that declares a
+            // choice (issue 942); never Gmail's `follows` above.
+            choice: cmd.choice ?? null,
           })
           // **Named at the account, not at the id, and that is the rule
           // rather than a detail**: connecting the same tenant+account again
@@ -2107,9 +2124,22 @@ export function runCommand<N extends CommandName>(
               credentialNonce: cmd.credentialNonce,
               updatedAt: cmd.issuedAt,
               ...(cmd.connectorId === GMAIL ? { follows } : { lastTestedAt: cmd.issuedAt }),
+              // Asked again on a reconnect, so the answer replaces the stored
+              // one; a reconnect that asked nothing leaves it.
+              ...(cmd.choice !== undefined ? { choice: cmd.choice } : {}),
             },
           })
           .run();
+        // A reconnect under another choice drops what was waiting for the
+        // source, as changing it does: a change made under the old choice no
+        // longer applies (issue 942).
+        if (cmd.choice !== undefined && choiceBefore !== undefined && choiceBefore !== cmd.choice) {
+          dropPulledWanted(tx, tenantId, {
+            workspaceId: cmd.workspaceId,
+            connectorId: cmd.connectorId,
+            externalAccountKey: cmd.externalAccountKey,
+          });
+        }
         // Reconnecting is proof it works again, so whatever said it was
         // failing ends ("Drop an agent on an item to start a Claude Code
         // session on it", issue 571). Named by the key rather than by
@@ -2260,6 +2290,37 @@ export function runCommand<N extends CommandName>(
           tx.delete(gmailChecks)
             .where(and(eq(gmailChecks.tenantId, tenantId), eq(gmailChecks.sourceAccountId, cmd.sourceAccountId)))
             .run();
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_connection_choice': {
+      const cmd = payload as CommandPayload<'set_connection_choice'>;
+      // The same 404 Disconnect gives: a connection gone meanwhile or another
+      // Workspace's is refused and nothing is stored. That the value is one of
+      // the connector's options is the route's to check, the store being
+      // blind to connectors ("Ask a connection's one choice on connecting, and
+      // change it later", issue 942).
+      const held = getSourceAccount(db, tenantId, cmd.sourceAccountId);
+      if (!held || held.workspaceId !== cmd.workspaceId || !held.externalAccountKey) {
+        throw new SourceAccountNotFoundError(cmd.sourceAccountId);
+      }
+      const externalAccountKey = held.externalAccountKey;
+      db.transaction((tx) => {
+        // The choice already held changes nothing, what is waiting included.
+        if (held.choice !== cmd.choice) {
+          tx.update(connectorAccounts)
+            .set({ choice: cmd.choice, updatedAt: cmd.issuedAt })
+            .where(and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.id, cmd.sourceAccountId)))
+            .run();
+          // What was still to reach the source was decided under the old
+          // choice, so it is dropped, as disconnecting drops it.
+          dropPulledWanted(tx, tenantId, {
+            workspaceId: held.workspaceId,
+            connectorId: held.connectorId,
+            externalAccountKey,
+          });
         }
         tx.insert(commands).values(commandRow).run();
       });

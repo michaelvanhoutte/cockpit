@@ -21,7 +21,14 @@ import { useCommand, useConnectClaudeCode, useTestClaudeCodeConnection } from '.
 const held = vi.hoisted(() => ({
   sourceAccounts: [] as SourceAccount[],
   /** What the registry's list answers with: Teams, as in an environment that has its bot. */
-  registry: [] as { id: string; displayName: string; cardText: string; asksFirst: boolean; refusals?: Record<string, string> }[],
+  registry: [] as {
+    id: string;
+    displayName: string;
+    cardText: string;
+    asksFirst: boolean;
+    refusals?: Record<string, string>;
+    choice?: { question: string; options: { value: string; label: string }[] };
+  }[],
   /** What the Claude Code connection's hooks read answers with (issue 572). */
   hooks: { url: '', secret: '', domain: '', lastArrivedAt: null as string | null },
   /** The connection each hooks read was for. */
@@ -484,6 +491,118 @@ describe('Connector management', () => {
 
       expect(screen.getByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
       expect(screen.queryByRole('menuitem', { name: 'Change what’s followed…' })).toBeNull();
+    });
+  });
+
+  /** "Ask a connection's one choice on connecting, and change it later", issue 942. */
+  describe('a connector’s one choice is asked before Connect and changed from the connection’s row', () => {
+    const NOTION_CARD = {
+      id: 'notion',
+      displayName: 'Notion',
+      cardText: 'Pages become tasks.',
+      asksFirst: true,
+      choice: {
+        question: 'Bring in',
+        options: [
+          { value: 'starred', label: 'Starred pages' },
+          { value: 'all', label: 'Every page' },
+        ],
+      },
+    };
+    const PAGES: SourceAccount = {
+      ...ADA,
+      id: 'account-pages',
+      connectorId: 'notion',
+      displayName: 'Ada’s pages',
+      follows: 'starred',
+      followsLabel: 'Starred pages',
+    };
+
+    beforeEach(() => {
+      held.registry = [TEAMS_CARD, NOTION_CARD];
+      held.sourceNames = { ...held.sourceNames, notion: 'Notion' };
+    });
+
+    it('asks the question before navigating, then connects with the option picked', async () => {
+      const leaving = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Notion' }));
+
+      const asked = await screen.findByRole('dialog', { name: 'Connect Notion' });
+      expect(leaving).not.toHaveBeenCalled();
+      expect(within(asked).getByRole('radio', { name: 'Starred pages' })).toBeChecked();
+      await userEvent.click(within(asked).getByRole('radio', { name: 'Every page' }));
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/notion/connect?choice=all');
+    });
+
+    it('cancelling the question goes nowhere', async () => {
+      const leaving = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
+      showWindow();
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Notion' }));
+
+      await userEvent.click(within(await screen.findByRole('dialog', { name: 'Connect Notion' })).getByRole('button', { name: 'Cancel' }));
+
+      expect(leaving).not.toHaveBeenCalled();
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Connect Notion' })).toBeNull());
+    });
+
+    it('a connector that declares no choice navigates at once, as before', async () => {
+      const leaving = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Microsoft Teams' }));
+
+      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/teams/connect');
+      expect(screen.queryByRole('dialog', { name: /^Connect / })).toBeNull();
+    });
+
+    it('the row shows the label of the choice it was connected under', async () => {
+      held.sourceAccounts = [PAGES];
+
+      showWindow();
+
+      expect(await screen.findByText('Notion · Starred pages')).toBeInTheDocument();
+    });
+
+    it.each([
+      { situation: 'choosing the other option sends the change for this workspace and this row', choose: 'Every page', sends: 'all' },
+      { situation: 'Save with the option unchanged sends nothing', choose: null, sends: null },
+    ])('$situation', async ({ choose, sends }) => {
+      held.sourceAccounts = [PAGES];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Ada’s pages' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Change…' }));
+      const changing = await screen.findByRole('dialog', { name: 'Change Ada’s pages' });
+      expect(within(changing).getByRole('radio', { name: 'Starred pages' })).toBeChecked();
+      if (choose) await userEvent.click(within(changing).getByRole('radio', { name: choose }));
+      await userEvent.click(within(changing).getByRole('button', { name: 'Save' }));
+
+      if (sends) {
+        expect(sent).toHaveBeenCalledTimes(1);
+        expect(sent.mock.calls[0]![0]).toMatchObject({
+          name: 'set_connection_choice',
+          payload: { workspaceId: 'ws-work', sourceAccountId: 'account-pages', choice: sends },
+        });
+      } else {
+        expect(sent).not.toHaveBeenCalled();
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Change Ada’s pages' })).toBeNull());
+      }
+    });
+
+    it('Change… is offered only on a row whose connector declares a choice', async () => {
+      held.sourceAccounts = [ADA];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Ada Lovelace' }));
+
+      expect(screen.getByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'Change…' })).toBeNull();
     });
   });
 
