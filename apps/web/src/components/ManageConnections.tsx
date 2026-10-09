@@ -241,7 +241,9 @@ export default function ManageConnections({
     .map((connector): Card => ({ id: connector.id, name: connector.displayName, text: connector.cardText }));
   /** The connector's own sentence for why it refused, where the listing holds one for the code. */
   const refusalGiven = because
-    ? registry.data?.connectors.find((connector) => connector.id === because.connectorId)?.refusals[because.code]
+    ? Object.entries(
+        registry.data?.connectors.find((connector) => connector.id === because.connectorId)?.refusals ?? {},
+      ).find(([code]) => code === because.code)?.[1]
     : undefined;
   const cards = [
     ...(section !== 'agents' ? [GMAIL_CARD, ...registered] : []),

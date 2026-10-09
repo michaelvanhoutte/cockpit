@@ -33,7 +33,7 @@ export async function revokeAfterDisconnect(
   sealed: Sealed & { externalAccountKey: string | null },
 ): Promise<void> {
   const say = (level: 'info' | 'error', message: string, cause?: unknown) =>
-    console[level === 'info' ? 'info' : 'error'](
+    console[level](
       JSON.stringify({
         level,
         message: `a ${connector.manifest.id} connection was disconnected, ${message}`,

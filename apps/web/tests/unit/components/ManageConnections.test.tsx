@@ -365,6 +365,11 @@ describe('Connector management', () => {
         says: /^That did not connect\. Nothing was stored\. Try again\.$/,
       },
       {
+        situation: 'a code that is a name every object has',
+        because: { connectorId: 'notion', code: 'constructor' },
+        says: /^That did not connect\. Nothing was stored\. Try again\.$/,
+      },
+      {
         situation: 'a connector that is not listed',
         because: { connectorId: 'nobody', code: 'no-offline' },
         says: /^That did not connect\. Nothing was stored\. Try again\.$/,

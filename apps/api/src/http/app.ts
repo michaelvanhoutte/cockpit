@@ -1933,14 +1933,13 @@ const routes = app
     // reading nothing is the same disconnect as before: the command below is
     // what decides, and refuses, whether there is anything to disconnect.
     const account = await openAccount(c.env, c.get('visitor').accountName);
-    const isGmail = (await account.sourceAccounts(cmd.workspaceId).catch(() => [])).some(
-      (held) => held.id === cmd.sourceAccountId && held.connectorId === GMAIL,
+    const heldConnector = (await account.sourceAccounts(cmd.workspaceId).catch(() => [])).find(
+      (held) => held.id === cmd.sourceAccountId,
     );
+    const isGmail = heldConnector?.connectorId === GMAIL;
     const sealed = isGmail ? await account.sealedCredential(cmd.sourceAccountId) : null;
     // A described source's own revoke, read the same way: its credential
     // before the row goes, its revoke once it has (issue 941).
-    const heldConnector = (await account.sourceAccounts(cmd.workspaceId).catch(() => []))
-      .find((held) => held.id === cmd.sourceAccountId);
     const revocable = heldConnector ? getConnector(c.env, heldConnector.connectorId) : undefined;
     const sealedToRevoke = revocable?.revoke ? await account.sealedCredential(cmd.sourceAccountId) : null;
     const result = await account.applyChange('disconnect_source_account', cmd);
@@ -2496,7 +2495,7 @@ const routes = app
               JSON.stringify({
                 level: 'error',
                 message:
-                  'a source account connected, but is not yet reachable for a saved message - reconnecting the same account repairs it',
+                  'a source account connected, but is not in the register of connections - a saved message cannot find it, and a disconnect elsewhere may revoke its sign-in for it; reconnecting the same account repairs it',
                 cause: secondError instanceof Error ? secondError.message : String(secondError),
                 firstAttempt: firstError instanceof Error ? firstError.message : String(firstError),
               }),

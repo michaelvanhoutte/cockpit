@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import type { Connector } from '@cockpit/connector-sdk';
 import {
+  OTHER_USER_ID,
   USER_ID,
   WORKSPACE_ID,
   alsoWorkspaces,
@@ -416,9 +417,14 @@ describe('Connector management', () => {
   });
 
   describe('disconnecting ends the source’s sign-in unless another workspace holds the same account', () => {
-    async function connectAs(connectorId: string, workspaceId: string, grant: Record<string, unknown>) {
+    async function connectAs(
+      connectorId: string,
+      workspaceId: string,
+      grant: Record<string, unknown>,
+      userId: string = USER_ID,
+    ) {
       await issuerIsReachable();
-      const session = await signInAs(USER_ID);
+      const session = await signInAs(userId);
       const { asked, attempt } = await startConnecting(connectorId, session, workspaceId);
       issuerWillIdentify({ email: 'nobody@example.com', nonce: asked!.searchParams.get('nonce')! }, 'a-code', grant);
       await SELF.fetch(
@@ -430,22 +436,26 @@ describe('Connector management', () => {
       );
     }
 
-    async function disconnect(workspaceId: string, connectorId: string): Promise<Response> {
+    async function disconnect(workspaceId: string, connectorId: string, userId: string = USER_ID): Promise<Response> {
       const rows = (
-        (await (await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/connections`)).json()) as {
+        (await (await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/connections`, {}, userId)).json()) as {
           sourceAccounts: { id: string; connectorId: string }[];
         }
       ).sourceAccounts;
-      return asUser('http://cockpit.test/v1/commands/disconnect_source_account', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          commandId: crypto.randomUUID(),
-          issuedAt: '2026-09-18T10:00:00.000Z',
-          workspaceId,
-          sourceAccountId: rows.find((one) => one.connectorId === connectorId)!.id,
-        }),
-      });
+      return asUser(
+        'http://cockpit.test/v1/commands/disconnect_source_account',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            commandId: crypto.randomUUID(),
+            issuedAt: '2026-09-18T10:00:00.000Z',
+            workspaceId,
+            sourceAccountId: rows.find((one) => one.connectorId === connectorId)!.id,
+          }),
+        },
+        userId,
+      );
     }
 
     const GRANT = { access_token: 'ada', refresh_token: 'the-refresh-token' };
@@ -469,6 +479,34 @@ describe('Connector management', () => {
       expect(await storedRows()).toHaveLength(1);
 
       await disconnect('ws-atlas', EXTRAS);
+      expect(revoked).toHaveLength(1);
+    });
+
+    it('does not revoke while another Cockpit account holds the same account, found through the register', async () => {
+      const hers = crypto.randomUUID();
+      const made = await asUser(
+        'http://cockpit.test/v1/commands/create_workspace',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            commandId: crypto.randomUUID(),
+            issuedAt: '2026-09-18T10:00:00.000Z',
+            workspaceId: hers,
+            panelId: crypto.randomUUID(),
+            name: 'Hers',
+          }),
+        },
+        OTHER_USER_ID,
+      );
+      expect(made.status).toBe(200);
+      await connectAs(EXTRAS, WORKSPACE_ID, GRANT);
+      await connectAs(EXTRAS, hers, GRANT, OTHER_USER_ID);
+
+      await disconnect(WORKSPACE_ID, EXTRAS);
+      expect(revoked).toEqual([]);
+
+      await disconnect(hers, EXTRAS, OTHER_USER_ID);
       expect(revoked).toHaveLength(1);
     });
 
