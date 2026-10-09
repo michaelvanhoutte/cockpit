@@ -41,7 +41,7 @@ gh api repos/{owner}/{repo}/issues/<n>/comments   # top-level, including bots
 gh api repos/{owner}/{repo}/pulls/<n>/reviews     # review bodies
 ```
 
-- **Declined finding**: a review finding declined on a pull request merged in the window, with its reason, read from the same three surfaces and from the body's review summary (already fetched above).
+- **Declined finding**: a review finding declined on a pull request merged in the window, with its reason, read from the same three surfaces and from the body's review summary (already fetched above). A review comment whose reply declines it counts here, not as a review comment.
 
 Count a comment or decline restated on another surface once; add `--paginate` for long lists.
 
@@ -58,7 +58,7 @@ Open the original issue and pull request and decide where the mistake got throug
 
 ### 4. Group and qualify
 
-Group instances that teach the same lesson, by the mistake and not the wording. A lesson qualifies on one correction, or on at least two review comments, or two declined findings, of the same kind. Where a class has two or more instances, the fix is one invariant test, not a patch per instance.
+Group instances that teach the same lesson, by the mistake and not the wording. A lesson qualifies on one correction, or on at least two review comments, or two declined findings, of the same kind. Where a class of mistakes has two or more instances, the fix is one invariant test, not a patch per instance; a reviewer lesson's fix stays the rule step 3 names.
 
 Drop a lesson whose fix already landed, that an open issue covers (match on body, not title), or that the previous record rejected, unless an instance since then is new.
 
@@ -70,7 +70,7 @@ Drop a lesson whose fix already landed, that an open issue covers (match on body
 
 ### 6. Propose, file, record
 
-Show the candidates in the conversation as a numbered table, recurring classes first: lesson, instances (issue or pull request numbers), the row of step 3, proposed fix with net lines. Mark a reviewer lesson as one for the reviewer. The person approves, edits or rejects each; file nothing before they answer.
+Show the candidates in the conversation as a numbered table, recurring classes first: lesson, instances (issue or pull request numbers), the row of step 3 (for a reviewer lesson, marked as one, what the review got wrong), proposed fix with net lines. The person approves, edits or rejects each; file nothing before they answer.
 
 Hand each approved one through [scoping](../scoping/SKILL.md), [engineering-plan](../engineering-plan/SKILL.md) and [github-issue](../github-issue/SKILL.md), as an `unsliced` ticket, its instances in **Problem**.
 
