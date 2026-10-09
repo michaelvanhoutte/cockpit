@@ -68,7 +68,7 @@ export async function checkPulledConnection(
     // heard yet is pushed first and wins over what the read finds. A push that
     // fails does not stop the read - what waits still wins over it - but is
     // the run's failure once the read is done.
-    const pushFailed = await mirrorWhatWasChanged(connector, host, run).then(
+    const pushFailed = await mirrorWhatWasChanged(connector, begun.connectorId, host, run).then(
       () => null,
       (error: unknown) => ({ error }),
     );
@@ -83,17 +83,37 @@ export async function checkPulledConnection(
 
 /**
  * Hands a connector that mirrors open state every one still waiting, and
- * stops waiting for those it confirms; the rest are handed again next run
- * ("Mirror an Item's open state back to a pulled source through the generic
- * host", issue 893). A source id the connector confirms that was not handed
- * is ignored.
+ * stops waiting for those it confirms and for those it gives up on, logging
+ * each give-up as a refusal; the rest are handed again next run ("Mirror an
+ * Item's open state back to a pulled source through the generic host", issue
+ * 893; "Let a pulled connector give up on an open state its source refuses for
+ * good", issue 940). A source id the connector names that was not handed is
+ * ignored, and an answer from a run that no longer holds its connection is
+ * refused, every change staying waiting.
  */
-async function mirrorWhatWasChanged(connector: Connector, host: ConnectorHost, run: PulledRun): Promise<void> {
+async function mirrorWhatWasChanged(connector: Connector, connectorId: string, host: ConnectorHost, run: PulledRun): Promise<void> {
   if (!connector.manifest.mirrorsOpenState || !connector.mirrorOpenState) return;
   const wanted = await run.openStatesWaiting();
   if (wanted.length === 0) return;
-  const confirmed = new Set(await connector.mirrorOpenState(host, wanted));
-  await run.confirmOpenStates(wanted.filter((one) => confirmed.has(one.sourceId)));
+  const answer = await connector.mirrorOpenState(host, wanted);
+  const { confirmed = [], gaveUp = [] } = Array.isArray(answer) ? { confirmed: answer } : answer;
+  const named = (ids: readonly string[]) => {
+    const set = new Set(ids);
+    return wanted.filter((one) => set.has(one.sourceId));
+  };
+  const refused = named(gaveUp);
+  // A give-up clears exactly as a confirmation does; it is logged only where
+  // it cleared, since a run that lost its connection cleared nothing.
+  const cleared = await run.confirmOpenStates([...named(confirmed), ...refused]);
+  if (cleared !== 'confirmed') return;
+  for (const one of refused) {
+    logged(
+      connectorId,
+      'warn',
+      `the source refused to ${one.open ? 'open' : 'close'} ${one.sourceId} for good; gave up on it`,
+      { sourceId: one.sourceId, open: one.open },
+    );
+  }
 }
 
 /** What a connector may do with the one connection this run holds. */
