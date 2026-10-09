@@ -180,6 +180,16 @@ export interface OpenStateWanted {
 }
 
 /**
+ * What a connector answers when asked to mirror open state: the source ids
+ * the source now holds as wanted (`confirmed`), and those it gave up on
+ * because the source refuses the change for good (`gaveUp`). The host stops
+ * handing either back, and logs a give-up as a refusal; a source id in
+ * neither is handed over again next time. A bare list of source ids is
+ * `confirmed` alone.
+ */
+export type MirroredOpenStates = string[] | { confirmed?: string[]; gaveUp?: string[] };
+
+/**
  * What the host offers once it knows *whose* connection this is - the slice a
  * push gets, and the slice a sync gets on top of its own.
  *
@@ -296,8 +306,9 @@ export interface Connector {
 
   /**
    * Opens or closes these Items' sources to match, for a connector whose
-   * manifest says it `mirrorsOpenState`; answers the source ids the source now
-   * holds as wanted; whatever it leaves out is handed over again next time.
+   * manifest says it `mirrorsOpenState`; answers which the source now holds as
+   * wanted and which it gave up on (`MirroredOpenStates`); whatever it leaves
+   * out is handed over again next time.
    */
-  mirrorOpenState?(host: ConnectorHost, wanted: OpenStateWanted[]): Promise<string[]>;
+  mirrorOpenState?(host: ConnectorHost, wanted: OpenStateWanted[]): Promise<MirroredOpenStates>;
 }

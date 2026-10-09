@@ -41,6 +41,10 @@ const fake = {
   handed: [] as OpenStateWanted[][],
   /** Which source ids the connector says the source now holds. */
   confirms: (wanted: OpenStateWanted[]): string[] => wanted.map((one) => one.sourceId),
+  /** Which source ids the connector gives up on, the source refusing them for good. */
+  givesUp: (_wanted: OpenStateWanted[]): string[] => [],
+  /** Runs inside the connector's push, before it answers. */
+  whilePushing: null as (() => Promise<void>) | null,
   /** What the connector that does not mirror was asked, if ever. */
   silentAsked: 0,
   /** Whether the connector's push throws. */
@@ -73,7 +77,8 @@ function connectorNamed(id: string, mirrors: boolean, able = true): Connector {
       }
       fake.handed.push(wanted);
       if (fake.throws) throw new Error('the source refused');
-      return fake.confirms(wanted);
+      await fake.whilePushing?.();
+      return { confirmed: fake.confirms(wanted), gaveUp: fake.givesUp(wanted) };
     } }),
   };
 }
@@ -257,6 +262,8 @@ beforeEach(async () => {
   fake.throws = false;
   known.clear();
   fake.confirms = (wanted) => wanted.map((one) => one.sourceId);
+  fake.givesUp = () => [];
+  fake.whilePushing = null;
   runsIn(async () => {});
   env.TEST_CONNECTORS = [connectorNamed(MIRRORS, true), connectorNamed(SILENT, false), connectorNamed(CANNOT, true, false)];
 });
@@ -426,6 +433,102 @@ describe('Connector management', () => {
       await nextChecksRun();
 
       expect(fake.handed[1]).toEqual([{ sourceId: 'page-2', open: false }]);
+    });
+  });
+
+  describe('a connector can give up on an open state its source refuses for good, beside confirming it', () => {
+    const gaveUpLogs = (log: ReturnType<typeof vi.spyOn>): string[] =>
+      log.mock.calls.map((call: unknown[]) => String(call[0])).filter((line: string) => line.includes('gave up'));
+
+    it('gave up: not handed back, and logged as a refusal', async () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      fake.confirms = () => [];
+      fake.givesUp = (wanted) => wanted.map((one) => one.sourceId);
+      runsIn(bringsIn('page-1'));
+      await connectedAndChecked();
+      await change('set_done', 'page-1', true);
+
+      await checkMadeDueRuns();
+      await nextChecksRun();
+
+      expect(fake.handed).toEqual([[{ sourceId: 'page-1', open: false }]]);
+      expect(gaveUpLogs(log)).toHaveLength(1);
+      expect(gaveUpLogs(log)[0]).toContain('"level":"warn"');
+      expect(gaveUpLogs(log)[0]).toContain('page-1');
+    });
+
+    it('confirmed: not handed back, and not logged as a give-up', async () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      runsIn(bringsIn('page-1'));
+      await connectedAndChecked();
+      await change('set_done', 'page-1', true);
+
+      await checkMadeDueRuns();
+      await nextChecksRun();
+
+      expect(fake.handed).toHaveLength(1);
+      expect(gaveUpLogs(log)).toEqual([]);
+    });
+
+    it('neither confirmed nor given up: handed back at the next check', async () => {
+      fake.confirms = () => ['page-1'];
+      fake.givesUp = () => ['page-2'];
+      runsIn(bringsIn('page-1', 'page-2', 'page-3'));
+      await connectedAndChecked();
+      for (const page of ['page-1', 'page-2', 'page-3']) await change('set_done', page, true);
+
+      await checkMadeDueRuns();
+      await nextChecksRun();
+
+      expect(fake.handed[1]).toEqual([{ sourceId: 'page-3', open: false }]);
+    });
+
+    it('the person changing it again after a give-up has it handed over again', async () => {
+      fake.confirms = () => [];
+      fake.givesUp = (wanted) => wanted.map((one) => one.sourceId);
+      runsIn(bringsIn('page-1'));
+      await connectedAndChecked();
+      await change('set_done', 'page-1', true);
+      await checkMadeDueRuns();
+
+      await change('set_done', 'page-1', false);
+      await checkMadeDueRuns();
+
+      expect(fake.handed).toEqual([[{ sourceId: 'page-1', open: false }], [{ sourceId: 'page-1', open: true }]]);
+    });
+
+    it.each([
+      {
+        situation: 'the connection was disconnected mid-run',
+        takeAway: (id: string) => disconnect(id),
+        waiting: null,
+      },
+      {
+        situation: "the run's time ran out and another took the connection",
+        waiting: 0,
+        takeAway: async (id: string) => {
+          await inTheStore((sql) =>
+            sql.exec(`UPDATE pulled_connections SET run_id = 'another-run' WHERE source_account_id = ?`, id),
+          );
+        },
+      },
+    ])('a give-up is refused when $situation, and is not logged', async ({ takeAway, waiting: stillWaiting }) => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      fake.confirms = () => [];
+      fake.givesUp = (wanted) => wanted.map((one) => one.sourceId);
+      runsIn(bringsIn('page-1'));
+      const id = await connectedAndChecked();
+      await change('set_done', 'page-1', true);
+      fake.whilePushing = () => takeAway(id);
+
+      await checkMadeDueRuns();
+
+      expect(gaveUpLogs(log)).toEqual([]);
+      const waiting = await inTheStore((sql) =>
+        [...sql.exec<{ open_wanted: number | null }>('SELECT open_wanted FROM pulled_links')].map((row) => row.open_wanted),
+      );
+      // Disconnecting drops what waited; a run that merely lost its lease leaves it waiting.
+      expect(waiting).toEqual([stillWaiting]);
     });
   });
 
