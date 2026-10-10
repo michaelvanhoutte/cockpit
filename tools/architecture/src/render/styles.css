@@ -61,6 +61,14 @@ section { scroll-margin-top: 12px; }
 
 .diagram { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-top: 12px; }
 .diagram svg { display: block; width: 100%; height: auto; }
+.diagram a.open { display: block; cursor: zoom-in; color: inherit; }
+a.openfull { margin-left: 10px; font: 400 13px var(--sans); color: var(--accent); text-decoration: none; }
+a.openfull:hover { text-decoration: underline; }
+
+/* A diagram's own page: the drawing at the size it was drawn, scrolling both ways inside its box */
+.wrap.wide { max-width: none; }
+.diagram.full { overflow: auto; max-height: calc(100vh - 190px); min-height: 240px; }
+.diagram.full svg { width: auto; height: auto; max-width: none; }
 
 nav.views { display: flex; gap: 8px 18px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; }
 nav.views a { color: var(--accent); text-decoration: none; }

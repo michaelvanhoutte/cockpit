@@ -28,6 +28,74 @@ const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one :
 
 const day = (iso) => iso.slice(0, 10);
 
+/** The report's commit line, shared by every page so none words it again. */
+function commitLine({ commit, repo }) {
+  if (!commit) return '<span>commit <b>not known</b></span>';
+  return repo
+    ? `<span>commit <a href="${esc(`https://github.com/${repo}/commit/${commit}`)}" target="_blank" rel="noopener"><b>${esc(commit.slice(0, 7))}</b></a></span>`
+    : `<span>commit <b>${esc(commit.slice(0, 7))}</b></span>`;
+}
+
+/** The pages beside the report, one per diagram: the file each is written to, and the diagram it holds. */
+export const DIAGRAM_PAGES = {
+  context: { file: 'context.html', title: 'Context', render: renderContext },
+  modules: { file: 'modules.html', title: 'Modules', render: renderModules },
+  deployment: { file: 'deployment.html', title: 'Deployment', render: renderDiagram },
+};
+
+/** A diagram on the report: the whole drawing is a link to its own page, in a new tab. */
+const opener = (key, svg) => `<a class="open" href="${DIAGRAM_PAGES[key].file}" target="_blank" rel="noopener">${svg}</a>`;
+const openLink = (key) => `<a class="openfull" href="${DIAGRAM_PAGES[key].file}" target="_blank" rel="noopener">Open full size &rarr;</a>`;
+
+/** The drawing at the size it was drawn: the width and height its own viewBox gives. */
+function atNaturalSize(svg) {
+  const match = svg.match(/^<svg viewBox="0 0 ([\d.]+) ([\d.]+)" style="[^"]*"/);
+  if (!match) throw new Error('a diagram did not start with a sized <svg>');
+  return svg.replace(match[0], `<svg viewBox="0 0 ${match[1]} ${match[2]}" style="width:${match[1]}px;height:${match[2]}px"`);
+}
+
+/**
+ * One page per diagram, each its diagram at natural size in a box that scrolls
+ * both ways, with the report's styles and its commit line.
+ * @returns {Record<string, string>} the file name to the complete HTML document
+ */
+export function renderDiagramPages(model) {
+  const styles = readFileSync(path.join(here, 'styles.css'), 'utf8');
+  const { date } = model.drawnFrom;
+  return Object.fromEntries(
+    Object.values(DIAGRAM_PAGES).map(({ file, title, render }) => [
+      file,
+      `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Cockpit Architecture &middot; ${title}</title>
+<style>${styles}</style>
+</head>
+<body>
+<div class="wrap wide">
+  <header class="masthead">
+    <p class="eyebrow">Cockpit &middot; architecture</p>
+    <h1>${title}</h1>
+    <div class="runmeta">
+      ${commitLine(model.drawnFrom)}
+      <span>commit dated <b>${date ? esc(day(date)) : 'not known'}</b></span>
+      <span><a href="index.html"><b>&larr; Back to the report</b></a></span>
+    </div>
+  </header>
+  <div class="diagram full">
+    ${atNaturalSize(render(model))}
+  </div>
+</div>
+</body>
+</html>
+`,
+    ]),
+  );
+}
+
 /**
  * @param {ReturnType<import('../model.js').buildModel>} model
  * @param {{ explorerHref?: string, stabilityHref?: string, leadTimeHref?: string, selectionHref?: string, comparison?: object }} [options] `comparison` is what compare.js answered; without one the section says there is nothing to compare
@@ -35,12 +103,8 @@ const day = (iso) => iso.slice(0, 10);
  */
 export function renderHtml(model, { explorerHref = '../', stabilityHref = '../stability/', leadTimeHref = '../lead-time/', selectionHref = '../selection/', comparison = { state: 'unavailable', reason: 'no earlier report was given to compare against' } } = {}) {
   const styles = readFileSync(path.join(here, 'styles.css'), 'utf8');
-  const { commit, date, repo } = model.drawnFrom;
-  const commitCell = !commit
-    ? '<span>commit <b>not known</b></span>'
-    : repo
-      ? `<span>commit <a href="${esc(`https://github.com/${repo}/commit/${commit}`)}" target="_blank" rel="noopener"><b>${esc(commit.slice(0, 7))}</b></a></span>`
-      : `<span>commit <b>${esc(commit.slice(0, 7))}</b></span>`;
+  const { date } = model.drawnFrom;
+  const commitCell = commitLine(model.drawnFrom);
   const { environments, workflows } = model.deployment;
   const { counts, connectors } = model.modules;
   const fileCount = counts.connectorFilesInCore;
@@ -85,15 +149,15 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
   </section>
 
   <section id="context">
-  <h2>Context</h2>
+  <h2>Context ${openLink('context')}</h2>
   <p class="sectionnote">Who uses Cockpit and the outside services it depends on, as <code>tools/architecture/description.yml</code> declares them.</p>
   <div class="diagram">
-    ${renderContext(model)}
+    ${opener('context', renderContext(model))}
   </div>
   </section>
 
   <section id="modules">
-  <h2>Modules</h2>
+  <h2>Modules ${openLink('modules')}</h2>
   <p class="sectionnote">Every area of the web app, the API and the packages, each on the row below everything that imports it, and a box per connector the description file declares. Only the shortest chain of imports is drawn, each arrow labelled with the files that make it. The marks are shown and nothing fails on them.</p>
   <div class="legend">
     <span><i class="ln"></i>Imports an area below</span>
@@ -107,7 +171,7 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
     <span><i class="sw d-worker"></i>Released together, in one deploy</span>
   </div>
   <div class="diagram">
-    ${renderModules(model)}
+    ${opener('modules', renderModules(model))}
   </div>
   </section>
 
@@ -128,10 +192,10 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
   </section>
 
   <section id="deployment">
-  <h2>Deployment</h2>
+  <h2>Deployment ${openLink('deployment')}</h2>
   <p class="sectionnote">Highlighted workflows deploy; the arrow goes to the environment they deploy. Each environment lists what it binds, under its own names; <em>inherited</em> marks a setting taken from the top of the Worker config.</p>
   <div class="diagram">
-    ${renderDiagram(model)}
+    ${opener('deployment', renderDiagram(model))}
   </div>
   </section>
 

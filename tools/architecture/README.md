@@ -115,6 +115,10 @@ repository's disk undescribed or describes one that is gone.
 
 Every page names the commit and the date of that commit it was drawn from.
 
+**Each diagram opens full size.** Clicking Context, Modules or Deployment opens `context.html`, `modules.html` or
+`deployment.html`, written beside the page, in a new tab: the same drawing at its natural size in a box that scrolls
+both ways, with the report's styles and a link back. The page keeps each fit to the column and carries no script.
+
 ## Reading it without running it
 
 The `Architecture` job of [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml) builds it
@@ -146,8 +150,8 @@ node src/cli.js --help
 ```
 
 **A file it cannot read fails the run**: a Worker config that is not JSONC, a workflow or the description
-file that is not YAML (or is missing what it must hold), or a file that is missing exits non-zero and writes neither page nor model, so the
-previous report stays live. Nothing is written until both are built.
+file that is not YAML (or is missing what it must hold), or a file that is missing exits non-zero and writes no page and no model, so the
+previous report stays live. Nothing is written until all are built. `--json` writes the model alone.
 
 ## How a page gets built
 
