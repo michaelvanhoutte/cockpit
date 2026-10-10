@@ -70,6 +70,14 @@ describe('Architecture diagrams', () => {
       expect(html).toContain('<a href="index.html">');
     });
 
+    it('carries the note and legend the diagram is read with on the report', () => {
+      const report = renderHtml(model());
+      const legend = report.slice(report.indexOf('<div class="legend">'), report.indexOf('</div>', report.indexOf('<div class="legend">')));
+      expect(legend).toContain('Connector code living in the core');
+      expect(page()).toContain(legend);
+      expect(renderDiagramPages(model())['deployment.html']).toContain('<em>inherited</em> marks a setting');
+    });
+
     it('says the commit is not known rather than leaving the line out', () => {
       const html = page({ commit: null, date: null, repo: null });
       expect(html).toContain('commit <b>not known</b>');

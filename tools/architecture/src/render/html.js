@@ -36,11 +36,41 @@ function commitLine({ commit, repo }) {
     : `<span>commit <b>${esc(commit.slice(0, 7))}</b></span>`;
 }
 
-/** The pages beside the report, one per diagram: the file each is written to, and the diagram it holds. */
+function modulesIntro(model) {
+  const { counts, connectors } = model.modules;
+  const fileCount = counts.connectorFilesInCore;
+  return `<p class="sectionnote">Every area of the web app, the API and the packages, each on the row below everything that imports it, and a box per connector the description file declares. Only the shortest chain of imports is drawn, each arrow labelled with the files that make it. The marks are shown and nothing fails on them.</p>
+  <div class="legend">
+    <span><i class="ln"></i>Imports an area below</span>
+    <span><i class="ln up"></i>An import back up the chain, closing a cycle, with its files; a tie where both halves are the same size</span>
+    <span><i class="ln core"></i>Connector code living in the core: move it into the connector${fileCount ? ` (${plural(fileCount, 'file')})` : ''}</span>
+    <span><i class="sw d-red"></i>A connector with no package of its own, or whose package is gone${connectors.length ? ` (${connectors.filter((each) => !each.package || each.package.state === 'gone').length} of ${connectors.length})` : ''}</span>
+    <span><i class="sw d-red"></i>A connector package importing beyond the SDK${counts.connectorBreaches ? ` (${counts.connectorBreaches})` : ''}</span>
+    <span><i class="sw d-amber"></i>Undescribed${counts.undescribed ? ` (${counts.undescribed})` : ''}</span>
+    <span><i class="sw d-red"></i>Gone: described, not on disk${counts.gone ? ` (${counts.gone})` : ''}</span>
+    <span><i class="sw d-green"></i>Connector package importing only the SDK</span>
+    <span><i class="sw d-worker"></i>Released together, in one deploy</span>
+  </div>`;
+}
+
+/**
+ * The pages beside the report, one per diagram: the file each is written to,
+ * the note and legend read with it on either page, and the diagram it holds.
+ */
 export const DIAGRAM_PAGES = {
-  context: { file: 'context.html', title: 'Context', render: renderContext },
-  modules: { file: 'modules.html', title: 'Modules', render: renderModules },
-  deployment: { file: 'deployment.html', title: 'Deployment', render: renderDiagram },
+  context: {
+    file: 'context.html',
+    title: 'Context',
+    intro: () => '<p class="sectionnote">Who uses Cockpit and the outside services it depends on, as <code>tools/architecture/description.yml</code> declares them.</p>',
+    render: renderContext,
+  },
+  modules: { file: 'modules.html', title: 'Modules', intro: modulesIntro, render: renderModules },
+  deployment: {
+    file: 'deployment.html',
+    title: 'Deployment',
+    intro: () => '<p class="sectionnote">Highlighted workflows deploy; the arrow goes to the environment they deploy. Each environment lists what it binds, under its own names; <em>inherited</em> marks a setting taken from the top of the Worker config.</p>',
+    render: renderDiagram,
+  },
 };
 
 /** A diagram on the report: the whole drawing is a link to its own page, in a new tab. */
@@ -63,7 +93,7 @@ export function renderDiagramPages(model) {
   const styles = readFileSync(path.join(here, 'styles.css'), 'utf8');
   const { date } = model.drawnFrom;
   return Object.fromEntries(
-    Object.values(DIAGRAM_PAGES).map(({ file, title, render }) => [
+    Object.values(DIAGRAM_PAGES).map(({ file, title, intro, render }) => [
       file,
       `<!doctype html>
 <html lang="en">
@@ -85,6 +115,7 @@ export function renderDiagramPages(model) {
       <span><a href="index.html"><b>&larr; Back to the report</b></a></span>
     </div>
   </header>
+  ${intro(model)}
   <div class="diagram full">
     ${atNaturalSize(render(model))}
   </div>
@@ -106,8 +137,7 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
   const { date } = model.drawnFrom;
   const commitCell = commitLine(model.drawnFrom);
   const { environments, workflows } = model.deployment;
-  const { counts, connectors } = model.modules;
-  const fileCount = counts.connectorFilesInCore;
+  const { counts } = model.modules;
   const mutedAreas = model.dependencies.areas.filter((each) => each.muted);
 
   return `<!doctype html>
@@ -150,7 +180,7 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
 
   <section id="context">
   <h2>Context ${openLink('context')}</h2>
-  <p class="sectionnote">Who uses Cockpit and the outside services it depends on, as <code>tools/architecture/description.yml</code> declares them.</p>
+  ${DIAGRAM_PAGES.context.intro(model)}
   <div class="diagram">
     ${opener('context', renderContext(model))}
   </div>
@@ -158,18 +188,7 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
 
   <section id="modules">
   <h2>Modules ${openLink('modules')}</h2>
-  <p class="sectionnote">Every area of the web app, the API and the packages, each on the row below everything that imports it, and a box per connector the description file declares. Only the shortest chain of imports is drawn, each arrow labelled with the files that make it. The marks are shown and nothing fails on them.</p>
-  <div class="legend">
-    <span><i class="ln"></i>Imports an area below</span>
-    <span><i class="ln up"></i>An import back up the chain, closing a cycle, with its files; a tie where both halves are the same size</span>
-    <span><i class="ln core"></i>Connector code living in the core: move it into the connector${fileCount ? ` (${plural(fileCount, 'file')})` : ''}</span>
-    <span><i class="sw d-red"></i>A connector with no package of its own, or whose package is gone${connectors.length ? ` (${connectors.filter((each) => !each.package || each.package.state === 'gone').length} of ${connectors.length})` : ''}</span>
-    <span><i class="sw d-red"></i>A connector package importing beyond the SDK${counts.connectorBreaches ? ` (${counts.connectorBreaches})` : ''}</span>
-    <span><i class="sw d-amber"></i>Undescribed${counts.undescribed ? ` (${counts.undescribed})` : ''}</span>
-    <span><i class="sw d-red"></i>Gone: described, not on disk${counts.gone ? ` (${counts.gone})` : ''}</span>
-    <span><i class="sw d-green"></i>Connector package importing only the SDK</span>
-    <span><i class="sw d-worker"></i>Released together, in one deploy</span>
-  </div>
+  ${DIAGRAM_PAGES.modules.intro(model)}
   <div class="diagram">
     ${opener('modules', renderModules(model))}
   </div>
@@ -193,7 +212,7 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
 
   <section id="deployment">
   <h2>Deployment ${openLink('deployment')}</h2>
-  <p class="sectionnote">Highlighted workflows deploy; the arrow goes to the environment they deploy. Each environment lists what it binds, under its own names; <em>inherited</em> marks a setting taken from the top of the Worker config.</p>
+  ${DIAGRAM_PAGES.deployment.intro(model)}
   <div class="diagram">
     ${opener('deployment', renderDiagram(model))}
   </div>
