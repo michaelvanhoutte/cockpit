@@ -14,14 +14,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { compareWithPrevious } from './compare.js';
 import { buildModel, ReadError } from './model.js';
 import { readCheckout } from './read.js';
-import { renderHtml } from './render/html.js';
+import { renderDiagramPages, renderHtml } from './render/html.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 const USAGE = `Usage: node src/cli.js [options]
 
-  --out <path>     where to write (default ../out/index.html, or model.json with --json)
-  --json           write the model instead of the page
+  --out <path>     where to write (default ../out/index.html, or model.json with --json); the diagram pages go beside it
+  --json           write the model instead of the page (and the diagram pages)
   --model <path>   also write the model, as --json would, to this path
   --root <path>    the checkout to draw (default: the repository this tool is in)
   --previous <location>  the previous report's model, a file or an address; What changed compares with the commit it names
@@ -69,6 +69,7 @@ export async function main(argv) {
 
   let model;
   let page;
+  let diagramPages = {};
   try {
     const root = path.resolve(args.root ?? path.join(here, '../../..'));
     const checkout = readCheckout(root);
@@ -77,6 +78,7 @@ export async function main(argv) {
     const comparison = args.json ? null : await compareWithPrevious({ root, model, description: checkout.description, previous: args.previous });
     if (comparison) process.stderr.write(`what changed: ${comparison.state === 'compared' ? `${comparison.changes.length} changes since ${comparison.from.commit.slice(0, 7)}` : comparison.state === 'first' ? 'first report' : comparison.reason}\n`);
     page = args.json ? modelJson(model) : renderHtml(model, { comparison });
+    if (!args.json) diagramPages = renderDiagramPages(model);
   } catch (error) {
     if (error instanceof ReadError) {
       process.stderr.write(`${error.message}\n`);
@@ -86,6 +88,7 @@ export async function main(argv) {
   }
 
   const written = [[out, page]];
+  for (const [name, content] of Object.entries(diagramPages)) written.push([path.join(path.dirname(out), name), content]);
   if (args.model) written.push([path.resolve(args.model), modelJson(model)]);
   for (const [file, content] of written) {
     mkdirSync(path.dirname(file), { recursive: true });

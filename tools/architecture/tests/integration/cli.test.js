@@ -3,7 +3,7 @@
  * over this repository's own checkout.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,7 +49,7 @@ async function draw(root) {
   const out = path.join(tmp(), 'index.html');
   const model = path.join(path.dirname(out), 'model.json');
   const code = await main(['--root', root, '--out', out, '--model', model]);
-  return { code, out, model, page: existsSync(out), modelFile: existsSync(model) };
+  return { code, out, model, page: existsSync(out), modelFile: existsSync(model), written: readdirSync(path.dirname(out)) };
 }
 
 describe('A run that cannot read a file it needs fails and writes nothing', () => {
@@ -58,6 +58,16 @@ describe('A run that cannot read a file it needs fails and writes nothing', () =
     expect(run.code).toBe(0);
     expect(JSON.parse(readFileSync(run.model, 'utf8')).deployment.workflows.map((each) => each.file)).toEqual(['tests.yml']);
     expect(readFileSync(run.out, 'utf8')).toContain('<h1>Architecture</h1>');
+  });
+
+  it('writes the three diagram pages beside the report when every file reads, and none when asked for the model alone', async () => {
+    const run = await draw(fixture());
+    for (const name of ['context.html', 'modules.html', 'deployment.html']) {
+      expect(existsSync(path.join(path.dirname(run.out), name))).toBe(true);
+    }
+    const dir = tmp();
+    expect(await main(['--root', fixture(), '--json', '--out', path.join(dir, 'model.json')])).toBe(0);
+    expect(readdirSync(dir)).toEqual(['model.json']);
   });
 
   it.each([
@@ -69,11 +79,12 @@ describe('A run that cannot read a file it needs fails and writes nothing', () =
     { situation: 'the description file leaves out what it must hold', make: () => fixture({ description: 'layers: []\n' }) },
     { situation: 'there are no workflows', make: () => fixture({ workflows: {} }) },
     { situation: 'a pin names an area that does not exist', make: () => fixture({ description: descriptionFile({ layers: [{ title: 'L', role: 'core', areas: [{ path: 'apps/api/src/http', description: 'd' }] }], pins: [{ above: 'apps/api/src/http', below: 'apps/api/src/typo' }] }).text }) },
-  ])('exits non-zero with neither page nor model when $situation', async ({ make }) => {
+  ])('exits non-zero with nothing at all when $situation', async ({ make }) => {
     const run = await draw(make());
     expect(run.code).toBe(1);
     expect(run.page).toBe(false);
     expect(run.modelFile).toBe(false);
+    expect(run.written).toEqual([]);
   });
 });
 
