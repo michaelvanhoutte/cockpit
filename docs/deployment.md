@@ -175,6 +175,16 @@ pnpm exec wrangler secret put HARNESS_WRITE_KEY     # needs the Worker to exist:
 4. Put `HARNESS_WRITE_KEY` on the Worker with a long random value, and keep a copy for the hook and the history upload that will send with it.
 5. Open `https://harness-monitor.<subdomain>.workers.dev/`: it says there is nothing yet.
 
+**Where the usage hook finds the key.** The Stop hook in `.claude/settings.json` (`scripts/report-usage.mjs`) reads two environment variables and does nothing unless both are set: `HARNESS_WRITE_KEY` (the key from step 4) and `HARNESS_MONITOR_URL` (the Worker's address, no path). Set them in each place a session runs:
+
+| Where | How |
+|---|---|
+| `@claude` runs in Actions | secret `HARNESS_WRITE_KEY` and variable `HARNESS_MONITOR_URL` on the repository; `claude.yml` passes both |
+| Cloud sessions | the key as an environment secret and the address as an environment variable, in the cloud environment's settings |
+| Desktop and terminal sessions | both as user environment variables, then restart Claude Code. If a desktop session shows project hooks do not fire there, register a one-time launcher in `~/.claude/settings.json`, as `.claude/hooks/build-title.mjs` does |
+
+The hook never sends conversation text, and a request it could not send goes again on the next turn.
+
 ## 3. One Worker serves the whole application
 
 Not Pages plus a separate API Worker. One Worker per environment serves the Hono
