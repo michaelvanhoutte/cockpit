@@ -86,7 +86,7 @@ function summary(page: PullRequestPage): string {
   const merged = page.mergedAt !== null ? `merged ${page.mergedAt.slice(0, 10)}` : page.state.toLowerCase();
   const sessionCount = page.sessions.length;
   const afterPush = page.categories.find((c) => c.category === 'after-push')!;
-  const share = page.totalMicros > 0 ? ` · ${Math.round((afterPush.costMicros / page.totalMicros) * 100)}% after push` : '';
+  const share = page.totalMicros > 0 && page.query.category === null ? ` · ${Math.round((afterPush.costMicros / page.totalMicros) * 100)}% after push` : '';
   return `<div class="head"><div class="title"><h1>#${page.number} ${esc(page.title)}</h1>
 <div class="muted">${page.issue === null ? 'Closes no issue' : `Closes issue ${page.issue}`} · ${page.engineer === null ? 'unknown author' : esc(page.engineer)} · ${esc(merged)} · ${number(sessionCount)} session${sessionCount === 1 ? '' : 's'} · branch ${page.branches.map((b) => `<span class="mono">${esc(b)}</span>`).join(', ')}</div></div>
 <div class="total-box"><div class="mono big" id="pr-total">${dollars(page.totalMicros)}${unpriced(page.unpricedRequests)}</div><div class="muted">at API list price, ${periodNote(page.query)}${share}</div></div></div>`;

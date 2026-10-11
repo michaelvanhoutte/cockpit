@@ -69,6 +69,9 @@ describe('Harness Monitor', () => {
     it('the period and category filters narrow the total, the categories and the sessions together', async () => {
       await seed();
 
+      const filtered = await (await thePullRequest(471, '?period=all&category=building')).text();
+      expect(filtered).not.toContain('% after push');
+
       const figures = pullRequestFigures(await (await thePullRequest(471, '?period=all&category=after-push')).text());
 
       expect(figures.total).toBe('$7.00');

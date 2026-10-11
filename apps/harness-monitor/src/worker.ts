@@ -74,11 +74,14 @@ async function costs(request: Request, env: Env, ctx: ExecutionContext): Promise
   return response;
 }
 
+/** A pull request number as written in an address: no sign, no leading zero, ten digits at most. */
+const prNumber = (raw: string): number | null => (/^[1-9]\d{0,9}$/.test(raw) ? Number(raw) : null);
+
 /** One pull request's page, cached like the costs page; a number no link knows is "nothing found". */
 async function pullRequest(request: Request, env: Env, ctx: ExecutionContext, raw: string): Promise<Response> {
   const url = new URL(request.url);
   const query = parseQuery(url.searchParams);
-  const number = /^[1-9]\d{0,9}$/.test(raw) ? Number(raw) : null;
+  const number = prNumber(raw);
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
   const key = new Request(`${url.origin}/pr/${raw}${queryString(query, { engineer: null, group: 'pr', page: 1 })}`);
@@ -101,7 +104,7 @@ async function pullRequest(request: Request, env: Env, ctx: ExecutionContext, ra
 function exportRows(request: Request, env: Env): Response {
   const params = new URL(request.url).searchParams;
   const pr = params.get('pr');
-  const number = pr !== null && /^[1-9]\d{0,9}$/.test(pr) ? Number(pr) : null;
+  const number = pr === null ? null : prNumber(pr);
   if (pr !== null && number === null) return exportCsv(env.DB, parseQuery(params), -1, 'claude-code-requests.csv');
   return exportCsv(env.DB, parseQuery(params), number, number === null ? 'claude-code-requests.csv' : `claude-code-pull-request-${number}.csv`);
 }

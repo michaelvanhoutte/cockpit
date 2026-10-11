@@ -117,7 +117,13 @@ export function exportCsv(db: D1Database, query: CostQuery, pullRequest: number 
   const base = `SELECT u.occurred_at, u.request_id, u.session_id, u.branch, l.pr_number AS prNumber, l.issue_number AS issue,
       l.engineer AS engineer, u.category, u.model, u.speed, u.ran_where, u.input_tokens, u.output_tokens,
       u.cache_creation_tokens, u.cache_read_tokens, u.cost_micros, u.price_basis
-    FROM usage_requests u LEFT JOIN branch_links l ON l.branch = u.branch`;
+    FROM ${
+      // One pull request starts from its few branches and reads their rows through usage_requests_branch;
+      // left to itself the planner walks every request in time order to honour the ORDER BY.
+      pullRequest === null
+        ? 'usage_requests u LEFT JOIN branch_links l'
+        : 'branch_links l CROSS JOIN usage_requests u'
+    } ON l.branch = u.branch`;
   const first = `${base} ${where} ORDER BY u.occurred_at, u.request_id LIMIT ${EXPORT_PAGE_SIZE}`;
   const after = `${base} ${where === '' ? 'WHERE' : `${where} AND`} (u.occurred_at, u.request_id) > (?, ?)
     ORDER BY u.occurred_at, u.request_id LIMIT ${EXPORT_PAGE_SIZE}`;
