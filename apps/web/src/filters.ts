@@ -185,7 +185,7 @@ function holdsFor(
       return excluding(
         condition.values.filter((id) => liveDashboardIds.has(id)),
         match,
-        (live) => filedDashboardIds.size === 0 || ![...filedDashboardIds].every((id) => live.includes(id)),
+        (live) => ![...filedDashboardIds].every((id) => live.includes(id)),
       );
     }
     return excluding(statusValuesOf(condition), match, (live) => !(live as readonly string[]).includes(itemStatus(item)));
@@ -301,10 +301,14 @@ export function itemsMatchingFilter(
   const filedPanelIdsByItem = panelIdsFiledOnto(filed);
   const liveDashboardIds = new Set(dashboards.map((dashboard) => dashboard.id));
   const dashboardIdOfPanel = new Map(panelsInWorkspace.map((panel) => [panel.id, panel.dashboardId]));
+  // Only a Filter holding a Dashboard condition reads it, and this runs once per
+  // Filter on every draw.
   const filedDashboardIdsByItem = new Map<string, Set<string>>();
-  for (const filing of filed) {
-    const dashboardId = dashboardIdOfPanel.get(filing.panelId);
-    if (dashboardId !== undefined) addToSetMap(filedDashboardIdsByItem, filing.itemId, dashboardId);
+  if (filter.conditions.some((condition) => condition.field === 'dashboard')) {
+    for (const filing of filed) {
+      const dashboardId = dashboardIdOfPanel.get(filing.panelId);
+      if (dashboardId !== undefined) addToSetMap(filedDashboardIdsByItem, filing.itemId, dashboardId);
+    }
   }
   return inFilterOrder(
     itemsThatAreFiled(items, filed).filter((item) =>
@@ -667,6 +671,8 @@ export function filtersUsingDashboard(
   const liveIds = new Set(dashboards.map((dashboard) => dashboard.id));
   const affected: { filter: Panel; leftEmpty: boolean }[] = [];
   for (const candidate of panelsInWorkspace.filter(panelGathers)) {
+    // A Filter on the Dashboard itself goes with it, so there is nothing to warn about.
+    if (candidate.dashboardId === dashboardId) continue;
     const whole = candidate.filter ?? NO_CONDITIONS;
     const condition = whole.conditions.find((one) => one.field === 'dashboard');
     if (!condition || !condition.values.includes(dashboardId)) continue;

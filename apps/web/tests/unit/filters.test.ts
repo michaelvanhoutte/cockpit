@@ -559,6 +559,11 @@ describe('Panels', () => {
         const other = aFilterOn('over', due('today'));
         expect(filtersUsingDashboard('volleyball', [FALCON, other], live('volleyball'))).toEqual([]);
       });
+
+      it('never names a Filter on the Dashboard being deleted, which goes with it', () => {
+        const onIt = { ...aFilterOn('own', dashboard(['volleyball'])), dashboardId: 'volleyball' };
+        expect(filtersUsingDashboard('volleyball', [FALCON, onIt], live('volleyball', 'work'))).toEqual([]);
+      });
     });
   });
 
