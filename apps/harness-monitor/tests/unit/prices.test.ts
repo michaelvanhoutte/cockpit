@@ -38,6 +38,10 @@ describe('Harness Monitor', () => {
       expect(costMicros(price, 'standard', { ...none, input: 5, cacheRead: 5 })).toBeNull();
     });
 
+    it('a request with no tokens costs nothing, even for a model that is not on the list', () => {
+      expect(costMicros(undefined, 'standard', none)).toBe(0);
+    });
+
     it('a kind of token the request did not use needs no rate', () => {
       expect(costMicros({ input: 1, output: 2 }, 'standard', { ...none, input: 5 })).toBe(5);
     });

@@ -1,5 +1,5 @@
 import { currentPrices } from './price-list';
-import { costMicros } from './prices';
+import { costMicros, priceOf } from './prices';
 import type { UsageRow } from './validate';
 
 /**
@@ -56,7 +56,7 @@ export async function storeBatch(db: D1Database, rows: UsageRow[], now = Date.no
   const prices = await currentPrices(db);
   const payload = JSON.stringify(
     rows.map((r) => {
-      const cost = costMicros(prices[r.model], r.speed, {
+      const cost = costMicros(priceOf(prices, r.model), r.speed, {
         input: r.inputTokens,
         output: r.outputTokens,
         cacheCreation: r.cacheCreationTokens,

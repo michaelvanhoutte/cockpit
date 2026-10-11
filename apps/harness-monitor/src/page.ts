@@ -38,7 +38,7 @@ function warning(unpriced: UnpricedLine[]): string {
     )
     .join('\n');
   return `<section class="warning"><h2>Tokens with no price</h2>
-<p>${number(requests)} request${requests === 1 ? '' : 's'} used a model the price list does not cover. They are left out of every dollar total and priced by the daily job once the list covers the model.</p>
+<p>${number(requests)} request${requests === 1 ? '' : 's'} could not be priced: the price list does not cover the model, or has no rate for a kind of token it used. They are left out of every dollar total and priced by the daily job once the list covers them.</p>
 <table>
 <thead><tr><th>Model</th><th>Requests</th><th>Input</th><th>Output</th><th>Cache write</th><th>Cache read</th><th>Branches</th></tr></thead>
 <tbody>

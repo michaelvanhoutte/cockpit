@@ -1,4 +1,4 @@
-import { costMicros, LITELLM_URL, readLiteLlm, withOverrides, type PriceList } from './prices';
+import { costMicros, LITELLM_URL, priceOf, readLiteLlm, withOverrides, type PriceList } from './prices';
 
 export interface ListStatus {
   fetchedAt: number | null;
@@ -89,7 +89,7 @@ export async function priceWaitingRows(db: D1Database, now = Date.now()): Promis
   const { results: waiting } = await db
     .prepare('SELECT DISTINCT model FROM usage_requests WHERE cost_micros IS NULL')
     .all<{ model: string }>();
-  const covered = waiting.map((w) => w.model).filter((m) => m in prices);
+  const covered = waiting.map((w) => w.model).filter((m) => priceOf(prices, m) !== undefined);
   if (covered.length === 0) return 0;
 
   let priced = 0;
@@ -107,7 +107,7 @@ export async function priceWaitingRows(db: D1Database, now = Date.now()): Promis
     after = rows[rows.length - 1]!.request_id;
 
     const costs = rows.flatMap((r) => {
-      const cost = costMicros(prices[r.model], r.speed, {
+      const cost = costMicros(priceOf(prices, r.model), r.speed, {
         input: r.input_tokens,
         output: r.output_tokens,
         cacheCreation: r.cache_creation_tokens,

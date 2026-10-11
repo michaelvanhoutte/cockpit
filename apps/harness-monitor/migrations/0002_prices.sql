@@ -9,10 +9,13 @@ ALTER TABLE usage_requests ADD COLUMN price_basis TEXT; -- arrival | upload | da
 ALTER TABLE usage_requests ADD COLUMN priced_at INTEGER;
 CREATE INDEX usage_requests_unpriced ON usage_requests (model) WHERE cost_micros IS NULL;
 
--- Dollars and the unpriced count join the totals, which the nightly rebuild
--- fills in for days written before this migration.
+-- Dollars and the unpriced count join the totals. Every row stored so far is
+-- unpriced, so the existing totals say so until the nightly rebuild prices
+-- them; otherwise those days would read $0.00, as if free. The totals are
+-- derived and rebuilt nightly, so this rewrites nothing that is not rebuilt.
 ALTER TABLE daily_totals ADD COLUMN cost_micros INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE daily_totals ADD COLUMN unpriced_requests INTEGER NOT NULL DEFAULT 0;
+UPDATE daily_totals SET unpriced_requests = requests;
 
 -- The last good price list, one row. A failed fetch writes only the last_*
 -- columns, so the list in `models` stays in use.

@@ -53,6 +53,10 @@ export function withOverrides(fetched: PriceList, repository: PriceList = REPOSI
   return { ...fetched, ...repository };
 }
 
+/** A model's rates, or undefined: an own key only, so `constructor` is not a model. */
+export const priceOf = (list: PriceList, model: string): ModelPrice | undefined =>
+  Object.hasOwn(list, model) ? list[model] : undefined;
+
 export interface Tokens {
   input: number;
   output: number;
@@ -64,9 +68,11 @@ export interface Tokens {
 /**
  * A request's cost in micro-dollars, or null when it cannot be priced: the
  * model is not on the list, or the list has no rate for a kind of token the
- * request used. Null is never 0.
+ * request used. Null is never 0, but a request with no tokens at all costs
+ * nothing whatever its model, so it never waits for a price.
  */
 export function costMicros(price: ModelPrice | undefined, speed: string, t: Tokens): number | null {
+  if (t.input + t.output + t.cacheCreation + t.cacheRead === 0) return 0;
   if (!price) return null;
   const cacheWrite5m = t.cacheCreation - t.cacheCreation1h;
   const parts: [number, number | undefined][] = [
