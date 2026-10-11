@@ -120,7 +120,6 @@ import {
   ordersTypesExactly,
 } from '../domain/item-types.js';
 import { agentFromCommand, agentNamed } from '../domain/agents.js';
-import { decisionHistoryEntryFor } from '../domain/decision-history.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
 import {
   applyProposedPanel,
@@ -472,24 +471,6 @@ function refuseUnlessAFilter(panel: { name: string; kind: PanelKind }) {
   if (!panelGathers(panel)) {
     throw new PanelHoldsSomethingElseError(`${panel.name} is not a filter`);
   }
-}
-
-/**
- * The Item's proposal as its Inbox chip showed it, for the decision a filing
- * records: none where the proposed Panel is flagged Never propose, whose chip
- * is not drawn ("Keep a Panel out of proposals with Never propose", issue 848).
- * Otherwise the history would record an override of a chip nobody saw, naming
- * the flagged Panel to the model and, once cleared, teaching against it.
- */
-function proposalAsShown<T extends { proposedPanelId: string | null; proposedPanelReason: string | null }>(
-  db: AccountDb,
-  tenantId: string,
-  item: T,
-): T {
-  if (!item.proposedPanelId) return item;
-  return getPanel(db, tenantId, item.proposedPanelId)?.neverPropose
-    ? { ...item, proposedPanelId: null, proposedPanelReason: null }
-    : item;
 }
 
 /**

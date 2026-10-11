@@ -294,6 +294,19 @@ describe('Panels', () => {
      * The refusal itself is decided in the domain (tests/unit/domain/filings.test.ts);
      * what is proved here is that it reaches the person as a 400 and stores nothing.
      */
+    it('reaches the person as a 400 naming the panel, and stores nothing', async () => {
+      const dashboardId = await aDashboard();
+      const refusing = await aPanelOfText(dashboardId, 'What matters');
+      const itemId = await anItem('still to deal with');
+
+      const res = await move(itemId, refusing);
+
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toContain('What matters');
+      // Still in the Inbox, which is where an item filed nowhere is.
+      expect(await filedOn(itemId)).toEqual([]);
+    });
+
     it('leaves an item where it already was', async () => {
       const dashboardId = await aDashboard();
       const falcon = await aPanel(dashboardId, 'Project Falcon');
@@ -360,6 +373,17 @@ describe('Panels', () => {
           return { panelId, order: [itemId] };
         },
       },
+      {
+        situation: 'an order that leaves out an item the panel holds',
+        expected: 409,
+        arrange: async (itemId: string) => {
+          const today = await aDashboard();
+          const panelId = await aPanel(today, 'Falcon');
+          const held = await anItem('Renew the domain');
+          await move(held, panelId, [held]);
+          return { panelId, order: [itemId] };
+        },
+      },
     ])('$situation', async ({ arrange, expected }) => {
       const itemId = await anItem('Reply to Bart');
       const { panelId, order } = await arrange(itemId);
@@ -392,6 +416,21 @@ describe('Panels', () => {
 
       expect((await act(itemId, panelId)).status).toBe(404);
       expect(await filedOn(itemId)).toEqual([]);
+    });
+
+    it.each([
+      { situation: 'an item that does not exist', arrange: async () => nextId() },
+      {
+        situation: 'an item that belongs to another workspace',
+        arrange: async () => anItem('Not this workspace’s', 'ws-personal'),
+      },
+    ])('refuses a move of $situation, and files nothing', async ({ arrange }) => {
+      const today = await aDashboard();
+      const falcon = await aPanel(today, 'Falcon');
+      const itemId = await arrange();
+
+      expect((await move(itemId, falcon, [itemId])).status).toBe(404);
+      expect((await snapshot()).filings.filter((filing) => filing.panelId === falcon)).toEqual([]);
     });
 
     it('changes nothing when an item is removed from a panel it is not on', async () => {
@@ -803,6 +842,17 @@ describe('Capture', () => {
       expect(await filedOn(itemId, 'ws-personal')).toEqual(['Errands']);
       expect(await inboxOf(WORKSPACE_ID)).not.toContain('Where does this go');
       expect(await inboxOf('ws-atlas')).not.toContain('Where does this go');
+    });
+
+    it('refuses a workspace that is not there rather than failing on the way in', async () => {
+      const itemId = await anItemBelongingNowhere('Where does this go');
+      expect(
+        (await send('move_item_to_panel', { workspaceId: 'ws-nothing', itemId, panelId: null, order: [] }))
+          .status,
+      ).toBe(404);
+      // Still everybody's, because nothing was decided.
+      expect(await inboxOf(WORKSPACE_ID)).toContain('Where does this go');
+      expect(await inboxOf('ws-personal')).toContain('Where does this go');
     });
   });
 
