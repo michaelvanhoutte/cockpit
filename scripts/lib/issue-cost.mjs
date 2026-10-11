@@ -84,6 +84,49 @@ export function projectDirsFor(repoRoot, allDirs) {
   return (allDirs ?? []).filter((name) => name === prefix || name.startsWith(`${prefix}-`));
 }
 
+/**
+ * Whether a project directory belongs to this repository, given the `cwd` a
+ * session logged there (`null` when none could be read). The prefix match in
+ * `projectDirsFor` cannot tell a worktree of this repo from a sibling folder
+ * sanitizing to the same prefix (`Cockpit-Backup` beside `Cockpit`), so the
+ * `cwd` decides. A directory with no readable `cwd` is kept rather than
+ * dropped: losing real data to an I/O hiccup is worse than the false positive.
+ */
+export function ownsProject(repoRoot, cwd) {
+  if (typeof cwd !== 'string' || cwd === '') return true;
+  const normalize = (p) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  const root = normalize(repoRoot);
+  const normalized = normalize(cwd);
+  return normalized === root || normalized.startsWith(`${root}/`);
+}
+
+/**
+ * The `cwd` the first main session in a project directory logged, or `null`
+ * when there is none or it cannot be read. Reads until one line carries a
+ * `cwd`, since an early `queue-operation` line has none.
+ */
+export function firstCwdIn(dir) {
+  const jsonlName = readdirSync(dir).find((name) => name.endsWith('.jsonl') && statSync(join(dir, name)).isFile());
+  if (!jsonlName) return null;
+  try {
+    const lines = readFileSync(join(dir, jsonlName), 'utf8').split('\n', 20);
+    return lines.map(parseLine).find((line) => typeof line?.cwd === 'string' && line.cwd !== '')?.cwd ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * This repository's project directories under `projectsDir`, as full paths:
+ * the prefix match first, then each directory's own `cwd`.
+ */
+export function thisRepoProjectDirs(repoRoot, projectsDir) {
+  const allDirs = readdirSync(projectsDir).filter((name) => statSync(join(projectsDir, name)).isDirectory());
+  return projectDirsFor(repoRoot, allDirs)
+    .map((name) => join(projectsDir, name))
+    .filter((dir) => ownsProject(repoRoot, firstCwdIn(dir)));
+}
+
 /** One line of a session log, or `null` for a line that failed to parse. */
 export function parseLine(text) {
   try {
@@ -417,7 +460,7 @@ function readTranscript(path) {
  * however deep the agent that spawned it actually nests (`subagentMeta`'s own
  * comment has the confirmation), so no recursive directory walk is needed.
  */
-function subagentFilesUnder(dir) {
+export function subagentFilesUnder(dir) {
   const subagentsDir = join(dir, 'subagents');
   if (!existsSync(subagentsDir)) return [];
   return readdirSync(subagentsDir)
@@ -431,7 +474,7 @@ function subagentFilesUnder(dir) {
  * Claude Code also leaves there, which a plain `*.jsonl` glob would not
  * exclude on its own.
  */
-function mainSessionFilesIn(projectDir) {
+export function mainSessionFilesIn(projectDir) {
   return readdirSync(projectDir)
     .filter((name) => name.endsWith('.jsonl') && statSync(join(projectDir, name)).isFile())
     .map((name) => ({ path: join(projectDir, name), sessionId: name.slice(0, -'.jsonl'.length) }));
