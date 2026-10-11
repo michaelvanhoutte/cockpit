@@ -141,7 +141,7 @@ export function costRows(html: string): CostRow[] {
     const [, label, sub] = /^(.*?)(?:<div class="muted small">(.*?)<\/div>)?$/s.exec(first!)!;
     const [, total, unpriced] = /^([^<]*?)(?: <span class="unpriced">(.*?)<\/span>)?$/.exec(rest.at(-1)!)!;
     return {
-      label: decode(label!),
+      label: decode(label!.replace(/<\/?a[^>]*>/g, '')),
       sub: sub === undefined ? null : decode(sub),
       details: rest.slice(0, split).map(decode),
       categories: rest.slice(split + 1, split + 7),
@@ -157,6 +157,41 @@ export function whereItWent(html: string): { heading: string; bar: string } {
     heading: /<h2 id="where">(.*?)<\/h2>/s.exec(html)![1]!.replace(/&rsquo;/g, "'"),
     bar: /<div class="bar" role="img" aria-label="(.*?)">/s.exec(html)![1]!.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))),
   };
+}
+
+/** A pull request's page as a visitor opens it. */
+export const thePullRequest = (number: number | string, query = '') => SELF.fetch(`https://monitor.test/pr/${number}${query}`);
+
+const decodeHtml = (s: string) => s.replace(/<[^>]*>/g, '').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/&rsquo;/g, "'");
+
+/** What a pull request's page says: its total, its categories with their dollars and details, its sessions. */
+export function pullRequestFigures(html: string) {
+  const total = decodeHtml(/<div class="mono big" id="pr-total">(.*?)<\/div>/s.exec(html)![1]!);
+  const categories = [...html.matchAll(/<div class="cat"><div class="cat-name">(.*?)<\/div><div class="track">.*?<div class="num mono">(.*?)<\/div><div class="muted small">(.*?)<\/div><\/div>/gs)].map(
+    ([, name, amount, detail]) => ({ name: decodeHtml(name!), amount: decodeHtml(amount!), detail: decodeHtml(detail!) }),
+  );
+  const sessions = [...html.matchAll(/<tr><td class="mono small">(.*?)<\/td><td>(.*?)<\/td><td>(.*?)<\/td><td class="num mono">(.*?)<\/td><td class="num mono">(.*?)<\/td><td class="num mono total">(.*?)<\/td><\/tr>/gs)].map(
+    ([, id, where, models, requests, tokens, cost]) => ({
+      id: decodeHtml(id!),
+      where: decodeHtml(where!),
+      models: decodeHtml(models!),
+      requests: decodeHtml(requests!),
+      tokens: decodeHtml(tokens!),
+      cost: decodeHtml(cost!),
+    }),
+  );
+  return { total, categories, sessions };
+}
+
+/** Dollars in a page's words ("$12.50", "$3.00 + 1 unpriced") as millionths. */
+export const micros = (text: string) => Math.round(Number(/\$([\d,]+\.\d\d)/.exec(text)![1]!.replace(/,/g, '')) * 1e6);
+
+/** The CSV export as a visitor downloads it: the response, and its lines split into cells. */
+export async function theExport(query = '') {
+  const response = await SELF.fetch(`https://monitor.test/export.csv${query}`);
+  const text = await response.text();
+  const lines = text === '' ? [] : text.replace(/\r\n$/, '').split('\r\n');
+  return { response, text, header: lines[0]!.split(','), rows: lines.slice(1).map((l) => l.split(',')) };
 }
 
 /** The recorded price list, stored, so what a test then sends is priced at arrival: claude-sonnet-5 is $2 per million input tokens. */

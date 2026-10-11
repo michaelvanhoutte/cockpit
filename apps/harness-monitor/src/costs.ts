@@ -78,6 +78,8 @@ export interface CostGroup {
   label: string;
   /** A second line under the label. */
   sub: string | null;
+  /** The pull request a by-pull-request group is, once linked; its page opens from the label. */
+  prNumber: number | null;
   engineer: string | null;
   /** When a pull request merged, or its state while it has not. */
   merged: string | null;
@@ -144,7 +146,7 @@ export function groupRows(rows: TotalRow[], group: Group, lastLinkSuccessAt: num
     const place = placeOf(row, group, linking);
     let g = groups.get(place.key);
     if (!g) {
-      g = { ...place, engineer: row.prNumber === null ? null : row.engineer, merged: mergedOf(row), pullRequests: 0, byCategory: none(), totalMicros: 0, unpricedRequests: 0 };
+      g = { ...place, prNumber: group === 'pr' ? row.prNumber : null, engineer: row.prNumber === null ? null : row.engineer, merged: mergedOf(row), pullRequests: 0, byCategory: none(), totalMicros: 0, unpricedRequests: 0 };
       groups.set(place.key, g);
       prs.set(place.key, new Set());
     }
