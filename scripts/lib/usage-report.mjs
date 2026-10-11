@@ -20,19 +20,27 @@ import { REVIEW_LEVELS } from './session-record.mjs';
 export const MAX_BATCH = 200;
 
 
-/** The log's lines as parsed objects, skipping any that is not JSON. */
-export function parseLog(text) {
+/** The log's lines as parsed objects, and how many non-blank lines were not JSON objects. */
+export function readLog(text) {
   const lines = [];
+  let unreadable = 0;
   for (const raw of String(text ?? '').split('\n')) {
     if (raw.trim() === '') continue;
+    let line;
     try {
-      const line = JSON.parse(raw);
-      if (line !== null && typeof line === 'object') lines.push(line);
+      line = JSON.parse(raw);
     } catch {
       // A half-written or corrupted line costs that line only.
     }
+    if (line !== null && typeof line === 'object') lines.push(line);
+    else unreadable += 1;
   }
-  return lines;
+  return { lines, unreadable };
+}
+
+/** The log's lines as parsed objects, skipping any that is not JSON. */
+export function parseLog(text) {
+  return readLog(text).lines;
 }
 
 /**
@@ -134,7 +142,7 @@ export function categoryOf(request, { ranWhere, marksOf }) {
 }
 
 /** One request as the monitor's write takes it. Named fields only: nothing else of the log crosses. */
-export function toRow(request, { ranWhere, marksOf }) {
+export function toRow(request, { ranWhere, marksOf, source = 'hook' }) {
   const { category, reviewLevel } = categoryOf(request, { ranWhere, marksOf });
   return {
     requestId: request.requestId,
@@ -151,7 +159,7 @@ export function toRow(request, { ranWhere, marksOf }) {
     cacheReadTokens: request.cacheReadTokens,
     subagent: request.subagent,
     ranWhere,
-    source: 'hook',
+    source,
   };
 }
 

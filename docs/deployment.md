@@ -187,6 +187,8 @@ pnpm exec wrangler secret put HARNESS_WRITE_KEY     # needs the Worker to exist:
 
 The hook never sends conversation text, and a request it could not send goes again on the next turn.
 
+**Uploading past sessions.** Run `pnpm harness:upload` on each desktop machine, once after its hook is set up, to send the requests the hook never saw in that machine's local logs for this repository. It needs the same two variables, and prints how many requests it sent, how many the monitor already had, and how many log lines it could not read. Re-running it is safe: a stored request is ignored. Cloud sessions' logs are deleted with their containers, so the hook is the only way those reach the monitor.
+
 ## 3. One Worker serves the whole application
 
 Not Pages plus a separate API Worker. One Worker per environment serves the Hono

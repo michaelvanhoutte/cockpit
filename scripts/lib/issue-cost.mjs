@@ -84,6 +84,38 @@ export function projectDirsFor(repoRoot, allDirs) {
   return (allDirs ?? []).filter((name) => name === prefix || name.startsWith(`${prefix}-`));
 }
 
+/**
+ * Whether a project directory belongs to this repository, given the `cwd` a
+ * session logged there (`null` when none could be read). The prefix match in
+ * `projectDirsFor` cannot tell a worktree of this repo from a sibling folder
+ * sanitizing to the same prefix (`Cockpit-Backup` beside `Cockpit`), so the
+ * `cwd` decides. A directory with no readable `cwd` is kept rather than
+ * dropped: losing real data to an I/O hiccup is worse than the false positive.
+ */
+export function ownsProject(repoRoot, cwd) {
+  if (typeof cwd !== 'string' || cwd === '') return true;
+  const normalize = (p) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  const root = normalize(repoRoot);
+  const normalized = normalize(cwd);
+  return normalized === root || normalized.startsWith(`${root}/`);
+}
+
+/**
+ * The `cwd` the first main session in a project directory logged, or `null`
+ * when there is none or it cannot be read. Reads until one line carries a
+ * `cwd`, since an early `queue-operation` line has none.
+ */
+export function firstCwdIn(dir) {
+  const jsonlName = readdirSync(dir).find((name) => name.endsWith('.jsonl') && statSync(join(dir, name)).isFile());
+  if (!jsonlName) return null;
+  try {
+    const lines = readFileSync(join(dir, jsonlName), 'utf8').split('\n', 20);
+    return lines.map(parseLine).find((line) => typeof line?.cwd === 'string' && line.cwd !== '')?.cwd ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** One line of a session log, or `null` for a line that failed to parse. */
 export function parseLine(text) {
   try {

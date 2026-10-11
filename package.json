@@ -34,7 +34,8 @@
     "duplicates:backfill": "node scripts/duplicates-backfill.mjs",
     "bundle:budget": "node scripts/bundle-budget.mjs",
     "branches:tidy": "node scripts/tidy-branches.mjs",
-    "cost:issue": "node scripts/issue-cost.mjs"
+    "cost:issue": "node scripts/issue-cost.mjs",
+    "harness:upload": "node scripts/harness-upload.mjs"
   },
   "devDependencies": {
     "@cockpit/config": "workspace:*",

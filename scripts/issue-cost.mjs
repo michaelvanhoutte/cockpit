@@ -16,12 +16,12 @@
 //
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { readFlags } from './lib/operator.mjs';
-import { buildReport, marksByBranch, parseLine, projectDirsFor } from './lib/issue-cost.mjs';
+import { buildReport, firstCwdIn, marksByBranch, ownsProject, projectDirsFor } from './lib/issue-cost.mjs';
 
 let args;
 try {
@@ -62,7 +62,7 @@ if (!existsSync(projectsDir)) {
 const allDirs = readdirSync(projectsDir).filter((name) => statSync(join(projectsDir, name)).isDirectory());
 const projectDirs = projectDirsFor(repoRoot, allDirs)
   .map((name) => join(projectsDir, name))
-  .filter((dir) => ownsDir(repoRoot, dir));
+  .filter((dir) => ownsProject(repoRoot, firstCwdIn(dir)));
 
 const { resolveIssue, resolveMarks, marksUnreadable } = makeIssueResolver(repoRoot);
 const report = buildReport({ projectDirs, resolveIssue, resolveMarks, marksUnreadable, since: sinceMs, only });
@@ -74,37 +74,6 @@ if (args.json) {
 }
 
 /**
- * Whether a candidate `~/.claude/projects/<dir>` really belongs to this repo,
- * checked against the one thing a lossy sanitized-path prefix match cannot
- * prove: a real `cwd` a session logged there. `projectDirsFor`'s prefix match
- * is a cheap first pass - it cannot tell a real worktree of this repo from an
- * unrelated sibling directory whose name happens to sanitize to the same
- * prefix plus a dash (`Cockpit-Backup` beside `Cockpit`, for one) - so this
- * reads one line of one session file the directory actually holds and checks
- * its `cwd` against `repoRoot` directly, which is unambiguous. A directory
- * with no readable session line is kept rather than dropped: silently losing
- * real data to an I/O hiccup is worse than the false positive this guards
- * against.
- */
-function ownsDir(repoRoot, dir) {
-  const jsonlName = readdirSync(dir).find((name) => name.endsWith('.jsonl') && statSync(join(dir, name)).isFile());
-  if (!jsonlName) return true;
-  let cwd;
-  try {
-    // Not necessarily the file's first line: an early `queue-operation` line carries no `cwd` at
-    // all, so this reads until one line actually has one rather than trusting line 1 specifically.
-    const lines = readFileSync(join(dir, jsonlName), 'utf8').split('\n', 20);
-    cwd = lines.map(parseLine).find((line) => typeof line?.cwd === 'string' && line.cwd !== '')?.cwd;
-  } catch {
-    return true;
-  }
-  if (typeof cwd !== 'string' || cwd === '') return true;
-  const normalize = (p) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-  const root = normalize(repoRoot);
-  const normalizedCwd = normalize(cwd);
-  return normalizedCwd === root || normalizedCwd.startsWith(`${root}/`);
-}
-
 /**
  * The issue a branch closes, through the pull request whose head it is - one
  * `gh` call for every pull request in the repository, read once up front
