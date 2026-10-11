@@ -18,7 +18,7 @@ export default defineConfig(async () => {
         wrangler: { configPath: './wrangler.jsonc' },
         miniflare: {
           compatibilityFlags: ['nodejs_compat'],
-          bindings: { HARNESS_WRITE_KEY: 'test-write-key' },
+          bindings: { HARNESS_WRITE_KEY: 'test-write-key', PAGE_CACHE_SECONDS: '0' },
         },
       }),
     ],

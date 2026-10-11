@@ -48,6 +48,9 @@ supervise([
       String(ports.harnessMonitor),
       '--var',
       `HARNESS_WRITE_KEY:${LOCAL_WRITE_KEY}`,
+      // No edge cache locally: the page should show what was just sent.
+      '--var',
+      'PAGE_CACHE_SECONDS:0',
     ],
     'harness-monitor',
     '36',

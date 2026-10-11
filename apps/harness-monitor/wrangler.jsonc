@@ -13,7 +13,7 @@
   // fetch the price list, price the rows waiting for one, then rebuild the daily
   // totals from the rows.
   "triggers": { "crons": ["0 * * * *", "10 3 * * *"] },
-  "vars": { "GITHUB_REPOSITORY": "michaelvanhoutte/cockpit" },
+  // PAGE_CACHE_SECONDS: how long the edge keeps the public costs page (src/worker.ts).`n  "vars": { "GITHUB_REPOSITORY": "michaelvanhoutte/cockpit", "PAGE_CACHE_SECONDS": "300" },
 
   "d1_databases": [
     {

@@ -1,36 +1,53 @@
-import type { LinkingPage, SessionLine } from './linking';
+import {
+  categoryName,
+  GROUPS,
+  median,
+  PAGE_SIZE,
+  PERIODS,
+  queryString,
+  UNATTRIBUTED,
+  type CostGroup,
+  type CostsPage,
+  type Group,
+  type Period,
+} from './costs';
 import type { ListStatus } from './price-list';
-import type { DayLine, UnpricedLine } from './store';
+import type { UnpricedLine } from './store';
+import { CATEGORIES, type Category } from './validate';
 
 const number = (n: number) => n.toLocaleString('en-US');
 const dollars = (micros: number) => `$${(micros / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-/** Model names come from whoever holds the write key, so they are escaped. */
+/** Names, titles and logins come from outside, so they are escaped. */
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 const utc = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
 
-function sessionRow(s: SessionLine): string {
-  const cells =
-    s.status.kind === 'linked'
-      ? [
-          `#${s.status.prNumber} ${esc(s.status.title)} (${esc(s.status.state.toLowerCase())})`,
-          s.status.issue === null ? 'none' : `#${s.status.issue}`,
-          s.status.engineer === null ? 'unknown' : esc(s.status.engineer),
-        ]
-      : [s.status.kind === 'linking' ? 'linking…' : 'unattributed', '', ''];
-  return `<tr><td>${esc(s.sessionId)}</td><td>${s.branch === null ? 'none' : esc(s.branch)}</td><td>${cells.join('</td><td>')}</td></tr>`;
-}
-
-function renderLinking({ lastSuccessAt, sessions }: LinkingPage): string {
-  const when = lastSuccessAt === null ? 'Branch linking has not succeeded yet.' : `Branch linking last succeeded ${utc(lastSuccessAt)}.`;
-  if (sessions.length === 0) return `<p>${when}</p>`;
-  return `<p>${when}</p>
-<table class="left">
-<thead><tr><th>Session</th><th>Branch</th><th>Pull request</th><th>Issue</th><th>Engineer</th></tr></thead>
-<tbody>
-${sessions.map(sessionRow).join('\n')}
-</tbody></table>`;
-}
+/** Colours by category, in the design's order. Every other colour is a token in the stylesheet. */
+const COLOURS: Record<Category, string> = {
+  'scoping-planning': '#B9C4D6',
+  building: '#2F5BEA',
+  'local-code-review': '#F0A04B',
+  'local-security-review': '#9A4A12',
+  'after-push': '#6E3FA3',
+  'ci-reviews': '#5F6672',
+};
+const SHORT: Record<Category, string> = {
+  'scoping-planning': 'Scoping',
+  building: 'Building',
+  'local-code-review': 'Code rev.',
+  'local-security-review': 'Security rev.',
+  'after-push': 'After push',
+  'ci-reviews': 'CI rev.',
+};
+const PERIOD_LABELS: Record<Period, string> = { '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days', all: 'All time' };
+const GROUP_LABELS: Record<Group, string> = { pr: 'Pull request', issue: 'Issue', engineer: 'Engineer', category: 'Category', day: 'Day' };
+const UNITS: Record<Group, [string, string]> = {
+  pr: ['pull request', 'pull requests'],
+  issue: ['issue', 'issues'],
+  engineer: ['engineer', 'engineers'],
+  category: ['category', 'categories'],
+  day: ['day', 'days'],
+};
 
 function age(from: number, now: number): string {
   const minutes = Math.max(0, Math.floor((now - from) / 60_000));
@@ -51,7 +68,7 @@ function listLine(list: ListStatus, now: number): string {
     list.lastError !== null && list.lastAttemptAt !== null
       ? ` The fetch at ${when(list.lastAttemptAt)} UTC failed (${esc(list.lastError)}); ${list.fetchedAt === null ? 'nothing is priced from it' : 'the last good list is still in use'}.`
       : '';
-  return `<p class="list">${base}${failed}</p>`;
+  return `<p class="muted">${base}${failed}</p>`;
 }
 
 function warning(unpriced: UnpricedLine[]): string {
@@ -63,45 +80,169 @@ function warning(unpriced: UnpricedLine[]): string {
         `<tr><td>${esc(u.model)}</td><td>${number(u.requests)}</td><td>${number(u.inputTokens)}</td><td>${number(u.outputTokens)}</td><td>${number(u.cacheCreationTokens)}</td><td>${number(u.cacheReadTokens)}</td><td>${number(u.branches)}</td></tr>`,
     )
     .join('\n');
-  return `<section class="warning"><h2>Tokens with no price</h2>
+  return `<section class="warning" role="status"><h2>Tokens with no price</h2>
 <p>${number(requests)} request${requests === 1 ? '' : 's'} could not be priced: the price list does not cover the model, or has no rate for a kind of token it used. They are left out of every dollar total and priced by the daily job once the list covers them.</p>
-<table>
+<div class="scroll"><table>
 <thead><tr><th>Model</th><th>Requests</th><th>Input</th><th>Output</th><th>Cache write</th><th>Cache read</th><th>Branches</th></tr></thead>
 <tbody>
 ${rows}
-</tbody></table></section>`;
+</tbody></table></div></section>`;
 }
 
-/** The public page: tokens and dollars per day, newest first. Counts only; never an email or any content. */
+function select(id: string, label: string, options: [value: string, text: string][], current: string): string {
+  const opts = options
+    .map(([value, text]) => `<option value="${esc(value)}"${value === current ? ' selected' : ''}>${esc(text)}</option>`)
+    .join('');
+  return `<div class="field"><label for="${id}">${label}</label><select id="${id}" name="${id}" onchange="this.form.submit()">${opts}</select></div>`;
+}
+
+function filters({ query, engineers }: CostsPage): string {
+  const engineerOptions: [string, string][] = [['', 'Everyone'], ...engineers.map((e): [string, string] => [e, e]), [UNATTRIBUTED, 'Unattributed']];
+  // A named engineer who is no longer in the list stays selectable, so the form never silently drops a filter.
+  if (query.engineer && !engineerOptions.some(([v]) => v === query.engineer)) engineerOptions.push([query.engineer, query.engineer]);
+  const buttons = GROUPS.map(
+    (g) =>
+      `<button type="submit" name="group" value="${g}"${g === query.group ? ' aria-pressed="true"' : ' aria-pressed="false"'}>${GROUP_LABELS[g]}</button>`,
+  ).join('');
+  return `<form class="filters" method="get" action="/">
+${select('period', 'Period', (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_LABELS[p]]), query.period)}
+${select('engineer', 'Engineer', engineerOptions, query.engineer ?? '')}
+${select('category', 'Category', [['', 'All categories'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '')}
+<div class="field"><span id="groupby">Group by</span><div class="segmented" role="group" aria-labelledby="groupby">${buttons}</div></div>
+<input type="hidden" name="group" value="${query.group}">
+<noscript><button type="submit">Apply</button></noscript>
+</form>`;
+}
+
+function whereItWent(page: CostsPage): string {
+  const { query, groups, byCategory, totalMicros } = page;
+  const shown = query.category === null ? CATEGORIES : [query.category];
+  const [one, many] = UNITS[query.group];
+  const summary =
+    groups.length === 0
+      ? ''
+      : `<span class="muted">${number(groups.length)} ${groups.length === 1 ? one : many} · median ${dollars(median(groups.map((g) => g.totalMicros)))} each · at API list price</span>`;
+  const segments = shown
+    .filter((c) => byCategory[c] > 0)
+    .map((c) => `<div style="width:${((byCategory[c] / totalMicros) * 100).toFixed(2)}%;background:${COLOURS[c]}"></div>`)
+    .join('');
+  const label = shown.map((c) => `${categoryName(c)} ${dollars(byCategory[c])}`).join(', ');
+  const legend = shown
+    .map(
+      (c) =>
+        `<div class="legend-item"><span class="swatch" style="background:${COLOURS[c]}" aria-hidden="true"></span><span>${categoryName(c)}</span><span class="mono muted">${dollars(byCategory[c])}</span></div>`,
+    )
+    .join('');
+  return `<section class="card where" aria-labelledby="where">
+<div class="where-head"><h2 id="where">Where the period&rsquo;s ${dollars(totalMicros)} went</h2>${summary}</div>
+<div class="bar" role="img" aria-label="${esc(label)}">${segments}</div>
+<div class="legend">${legend}</div>
+<p class="muted small">CI reviews counts the <span class="mono">@claude</span> runs in GitHub Actions only. Claude Code Review and Claude Approvals run on Anthropic&rsquo;s side and are <strong>not measured</strong>.</p>
+</section>`;
+}
+
+function row(g: CostGroup, group: Group, max: number): string {
+  const first =
+    `<td class="first">${esc(g.label)}${g.sub === null ? '' : `<div class="muted small">${esc(g.sub)}</div>`}</td>`;
+  const extra =
+    group === 'pr'
+      ? `<td>${g.engineer === null ? '' : esc(g.engineer)}</td><td class="nowrap">${g.merged === null ? '' : esc(g.merged)}</td>`
+      : group === 'issue' || group === 'engineer'
+        ? `<td>${number(g.pullRequests)}</td>`
+        : '';
+  const split = CATEGORIES.map((c) =>
+    g.byCategory[c] > 0 ? `<div style="width:${((g.byCategory[c] / max) * 100).toFixed(1)}%;background:${COLOURS[c]}"></div>` : '',
+  ).join('');
+  const cells = CATEGORIES.map((c) => `<td class="num mono${c === 'ci-reviews' ? ' muted' : ''}">${g.byCategory[c] > 0 ? dollars(g.byCategory[c]) : '—'}</td>`).join('');
+  const unpriced = g.unpricedRequests > 0 ? ` <span class="unpriced">+ ${number(g.unpricedRequests)} unpriced</span>` : '';
+  return `<tr>${first}${extra}<td><div class="split">${split}</div></td>${cells}<td class="num mono total">${dollars(g.totalMicros)}${unpriced}</td></tr>`;
+}
+
+function table(page: CostsPage): string {
+  const { query, groups } = page;
+  if (groups.length === 0) return `<section class="card"><p class="empty">Nothing in this period. No Claude Code requests match the filters.</p></section>`;
+  const start = (query.page - 1) * PAGE_SIZE;
+  const shown = groups.slice(start, start + PAGE_SIZE);
+  const max = Math.max(...shown.map((g) => g.totalMicros), 1);
+  const extraHeads = query.group === 'pr' ? '<th scope="col">Engineer</th><th scope="col">Merged</th>' : query.group === 'issue' || query.group === 'engineer' ? '<th scope="col">Pull requests</th>' : '';
+  const heads = CATEGORIES.map((c) => `<th scope="col" class="num">${SHORT[c]}</th>`).join('');
+  const link = (to: number, text: string) => `<a href="/${queryString(query, { page: to })}">${text}</a>`;
+  const pager = [query.page > 1 ? link(query.page - 1, 'Previous') : '', start + PAGE_SIZE < groups.length ? link(query.page + 1, `Next ${PAGE_SIZE}`) : '']
+    .filter(Boolean)
+    .join(' · ');
+  return `<section class="card table-card" aria-label="Cost by ${GROUP_LABELS[query.group].toLowerCase()}">
+<div class="scroll"><table class="costs">
+<thead><tr><th scope="col" class="first">${GROUP_LABELS[query.group]}</th>${extraHeads}<th scope="col" class="split-head">Split</th>${heads}<th scope="col" class="num">Total ▾</th></tr></thead>
+<tbody>
+${shown.map((g) => row(g, query.group, max)).join('\n')}
+</tbody></table></div>
+<div class="foot"><span>Showing ${shown.length === groups.length ? number(groups.length) : `${number(start + 1)}–${number(start + shown.length)} of ${number(groups.length)}`} · sorted by total</span><span>${pager}</span></div>
+</section>`;
+}
+
+const STYLE = `
+:root{--bg:#F6F6F3;--card:#FFF;--ink:#1B1D21;--muted:#5A5E66;--line:#DCDCD6;--line-soft:#EDEDE8;--control:#C9CAC3;--accent:#EEF1FB;--link:#2448C8;--warn-bg:#FDF5E6;--warn-line:#E3B25A;--warn-ink:#8A5A00;--track:#F0F0EC}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 'IBM Plex Sans',system-ui,sans-serif}
+a{color:var(--link)}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}.muted{color:var(--muted)}.small{font-size:13px}.nowrap{white-space:nowrap}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;padding:16px;border-bottom:1px solid var(--line);background:var(--card)}
+header .name{font-weight:600;font-size:16px}header .section{padding:8px 12px;border-radius:6px;background:var(--accent);font-weight:500}
+header .status{margin-left:auto;color:var(--muted);font-size:13px}
+main{max-width:1376px;margin:0 auto;padding:24px 16px 48px;display:flex;flex-direction:column;gap:20px}
+h1,h2,p{margin:0}h2{font-size:16px;font-weight:600}
+.filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px}
+.field{display:flex;flex-direction:column;gap:4px}.field label,.field>span{font-size:12px;color:var(--muted)}
+select,button{height:40px;font:inherit;color:inherit}
+select{padding:0 12px;border:1px solid var(--control);border-radius:6px;background:var(--card)}
+.segmented{display:flex;border:1px solid var(--control);border-radius:6px;overflow:hidden;background:var(--card);flex-wrap:wrap}
+.segmented button{padding:0 14px;border:0;border-left:1px solid var(--control);background:var(--card);cursor:pointer}
+.segmented button:first-child{border-left:0}
+.segmented button[aria-pressed=true]{background:var(--ink);color:#FFF}
+:focus-visible{outline:2px solid var(--link);outline-offset:2px}
+.warning{border:1px solid var(--warn-line);border-radius:8px;background:var(--warn-bg);padding:12px 16px;display:flex;flex-direction:column;gap:8px}
+.warning h2{color:var(--warn-ink)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px}
+.where{display:flex;flex-direction:column;gap:12px;padding:20px}
+.where-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 24px}
+.bar{display:flex;height:28px;border-radius:4px;overflow:hidden;background:var(--track)}
+.legend{display:flex;flex-wrap:wrap;gap:8px 28px}.legend-item{display:flex;align-items:center;gap:8px}
+.swatch{width:12px;height:12px;border-radius:2px}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.costs{min-width:1100px}
+th,td{padding:12px 8px;text-align:left;border-bottom:1px solid var(--line-soft);vertical-align:top}
+th{font-size:12px;font-weight:500;color:var(--muted);border-bottom-color:var(--line)}
+th:first-child,td:first-child{padding-left:16px}th:last-child,td:last-child{padding-right:16px}
+.num{text-align:right}.total{font-weight:500}.first{max-width:380px}
+.split-head{width:220px}.split{display:flex;height:10px;background:var(--track);border-radius:2px;overflow:hidden;margin-top:4px}
+.unpriced{color:var(--warn-ink);font-size:.85em;white-space:nowrap}
+.foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:12px 16px;color:var(--muted);font-size:13px}
+.empty{padding:24px;color:var(--muted)}
+@media (max-width:640px){.segmented button{flex:1 1 auto}}
+`;
+
+/** The public page: Claude Code's cost, grouped and filtered. Counts and dollars only; never an email or any content. */
 export function renderPage(
-  lines: DayLine[],
+  page: CostsPage,
   report: { unpriced: UnpricedLine[]; list: ListStatus },
-  linking: LinkingPage,
   now = Date.now(),
 ): string {
-  const body =
-    lines.length === 0
-      ? '<p>Nothing yet. No Claude Code requests have been reported.</p>'
-      : `<table>
-<thead><tr><th>Day (UTC)</th><th>Requests</th><th>Input</th><th>Output</th><th>Cache write</th><th>Cache read</th><th>Cost (priced requests)</th></tr></thead>
-<tbody>
-${lines
-  .map(
-    (l) =>
-      `<tr><td>${l.day}</td><td>${number(l.requests)}</td><td>${number(l.inputTokens)}</td><td>${number(l.outputTokens)}</td><td>${number(l.cacheCreationTokens)}</td><td>${number(l.cacheReadTokens)}</td><td>${dollars(l.costMicros)}${l.unpricedRequests > 0 ? ` <span class="unpriced">+ ${number(l.unpricedRequests)} unpriced</span>` : ''}</td></tr>`,
-  )
-  .join('\n')}
-</tbody></table>`;
+  const linking =
+    page.lastLinkSuccessAt === null ? 'Branch linking has not succeeded yet.' : `Branch linking last succeeded ${utc(page.lastLinkSuccessAt)}.`;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harness Monitor</title>
-<style>body{font:16px system-ui,sans-serif;margin:2rem auto;max-width:56rem;padding:0 1rem}table{border-collapse:collapse;width:100%}th,td{padding:.4rem .6rem;text-align:right;border-bottom:1px solid #8884}th:first-child,td:first-child{text-align:left}table.left th,table.left td{text-align:left}.warning{border:2px solid #c80;padding:0 1rem 1rem;margin:1rem 0}.unpriced{color:#c80;font-size:.85em}.list{color:#666}</style>
-</head><body><h1>Harness Monitor</h1>
+<style>${STYLE}</style>
+</head><body>
+<header><h1 class="name">Harness Monitor</h1><span class="section">Claude Code costs</span>
+<span class="status">Updated ${utc(now)} · <span class="linking">${linking}</span> Public, read-only.</span></header>
+<main>
+${filters(page)}
 ${warning(report.unpriced)}
-<h2>Tokens and cost per day</h2>
+${whereItWent(page)}
+${table(page)}
 ${listLine(report.list, now)}
-${body}
-<h2>Sessions</h2>
-${renderLinking(linking)}
+</main>
 </body></html>`;
 }

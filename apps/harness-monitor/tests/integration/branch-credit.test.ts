@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fakeGitHub, pageOf, pullRequest, recordedPullRequest, runHourly, sessionsOnThePage, theLinks } from './github-support';
-import { emptyTheDatabase, send, usage } from './support';
+import { fakeGitHub, pageOf, pullRequest, pullRequestRows, recordedPullRequest, runHourly, theLinks } from './github-support';
+import { emptyTheDatabase, send, thePage, usage } from './support';
 
 beforeEach(emptyTheDatabase);
 afterEach(() => vi.restoreAllMocks());
@@ -13,12 +13,9 @@ describe('Harness Monitor', () => {
 
       await runHourly();
 
-      expect((await sessionsOnThePage()).s1).toEqual([
-        'claude/build-971-fd1134',
-        '#979 Stand up the Harness Monitor: store each Claude Code request once, and show daily token totals (#971) (merged)',
-        '#971',
-        'michaelvanhoutte',
-      ]);
+      const row = (await pullRequestRows())['#979 Stand up the Harness Monitor: store each Claude Code request once, and show daily token totals (#971)']!;
+      expect(row.sub).toBe('Issue #971');
+      expect(row.details[0]).toBe('michaelvanhoutte');
     });
 
     it('a pull request closing nothing is still linked, with no issue', async () => {
@@ -27,10 +24,9 @@ describe('Harness Monitor', () => {
 
       await runHourly();
 
-      const cells = (await sessionsOnThePage()).s1!;
-      expect(cells[1]).toContain('#884');
-      expect(cells[2]).toBe('none');
-      expect(cells[3]).toBe('michaelvanhoutte');
+      const row = Object.values(await pullRequestRows()).find((r) => r.label.startsWith('#884'))!;
+      expect(row.sub).toBe('No issue');
+      expect(row.details[0]).toBe('michaelvanhoutte');
     });
 
     it('two pull requests from one branch credit the session to the one updated most recently, whatever order GitHub lists them', async () => {
@@ -41,7 +37,7 @@ describe('Harness Monitor', () => {
 
       await runHourly();
 
-      expect((await sessionsOnThePage()).s1![1]).toContain('#2 Newer attempt');
+      expect(Object.keys(await pullRequestRows())).toEqual(['#2 Newer attempt']);
     });
 
     it('a pull request updated before the one already stored for its branch does not replace it', async () => {
@@ -55,7 +51,7 @@ describe('Harness Monitor', () => {
 
       await runHourly();
 
-      expect((await sessionsOnThePage()).s1![1]).toContain('#2 Newer attempt');
+      expect(Object.keys(await pullRequestRows())).toEqual(['#2 Newer attempt']);
     });
 
     it("a fork's pull request never claims a branch of the same name here", async () => {
@@ -66,7 +62,7 @@ describe('Harness Monitor', () => {
 
       await runHourly();
 
-      expect((await sessionsOnThePage()).s1![1]).toContain('#1 Ours');
+      expect(Object.keys(await pullRequestRows())).toEqual(['#1 Ours']);
     });
 
     it('a pull request whose branch has no sessions is stored and changes nothing on the page', async () => {
@@ -75,7 +71,7 @@ describe('Harness Monitor', () => {
       await runHourly();
 
       expect(await theLinks()).toHaveLength(1);
-      expect(await sessionsOnThePage()).toEqual({});
+      expect(await pullRequestRows()).toEqual({});
     });
 
     it('a pull request title is shown as text, never as markup', async () => {
@@ -84,7 +80,8 @@ describe('Harness Monitor', () => {
 
       await runHourly();
 
-      expect((await sessionsOnThePage()).s1![1]).toContain('#5 &#60;script&#62;alert(1)&#60;/script&#62; &#38; more');
+      expect(Object.keys(await pullRequestRows())).toEqual(['#5 <script>alert(1)</script> & more']);
+      expect(await thePage('?period=all')).not.toContain('<script>alert(1)');
     });
   });
 });

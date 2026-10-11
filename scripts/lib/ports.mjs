@@ -54,6 +54,7 @@ export const DOCUMENTED_PORTS = Object.freeze({
   e2eApi: 8887,
   e2eIssuer: 8888,
   harnessMonitor: 8789,
+  e2eHarnessMonitor: 8889,
 });
 
 /**
@@ -74,6 +75,7 @@ export const BANDS = Object.freeze({
   e2eApi: 9900,
   e2eIssuer: 7900,
   harnessMonitor: 4300,
+  e2eHarnessMonitor: 3700,
 });
 
 /** How many worktrees can be told apart before two share a slot. */
@@ -96,6 +98,7 @@ export const OVERRIDES = Object.freeze({
   e2eApi: { variable: 'COCKPIT_E2E_API_PORT', command: 'pnpm test:e2e' },
   e2eIssuer: { variable: 'COCKPIT_E2E_ISSUER_PORT', command: 'pnpm test:e2e' },
   harnessMonitor: { variable: 'HARNESS_MONITOR_PORT', command: 'pnpm dev:harness' },
+  e2eHarnessMonitor: { variable: 'COCKPIT_E2E_HARNESS_MONITOR_PORT', command: 'pnpm test:e2e' },
 });
 
 /**
@@ -166,6 +169,7 @@ export function portsFor(root, { linked = false, env = {} } = {}) {
     e2eApi: port('e2eApi'),
     e2eIssuer: port('e2eIssuer'),
     harnessMonitor: port('harnessMonitor'),
+    e2eHarnessMonitor: port('e2eHarnessMonitor'),
   };
 }
 
