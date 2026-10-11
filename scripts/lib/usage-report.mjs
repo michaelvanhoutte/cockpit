@@ -13,13 +13,12 @@
 // repeats earlier lines yields the same ids and the monitor keeps one.
 //
 
+import { reviewSkillCallsOnLine } from './issue-cost.mjs';
 import { REVIEW_LEVELS } from './session-record.mjs';
 
 /** The most rows the monitor takes in one write (`MAX_BATCH` in its validator). */
 export const MAX_BATCH = 200;
 
-/** A line holding a `/security-review` run: the agent's opening prompt names it. */
-const SECURITY_REVIEW = /\bsecurity-review\b/;
 
 /** The log's lines as parsed objects, skipping any that is not JSON. */
 export function parseLog(text) {
@@ -36,14 +35,12 @@ export function parseLog(text) {
   return lines;
 }
 
-/** The text of a log's opening user message, for recognising which review a subagent runs. */
-function openingPrompt(lines) {
-  const first = lines.find((line) => line.type === 'user');
-  const content = first?.message?.content;
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) return content.map((block) => (typeof block?.text === 'string' ? block.text : '')).join('\n');
-  return '';
-}
+/**
+ * Whether a subagent's log runs `/security-review`: it calls the Skill tool
+ * with that skill, as `cost:issue` counts it. A prompt that merely mentions
+ * the review (a build brief saying it is done elsewhere) does not qualify.
+ */
+const runsSecurityReview = (lines) => lines.some((line) => reviewSkillCallsOnLine(line).some((call) => call.skill === 'security-review'));
 
 const count = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : 0);
 
@@ -53,7 +50,7 @@ const count = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : 0)
  * requests; the first line of a request supplies its figures, as in `cost:issue`.
  */
 export function requestsFromLog(lines, { sessionId, subagent }) {
-  const securityReview = subagent && SECURITY_REVIEW.test(openingPrompt(lines));
+  const securityReview = subagent && runsSecurityReview(lines);
   const seen = new Set();
   const requests = [];
   for (const line of lines) {
@@ -175,22 +172,37 @@ export function allRequests(logs) {
  * times out ends the run quietly with the earlier batches kept, so the rest
  * go again next turn alongside the new rows.
  *
- * `post(rows)` resolves true when the monitor stored the batch.
+ * `post(rows)` resolves true when the monitor stored the batch, `'rejected'`
+ * when it refused the rows as invalid (retrying cannot help), anything else
+ * for a failure worth retrying. The monitor refuses a whole batch for one bad
+ * row, so a rejected batch is re-sent row by row and the rows still rejected
+ * count as sent: one unfixable row must not hold back every later one.
  */
 export async function sendUnsent({ key, rows, sentIds, post }) {
   const sent = new Set(sentIds);
   if (!key) return { sent };
+  const attempt = async (batch) => {
+    try {
+      return await post(batch);
+    } catch {
+      return false;
+    }
+  };
   const waiting = rows.filter((row) => !sent.has(row.requestId));
   for (let i = 0; i < waiting.length; i += MAX_BATCH) {
     const batch = waiting.slice(i, i + MAX_BATCH);
-    let stored = false;
-    try {
-      stored = (await post(batch)) === true;
-    } catch {
-      stored = false;
+    const outcome = await attempt(batch);
+    if (outcome === true) {
+      for (const row of batch) sent.add(row.requestId);
+    } else if (outcome === 'rejected') {
+      for (const row of batch) {
+        const single = await attempt([row]);
+        if (single !== true && single !== 'rejected') return { sent };
+        sent.add(row.requestId);
+      }
+    } else {
+      break;
     }
-    if (!stored) break;
-    for (const row of batch) sent.add(row.requestId);
   }
   return { sent };
 }

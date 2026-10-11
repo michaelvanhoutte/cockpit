@@ -100,12 +100,17 @@ describe("A request's category is the phase its session was in when it was made"
     assert.equal(categoryOf(request('2026-10-01T10:00:00Z', { branch: 'b' }), ctx).category, 'scoping-planning');
   });
 
-  it('the security review subagent is recognised by its opening prompt', () => {
-    const opening = JSON.stringify({ type: 'user', message: { content: 'Run /security-review on the pending changes' } });
-    const [req] = requestsFromLog(parseLog([opening, reply('req_s', '2026-10-01T10:30:00Z')].join('\n')), { sessionId: 's1', subagent: true });
+  it('the security review subagent is recognised by its Skill call, not by a prompt that mentions the review', () => {
+    const skillCall = reply('req_s', '2026-10-01T10:30:00Z', {
+      message: { model: 'claude-sonnet-5-5', usage, content: [{ type: 'tool_use', name: 'Skill', input: { skill: 'security-review' } }] },
+    });
+    const [req] = requestsFromLog(parseLog(skillCall), { sessionId: 's1', subagent: true });
     assert.equal(req.securityReview, true);
-    const [plain] = requestsFromLog(parseLog([JSON.stringify({ type: 'user', message: { content: 'Search the repo' } }), reply('req_t', '2026-10-01T10:30:00Z')].join('\n')), { sessionId: 's1', subagent: true });
+    const mention = JSON.stringify({ type: 'user', message: { content: 'Do not run /security-review; it is done separately' } });
+    const [plain] = requestsFromLog(parseLog([mention, reply('req_t', '2026-10-01T10:30:00Z')].join('\n')), { sessionId: 's1', subagent: true });
     assert.equal(plain.securityReview, false);
+    const [inMain] = requestsFromLog(parseLog(skillCall), { sessionId: 's1', subagent: false });
+    assert.equal(inMain.securityReview, false);
   });
 });
 
@@ -158,6 +163,21 @@ describe('Only what was not sent is sent, and a failed send is made up next turn
     const { sent } = await sendUnsent({ key: 'k', rows, sentIds: [], post });
     assert.deepEqual(posted.map((b) => b.length), [200, 200]);
     assert.equal(sent.size, 200);
+  });
+});
+
+describe('One row the monitor refuses does not hold back the rest', () => {
+  it('a refused batch is sent row by row, and the row still refused counts as sent', async () => {
+    const { post, posted } = sentWith(['rejected', true, 'rejected', true]);
+    const { sent } = await sendUnsent({ key: 'k', rows: [row('a'), row('b'), row('c')], sentIds: [], post });
+    assert.deepEqual(posted, [['a', 'b', 'c'], ['a'], ['b'], ['c']]);
+    assert.deepEqual([...sent].sort(), ['a', 'b', 'c']);
+  });
+
+  it('a failure while sending rows singly keeps the rest unsent', async () => {
+    const { post } = sentWith(['rejected', true, false]);
+    const { sent } = await sendUnsent({ key: 'k', rows: [row('a'), row('b'), row('c')], sentIds: [], post });
+    assert.deepEqual([...sent], ['a']);
   });
 });
 

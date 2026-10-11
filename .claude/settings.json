@@ -8,7 +8,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node scripts/report-usage.mjs",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/report-usage.mjs\"",
             "async": true,
             "timeout": 30
           }

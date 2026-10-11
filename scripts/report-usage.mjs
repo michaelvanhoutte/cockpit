@@ -32,10 +32,10 @@ const read = (path) => {
 async function main() {
   const key = process.env.HARNESS_WRITE_KEY;
   const url = process.env.HARNESS_MONITOR_URL;
-  if (!key || !url) return;
-
+  // Read the event first, so exiting early never leaves the session writing into a closed pipe.
   let input = '';
   for await (const chunk of process.stdin) input += chunk;
+  if (!key || !url) return;
   const event = JSON.parse(input);
   const transcript = String(event.transcript_path ?? '');
   const sessionId = String(event.session_id ?? '');
@@ -81,7 +81,9 @@ async function main() {
         body: JSON.stringify({ rows: batch }),
         signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       });
-      return response.ok;
+      if (response.ok) return true;
+      // The monitor refuses a malformed batch with 400 (413 when too large): retrying it unchanged never works.
+      return response.status === 400 || response.status === 413 ? 'rejected' : false;
     },
   });
   writeFileSync(sentFile, JSON.stringify([...sent]));
