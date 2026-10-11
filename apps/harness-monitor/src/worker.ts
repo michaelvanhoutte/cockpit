@@ -1,4 +1,5 @@
 import { checkWriteKey } from './auth';
+import { linkBranches, linkingPage } from './linking';
 import { renderPage } from './page';
 import { listStatus, priceWaitingRows, refreshPriceList } from './price-list';
 import { dailyLines, rebuildTotals, storeBatch, unpricedLines } from './store';
@@ -8,7 +9,14 @@ export interface Env {
   DB: D1Database;
   /** A secret. Unset, every write is refused. */
   HARNESS_WRITE_KEY?: string;
+  /** A secret: a fine-grained, read-only GitHub token. Unset, branch linking skips. */
+  GITHUB_TOKEN?: string;
+  /** `owner/name`, set in wrangler.jsonc. */
+  GITHUB_REPOSITORY?: string;
 }
+
+/** The daily job (prices, then the totals); any other schedule links branches. */
+const DAILY = '10 3 * * *';
 
 /** Far above MAX_BATCH full rows, so only a malformed write reaches it. */
 const MAX_BODY = 1_000_000;
@@ -40,15 +48,24 @@ export default {
       return request.method === 'POST' ? write(request, env) : json({ error: 'Use POST.' }, 405);
     }
     if (pathname === '/' && request.method === 'GET') {
-      const [lines, unpriced, list] = await Promise.all([dailyLines(env.DB), unpricedLines(env.DB), listStatus(env.DB)]);
-      return new Response(renderPage(lines, { unpriced, list }), {
+      const [lines, unpriced, list, linking] = await Promise.all([
+        dailyLines(env.DB),
+        unpricedLines(env.DB),
+        listStatus(env.DB),
+        linkingPage(env.DB),
+      ]);
+      return new Response(renderPage(lines, { unpriced, list }, linking), {
         headers: { 'content-type': 'text/html; charset=utf-8' },
       });
     }
     return json({ error: 'Not found.' }, 404);
   },
 
-  async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+  async scheduled(controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+    if (controller.cron !== DAILY) {
+      await linkBranches(env);
+      return;
+    }
     // The daily job: refresh the prices (a failure keeps the last good list),
     // price what was waiting, then rebuild the totals from the rows.
     await refreshPriceList(env.DB);

@@ -52,6 +52,7 @@ cockpit/
 - **One row per request, keyed by its request id.** A request already stored is ignored, so a re-send, a history upload overlapping the hook, or a forked session carrying earlier requests never counts twice.
 - **Daily totals are written in the same batch as the rows**, from the rows that batch actually inserted, and rebuilt nightly from the rows. Screens read only the totals.
 - **One write key**, a Worker secret, can only add rows. Reads need none.
+- **An hourly cron links each branch to its pull request, the issue it closes and the author**, who counts as the engineer. It reads only pull requests updated since a stored cursor, within the free plan's 50 subrequests per invocation, and stores links and cursor in one batch, so a failed run changes nothing. A session newer than the last success shows as linking.
 - **A request is priced once, when it arrives, and keeps that cost** (micro-dollars on the row; NULL when its model has no price, which is never 0). The rates are LiteLLM's public price file, fetched by the daily job and stored in D1, with `src/price-overrides.json` in the repository winning for any model it names. A failed or malformed fetch keeps the last good list. The daily job then prices the rows still waiting for a model the list now covers; rows already priced are never repriced. Unpriced requests stay out of every dollar total and appear in a warning on the page. A history upload is priced at upload and marked `upload`.
 
 ## 4. Data layer

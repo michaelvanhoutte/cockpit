@@ -9,9 +9,11 @@
   "preview_urls": false,
   "observability": { "logs": { "enabled": true } },
 
-  // Daily, 03:10 UTC: fetch the price list, price the rows waiting for one, then
-  // rebuild the daily totals from the rows.
-  "triggers": { "crons": ["10 3 * * *"] },
+  // Hourly: link branches to pull requests (src/linking.ts). Daily, 03:10 UTC:
+  // fetch the price list, price the rows waiting for one, then rebuild the daily
+  // totals from the rows.
+  "triggers": { "crons": ["0 * * * *", "10 3 * * *"] },
+  "vars": { "GITHUB_REPOSITORY": "michaelvanhoutte/cockpit" },
 
   "d1_databases": [
     {
@@ -24,6 +26,6 @@
       "migrations_dir": "migrations"
     }
   ]
-  // HARNESS_WRITE_KEY is a secret (`wrangler secret put`), so it is not here.
+  // GITHUB_TOKEN and HARNESS_WRITE_KEY are secrets (`wrangler secret put`), so they are not here.
   // Locally scripts/dev-harness.mjs passes a local-only value with --var.
 }

@@ -1,3 +1,4 @@
+import type { LinkingPage, SessionLine } from './linking';
 import type { ListStatus } from './price-list';
 import type { DayLine, UnpricedLine } from './store';
 
@@ -5,6 +6,31 @@ const number = (n: number) => n.toLocaleString('en-US');
 const dollars = (micros: number) => `$${(micros / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 /** Model names come from whoever holds the write key, so they are escaped. */
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+const utc = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+
+function sessionRow(s: SessionLine): string {
+  const cells =
+    s.status.kind === 'linked'
+      ? [
+          `#${s.status.prNumber} ${esc(s.status.title)} (${esc(s.status.state.toLowerCase())})`,
+          s.status.issue === null ? 'none' : `#${s.status.issue}`,
+          s.status.engineer === null ? 'unknown' : esc(s.status.engineer),
+        ]
+      : [s.status.kind === 'linking' ? 'linking…' : 'unattributed', '', ''];
+  return `<tr><td>${esc(s.sessionId)}</td><td>${s.branch === null ? 'none' : esc(s.branch)}</td><td>${cells.join('</td><td>')}</td></tr>`;
+}
+
+function renderLinking({ lastSuccessAt, sessions }: LinkingPage): string {
+  const when = lastSuccessAt === null ? 'Branch linking has not succeeded yet.' : `Branch linking last succeeded ${utc(lastSuccessAt)}.`;
+  if (sessions.length === 0) return `<p>${when}</p>`;
+  return `<p>${when}</p>
+<table class="left">
+<thead><tr><th>Session</th><th>Branch</th><th>Pull request</th><th>Issue</th><th>Engineer</th></tr></thead>
+<tbody>
+${sessions.map(sessionRow).join('\n')}
+</tbody></table>`;
+}
 
 function age(from: number, now: number): string {
   const minutes = Math.max(0, Math.floor((now - from) / 60_000));
@@ -50,6 +76,7 @@ ${rows}
 export function renderPage(
   lines: DayLine[],
   report: { unpriced: UnpricedLine[]; list: ListStatus },
+  linking: LinkingPage,
   now = Date.now(),
 ): string {
   const body =
@@ -68,11 +95,13 @@ ${lines
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harness Monitor</title>
-<style>body{font:16px system-ui,sans-serif;margin:2rem auto;max-width:56rem;padding:0 1rem}table{border-collapse:collapse;width:100%}th,td{padding:.4rem .6rem;text-align:right;border-bottom:1px solid #8884}th:first-child,td:first-child{text-align:left}.warning{border:2px solid #c80;padding:0 1rem 1rem;margin:1rem 0}.unpriced{color:#c80;font-size:.85em}.list{color:#666}</style>
+<style>body{font:16px system-ui,sans-serif;margin:2rem auto;max-width:56rem;padding:0 1rem}table{border-collapse:collapse;width:100%}th,td{padding:.4rem .6rem;text-align:right;border-bottom:1px solid #8884}th:first-child,td:first-child{text-align:left}table.left th,table.left td{text-align:left}.warning{border:2px solid #c80;padding:0 1rem 1rem;margin:1rem 0}.unpriced{color:#c80;font-size:.85em}.list{color:#666}</style>
 </head><body><h1>Harness Monitor</h1>
 ${warning(report.unpriced)}
 <h2>Tokens and cost per day</h2>
 ${listLine(report.list, now)}
 ${body}
+<h2>Sessions</h2>
+${renderLinking(linking)}
 </body></html>`;
 }
