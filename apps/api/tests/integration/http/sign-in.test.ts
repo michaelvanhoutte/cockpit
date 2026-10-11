@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import { FIRST_WORKSPACE_NAME } from '@cockpit/shared';
-import { GUEST_ACCOUNT_NAME, GUEST_USER_ID } from '../../../src/auth/register.js';
+import { GUEST_ACCOUNT_NAME, GUEST_USER_ID } from '../../../src/accounts/new-user.js';
 import {
   OTHER_USER_ID,
   TASK_TYPE_ID,

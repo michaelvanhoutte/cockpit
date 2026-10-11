@@ -6,7 +6,7 @@ import { returnPathFrom } from '../auth/return-path.js';
 import type { Visitor } from '../auth/register.js';
 import { whoCanConsent, type GrantProps } from './grant.js';
 import { asReachedAt, oauthHelpersFor } from './oauth.js';
-import { AUTHORIZE_PATH } from './paths.js';
+import { AUTHORIZE_PATH } from '../auth/mcp-paths.js';
 
 /**
  * The consent page: "Allow Claude to create items in your Cockpit?"

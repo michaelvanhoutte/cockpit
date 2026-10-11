@@ -4,7 +4,7 @@ import { demoAddress } from '@cockpit/shared';
 import type { ServerEvent, WorkspaceSnapshot } from '@cockpit/shared';
 import { handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
-import { GUEST_ACCOUNT_NAME } from '../../../src/auth/register.js';
+import { GUEST_ACCOUNT_NAME } from '../../../src/accounts/new-user.js';
 import { seedRegister, startFromEmpty, storeNamed } from '../seed.js';
 import { issuerIsReachable, issuerWillIdentify } from '../issuer.js';
 

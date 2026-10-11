@@ -6,7 +6,7 @@ import {
   INBOX_TASK,
 } from '../../src/accounts/getting-started-data.js';
 import { PROBE_NAME } from '../../src/accounts/probe.js';
-import { GUEST_ACCOUNT_NAME } from '../../src/auth/register.js';
+import { GUEST_ACCOUNT_NAME } from '../../src/accounts/new-user.js';
 import { issuerIsReachable, issuerWillIdentify } from './issuer.js';
 
 /**

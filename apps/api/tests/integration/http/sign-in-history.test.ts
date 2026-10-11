@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import { OTHER_USER_ID, TASK_TYPE_ID, USER_ID, WORKSPACE_ID, seedRegister, startFromEmpty, taskTypeIn } from '../seed.js';
-import { GUEST_ACCOUNT_NAME, GUEST_USER_ID } from '../../../src/auth/register.js';
+import { GUEST_ACCOUNT_NAME, GUEST_USER_ID } from '../../../src/accounts/new-user.js';
 import { handleScheduled } from '../../../src/jobs/index.js';
 import { issuerIsReachable, issuerWillIdentify } from '../issuer.js';
 

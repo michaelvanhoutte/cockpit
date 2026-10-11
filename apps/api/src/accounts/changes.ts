@@ -12,7 +12,7 @@ import {
   themeOf,
 } from '@cockpit/shared';
 import type { AssociationKind } from '@cockpit/shared';
-import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
+import { GUEST_ACCOUNT_NAME } from './new-user.js';
 import { foldName } from '../domain/names.js';
 import {
   GUEST_DEMO,

@@ -1,4 +1,4 @@
-import { derivedKey } from '../connectors/credential-crypto.js';
+import { derivedKey } from './key-derivation.js';
 
 /**
  * A link that opens one attachment without a sign-in, for an agent's session

@@ -64,52 +64,7 @@
       ]
     ]
   },
-  "allowlist": [
-    {
-      "from": "apps/api/src/accounts/changes.ts",
-      "to": "apps/api/src/auth/register.ts"
-    },
-    {
-      "from": "apps/api/src/accounts/index.ts",
-      "to": "apps/api/src/auth/register.ts"
-    },
-    {
-      "from": "apps/api/src/accounts/index.ts",
-      "to": "apps/api/src/jobs/debounce.ts"
-    },
-    {
-      "from": "apps/api/src/accounts/new-user.ts",
-      "to": "apps/api/src/auth/oidc.ts"
-    },
-    {
-      "from": "apps/api/src/accounts/rpc.ts",
-      "to": "apps/api/src/jobs/debounce.ts"
-    },
-    {
-      "from": "apps/api/src/accounts/store.ts",
-      "to": "apps/api/src/auth/register.ts"
-    },
-    {
-      "from": "apps/api/src/accounts/store.ts",
-      "to": "apps/api/src/jobs/debounce.ts"
-    },
-    {
-      "from": "apps/api/src/accounts/store.ts",
-      "to": "apps/api/src/mcp/create-item.ts"
-    },
-    {
-      "from": "apps/api/src/auth/attachment-link.ts",
-      "to": "apps/api/src/connectors/credential-crypto.ts"
-    },
-    {
-      "from": "apps/api/src/auth/return-path.ts",
-      "to": "apps/api/src/mcp/paths.ts"
-    },
-    {
-      "from": "apps/api/src/connectors/push-host.ts",
-      "to": "apps/api/src/jobs/enrichment.ts"
-    }
-  ],
+  "allowlist": [],
   "engines": [
     "apps/api/src/engines/list.ts",
     "apps/web/src/components/engines.ts"

@@ -3,7 +3,7 @@ import { SELF, applyD1Migrations, env, runDurableObjectAlarm, runInDurableObject
 import { FIRST_WORKSPACE_NAME } from '@cockpit/shared';
 import type { SourceAccount, Workspace, WorkspaceSnapshot } from '@cockpit/shared';
 import { accountChanges } from '../../../src/accounts/changes.js';
-import { GUEST_ACCOUNT_NAME } from '../../../src/auth/register.js';
+import { GUEST_ACCOUNT_NAME } from '../../../src/accounts/new-user.js';
 import { inStoreAsItIs, seedRegister, startFromEmpty, storeNamed } from '../seed.js';
 import { handleScheduled } from '../../../src/jobs/index.js';
 

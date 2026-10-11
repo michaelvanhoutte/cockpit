@@ -16,7 +16,7 @@ import {
   type SeedPanel,
   type SeedWorkspace,
 } from '../../../src/accounts/guest-seed-data.js';
-import { GUEST_ACCOUNT_NAME } from '../../../src/auth/register.js';
+import { GUEST_ACCOUNT_NAME } from '../../../src/accounts/new-user.js';
 import type { Statement } from '../../../src/accounts/up-to-date.js';
 
 /**

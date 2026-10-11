@@ -19,7 +19,7 @@ import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { AccountStoreRpc, RestoreReport } from './rpc.js';
 import { accountChanges } from './changes.js';
 import { allowanceSpent } from './allowance.js';
-import { laterOf, type RefreshAsk } from '../jobs/debounce.js';
+import { laterOf, type RefreshAsk } from './debounce.js';
 import {
   CHANGE_LEDGER,
   accountTables,
@@ -30,8 +30,8 @@ import {
   type AccountBackup,
   type ForeignRow,
 } from './backup.js';
-import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
-import { HOOK_CALLS_PER_MINUTE, admittedCalls } from './call-window.js';
+import { GUEST_ACCOUNT_NAME } from './new-user.js';
+import { APP_CAPTURES_PER_MINUTE, HOOK_CALLS_PER_MINUTE, admittedCalls } from './call-window.js';
 import { PULLED_CHECK_EVERY_MS } from '../domain/pulled-checks.js';
 import { bringPulledCheckForward } from './pulled-open-state.js';
 import {
@@ -51,7 +51,6 @@ import {
   type PulledRunBegun,
 } from './pulled.js';
 import type { CompleteListing, EmittedItem, OpenStateWanted, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
-import { APP_CAPTURES_PER_MINUTE } from '../mcp/create-item.js';
 import {
   deleteAllRows,
   dropAccountTables,

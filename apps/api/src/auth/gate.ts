@@ -183,7 +183,7 @@ const INGRESS_PREFIX = '/ingress/';
  * Claude to Cockpit, and capture an item from it", issue 599). It is answered
  * in front of the application (`worker.ts`), together with the OAuth
  * library's token, registration and discovery addresses and Cockpit's own
- * consent page (`mcp/paths.ts`). What admits a call to `/mcp` is an access
+ * consent page (`auth/mcp-paths.ts`). What admits a call to `/mcp` is an access
  * token this Cockpit issued, checked by the library, and nothing else - so a
  * session cookie must never be enough, which is why it is routed before this
  * gate rather than waved through it: a browser sends its cookie to every

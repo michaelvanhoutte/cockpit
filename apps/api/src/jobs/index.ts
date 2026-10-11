@@ -167,7 +167,7 @@ async function resetTheGuestAccount(env: Env): Promise<void> {
  *
  * **Several refreshes of one Workspace's panels are not collapsed here.**
  * Each carries the ask it was queued for, and every one but the latest finds itself superseded once it runs and does nothing
- * (`src/jobs/debounce.ts`) - across the whole debounce window rather than
+ * (`src/accounts/debounce.ts`) - across the whole debounce window rather than
  * only within one batch ("Debounce the settle-triggered repropose fan-out
  * across a real time window", issue 582).
  *

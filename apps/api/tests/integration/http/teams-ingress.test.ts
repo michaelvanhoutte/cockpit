@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import type { Item } from '@cockpit/shared';
+import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { rememberConnection } from '../../../src/connectors/directory.js';
 import { seal, sealingKey } from '../../../src/connectors/credential-crypto.js';
 import {
@@ -263,6 +264,61 @@ describe('Capture', () => {
       const items = await itemsIn();
       expect(items).toHaveLength(1);
       expect(items[0]!.id).not.toBe(first!.id);
+    });
+  });
+
+  /**
+   * What the push host is handed to queue behind the response (the ingress
+   * route hands it in, as the queue consumer hands the pulled host its own),
+   * so only the real route, queue binding and store can show it still queues.
+   */
+  describe('a message saved from Teams is cleaned up and read for its meaning, once for each item it files', () => {
+    let held: EnrichmentJob[];
+    let realQueue: typeof env.ENRICHMENT;
+
+    beforeEach(() => {
+      held = [];
+      realQueue = env.ENRICHMENT;
+      env.ENRICHMENT = {
+        send: async (body: EnrichmentJob) => void held.push(body),
+      } as unknown as typeof env.ENRICHMENT;
+      // Both set, so neither is left unasked because this environment could not have run it.
+      env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
+      env.EMBEDDINGS_STAND_IN = 'true';
+    });
+
+    afterEach(() => {
+      env.ENRICHMENT = realQueue;
+      env.ANTHROPIC_API_KEY = '';
+      env.EMBEDDINGS_STAND_IN = '';
+    });
+
+    const queuedFor = (itemId: string) =>
+      held.filter((job) => 'itemId' in job && job.itemId === itemId).map((job) => job.kind).sort();
+
+    async function untilQueuedFor(itemId: string): Promise<void> {
+      for (let waited = 0; waited < 10_000 && queuedFor(itemId).length < 2; waited += 25) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+
+    it('queues both for the item it files, and nothing again when the same press is delivered twice', async () => {
+      await connectTeams();
+
+      await saveFromTeams();
+      await saveFromTeams();
+      // The press after them is queued behind the delivery that repeated: once its
+      // own are in, anything the repeat was going to queue is in too.
+      await saveFromTeams({ activity: saveToCockpitCall({ messageId: '1757930999000', said: 'And this one' }) });
+
+      const items = await itemsIn();
+      expect(items).toHaveLength(2);
+      await untilQueuedFor(items[0]!.id);
+      await untilQueuedFor(items[1]!.id);
+      expect(items.map((item) => queuedFor(item.id))).toEqual([
+        ['clean-up-a-note', 'read-what-a-note-means'],
+        ['clean-up-a-note', 'read-what-a-note-means'],
+      ]);
     });
   });
 

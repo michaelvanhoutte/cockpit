@@ -121,8 +121,8 @@ import { revokeAfterDisconnect } from '../connectors/revoke.js';
 import { guestConnectionGate, isTheGuest } from '../auth/guest-connections.js';
 import { providerCallsIn } from '../gateway/record.js';
 import { countForGuest, countryOf, referrerHostOf } from '../auth/sign-in-history.js';
+import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
 import {
-  GUEST_ACCOUNT_NAME,
   endSession,
   signInAsGuest,
   signInWithGoogle,
@@ -2624,7 +2624,10 @@ const routes = app
       c.req.raw,
       pushHostFor(connector.manifest.id, {
         env: c.env,
-        waitUntil: (work) => c.executionCtx.waitUntil(work),
+        filed: (accountName, itemId, filedBy) => {
+          c.executionCtx.waitUntil(enqueueCleanUp(c.env, accountName, itemId, `connector:${filedBy}`));
+          c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, itemId, `connector:${filedBy}`));
+        },
       }),
     );
   })

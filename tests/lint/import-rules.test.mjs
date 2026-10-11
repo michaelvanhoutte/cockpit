@@ -207,7 +207,8 @@ describe('specifiersOf', () => {
 });
 
 describe("today's tree", () => {
-  it('passes, with the allowlist holding exactly the breaches the tree has', () => {
+  it('passes with nothing excused: every API area imports only the areas below it', () => {
+    assert.deepEqual(JSON.parse(readFileSync(join(repo, 'scripts/import-rules.json'), 'utf8')).allowlist, []);
     const git = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
     const base = readBase({ event: process.env.GITHUB_EVENT_NAME, ci: process.env.GITHUB_ACTIONS === 'true', git });
     if (base.skipped) console.log(`# shrink-only comparison skipped: ${base.skipped}`);

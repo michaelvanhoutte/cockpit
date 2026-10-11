@@ -21,20 +21,25 @@ export const ACCOUNT_NAME_LIMIT = 48;
 const ACCOUNT_PREFIX = 'tenant-';
 const USER_PREFIX = 'user-';
 
+import { GUEST_USER_ID, NAME_LIMIT } from '@cockpit/shared';
+
 /**
- * The address, in the one spelling the register compares by - which is
- * `normaliseAddress`, taken from the sign-in rather than written again.
+ * The one spelling of an address this application uses.
+ *
+ * The register holds an address as it is written and the unique index compares
+ * it the same way (apps/api/src/db/schema.ts), so two spellings of one address
+ * would be two people.
  *
  * **Two foldings would be two identities.** Signing in looks a person up by the
- * address Google gave, and adding one writes the address an admin typed; if
- * those ever settled differently - one stripping a `+tag` or Gmail's dots and
- * the other not - the person added would simply be refused at sign-in, with
- * nothing anywhere reporting an error. So there is one function and this is a
- * name for it.
+ * address Google gave (`auth/oidc.ts` takes this function for it), and adding
+ * one writes the address an admin typed; if those ever settled differently - one
+ * stripping a `+tag` or Gmail's dots and the other not - the person added would
+ * simply be refused at sign-in, with nothing anywhere reporting an error. So
+ * there is one function, here, below both.
  */
-export { normaliseAddress as foldAddress } from '../auth/oidc.js';
-import { GUEST_USER_ID, NAME_LIMIT } from '@cockpit/shared';
-import { normaliseAddress } from '../auth/oidc.js';
+export function foldAddress(email: string): string {
+  return email.trim().toLowerCase();
+}
 
 /**
  * The one guest account's ids ("Sign in as a guest, without a password", issue
@@ -88,7 +93,7 @@ export function newcomerNamed(address: string, googleName?: string): { name: str
  * only refuse addresses that work.
  */
 export function addressLooksReal(address: string): boolean {
-  return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(normaliseAddress(address));
+  return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(foldAddress(address));
 }
 
 /**
@@ -197,7 +202,7 @@ export type Refusal = { what: string };
  * user real: a row without an address is somebody nobody can sign in as.
  */
 export function whatIsWrongWith({ name, address }: { name: string; address: string }): Refusal | null {
-  if (normaliseAddress(address).length === 0) {
+  if (foldAddress(address).length === 0) {
     return { what: 'an address is what somebody signs in with, so it is needed' };
   }
   if (!addressLooksReal(address)) {

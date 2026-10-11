@@ -323,7 +323,7 @@ src/
 └── gateway/       # makes, retries and records every paid provider call (provider_calls)
 ```
 
-The dependency rule is one-directional: `domain` imports nothing from the other layers, which makes the L1 tier a property of the design rather than a mocking exercise. Between the API's areas the direction is `http` → `mcp` → `jobs` → `engines` → `connectors` → `auth` → `accounts` → `db` → `ai`, `embeddings` → `gateway` → `domain`, and CI fails an import that runs against it; `scripts/import-rules.json` declares it, with the breaches not yet removed as an allowlist that can only shrink.
+The dependency rule is one-directional: `domain` imports nothing from the other layers, which makes the L1 tier a property of the design rather than a mocking exercise. Between the API's areas the direction is `http` → `mcp` → `jobs` → `engines` → `connectors` → `auth` → `accounts` → `db` → `ai`, `embeddings` → `gateway` → `domain`, and CI fails an import that runs against it; `scripts/import-rules.json` declares it, and its allowlist of breaches is empty and can only shrink, so no import excuses itself.
 
 ### 6.2 Connectors: plugin-shaped, host-blind
 
