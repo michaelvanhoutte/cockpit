@@ -501,3 +501,47 @@ export function forgetAttempt(c: Context): void {
 export function forgetConnectAttempt(c: Context): void {
   deleteCookie(c, connectCookieName(c.req.url), attemptCookieOptions(c.req.url));
 }
+
+/**
+ * Where Google is told to send the browser back: this environment's own
+ * address, configured, and never taken from the request.
+ *
+ * **It is the address the person is looking at, which is not the address this
+ * Worker answers on.** In development they are two different servers - the
+ * browser is on Vite, which proxies `/v1` through - so a callback built from
+ * the request would take the browser off the application it is using and onto
+ * the Worker, where it would land on the last *built* copy of the app rather
+ * than the one being edited. Found by driving it, not by reading it.
+ *
+ * Configured rather than derived also settles the other half: it has to be
+ * character-for-character one of the redirect URIs registered with the Google
+ * client (docs/deployment.md, "A Google OAuth client"), and a Host header is
+ * something a request carries rather than something this application knows.
+ */
+export function callbackUrl(c: Context): string {
+  return new URL('/v1/sign-in/google/callback', c.env.APP_ORIGIN).toString();
+}
+
+/**
+ * A sign-in that will not be completed, whether something was wrong with it or
+ * something broke.
+ *
+ * **Why goes to the log and never to the browser.** Each reason names something
+ * an attacker got wrong, and the person actually signing in can do nothing with
+ * any of them; the page says the sign-in failed and offers to start another.
+ * The refusals they *can* act on - an address a different Google account holds
+ * here, or access taken away - are the ones the callback answers with a reason
+ * of its own.
+ */
+export function refuse(c: Context, reason: string, cause?: unknown) {
+  console.error(
+    JSON.stringify({
+      level: 'error',
+      message: `sign-in refused: ${reason}`,
+      ...(cause === undefined
+        ? {}
+        : { cause: cause instanceof Error ? cause.message : String(cause) }),
+    }),
+  );
+  return c.redirect('/signin?refused=failed', 302);
+}

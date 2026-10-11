@@ -41,6 +41,12 @@ import {
 } from '@cockpit/shared';
 import { CLAUDE_CODE, CLAUDE_CODE_NAME } from '../domain/named-sources.js';
 import {
+  accountBackupSchema,
+  accountNameSchema,
+  firstProblem,
+  registerBackupSchema,
+} from '../accounts/backup.js';
+import {
   AccountNotInRegisterError,
   AccountNotUpToDateError,
   AllowanceSpentError,
@@ -51,8 +57,10 @@ import {
   RegisterRowUnusableError,
   RowsFromAnotherAccountError,
   accountHoldings,
+  accountOpened,
   backUpAccount,
   openAccount,
+  serveAttachment,
   addUser,
   changeUser,
   deleteUser,
@@ -101,8 +109,10 @@ import {
   forgetAttempt,
   forgetConnectAttempt,
   forgetSessionCookie,
+  callbackUrl,
   gate,
   heldSessionId,
+  refuse,
   rememberAttempt,
   rememberConnectAttempt,
   rememberSessionCookie,
@@ -116,7 +126,15 @@ import { returnPathFrom } from '../auth/return-path.js';
 import { connectedAppsOf, disconnectApp } from '../mcp/connected-apps.js';
 import { revokeAppsOf } from '../mcp/revoke.js';
 import { open, seal, sealingKey, type Sealed } from '../connectors/credential-crypto.js';
-import { accountSignedIn, authorizationRequest, clientOf, signInOf } from '../connectors/sign-in.js';
+import {
+  accountSignedIn,
+  authorizationRequest,
+  backToConnections,
+  choiceOptionsOf,
+  clientOf,
+  refuseConnection,
+  signInOf,
+} from '../connectors/sign-in.js';
 import { revokeAfterDisconnect } from '../connectors/revoke.js';
 import { guestConnectionGate, isTheGuest } from '../auth/guest-connections.js';
 import { providerCallsIn } from '../gateway/record.js';
@@ -144,139 +162,6 @@ import type { Env } from '../env.js';
 type AppEnv = GatedEnv;
 
 const errorSchema = z.object({ error: z.string() });
-
-/**
- * Where Google is told to send the browser back: this environment's own
- * address, configured, and never taken from the request.
- *
- * **It is the address the person is looking at, which is not the address this
- * Worker answers on.** In development they are two different servers - the
- * browser is on Vite, which proxies `/v1` through - so a callback built from
- * the request would take the browser off the application it is using and onto
- * the Worker, where it would land on the last *built* copy of the app rather
- * than the one being edited. Found by driving it, not by reading it.
- *
- * Configured rather than derived also settles the other half: it has to be
- * character-for-character one of the redirect URIs registered with the Google
- * client (docs/deployment.md, "A Google OAuth client"), and a Host header is
- * something a request carries rather than something this application knows.
- */
-function callbackUrl(c: Context): string {
-  return new URL('/v1/sign-in/google/callback', c.env.APP_ORIGIN).toString();
-}
-
-/**
- * A sign-in that will not be completed, whether something was wrong with it or
- * something broke.
- *
- * **Why goes to the log and never to the browser.** Each reason names something
- * an attacker got wrong, and the person actually signing in can do nothing with
- * any of them; the page says the sign-in failed and offers to start another.
- * The refusals they *can* act on - an address a different Google account holds
- * here, or access taken away - are the ones the callback answers with a reason
- * of its own.
- */
-function refuse(c: Context, reason: string, cause?: unknown) {
-  console.error(
-    JSON.stringify({
-      level: 'error',
-      message: `sign-in refused: ${reason}`,
-      ...(cause === undefined
-        ? {}
-        : { cause: cause instanceof Error ? cause.message : String(cause) }),
-    }),
-  );
-  return c.redirect('/signin?refused=failed', 302);
-}
-
-/**
- * Back to the Workspace, with the window that asked open over it and saying
- * how it went ("Connect a Microsoft Teams source account", issue 485).
- *
- * **It went through, or it did not**, which is the whole contract with the
- * client (`apps/web/src/connections.ts`). Why it did not goes to the log, and
- * reaches the address **only where the person can act on it**: a refusal the
- * connector's own account step gave, as its connector and code (issue 941).
- * Every other reason names something an attacker got wrong or something only
- * an operator can fix, and for those the window offers the one thing that
- * helps, which is Connect again.
- *
- * A browser holding no attempt has no Workspace to be sent back to, so it
- * lands where the app decides - which is what a stray navigation to this
- * address gets.
- */
-function backToConnections(
-  c: Context,
-  workspaceId: string | undefined,
-  outcome: 'connected' | 'refused',
-  /**
-   * A refusal a connector's own account step gave: who, and its code. Codes
-   * only - the window finds the sentence in the connector's listing.
-   */
-  because?: { connectorId: string; code: string },
-) {
-  if (!workspaceId) return c.redirect('/', 302);
-  const why = because
-    ? `&by=${encodeURIComponent(because.connectorId)}&because=${encodeURIComponent(because.code)}`
-    : '';
-  return c.redirect(
-    `/w/${encodeURIComponent(workspaceId)}?connections=${outcome}${why}`,
-    302,
-  );
-}
-
-/** The options a connection's connector offers for its one choice, or none where it declares none (issue 942). */
-function choiceOptionsOf(env: Env, connectorId: string) {
-  return getConnector(env, connectorId)?.manifest.choice?.options;
-}
-
-/** A connection that will not be completed, logged the way a refused sign-in is. */
-function refuseConnection(
-  c: Context,
-  workspaceId: string | undefined,
-  reason: string,
-  cause?: unknown,
-  because?: { connectorId: string; code: string },
-) {
-  console.error(
-    JSON.stringify({
-      level: 'error',
-      message: `connecting a source account refused: ${reason}`,
-      ...(cause === undefined
-        ? {}
-        : { cause: cause instanceof Error ? cause.message : String(cause) }),
-    }),
-  );
-  return backToConnections(c, workspaceId, 'refused', because);
-}
-
-/**
- * Opens an account the register has just made, and says whether it opened -
- * for adding somebody, and for somebody's first sign-in making them one.
- *
- * **Opened straight away**, so a change that will not apply is met by whoever
- * made the account rather than by its owner's first request.
- *
- * **Never throws.** After the register and never before it: a store opened for
- * an account nobody owns is an object nothing can reach, while a person whose
- * account is not ready simply has it made on their first request. So what a
- * failure here costs is a log line, not the answer.
- */
-async function accountOpened(env: Env, accountId: string, who: string): Promise<boolean> {
-  try {
-    await (await openAccount(env, accountId)).workspaces();
-    return true;
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        level: 'error',
-        message: `${who} but their account would not open`,
-        cause: error instanceof Error ? error.message : String(error),
-      }),
-    );
-    return false;
-  }
-}
 
 /** Thin adapters only: validate → call the account, serialize (architecture, "Hono + Zod on Cloudflare Workers"). */
 const app = new OpenAPIHono<AppEnv>({
@@ -902,29 +787,6 @@ const disconnectAppRoute = createRoute({
   },
 });
 
-/**
- * An attachment's bytes as a response, or null where R2 no longer holds them
- * - what the signed-in download and an agent's link both answer with.
- */
-async function serveAttachment(env: Env, attachment: AttachmentForDownload): Promise<Response | null> {
-  const object = await env.ATTACHMENTS.get(attachment.r2Key);
-  if (!object) return null;
-  // The same DOM-lib-vs-workers-types conflict the upload route's own
-  // comment explains - `unknown` bridges this one cleanly, unlike the
-  // upload route's `.put()` call, whose own parameter type needed `any`
-  // instead: the two sides of that conflict don't fail identically.
-  return new Response(object.body as unknown as ReadableStream, {
-    status: 200,
-    headers: {
-      // The stored, allowlisted type - never a passthrough of whatever the
-      // upload claimed (issue 441's own download test case), even though
-      // `add_attachment`'s own write already made the two agree.
-      'Content-Type': attachment.contentType,
-      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(attachment.filename)}`,
-    },
-  });
-}
-
 /** What every Claude Code route answers where this deployment has no `CONNECTOR_CREDENTIAL_KEY` to seal or open a credential with at all. */
 const NO_SEALING_KEY_MESSAGE = 'This environment cannot connect a source account.';
 
@@ -1243,62 +1105,6 @@ async function changeThatRewritesTheTexts<N extends 'set_title' | 'set_descripti
  */
 export function worthReporting(stream: { aborted: boolean; closed: boolean }): boolean {
   return !stream.aborted && !stream.closed;
-}
-
-/**
- * What the operator's restore routes accept.
- *
- * **They validate like every other route**, per this file's own rule that
- * handlers are thin adapters which validate, call the account and serialize.
- * The first draft of these two did not, and cast the parsed body instead - so
- * every malformed body answered `500 internal error`, telling an operator
- * nothing about a file they could fix. Worse than the message: the only reason
- * a malformed body was not *destructive* was that the two guards which throw on
- * one happen to run before the transaction opens. That is an accident of
- * ordering rather than a property, and this is what makes it a property.
- *
- * A row is left as an open record because a backup's shape is the store's,
- * which this layer deliberately knows nothing about - `restore.ts` checks the
- * rows of a table agree with each other, and the database checks the rest.
- */
-const rowSchema = z.record(z.string(), z.union([z.string(), z.number(), z.null()]));
-
-/**
- * **`account` is required, and it is what says whose file this is.**
- *
- * A backup carries the name it was taken from, and until it was checked nothing
- * anywhere compared that to the account being restored into: the rows' own
- * `tenant_id` was doing the work, which holds for a file with rows in it and
- * says nothing at all about one without any. A backup of an account nobody has
- * opened is exactly that file, so somebody else's empty backup could be poured
- * into a busy account - dropping every table it held and answering 200, having
- * detected no violation because there were no rows to disagree.
- */
-const accountBackupSchema = z.object({
-  account: z.string(),
-  changesApplied: z.array(z.string()),
-  tables: z.record(z.string(), z.array(rowSchema)),
-});
-
-const registerBackupSchema = z.object({
-  tenants: z.array(rowSchema),
-  users: z.array(rowSchema),
-});
-
-/**
- * The same shape a backup file's name has to take (`scripts/lib/backup.mjs`).
- * The register cannot be consulted here - an account is restored before its
- * register row exists - so this is what stands between a typed name and a store
- * created under it that nothing will ever address again.
- */
-const accountNameSchema = z.string().regex(/^[A-Za-z0-9._-]+$/);
-
-/** Something a person can act on, rather than the whole of Zod's report. */
-function firstProblem(error: z.ZodError): string {
-  const first = error.issues[0];
-  if (!first) return 'it is the wrong shape';
-  const at = first.path.join('.');
-  return at ? `${at} ${first.message.toLowerCase()}` : first.message.toLowerCase();
 }
 
 /** A body that is not JSON at all is the same answer as one of the wrong shape. */

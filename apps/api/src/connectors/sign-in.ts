@@ -1,4 +1,5 @@
 import type { ConnectedAccountIdentity, Connector, OAuthDescriptor } from '@cockpit/connector-sdk';
+import type { Context } from 'hono';
 import { authorizationUrl, claimsFrom, type Attempt } from '../auth/oidc.js';
 import { endpointsFor, exchangeCode, keysOf, spendCode } from '../auth/issuer.js';
 import type { Env } from '../env.js';
@@ -11,10 +12,11 @@ import { getConnector } from './registry.js';
  * which client to ask as, and, once the source has answered, which account it
  * named.
  *
- * What stays in the routes (`http/app.ts`) is the navigation: the Workspace
- * and account carried in the attempt cookie, the session check, sealing and
- * the command that stores. What is here is the conversation with the source,
- * which differs per source only in what the connector's description says.
+ * What stays in the routes (`http/app.ts`) is the request: the Workspace and
+ * account carried in the attempt cookie, the session check, sealing and the
+ * command that stores. What is here is the conversation with the source, and
+ * the way back to Connections from it, which differs per source only in what
+ * the connector's description says.
  */
 
 /** A registered connector that signs in with OAuth, and how. */
@@ -182,4 +184,65 @@ function parsedObject(text: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Back to the Workspace, with the window that asked open over it and saying
+ * how it went ("Connect a Microsoft Teams source account", issue 485).
+ *
+ * **It went through, or it did not**, which is the whole contract with the
+ * client (`apps/web/src/connections.ts`). Why it did not goes to the log, and
+ * reaches the address **only where the person can act on it**: a refusal the
+ * connector's own account step gave, as its connector and code (issue 941).
+ * Every other reason names something an attacker got wrong or something only
+ * an operator can fix, and for those the window offers the one thing that
+ * helps, which is Connect again.
+ *
+ * A browser holding no attempt has no Workspace to be sent back to, so it
+ * lands where the app decides - which is what a stray navigation to this
+ * address gets.
+ */
+export function backToConnections(
+  c: Context,
+  workspaceId: string | undefined,
+  outcome: 'connected' | 'refused',
+  /**
+   * A refusal a connector's own account step gave: who, and its code. Codes
+   * only - the window finds the sentence in the connector's listing.
+   */
+  because?: { connectorId: string; code: string },
+) {
+  if (!workspaceId) return c.redirect('/', 302);
+  const why = because
+    ? `&by=${encodeURIComponent(because.connectorId)}&because=${encodeURIComponent(because.code)}`
+    : '';
+  return c.redirect(
+    `/w/${encodeURIComponent(workspaceId)}?connections=${outcome}${why}`,
+    302,
+  );
+}
+
+/** The options a connection's connector offers for its one choice, or none where it declares none (issue 942). */
+export function choiceOptionsOf(env: Env, connectorId: string) {
+  return getConnector(env, connectorId)?.manifest.choice?.options;
+}
+
+/** A connection that will not be completed, logged the way a refused sign-in is. */
+export function refuseConnection(
+  c: Context,
+  workspaceId: string | undefined,
+  reason: string,
+  cause?: unknown,
+  because?: { connectorId: string; code: string },
+) {
+  console.error(
+    JSON.stringify({
+      level: 'error',
+      message: `connecting a source account refused: ${reason}`,
+      ...(cause === undefined
+        ? {}
+        : { cause: cause instanceof Error ? cause.message : String(cause) }),
+    }),
+  );
+  return backToConnections(c, workspaceId, 'refused', because);
 }

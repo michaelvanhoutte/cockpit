@@ -1,4 +1,5 @@
 import type { SqlStorage, SqlStorageValue } from '@cloudflare/workers-types';
+import { z } from 'zod';
 
 /**
  * Reading one account's store out, whole, for a backup.
@@ -227,4 +228,61 @@ function changesApplied(sql: SqlStorage): string[] {
     .exec<{ name: string }>(`SELECT name FROM ${CHANGE_LEDGER} ORDER BY name`)
     .toArray()
     .map((row) => row.name);
+}
+
+/**
+ * What the operator's restore routes accept.
+ *
+ * **They validate like every other route**, per the rule the HTTP layer keeps
+ * (`http/app.ts`): handlers are thin adapters which validate, call the account
+ * and serialize. The first draft of the two operator restore routes did not,
+ * and cast the parsed body instead - so
+ * every malformed body answered `500 internal error`, telling an operator
+ * nothing about a file they could fix. Worse than the message: the only reason
+ * a malformed body was not *destructive* was that the two guards which throw on
+ * one happen to run before the transaction opens. That is an accident of
+ * ordering rather than a property, and this is what makes it a property.
+ *
+ * A row is left as an open record because a backup's shape is the store's,
+ * which this layer deliberately knows nothing about - `restore.ts` checks the
+ * rows of a table agree with each other, and the database checks the rest.
+ */
+const rowSchema = z.record(z.string(), z.union([z.string(), z.number(), z.null()]));
+
+/**
+ * **`account` is required, and it is what says whose file this is.**
+ *
+ * A backup carries the name it was taken from, and until it was checked nothing
+ * anywhere compared that to the account being restored into: the rows' own
+ * `tenant_id` was doing the work, which holds for a file with rows in it and
+ * says nothing at all about one without any. A backup of an account nobody has
+ * opened is exactly that file, so somebody else's empty backup could be poured
+ * into a busy account - dropping every table it held and answering 200, having
+ * detected no violation because there were no rows to disagree.
+ */
+export const accountBackupSchema = z.object({
+  account: z.string(),
+  changesApplied: z.array(z.string()),
+  tables: z.record(z.string(), z.array(rowSchema)),
+});
+
+export const registerBackupSchema = z.object({
+  tenants: z.array(rowSchema),
+  users: z.array(rowSchema),
+});
+
+/**
+ * The same shape a backup file's name has to take (`scripts/lib/backup.mjs`).
+ * The register cannot be consulted here - an account is restored before its
+ * register row exists - so this is what stands between a typed name and a store
+ * created under it that nothing will ever address again.
+ */
+export const accountNameSchema = z.string().regex(/^[A-Za-z0-9._-]+$/);
+
+/** Something a person can act on, rather than the whole of Zod's report. */
+export function firstProblem(error: z.ZodError): string {
+  const first = error.issues[0];
+  if (!first) return 'it is the wrong shape';
+  const at = first.path.join('.');
+  return at ? `${at} ${first.message.toLowerCase()}` : first.message.toLowerCase();
 }
