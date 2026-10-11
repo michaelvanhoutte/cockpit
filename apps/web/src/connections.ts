@@ -12,7 +12,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
  * the Worker, which has only the address to say anything in.
  *
  * **It went through, or it did not**, which is the whole contract with the
- * callback routes (`apps/api/src/http/app.ts`, `backToConnections`). Why it
+ * callback routes (`backToConnections`, `apps/api/src/connectors/sign-in.ts`). Why it
  * did not is in the Worker's log, and here only where the person can act on
  * it: the connector and the code its own account step refused the grant with,
  * whose sentence the connector's listing holds (issue 941).

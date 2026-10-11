@@ -244,7 +244,7 @@ function changesApplied(sql: SqlStorage): string[] {
  * ordering rather than a property, and this is what makes it a property.
  *
  * A row is left as an open record because a backup's shape is the store's,
- * which this layer deliberately knows nothing about - `restore.ts` checks the
+ * which this schema deliberately knows nothing about - `restore.ts` checks the
  * rows of a table agree with each other, and the database checks the rest.
  */
 const rowSchema = z.record(z.string(), z.union([z.string(), z.number(), z.null()]));
