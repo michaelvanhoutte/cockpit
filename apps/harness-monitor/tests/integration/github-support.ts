@@ -12,6 +12,7 @@ export interface Node {
   mergedAt: string | null;
   updatedAt: string;
   headRefName: string;
+  isCrossRepository?: boolean;
   author: { login: string } | null;
   closingIssuesReferences: { nodes: { number: number }[] };
 }

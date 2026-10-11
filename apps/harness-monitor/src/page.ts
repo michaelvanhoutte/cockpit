@@ -13,7 +13,7 @@ function sessionRow(s: SessionLine): string {
   const cells =
     s.status.kind === 'linked'
       ? [
-          `#${s.status.prNumber} ${escape(s.status.title)} (${s.status.state.toLowerCase()})`,
+          `#${s.status.prNumber} ${escape(s.status.title)} (${escape(s.status.state.toLowerCase())})`,
           s.status.issue === null ? 'none' : `#${s.status.issue}`,
           s.status.engineer === null ? 'unknown' : escape(s.status.engineer),
         ]

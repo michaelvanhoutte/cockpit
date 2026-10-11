@@ -58,6 +58,17 @@ describe('Harness Monitor', () => {
       expect((await sessionsOnThePage()).s1![1]).toContain('#2 Newer attempt');
     });
 
+    it("a fork's pull request never claims a branch of the same name here", async () => {
+      await send([usage('r1', { sessionId: 's1', branch: 'claude/shared' })]);
+      const ours = pullRequest({ number: 1, headRefName: 'claude/shared', updatedAt: '2026-10-01T10:00:00Z', title: 'Ours' });
+      const fork = pullRequest({ number: 2, headRefName: 'claude/shared', updatedAt: '2026-10-02T10:00:00Z', isCrossRepository: true });
+      fakeGitHub(() => pageOf([ours, fork]));
+
+      await runHourly();
+
+      expect((await sessionsOnThePage()).s1![1]).toContain('#1 Ours');
+    });
+
     it('a pull request whose branch has no sessions is stored and changes nothing on the page', async () => {
       fakeGitHub(() => pageOf([recordedPullRequest(979)]));
 

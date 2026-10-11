@@ -10,8 +10,11 @@ export interface PullRequest {
   engineer: string | null;
 }
 
-/** Pull requests per page; GitHub's search returns at most 1000 results for one query. */
+/** Pull requests per page. */
 export const PAGE_SIZE = 100;
+
+/** GitHub's search returns at most this many results for one query, then reports no next page. */
+export const SEARCH_CAP = 1000;
 
 /**
  * Most pages one run reads. Each page is one subrequest, and the free plan allows
@@ -24,7 +27,7 @@ const QUERY = `query($q: String!, $after: String) {
     pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
-        number title state mergedAt updatedAt headRefName
+        number title state mergedAt updatedAt headRefName isCrossRepository
         author { login }
         closingIssuesReferences(first: 1) { nodes { number } }
       }
@@ -45,6 +48,7 @@ interface Node {
   mergedAt?: string | null;
   updatedAt?: string;
   headRefName?: string;
+  isCrossRepository?: boolean;
   author?: { login?: string } | null;
   closingIssuesReferences?: { nodes?: { number?: number }[] };
 }
@@ -52,6 +56,8 @@ interface Node {
 function toPullRequest(node: Node | null): PullRequest | null {
   // Search also yields non-pull-request nodes as empty objects; a pull request names its branch.
   if (!node || typeof node.number !== 'number' || !node.headRefName || !node.updatedAt) return null;
+  // A fork's branch names nothing a session here ran on, and could share a name with one that did.
+  if (node.isCrossRepository) return null;
   return {
     number: node.number,
     title: node.title ?? '',
@@ -77,9 +83,13 @@ export async function fetchChangedPullRequests(
   token: string,
   since: string | null,
 ): Promise<Fetched> {
-  const q = `repo:${repository} is:pr sort:updated-asc${since ? ` updated:>=${since}` : ''}`;
+  const query = (from: string | null) => `repo:${repository} is:pr sort:updated-asc${from ? ` updated:>=${from}` : ''}`;
+  let q = query(since);
   const pullRequests: PullRequest[] = [];
   let after: string | null = null;
+  // Results read under the current query, and the newest updated time among them.
+  let inWindow = 0;
+  let newest = since;
   for (let page = 1; ; page += 1) {
     const response: Response = await fetch('https://api.github.com/graphql', {
       method: 'POST',
@@ -101,14 +111,22 @@ export async function fetchChangedPullRequests(
     if (!search?.nodes) throw new Error('GitHub answered without a search result.');
 
     for (const node of search.nodes) {
+      if (node?.updatedAt && (newest === null || node.updatedAt > newest)) newest = node.updatedAt;
       const pr = toPullRequest(node);
       if (pr) pullRequests.push(pr);
     }
+    inWindow += search.nodes.length;
     const more = search.pageInfo?.hasNextPage === true && !!search.pageInfo.endCursor;
-    // A full last page at the budget may be where GitHub's own cap on a search cut the list off.
-    const maybeCapped = page === MAX_PAGES && search.nodes.length === PAGE_SIZE;
-    if (!more && !maybeCapped) return { pullRequests, caughtUp: true };
+    // At the cap GitHub reports no next page though more may match: search again from the newest read.
+    const capped = !more && inWindow >= SEARCH_CAP;
+    if (!more && !capped) return { pullRequests, caughtUp: true };
     if (page === MAX_PAGES) return { pullRequests, caughtUp: false };
-    after = search.pageInfo?.endCursor ?? null;
+    if (capped) {
+      q = query(newest);
+      after = null;
+      inWindow = 0;
+    } else {
+      after = search.pageInfo?.endCursor ?? null;
+    }
   }
 }
