@@ -374,6 +374,9 @@ export function changeClass({ paths, packages } = {}) {
  * already answers 'product', security and stored data for a workspace it
  * can't place: the safe direction on a failure is the one that costs a
  * review rather than a merge.
+ *
+ * The first line is always that row; a second, ARCHITECTURE_NOTE, follows
+ * only where `docs/architecture.md` is among `paths`.
  */
 export function localChangeAnswer(paths, packages) {
   const answer = changeAnswer(paths, packages);
