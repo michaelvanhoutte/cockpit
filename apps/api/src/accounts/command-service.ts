@@ -2090,8 +2090,7 @@ export function runCommand<N extends CommandName>(
             // `issuedAt` is as true a "last worked" as a dedicated test.
             lastTestedAt: cmd.issuedAt,
             // What the Connect window asked of a connector that declares a
-            // choice (issue 942). The old `follows` column takes its default
-            // and is read by nothing.
+            // choice (issue 942).
             choice: cmd.choice ?? null,
           })
           // **Named at the account, not at the id, and that is the rule

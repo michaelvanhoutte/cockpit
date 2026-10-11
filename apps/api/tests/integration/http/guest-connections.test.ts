@@ -86,10 +86,10 @@ async function plantInGuestStore(workspaceId: string, connectorId: string, key: 
  * arrives with a Gmail and a Teams row (issue 773, `DEMO_CONNECTION` in
  * accounts/changes.ts), and what is asked here is what a visitor adds.
  */
-async function guestRows(): Promise<{ id: string; display_name: string; updated_at: string; follows: string }[]> {
+async function guestRows(): Promise<{ id: string; display_name: string; updated_at: string; choice: string | null }[]> {
   return inStoreAsItIs(GUEST_ACCOUNT_NAME, (sql) => [
-    ...sql.exec<{ id: string; display_name: string; updated_at: string; follows: string }>(
-      "SELECT id, display_name, updated_at, follows FROM connector_accounts WHERE id NOT LIKE '0e000000-%' ORDER BY id",
+    ...sql.exec<{ id: string; display_name: string; updated_at: string; choice: string | null }>(
+      "SELECT id, display_name, updated_at, choice FROM connector_accounts WHERE id NOT LIKE '0e000000-%' ORDER BY id",
     ),
   ]);
 }
