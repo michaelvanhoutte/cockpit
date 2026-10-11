@@ -1,9 +1,5 @@
 import { and, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
-import {
-  agentsShownOnDashboard,
-  hookNamesSession,
-  runBlocksAStart,
-} from '@cockpit/shared';
+import { hookNamesSession } from '@cockpit/shared';
 import { CLAUDE_CODE } from '../domain/named-sources.js';
 import type { CommandName, CommandPayload, CommandResult, PanelKind } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
@@ -119,7 +115,7 @@ import {
   itemTypeNamed,
   ordersTypesExactly,
 } from '../domain/item-types.js';
-import { agentFromCommand, agentNamed } from '../domain/agents.js';
+import { agentFromCommand, agentNamed, decideAgentStart } from '../domain/agents.js';
 import { textCorrectionFor } from '../domain/text-corrections.js';
 import {
   applyProposedPanel,
@@ -2295,30 +2291,35 @@ export function runCommand<N extends CommandName>(
       if (!item || item.workspaceId !== cmd.workspaceId || !item.workspaceDecided) {
         throw new ItemNotFoundError(cmd.itemId);
       }
-      if (!couldStillBeActedOn(item) || item.completedAt !== null) {
-        throw new AgentRunRefusedError('Claude only starts on an item still to be done.');
-      }
-      if (!getDashboard(db, tenantId, cmd.workspaceId, cmd.dashboardId)) {
-        throw new DashboardNotFoundError(cmd.dashboardId);
-      }
-      if (!claudeCodeConnectionOf(db, tenantId, cmd.workspaceId)) {
-        throw new AgentRunRefusedError('This workspace has no Claude Code connection.');
-      }
-      if (!isItemFiled(db, tenantId, cmd.itemId)) {
-        throw new AgentRunRefusedError('An agent starts on an item on a dashboard, not in the Inbox.');
-      }
-      const offered = agentsShownOnDashboard({
+      const open = openAgentRunOn(db, tenantId, cmd.itemId);
+      const decided = decideAgentStart({
+        item,
+        dashboardId: cmd.dashboardId,
+        dashboardExists: !!getDashboard(db, tenantId, cmd.workspaceId, cmd.dashboardId),
+        hasClaudeCodeConnection: !!claudeCodeConnectionOf(db, tenantId, cmd.workspaceId),
+        itemIsFiled: isItemFiled(db, tenantId, cmd.itemId),
+        agentId: cmd.agentId,
         agents: listAgents(db, tenantId),
         hiddenAgentIds: listHiddenAgents(db, tenantId, cmd.workspaceId)
           .filter((hidden) => hidden.dashboardId === cmd.dashboardId)
           .map((hidden) => hidden.agentId),
+        openRun: open,
       });
-      if (!offered.some((agent) => agent.id === cmd.agentId)) {
-        throw new AgentRunRefusedError('That agent is not on this dashboard.');
-      }
-      const open = openAgentRunOn(db, tenantId, cmd.itemId);
-      if (runBlocksAStart(open)) {
-        throw new AgentRunRefusedError('Claude is already on this item.');
+      switch (decided.refusal) {
+        case null:
+          break;
+        case 'item-not-to-be-done':
+          throw new AgentRunRefusedError('Claude only starts on an item still to be done.');
+        case 'dashboard-not-found':
+          throw new DashboardNotFoundError(decided.id);
+        case 'no-claude-code-connection':
+          throw new AgentRunRefusedError('This workspace has no Claude Code connection.');
+        case 'item-in-inbox':
+          throw new AgentRunRefusedError('An agent starts on an item on a dashboard, not in the Inbox.');
+        case 'agent-not-on-dashboard':
+          throw new AgentRunRefusedError('That agent is not on this dashboard.');
+        case 'claude-already-on-item':
+          throw new AgentRunRefusedError('Claude is already on this item.');
       }
       db.transaction((tx) => {
         // A run Claude refused started nothing, so it is ended by the start
