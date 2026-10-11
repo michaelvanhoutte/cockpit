@@ -312,7 +312,7 @@ function Joiner({
 }
 
 /** The fields a condition can be about, in the order *+ Add a condition* offers them. */
-const FIELD_ORDER: readonly FilterCondition['field'][] = ['dueDate', 'priority', 'type', 'panel', 'status'];
+const FIELD_ORDER: readonly FilterCondition['field'][] = ['dueDate', 'priority', 'type', 'panel', 'dashboard', 'status'];
 
 /** What each field is called on the add menu and beside its row. */
 const FIELD_LABELS: Record<FilterCondition['field'], string> = {
@@ -320,6 +320,7 @@ const FIELD_LABELS: Record<FilterCondition['field'], string> = {
   priority: 'Priority',
   type: 'Type',
   panel: 'Panel',
+  dashboard: 'Dashboard',
   status: 'Status',
 };
 
@@ -329,6 +330,7 @@ function defaultConditionFor(field: FilterCondition['field']): FilterCondition {
   if (field === 'priority') return { field: 'priority', values: [] };
   if (field === 'type') return { field: 'type', values: [] };
   if (field === 'panel') return { field: 'panel', values: [] };
+  if (field === 'dashboard') return { field: 'dashboard', values: [] };
   return { field: 'status', values: ['in_progress'] };
 }
 
@@ -391,6 +393,20 @@ function ConditionRow({
         values={row.values}
         options={panelOptions(panels, dashboards, layouts)}
         empty={NO_PANELS_TO_CHOOSE}
+        onChange={(values) => onChange({ ...row, values })}
+        onRemove={onRemove}
+      />
+    );
+  }
+  if (row.field === 'dashboard') {
+    return (
+      <ValuesCondition
+        at={at}
+        label={FIELD_LABELS.dashboard}
+        exclude={row.exclude === true}
+        onExclude={(exclude) => onChange(withExclusion(row, exclude))}
+        values={row.values}
+        options={dashboards.map((dashboard) => ({ id: dashboard.id, label: dashboard.name }))}
         onChange={(values) => onChange({ ...row, values })}
         onRemove={onRemove}
       />
@@ -539,7 +555,7 @@ function DueConditionRow({
 type ValueOption = { id: string; label: string; group?: string };
 
 /**
- * A Priority, a Type, a Panel or a Status row: an *is / is not* choice, the
+ * A Priority, a Type, a Panel, a Dashboard or a Status row: an *is / is not* choice, the
  * chosen values as chips, and a list to choose them from ("Filter a Filter
  * panel by priority and type", issue 464; "Filter a Filter panel by panel, and
  * name the Filters a panel's deletion affects", issue 465; "Choose a Filter

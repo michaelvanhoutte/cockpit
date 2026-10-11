@@ -1,5 +1,5 @@
 import { NO_CONDITIONS, panelGathers } from '@cockpit/shared';
-import type { Filing, Item, ItemType, Panel } from '@cockpit/shared';
+import type { Dashboard, Filing, Item, ItemType, Panel } from '@cockpit/shared';
 import { isFiltering, matchesDashboardFilter } from './dashboardFilter';
 import type { DashboardFilter } from './dashboardFilter';
 import { itemsOnPanel } from './filing';
@@ -13,6 +13,8 @@ export type PanelContents = {
   filings: readonly Filing[];
   /** Every Panel of the Workspace, since whether a filing files is a fact about the Panel it names. */
   panelsInWorkspace: readonly Panel[];
+  /** The Workspace's live Dashboards, which a Filter's Dashboard condition is read against. */
+  dashboards: readonly Pick<Dashboard, 'id'>[];
   itemTypes: readonly ItemType[];
   filter: DashboardFilter;
   withAttachments: ReadonlySet<string>;
@@ -31,6 +33,7 @@ export function itemsShownOn(panel: Panel, c: PanelContents): Item[] {
         c.items,
         c.filings,
         c.panelsInWorkspace,
+        c.dashboards,
         c.itemTypes,
         panel.filter ?? NO_CONDITIONS,
         c.today,

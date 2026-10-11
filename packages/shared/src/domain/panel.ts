@@ -243,6 +243,30 @@ export const panelConditionSchema = z.object({
 export type PanelCondition = z.infer<typeof panelConditionSchema>;
 
 /**
+ * One condition on a Filter, on which Dashboard an Item is filed on ("Include or
+ * exclude a Dashboard in a Filter panel's conditions", issue 985): the Panels
+ * of a Dashboard as they come and go, where a Panel condition would have to
+ * list every one and silently miss a Panel added later.
+ *
+ * **Dashboard ids, never Dashboards**, for the reason a Panel condition holds
+ * Panel ids. A value naming a Dashboard since deleted is ignored, and one left
+ * with none live matches nothing under *is* and filters nothing under *is not*,
+ * as a Panel condition does.
+ *
+ * **Not the same question as *Panel is not*.** *Dashboard is not A* hides an
+ * Item only when every Panel it is filed on sits on an excluded Dashboard: an
+ * Item also filed on a board you still want stays. *Dashboard is A* matches an
+ * Item filed on any Panel of A.
+ */
+export const dashboardConditionSchema = z.object({
+  field: z.literal('dashboard'),
+  values: z.array(z.string().min(1)).max(CONDITION_VALUES_LIMIT),
+  /** As on the other conditions: leave the values out rather than ask for them. */
+  exclude: z.boolean().optional(),
+});
+export type DashboardCondition = z.infer<typeof dashboardConditionSchema>;
+
+/**
  * One condition on a Filter, on whether an Item is To do or In progress ("Mark
  * an item In progress, and see since when", issue 568).
  *
@@ -271,14 +295,15 @@ export function statusValuesOf(condition: StatusCondition): readonly ('to_do' | 
 }
 
 /**
- * One row of a Filter's question: a Due date, a Priority, a Type, a Panel or
- * a Status condition.
+ * One row of a Filter's question: a Due date, a Priority, a Type, a Panel, a
+ * Dashboard or a Status condition.
  */
 export const filterConditionSchema = z.discriminatedUnion('field', [
   dueConditionSchema,
   priorityConditionSchema,
   typeConditionSchema,
   panelConditionSchema,
+  dashboardConditionSchema,
   statusConditionSchema,
 ]);
 export type FilterCondition = z.infer<typeof filterConditionSchema>;

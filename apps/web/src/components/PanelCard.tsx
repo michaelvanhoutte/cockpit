@@ -4,6 +4,7 @@ import {
   panelGathers,
   panelHoldsText,
   panelTakesItems,
+  type Dashboard,
   type Item,
   type ItemType,
   type Panel,
@@ -87,6 +88,8 @@ export interface PanelCardProps {
   itemTypes: readonly ItemType[];
   /** The workspace's own Panels - what a Filter's funnel reads a Panel condition's values back against. */
   panelsInWorkspace: readonly Panel[];
+  /** The Workspace's Dashboards, which name a Filter's Dashboard condition in its funnel sentence. */
+  dashboards: readonly Dashboard[];
   /** True while this panel is the one being renamed, which happens in its own header. */
   renaming: string | null;
   onRenamingChange: (name: string) => void;
@@ -167,6 +170,7 @@ export function PanelCard({
   groups,
   itemTypes,
   panelsInWorkspace,
+  dashboards,
   renaming,
   onRenamingChange,
   onStartRenaming,
@@ -194,7 +198,7 @@ export function PanelCard({
   const filter = panelGathers(panel) ? (panel.filter ?? NO_CONDITIONS) : null;
   /** What the funnel reads back on hover, and the whole of what a Filter's state is. */
   const shows = filter
-    ? saysWhatItShows(filter.conditions, itemTypes, panelsInWorkspace, filter.match, filter.groupBy)
+    ? saysWhatItShows(filter.conditions, itemTypes, panelsInWorkspace, filter.match, filter.groupBy, dashboards)
     : null;
   /**
    * How a Panel is sorted, read back as a sentence by the mark beside its name

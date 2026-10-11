@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isPhoneWidth, uuidv7, type Dashboard, type PanelKind, type WorkspaceSnapshot } from '@cockpit/shared';
 import { CommandRefused } from '../api/client';
 import { dashboardScope, pickAll, shownOn } from '../selection';
+import { filtersUsingDashboard, joinedBy } from '../filters';
 import { refusalFrom, snapshotQuery, useCommand, useSendCommand } from '../api/queries';
 import {
   NO_DASHBOARD_FILTER,
@@ -735,7 +736,7 @@ export function DashboardBar({
       {beingDeleted && (
         <DeleteQuestion
           open
-          question={deleteQuestion(beingDeleted.name, panelsGoingWithIt)}
+          question={deleteQuestion(beingDeleted.name, panelsGoingWithIt, filtersUsingDashboard(beingDeleted.id, data?.panels ?? [], dashboards))}
           confirmLabel={`Yes, delete ${beingDeleted.name}`}
           canConfirm={!command.isPending}
           // The refusal belongs to the control that asked for it, and
@@ -1151,8 +1152,27 @@ function WhatItHolds({
  * from the same snapshot the tabs are drawn from, so a tab on screen always has
  * its panels in hand and there is nothing to wait for.
  */
-function deleteQuestion(name: string, panels: number): string {
-  if (panels === 0) return `Delete ${name}? There is nothing on it.`;
-  if (panels === 1) return `Delete ${name}? Its one panel goes with it.`;
-  return `Delete ${name}? Its ${panels} panels go with it.`;
+function deleteQuestion(
+  name: string,
+  panels: number,
+  filters: readonly { filter: { name: string }; leftEmpty: boolean }[],
+): string {
+  const goesWith =
+    panels === 0
+      ? `Delete ${name}? There is nothing on it.`
+      : panels === 1
+        ? `Delete ${name}? Its one panel goes with it.`
+        : `Delete ${name}? Its ${panels} panels go with it.`;
+  if (filters.length === 0) return goesWith;
+  // Named, as deleting a Panel names the Filters that look at it
+  // (`deletePanelQuestion`, PanelBoard.tsx): "Include or exclude a Dashboard in
+  // a Filter panel's conditions", issue 985.
+  const uses = filters.length === 1 ? 'uses' : 'use';
+  const names = joinedBy(
+    filters.map((one) => one.filter.name),
+    'and',
+  );
+  const emptied = filters.filter((one) => one.leftEmpty).map((one) => one.filter.name);
+  const emptyClause = emptied.length > 0 ? ` ${joinedBy(emptied, 'and')} will then show nothing.` : '';
+  return `${goesWith} ${names} ${uses} it as a Dashboard condition.${emptyClause}`;
 }

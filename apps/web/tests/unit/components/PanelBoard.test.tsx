@@ -2784,7 +2784,7 @@ describe('Onboarding', () => {
      * values card offers the choice, opens on *is*, and sends what was chosen
      * ("Include or exclude a Filter panel condition's values...", issue 908).
      */
-    it.each(['Type', 'Priority', 'Panel', 'Status'])(
+    it.each(['Type', 'Priority', 'Panel', 'Dashboard', 'Status'])(
       'opens a new %s card on is, and offers is not beside it',
       async (field) => {
         const { user } = showBoard({
@@ -3035,6 +3035,81 @@ describe('Onboarding', () => {
           expect(chip).toHaveTextContent(/Papers\s*·\s*Research/);
         });
       });
+
+      describe('a Dashboard condition is offered once, its values chosen from the Workspace’s Dashboards', () => {
+        const FILTER = aFilter('due', 'Due soon');
+        const board = (panels: Panel[] = [FILTER]) =>
+          showBoard({ panels, panelsInWorkspace: panels, dashboards: [DASHBOARD, RESEARCH, PERSONAL] });
+
+        it('offers Dashboard on the add menu until it has a row, and not again', async () => {
+          const { user } = board();
+
+          await choose(user, 'Due soon', 'Filter…');
+          await addCondition(user, 'Dashboard');
+          await user.click(await screen.findByRole('button', { name: '+ Add a condition' }));
+
+          expect(screen.queryByRole('menuitem', { name: 'Dashboard' })).toBeNull();
+          expect(screen.getByRole('menuitem', { name: 'Panel' })).toBeVisible();
+        });
+
+        it('lists every Dashboard in tab order, with no All items', async () => {
+          const { user } = board();
+
+          await choose(user, 'Due soon', 'Filter…');
+          await addCondition(user, 'Dashboard');
+          await openList(user, 'Dashboard');
+
+          expect(screen.getAllByRole('checkbox').map((box) => box.parentElement?.textContent)).toEqual([
+            'Today',
+            'Research',
+            'Personal',
+          ]);
+          expect(screen.queryByRole('checkbox', { name: /all items/i })).toBeNull();
+        });
+
+        it('names a chosen Dashboard on its chip alone, struck through under is not', async () => {
+          const { user } = board();
+
+          await choose(user, 'Due soon', 'Filter…');
+          await addCondition(user, 'Dashboard');
+          await pick(user, 'Dashboard', 'Research');
+          const chip = screen.getByRole('button', { name: 'Take Research out' }).parentElement!;
+          expect(chip).toHaveTextContent(/^Research×$/);
+          expect(within(chip).getByText('Research')).not.toHaveClass('line-through');
+
+          await user.selectOptions(screen.getByRole('combobox', { name: 'Dashboard is or is not' }), 'is not');
+          expect(within(chip).getByText('Research')).toHaveClass('line-through');
+        });
+
+        it('sends what was chosen', async () => {
+          const { mutate, user } = board();
+
+          await choose(user, 'Due soon', 'Filter…');
+          await addCondition(user, 'Dashboard');
+          await user.selectOptions(screen.getByRole('combobox', { name: 'Dashboard is or is not' }), 'is not');
+          await pick(user, 'Dashboard', 'Personal');
+          await user.click(screen.getByRole('button', { name: 'Save' }));
+          expect(mutate).toHaveBeenCalledWith(
+            expect.objectContaining({
+              name: 'set_panel_filter',
+              payload: expect.objectContaining({
+                conditions: [{ field: 'dashboard', values: ['personal'], exclude: true }],
+              }),
+            }),
+            expect.anything(),
+          );
+        });
+
+        it('opens a stored Dashboard condition as saved', async () => {
+          const stored = aFilter('due', 'Due soon', [{ field: 'dashboard', values: ['personal'], exclude: true }]);
+          const { user } = board([stored]);
+
+          await choose(user, 'Due soon', 'Filter…');
+
+          expect(await screen.findByRole('combobox', { name: 'Dashboard is or is not' })).toHaveValue('not');
+          expect(screen.getByRole('button', { name: 'Take Personal out' })).toBeVisible();
+        });
+      });
     });
 
     it('does not offer a field already on the filter, from its own add menu', async () => {
@@ -3047,6 +3122,7 @@ describe('Onboarding', () => {
       expect(screen.getByRole('menuitem', { name: 'Priority' })).toBeVisible();
       expect(screen.getByRole('menuitem', { name: 'Type' })).toBeVisible();
       expect(screen.getByRole('menuitem', { name: 'Panel' })).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: 'Dashboard' })).toBeVisible();
       expect(screen.getByRole('menuitem', { name: 'Status' })).toBeVisible();
     });
 
@@ -3058,6 +3134,7 @@ describe('Onboarding', () => {
             { field: 'priority', values: ['high'] },
             { field: 'type', values: [] },
             { field: 'panel', values: [] },
+            { field: 'dashboard', values: [] },
             { field: 'status' },
           ]),
         ],
