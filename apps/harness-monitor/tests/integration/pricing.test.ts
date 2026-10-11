@@ -8,6 +8,7 @@ import {
   runTheDailyJob,
   send,
   theFileAnswers,
+  costRows,
   thePage,
   usage,
 } from './support';
@@ -50,11 +51,15 @@ describe('Harness Monitor', () => {
         ['waiting-3', null],
       ]);
       expect(await dollars()).toEqual({ micros: THREE_DOLLARS, unpriced: 3 });
-      const page = await thePage();
+      const page = await thePage('?period=all');
       expect(page).toContain('Tokens with no price');
       // model, requests, input, output, cache write, cache read, and two distinct branches
       expect(page).toContain('<tr><td>claude-future-1</td><td>3</td><td>1,010</td><td>120</td><td>33</td><td>42</td><td>2</td></tr>');
-      expect(page).toContain('$3.00 <span class="unpriced">+ 3 unpriced</span>');
+      expect(costRows(page).map((r) => [r.label, r.total, r.unpriced])).toEqual([
+        ['claude/build-1', '$3.00', null],
+        ['claude/build-7', '$0.00', '+ 1 unpriced'],
+        ['claude/build-8', '$0.00', '+ 2 unpriced'],
+      ]);
     });
 
     it('when the list gains that model the daily job prices the waiting rows and the warning goes', async () => {

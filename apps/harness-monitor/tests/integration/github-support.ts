@@ -1,7 +1,8 @@
-import { createExecutionContext, createScheduledController, env, SELF, waitOnExecutionContext } from 'cloudflare:test';
+import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from 'cloudflare:test';
 import { vi } from 'vitest';
 import worker from '../../src/worker';
 import recorded from './fixtures/github-pull-requests.json';
+import { costRows, thePage, type CostRow } from './support';
 
 /** The pull requests of GitHub's real answer, recorded once from the GraphQL query the job sends. */
 export const RECORDED_NODES: Node[] = recorded.data.search.nodes;
@@ -77,15 +78,17 @@ export async function theLinks() {
   return results;
 }
 
-/** What the public page shows for each session: the cells after its id. */
-export async function sessionsOnThePage(): Promise<Record<string, string[]>> {
-  const html = await (await SELF.fetch('https://monitor.test/')).text();
-  const rows: Record<string, string[]> = {};
-  for (const [, id, rest] of html.matchAll(/<tr><td>([^<]+)<\/td>(<td>.*?<\/td>)<\/tr>/g)) {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(id!)) continue; // a day of the totals table
-    rows[id!] = rest!.split('</td><td>').map((c) => c.replace(/<\/?td>/g, ''));
-  }
-  return rows;
+/** Branch linking last succeeded: the sentence in the page's header. */
+export const linkingLine = async () => /<span class="linking">(.*?)<\/span>/.exec(await thePage())?.[1];
+
+/** The pull requests GitHub lists, linked now, with GitHub replaced again afterwards. */
+export async function linked(...nodes: Node[]) {
+  fakeGitHub(() => pageOf(nodes));
+  await runHourly();
+  vi.restoreAllMocks();
 }
 
-export const linkingLine = async () => /Branch linking [^<]*/.exec(await (await SELF.fetch('https://monitor.test/')).text())?.[0];
+/** What the page shows for each row of the pull request table, by label (the pull request, or the branch while it has none). */
+export async function pullRequestRows(): Promise<Record<string, CostRow>> {
+  return Object.fromEntries(costRows(await thePage('?period=all')).map((r) => [r.label, r]));
+}

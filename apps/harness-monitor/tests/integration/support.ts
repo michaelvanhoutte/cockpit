@@ -37,6 +37,7 @@ export async function emptyTheDatabase() {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM usage_requests'),
     env.DB.prepare('DELETE FROM daily_totals'),
+    env.DB.prepare('DELETE FROM daily_branch_totals'),
     env.DB.prepare('DELETE FROM price_list'),
     env.DB.prepare('DELETE FROM branch_links'),
     env.DB.prepare('DELETE FROM link_state'),
@@ -112,6 +113,66 @@ export async function dollars(): Promise<{ micros: number; unpriced: number }> {
   return row!;
 }
 
-export async function thePage(): Promise<string> {
-  return (await SELF.fetch('https://monitor.test/')).text();
+/** The public page as a visitor opens it, with the filters in the address (`?group=issue&period=all`). */
+export async function thePage(query = ''): Promise<string> {
+  return (await SELF.fetch(`https://monitor.test/${query}`)).text();
 }
+
+export interface CostRow {
+  /** The first cell: what the row is. */
+  label: string;
+  /** The line under it, if any. */
+  sub: string | null;
+  /** The cells between the label and the split bar: engineer and merged for pull requests, the pull request count for issues and engineers. */
+  details: string[];
+  /** Dollars per category, in the order scoping, building, code review, security review, after push, CI reviews; '—' for none. */
+  categories: string[];
+  total: string;
+  unpriced: string | null;
+}
+
+/** The rows of the page's cost table, in the order shown. */
+export function costRows(html: string): CostRow[] {
+  const decode = (s: string) => s.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+  return [...html.matchAll(/<tr>(<td class="first">.*?)<\/tr>/gs)].map(([, row]) => {
+    const cells = [...row!.matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((m) => m[1]!);
+    const [first, ...rest] = cells;
+    const split = rest.findIndex((c) => c.startsWith('<div class="split">'));
+    const [, label, sub] = /^(.*?)(?:<div class="muted small">(.*?)<\/div>)?$/s.exec(first!)!;
+    const [, total, unpriced] = /^([^<]*?)(?: <span class="unpriced">(.*?)<\/span>)?$/.exec(rest.at(-1)!)!;
+    return {
+      label: decode(label!),
+      sub: sub === undefined ? null : decode(sub),
+      details: rest.slice(0, split).map(decode),
+      categories: rest.slice(split + 1, split + 7),
+      total: total!,
+      unpriced: unpriced ?? null,
+    };
+  });
+}
+
+/** What the page says the period's dollars were, and how they split by category: the heading and the bar's own description. */
+export function whereItWent(html: string): { heading: string; bar: string } {
+  return {
+    heading: /<h2 id="where">(.*?)<\/h2>/s.exec(html)![1]!.replace(/&rsquo;/g, "'"),
+    bar: /<div class="bar" role="img" aria-label="(.*?)">/s.exec(html)![1]!.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))),
+  };
+}
+
+/** The recorded price list, stored, so what a test then sends is priced at arrival: claude-sonnet-5 is $2 per million input tokens. */
+export async function withPrices() {
+  theFileAnswers(recordedFile);
+  await runTheDailyJob();
+  vi.unstubAllGlobals();
+}
+
+/** A request that costs exactly `dollars`, priced from the recorded list (see withPrices). */
+export const spend = (requestId: string, dollars: number, over: Record<string, unknown> = {}) =>
+  usage(requestId, {
+    model: 'claude-sonnet-5',
+    inputTokens: dollars * 500_000,
+    outputTokens: 0,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
+    ...over,
+  });

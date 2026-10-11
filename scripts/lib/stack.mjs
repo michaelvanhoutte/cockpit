@@ -108,6 +108,29 @@ export async function waitForApi(child, port, options = {}) {
 }
 
 /**
+ * Waits until the Harness Monitor's Worker answers its page. Its page reads the
+ * database, so a 200 means the migrations are in and the Worker is serving,
+ * which is all a walk needs; there is no health route to ask instead.
+ * The seams are waitForApi's, for the same reason.
+ */
+export async function waitForHarnessMonitor(child, port, options = {}) {
+  const { fetchImpl = fetch, delayMs = 200, timeoutMs = 60_000, now = Date.now } = options;
+  const deadline = now() + timeoutMs;
+  while (now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`the test Harness Monitor exited before it was ready (${child.exitCode ?? child.signalCode})`);
+    }
+    try {
+      if ((await fetchImpl(`http://127.0.0.1:${port}/`)).ok) return;
+    } catch {
+      // Not listening yet.
+    }
+    await delay(delayMs);
+  }
+  throw new Error(`the test Harness Monitor never answered on :${port}`);
+}
+
+/**
  * Wrangler prints this once, on its way out, when the command it was given has
  * failed. It is the only thing in the log that separates the run's last fatal
  * from the ordinary stream errors above it, which carry the same `[ERROR]`

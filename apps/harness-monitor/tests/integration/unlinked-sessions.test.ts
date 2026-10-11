@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fakeGitHub, linkingLine, pageOf, recordedPullRequest, runHourly, sessionsOnThePage } from './github-support';
+import { fakeGitHub, linkingLine, pageOf, pullRequestRows, recordedPullRequest, runHourly } from './github-support';
 import { emptyTheDatabase, send, usage } from './support';
 
 beforeEach(emptyTheDatabase);
@@ -8,13 +8,15 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+const subs = async () => Object.fromEntries(Object.entries(await pullRequestRows()).map(([label, row]) => [label, row.sub]));
+
 describe('Harness Monitor', () => {
   describe('a session without a link says why', () => {
     it('before linking has ever succeeded the page says so, and a session with a branch is linking', async () => {
       await send([usage('r1', { sessionId: 's1', branch: 'claude/new' })]);
 
       expect(await linkingLine()).toBe('Branch linking has not succeeded yet.');
-      expect((await sessionsOnThePage()).s1).toEqual(['claude/new', 'linking…', '', '']);
+      expect(await subs()).toEqual({ 'claude/new': 'linking…' });
     });
 
     it('a branch no pull request names is unattributed once linking has caught up since the session ended', async () => {
@@ -27,9 +29,7 @@ describe('Harness Monitor', () => {
 
       await runHourly();
 
-      const sessions = await sessionsOnThePage();
-      expect(sessions.older).toEqual(['claude/nobody-opened-a-pr', 'unattributed', '', '']);
-      expect(sessions['no-branch']).toEqual(['none', 'unattributed', '', '']);
+      expect(await subs()).toEqual({ 'claude/nobody-opened-a-pr': 'unattributed', 'No branch': 'unattributed' });
     });
 
     it('a session newer than the last successful run is linking, and the page says when linking last succeeded', async () => {
@@ -42,9 +42,7 @@ describe('Harness Monitor', () => {
       ]);
 
       expect(await linkingLine()).toBe('Branch linking last succeeded 2026-04-01 12:00 UTC.');
-      const sessions = await sessionsOnThePage();
-      expect(sessions.before![1]).toBe('unattributed');
-      expect(sessions.after![1]).toBe('linking…');
+      expect(await subs()).toEqual({ 'claude/x': 'unattributed', 'claude/y': 'linking…' });
     });
 
     it('once the next run finds the pull request, the linking session is credited', async () => {
@@ -52,14 +50,14 @@ describe('Harness Monitor', () => {
       vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-04-01T12:00:00Z') });
       await runHourly();
       await send([usage('r1', { sessionId: 'after', branch: 'claude/build-971-fd1134', time: '2026-04-01T12:30:00Z' })]);
-      expect((await sessionsOnThePage()).after![1]).toBe('linking…');
+      expect(await subs()).toEqual({ 'claude/build-971-fd1134': 'linking…' });
       vi.restoreAllMocks();
       fakeGitHub(() => pageOf([recordedPullRequest(979)]));
       vi.setSystemTime(new Date('2026-04-01T13:00:00Z'));
 
       await runHourly();
 
-      expect((await sessionsOnThePage()).after![1]).toContain('#979');
+      expect(Object.keys(await pullRequestRows())[0]).toContain('#979');
     });
   });
 });

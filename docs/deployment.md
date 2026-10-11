@@ -157,6 +157,7 @@ A second, separate service: Worker `harness-monitor` with its own D1 database `h
 | **production** | every merge to `main` touching `apps/harness-monitor` (`deploy-harness-monitor.yml`) | `harness-monitor` | `harness-monitor` | hourly: branch linking; daily, 03:10 UTC: fetch the price list, price waiting rows, rebuild the daily totals | `harness-monitor.<subdomain>.workers.dev` |
 
 - **No staging.** Migrations are expand-then-contract like Cockpit's; D1's point-in-time restore is the backstop, since rows from cloud sessions exist nowhere else. The workflow applies migrations, then deploys.
+- **The page is cached at the edge** for `PAGE_CACHE_SECONDS` (`wrangler.jsonc`, 300) **only once a custom domain or route is attached**, because Cloudflare's Cache API does nothing on `workers.dev`. Until then every view reads D1, from the totals alone. A cached request costs no database read, and a new report shows within that time. Local runs and tests set it to 0.
 - **Reading is public; writing needs the write key**, the Worker secret `HARNESS_WRITE_KEY`, sent as `Authorization: Bearer <key>`. Unset, every write is refused. Rotate it with `wrangler secret put HARNESS_WRITE_KEY` and update each holder of it.
 - **Prices come from LiteLLM's public file** (`raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json`, no secret), fetched by the daily cron. To correct or add a model before LiteLLM does, edit `apps/harness-monitor/src/price-overrides.json` (USD per million tokens; it wins over LiteLLM for the models it names). The page shows how old the list is and whether the last fetch failed.
 - **Branch linking needs a GitHub token**, the Worker secret `GITHUB_TOKEN`. Without it the hourly job logs "Branch linking skipped" and the page keeps saying linking has not succeeded. Make it as a **fine-grained personal access token** owned by the repository owner, with *Only select repositories* set to this repository, and these repository permissions, all read-only: *Pull requests*, *Issues*, *Metadata*. Nothing else; it can then read but never write. Put it on the Worker with `pnpm exec wrangler secret put GITHUB_TOKEN` (in `apps/harness-monitor`), and renew it before it expires: an expired token fails every run and the page shows when linking last succeeded. The repository is read from `GITHUB_REPOSITORY` in `wrangler.jsonc`.
@@ -175,7 +176,7 @@ pnpm exec wrangler secret put HARNESS_WRITE_KEY     # needs the Worker to exist:
 2. Set the repository variable `HARNESS_MONITOR_DATABASE_ID` to that id (it is not a secret).
 3. Run the workflow *Deploy Harness Monitor* by hand once; it migrates and deploys.
 4. Put `HARNESS_WRITE_KEY` on the Worker with a long random value, and keep a copy for the hook and the history upload that will send with it.
-5. Open `https://harness-monitor.<subdomain>.workers.dev/`: it says there is nothing yet.
+5. Open `https://harness-monitor.<subdomain>.workers.dev/`: it says there is nothing in the period.
 
 **Where the usage hook finds the key.** The Stop hook in `.claude/settings.json` (`scripts/report-usage.mjs`) reads two environment variables and does nothing unless both are set: `HARNESS_WRITE_KEY` (the key from step 4) and `HARNESS_MONITOR_URL` (the Worker's address, no path). Set them in each place a session runs:
 

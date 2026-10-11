@@ -1,8 +1,9 @@
 import { checkWriteKey } from './auth';
-import { linkBranches, linkingPage } from './linking';
+import { costsPage, parseQuery, queryString } from './costs';
+import { linkBranches } from './linking';
 import { renderPage } from './page';
 import { listStatus, priceWaitingRows, refreshPriceList } from './price-list';
-import { dailyLines, rebuildTotals, storeBatch, unpricedLines } from './store';
+import { rebuildTotals, storeBatch, unpricedLines } from './store';
 import { validateBatch } from './validate';
 
 export interface Env {
@@ -13,6 +14,8 @@ export interface Env {
   GITHUB_TOKEN?: string;
   /** `owner/name`, set in wrangler.jsonc. */
   GITHUB_REPOSITORY?: string;
+  /** How long the edge keeps the costs page, in seconds; 0 turns the cache off (local runs and tests). */
+  PAGE_CACHE_SECONDS?: string;
 }
 
 /** The daily job (prices, then the totals); any other schedule links branches. */
@@ -41,23 +44,40 @@ async function write(request: Request, env: Env): Promise<Response> {
   return json(await storeBatch(env.DB, checked.rows));
 }
 
+/**
+ * The costs page, cached at the edge so public traffic cannot spend the free
+ * read allowance: the cache key is the page's canonical address, so the
+ * filters' spellings and stray parameters all share the few real pages. On
+ * `workers.dev` the Cache API does nothing, so this takes effect only once the
+ * Worker has a custom domain or route.
+ */
+async function costs(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const query = parseQuery(url.searchParams);
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(`${url.origin}/${queryString(query)}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const [page, unpriced, list] = await Promise.all([costsPage(env.DB, query), unpricedLines(env.DB), listStatus(env.DB)]);
+  const response = new Response(renderPage(page, { unpriced, list }), {
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': cache ? `public, max-age=${seconds}` : 'no-store',
+    },
+  });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const { pathname } = new URL(request.url);
     if (pathname === '/v1/usage') {
       return request.method === 'POST' ? write(request, env) : json({ error: 'Use POST.' }, 405);
     }
-    if (pathname === '/' && request.method === 'GET') {
-      const [lines, unpriced, list, linking] = await Promise.all([
-        dailyLines(env.DB),
-        unpricedLines(env.DB),
-        listStatus(env.DB),
-        linkingPage(env.DB),
-      ]);
-      return new Response(renderPage(lines, { unpriced, list }, linking), {
-        headers: { 'content-type': 'text/html; charset=utf-8' },
-      });
-    }
+    if (pathname === '/' && request.method === 'GET') return costs(request, env, ctx);
     return json({ error: 'Not found.' }, 404);
   },
 

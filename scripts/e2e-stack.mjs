@@ -57,6 +57,7 @@ import {
   schemaDigest,
   templateIsCurrent,
   waitForApi,
+  waitForHarnessMonitor,
 } from './lib/stack.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -71,6 +72,13 @@ const apiDir = join(root, 'apps/api');
 const ports = portsFor(root, { linked: isLinkedWorktree(root), env: process.env });
 export const WEB_PORT = ports.e2eWeb;
 export const API_PORT = ports.e2eApi;
+export const HARNESS_MONITOR_PORT = ports.e2eHarnessMonitor;
+
+// The Harness Monitor's own database for the run, thrown away and migrated
+// anew each time (apps/harness-monitor is a separate service with a separate
+// database, docs/architecture.md "The Harness Monitor"). Relative, because
+// Wrangler resolves it against apps/harness-monitor.
+const HARNESS_RUN_DIR = '.wrangler/state-e2e';
 
 // Relative, because wrangler resolves --persist-to against its own cwd (apps/api).
 const TEMPLATE_DIR = '.wrangler/state-e2e-template';
@@ -159,6 +167,26 @@ try {
   // conflict at all.
   await assertPortFree(API_PORT, 'test API', () => refusing('e2eApi', API_PORT));
   await assertPortFree(WEB_PORT, 'test web server', () => refusing('e2eWeb', WEB_PORT));
+  await assertPortFree(HARNESS_MONITOR_PORT, 'test Harness Monitor', () => refusing('e2eHarnessMonitor', HARNESS_MONITOR_PORT));
+
+  rmSync(join(root, 'apps/harness-monitor', HARNESS_RUN_DIR), { recursive: true, force: true });
+  await run(
+    [
+      '--filter',
+      '@harness-monitor/worker',
+      'exec',
+      'wrangler',
+      'd1',
+      'migrations',
+      'apply',
+      'harness-monitor',
+      '--local',
+      '--persist-to',
+      HARNESS_RUN_DIR,
+    ],
+    'applying the Harness Monitor migrations',
+    root,
+  );
 
   await ensureTemplate(schemaDigest(apiDir));
   freshDatabase();
@@ -327,6 +355,43 @@ try {
   process.exit(1);
 }
 
+/**
+ * The Harness Monitor, with its seeding entry in place of the deployed one
+ * (apps/harness-monitor/tests/e2e-worker.ts): a walk has no GitHub to link
+ * branches from, so it hands the Worker the pull requests and the requests
+ * directly. The edge cache is off, as it is for `pnpm dev:harness`, so a page
+ * shows what was just seeded.
+ */
+const harness = start(
+  [
+    '--filter',
+    '@harness-monitor/worker',
+    'exec',
+    'wrangler',
+    'dev',
+    'tests/e2e-worker.ts',
+    '--port',
+    String(HARNESS_MONITOR_PORT),
+    '--persist-to',
+    HARNESS_RUN_DIR,
+    '--var',
+    'PAGE_CACHE_SECONDS:0',
+  ],
+  'test harness monitor',
+  '33',
+  root,
+  { WRANGLER_LOG_PATH: join(root, 'apps/harness-monitor/.wrangler/logs-e2e') },
+);
+
+try {
+  await waitForHarnessMonitor(harness, HARNESS_MONITOR_PORT);
+} catch (error) {
+  console.error(paint('31', `\n${error.message}`));
+  stop(harness);
+  stop(api);
+  process.exit(1);
+}
+
 // Vite starts only now, so that Playwright's single-URL probe on the web port
 // means the whole stack is up rather than half of it.
 //
@@ -361,4 +426,4 @@ function whyItWent(child, code) {
   return exitReport('test API', code, logPath, logPath === null ? null : readFileSync(logPath, 'utf8'));
 }
 
-supervise([api, web], stop, whyItWent);
+supervise([api, harness, web], stop, whyItWent);

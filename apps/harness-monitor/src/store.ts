@@ -44,6 +44,29 @@ ON CONFLICT (day, category, model) DO UPDATE SET
   cost_micros = cost_micros + excluded.cost_micros,
   unpriced_requests = unpriced_requests + excluded.unpriced_requests`;
 
+const BRANCH_TOTALS_SELECT = `SELECT day, COALESCE(branch, ''), category, model, COUNT(*), SUM(COALESCE(cost_micros, 0)), SUM(cost_micros IS NULL),
+       SUM(CASE WHEN cost_micros IS NULL THEN input_tokens ELSE 0 END),
+       SUM(CASE WHEN cost_micros IS NULL THEN output_tokens ELSE 0 END),
+       SUM(CASE WHEN cost_micros IS NULL THEN cache_creation_tokens ELSE 0 END),
+       SUM(CASE WHEN cost_micros IS NULL THEN cache_read_tokens ELSE 0 END),
+       MAX(occurred_at)`;
+/** The same rows folded into the per-branch dollars the costs page reads. */
+const ADD_TO_BRANCH_TOTALS = `INSERT INTO daily_branch_totals (
+  day, branch, category, model, requests, cost_micros, unpriced_requests,
+  unpriced_input_tokens, unpriced_output_tokens, unpriced_cache_creation_tokens, unpriced_cache_read_tokens, last_at
+)
+${BRANCH_TOTALS_SELECT}
+FROM usage_requests WHERE ingest_id = ?
+GROUP BY day, COALESCE(branch, ''), category, model
+ON CONFLICT (day, branch, category, model) DO UPDATE SET
+  requests = requests + excluded.requests,
+  cost_micros = cost_micros + excluded.cost_micros,
+  unpriced_requests = unpriced_requests + excluded.unpriced_requests,
+  unpriced_input_tokens = unpriced_input_tokens + excluded.unpriced_input_tokens,
+  unpriced_output_tokens = unpriced_output_tokens + excluded.unpriced_output_tokens,
+  unpriced_cache_creation_tokens = unpriced_cache_creation_tokens + excluded.unpriced_cache_creation_tokens,
+  unpriced_cache_read_tokens = unpriced_cache_read_tokens + excluded.unpriced_cache_read_tokens,
+  last_at = MAX(last_at, excluded.last_at)`;
 /**
  * Stores the rows not stored yet and counts exactly those into the daily totals.
  *
@@ -70,6 +93,7 @@ export async function storeBatch(db: D1Database, rows: UsageRow[], now = Date.no
   const [inserted] = await db.batch([
     db.prepare(INSERT_ROWS).bind(payload, ingestId, now),
     db.prepare(ADD_TO_TOTALS).bind(ingestId),
+    db.prepare(ADD_TO_BRANCH_TOTALS).bind(ingestId),
   ]);
   const stored = inserted!.meta.changes ?? 0;
   return { stored, ignored: rows.length - stored };
@@ -79,6 +103,7 @@ export async function storeBatch(db: D1Database, rows: UsageRow[], now = Date.no
 export async function rebuildTotals(db: D1Database) {
   await db.batch([
     db.prepare('DELETE FROM daily_totals'),
+    db.prepare('DELETE FROM daily_branch_totals'),
     db.prepare(`INSERT INTO daily_totals (
         day, category, model, requests, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         cost_micros, unpriced_requests
@@ -87,32 +112,13 @@ export async function rebuildTotals(db: D1Database) {
              SUM(cache_creation_tokens), SUM(cache_read_tokens),
              SUM(COALESCE(cost_micros, 0)), SUM(cost_micros IS NULL)
       FROM usage_requests GROUP BY day, category, model`),
+    db.prepare(`INSERT INTO daily_branch_totals (
+        day, branch, category, model, requests, cost_micros, unpriced_requests,
+        unpriced_input_tokens, unpriced_output_tokens, unpriced_cache_creation_tokens, unpriced_cache_read_tokens, last_at
+      )
+      ${BRANCH_TOTALS_SELECT}
+      FROM usage_requests GROUP BY day, COALESCE(branch, ''), category, model`),
   ]);
-}
-
-export interface DayLine {
-  day: string;
-  requests: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheCreationTokens: number;
-  cacheReadTokens: number;
-  /** Dollars of the priced requests only, in millionths. */
-  costMicros: number;
-  unpricedRequests: number;
-}
-
-/** Tokens per day, newest first. */
-export async function dailyLines(db: D1Database, limit = 90): Promise<DayLine[]> {
-  const { results } = await db
-    .prepare(`SELECT day, SUM(requests) AS requests, SUM(input_tokens) AS inputTokens,
-        SUM(output_tokens) AS outputTokens, SUM(cache_creation_tokens) AS cacheCreationTokens,
-        SUM(cache_read_tokens) AS cacheReadTokens, SUM(cost_micros) AS costMicros,
-        SUM(unpriced_requests) AS unpricedRequests
-      FROM daily_totals GROUP BY day ORDER BY day DESC LIMIT ?`)
-    .bind(limit)
-    .all<DayLine>();
-  return results;
 }
 
 export interface UnpricedLine {
@@ -122,17 +128,18 @@ export interface UnpricedLine {
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
-  /** Distinct branches the requests ran on. Pull requests are not linked yet, so a branch is what there is to count. */
+  /** Distinct branches the requests ran on. */
   branches: number;
 }
 
-/** Requests without a price, per model: what the warning names. Read from the rows, which are few while unpriced. */
+/** Requests without a price, per model: what the warning names. Read from the per-branch totals, never the rows. */
 export async function unpricedLines(db: D1Database): Promise<UnpricedLine[]> {
   const { results } = await db
-    .prepare(`SELECT model, COUNT(*) AS requests, SUM(input_tokens) AS inputTokens, SUM(output_tokens) AS outputTokens,
-        SUM(cache_creation_tokens) AS cacheCreationTokens, SUM(cache_read_tokens) AS cacheReadTokens,
-        COUNT(DISTINCT branch) AS branches
-      FROM usage_requests WHERE cost_micros IS NULL GROUP BY model ORDER BY requests DESC, model`)
+    .prepare(`SELECT model, SUM(unpriced_requests) AS requests, SUM(unpriced_input_tokens) AS inputTokens,
+        SUM(unpriced_output_tokens) AS outputTokens, SUM(unpriced_cache_creation_tokens) AS cacheCreationTokens,
+        SUM(unpriced_cache_read_tokens) AS cacheReadTokens,
+        COUNT(DISTINCT CASE WHEN branch = '' THEN NULL ELSE branch END) AS branches
+      FROM daily_branch_totals WHERE unpriced_requests > 0 GROUP BY model ORDER BY requests DESC, model`)
     .all<UnpricedLine>();
   return results;
 }

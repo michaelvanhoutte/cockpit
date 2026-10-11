@@ -64,6 +64,10 @@ const root = __dirname;
 const ports = portsFor(root, { linked: isLinkedWorktree(root), env: process.env });
 const baseURL = process.env.E2E_BASE_URL ?? `http://localhost:${ports.e2eWeb}`;
 const drivingLocalStack = !process.env.E2E_BASE_URL;
+// Where the Harness Monitor's walk finds the second Worker the local stack
+// starts. Set here, before the workers are spawned, so they inherit it; absent
+// against a deployment, which has no seeding route, and the walk then says so.
+if (drivingLocalStack) process.env.E2E_HARNESS_MONITOR_URL = `http://localhost:${ports.e2eHarnessMonitor}`;
 
 /**
  * The phone profile is a real handset's, not a round number: Michael's is a

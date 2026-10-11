@@ -22,6 +22,7 @@ import {
   schemaDigest,
   templateIsCurrent,
   waitForApi,
+  waitForHarnessMonitor,
 } from './stack.mjs';
 
 /** An apps/api-shaped directory with the two things the digest reads. */
@@ -391,6 +392,55 @@ describe('exitReport', () => {
       exitReport('test web server', 1, null, null),
       'the test web server exited (1), leaving no log to say why',
       'Vite writes none, so this is the ordinary case rather than an error',
+    );
+  });
+});
+
+describe('waitForHarnessMonitor', () => {
+  const running = { exitCode: null, signalCode: null };
+
+  it('returns once the page answers, having waited while nothing was listening', async () => {
+    let attempts = 0;
+    await waitForHarnessMonitor(running, 8889, {
+      delayMs: 1,
+      fetchImpl: async () => {
+        attempts += 1;
+        if (attempts < 3) throw new Error('ECONNREFUSED');
+        return { ok: true };
+      },
+    });
+    assert.equal(attempts, 3);
+  });
+
+  it('keeps waiting while the page answers with an error', async () => {
+    let attempts = 0;
+    await waitForHarnessMonitor(running, 8889, {
+      delayMs: 1,
+      fetchImpl: async () => ({ ok: ++attempts >= 2 }),
+    });
+    assert.equal(attempts, 2);
+  });
+
+  it('gives up when the Worker exited instead of coming up', async () => {
+    await assert.rejects(
+      () => waitForHarnessMonitor({ exitCode: 1, signalCode: null }, 8889, { fetchImpl: async () => ({ ok: true }), delayMs: 1 }),
+      /Harness Monitor exited before it was ready \(1\)/,
+    );
+  });
+
+  it('gives up when the page never answers', async () => {
+    let clock = 0;
+    await assert.rejects(
+      () =>
+        waitForHarnessMonitor(running, 8889, {
+          delayMs: 1,
+          timeoutMs: 10,
+          now: () => (clock += 4),
+          fetchImpl: async () => {
+            throw new Error('ECONNREFUSED');
+          },
+        }),
+      /never answered on :8889/,
     );
   });
 });
