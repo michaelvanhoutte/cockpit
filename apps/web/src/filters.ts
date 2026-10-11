@@ -123,7 +123,7 @@ export function isAPeriod(window: DueWindow): boolean {
 /**
  * Whether one condition holds for one Item, on the day the person is looking.
  *
- * **Priority, Type and Panel all match on "any of"**, never on all of them at
+ * **Priority, Type, Panel and Dashboard all match on "any of"**, never on all of them at
  * once - *Priority is High or Normal* is one condition an Item meets by
  * holding either. An Item with no Priority, or no Type, matches neither
  * ("Filter a Filter panel by priority and type", issue 464) - absence is not
@@ -157,6 +157,8 @@ function holdsFor(
   liveTypeIds: ReadonlySet<string>,
   livePanelIds: ReadonlySet<string>,
   filedPanelIds: ReadonlySet<string>,
+  liveDashboardIds: ReadonlySet<string>,
+  filedDashboardIds: ReadonlySet<string>,
   match: PanelFilter['match'],
 ): boolean {
   if (condition.field !== 'dueDate' && condition.exclude) {
@@ -177,6 +179,15 @@ function holdsFor(
         (live) => !live.some((id) => filedPanelIds.has(id)),
       );
     }
+    if (condition.field === 'dashboard') {
+      // Hides an Item only when every Panel it is filed on sits on an excluded
+      // Dashboard - unlike *Panel is not*, where any one excluded Panel hides it.
+      return excluding(
+        condition.values.filter((id) => liveDashboardIds.has(id)),
+        match,
+        (live) => ![...filedDashboardIds].every((id) => live.includes(id)),
+      );
+    }
     return excluding(statusValuesOf(condition), match, (live) => !(live as readonly string[]).includes(itemStatus(item)));
   }
   if (condition.field === 'priority') {
@@ -188,6 +199,9 @@ function holdsFor(
   }
   if (condition.field === 'panel') {
     return condition.values.some((id) => livePanelIds.has(id) && filedPanelIds.has(id));
+  }
+  if (condition.field === 'dashboard') {
+    return condition.values.some((id) => liveDashboardIds.has(id) && filedDashboardIds.has(id));
   }
   if (condition.field === 'status') {
     return (statusValuesOf(condition) as readonly string[]).includes(itemStatus(item));
@@ -268,6 +282,8 @@ export function itemsMatchingFilter(
   items: readonly Item[],
   filings: readonly Filing[],
   panelsInWorkspace: readonly Panel[],
+  /** The Workspace's live Dashboards, which is what a Dashboard condition's values are read against. */
+  dashboards: readonly Pick<Dashboard, 'id'>[],
   /** The account's live Types, which is what a Type condition's values are read against. */
   itemTypes: readonly ItemType[],
   filter: PanelFilter,
@@ -283,6 +299,17 @@ export function itemsMatchingFilter(
   const livePanelIds = new Set(panelsInWorkspace.filter(panelTakesItems).map((panel) => panel.id));
   const filed = filingsThatFile(filings, panelsInWorkspace);
   const filedPanelIdsByItem = panelIdsFiledOnto(filed);
+  const liveDashboardIds = new Set(dashboards.map((dashboard) => dashboard.id));
+  const dashboardIdOfPanel = new Map(panelsInWorkspace.map((panel) => [panel.id, panel.dashboardId]));
+  // Only a Filter holding a Dashboard condition reads it, and this runs once per
+  // Filter on every draw.
+  const filedDashboardIdsByItem = new Map<string, Set<string>>();
+  if (filter.conditions.some((condition) => condition.field === 'dashboard')) {
+    for (const filing of filed) {
+      const dashboardId = dashboardIdOfPanel.get(filing.panelId);
+      if (dashboardId !== undefined) addToSetMap(filedDashboardIdsByItem, filing.itemId, dashboardId);
+    }
+  }
   return inFilterOrder(
     itemsThatAreFiled(items, filed).filter((item) =>
       meets(filter, (condition) =>
@@ -293,6 +320,8 @@ export function itemsMatchingFilter(
           liveTypeIds,
           livePanelIds,
           filedPanelIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS,
+          liveDashboardIds,
+          filedDashboardIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS,
           filter.match,
         ),
       ),
@@ -358,6 +387,7 @@ export function panelAndFilterIdsByItem(
   items: readonly Item[],
   filings: readonly Filing[],
   panelsInWorkspace: readonly Panel[],
+  dashboards: readonly Pick<Dashboard, 'id'>[],
   itemTypes: readonly ItemType[],
   on: Day,
 ): Map<string, Set<string>> {
@@ -370,6 +400,7 @@ export function panelAndFilterIdsByItem(
       items,
       filings,
       panelsInWorkspace,
+      dashboards,
       itemTypes,
       filter.filter ?? NO_CONDITIONS,
       on,
@@ -486,10 +517,11 @@ export function saysWhatItShows(
   panels: readonly Panel[] = [],
   match: FilterMatch = 'all',
   groupBy: FilterGrouping = 'none',
+  dashboards: readonly Pick<Dashboard, 'id' | 'name'>[] = [],
 ): string {
   if (conditions.length === 0) return 'Nothing chosen yet';
   const parts = conditions
-    .map((condition) => sentenceFor(condition, itemTypes, panels))
+    .map((condition) => sentenceFor(condition, itemTypes, panels, dashboards))
     .filter((part): part is string => part !== null);
   // Only conditions that exclude nothing: all of them lets every Item through,
   // and any of them adds none.
@@ -537,7 +569,14 @@ function sentenceFor(
   condition: FilterCondition,
   itemTypes: readonly ItemType[],
   panels: readonly Panel[],
+  dashboards: readonly Pick<Dashboard, 'id' | 'name'>[],
 ): string | null {
+  if (condition.field === 'dashboard') {
+    const names = condition.values
+      .map((id) => dashboards.find((dashboard) => dashboard.id === id)?.name)
+      .filter((name): name is string => name !== undefined);
+    return valuesSentence('On', 'Not on', condition.exclude, names);
+  }
   if (condition.field === 'priority') {
     return valuesSentence('Priority is', 'Priority is not', condition.exclude, condition.values.map((value) => PRIORITY_LABELS[value]));
   }
@@ -618,6 +657,33 @@ export function filtersUsingPanel(
 }
 
 /**
+ * What deleting one Dashboard does to the Workspace's own Filters ("Include or
+ * exclude a Dashboard in a Filter panel's conditions", issue 985): every live
+ * Filter whose Dashboard condition names it, and whether that condition is
+ * left holding another live Dashboard or none at all. The same shape and the
+ * same rules as `filtersUsingPanel`, over Dashboards.
+ */
+export function filtersUsingDashboard(
+  dashboardId: string,
+  panelsInWorkspace: readonly Panel[],
+  dashboards: readonly Pick<Dashboard, 'id'>[],
+): { filter: Panel; leftEmpty: boolean }[] {
+  const liveIds = new Set(dashboards.map((dashboard) => dashboard.id));
+  const affected: { filter: Panel; leftEmpty: boolean }[] = [];
+  for (const candidate of panelsInWorkspace.filter(panelGathers)) {
+    // A Filter on the Dashboard itself goes with it, so there is nothing to warn about.
+    if (candidate.dashboardId === dashboardId) continue;
+    const whole = candidate.filter ?? NO_CONDITIONS;
+    const condition = whole.conditions.find((one) => one.field === 'dashboard');
+    if (!condition || !condition.values.includes(dashboardId)) continue;
+    const stillHasOne = condition.values.some((id) => id !== dashboardId && liveIds.has(id));
+    const needsIt = whole.match === 'all' || whole.conditions.length <= 1;
+    affected.push({ filter: candidate, leftEmpty: !condition.exclude && !stillHasOne && needsIt });
+  }
+  return affected;
+}
+
+/**
  * Where one Item shows, named for a person: "Dashboard › Panel" for every live
  * Panel it is filed on and every Filter it matches, in Panel order, and "Inbox"
  * where it is filed nowhere ("Change an item's type, and its status, from its
@@ -637,7 +703,7 @@ export function shownOn(
   on: Day,
 ): string[] | null {
   if (item.completedAt) return null;
-  const ids = panelAndFilterIdsByItem(items, filings, panelsInWorkspace, itemTypes, on).get(item.id) ?? EMPTY_IDS;
+  const ids = panelAndFilterIdsByItem(items, filings, panelsInWorkspace, dashboards, itemTypes, on).get(item.id) ?? EMPTY_IDS;
   const filed = filingsThatFile(filings, panelsInWorkspace).some((filing) => filing.itemId === item.id);
   const places = panelsInWorkspace
     .filter((panel) => ids.has(panel.id))

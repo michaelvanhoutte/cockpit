@@ -125,6 +125,7 @@ describe('Panels', () => {
       const held: FilterCondition[] = [
         { field: 'priority', values: ['low'], exclude: true },
         { field: 'panel', values: ['panel-q3'], exclude: true },
+        { field: 'dashboard', values: ['dashboard-volleyball'], exclude: true },
         { field: 'status', values: ['to_do', 'in_progress'], exclude: true },
       ];
       expect(panelFilterFrom(panelFilterAsStored(held))?.conditions).toEqual(held);

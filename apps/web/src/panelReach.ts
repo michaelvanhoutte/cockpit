@@ -70,6 +70,7 @@ export function dashboardsOf(snapshot: WorkspaceSnapshot, store: Storage | undef
         items: snapshot.items,
         filings: snapshot.filings ?? [],
         panelsInWorkspace,
+        dashboards: snapshot.dashboards,
         itemTypes: snapshot.itemTypes,
         filter,
         withAttachments,

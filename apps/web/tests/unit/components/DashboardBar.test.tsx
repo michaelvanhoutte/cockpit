@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
   Dashboard,
+  FilterCondition,
   Layout,
   Panel,
   PossibleDuplicate,
@@ -655,6 +656,56 @@ describe('Dashboards', () => {
       await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
 
       expect(await screen.findByRole('alertdialog', { name: row.asks })).toBeVisible();
+    });
+
+    describe('the Filters whose Dashboard condition holds it are named', () => {
+      const aFilterOn = (name: string, ...conditions: FilterCondition[]): Panel => ({
+        ...aPanel(name, 'ws-work-dashboard 1'),
+        kind: 'filter',
+        filter: { conditions, match: 'all', groupBy: 'none' },
+      });
+      const research = 'ws-work-research';
+      const onResearch = (...values: string[]): FilterCondition => ({ field: 'dashboard', values });
+
+      it.each([
+        {
+          situation: 'no Filter names it',
+          filters: [] as Panel[],
+          asks: 'Delete Research? Its one panel goes with it.',
+        },
+        {
+          situation: 'one Filter names it beside another live Dashboard',
+          filters: [aFilterOn('Due today', onResearch(research, 'ws-work-dashboard 1'))],
+          asks: 'Delete Research? Its one panel goes with it. Due today uses it as a Dashboard condition.',
+        },
+        {
+          situation: 'two Filters name it',
+          filters: [
+            aFilterOn('Due today', onResearch(research, 'ws-work-dashboard 1')),
+            aFilterOn('Overdue', onResearch(research, 'ws-work-dashboard 1')),
+          ],
+          asks: 'Delete Research? Its one panel goes with it. Due today and Overdue use it as a Dashboard condition.',
+        },
+        {
+          situation: 'an is card holds it as its last live value',
+          filters: [aFilterOn('Due today', onResearch(research))],
+          asks: 'Delete Research? Its one panel goes with it. Due today uses it as a Dashboard condition. Due today will then show nothing.',
+        },
+        {
+          situation: 'an is not card holds it as its last live value, and then filters nothing',
+          filters: [aFilterOn('Due today', { field: 'dashboard', values: [research], exclude: true })],
+          asks: 'Delete Research? Its one panel goes with it. Due today uses it as a Dashboard condition.',
+        },
+      ])('says so when $situation', async (row) => {
+        const { user } = showBar(['Dashboard 1', 'Research'], {
+          panels: [aPanel('Reading', research), ...row.filters],
+        });
+        fireEvent.contextMenu(await screen.findByRole('link', { name: 'Research' }));
+
+        await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+
+        expect(await screen.findByRole('alertdialog', { name: row.asks })).toBeVisible();
+      });
     });
 
     it('does not take the focus to the next dashboard opened after a delete made on the Inbox', async () => {

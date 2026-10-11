@@ -14,6 +14,7 @@ import { filingsThatFile, itemsInTheInbox } from '../../src/filing';
 import {
   alsoShownOn,
   dayOf,
+  filtersUsingDashboard,
   filtersUsingPanel,
   inFilterOrder,
   itemsMatchingFilter,
@@ -123,17 +124,20 @@ function shown(
   conditions: FilterCondition[],
   {
     panels = [FALCON, GATHERS],
+    dashboards = [...new Set(panels.map((panel) => panel.dashboardId))].map((id) => ({ id })),
     itemTypes = [] as ItemType[],
     on = TODAY,
     match = 'all',
   }: {
     panels?: readonly Panel[];
+    /** The Workspace's live Dashboards; the ones the Panels sit on unless a case says a Dashboard has gone. */
+    dashboards?: readonly { id: string }[];
     itemTypes?: readonly ItemType[];
     on?: string;
     match?: FilterMatch;
   } = {},
 ): string[] {
-  return itemsMatchingFilter(items, filings, panels, itemTypes, { conditions, match, groupBy: 'none' }, on).map(
+  return itemsMatchingFilter(items, filings, panels, dashboards, itemTypes, { conditions, match, groupBy: 'none' }, on).map(
     (item) => item.id,
   );
 }
@@ -410,6 +414,156 @@ describe('Panels', () => {
           panels: [FALCON, GATHERS, ...panels],
         }),
       ).toEqual(drawn ? [item.id] : []);
+    });
+  });
+
+  describe('a Dashboard condition follows the Panels of its Dashboards as they come and go', () => {
+    const onBoard = (id: string, dashboardId: string): Panel => ({ ...aPanel(id), dashboardId });
+    const dayToDay = onBoard('errands', 'day');
+    const dayToDayLater = onBoard('added-later', 'day');
+    const work = onBoard('projects', 'work');
+    const volleyball = onBoard('matches', 'volleyball');
+    const volleyballToo = onBoard('training', 'volleyball');
+    const everything = [GATHERS, dayToDay, dayToDayLater, work, volleyball, volleyballToo];
+    const live = (...ids: string[]) => ids.map((id) => ({ id }));
+    const priority = (value: Priority): FilterCondition => ({ field: 'priority', values: [value] });
+    const dashboard = (values: string[], exclude?: boolean): FilterCondition =>
+      exclude ? { field: 'dashboard', values, exclude } : { field: 'dashboard', values };
+
+    it.each([
+      { situation: 'is Day to day; filed on a Panel of it', condition: dashboard(['day']), on: ['errands'], drawn: true },
+      { situation: 'is Day to day; filed only on Volleyball club', condition: dashboard(['day']), on: ['matches'], drawn: false },
+      { situation: 'is Day to day, Work; filed on a Panel of Work', condition: dashboard(['day', 'work']), on: ['projects'], drawn: true },
+      {
+        situation: 'is Day to day; filed on a Panel added to it after the Filter was saved',
+        condition: dashboard(['day']),
+        on: ['added-later'],
+        drawn: true,
+      },
+      {
+        situation: 'is not Volleyball club; filed on Day to day and on Volleyball club',
+        condition: dashboard(['volleyball'], true),
+        on: ['errands', 'matches'],
+        drawn: true,
+      },
+      {
+        situation: 'is not Volleyball club; filed only on Volleyball club, across two of its Panels',
+        condition: dashboard(['volleyball'], true),
+        on: ['matches', 'training'],
+        drawn: false,
+      },
+      {
+        situation: 'is not Volleyball club, Work; filed on one Panel of each',
+        condition: dashboard(['volleyball', 'work'], true),
+        on: ['matches', 'projects'],
+        drawn: false,
+      },
+    ])('an item where the condition $situation', ({ condition, on, drawn }) => {
+      const item = anItem('a');
+      expect(
+        shown([item], on.map((panelId) => filed(panelId, item.id)), [condition], {
+          panels: everything,
+          dashboards: live('day', 'work', 'volleyball'),
+        }),
+      ).toEqual(drawn ? [item.id] : []);
+    });
+
+    it.each([
+      {
+        situation: 'is Day to day and a deleted Dashboard, for an item on Day to day',
+        condition: dashboard(['day', 'gone']),
+        match: 'all' as const,
+        drawn: ['on-day'],
+      },
+      { situation: 'is only deleted Dashboards, under all', condition: dashboard(['gone']), match: 'all' as const, drawn: [] },
+      {
+        situation: 'is only deleted Dashboards, beside a condition under any, adds none',
+        condition: dashboard(['gone']),
+        match: 'any' as const,
+        drawn: [],
+      },
+      { situation: 'is not with only deleted Dashboards, under all', condition: dashboard(['gone'], true), match: 'all' as const, drawn: ['on-day', 'on-work'] },
+      { situation: 'is not with nothing chosen, under all', condition: dashboard([], true), match: 'all' as const, drawn: ['on-day', 'on-work'] },
+      { situation: 'is not with only deleted Dashboards, under any, adds none', condition: dashboard(['gone'], true), match: 'any' as const, drawn: [] },
+    ])('a condition that $situation draws $drawn', ({ condition, match, drawn }) => {
+      const items = [anItem('on-day'), anItem('on-work')];
+      const filings = [filed('errands', 'on-day'), filed('projects', 'on-work')];
+      // Under *any* the condition stands beside one nothing meets, so only it
+      // can add anything.
+      const conditions = match === 'any' ? [condition, priority('high')] : [condition];
+      expect(
+        shown(items, filings, conditions, {
+          panels: everything,
+          dashboards: live('day', 'work'),
+          match,
+        }),
+      ).toEqual(drawn);
+    });
+
+    it.each([
+      {
+        situation: 'Dashboard is Day to day and Panel is not Errands, an item on Errands of Day to day',
+        conditions: [dashboard(['day']), { field: 'panel', values: ['errands'], exclude: true }] as FilterCondition[],
+        match: 'all' as const,
+        item: anItem('a'),
+        drawn: false,
+      },
+      {
+        situation: 'Dashboard is Work or Priority is High, a High item on Day to day',
+        conditions: [dashboard(['work']), priority('high')],
+        match: 'any' as const,
+        item: anItem('a', { priority: 'high' }),
+        drawn: true,
+      },
+    ])('joins the other conditions by all or any: $situation', ({ conditions, match, item, drawn }) => {
+      expect(
+        shown([item], [filed('errands', item.id)], conditions, { panels: everything, match }),
+      ).toEqual(drawn ? [item.id] : []);
+    });
+
+    describe('deleting a Dashboard is asked about wherever a live Filter looks at it', () => {
+      const aFilterOn = (id: string, condition: FilterCondition, ...others: FilterCondition[]): Panel => ({
+        ...aPanel(id, 'filter'),
+        filter: { conditions: [condition, ...others], match: 'all', groupBy: 'none' },
+      });
+
+      it.each([
+        { situation: 'no Filter names it', filters: [] as Panel[], named: [] as { leftEmpty: boolean }[] },
+        {
+          situation: 'an is card names it and another live Dashboard',
+          filters: [aFilterOn('due', dashboard(['volleyball', 'work']))],
+          named: [{ leftEmpty: false }],
+        },
+        {
+          situation: 'an is card whose last live value it is',
+          filters: [aFilterOn('due', dashboard(['volleyball']))],
+          named: [{ leftEmpty: true }],
+        },
+        {
+          situation: 'an is not card whose last live value it is, which then filters nothing',
+          filters: [aFilterOn('due', dashboard(['volleyball'], true))],
+          named: [{ leftEmpty: false }],
+        },
+        {
+          situation: 'an is card whose other value is already deleted',
+          filters: [aFilterOn('due', dashboard(['volleyball', 'gone']))],
+          named: [{ leftEmpty: true }],
+        },
+      ])('$situation', ({ filters, named }) => {
+        const found = filtersUsingDashboard('volleyball', [FALCON, ...filters], live('volleyball', 'work'));
+        expect(found.map((one) => ({ leftEmpty: one.leftEmpty }))).toEqual(named);
+        expect(found.map((one) => one.filter)).toEqual(filters);
+      });
+
+      it('never names a Filter whose conditions are about something else', () => {
+        const other = aFilterOn('over', due('today'));
+        expect(filtersUsingDashboard('volleyball', [FALCON, other], live('volleyball'))).toEqual([]);
+      });
+
+      it('never names a Filter on the Dashboard being deleted, which goes with it', () => {
+        const onIt = { ...aFilterOn('own', dashboard(['volleyball'])), dashboardId: 'volleyball' };
+        expect(filtersUsingDashboard('volleyball', [FALCON, onIt], live('volleyball', 'work'))).toEqual([]);
+      });
     });
   });
 
@@ -871,6 +1025,30 @@ describe('Panels', () => {
       expect(saysWhatItShows([nothingToExclude], [], [], match, 'panel')).toBe(reads);
     });
 
+    it.each([
+      { situation: 'is Day to day, Work', condition: { field: 'dashboard', values: ['day', 'work'] }, reads: 'On Day to day or Work' },
+      {
+        situation: 'is not Volleyball club',
+        condition: { field: 'dashboard', values: ['volleyball'], exclude: true },
+        reads: 'Not on Volleyball club',
+      },
+      {
+        situation: 'is not, naming only a Dashboard since deleted, which filters nothing',
+        condition: { field: 'dashboard', values: ['gone'], exclude: true },
+        reads: 'Everything filed',
+      },
+    ] as { situation: string; condition: FilterCondition; reads: string }[])(
+      'reads a Dashboard condition that $situation',
+      ({ condition, reads }) => {
+        const dashboards = [
+          { id: 'day', name: 'Day to day' },
+          { id: 'work', name: 'Work' },
+          { id: 'volleyball', name: 'Volleyball club' },
+        ];
+        expect(saysWhatItShows([condition], [], [], 'all', 'none', dashboards)).toBe(reads);
+      },
+    );
+
     it('adds nothing for a grouping it does not know, rather than naming one', () => {
       const unknown = 'type' as unknown as FilterGrouping;
       expect(saysWhatItShows([due('week')], [], [], 'all', unknown)).toBe('Due this week or overdue');
@@ -977,7 +1155,7 @@ describe('Panels', () => {
     ): string[] {
       return alsoShownOn(
         itemId,
-        panelAndFilterIdsByItem(items, filings, panelsInWorkspace, itemTypes, TODAY),
+        panelAndFilterIdsByItem(items, filings, panelsInWorkspace, [{ id: 'today' }], itemTypes, TODAY),
         panelsInWorkspace,
         drawnPanelId,
       );

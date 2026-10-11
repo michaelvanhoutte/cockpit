@@ -448,6 +448,7 @@ export function PanelBoard({
       items,
       filings,
       panelsInWorkspace,
+      dashboards,
       itemTypes,
       filter: dashboardFilter,
       withAttachments,
@@ -1610,6 +1611,7 @@ export function PanelBoard({
                           groups={groupsOf(panel)}
                           itemTypes={itemTypes}
                           panelsInWorkspace={panelsInWorkspace}
+                          dashboards={dashboards}
                           renaming={renaming?.id === panel.id ? renaming.name : null}
                           onRenamingChange={(name) => setRenaming({ id: panel.id, name })}
                           onStartRenaming={() => {
