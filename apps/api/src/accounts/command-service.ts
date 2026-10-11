@@ -89,21 +89,22 @@ import {
 } from '../domain/dashboards.js';
 import {
   FILING_VALUES_PER_ROW,
-  filingRows,
-  orderIsNotOfThePanel,
-  type Arriving,
+  decideAddToPanel,
+  decideMoveToPanel,
+  whyNothingIsFiledOn,
+  type FilingDecided,
+  type FilingFacts,
+  type FilingRefusal,
 } from '../domain/filings.js';
 import {
   LAYOUT_ROW_VALUES_PER_ROW,
   PLACEMENT_VALUES_PER_ROW,
   appendedPlacement,
-  arrangementRows,
+  decideLayoutSave,
   firstPanelFor,
   panelFromCommand,
   panelNameForMove,
   panelNamed,
-  panelsNotOn,
-  withStoredSections,
 } from '../domain/panels.js';
 import { inBatchesOf } from '../domain/statements.js';
 import {
@@ -441,13 +442,8 @@ function dashboardTheChangeIsAbout(
  * and quietly reopen the hole this exists to close.
  */
 function refuseAPanelNothingIsFiledOn(panel: { name: string; kind: PanelKind } | null) {
-  if (panel && !panelTakesItems(panel)) {
-    throw new PanelHoldsSomethingElseError(
-      panelGathers(panel)
-        ? `${panel.name} gathers what it shows, so nothing is filed on it`
-        : `${panel.name} holds text, so nothing is filed on it`,
-    );
-  }
+  const why = panel && whyNothingIsFiledOn(panel);
+  if (why) throw new PanelHoldsSomethingElseError(why);
 }
 
 /**
@@ -732,13 +728,98 @@ function settleWorkspace(
 }
 
 /**
- * Refuses an order that is not the panel's arrangement, in the words the person
- * who sent it is shown. Both commands that carry an order ask it, because it is
- * the same question about the same rows.
+ * Everything the domain needs to decide a filing, read before it decides: the
+ * store is asked, the domain answers (`decideMoveToPanel`, `decideAddToPanel`).
+ * `named` is the Panels a move takes the Item off.
  */
-function refuseAStaleOrder(db: AccountDb, tenantId: string, cmd: Arriving & { panelId: string }): void {
-  const stale = orderIsNotOfThePanel(listFilingsOnPanel(db, tenantId, cmd.panelId), cmd);
-  if (stale) throw new PanelOrderStaleError(stale);
+function filingFactsFor(
+  db: AccountDb,
+  tenantId: string,
+  cmd: { workspaceId: string; itemId: string; panelId: string | null },
+  named: readonly string[],
+): FilingFacts {
+  const item = getItem(db, tenantId, cmd.itemId);
+  const found = cmd.panelId ? getPanel(db, tenantId, cmd.panelId) : null;
+  // A Panel is the Workspace's only where its dashboard is.
+  const panel = found && getDashboard(db, tenantId, cmd.workspaceId, found.dashboardId) ? found : null;
+  return {
+    item,
+    workspaceExists: !!getWorkspace(db, tenantId, cmd.workspaceId),
+    panel: panel ? { id: panel.id, name: panel.name, kind: panel.kind } : null,
+    held: panel ? listFilingsOnPanel(db, tenantId, panel.id) : [],
+    alreadyFiled: isItemFiled(db, tenantId, cmd.itemId),
+    proposedPanelNeverPropose: item?.proposedPanelId
+      ? !!getPanel(db, tenantId, item.proposedPanelId)?.neverPropose
+      : false,
+    sources: named.map((id) => {
+      const from = getPanel(db, tenantId, id);
+      return {
+        id,
+        exists: !!from,
+        ofTheWorkspace: !!from && !!getDashboard(db, tenantId, cmd.workspaceId, from.dashboardId),
+      };
+    }),
+  };
+}
+
+/** A filing the domain accepted as it is, or the error its refusal is. */
+function refusedOrFiling(decision: FilingRefusal | FilingDecided): FilingDecided {
+  switch (decision.refusal) {
+    case null:
+      return decision;
+    case 'item-not-found':
+      throw new ItemNotFoundError(decision.id);
+    case 'workspace-not-found':
+      throw new WorkspaceNotFoundError(decision.id);
+    case 'panel-not-found':
+      throw new PanelNotFoundError(decision.id);
+    case 'panel-holds-something-else':
+      throw new PanelHoldsSomethingElseError(decision.why);
+    case 'order-stale':
+      throw new PanelOrderStaleError(decision.why);
+  }
+}
+
+/** Writes what a filing decided, inside the transaction of the change that made it. */
+function writeFiling(
+  tx: InATransaction,
+  tenantId: string,
+  itemId: string,
+  decided: FilingDecided,
+): void {
+  if (decided.workspaceSettled) settleWorkspace(tx, tenantId, itemId, decided.workspaceSettled);
+  // Off the Panels it is moved from first, which is what makes this a move
+  // rather than an add: the item's own rows there go, and the target panel's
+  // arrangement is then written whole.
+  if (decided.takesItOffPanels) {
+    tx.delete(panelItems)
+      .where(
+        and(
+          eq(panelItems.tenantId, tenantId),
+          eq(panelItems.itemId, itemId),
+          decided.fromPanelIds ? inArray(panelItems.panelId, decided.fromPanelIds) : undefined,
+        ),
+      )
+      .run();
+  }
+  if (!decided.panelId) return;
+  // Replaced whole rather than merged: an order is the answer to "where do
+  // these items go now", so a row not in it must not survive.
+  tx.delete(panelItems)
+    .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, decided.panelId)))
+    .run();
+  for (const batch of inBatchesOf(decided.rows, FILING_VALUES_PER_ROW)) {
+    tx.insert(panelItems).values(batch).run();
+  }
+  if (!decided.decision) return;
+  tx.insert(decisionHistory).values(decided.decision).onConflictDoNothing().run();
+  // The proposal is spent the moment it is read into that entry - cleared here
+  // so an Item that returns to the Inbox and is filed again cannot have its
+  // original proposal misattributed to a decision it was never shown for.
+  tx.update(items)
+    .set({ proposedPanelId: null, proposedPanelReason: null })
+    .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
+    .run();
 }
 
 /**
@@ -1276,29 +1357,20 @@ export function runCommand<N extends CommandName>(
     case 'save_layout': {
       const cmd = payload as CommandPayload<'save_layout'>;
       const dashboard = dashboardTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.dashboardId);
-      // An arrangement may only name panels that are on the dashboard it
-      // arranges. Checked here rather than left to the foreign key, which would
-      // surface a caller's mistake as a 500 and could not tell a panel of
-      // another dashboard from one that never existed.
-      const stranger = panelsNotOn(listPanels(db, tenantId, dashboard.id), cmd)[0];
-      if (stranger) throw new PanelNotFoundError(stranger);
-      // A layout of another dashboard is not this one's to arrange.
-      const held = getLayout(db, tenantId, cmd.layoutId);
-      if (held && held.dashboardId !== dashboard.id) throw new LayoutNotFoundError(cmd.layoutId);
-      // **The dashboard's own layout wherever it has one**, whatever id the
-      // save names: a dashboard has at most one, so a save is always about
-      // that one. A fresh id is the client making the first; any other is a
-      // tab that has not yet read the one another tab made, or one from
-      // before every dashboard kept a single layout, still naming a layout
-      // that went with its Screen size. Either way it means this dashboard.
-      const layoutId = layoutOfDashboard(db, tenantId, dashboard.id)?.id ?? cmd.layoutId;
-      // A tab that predates Sections sends none, and its save keeps the ones
-      // stored; a tab that knows them says so, and what it sends is the whole
-      // answer, Sections included (`withStoredSections`).
-      const rows = cmd.carriesSections
-        ? cmd.rows
-        : withStoredSections(cmd.rows, storedRowsOf(db, tenantId, layoutId));
-      const arrangement = arrangementRows(tenantId, layoutId, rows);
+      // Loaded here, decided in the domain: which panels and layout the save may
+      // name, and which layout it means, are `decideLayoutSave`'s.
+      const ownLayout = layoutOfDashboard(db, tenantId, dashboard.id);
+      const saved = decideLayoutSave(tenantId, dashboard.id, cmd, {
+        panels: listPanels(db, tenantId, dashboard.id),
+        heldLayoutDashboardId: getLayout(db, tenantId, cmd.layoutId)?.dashboardId ?? null,
+        ownLayoutId: ownLayout?.id ?? null,
+        // A dashboard with no layout has no rows stored; one read, and only
+        // for a save that does not carry its own Sections.
+        storedRows: ownLayout && !cmd.carriesSections ? storedRowsOf(db, tenantId, ownLayout.id) : [],
+      });
+      if (saved.refusal === 'panel-not-found') throw new PanelNotFoundError(saved.id);
+      if (saved.refusal === 'layout-not-found') throw new LayoutNotFoundError(saved.id);
+      const { layoutId, arrangement } = saved;
       db.transaction((tx) => {
         tx.insert(layouts)
           .values({ id: layoutId, tenantId, dashboardId: dashboard.id, createdAt: cmd.issuedAt })
@@ -1482,190 +1554,33 @@ export function runCommand<N extends CommandName>(
     }
     case 'move_item_to_panel': {
       const cmd = payload as CommandPayload<'move_item_to_panel'>;
-      // The item first, because it is what the change is about, and checked
-      // against the workspace the envelope names: an item is addressed by its
-      // own id alone, so without that a move could reach across the account
-      // into a workspace the caller never opened. The same reasoning
-      // `panelTheChangeIsAbout` carries, one level along.
-      //
-      // **An item belonging to no workspace is reachable from every one of
-      // them**, because it is shown in every one of them ("Capture something
-      // before you know which workspace it belongs to", issue 165) - and this
-      // is the command that says where it belongs. The workspace it names still
-      // has to exist, which is what the check below does for a move to an Inbox
-      // (`panelTheChangeIsAbout` already does it for a move to a panel).
-      const item = getItem(db, tenantId, cmd.itemId);
-      if (!item || (item.workspaceDecided && item.workspaceId !== cmd.workspaceId)) {
-        throw new ItemNotFoundError(cmd.itemId);
-      }
-      // A null panel is the Inbox, which is not a panel and so is nothing to
-      // look up: the item comes off everything and, being filed nowhere, is
-      // back in the Inbox.
-      const panel = cmd.panelId ? panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId) : null;
-      if (!panel && !getWorkspace(db, tenantId, cmd.workspaceId)) {
-        throw new WorkspaceNotFoundError(cmd.workspaceId);
-      }
-      // Nothing is filed onto a panel of text, which draws no items: one filed
-      // there would leave the Inbox and be on no screen at all.
-      refuseAPanelNothingIsFiledOn(panel);
-
-      // Checked against what the panel actually holds rather than left to the
-      // foreign key, which could not tell an item of another workspace from one
-      // that was moved off a moment ago - and would surface either as a 500.
-      if (panel) refuseAStaleOrder(db, tenantId, { ...cmd, panelId: panel.id });
-
-      // Read before anything below moves the item, because a routing settles
-      // exactly once - the first time an Item leaves the Inbox - and this is
-      // what tells that filing apart from every reorganizing move after it
-      // ("Learn where notes belong from where you actually file them", issue
-      // 299). Without this check, a later drag from one Panel to another would
-      // still carry whatever `proposedPanelId` was frozen at the *first*
-      // filing (nothing clears it - `applyProposedPanel`'s own comment: "never
-      // read again") and misrecord it as a proposal for a decision it was
-      // never shown for; undoing that later move would then write a further,
-      // equally spurious entry, breaking `decision_history`'s own append-only,
-      // undo-writes-nothing rule (schema.ts).
-      const alreadyFiled = isItemFiled(db, tenantId, cmd.itemId);
-
-      // Where it goes is where it belongs, from now on. Null for an item that
-      // already belonged somewhere, which is every move the app made before
-      // this: the workspace is settled and nothing about it changes.
-      const decided = decideWorkspace(item, cmd.workspaceId, cmd.issuedAt);
+      // Loaded here, decided in the domain (`decideMoveToPanel`): every refusal,
+      // what settles the Item's Workspace and whether a routing is recorded.
+      const named = cmd.panelId === null ? [] : (cmd.fromPanelIds ?? []);
+      const decided = refusedOrFiling(decideMoveToPanel(cmd, filingFactsFor(db, tenantId, cmd, named)));
       // It has just left every other workspace's Inbox, so their snapshots are
       // stale too - the same reason a capture with no workspace carries this.
-      if (decided) everyWorkspaceSees(commandRow);
+      if (decided.workspaceSettled) everyWorkspaceSees(commandRow);
 
-      // The Panels it is taken off. One it has since left, or that was deleted
-      // in another tab, is no mistake and is ignored (the item is no longer on
-      // it, as far as this move is concerned); a live one is checked as a Panel
-      // of this Workspace, which is what refuses another Workspace's. Naming
-      // none (or an empty list), or moving to the Inbox, takes it off every Panel.
-      const named = cmd.panelId === null ? [] : (cmd.fromPanelIds ?? []);
-      const fromPanelIds = named.length === 0 ? undefined : named.filter((fromId) => {
-        if (!getPanel(db, tenantId, fromId)) return false;
-        panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, fromId);
-        return true;
-      });
-
-      const rows = filingRows(tenantId, cmd);
       db.transaction((tx) => {
-        if (decided) settleWorkspace(tx, tenantId, cmd.itemId, decided);
-        // Off the Panels it is moved from first, which is what makes this a
-        // move rather than an add: the item's own rows there go, and the target
-        // panel's arrangement is then written whole. Off every Panel where the
-        // move names none. A reorder is the same two steps over one panel,
-        // which is why it is the same command.
-        // (Every one named gone is nothing to take it off, not every Panel.)
-        if (!fromPanelIds || fromPanelIds.length > 0) {
-          tx.delete(panelItems)
-            .where(
-              and(
-                eq(panelItems.tenantId, tenantId),
-                eq(panelItems.itemId, cmd.itemId),
-                fromPanelIds ? inArray(panelItems.panelId, fromPanelIds) : undefined,
-              ),
-            )
-            .run();
-        }
-        if (panel) {
-          // Replaced whole rather than merged, for the reason a layout's
-          // placements are: an order is the answer to "where do these items go
-          // now", so a row not in it must not survive.
-          tx.delete(panelItems)
-            .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panel.id)))
-            .run();
-          for (const batch of inBatchesOf(rows, FILING_VALUES_PER_ROW)) {
-            tx.insert(panelItems).values(batch).run();
-          }
-          // A routing settles by landing on a real Panel for the first time -
-          // never on a move to the Inbox, and never on a reorganizing move of
-          // an Item already filed somewhere (`alreadyFiled` above), which is
-          // not a fresh routing decision and would only ever misattribute a
-          // stale proposal to it. `item` is read fresh above, before this
-          // write, so its `proposedPanelId`/`proposedPanelReason` are exactly
-          // what the Inbox chip showed for this, its one settling filing.
-          if (!alreadyFiled) {
-            settledRouting = true;
-            tx.insert(decisionHistory)
-              .values(decisionHistoryEntryFor(proposalAsShown(db, tenantId, item), cmd, panel.id))
-              .onConflictDoNothing()
-              .run();
-            // The proposal is spent the moment it is read into that entry -
-            // cleared here rather than left for `applyProposedPanel`'s "never
-            // read again" to keep true only by convention. Without this, an
-            // Item that returns to the Inbox later (its only Panel deleted,
-            // or removed via `remove_item_from_panel`) and is filed again
-            // would still carry the *original* proposal, and the write above
-            // would misattribute it to a decision it was never shown for -
-            // exactly the failure `alreadyFiled` exists to prevent, reopened
-            // through `isItemFiled` correctly reporting the Item as unfiled
-            // again.
-            tx.update(items)
-              .set({ proposedPanelId: null, proposedPanelReason: null })
-              .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-              .run();
-          }
-        }
+        writeFiling(tx, tenantId, cmd.itemId, decided);
         tx.insert(commands).values(commandRow).run();
       });
+      if (decided.decision) settledRouting = true;
       break;
     }
     case 'add_item_to_panel': {
       const cmd = payload as CommandPayload<'add_item_to_panel'>;
       // Reachable from every workspace while it belongs to none, and settled by
-      // landing on a panel - exactly as `move_item_to_panel` above, because
-      // putting an item on a panel is putting it on a panel whichever of the
-      // two commands says so. Without this, adding an undecided item to a panel
-      // left it filed *and* still in every other workspace's Inbox, which is a
-      // state the rule does not have.
-      const item = getItem(db, tenantId, cmd.itemId);
-      if (!item || (item.workspaceDecided && item.workspaceId !== cmd.workspaceId)) {
-        throw new ItemNotFoundError(cmd.itemId);
-      }
-      const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
-      // The same rule the move above carries, and for the same reason.
-      refuseAPanelNothingIsFiledOn(panel);
-
-      refuseAStaleOrder(db, tenantId, { ...cmd, panelId: panel.id });
-
-      // Read before the write, for the reason `move_item_to_panel` reads it:
-      // the ordinary path onto this command is already-filed ("Add to…" on a
-      // Panel, offered only there), but nothing here refuses one aimed at an
-      // Item still in the Inbox - and landing on a Panel for the first time
-      // is a routing settling whichever of the two commands does it (see the
-      // comment above on why this command settles the Workspace too).
-      const alreadyFiled = isItemFiled(db, tenantId, cmd.itemId);
-
-      const decided = decideWorkspace(item, cmd.workspaceId, cmd.issuedAt);
-      if (decided) everyWorkspaceSees(commandRow);
-
-      const rows = filingRows(tenantId, { ...cmd, panelId: panel.id });
+      // landing on a panel - exactly as a move, because putting an item on a
+      // panel is putting it on a panel whichever of the two commands says so.
+      const decided = refusedOrFiling(decideAddToPanel(cmd, filingFactsFor(db, tenantId, cmd, [])));
+      if (decided.workspaceSettled) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
-        if (decided) settleWorkspace(tx, tenantId, cmd.itemId, decided);
-        // Only this panel's rows. **The whole difference from a move is the
-        // delete that is not here**: the panels the item was already on keep
-        // it, which is what makes one item on several panels a thing at all.
-        tx.delete(panelItems)
-          .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panel.id)))
-          .run();
-        for (const batch of inBatchesOf(rows, FILING_VALUES_PER_ROW)) {
-          tx.insert(panelItems).values(batch).run();
-        }
-        if (!alreadyFiled) {
-          settledRouting = true;
-          tx.insert(decisionHistory)
-            .values(decisionHistoryEntryFor(proposalAsShown(db, tenantId, item), cmd, panel.id))
-            .onConflictDoNothing()
-            .run();
-          // Spent the moment it is read - see the identical write in
-          // `move_item_to_panel` above for why.
-          tx.update(items)
-            .set({ proposedPanelId: null, proposedPanelReason: null })
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-            .run();
-        }
+        writeFiling(tx, tenantId, cmd.itemId, decided);
         tx.insert(commands).values(commandRow).run();
       });
+      if (decided.decision) settledRouting = true;
       break;
     }
     case 'remove_item_from_panel': {

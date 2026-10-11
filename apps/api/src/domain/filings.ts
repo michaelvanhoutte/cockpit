@@ -1,4 +1,13 @@
-import type { Filing } from '@cockpit/shared';
+import { panelGathers, panelTakesItems } from '@cockpit/shared';
+import type {
+  AddItemToPanelCommand,
+  Filing,
+  Item,
+  MoveItemToPanelCommand,
+  PanelKind,
+} from '@cockpit/shared';
+import { decisionHistoryEntryFor, type DecisionHistoryRow } from './decision-history.js';
+import { decideWorkspace } from './items.js';
 
 /**
  * Pure handlers for filing an item on a panel (architecture, "Hono + Zod on
@@ -100,4 +109,181 @@ export function orderIsNotOfThePanel(held: readonly Filing[], cmd: Arriving): st
     cmd.order.length === expected.size && cmd.order.every((itemId) => expected.has(itemId));
 
   return sameItems ? null : 'this panel changed while you were looking at it: try the move again';
+}
+
+/**
+ * Why nothing is filed on this panel, or null where something can be: one of
+ * text draws no items, and a Filter gathers what is filed elsewhere.
+ *
+ * Filing an item and adding it to one more panel are the same act with
+ * different answers about where it was before ("Ask whether to move an item to
+ * a panel or add it to one", issue 142), so they cannot be allowed to come to
+ * disagree about what a panel will take. The kind is the contract's own type: a
+ * mistyped literal would compile, never refuse, and reopen the hole this closes.
+ */
+export function whyNothingIsFiledOn(panel: { name: string; kind: PanelKind }): string | null {
+  if (panelTakesItems(panel)) return null;
+  return panelGathers(panel)
+    ? `${panel.name} gathers what it shows, so nothing is filed on it`
+    : `${panel.name} holds text, so nothing is filed on it`;
+}
+
+/** The Panel a filing lands on, as loaded. */
+export interface FilingTarget {
+  id: string;
+  name: string;
+  kind: PanelKind;
+}
+
+/** A Panel a move names to take the Item off, as loaded. */
+export interface FilingSource {
+  id: string;
+  /** Live at all; one it has since left or that another tab deleted is ignored. */
+  exists: boolean;
+  /** Live, on a dashboard of the Workspace the change names. */
+  ofTheWorkspace: boolean;
+}
+
+/**
+ * What a filing needs of the store, loaded before it is decided so that nothing
+ * here reads anything. Every refusal below is decided from these.
+ */
+export interface FilingFacts {
+  /** The Item the change names; null where there is none. */
+  item: Item | null;
+  workspaceExists: boolean;
+  /**
+   * The Panel the change names: null where the Inbox is meant, or where no
+   * Panel of the Workspace has the id.
+   */
+  panel: FilingTarget | null;
+  /** What that Panel holds now. */
+  held: readonly Filing[];
+  /** Whether the Item is on a Panel already, read before anything moves it. */
+  alreadyFiled: boolean;
+  /** Whether the Panel its open proposal names is flagged Never propose. */
+  proposedPanelNeverPropose: boolean;
+  /** The Panels a move names to take the Item off. */
+  sources: readonly FilingSource[];
+}
+
+/** Why a filing is refused, for the caller to say in the words its layer has for it. */
+export type FilingRefusal =
+  | { refusal: 'item-not-found'; id: string }
+  | { refusal: 'workspace-not-found'; id: string }
+  | { refusal: 'panel-not-found'; id: string }
+  | { refusal: 'panel-holds-something-else'; why: string }
+  | { refusal: 'order-stale'; why: string };
+
+/** What a filing that is accepted writes. */
+export interface FilingDecided {
+  refusal: null;
+  /** The Item with its Workspace settled by this filing, or null where it already belonged somewhere. */
+  workspaceSettled: Item | null;
+  /** The Panels to take the Item off; undefined takes it off every one. */
+  fromPanelIds: string[] | undefined;
+  /** Whether any Panel it was on is cleared at all. */
+  takesItOffPanels: boolean;
+  /** The Panel whose order is written whole, or null for a move to the Inbox. */
+  panelId: string | null;
+  rows: FilingRow[];
+  /** The decision to record: only the first filing out of the Inbox settles one. */
+  decision: DecisionHistoryRow | null;
+}
+
+/**
+ * The Item's proposal as its Inbox chip showed it: none where the proposed
+ * Panel is flagged Never propose, whose chip is not drawn ("Keep a Panel out of
+ * proposals with Never propose", issue 848). Otherwise the history would record
+ * an override of a chip nobody saw.
+ */
+function proposalAsShown(item: Item, proposedPanelNeverPropose: boolean): Item {
+  return item.proposedPanelId && proposedPanelNeverPropose
+    ? { ...item, proposedPanelId: null, proposedPanelReason: null }
+    : item;
+}
+
+/**
+ * The refusals both commands share, in the order a person meets them, and what
+ * settles once the filing lands. Never reads: `facts` says what the store holds.
+ *
+ * **A routing settles exactly once** - the first time an Item leaves the Inbox
+ * for a real Panel - and `alreadyFiled` is what tells that filing from every
+ * reorganizing move after it ("Learn where notes belong from where you actually
+ * file them", issue 299). Recording a later move would misattribute a stale
+ * proposal to a decision it was never shown for.
+ */
+function decideFiling(
+  cmd: MoveItemToPanelCommand | AddItemToPanelCommand,
+  facts: FilingFacts,
+): FilingRefusal | FilingDecided {
+  const { item } = facts;
+  // An item belonging to no workspace is reachable from every one of them,
+  // because it is shown in every one of them ("Capture something before you
+  // know which workspace it belongs to", issue 165) - and filing is what says
+  // where it belongs.
+  if (!item || (item.workspaceDecided && item.workspaceId !== cmd.workspaceId)) {
+    return { refusal: 'item-not-found', id: cmd.itemId };
+  }
+  // The Workspace has to exist whether a Panel or the Inbox is meant.
+  if (!facts.workspaceExists) return { refusal: 'workspace-not-found', id: cmd.workspaceId };
+  if (cmd.panelId !== null && !facts.panel) return { refusal: 'panel-not-found', id: cmd.panelId };
+  const panel = cmd.panelId === null ? null : facts.panel;
+  if (panel) {
+    const why = whyNothingIsFiledOn(panel);
+    if (why) return { refusal: 'panel-holds-something-else', why };
+    const stale = orderIsNotOfThePanel(facts.held, { ...cmd, panelId: panel.id });
+    if (stale) return { refusal: 'order-stale', why: stale };
+  }
+
+  // One it has since left, or that was deleted in another tab, is no mistake
+  // and is ignored; a live one must be a Panel of this Workspace. Naming none,
+  // or moving to the Inbox, takes the Item off every Panel.
+  const named = 'fromPanelIds' in cmd && cmd.panelId !== null ? (cmd.fromPanelIds ?? []) : [];
+  let fromPanelIds: string[] | undefined;
+  if (named.length > 0) {
+    fromPanelIds = [];
+    for (const from of facts.sources) {
+      if (!from.exists) continue;
+      if (!from.ofTheWorkspace) return { refusal: 'panel-not-found', id: from.id };
+      fromPanelIds.push(from.id);
+    }
+  }
+
+  return {
+    refusal: null,
+    // Null for an item that already belonged somewhere: nothing about its
+    // workspace changes.
+    workspaceSettled: decideWorkspace(item, cmd.workspaceId, cmd.issuedAt),
+    fromPanelIds,
+    // Every one named gone is nothing to take it off, not every Panel.
+    takesItOffPanels: !fromPanelIds || fromPanelIds.length > 0,
+    panelId: panel ? panel.id : null,
+    rows: filingRows(item.tenantId, { ...cmd, panelId: panel ? panel.id : null }),
+    decision:
+      panel && !facts.alreadyFiled
+        ? decisionHistoryEntryFor(proposalAsShown(item, facts.proposedPanelNeverPropose), cmd, panel.id)
+        : null,
+  };
+}
+
+/** Moving an Item onto a Panel, or off every one to the Inbox: it is taken off the Panels it was on. */
+export function decideMoveToPanel(
+  cmd: MoveItemToPanelCommand,
+  facts: FilingFacts,
+): FilingRefusal | FilingDecided {
+  return decideFiling(cmd, facts);
+}
+
+/**
+ * Adding an Item to one more Panel. **The whole difference from a move is the
+ * Panels it is taken off**: none, which is what makes one item on several
+ * panels a thing at all.
+ */
+export function decideAddToPanel(
+  cmd: AddItemToPanelCommand,
+  facts: FilingFacts,
+): FilingRefusal | FilingDecided {
+  const decided = decideFiling(cmd, facts);
+  return decided.refusal ? decided : { ...decided, takesItOffPanels: false, fromPanelIds: undefined };
 }

@@ -367,3 +367,57 @@ export function panelsNotOn(
     .flatMap((row) => row.cells.map((cell) => cell.panelId))
     .filter((panelId) => !known.has(panelId));
 }
+
+/** What saving a layout needs of the store, loaded before it is decided. */
+export interface LayoutSaveFacts {
+  /** The live panels of the dashboard being arranged. */
+  panels: readonly Panel[];
+  /** The dashboard the layout named by the save belongs to; null where there is none such. */
+  heldLayoutDashboardId: string | null;
+  /** The dashboard's own layout, where it has one. */
+  ownLayoutId: string | null;
+  /** The rows that layout stores; empty where the dashboard has none. */
+  storedRows: readonly LayoutRow[];
+}
+
+export type LayoutSaveRefusal =
+  | { refusal: 'panel-not-found'; id: string }
+  | { refusal: 'layout-not-found'; id: string };
+
+export interface LayoutSaveDecided {
+  refusal: null;
+  layoutId: string;
+  arrangement: { rows: LayoutRowRow[]; placements: PlacementRow[] };
+}
+
+/**
+ * What saving a layout writes, or why it is refused.
+ *
+ * An arrangement may only name panels on the dashboard it arranges - checked
+ * here rather than left to the foreign key, which would surface a caller's
+ * mistake as a 500 and could not tell a panel of another dashboard from one that
+ * never existed - and a layout of another dashboard is not this one's to arrange.
+ *
+ * **The dashboard's own layout wherever it has one**, whatever id the save
+ * names: a dashboard has at most one, so a save is always about that one. A
+ * fresh id is the client making the first; any other is a tab that has not yet
+ * read the one another tab made, or one from before every dashboard kept a
+ * single layout. A tab that predates Sections sends none, and its save keeps the
+ * ones stored (`withStoredSections`); a tab that knows them says so, and what it
+ * sends is the whole answer.
+ */
+export function decideLayoutSave(
+  tenantId: string,
+  dashboardId: string,
+  cmd: SaveLayoutCommand,
+  facts: LayoutSaveFacts,
+): LayoutSaveRefusal | LayoutSaveDecided {
+  const stranger = panelsNotOn(facts.panels, cmd)[0];
+  if (stranger) return { refusal: 'panel-not-found', id: stranger };
+  if (facts.heldLayoutDashboardId !== null && facts.heldLayoutDashboardId !== dashboardId) {
+    return { refusal: 'layout-not-found', id: cmd.layoutId };
+  }
+  const layoutId = facts.ownLayoutId ?? cmd.layoutId;
+  const rows = cmd.carriesSections ? cmd.rows : withStoredSections(cmd.rows, facts.storedRows);
+  return { refusal: null, layoutId, arrangement: arrangementRows(tenantId, layoutId, rows) };
+}
