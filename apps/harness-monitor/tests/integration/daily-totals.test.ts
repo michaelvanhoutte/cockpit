@@ -46,7 +46,7 @@ describe('Harness Monitor', () => {
       await send([usage('r1', { inputTokens: 7 }), usage('r2', { inputTokens: 5 })]);
       const honest = await totals();
       await env.DB.prepare('UPDATE daily_totals SET input_tokens = 9999').run();
-      await env.DB.prepare("INSERT INTO daily_totals VALUES ('2020-01-01', 'building', 'ghost', 1, 1, 1, 1, 1)").run();
+      await env.DB.prepare("INSERT INTO daily_totals (day, category, model, requests, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens) VALUES ('2020-01-01', 'building', 'ghost', 1, 1, 1, 1, 1)").run();
 
       await runTheNightlyJob();
 
@@ -54,7 +54,7 @@ describe('Harness Monitor', () => {
     });
 
     it('with no rows at all the nightly rebuild leaves no totals and does not fail', async () => {
-      await env.DB.prepare("INSERT INTO daily_totals VALUES ('2020-01-01', 'building', 'ghost', 1, 1, 1, 1, 1)").run();
+      await env.DB.prepare("INSERT INTO daily_totals (day, category, model, requests, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens) VALUES ('2020-01-01', 'building', 'ghost', 1, 1, 1, 1, 1)").run();
 
       await runTheNightlyJob();
 

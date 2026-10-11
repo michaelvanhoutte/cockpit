@@ -30,6 +30,8 @@ export interface UsageRow {
   inputTokens: number;
   outputTokens: number;
   cacheCreationTokens: number;
+  /** The part of cacheCreationTokens written with the 1-hour lifetime; the rest is 5-minute. */
+  cacheCreation1hTokens: number;
   cacheReadTokens: number;
   subagent: boolean;
   ranWhere: string;
@@ -127,6 +129,16 @@ function validateRow(raw: unknown): UsageRow | string {
     counts[field] = value;
   }
 
+  // Optional, so a sender that cannot tell the two lifetimes apart prices all of it as 5-minute.
+  let cacheCreation1hTokens = 0;
+  if (r.cacheCreation1hTokens !== undefined && r.cacheCreation1hTokens !== null) {
+    const v = r.cacheCreation1hTokens;
+    if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0 || v > counts.cacheCreationTokens!) {
+      return `has cacheCreation1hTokens ${JSON.stringify(v)}, which is not a whole number of tokens between zero and cacheCreationTokens.`;
+    }
+    cacheCreation1hTokens = v;
+  }
+
   return {
     requestId,
     sessionId,
@@ -140,6 +152,7 @@ function validateRow(raw: unknown): UsageRow | string {
     inputTokens: counts.inputTokens!,
     outputTokens: counts.outputTokens!,
     cacheCreationTokens: counts.cacheCreationTokens!,
+    cacheCreation1hTokens,
     cacheReadTokens: counts.cacheReadTokens!,
     subagent: r.subagent,
     ranWhere,

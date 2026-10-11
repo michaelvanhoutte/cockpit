@@ -1,6 +1,7 @@
 import { checkWriteKey } from './auth';
 import { renderPage } from './page';
-import { dailyLines, rebuildTotals, storeBatch } from './store';
+import { listStatus, priceWaitingRows, refreshPriceList } from './price-list';
+import { dailyLines, rebuildTotals, storeBatch, unpricedLines } from './store';
 import { validateBatch } from './validate';
 
 export interface Env {
@@ -39,7 +40,8 @@ export default {
       return request.method === 'POST' ? write(request, env) : json({ error: 'Use POST.' }, 405);
     }
     if (pathname === '/' && request.method === 'GET') {
-      return new Response(renderPage(await dailyLines(env.DB)), {
+      const [lines, unpriced, list] = await Promise.all([dailyLines(env.DB), unpricedLines(env.DB), listStatus(env.DB)]);
+      return new Response(renderPage(lines, { unpriced, list }), {
         headers: { 'content-type': 'text/html; charset=utf-8' },
       });
     }
@@ -47,6 +49,10 @@ export default {
   },
 
   async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+    // The daily job: refresh the prices (a failure keeps the last good list),
+    // price what was waiting, then rebuild the totals from the rows.
+    await refreshPriceList(env.DB);
+    await priceWaitingRows(env.DB);
     await rebuildTotals(env.DB);
   },
 } satisfies ExportedHandler<Env>;
