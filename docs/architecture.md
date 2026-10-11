@@ -18,7 +18,7 @@ Five constraints do most of the deciding; check every choice below against them.
 
 ## 3. System shape
 
-Three deployable parts, one repository:
+Three deployable parts, one repository, with the Harness Monitor beside them as a service of its own:
 
 ```
 cockpit/

@@ -10,6 +10,7 @@ on:
     paths:
       - apps/harness-monitor/**
       - .github/workflows/deploy-harness-monitor.yml
+      - pnpm-lock.yaml # a dependency bump changes what deploys
   workflow_dispatch:
 
 concurrency:

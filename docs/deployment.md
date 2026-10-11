@@ -129,9 +129,10 @@ Production therefore **lags `main` by design**. `git log <promoted-sha>..main`
 answers "what is merged but not live"; the promotion run's summary records which
 commit shipped.
 
-Two D1 databases, out of the free plan's ten. The two thresholds that would force
+Three D1 databases, Cockpit's two and the Harness Monitor's, out of the free plan's
+ten. The two thresholds that would force
 the $5/month Workers Paid plan, recorded so they are recognised rather than
-rediscovered: **a database crossing 500 MB** (or 5 GB across both), and **needing
+rediscovered: **a database crossing 500 MB** (or 5 GB across all three), and **needing
 queue retention beyond 24 hours**. Cloudflare Queues moved onto the free plan in
 February 2026, so it is no longer a reason to upgrade on its own - but its
 **10,000 operations a day** are shared by both environments, and each message
