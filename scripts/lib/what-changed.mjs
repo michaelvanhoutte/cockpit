@@ -374,8 +374,29 @@ export function changeClass({ paths, packages } = {}) {
  * already answers 'product', security and stored data for a workspace it
  * can't place: the safe direction on a failure is the one that costs a
  * review rather than a merge.
+ *
+ * The first line is always that row; a second, ARCHITECTURE_NOTE, follows
+ * only where `docs/architecture.md` is among `paths`.
  */
 export function localChangeAnswer(paths, packages) {
+  const answer = changeAnswer(paths, packages);
+  const architecture = normalize(paths).includes(ARCHITECTURE_DOC);
+  return architecture ? `${answer}\n${ARCHITECTURE_NOTE}` : answer;
+}
+
+/** The document whose rules a build may not relax without the engineer agreeing. */
+const ARCHITECTURE_DOC = 'docs/architecture.md';
+
+/**
+ * The second line of the answer where `docs/architecture.md` changed - added,
+ * modified, deleted or renamed, since the diff is taken without rename
+ * detection. The first line stays one of the review table's rows, so CLAUDE.md
+ * still maps it; this line is what `/build` stops on.
+ */
+const ARCHITECTURE_NOTE = `${ARCHITECTURE_DOC} changed: the issue's Technical design must have decided it, or the engineer agrees it before the push.`;
+
+/** The first line: the row of CLAUDE.md's Review findings table this change maps to. */
+function changeAnswer(paths, packages) {
   const files = normalize(paths);
   if (files.length > 0 && productPaths(files).length === 0) return 'documentation only';
 

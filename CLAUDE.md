@@ -87,7 +87,7 @@ Two of its rules are restated here because this file is in context always and th
 
 ## Review findings
 
-**Run `/code-review` and `/security-review` yourself before pushing, each at the level the change earns.** They are the only review a change gets, so nothing downstream will catch what they miss. `node scripts/local-changes.mjs`'s answer maps to a row:
+**Run `/code-review` and `/security-review` yourself before pushing, each at the level the change earns.** They are the only review a change gets, so nothing downstream will catch what they miss. The first line of `node scripts/local-changes.mjs`'s answer maps to a row:
 
 | Change | `/code-review` | Security review |
 |---|---|---|

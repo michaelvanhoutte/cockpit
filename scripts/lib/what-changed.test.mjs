@@ -325,7 +325,7 @@ describe('localChangeAnswer', () => {
   const mustNotBeCalled = () => assert.fail('localChangeAnswer asked for the workspace on a diff that never needed it');
 
   it("never asks for the workspace on a documentation-only diff - the pnpm -r list a docs-only push has no reason to pay for", () => {
-    const paths = ['docs/architecture.md', 'docs/deployment.md'];
+    const paths = ['docs/deployment.md', 'docs/testing-strategy.md'];
     assert.equal(localChangeAnswer(paths, mustNotBeCalled), 'documentation only');
   });
 
@@ -335,7 +335,7 @@ describe('localChangeAnswer', () => {
   });
 
   it('answers product changed on a mix of docs and product paths, without needing to ask why', () => {
-    const paths = ['docs/architecture.md', 'apps/web/src/main.tsx'];
+    const paths = ['docs/deployment.md', 'apps/web/src/main.tsx'];
     assert.equal(localChangeAnswer(paths, () => packages), 'product changed');
   });
 
@@ -343,6 +343,43 @@ describe('localChangeAnswer', () => {
     assert.equal(localChangeAnswer(['apps/api/src/accounts/schema.ts'], () => packages), 'product changed (stored data)');
     assert.equal(localChangeAnswer(['apps/api/src/auth/session.ts'], () => packages), 'product changed (security)');
     assert.equal(localChangeAnswer(['apps/api/src/accounts/backup.ts'], () => packages), 'product changed (security, stored data)');
+  });
+
+  describe('a change to the architecture document', () => {
+    const named = 'docs/architecture.md changed: the issue\'s Technical design must have decided it, or the engineer agrees it before the push.';
+
+    it('is named beside "documentation only" when it is all that changed', () => {
+      assert.equal(localChangeAnswer(['docs/architecture.md'], mustNotBeCalled), `documentation only\n${named}`);
+    });
+
+    it('is named beside the product answer when product code changed with it', () => {
+      assert.equal(localChangeAnswer(['docs/architecture.md', 'apps/web/src/main.tsx'], () => packages), `product changed\n${named}`);
+    });
+
+    it('is named, and the answer still the safe one, where the workspace could not be read', () => {
+      const unreadable = () => {
+        throw new Error('pnpm -r list failed: exit 1');
+      };
+      assert.equal(localChangeAnswer(['docs/architecture.md', 'apps/web/src/main.tsx'], unreadable), `product changed (security, stored data)\n${named}`);
+    });
+
+    it('is not mentioned where it did not change', () => {
+      assert.equal(localChangeAnswer(['docs/deployment.md'], mustNotBeCalled), 'documentation only');
+      assert.equal(localChangeAnswer(['apps/web/src/main.tsx'], () => packages), 'product changed');
+    });
+
+    it('is named when deleted or renamed, which the diff reports as the old path alone and the new one added', () => {
+      assert.ok(localChangeAnswer(['docs/architecture.md'], mustNotBeCalled).endsWith(named), 'a deletion');
+      assert.ok(localChangeAnswer(['docs/architecture.md', 'docs/design/architecture.md'], mustNotBeCalled).endsWith(named), 'a rename');
+    });
+
+    it('starts with one of the review table rows, whatever else the change is', () => {
+      const rows = /^(documentation only|tests only \(.+\)|product changed( \((security|stored data|security, stored data)\))?)$/;
+      for (const paths of [['docs/architecture.md'], ['docs/architecture.md', 'apps/api/tests/unit/commands.test.ts'], ['docs/architecture.md', 'apps/api/src/auth/session.ts']]) {
+        const [first] = localChangeAnswer(paths, () => packages).split('\n');
+        assert.match(first, rows);
+      }
+    });
   });
 
   it('answers product changed, security and stored data, on an empty diff, agreeing with changeClass rather than reading it as documentation', () => {
