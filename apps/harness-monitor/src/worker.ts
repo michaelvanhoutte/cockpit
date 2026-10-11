@@ -1,7 +1,8 @@
 import { checkWriteKey } from './auth';
 import { linkBranches, linkingPage } from './linking';
 import { renderPage } from './page';
-import { dailyLines, rebuildTotals, storeBatch } from './store';
+import { listStatus, priceWaitingRows, refreshPriceList } from './price-list';
+import { dailyLines, rebuildTotals, storeBatch, unpricedLines } from './store';
 import { validateBatch } from './validate';
 
 export interface Env {
@@ -14,8 +15,8 @@ export interface Env {
   GITHUB_REPOSITORY?: string;
 }
 
-/** The nightly rebuild of the daily totals; any other schedule links branches. */
-const NIGHTLY = '10 3 * * *';
+/** The daily job (prices, then the totals); any other schedule links branches. */
+const DAILY = '10 3 * * *';
 
 /** Far above MAX_BATCH full rows, so only a malformed write reaches it. */
 const MAX_BODY = 1_000_000;
@@ -47,7 +48,13 @@ export default {
       return request.method === 'POST' ? write(request, env) : json({ error: 'Use POST.' }, 405);
     }
     if (pathname === '/' && request.method === 'GET') {
-      return new Response(renderPage(await dailyLines(env.DB), await linkingPage(env.DB)), {
+      const [lines, unpriced, list, linking] = await Promise.all([
+        dailyLines(env.DB),
+        unpricedLines(env.DB),
+        listStatus(env.DB),
+        linkingPage(env.DB),
+      ]);
+      return new Response(renderPage(lines, { unpriced, list }, linking), {
         headers: { 'content-type': 'text/html; charset=utf-8' },
       });
     }
@@ -55,7 +62,14 @@ export default {
   },
 
   async scheduled(controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
-    if (controller.cron === NIGHTLY) await rebuildTotals(env.DB);
-    else await linkBranches(env);
+    if (controller.cron !== DAILY) {
+      await linkBranches(env);
+      return;
+    }
+    // The daily job: refresh the prices (a failure keeps the last good list),
+    // price what was waiting, then rebuild the totals from the rows.
+    await refreshPriceList(env.DB);
+    await priceWaitingRows(env.DB);
+    await rebuildTotals(env.DB);
   },
 } satisfies ExportedHandler<Env>;

@@ -513,6 +513,10 @@ const DECLARED_LOSSES: Record<string, Record<string, number>> = {
     layout_rows: 2,
     screen_sizes: 2,
   },
+  '0067-drop-gmail-tables': {
+    gmail_conversations: 1,
+    gmail_checks: 1,
+  },
 };
 
 /** What a table's columns are called, in the order the store holds them. */
@@ -1821,13 +1825,14 @@ describe('Connector management', () => {
         }));
       const before = await held();
 
-      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      // That change alone: opening the store would carry it on to
+      // `0067-drop-gmail-tables`, which takes both columns away again.
+      await applyChange(name, '0056-gmail-followed-mark');
 
       const after = await held();
       expect(before.connections.map((row) => row.connector_id)).toEqual(['teams', 'gmail']);
       expect(before.links).toHaveLength(1);
-      // Later updates add columns of their own, which an older row takes empty.
-      expect(after.connections).toEqual(before.connections.map((row) => ({ ...row, follows: 'label', choice: null })));
+      expect(after.connections).toEqual(before.connections.map((row) => ({ ...row, follows: 'label' })));
       expect(after.links).toEqual(before.links.map((row) => ({ ...row, mark: 'label' })));
     });
   });
@@ -1848,7 +1853,8 @@ describe('Connector management', () => {
         inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM connector_accounts ORDER BY id').toArray());
       const before = await held();
 
-      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      // That change alone, for the reason the star's case above gives.
+      await applyChange(name, '0065-connection-choice');
 
       expect(before.map((row) => row.connector_id)).toEqual(['teams', 'gmail']);
       expect(await held()).toEqual(before.map((row) => ({ ...row, choice: null })));
@@ -1866,13 +1872,18 @@ describe('Connector management', () => {
  */
 const GMAIL_RECONNECT = '0066-gmail-connections-reconnect';
 
-/** Every row the change could reach or must not: the connections, their failures, and Gmail's own rows. */
+/**
+ * Every row the change could reach or must not: the connections, their
+ * failures, and the Items. Without `follows`, which `0067-drop-gmail-tables`
+ * takes away on the same open.
+ */
 const connectorRowsIn = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
-    connections: sql.exec('SELECT * FROM connector_accounts ORDER BY id').toArray(),
+    connections: sql
+      .exec('SELECT * FROM connector_accounts ORDER BY id')
+      .toArray()
+      .map(({ follows: _follows, ...row }) => row),
     failures: sql.exec('SELECT * FROM connection_failures ORDER BY source_account_id').toArray(),
-    links: sql.exec('SELECT * FROM gmail_conversations').toArray(),
-    checkpoints: sql.exec('SELECT * FROM gmail_checks').toArray(),
     items: sql.exec('SELECT * FROM items ORDER BY id').toArray(),
   }));
 
@@ -1907,7 +1918,7 @@ describe('Connector management', () => {
             ]
           : []),
       ]);
-      // Compared whole: the connections, Gmail's links and checkpoint, and every Item, as they were.
+      // Compared whole: the connections and every Item, as they were.
       expect({ ...after, failures: [] }).toEqual({ ...before, failures: [] });
 
       const shown = await storeNamed(name).sourceAccounts(name, 'ws-before');
@@ -1931,6 +1942,105 @@ describe('Connector management', () => {
       });
 
       expect(await connectorRowsIn(name)).toEqual(once);
+    });
+  });
+});
+
+/**
+ * `0067-drop-gmail-tables` ("Drop Gmail's old core tables and the follows
+ * column", issue 967) meets a store holding rows in all three, beside the
+ * generic host's own links and checkpoints. Integration because whether a
+ * table or column exists is a fact about a real schema.
+ */
+const DROP_GMAIL = '0067-drop-gmail-tables';
+
+/** Everything but the account's own record, as `sqlite_master` holds it. */
+const schemaIn = (name: string) =>
+  inStoreAsItIs(name, (sql) =>
+    sql
+      .exec<{ type: string; name: string; tbl_name: string; sql: string | null }>(
+        `SELECT type, name, tbl_name, sql FROM sqlite_master
+          WHERE name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+            AND name NOT LIKE '\\_%' ESCAPE '\\'
+            AND tbl_name <> 'account_changes'
+          ORDER BY type, name`,
+      )
+      .toArray(),
+  );
+
+/** The rows the drop must leave alone: connections, Items and the generic host's own. */
+const keptBesideGmail = (name: string) =>
+  inStoreAsItIs(name, (sql) => ({
+    connections: sql
+      .exec('SELECT * FROM connector_accounts ORDER BY id')
+      .toArray()
+      .map(({ follows: _follows, ...row }) => row),
+    items: sql.exec('SELECT * FROM items ORDER BY id').toArray(),
+    links: sql.exec('SELECT * FROM pulled_links ORDER BY source_id').toArray(),
+    checkpoints: sql.exec('SELECT * FROM pulled_connections ORDER BY source_account_id').toArray(),
+  }));
+
+describe('Connector management', () => {
+  describe('an account brought up to date holds none of Gmail’s old storage, and everything else in it is as it was', () => {
+    it.each([
+      { situation: 'a store holding rows in all three', alreadyGone: false },
+      { situation: 'a store where a table had already gone', alreadyGone: true },
+    ])('$situation opens, holds none, and is built exactly as a new account is', async ({ situation, alreadyGone }) => {
+      const name = `aged-store-drop-gmail-${alreadyGone ? 'gone' : 'held'}`;
+      await agedTo(name, justBefore(DROP_GMAIL));
+      await fillWithWhatIsAlreadyThere(name);
+      const counts = await inStoreAsItIs(name, rowCountsOf);
+      expect(counts).toMatchObject({ gmail_conversations: 1, gmail_checks: 1, pulled_links: expect.any(Number) });
+      if (alreadyGone) await inStoreAsItIs(name, (sql) => sql.exec('DROP TABLE `gmail_checks`'));
+      const before = await keptBesideGmail(name);
+      expect(before.links.length + before.checkpoints.length).toBeGreaterThan(0);
+
+      expect(await storeNamed(name).workspaces(name), situation).toMatchObject({ status: 'ok' });
+
+      expect(await keptBesideGmail(name)).toEqual(before);
+      const schema = await schemaIn(name);
+      expect(schema.filter((entry) => entry.tbl_name.startsWith('gmail_'))).toEqual([]);
+      expect(await inStoreAsItIs(name, (sql) => columnsOf(sql, 'connector_accounts'))).not.toContain('follows');
+      const fresh = `${name}-new`;
+      expect(await storeNamed(fresh).workspaces(fresh)).toMatchObject({ status: 'ok' });
+      expect(schema).toEqual(await schemaIn(fresh));
+    });
+
+    it('changes nothing further when opened again', async () => {
+      const name = 'aged-store-drop-gmail-twice';
+      await agedTo(name, justBefore(DROP_GMAIL));
+      await fillWithWhatIsAlreadyThere(name);
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      const once = { kept: await keptBesideGmail(name), schema: await schemaIn(name) };
+
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect({ kept: await keptBesideGmail(name), schema: await schemaIn(name) }).toEqual(once);
+    });
+
+    it('leaves the account as it was when it fails partway, and applies whole on the next open', async () => {
+      // An index naming `follows` is the one way to make SQLite refuse its
+      // drop from outside, after both tables have already gone in the same run.
+      const name = 'aged-store-drop-gmail-fails-partway';
+      await agedTo(name, justBefore(DROP_GMAIL));
+      await fillWithWhatIsAlreadyThere(name);
+      await inStoreAsItIs(name, (sql) => sql.exec('CREATE INDEX in_the_way ON connector_accounts (follows)'));
+      const before = await inStoreAsItIs(name, rowCountsOf);
+
+      const failed = await storeNamed(name).workspaces(name);
+
+      expect(failed).toMatchObject({ status: 'not-up-to-date' });
+      expect(JSON.stringify(failed)).toContain(DROP_GMAIL);
+      expect(await inStoreAsItIs(name, rowCountsOf)).toEqual(before);
+
+      await inStoreAsItIs(name, (sql) => sql.exec('DROP INDEX in_the_way'));
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      const after = await inStoreAsItIs(name, rowCountsOf);
+      expect(after).not.toHaveProperty('gmail_conversations');
+      expect(after).not.toHaveProperty('gmail_checks');
+      expect(await inStoreAsItIs(name, (sql) => columnsOf(sql, 'connector_accounts'))).not.toContain('follows');
     });
   });
 });

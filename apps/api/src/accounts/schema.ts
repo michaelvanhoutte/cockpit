@@ -39,16 +39,6 @@ import type {
 } from '@cockpit/shared';
 
 /**
- * The marks the old Gmail tables and `connector_accounts.follows` may hold,
- * for their CHECKs alone: since "Switch Gmail onto the generic host, and take
- * it out of the core" (issue 944) nothing reads or writes those columns, and
- * Gmail's choice is the connection's generic `choice`. Here rather than in the
- * contract for the reason the dead `items` columns below are.
- */
-const GMAIL_MARKS = ['label', 'star'] as const;
-type GmailMark = (typeof GMAIL_MARKS)[number];
-
-/**
  * The values the three dead columns on `items` are allowed to hold.
  *
  * They are here rather than in the wire contract because the product no longer
@@ -1632,14 +1622,6 @@ export const connectorAccounts = sqliteTable(
      */
     lastTestedAt: text('last_tested_at'),
     /**
-     * The one mark a Gmail connection followed while Gmail ran in the core
-     * ("Connect Gmail by star, and bring in conversations starred from then
-     * on", issue 822). Read by nothing since "Switch Gmail onto the generic
-     * host, and take it out of the core" (issue 944), every row taking its
-     * default; dropping it is a later contract step.
-     */
-    follows: text('follows').notNull().default('label').$type<GmailMark>(),
-    /**
      * The one choice the connection made when it was connected, for a
      * connector that declares one ("Ask a connection's one choice on
      * connecting, and change it later", issue 942): the connector's own value,
@@ -1668,7 +1650,6 @@ export const connectorAccounts = sqliteTable(
     ),
     check('connector_accounts_connected_at_is_timestamp', isTimestamp('connected_at')),
     check('connector_accounts_updated_at_is_timestamp', isTimestamp('updated_at')),
-    check('connector_accounts_follows_is_mark', oneOf('follows', GMAIL_MARKS)),
   ],
 );
 
@@ -1780,93 +1761,6 @@ export const claudeCodeHookArrivals = sqliteTable(
 );
 
 /**
- * Which Item a Gmail conversation became ("Bring in the conversations already
- * labelled Cockpit as tasks", issue 725) - one row per conversation per
- * mailbox per Workspace, and so one Item ever.
- *
- * **Keyed on the mailbox, not on the connection**, so disconnecting and
- * connecting the same mailbox again finds its conversations already brought
- * in rather than bringing them in twice; and on the Workspace, so the same
- * mailbox connected to two Workspaces gives each its own Item.
- *
- * **Never deleted**: a disconnect leaves the Items, and the link with them.
- * `label_wanted` is what Cockpit wants of the conversation's `Cockpit` label
- * and Gmail has not yet confirmed ("Take the Cockpit label off in Gmail when
- * its task is done in Cockpit", issue 728): on (1) or off (0), written with
- * the Item's own change, and null once Gmail holds it - or while Cockpit
- * wants nothing of Gmail.
- *
- * **Read and written by nothing** since Gmail moved onto the generic host
- * ("Switch Gmail onto the generic host, and take it out of the core", issue
- * 944), whose links are `pulled_links`; kept, with `gmail_checks` below, until
- * a later contract step drops them.
- */
-export const gmailConversations = sqliteTable(
-  'gmail_conversations',
-  {
-    tenantId: text('tenant_id').notNull(),
-    workspaceId: text('workspace_id')
-      .notNull()
-      .references(() => workspaces.id, { onDelete: 'restrict' }),
-    mailboxKey: text('mailbox_key').notNull(),
-    threadId: text('thread_id').notNull(),
-    itemId: text('item_id')
-      .notNull()
-      .references(() => items.id, { onDelete: 'restrict' }),
-    labelWanted: integer('label_wanted', { mode: 'boolean' }),
-    linkedAt: text('linked_at').notNull(),
-    /**
-     * Which full reconcile last found the conversation labelled, named by
-     * when it started (`gmail_checks.started_at`) - null before any did ("Close
-     * a Gmail task when its label comes off", issue 727). Once a listing is
-     * complete, an open Item whose link names another one is the conversation
-     * the listing did not find, and is read to see whether it is done.
-     */
-    listedIn: text('listed_in'),
-    /**
-     * The mark the conversation came in under, label or star ("Connect Gmail
-     * by star, and bring in conversations starred from then on", issue 822) -
-     * the label for every link made before the star existed. Only the links
-     * under the mark their connection follows now are kept in step with it.
-     */
-    mark: text('mark').notNull().default('label').$type<GmailMark>(),
-  },
-  (t) => [
-    primaryKey({ columns: [t.workspaceId, t.mailboxKey, t.threadId] }),
-    uniqueIndex('gmail_conversations_one_per_item').on(t.itemId),
-    check('gmail_conversations_label_wanted_is_flag', sql.raw('label_wanted IS NULL OR label_wanted IN (0, 1)')),
-    check('gmail_conversations_mark_is_mark', oneOf('mark', GMAIL_MARKS)),
-    check('gmail_conversations_linked_at_is_timestamp', isTimestamp('linked_at')),
-  ],
-);
-
-/**
- * Where bringing in one Gmail connection's labelled conversations has got to
- * (issue 725): the history position recorded before the listing started, the
- * page it resumes at, and when the listing finished - null while it is still
- * going. One row per connection; a reconnect starts it again.
- *
- * **No foreign key**, for the reason `connectionFailures` gives: a disconnect
- * deletes its connection for real, and a row here naming one that has gone is
- * never read.
- */
-export const gmailChecks = sqliteTable(
-  'gmail_checks',
-  {
-    sourceAccountId: text('source_account_id').primaryKey(),
-    tenantId: text('tenant_id').notNull(),
-    historyId: text('history_id').notNull(),
-    pageToken: text('page_token'),
-    startedAt: text('started_at').notNull(),
-    listedAt: text('listed_at'),
-  },
-  (t) => [
-    check('gmail_checks_started_at_is_timestamp', isTimestamp('started_at')),
-    check('gmail_checks_listed_at_is_timestamp', isTimestamp('listed_at')),
-  ],
-);
-
-/**
  * What the generic host keeps for one connection of a source Cockpit pulls
  * from ("Check a pulled connector on its cadence through the generic host",
  * issue 891): the connector's own private state, when it is next checked, and
@@ -1910,7 +1804,7 @@ export const pulledConnections = sqliteTable(
  * source-state change is applied through, and so one Item ever per source id.
  *
  * **Keyed on the account at the source and the Workspace, not on the
- * connection's row**, as `gmailConversations` is and for its reason:
+ * connection's row**, so
  * disconnecting and connecting the same account again finds what it filed
  * already known rather than filing it twice, and the same account connected
  * to two Workspaces gives each its own Item. **Never deleted**: a disconnect

@@ -75,6 +75,13 @@ describe('Harness Monitor', () => {
       expect(refusal([row({ category: 'local-code-review', reviewLevel: 'ultra' })])).toContain('reviewLevel');
     });
 
+    it('the 1-hour part of a cache write is optional, and never more than the cache write itself', () => {
+      const accepted = validateBatch({ rows: [row(), row({ requestId: 'r2', cacheCreation1hTokens: 30 })] });
+      expect(accepted.ok && accepted.rows.map((r) => r.cacheCreation1hTokens)).toEqual([0, 30]);
+      expect(refusal([row({ cacheCreation1hTokens: 31 })])).toContain('cacheCreation1hTokens');
+      expect(refusal([row({ cacheCreation1hTokens: -1 })])).toContain('cacheCreation1hTokens');
+    });
+
     it('a batch over the size limit is refused', () => {
       const many = Array.from({ length: MAX_BATCH + 1 }, (_, i) => row({ requestId: `req_${i}` }));
       expect(refusal(many)).toContain(String(MAX_BATCH));

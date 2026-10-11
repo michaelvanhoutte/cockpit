@@ -84,7 +84,7 @@ describe('Harness Monitor', () => {
 
       await runHourly();
 
-      expect((await sessionsOnThePage()).s1![1]).toContain('#5 &lt;script&gt;alert(1)&lt;/script&gt; &amp; more');
+      expect((await sessionsOnThePage()).s1![1]).toContain('#5 &#60;script&#62;alert(1)&#60;/script&#62; &#38; more');
     });
   });
 });

@@ -608,6 +608,49 @@ describe('Backup', () => {
       ]);
       expect(now.tables.panel_placements!.map((cell) => [cell.layout_id, cell.span])).toEqual([['ly-wide', 6]]);
     });
+
+    /**
+     * A backup taken while Gmail's old tables still held rows ("Drop Gmail's
+     * old core tables and the follows column", issue 967): taken now and then
+     * made to say it predates the drop, the way a real older file does.
+     */
+    it('puts back a backup still holding Gmail’s old storage, then takes that storage away and keeps the rest', async () => {
+      await captureInto(USER_ID, 'captured beside Gmail');
+      const taken = await backUp(ACCOUNT_NAME);
+      const item = taken.tables.items!.find((row) => row.captured_message === 'captured beside Gmail')!;
+      const older: AccountFile = {
+        ...taken,
+        changesApplied: taken.changesApplied.filter((name) => name !== '0067-drop-gmail-tables'),
+        tables: {
+          ...taken.tables,
+          gmail_conversations: [
+            {
+              tenant_id: ACCOUNT_NAME,
+              workspace_id: item.workspace_id,
+              mailbox_key: 'google-somebody',
+              thread_id: 'thread-1',
+              item_id: item.id,
+              label_wanted: null,
+              linked_at: AT,
+              listed_in: null,
+              mark: 'star',
+            },
+          ],
+          gmail_checks: [
+            { source_account_id: 'cn-gmail', tenant_id: ACCOUNT_NAME, history_id: '4815', page_token: null, started_at: AT, listed_at: AT },
+          ],
+        },
+      };
+      await emptyTheStore(ACCOUNT_NAME);
+
+      expect((await restore(ACCOUNT_NAME, older)).status).toBe(200);
+
+      const now = await backUp(ACCOUNT_NAME);
+      expect(now.changesApplied).toContain('0067-drop-gmail-tables');
+      expect(now.tables.gmail_conversations).toBeUndefined();
+      expect(now.tables.gmail_checks).toBeUndefined();
+      expect(messagesIn(now)).toContain('captured beside Gmail');
+    });
   });
 
   describe('a restored user can sign in', () => {
