@@ -4,10 +4,12 @@ import type { Panel, SaveLayoutCommand } from '@cockpit/shared';
 import {
   appendedPlacement,
   arrangementRows,
+  decideLayoutSave,
   firstPanelFor,
   panelFromCommand,
   panelNameForMove,
   panelsNotOn,
+  type LayoutSaveFacts,
 } from '../../../src/domain/panels.js';
 
 /**
@@ -279,6 +281,72 @@ describe('Layouts', () => {
       } as SaveLayoutCommand;
 
       expect(panelsNotOn([aPanel('falcon'), aPanel('reading')], command)).toEqual(strangers);
+    });
+  });
+
+  describe('saving a layout is refused for a panel or a layout that is not the dashboard’s', () => {
+    const save = (
+      overrides: Partial<SaveLayoutCommand> = {},
+      loaded: Partial<LayoutSaveFacts> = {},
+    ) =>
+      decideLayoutSave(
+        'tenant',
+        'today',
+        {
+          commandId: 'c',
+          issuedAt: AT,
+          workspaceId: 'ws-work',
+          dashboardId: 'today',
+          layoutId: 'fresh',
+          carriesSections: true,
+          rows: [{ height: null, cells: [{ panelId: 'falcon', span: 12 }] }],
+          ...overrides,
+        } as SaveLayoutCommand,
+        {
+          panels: [aPanel('falcon'), aPanel('reading')],
+          heldLayoutDashboardId: null,
+          ownLayoutId: null,
+          storedRows: [],
+          ...loaded,
+        },
+      );
+
+    it.each([
+      {
+        situation: 'naming a panel of another dashboard',
+        command: { rows: [{ height: null, cells: [{ panelId: 'elsewhere', span: 12 }] }] },
+        loaded: {},
+        refusal: { refusal: 'panel-not-found', id: 'elsewhere' },
+      },
+      {
+        situation: 'naming a layout of another dashboard',
+        command: {},
+        loaded: { heldLayoutDashboardId: 'tomorrow' },
+        refusal: { refusal: 'layout-not-found', id: 'fresh' },
+      },
+    ])('refuses a save $situation', ({ command, loaded, refusal }) => {
+      expect(save(command as Partial<SaveLayoutCommand>, loaded)).toEqual(refusal);
+    });
+
+    it.each([
+      { situation: 'no layout yet', own: null, held: null, layoutId: 'fresh' },
+      { situation: 'a layout another tab made', own: 'theirs', held: null, layoutId: 'theirs' },
+      { situation: 'its own layout named', own: 'fresh', held: 'today', layoutId: 'fresh' },
+    ])('saves into the dashboard’s own layout wherever it has one: $situation', ({ own, held, layoutId }) => {
+      const saved = save({}, { ownLayoutId: own, heldLayoutDashboardId: held });
+
+      expect(saved).toEqual(expect.objectContaining({ refusal: null, layoutId }));
+    });
+
+    it('keeps the stored Sections for a save from a tab that predates them', () => {
+      const stored = [
+        { height: null, title: 'Next up', cells: [] },
+        { height: null, cells: [{ panelId: 'falcon', span: 12 }] },
+      ];
+
+      const saved = save({ carriesSections: undefined }, { ownLayoutId: 'wide', storedRows: stored });
+
+      expect(saved.refusal === null && saved.arrangement.rows.map((r) => r.title)).toEqual(['Next up', null]);
     });
   });
 });

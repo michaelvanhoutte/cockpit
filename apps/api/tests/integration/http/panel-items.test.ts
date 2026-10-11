@@ -102,16 +102,6 @@ async function aPanelOfText(dashboardId: string, name: string): Promise<string> 
   return panelId;
 }
 
-/** A panel that gathers what it shows, which is the other panel nothing is filed onto. */
-async function aFilter(dashboardId: string, name: string): Promise<string> {
-  const panelId = nextId();
-  expect(
-    (await send('add_panel', { workspaceId: WORKSPACE_ID, dashboardId, panelId, name, kind: 'filter' }))
-      .status,
-  ).toBe(200);
-  return panelId;
-}
-
 async function anItem(message: string, workspaceId: string = WORKSPACE_ID): Promise<string> {
   const itemId = nextId();
   expect(
@@ -301,30 +291,15 @@ describe('Panels', () => {
 
   describe('nothing is filed onto a panel of text, or onto one that gathers what it shows', () => {
     /**
-     * Neither draws what is filed onto it, so an item filed onto one would
-     * leave the Inbox and be on no screen at all - recoverable only by an undo
-     * somebody would have to think to reach for.
-     *
-     * **Refused by the store and not only hidden in the app**, because the
-     * app's scoping is presentation rather than protection (architecture,
-     * "Security"). Both commands, because filing an item and adding it to one
-     * more panel are the same act with different answers about where it was
-     * before, and the two must not come to disagree about what a panel takes.
-     *
-     * 400 rather than 404 or 409: the panel exists, it is on this dashboard,
-     * and nothing is in the way - it simply does not take items.
+     * The refusal itself is decided in the domain (tests/unit/domain/filings.test.ts);
+     * what is proved here is that it reaches the person as a 400 and stores nothing.
      */
-    it.each([
-      { situation: 'moved onto a panel of text', file: move, onto: aPanelOfText },
-      { situation: 'added to a panel of text', file: addTo, onto: aPanelOfText },
-      { situation: 'moved onto one that gathers what it shows', file: move, onto: aFilter },
-      { situation: 'added to one that gathers what it shows', file: addTo, onto: aFilter },
-    ])('$situation', async ({ file, onto }) => {
+    it('reaches the person as a 400 naming the panel, and stores nothing', async () => {
       const dashboardId = await aDashboard();
-      const refusing = await onto(dashboardId, 'What matters');
+      const refusing = await aPanelOfText(dashboardId, 'What matters');
       const itemId = await anItem('still to deal with');
 
-      const res = await file(itemId, refusing);
+      const res = await move(itemId, refusing);
 
       expect(res.status).toBe(400);
       expect(((await res.json()) as { error: string }).error).toContain('What matters');
@@ -409,16 +384,6 @@ describe('Panels', () => {
           return { panelId, order: [itemId] };
         },
       },
-      {
-        situation: 'an order naming an item that is not on the panel',
-        expected: 409,
-        arrange: async (itemId: string) => {
-          const today = await aDashboard();
-          const panelId = await aPanel(today, 'Falcon');
-          const stranger = await anItem('Somewhere else entirely');
-          return { panelId, order: [itemId, stranger] };
-        },
-      },
     ])('$situation', async ({ arrange, expected }) => {
       const itemId = await anItem('Reply to Bart');
       const { panelId, order } = await arrange(itemId);
@@ -427,17 +392,6 @@ describe('Panels', () => {
 
       expect(refused.status).toBe(expected);
       expect(await filedOn(itemId)).toEqual([]);
-    });
-
-    it('refuses a move of an item that does not exist, and files nothing', async () => {
-      const today = await aDashboard();
-      const falcon = await aPanel(today, 'Falcon');
-      const neverReal = nextId();
-
-      const refused = await move(neverReal, falcon, [neverReal]);
-
-      expect(refused.status).toBe(404);
-      expect((await snapshot()).filings.filter((filing) => filing.panelId === falcon)).toEqual([]);
     });
 
     it.each([
@@ -464,6 +418,21 @@ describe('Panels', () => {
       expect(await filedOn(itemId)).toEqual([]);
     });
 
+    it.each([
+      { situation: 'an item that does not exist', arrange: async () => nextId() },
+      {
+        situation: 'an item that belongs to another workspace',
+        arrange: async () => anItem('Not this workspace’s', 'ws-personal'),
+      },
+    ])('refuses a move of $situation, and files nothing', async ({ arrange }) => {
+      const today = await aDashboard();
+      const falcon = await aPanel(today, 'Falcon');
+      const itemId = await arrange();
+
+      expect((await move(itemId, falcon, [itemId])).status).toBe(404);
+      expect((await snapshot()).filings.filter((filing) => filing.panelId === falcon)).toEqual([]);
+    });
+
     it('changes nothing when an item is removed from a panel it is not on', async () => {
       const today = await aDashboard();
       const falcon = await aPanel(today, 'Falcon');
@@ -478,16 +447,6 @@ describe('Panels', () => {
       expect(await filedOn(itemId)).toEqual(['Falcon']);
     });
 
-    it('refuses a move of an item that belongs to another workspace', async () => {
-      const today = await aDashboard();
-      const falcon = await aPanel(today, 'Falcon');
-      const elsewhere = await anItem('Not this workspace’s', 'ws-personal');
-
-      const refused = await move(elsewhere, falcon, [elsewhere]);
-
-      expect(refused.status).toBe(404);
-      expect((await snapshot()).filings.filter((filing) => filing.panelId === falcon)).toEqual([]);
-    });
   });
 
   describe('a move takes the item off the panels it names as moved from, and every other panel keeps it', () => {

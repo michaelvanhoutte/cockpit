@@ -328,16 +328,23 @@ Module layout inside `apps/api`:
 
 ```
 src/
-├── domain/        # pure logic: entities, command handlers, panel-rule engine (L1 territory)
-├── db/            # Drizzle schema, migrations, repositories
-├── http/          # Hono routes: thin adapters, validate → call domain → serialize
+├── http/          # Hono routes: thin adapters, validate → call the store or domain → serialize
+├── mcp/           # the MCP server and the OAuth grants that let a connected app call it
+├── jobs/          # queue consumers + cron handlers: sync schedules, reconciliation (§6.3)
+├── engines/       # Claude Code, the one outbound engine, reached only through engines/list.ts (§6.2)
 ├── connectors/    # host side only: the registry wiring connector packages in, and the
 │                  # generic /ingress/:connector webhook route (§6.2). No source-specific code.
-├── engines/       # Claude Code, the one outbound engine, reached only through engines/list.ts (§6.2)
-├── jobs/          # queue consumers + cron handlers: sync schedules, reconciliation (§6.3)
+├── auth/          # sign-in, sessions, the operator and guest gates, key derivation
+├── accounts/      # an account's own store (a Durable Object): its schema and repository, and
+│                  # command-service.ts, which runs every command (below)
+├── db/            # the register's Drizzle schema and client (D1); migrations are in apps/api/migrations
 ├── ai/            # the AI layer behind an interface (§6.4)
-└── gateway/       # makes, retries and records every paid provider call (provider_calls)
+├── embeddings/    # the embedding calls behind duplicate detection
+├── gateway/       # makes, retries and records every paid provider call (provider_calls)
+└── domain/        # pure logic that decides: entities, command handlers, panel-rule engine (L1 territory)
 ```
+
+**The account store orchestrates a command; `domain/` decides it.** A handler in `accounts/command-service.ts` loads what the command depends on, hands it to a pure function in `domain/` that returns the refusal or what to write, and writes that in one transaction. A rule is then proved at L1 on facts handed in, and the store's tests prove only that the facts are read and the answer written together. Filing an Item on a Panel and saving a layout follow this (`decideMoveToPanel`, `decideAddToPanel`, `decideLayoutSave`); handlers that still keep their rules inline among their reads are being moved over one at a time.
 
 The dependency rule is one-directional: `domain` imports nothing from the other layers, which makes the L1 tier a property of the design rather than a mocking exercise. Between the API's areas the direction is `http` → `mcp` → `jobs` → `engines` → `connectors` → `auth` → `accounts` → `db` → `ai`, `embeddings` → `gateway` → `domain`, and CI fails an import that runs against it; `scripts/import-rules.json` declares it, with an empty allowlist, so no import is excused.
 
