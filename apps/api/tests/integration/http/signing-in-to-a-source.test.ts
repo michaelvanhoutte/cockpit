@@ -37,7 +37,6 @@ const fixedUrls: Connector = {
     id: FIXED,
     displayName: 'A source with fixed addresses',
     cardText: 'A source reached at fixed addresses.',
-    source: 'notion',
     supportsPush: false,
     auth: {
       kind: 'oauth2',
@@ -60,7 +59,6 @@ const noSignIn: Connector = {
     id: NO_SIGN_IN,
     displayName: 'A source with no sign-in',
     cardText: 'A source with no sign-in.',
-    source: 'notion',
     supportsPush: false,
     auth: { kind: 'none' },
   },

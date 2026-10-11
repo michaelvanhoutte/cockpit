@@ -1,4 +1,4 @@
-import type { CapturedSource, Item } from '@cockpit/shared';
+import type { Item } from '@cockpit/shared';
 
 /**
  * The connector SPI (architecture §6.2). Two-sided contract:
@@ -22,7 +22,6 @@ export interface ConnectorManifest {
    * is asked and Connect leaves for the source at once.
    */
   choice?: ConnectionChoice;
-  source: CapturedSource;
   /** Whether the source can push (webhooks) in addition to being pulled. */
   supportsPush: boolean;
   /**
@@ -160,8 +159,6 @@ export type SourceItem = Pick<
    * as given, so it is a single line, trimmed and no longer than `TITLE_LENGTH`.
    */
   title?: string;
-  /** Still one a capture may name; reading is open (`sourceSchema`), writing is not changed here. */
-  source: CapturedSource;
   /**
    * Which choice the connection followed when the source brought this in, for
    * a connector whose connection follows one (what to list, which folder).
@@ -244,7 +241,8 @@ export interface ConnectedAccountHost {
   getCredentials(): Promise<Record<string, string>>;
 
   /**
-   * Normalized output lands here; the host owns persistence and dedup. Says
+   * Normalized output lands here; the host owns persistence and dedup, and
+   * files the Item under this connector's own id as its source. Says
    * whether the item was filed as a new Item or was already known, which a push
    * connector needs to tell whoever sent it what became of it.
    */

@@ -91,8 +91,8 @@ describe('Capture', () => {
       const answer = await save(asked.host);
 
       expect(asked.keysAskedAbout).toEqual([CONNECTED]);
-      expect(asked.filed.map((item) => [item.source, item.sender])).toEqual([
-        ['teams', 'Grace Hopper'],
+      expect(asked.filed.map((item) => [item.sourceId, item.sender])).toEqual([
+        [expect.stringContaining(':'), 'Grace Hopper'],
       ]);
       expect(answer.status).toBe(200);
     });

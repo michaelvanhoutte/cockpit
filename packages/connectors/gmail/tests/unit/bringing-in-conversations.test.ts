@@ -32,7 +32,6 @@ describe('Capture', () => {
 
       expect([...second.filed.values()]).toEqual([
         expect.objectContaining({
-          source: 'mail',
           sourceId: 't-1',
           title: 'Quarterly figures',
           capturedMessage: 'Send the Q3 figures.',

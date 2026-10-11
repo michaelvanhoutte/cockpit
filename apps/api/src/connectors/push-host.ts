@@ -145,7 +145,9 @@ function connectedHost(
         message: item.capturedMessage ?? item.title ?? '',
         typeId: await noteTypeOf(pointer.accountName, account),
         capturedFrom: {
-          source: item.source,
+          // The connector's own id, whatever it said: a connector never
+          // chooses where its Items say they came from.
+          source: connectorId,
           sourceId,
           ...(item.sourceLink ? { sourceLink: item.sourceLink } : {}),
           ...(item.sender ? { sender: item.sender } : {}),

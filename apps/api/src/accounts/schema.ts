@@ -23,7 +23,6 @@ import {
   PANEL_FORMATS,
   STORED_PANEL_KINDS,
   prioritySchema,
-  storedSourceSchema,
 } from '@cockpit/shared';
 import type {
   AgentEngine,
@@ -35,7 +34,6 @@ import type {
   Priority,
   Source,
   StoredPanelKind,
-  StoredSource,
 } from '@cockpit/shared';
 
 /**
@@ -61,6 +59,22 @@ const DEAD_STATUSES = [
   'dismissed',
 ] as const;
 const DEAD_FOCUS_HORIZONS = ['today', 'week', 'month', 'quarter'] as const;
+
+/**
+ * The five values `items.source` was created with, and the only five it may
+ * hold - kept here rather than in the contract because nothing but this
+ * column's CHECK uses them, the way the dead values above are.
+ *
+ * **Every Item written now holds `internal`**, its source named in
+ * `source_connector` beside it (`asStored`, domain/items.ts), because widening
+ * the CHECK means rebuilding `items`, which filings, associations, attachments
+ * and an Item's proposed Panel all point at under RESTRICT. The other four
+ * stay for what older releases wrote: an old Gmail Item kept `mail` until
+ * `0068-connector-items-stored-internal` rewrote it, and one naming another
+ * connector, or none, still does.
+ */
+const STORED_SOURCES = ['internal', 'mail', 'slack', 'notion', 'whatsapp'] as const;
+type StoredSource = (typeof STORED_SOURCES)[number];
 
 /**
  * What every new item's dead `status` column is written with. It is NOT NULL
@@ -833,13 +847,13 @@ export const items = sqliteTable(
     // -- source-owned columns --
     source: text('source').$type<StoredSource>().notNull(),
     /**
-     * Which connector carried this Item in, for one whose source the column
-     * above cannot hold ("Save a Teams message to Cockpit", issue 486).
+     * Which connector or front door carried this Item in, for any Item not
+     * captured inside Cockpit ("Save a Teams message to Cockpit", issue 486).
      *
      * **`source` keeps `internal` for such an Item and this says what it
      * really is**, because `items_source_is_known` was created with five
      * values and widening a CHECK means rebuilding a table that four others
-     * point at under RESTRICT (`STORED_SOURCES` in the contract, and
+     * point at under RESTRICT (`STORED_SOURCES` above, and
      * `0038-item-source-connector`). The read coalesces the two, so nothing
      * above this file sees the split.
      *
@@ -988,9 +1002,9 @@ export const items = sqliteTable(
     // too for the `id > ?` range and the walk's own order to use it.
     index('items_tenant_id').on(t.tenantId, t.id),
     // `STORED_SOURCES`, not `sourceSchema`: the five this column was created
-    // with are the five it may hold, and a sixth lives in `source_connector`
-    // beside it (the contract's own note on `STORED_SOURCES`).
-    check('items_source_is_known', oneOf('source', storedSourceSchema.options)),
+    // with are the five it may hold, and any other lives in `source_connector`
+    // beside it.
+    check('items_source_is_known', oneOf('source', STORED_SOURCES)),
     check('items_status_is_known', oneOf('status', DEAD_STATUSES)),
     check('items_focus_horizon_is_known', oneOf('focus_horizon', DEAD_FOCUS_HORIZONS)),
     check('items_priority_is_known', oneOf('priority', prioritySchema.options)),

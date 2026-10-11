@@ -279,7 +279,9 @@ export function filePulledItem(
     ...(arrivesAs === 'task' && item.title && item.title !== message ? { title: item.title } : {}),
     typeId: type.id,
     capturedFrom: {
-      source: item.source,
+      // The connection's own connector, whatever the connector said: a
+      // connector never chooses where its Items say they came from.
+      source: holds.connectorId,
       sourceId: item.sourceId,
       ...(item.sourceLink ? { sourceLink: item.sourceLink } : {}),
       ...(item.sender ? { sender: item.sender } : {}),

@@ -26,7 +26,6 @@ function fakePages(issuer: string): Connector {
       id: FAKE_PAGES,
       displayName: 'Fake Pages',
       cardText: 'Pages from a source that only exists in the browser suite.',
-      source: 'notion',
       supportsPush: false,
       pulled: true,
       choice: {

@@ -31,7 +31,6 @@ export interface CallAbout {
 export type Trigger =
   | 'captured-in-app'
   | 'mcp'
-  | 'gmail-check'
   | 'panel-settled'
   | 'backfill'
   | 'agent-started'

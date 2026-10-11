@@ -4,7 +4,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import { GMAIL_RECONNECT_REASON } from '../../../src/accounts/changes.js';
 import { seal, sealingKey } from '../../../src/connectors/credential-crypto.js';
-import { ACCOUNT_NAME, WORKSPACE_ID, asUser, seedRegister, signInAs, startFromEmpty, storeNamed } from '../seed.js';
+import { ACCOUNT_NAME, WORKSPACE_ID, asUser, inTheStore, seedRegister, signInAs, startFromEmpty, storeNamed } from '../seed.js';
 import {
   gmailCalls,
   gmailHolds,
@@ -234,6 +234,10 @@ describe('Connector management', () => {
       await deliver(check);
 
       expect(await gmailItems()).toEqual([expect.objectContaining({ title: 'Invoice 42', sourceId: 'thread-1' })]);
+      // Stored the way every connector's Item is: `internal`, naming `gmail` beside it (issue 993).
+      expect(
+        await inTheStore((sql) => sql.exec("SELECT source, source_connector FROM items WHERE source_id = 'thread-1'").toArray()),
+      ).toEqual([{ source: 'internal', source_connector: 'gmail' }]);
       expect(await gmailRow()).toMatchObject({ failingBecause: null });
     });
   });

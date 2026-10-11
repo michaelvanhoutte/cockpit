@@ -188,7 +188,6 @@ describe('Capture', () => {
       expect(answer).toEqual({
         externalAccountKey: `${TENANT}:${PERSON}`,
         item: {
-          source: 'teams',
           sourceId: `${CONVERSATION}:${MESSAGE_ID}:${ACTIVITY_ID}`,
           sourceLink: `https://teams.microsoft.com/l/message/${CONVERSATION}/${MESSAGE_ID}?tenantId=${TENANT}`,
           sender: 'Grace Hopper',

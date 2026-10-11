@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isOutsideTheGate, sessionCookieName } from '../../../src/auth/gate.js';
+import { Hono } from 'hono';
+import { connectAttemptHeld, isOutsideTheGate, sessionCookieName } from '../../../src/auth/gate.js';
 
 /**
  * L1: which addresses answer without a sign-in is a decision about a string,
@@ -156,6 +157,33 @@ describe('Sign-in', () => {
       { situation: 'somewhere reached without TLS', at: 'http://cockpit.example.com:80/v1/me' },
     ])('leaves the sign-in you already had at $situation alone', ({ at }) => {
       expect(sessionCookieName(at)).toBe('cockpit_session');
+    });
+  });
+});
+
+/**
+ * L1: whether the cookie a connection's sign-in comes back carrying is an
+ * attempt at all is a decision over that cookie. A small in-memory app is how
+ * a cookie reaches the reader, with no request leaving the test ("Store every
+ * connector Item under its connector id, old Gmail Items included", issue 993).
+ */
+describe('Connector management', () => {
+  describe('a sign-in coming back is a connection only where it says which source it was started for', () => {
+    const app = new Hono().get('/back', (c) => c.json(connectAttemptHeld(c)));
+    const started = { state: 's', nonce: 'n', codeVerifier: 'v', workspaceId: 'ws-1', accountName: 'acct-1' };
+
+    it.each([
+      { situation: 'naming Teams', attempt: { ...started, connectorId: 'teams' }, source: 'teams' },
+      { situation: 'naming a source Cockpit has never named', attempt: { ...started, connectorId: 'outlook' }, source: 'outlook' },
+      { situation: 'naming no source, as an older release wrote it', attempt: started, source: null },
+      { situation: 'naming an empty source', attempt: { ...started, connectorId: '' }, source: null },
+    ])('$situation is read as a connection to: $source', async ({ attempt, source }) => {
+      const res = await app.request('http://cockpit.test/back', {
+        headers: { cookie: `cockpit_connect=${encodeURIComponent(JSON.stringify(attempt))}` },
+      });
+
+      const held = (await res.json()) as { connectorId: string } | null;
+      expect(held?.connectorId ?? null).toBe(source);
     });
   });
 });

@@ -24,50 +24,16 @@ export const connectorIdSchema = z
  * the connector that made it: a Gmail Item is served as `gmail` ("Take source
  * names out of the shared contract", issue 927).
  *
- * **Open on purpose**: a closed list here would need the next source added in
- * the contract, and a client that parses a snapshot would refuse an Item
- * from a source it was not built with. `capturedSourceSchema` is the closed
- * list of what a capture may still say.
+ * **Open on purpose**, and the same for what a capture says as for what is
+ * read: a closed list here would need the next source added in the contract,
+ * and a client that parses a snapshot would refuse an Item from a source it
+ * was not built with. The only sources the contract itself knows are the
+ * app's own front doors, `internal` and `mcp`; a connector's id is stamped by
+ * the host that runs it, never chosen by the connector ("Take the last source
+ * names out of the core's code, and make CI catch them", issue 990).
  */
 export const sourceSchema = connectorIdSchema;
 export type Source = z.infer<typeof sourceSchema>;
-
-/** The sources a capture may name - what is written, unlike `sourceSchema`, which is what is read. */
-export const capturedSourceSchema = z.enum([
-  'internal',
-  'mail',
-  'slack',
-  'notion',
-  'whatsapp',
-  'teams',
-  'mcp',
-]);
-export type CapturedSource = z.infer<typeof capturedSourceSchema>;
-
-/**
- * The five sources the store's own `source` column has ever held, and the only
- * five it may hold.
- *
- * **Teams and `mcp` are not among them**, the same shape `STORED_PANEL_KINDS` has
- * and for the same reason: widening the column's CHECK would mean rebuilding `items`,
- * which filings, associations, attachments and an Item's proposed Panel all
- * point at under RESTRICT. So an Item saved from Teams, or captured by an app, keeps `internal` in
- * that column, names its connector in `source_connector` beside it, and the read is
- * where the wire's source becomes `teams` (`0038-item-source-connector`,
- * apps/api/src/accounts/changes.ts).
- *
- * It is also what makes rolling the release back survivable: an older release
- * reads such an Item as an ordinary capture carrying a link back to where it
- * came from, rather than as a source it has never heard of.
- */
-export const STORED_SOURCES = ['internal', 'mail', 'slack', 'notion', 'whatsapp'] as const;
-export const storedSourceSchema = z.enum(STORED_SOURCES);
-export type StoredSource = z.infer<typeof storedSourceSchema>;
-
-/** Whether the store's `source` column can hold this source as it stands. */
-export function isStoredSource(source: string): source is StoredSource {
-  return (STORED_SOURCES as readonly string[]).includes(source);
-}
 
 export const prioritySchema = z.enum(['low', 'normal', 'high']);
 export type Priority = z.infer<typeof prioritySchema>;
@@ -94,14 +60,15 @@ export const itemDescriptionSchema = z.string().trim().max(60_000);
 /**
  * Where a capture came from, when it came from somewhere else - the
  * source-owned slice of an Item, said by whatever front door carried it in
- * ("Save a Teams message to Cockpit", issue 486).
+ * ("Save a Teams message to Cockpit", issue 486). Its `source` is `mcp` for an
+ * app connection, or the id of the connector whose host carried it in.
  *
  * **`sourceId` is what makes the same save land once.** A connector's choice of
  * it decides what counts as one Item, so it must come from the source's own
  * identifiers rather than be made up.
  */
 export const capturedFromSchema = z.object({
-  source: capturedSourceSchema,
+  source: sourceSchema,
   sourceId: z.string().trim().min(1).max(500),
   sourceLink: z.url().max(2_000).optional(),
   sender: z.string().trim().min(1).max(TITLE_LENGTH).optional(),

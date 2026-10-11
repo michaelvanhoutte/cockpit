@@ -48,7 +48,6 @@ const fakeLists: Connector = {
     id: FAKE,
     displayName: 'A pulled source',
     cardText: 'A source Cockpit pulls from.',
-    source: 'notion',
     supportsPush: false,
     pulled: true,
     mirrorsOpenState: true,
@@ -159,7 +158,6 @@ async function nextCheck(externalAccountKey: string, script: (host: ConnectorHos
 
 function aPage(sourceId: string, choice?: string): SourceItem {
   return {
-    source: 'notion',
     sourceId,
     sourceLink: null,
     sender: null,
@@ -179,7 +177,7 @@ interface InboxItem {
 async function itemsFrom(): Promise<InboxItem[]> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
   return ((await res.json()) as { items: (InboxItem & { source: string })[] }).items.filter(
-    (item) => item.source === 'notion',
+    (item) => item.source === FAKE,
   );
 }
 

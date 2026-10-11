@@ -2,16 +2,9 @@
  * The sources the core still names, here and nowhere else in the API ("Take
  * source names out of the shared contract", issue 927): every other source is
  * known only by the registry's list (`connectors/registry.ts`) and named by
- * its own manifest.
- *
- * | Source | Named here until |
- * |---|---|
- * | Claude Code | "Decide how Claude Code and other outbound integrations sit behind a boundary" (issue 879) |
- * | Gmail's id alone | its Items are stored `mail` naming it (`asStored`, domain/items.ts) and the guest demo seeds it; its name is its package's |
+ * its own manifest. Claude Code is named here until "Decide how Claude Code and
+ * other outbound integrations sit behind a boundary" (issue 879).
  */
-
-/** The id Gmail's Items are stored and served under (issue 926) - its connector's, `@cockpit/connector-gmail`. */
-export const GMAIL = 'gmail';
 
 /**
  * A workspace's routine trigger - one Claude Code session started and

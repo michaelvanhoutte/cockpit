@@ -47,7 +47,6 @@ function sourceNamed(id: string, choice: boolean): Connector {
       id,
       displayName: choice ? 'A source that asks first' : 'A source that asks nothing',
       cardText: 'A source.',
-      source: 'notion',
       supportsPush: false,
       pulled: true,
       mirrorsOpenState: true,
@@ -75,7 +74,6 @@ function sourceNamed(id: string, choice: boolean): Connector {
 
 function aPage(sourceId: string): SourceItem {
   return {
-    source: 'notion',
     sourceId,
     sourceLink: null,
     sender: null,
@@ -256,7 +254,7 @@ async function dismissedPageOne(): Promise<void> {
   const snapshot = (await (await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`)).json()) as {
     items: { id: string; source: string }[];
   };
-  const item = snapshot.items.find((one) => one.source === 'notion')!;
+  const item = snapshot.items.find((one) => one.source.startsWith('fake-'))!;
   const res = await asUser('http://cockpit.test/v1/commands/set_dismissed', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

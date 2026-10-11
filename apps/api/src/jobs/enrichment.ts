@@ -200,7 +200,7 @@ export interface CheckPulledConnectionJob {
 const refreshAskSchema = z.object({ at: z.number().int().nonnegative(), id: z.uuid() });
 
 const triggerSchema = z.union([
-  z.enum(['captured-in-app', 'mcp', 'gmail-check', 'panel-settled', 'backfill', 'agent-started', 'connection-test']),
+  z.enum(['captured-in-app', 'mcp', 'panel-settled', 'backfill', 'agent-started', 'connection-test']),
   z.templateLiteral(['connector:', z.string().min(1).max(64)]),
 ]);
 

@@ -446,9 +446,10 @@ export function attemptHeld(c: Context): SignInAttempt | null {
 }
 
 /**
- * The same, for a connection - and the account and Workspace it was started
- * from. A cookie missing either of those is no attempt at all, which is also
- * how one written by an older release is refused rather than half-believed.
+ * The same, for a connection - and the account, Workspace and connector it was
+ * started from. A cookie missing any of those is no attempt at all, which is
+ * also how one written by an older release is refused rather than
+ * half-believed.
  */
 export function connectAttemptHeld(c: Context): ConnectAttempt | null {
   const held = readAttempt(getCookie(c, connectCookieName(c.req.url)));
@@ -456,13 +457,14 @@ export function connectAttemptHeld(c: Context): ConnectAttempt | null {
   const { workspaceId, accountName, connectorId, choice } = held.also;
   if (typeof workspaceId !== 'string' || !workspaceId) return null;
   if (typeof accountName !== 'string' || !accountName) return null;
+  if (typeof connectorId !== 'string' || !connectorId) return null;
   return {
     state: held.state,
     nonce: held.nonce,
     codeVerifier: held.codeVerifier,
     workspaceId,
     accountName,
-    connectorId: typeof connectorId === 'string' && connectorId ? connectorId : 'teams',
+    connectorId,
     ...(typeof choice === 'string' && choice ? { choice } : {}),
   };
 }
