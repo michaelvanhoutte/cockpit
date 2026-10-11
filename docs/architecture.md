@@ -329,6 +329,8 @@ The dependency rule is one-directional: `domain` imports nothing from the other 
 
 **Requirement (binding):** the core must not know Slack, Notion or Gmail exist, and no core behavior may be shaped by a particular source's behavior.
 
+The guest demo's seed (`apps/api/src/accounts/guest-seed-data.ts`, `apps/api/src/jobs/guest-arrival.ts`) may name the sources it imitates, Gmail and Teams, since it is content a visitor sees rather than behavior shaped by a source.
+
 **Decision: plugin-shaped packages behind an SDK, not a dynamic plugin system.** A true runtime plugin mechanism is overkill for first-party connectors in one repository deployed together, but plain in-app separation erodes one convenient import at a time. So: **every connector is its own workspace package** (`packages/connectors/*`) that may import **only** `packages/connector-sdk`, and the application knows connectors **only** as a list of registrations in one composition-root file. That registry is the sole coupling point, so promotion to dynamic loading later is a change to one file. CI fails a core file (`apps/api`, `apps/web`, `packages/shared`) that imports a connector package other than from that registry, or imports a file named for a source from a file that is not; `scripts/import-rules.json` declares the sources and the core.
 
 **The SDK is a two-sided contract.**
