@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { emptyTheDatabase, send, storedRequestIds, totals, usage } from './support';
+import { MAX_BATCH } from '../../src/validate';
+import { emptyTheDatabase,send, storedRequestIds, totals, usage } from './support';
 
 beforeEach(emptyTheDatabase);
 
@@ -17,6 +18,37 @@ describe('Harness Monitor', () => {
       expect(await (await send(batch)).json()).toEqual({ stored: 0, ignored: 2 });
       expect(await totals()).toEqual(after);
       expect(await inputCounted()).toBe(15);
+    });
+
+    it('a full batch is stored whole, with every field as sent', async () => {
+      const batch = Array.from({ length: MAX_BATCH }, (_, i) => usage(`r${i}`, { inputTokens: i }));
+      batch[0] = usage('r0', { branch: null, category: 'local-code-review', reviewLevel: 'high', subagent: true, ranWhere: 'cloud', source: 'upload' });
+
+      expect(await (await send(batch)).json()).toEqual({ stored: MAX_BATCH, ignored: 0 });
+      expect(await requestsCounted()).toBe(MAX_BATCH);
+      const first = await env.DB.prepare(
+        'SELECT branch, category, review_level, subagent, ran_where, source, occurred_at, day FROM usage_requests WHERE request_id = ?',
+      )
+        .bind('r0')
+        .first();
+      expect(first).toEqual({
+        branch: null,
+        category: 'local-code-review',
+        review_level: 'high',
+        subagent: 1,
+        ran_where: 'cloud',
+        source: 'upload',
+        occurred_at: Date.parse('2026-03-01T10:00:00Z'),
+        day: '2026-03-01',
+      });
+    });
+
+    it('the same request twice in one batch is counted once, keeping the first', async () => {
+      expect(await (await send([usage('r1', { inputTokens: 1 }), usage('r1', { inputTokens: 2 })])).json()).toEqual({
+        stored: 1,
+        ignored: 1,
+      });
+      expect(await inputCounted()).toBe(1);
     });
 
     it('a batch overlapping one already stored counts only its new requests', async () => {

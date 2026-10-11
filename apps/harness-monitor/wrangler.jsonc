@@ -24,5 +24,5 @@
     }
   ]
   // HARNESS_WRITE_KEY is a secret (`wrangler secret put`), so it is not here.
-  // Locally it comes from .dev.vars, which scripts/dev.mjs creates.
+  // Locally scripts/dev-harness.mjs passes a local-only value with --var.
 }

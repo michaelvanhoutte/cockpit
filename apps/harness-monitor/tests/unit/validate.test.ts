@@ -47,6 +47,20 @@ describe('Harness Monitor', () => {
       }
     });
 
+    it.each([
+      { situation: 'a bare number', time: '1' },
+      { situation: 'a year alone', time: '2026' },
+      { situation: 'a time with no zone', time: '2026-03-01T10:00:00' },
+      { situation: 'a year past 9999', time: '+010000-01-01T00:00:00Z' },
+    ])('a time that is $situation is refused', ({ time }) => {
+      expect(refusal([row({ time })])).toContain('ISO 8601');
+    });
+
+    it('a time with an offset is accepted and its day is the UTC day', () => {
+      const result = validateBatch({ rows: [row({ time: '2026-03-01T23:30:00-02:00' })] });
+      expect(result.ok && result.rows[0]!.day).toBe('2026-03-02');
+    });
+
     it('a category outside the six is refused', () => {
       expect(refusal([row({ category: 'lunch' })])).toContain('category "lunch"');
     });

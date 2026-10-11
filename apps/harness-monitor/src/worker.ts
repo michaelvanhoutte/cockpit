@@ -9,6 +9,9 @@ export interface Env {
   HARNESS_WRITE_KEY?: string;
 }
 
+/** Far above MAX_BATCH full rows, so only a malformed write reaches it. */
+const MAX_BODY = 1_000_000;
+
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
 async function write(request: Request, env: Env): Promise<Response> {
@@ -16,9 +19,11 @@ async function write(request: Request, env: Env): Promise<Response> {
   if (allowed === 'unconfigured') return json({ error: 'Writing is not set up on this Worker.' }, 503);
   if (allowed === 'refused') return json({ error: 'A valid write key is required.' }, 401);
 
+  const text = await request.text();
+  if (text.length > MAX_BODY) return json({ error: `The body is over ${MAX_BODY} characters.` }, 413);
   let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(text);
   } catch {
     return json({ error: 'The body is not JSON.' }, 400);
   }

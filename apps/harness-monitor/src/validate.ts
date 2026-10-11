@@ -38,7 +38,10 @@ export interface UsageRow {
 
 export type Validated = { ok: true; rows: UsageRow[] } | { ok: false; error: string };
 
-const TOKEN_FIELDS = ['inputTokens', 'outputTokens', 'cacheCreationTokens', 'cacheReadTokens'] as const;
+/** A four-digit year and an explicit zone, so the UTC day is never guessed or malformed. */
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+
+const TOKEN_FIELDS =['inputTokens', 'outputTokens', 'cacheCreationTokens', 'cacheReadTokens'] as const;
 
 function text(value: unknown, max: number): string | null {
   return typeof value === 'string' && value.trim() !== '' && value.length <= max ? value : null;
@@ -83,7 +86,9 @@ function validateRow(raw: unknown): UsageRow | string {
   if (!sessionId) return 'has no sessionId.';
   if (typeof r.time !== 'string' || r.time.trim() === '') return 'has no time.';
   const when = new Date(r.time);
-  if (Number.isNaN(when.getTime())) return 'has a time that is not a date.';
+  if (!ISO_TIME.test(r.time) || Number.isNaN(when.getTime())) {
+    return 'has a time that is not an ISO 8601 timestamp with a time zone.';
+  }
 
   const category = oneOf(r.category, CATEGORIES);
   if (!category) return `has category "${String(r.category)}", which is not one of ${CATEGORIES.join(', ')}.`;

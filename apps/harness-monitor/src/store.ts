@@ -1,10 +1,23 @@
 import type { UsageRow } from './validate';
 
-const INSERT_ROW = `INSERT INTO usage_requests (
+/**
+ * Inserts every row of a write in one statement, from a JSON array bound as a
+ * single parameter: D1 counts each statement of a batch against the free plan's
+ * 50 queries per invocation, and caps a statement at 100 bound parameters.
+ * `WHERE true` is SQLite's required disambiguation of an upsert after a SELECT.
+ */
+const INSERT_ROWS = `INSERT INTO usage_requests (
   request_id, session_id, occurred_at, day, branch, category, review_level, model, speed,
   input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
   subagent, ran_where, source, ingest_id, received_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+)
+SELECT value ->> '$.requestId', value ->> '$.sessionId', value ->> '$.occurredAt', value ->> '$.day',
+       value ->> '$.branch', value ->> '$.category', value ->> '$.reviewLevel', value ->> '$.model',
+       value ->> '$.speed', value ->> '$.inputTokens', value ->> '$.outputTokens',
+       value ->> '$.cacheCreationTokens', value ->> '$.cacheReadTokens', value ->> '$.subagent',
+       value ->> '$.ranWhere', value ->> '$.source', ?2, ?3
+FROM json_each(?1) WHERE true
+ORDER BY key
 ON CONFLICT (request_id) DO NOTHING`;
 
 /** Folds the rows one write stored into the totals. Reads only rows that write inserted. */
@@ -31,19 +44,12 @@ ON CONFLICT (day, category, model) DO UPDATE SET
  */
 export async function storeBatch(db: D1Database, rows: UsageRow[], now = Date.now()) {
   const ingestId = crypto.randomUUID();
-  const results = await db.batch([
-    ...rows.map((r) =>
-      db
-        .prepare(INSERT_ROW)
-        .bind(
-          r.requestId, r.sessionId, r.occurredAt, r.day, r.branch, r.category, r.reviewLevel, r.model, r.speed,
-          r.inputTokens, r.outputTokens, r.cacheCreationTokens, r.cacheReadTokens,
-          r.subagent ? 1 : 0, r.ranWhere, r.source, ingestId, now,
-        ),
-    ),
+  const payload = JSON.stringify(rows.map((r) => ({ ...r, subagent: r.subagent ? 1 : 0 })));
+  const [inserted] = await db.batch([
+    db.prepare(INSERT_ROWS).bind(payload, ingestId, now),
     db.prepare(ADD_TO_TOTALS).bind(ingestId),
   ]);
-  const stored = results.slice(0, rows.length).reduce((sum, r) => sum + (r.meta.changes ?? 0), 0);
+  const stored = inserted!.meta.changes ?? 0;
   return { stored, ignored: rows.length - stored };
 }
 
