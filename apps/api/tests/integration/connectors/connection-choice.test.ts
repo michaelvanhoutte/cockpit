@@ -120,12 +120,11 @@ afterEach(() => {
 interface StoredRow extends Record<string, string | null> {
   connector_id: string;
   choice: string | null;
-  follows: string;
 }
 
 function storedRows(): Promise<StoredRow[]> {
   return inTheStore((sql) => [
-    ...sql.exec<StoredRow>('SELECT connector_id, choice, follows FROM connector_accounts ORDER BY connected_at'),
+    ...sql.exec<StoredRow>('SELECT connector_id, choice FROM connector_accounts ORDER BY connected_at'),
   ]);
 }
 
@@ -296,8 +295,7 @@ describe('Connector management', () => {
       const back = await comeBack(CHOOSES, session, started);
 
       expect(back.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=connected`);
-      // Never in the old `follows` column, which keeps its default.
-      expect(await storedRows()).toEqual([{ connector_id: CHOOSES, choice: 'all', follows: 'label' }]);
+      expect(await storedRows()).toEqual([{ connector_id: CHOOSES, choice: 'all' }]);
       expect(await listed(WORKSPACE_ID)).toMatchObject([{ follows: 'all', followsLabel: 'Every page' }]);
     });
 
@@ -332,7 +330,7 @@ describe('Connector management', () => {
       const back = await comeBack(PLAIN, session, started);
 
       expect(back.headers.get('location')).toBe(`/w/${WORKSPACE_ID}?connections=connected`);
-      expect(await storedRows()).toEqual([{ connector_id: PLAIN, choice: null, follows: 'label' }]);
+      expect(await storedRows()).toEqual([{ connector_id: PLAIN, choice: null }]);
       expect((await listed(WORKSPACE_ID))[0]).not.toHaveProperty('follows');
     });
 
@@ -342,7 +340,7 @@ describe('Connector management', () => {
 
       await comeBack(CHOOSES, first.session, started);
 
-      expect(await storedRows()).toEqual([{ connector_id: CHOOSES, choice: 'all', follows: 'label' }]);
+      expect(await storedRows()).toEqual([{ connector_id: CHOOSES, choice: 'all' }]);
     });
   });
 

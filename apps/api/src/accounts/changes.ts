@@ -152,6 +152,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     gmailItemsUnderTheirConnectorAgain(accountId),
     CONNECTION_CHOICE,
     gmailConnectionsReconnect(accountId),
+    DROP_GMAIL_TABLES,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -480,6 +481,47 @@ function gmailConnectionsReconnect(accountId: string): Change {
           ],
   };
 }
+
+/**
+ * The contract half of Gmail's move onto the generic host ("Drop Gmail's old
+ * core tables and the follows column", issue 967): `gmail_conversations`,
+ * `gmail_checks` and `connector_accounts.follows`, read by nothing since
+ * "Switch Gmail onto the generic host, and take it out of the core" (issue
+ * 944). Gmail's links and checkpoints are `pulled_links` and
+ * `pulled_connections`, and its choice is `connector_accounts.choice`.
+ *
+ * **It puts a floor under promotion at issue 944's release**: a release before
+ * it finds its tables gone and needs a restore (deployment, "Migrations and
+ * rollback").
+ *
+ * **SQLite drops `follows` in place**: its only CHECK is its own, and no index
+ * names it, so `connector_accounts` is altered rather than rebuilt.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **What is lost:** the old thread-to-Item mapping and a `star` a connection
+ *   not yet reconnected followed in the core. Old Gmail Items stay plain Items;
+ *   a reconnect asks the choice again.
+ * - **If it stops halfway:** it cannot. The statements and the record that they
+ *   ran commit in one `transactionSync` (store.ts), so an account has all three
+ *   gone or none, and the next open retries.
+ * - **The second time it runs:** it does not, having been recorded. Each table
+ *   drop is `IF EXISTS`; SQLite has no `DROP COLUMN IF EXISTS`, and the
+ *   transaction is what makes the column's drop safe to retry.
+ * - **What is in each environment:** Gmail rows in staging and production; the
+ *   guest account rebuilds from this list nightly and takes the drop with it.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so its Gmail rows land in the tables the early changes create and
+ *   go with this one the next time the account is opened.
+ */
+const DROP_GMAIL_TABLES: Change = {
+  name: '0067-drop-gmail-tables',
+  statements: [
+    { sql: 'DROP TABLE IF EXISTS `gmail_conversations`' },
+    { sql: 'DROP TABLE IF EXISTS `gmail_checks`' },
+    { sql: 'ALTER TABLE `connector_accounts` DROP COLUMN `follows`' },
+  ],
+};
 
 /**
  * Every Gmail Item stored the one way `asStored` (domain/items.ts) writes it,
