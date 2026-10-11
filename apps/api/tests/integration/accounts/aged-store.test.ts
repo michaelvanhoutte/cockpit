@@ -2319,7 +2319,8 @@ describe('Capture', () => {
 
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
 
-      expect(await rowOf()).toEqual({ ...before, source: 'mail', source_connector: 'gmail' });
+      // Carried on to the form `0068-connector-items-stored-internal` stores it in.
+      expect(await rowOf()).toEqual({ ...before, source: 'internal', source_connector: 'gmail' });
     });
   });
 });
@@ -2379,7 +2380,7 @@ describe('Accounts', () => {
 
       // Compared whole, so a row changed that should not have been shows.
       expect(await sourcesIn(name)).toEqual(
-        before.map((row) => (rewritten.includes(row.id) ? { ...row, source_connector: 'gmail' } : row)),
+        before.map((row) => (rewritten.includes(row.id) ? { ...row, source: 'internal', source_connector: 'gmail' } : row)),
       );
     });
   });
@@ -2404,7 +2405,8 @@ describe('Accounts', () => {
     const own = { id: 'it-own', source: 'internal', connector: null };
     const fromTeams = { id: 'it-teams', source: 'internal', connector: 'teams' };
     const fromAnApp = { id: 'it-app', source: 'internal', connector: 'mcp' };
-    const asOne = { source: 'mail', source_connector: 'gmail' };
+    // The one form `0068-connector-items-stored-internal` then carries it on to.
+    const asOne = { source: 'internal', source_connector: 'gmail' };
     const many = (prefix: string, source: string, connector: string | null) =>
       Array.from({ length: 120 }, (_, nth) => ({ id: `${prefix}-${String(nth).padStart(3, '0')}`, source, connector }));
 
@@ -2429,7 +2431,7 @@ describe('Accounts', () => {
       },
       {
         situation: 'every Gmail Item already in the one form: nothing changes',
-        held: [own, fromTeams, { id: 'it-before', source: 'mail', connector: 'gmail' }],
+        held: [own, fromTeams, { id: 'it-before', source: 'internal', connector: 'gmail' }],
         rewritten: [],
         logged: [],
       },
@@ -2455,6 +2457,193 @@ describe('Accounts', () => {
       // Compared whole, so a row changed that should not have been shows.
       expect(await sourcesIn(name)).toEqual(
         before.map((row) => (rewritten.includes(row.id) ? { ...row, ...asOne } : row)),
+      );
+    });
+  });
+});
+
+/**
+ * "Store every connector Item under its connector id, old Gmail Items
+ * included" (issue 993): every old Gmail Item, `mail` naming `gmail`, is
+ * rewritten to `internal` naming `gmail`, the way every connector's Item is
+ * stored. Integration because it rewrites rows that already exist, inside the
+ * store's own bring-up; that the rewritten form is served as `gmail` is asked
+ * of the store's own read here too, since that read is what an older release
+ * promoted over it also serves.
+ */
+const CONNECTOR_ITEMS = '0068-connector-items-stored-internal';
+
+/** What it logs when it leaves `mail` rows naming another connector, or none, alone. */
+const LEFT_ALONE_AS_MAIL = 'Items stored as mail naming a connector other than gmail, or none, were left as they are';
+
+/** What a person is served of each Item in the fixture's first Workspace, by id. */
+async function servedIn(name: string): Promise<Record<string, string>> {
+  const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+  expect(snapshot).toMatchObject({ status: 'ok' });
+  return snapshot.status === 'ok'
+    ? Object.fromEntries(snapshot.value.items.map((item) => [item.id, item.source]))
+    : {};
+}
+
+/** What the store's read would serve of every Item, by id, read before anything is brought up to date. */
+const servedAsItIs = (name: string) =>
+  inStoreAsItIs(name, (sql) =>
+    Object.fromEntries(
+      sql
+        .exec<{ id: string; source: string }>('SELECT id, coalesce(source_connector, source) AS source FROM items')
+        .toArray()
+        .map((row) => [row.id, row.source]),
+    ),
+  );
+
+describe('Accounts', () => {
+  describe('an old Gmail Item reads exactly as before once its store is brought up to date', () => {
+    const own = { id: 'it-own', source: 'internal', connector: null };
+    const fromTeams = { id: 'it-teams', source: 'internal', connector: 'teams' };
+    const fromAnApp = { id: 'it-app', source: 'internal', connector: 'mcp' };
+    const oldGmail = (id: string) => ({ id, source: 'mail', connector: 'gmail' });
+    const asEveryConnector = { source: 'internal', source_connector: 'gmail' };
+
+    it('is stored internal naming gmail, served as gmail, and nothing else about it changes', async () => {
+      const name = 'aged-store-connector-items-whole';
+      await agedTo(name, justBefore(CONNECTOR_ITEMS));
+      await fillWithWhatIsAlreadyThere(name);
+      // An old Gmail Item as the host wrote it, every column it fills filled -
+      // so a statement touching more than the one column shows.
+      await inStoreAsItIs(name, (sql) =>
+        sql.exec(
+          `INSERT INTO items (id, tenant_id, workspace_id, source, source_connector, source_id, source_link, sender,
+                              source_timestamp, captured_message, title, description, status, unseen, priority,
+                              due_date, completed_at, created_at, updated_at)
+             VALUES ('it-gmail-whole', ?, 'ws-before', 'mail', 'gmail', 'thread-whole',
+                     'https://mail.google.com/mail/#all/thread-whole', 'Pieter Claes', ?, 'Invoice 42', 'Invoice 42',
+                     'Please pay by Friday', 'task', 1, 'high', '2026-08-20', ?, ?, ?)`,
+          name,
+          AT,
+          LATER,
+          AT,
+          LATEST,
+        ),
+      );
+      const rowOf = () =>
+        inStoreAsItIs(name, (sql) => sql.exec("SELECT * FROM items WHERE id = 'it-gmail-whole'").toArray()[0]);
+      const before = await rowOf();
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(await rowOf()).toEqual({ ...before, ...asEveryConnector });
+      expect((await servedIn(name))['it-gmail-whole']).toBe('gmail');
+    });
+
+    it.each([
+      {
+        situation: 'old Gmail Items beside Items of your own, from Teams and from an app: only the Gmail ones change',
+        held: [own, fromTeams, fromAnApp, oldGmail('it-before'), oldGmail('it-gmail')],
+        rewritten: ['it-before', 'it-gmail'],
+        logged: [],
+      },
+      {
+        situation: 'mail naming another connector, and mail naming none: left as they are, and counted',
+        held: [
+          oldGmail('it-gmail'),
+          { id: 'it-before', source: 'mail', connector: 'outlook' },
+          { id: 'it-bare', source: 'mail', connector: null },
+        ],
+        rewritten: ['it-gmail'],
+        logged: [2],
+      },
+      {
+        situation: 'no old Gmail Items, as in a new account: nothing to rewrite',
+        held: [own, fromTeams, { id: 'it-before', source: 'internal', connector: 'gmail' }],
+        rewritten: [],
+        logged: [],
+      },
+      {
+        situation: '150 old Gmail Items: every one rewritten',
+        held: [
+          oldGmail('it-before'),
+          ...Array.from({ length: 150 }, (_, nth) => oldGmail(`it-gmail-${String(nth).padStart(3, '0')}`)),
+        ],
+        rewritten: [
+          'it-before',
+          ...Array.from({ length: 150 }, (_, nth) => `it-gmail-${String(nth).padStart(3, '0')}`),
+        ],
+        logged: [],
+      },
+    ])('$situation', async ({ situation, held, rewritten, logged }) => {
+      const name = `aged-store-connector-items-${held.length}-${rewritten.length}`;
+      await storeHolding(name, held, CONNECTOR_ITEMS);
+      const before = await sourcesIn(name);
+      const servedBefore = await servedAsItIs(name);
+
+      const log = vi.spyOn(console, 'warn');
+      try {
+        // Opening the store is what applies it, as the first request of the
+        // day does for a real account.
+        expect(await storeNamed(name).workspaces(name), situation).toMatchObject({ status: 'ok' });
+        expect(leftAloneIn(log.mock.calls, LEFT_ALONE_AS_MAIL)).toEqual(logged);
+      } finally {
+        log.mockRestore();
+      }
+
+      // Compared whole, so a row changed that should not have been shows.
+      expect(await sourcesIn(name)).toEqual(
+        before.map((row) => (rewritten.includes(row.id) ? { ...row, ...asEveryConnector } : row)),
+      );
+      // And every Item the Workspace shows is served exactly as before.
+      const served = await servedIn(name);
+      expect(Object.keys(served).length).toBeGreaterThan(0);
+      expect(served).toEqual(Object.fromEntries(Object.keys(served).map((id) => [id, servedBefore[id]])));
+    });
+
+    it('changes nothing further when opened again, and does not run twice', async () => {
+      const name = 'aged-store-connector-items-twice';
+      await storeHolding(name, [oldGmail('it-before'), { id: 'it-bare', source: 'mail', connector: null }], CONNECTOR_ITEMS);
+      const log = vi.spyOn(console, 'warn');
+      try {
+        expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+        expect(leftAloneIn(log.mock.calls, LEFT_ALONE_AS_MAIL)).toEqual([1]);
+        const once = await sourcesIn(name);
+        log.mockClear();
+
+        await abortAllDurableObjects();
+        expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+        // The row it left alone would be counted again by a second run.
+        expect(leftAloneIn(log.mock.calls, LEFT_ALONE_AS_MAIL)).toEqual([]);
+        expect(await sourcesIn(name)).toEqual(once);
+      } finally {
+        log.mockRestore();
+      }
+
+      expect(
+        await inStoreAsItIs(name, (sql) =>
+          sql.exec<{ n: number }>('SELECT count(*) AS n FROM account_changes WHERE name = ?', CONNECTOR_ITEMS).one().n,
+        ),
+      ).toBe(1);
+    });
+
+    it('leaves the account as it was when it fails, and applies whole on the next open', async () => {
+      // A trigger refusing any change to the column is the one way to make
+      // SQLite refuse the rewrite from outside.
+      const name = 'aged-store-connector-items-fails';
+      await storeHolding(name, [oldGmail('it-before'), oldGmail('it-gmail')], CONNECTOR_ITEMS);
+      await inStoreAsItIs(name, (sql) =>
+        sql.exec("CREATE TRIGGER in_the_way BEFORE UPDATE OF source ON items BEGIN SELECT RAISE(ABORT, 'in the way'); END"),
+      );
+      const before = await sourcesIn(name);
+
+      const failed = await storeNamed(name).workspaces(name);
+
+      expect(failed).toMatchObject({ status: 'not-up-to-date' });
+      expect(JSON.stringify(failed)).toContain(CONNECTOR_ITEMS);
+      expect(await sourcesIn(name)).toEqual(before);
+
+      await inStoreAsItIs(name, (sql) => sql.exec('DROP TRIGGER in_the_way'));
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await sourcesIn(name)).toEqual(
+        before.map((row) => (['it-before', 'it-gmail'].includes(row.id) ? { ...row, ...asEveryConnector } : row)),
       );
     });
   });

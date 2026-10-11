@@ -306,7 +306,6 @@ class Reading {
     const conversation = conversationFrom(thread, markId, await this.#address());
     if (!conversation) return;
     const filing = await this.host.emitItem({
-      source: 'mail',
       sourceId: conversation.threadId,
       sourceLink: conversation.link,
       sender: conversation.sender,

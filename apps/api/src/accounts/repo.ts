@@ -622,12 +622,9 @@ const itemColumns = {
   /**
    * Where the Item came from, which is two columns and one answer ("Save a
    * Teams message to Cockpit", issue 486): `source_connector` wherever a
-   * connector is named - every source the `source` column's own CHECK cannot
-   * hold, and Gmail - and `source` everywhere else. Coalesced here, so nothing
-   * above this file has to know that a CHECK on a table with four children is
-   * why there are two (`STORED_SOURCES` in the contract). A Gmail Item is
-   * served as `gmail` ("Take source names out of the shared contract", issue
-   * 927), its `mail` having no meaning beyond the frozen column.
+   * connector or front door is named, and `source` everywhere else. Coalesced
+   * here, so nothing above this file has to know that a CHECK on a table with
+   * four children is why there are two (`STORED_SOURCES`, schema.ts).
    */
   source: sql<Source>`coalesce(${items.sourceConnector}, ${items.source})`.as('source'),
   sourceId: items.sourceId,

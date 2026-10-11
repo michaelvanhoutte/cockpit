@@ -160,7 +160,6 @@ export async function savedMessageFrom(
   return {
     externalAccountKey: `${tenant}:${person}`,
     item: {
-      source: 'teams',
       // The click as well as the message, for the reason in the README.
       sourceId: `${conversation}:${messageId}:${click}`,
       sourceLink: deepLink(message, conversation, messageId, tenant),

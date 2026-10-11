@@ -10,6 +10,7 @@ import {
   WORKSPACE_ID,
   alsoWorkspaces,
   asUser,
+  inTheStore,
   seedRegister,
   startFromEmpty,
   storeNamed,
@@ -36,7 +37,6 @@ function fakeConnector(): Connector {
       id: FAKE,
       displayName: 'A pulled source',
       cardText: 'A source Cockpit pulls from.',
-      source: 'notion',
       supportsPush: false,
       pulled: true,
       ...(fake.arrivesAs ? { arrivesAs: fake.arrivesAs } : {}),
@@ -94,7 +94,6 @@ async function connectedAndChecked(): Promise<void> {
 
 function aPage(sourceId: string, title?: string): SourceItem {
   return {
-    source: 'notion',
     sourceId,
     sourceLink: null,
     sender: null,
@@ -114,7 +113,7 @@ interface Arrived {
 async function arrived(): Promise<Arrived[]> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
   return ((await res.json()) as { items: (Arrived & { source: string })[] }).items.filter(
-    (item) => item.source === 'notion',
+    (item) => item.source === FAKE,
   );
 }
 
@@ -214,6 +213,39 @@ describe('Connector management', () => {
       expect(await arrived()).toMatchObject([
         { sourceId: 'a', title: 'The subject line', typeId: await noteTypeId() },
       ]);
+    });
+  });
+});
+
+/**
+ * Integration because the source is stamped by the generic host on its way to
+ * the real store, and what is served is that store's own read ("Store every
+ * connector Item under its connector id, old Gmail Items included", issue
+ * 993). A connector's Item can still carry a source at run time, from a
+ * connector built against an older SDK, so the fake emits one. Gmail's own
+ * check and a Teams save are the same host's paths, walked whole in
+ * gmail-on-the-host.test.ts and teams-ingress.test.ts.
+ */
+describe('Connector management', () => {
+  describe('an Item a connector brings in is stored and served under that connector’s id, whatever the connector says', () => {
+    it.each([
+      { situation: 'a connector that names no source', says: undefined },
+      { situation: 'a connector that names some other source on its Item', says: 'notion' },
+      { situation: 'a connector that names Gmail’s old source', says: 'mail' },
+    ])('$situation', async ({ says }) => {
+      fake.emit = [{ ...aPage('a'), ...(says ? { source: says } : {}) } as SourceItem];
+      env.TEST_CONNECTORS = [fakeConnector()];
+
+      await connectedAndChecked();
+
+      const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
+      const served = ((await res.json()) as { items: { id: string; sourceId: string | null; source: string }[] }).items
+        .filter((item) => item.sourceId === 'a');
+      expect(served.map((item) => item.source)).toEqual([FAKE]);
+      const stored = await inTheStore((sql) =>
+        sql.exec('SELECT source, source_connector FROM items WHERE id = ?', served[0]!.id).toArray(),
+      );
+      expect(stored).toEqual([{ source: 'internal', source_connector: FAKE }]);
     });
   });
 });

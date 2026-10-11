@@ -3,7 +3,7 @@ import {
   type Priority,
   type WorkspaceTint,
 } from '@cockpit/shared';
-import { CLAUDE_CODE, CLAUDE_CODE_NAME, GMAIL } from '../domain/named-sources.js';
+import { CLAUDE_CODE, CLAUDE_CODE_NAME } from '../domain/named-sources.js';
 
 /**
  * What the shared guest account holds when a visitor opens it: a contractor's
@@ -130,7 +130,7 @@ export const GUEST_DEMO_CONNECTIONS: readonly {
   readonly externalAccountKey: string;
   readonly displayName: string;
 }[] = [
-  { connectorId: GMAIL, externalAccountKey: 'alex@contractor.example', displayName: 'alex@contractor.example' },
+  { connectorId: 'gmail', externalAccountKey: 'alex@contractor.example', displayName: 'alex@contractor.example' },
   { connectorId: 'teams', externalAccountKey: 'demo-tenant/alex', displayName: 'Alex Contractor' },
   // Claude Code, so an Agent can start ("Show agents at work in the guest
   // demo, with simulated runs", issue 774). Its key is the constant a real one

@@ -116,7 +116,7 @@ export async function captureGuestArrival(env: Env, job: GuestArrivalJob): Promi
       message: arrival.message,
       typeId: type.id,
       capturedFrom: {
-        source: arrival.source === 'gmail' ? 'mail' : 'teams',
+        source: arrival.source,
         sourceId: job.itemId,
         sourceLink: demoAddress(arrival.source),
         sender: arrival.sender,

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   TITLE_LENGTH,
   UNTITLED,
+  capturedFromSchema,
   itemDescriptionSchema,
   itemHasOpenReadings,
   itemLabel,
@@ -442,6 +443,27 @@ describe('Connector management', () => {
       { situation: 'capitals', source: 'Gmail', accepted: false },
     ])('an Item from $situation source is read: $accepted', ({ source, accepted }) => {
       expect(itemSchema.safeParse(anItem(source)).success).toBe(accepted);
+    });
+  });
+
+  /**
+   * L1: what a capture may say it came from is the contract's schema alone
+   * ("Store every connector Item under its connector id, old Gmail Items
+   * included", issue 993). A connector's id is stamped by the host that runs
+   * it, so the schema takes any id and keeps no list of sources; that the
+   * host stamps it is apps/api/tests/integration/connectors/pulled-arrival.test.ts's.
+   */
+  describe('what a capture says it came from names no connector of the contract’s own', () => {
+    it.each([
+      { situation: 'an app connection', source: 'mcp', accepted: true },
+      { situation: 'a connector the contract has never heard of', source: 'outlook', accepted: true },
+      { situation: 'a connector id with a dash', source: 'claude-code', accepted: true },
+      { situation: 'nothing at all', source: '', accepted: false },
+      { situation: 'words with a space in them', source: 'out look', accepted: false },
+      { situation: 'a web address', source: 'https://evil.example', accepted: false },
+      { situation: 'capitals', source: 'Gmail', accepted: false },
+    ])('a capture from $situation is accepted: $accepted', ({ source, accepted }) => {
+      expect(capturedFromSchema.safeParse({ source, sourceId: 'one-thing' }).success).toBe(accepted);
     });
   });
 });

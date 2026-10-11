@@ -60,7 +60,6 @@ const fakePulled: Connector = {
     id: FAKE,
     displayName: 'A pulled source',
     cardText: 'A source Cockpit pulls from.',
-    source: 'notion',
     supportsPush: false,
     pulled: true,
     mirrorsOpenState: true,
@@ -206,7 +205,7 @@ async function itemsFrom(workspaceId = WORKSPACE_ID): Promise<InboxItem[]> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/snapshot`);
   expect(res.status).toBe(200);
   return ((await res.json()) as { items: (InboxItem & { source: string })[] }).items.filter(
-    (item) => item.source === 'notion',
+    (item) => item.source === FAKE,
   );
 }
 
@@ -245,7 +244,6 @@ async function nextChecksRun(): Promise<void> {
 /** A page at the fake source, as the connector would read it. */
 function aPage(sourceId: string): SourceItem {
   return {
-    source: 'notion',
     sourceId,
     sourceLink: null,
     sender: null,

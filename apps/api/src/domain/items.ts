@@ -1,5 +1,4 @@
 import {
-  isStoredSource,
   textsFromCapture,
   type AssociateCommand,
   type Association,
@@ -17,9 +16,7 @@ import {
   type SetStartedCommand,
   type SetTitleCommand,
   type Source,
-  type StoredSource,
 } from '@cockpit/shared';
-import { GMAIL } from './named-sources.js';
 
 /**
  * Pure command handlers (architecture §6.1: domain imports nothing from the
@@ -36,9 +33,12 @@ export function isStale(item: Item, issuedAt: string): boolean {
   return issuedAt < item.updatedAt;
 }
 
+/** Where an Item captured inside Cockpit says it came from: nowhere else. */
+const CAPTURED_HERE = 'internal';
+
 /** An Item as its row holds it: the one source field written as the two columns there are. */
 export type StoredItem = Omit<Item, 'source'> & {
-  source: StoredSource;
+  source: typeof CAPTURED_HERE;
   sourceConnector: Source | null;
 };
 
@@ -46,25 +46,19 @@ export type StoredItem = Omit<Item, 'source'> & {
  * An Item written the way the store can hold it ("Save a Teams message to
  * Cockpit", issue 486).
  *
- * **A source the `source` column's CHECK does not know goes in
- * `source_connector` instead**, that column having been created with five
- * values and belonging to a table four others point at under RESTRICT
- * (`STORED_SOURCES` in the contract, `0038-item-source-connector`). The read
- * coalesces them back into one (`itemColumns`, accounts/repo.ts), so this is
- * the only place either half is seen.
- *
- * **A Gmail Item names its connector, `gmail`, and keeps `mail` beside it**
- * ("Store Gmail Items under their connector id", issue 926): the connector
- * column is the authority for every connector-made Item, and `mail` is a value
- * the old column already holds, so a new Gmail Item is stored exactly as
- * `0062-gmail-items-under-their-connector` rewrites an old one. Capture still
- * says `mail` and the read serves `gmail`; either name lands here.
+ * **Every source but Cockpit's own goes in `source_connector`, and `source`
+ * keeps `internal`** ("Take the last source names out of the core's code, and
+ * make CI catch them", issue 990): that column's CHECK was created with five
+ * values and belongs to a table four others point at under RESTRICT
+ * (`STORED_SOURCES`, accounts/schema.ts). A connector's Item and an app's
+ * capture are stored alike, the source said once, by whoever carried it in.
+ * The read coalesces the two back into one (`itemColumns`, accounts/repo.ts),
+ * so this is the only place either half is seen.
  */
 export function asStored(item: Item): StoredItem {
-  if (item.source === 'mail' || item.source === GMAIL) return { ...item, source: 'mail', sourceConnector: GMAIL };
-  return isStoredSource(item.source)
-    ? { ...item, source: item.source, sourceConnector: null }
-    : { ...item, source: 'internal', sourceConnector: item.source };
+  return item.source === CAPTURED_HERE
+    ? { ...item, source: CAPTURED_HERE, sourceConnector: null }
+    : { ...item, source: CAPTURED_HERE, sourceConnector: item.source };
 }
 
 export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {

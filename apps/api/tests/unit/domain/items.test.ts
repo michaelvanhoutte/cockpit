@@ -89,17 +89,17 @@ describe('Capture', () => {
    */
   describe('an item is written where the store can hold it, whatever it came in through', () => {
     it.each([
-      { source: 'internal' as const, column: 'internal', connector: null },
-      // Gmail's: under its connector, keeping the `mail` the column already holds.
-      { source: 'mail' as const, column: 'mail', connector: 'gmail' },
-      { source: 'gmail' as const, column: 'mail', connector: 'gmail' },
-      { source: 'whatsapp' as const, column: 'whatsapp', connector: null },
-      // The one the column's own CHECK was not created with, which is the
-      // whole reason there are two columns.
-      { source: 'teams' as const, column: 'internal', connector: 'teams' },
+      { source: 'internal', column: 'internal', connector: null },
+      // Every other source in the connector column, the frozen one keeping
+      // `internal` - Gmail's as much as Teams' (issue 993).
+      { source: 'gmail', column: 'internal', connector: 'gmail' },
+      { source: 'teams', column: 'internal', connector: 'teams' },
       // An app's capture is written the same way, so a release that has never
       // heard of it reads an ordinary capture rather than an unknown source.
-      { source: 'mcp' as const, column: 'internal', connector: 'mcp' },
+      { source: 'mcp', column: 'internal', connector: 'mcp' },
+      // An old Gmail Item left as `mail` because it named no connector reads as
+      // `mail`, and an edit writes that back where the read finds it.
+      { source: 'mail', column: 'internal', connector: 'mail' },
     ])('writes $source as $column, naming $connector beside it', ({ source, column, connector }) => {
       const stored = asStored(anItem({ source }));
 

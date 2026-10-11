@@ -95,7 +95,6 @@ const OUTLOOK: Connector = {
     id: 'outlook',
     displayName: 'Outlook',
     cardText: 'A mailbox.',
-    source: 'notion',
     supportsPush: false,
     auth: { kind: 'none' },
   },
