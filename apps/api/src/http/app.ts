@@ -112,7 +112,7 @@ import {
   callbackUrl,
   gate,
   heldSessionId,
-  refuse,
+  refuseSignIn,
   rememberAttempt,
   rememberConnectAttempt,
   rememberSessionCookie,
@@ -2160,7 +2160,7 @@ const routes = app
       );
       return c.redirect(url, 302);
     } catch (error) {
-      return refuse(c, 'the issuer could not be reached', error);
+      return refuseSignIn(c,'the issuer could not be reached', error);
     }
   })
   /**
@@ -2180,7 +2180,7 @@ const routes = app
     // Somebody pressing cancel on Google's own screen is not a failure to
     // report: they are simply back where they started.
     if (wrong === 'the issuer refused the sign-in') return c.redirect('/signin', 302);
-    if (wrong) return refuse(c, wrong);
+    if (wrong) return refuseSignIn(c,wrong);
 
     try {
       const endpoints = await endpointsFor(issuerFor(c.env));
@@ -2196,7 +2196,7 @@ const routes = app
           redirectUri: callbackUrl(c),
         },
       );
-      if (!exchanged) return refuse(c, 'the exchange was refused');
+      if (!exchanged) return refuseSignIn(c,'the exchange was refused');
 
       const verdict = await identityFrom(
         exchanged.idToken,
@@ -2208,7 +2208,7 @@ const routes = app
         },
         new Date(),
       );
-      if (!verdict.identified) return refuse(c, verdict.refusal);
+      if (!verdict.identified) return refuseSignIn(c,verdict.refusal);
 
       const signedIn = await signInWithGoogle(
         c.env,
@@ -2240,7 +2240,7 @@ const routes = app
       rememberSessionCookie(c, signedIn.sessionId);
       return c.redirect(attempt!.returnTo ?? '/', 302);
     } catch (error) {
-      return refuse(c, 'the sign-in could not be finished', error);
+      return refuseSignIn(c,'the sign-in could not be finished', error);
     }
   })
   /**
@@ -2275,20 +2275,20 @@ const routes = app
       const held = heldSessionId(c);
       if (held && (await stillSignedIn(c.env, held))) return c.redirect('/', 302);
 
-      if (c.env.GUEST_SIGN_IN !== 'true') return refuse(c, 'this environment offers no guest sign-in');
+      if (c.env.GUEST_SIGN_IN !== 'true') return refuseSignIn(c,'this environment offers no guest sign-in');
 
       const signedIn = await signInAsGuest(c.env, new Date(), {
         country: countryOf(c.req.raw),
         referrerHost: referrerHostOf(c.req.query('referrer'), new URL(c.req.url).hostname),
       });
-      if (!signedIn.signedIn) return refuse(c, 'the guest account is not available');
+      if (!signedIn.signedIn) return refuseSignIn(c,'the guest account is not available');
       rememberSessionCookie(c, signedIn.sessionId);
       // Only here, past the already-signed-in return above: a fresh guest sign-in
       // is what a mail and a Teams message arrive for (issue 775).
       await enqueueGuestArrivals(c.env);
       return c.redirect('/', 302);
     } catch (error) {
-      return refuse(c, 'the guest sign-in could not be finished', error);
+      return refuseSignIn(c,'the guest sign-in could not be finished', error);
     }
   })
   // --- push invalidation: an SSE doorbell, not a data channel ----------------

@@ -533,7 +533,7 @@ export function callbackUrl(c: Context): string {
  * here, or access taken away - are the ones the callback answers with a reason
  * of its own.
  */
-export function refuse(c: Context, reason: string, cause?: unknown) {
+export function refuseSignIn(c: Context, reason: string, cause?: unknown) {
   console.error(
     JSON.stringify({
       level: 'error',
