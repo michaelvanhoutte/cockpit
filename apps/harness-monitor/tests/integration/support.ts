@@ -30,7 +30,12 @@ export function send(rows: unknown[], headers: Record<string, string> = { author
 }
 
 export async function emptyTheDatabase() {
-  await env.DB.batch([env.DB.prepare('DELETE FROM usage_requests'), env.DB.prepare('DELETE FROM daily_totals')]);
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM usage_requests'),
+    env.DB.prepare('DELETE FROM daily_totals'),
+    env.DB.prepare('DELETE FROM branch_links'),
+    env.DB.prepare('DELETE FROM link_state'),
+  ]);
 }
 
 export interface Total {

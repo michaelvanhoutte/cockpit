@@ -1,4 +1,5 @@
 import { checkWriteKey } from './auth';
+import { linkBranches, linkingPage } from './linking';
 import { renderPage } from './page';
 import { dailyLines, rebuildTotals, storeBatch } from './store';
 import { validateBatch } from './validate';
@@ -7,7 +8,14 @@ export interface Env {
   DB: D1Database;
   /** A secret. Unset, every write is refused. */
   HARNESS_WRITE_KEY?: string;
+  /** A secret: a fine-grained, read-only GitHub token. Unset, branch linking skips. */
+  GITHUB_TOKEN?: string;
+  /** `owner/name`, set in wrangler.jsonc. */
+  GITHUB_REPOSITORY?: string;
 }
+
+/** The nightly rebuild of the daily totals; any other schedule links branches. */
+const NIGHTLY = '10 3 * * *';
 
 /** Far above MAX_BATCH full rows, so only a malformed write reaches it. */
 const MAX_BODY = 1_000_000;
@@ -39,14 +47,15 @@ export default {
       return request.method === 'POST' ? write(request, env) : json({ error: 'Use POST.' }, 405);
     }
     if (pathname === '/' && request.method === 'GET') {
-      return new Response(renderPage(await dailyLines(env.DB)), {
+      return new Response(renderPage(await dailyLines(env.DB), await linkingPage(env.DB)), {
         headers: { 'content-type': 'text/html; charset=utf-8' },
       });
     }
     return json({ error: 'Not found.' }, 404);
   },
 
-  async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
-    await rebuildTotals(env.DB);
+  async scheduled(controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+    if (controller.cron === NIGHTLY) await rebuildTotals(env.DB);
+    else await linkBranches(env);
   },
 } satisfies ExportedHandler<Env>;

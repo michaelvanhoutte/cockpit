@@ -1,0 +1,76 @@
+{
+  "data": {
+    "search": {
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      },
+      "nodes": [
+        {
+          "number": 884,
+          "title": "Hold a web test file's teardown until Milkdown's timers have fired",
+          "state": "MERGED",
+          "mergedAt": "2026-10-08T12:03:58Z",
+          "updatedAt": "2026-10-08T12:04:00Z",
+          "headRefName": "fix/milkdown-timer-outlives-jsdom",
+          "author": {
+            "login": "michaelvanhoutte"
+          },
+          "closingIssuesReferences": {
+            "nodes": []
+          }
+        },
+        {
+          "number": 292,
+          "title": "Bump vitest from 4.1.10 to 4.1.11",
+          "state": "OPEN",
+          "mergedAt": null,
+          "updatedAt": "2026-10-09T12:35:22Z",
+          "headRefName": "dependabot/npm_and_yarn/vitest-4.1.11",
+          "author": {
+            "login": "dependabot"
+          },
+          "closingIssuesReferences": {
+            "nodes": []
+          }
+        },
+        {
+          "number": 969,
+          "title": "Stop a build relaxing the architecture document without the engineer agreeing (#965)",
+          "state": "MERGED",
+          "mergedAt": "2026-10-11T10:33:01Z",
+          "updatedAt": "2026-10-11T10:33:03Z",
+          "headRefName": "claude/build-965-968-bcd508",
+          "author": {
+            "login": "michaelvanhoutte"
+          },
+          "closingIssuesReferences": {
+            "nodes": [
+              {
+                "number": 965
+              }
+            ]
+          }
+        },
+        {
+          "number": 979,
+          "title": "Stand up the Harness Monitor: store each Claude Code request once, and show daily token totals (#971)",
+          "state": "MERGED",
+          "mergedAt": "2026-10-11T11:27:27Z",
+          "updatedAt": "2026-10-11T11:27:29Z",
+          "headRefName": "claude/build-971-fd1134",
+          "author": {
+            "login": "michaelvanhoutte"
+          },
+          "closingIssuesReferences": {
+            "nodes": [
+              {
+                "number": 971
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

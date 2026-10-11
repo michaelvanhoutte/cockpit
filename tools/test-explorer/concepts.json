@@ -554,7 +554,9 @@
         "apps/harness-monitor/src/validate.ts",
         "apps/harness-monitor/src/auth.ts",
         "apps/harness-monitor/src/store.ts",
-        "apps/harness-monitor/src/page.ts"
+        "apps/harness-monitor/src/page.ts",
+        "apps/harness-monitor/src/linking.ts",
+        "apps/harness-monitor/src/github.ts"
       ]
     }
   ]

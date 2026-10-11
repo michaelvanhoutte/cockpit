@@ -52,6 +52,7 @@ cockpit/
 - **One row per request, keyed by its request id.** A request already stored is ignored, so a re-send, a history upload overlapping the hook, or a forked session carrying earlier requests never counts twice.
 - **Daily totals are written in the same batch as the rows**, from the rows that batch actually inserted, and rebuilt nightly from the rows. Screens read only the totals.
 - **One write key**, a Worker secret, can only add rows. Reads need none.
+- **An hourly cron links each branch to its pull request, the issue it closes and the author**, who counts as the engineer. It reads only pull requests updated since a stored cursor, within the free plan's 50 subrequests per invocation, and stores links and cursor in one batch, so a failed run changes nothing. A session newer than the last success shows as linking.
 
 ## 4. Data layer
 
