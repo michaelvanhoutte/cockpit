@@ -79,6 +79,11 @@ describe('Harness Monitor', () => {
       assert.equal(lines.at(-1), 'Could not read 4 log lines.');
     });
 
+    it('a log file that could not be read at all is counted beside the lines', () => {
+      const lines = summarizeUpload({ stored: 0, alreadyStored: 0, refused: 0, failed: null, unreadable: 1, unreadableFiles: 2 });
+      assert.equal(lines.at(-1), 'Could not read 1 log lines and 2 whole log files.');
+    });
+
     it('a batch the monitor refuses is counted, and the batches after it still go', async () => {
       const rows = Array.from({ length: 250 }, (_, i) => ({ requestId: `r${i}` }));
       const totals = await postBatches(rows, async (batch) => (batch.length === 200 ? 'rejected' : { stored: batch.length, ignored: 0 }));

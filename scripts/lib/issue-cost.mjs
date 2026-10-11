@@ -116,6 +116,17 @@ export function firstCwdIn(dir) {
   }
 }
 
+/**
+ * This repository's project directories under `projectsDir`, as full paths:
+ * the prefix match first, then each directory's own `cwd`.
+ */
+export function thisRepoProjectDirs(repoRoot, projectsDir) {
+  const allDirs = readdirSync(projectsDir).filter((name) => statSync(join(projectsDir, name)).isDirectory());
+  return projectDirsFor(repoRoot, allDirs)
+    .map((name) => join(projectsDir, name))
+    .filter((dir) => ownsProject(repoRoot, firstCwdIn(dir)));
+}
+
 /** One line of a session log, or `null` for a line that failed to parse. */
 export function parseLine(text) {
   try {
@@ -449,7 +460,7 @@ function readTranscript(path) {
  * however deep the agent that spawned it actually nests (`subagentMeta`'s own
  * comment has the confirmation), so no recursive directory walk is needed.
  */
-function subagentFilesUnder(dir) {
+export function subagentFilesUnder(dir) {
   const subagentsDir = join(dir, 'subagents');
   if (!existsSync(subagentsDir)) return [];
   return readdirSync(subagentsDir)
@@ -463,7 +474,7 @@ function subagentFilesUnder(dir) {
  * Claude Code also leaves there, which a plain `*.jsonl` glob would not
  * exclude on its own.
  */
-function mainSessionFilesIn(projectDir) {
+export function mainSessionFilesIn(projectDir) {
   return readdirSync(projectDir)
     .filter((name) => name.endsWith('.jsonl') && statSync(join(projectDir, name)).isFile())
     .map((name) => ({ path: join(projectDir, name), sessionId: name.slice(0, -'.jsonl'.length) }));

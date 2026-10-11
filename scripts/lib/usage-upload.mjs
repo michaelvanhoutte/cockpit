@@ -1,6 +1,7 @@
 //
 // The one-off upload of this repository's past Claude Code logs to the Harness
-// Monitor (issue 975). Pure: the logs in, rows and counts out. Discovery and
+// Monitor (Upload past Claude Code session logs to the Harness Monitor, issue
+// 975). Pure: the logs in, rows and counts out. Discovery and
 // HTTP are in `scripts/harness-upload.mjs`.
 //
 // **An upload's rows are the hook's rows**, built by the same `toRow`, marked
@@ -45,10 +46,10 @@ export async function postBatches(rows, post) {
 }
 
 /** The lines the command prints at the end of a run. */
-export function summarizeUpload({ stored, alreadyStored, refused, failed, unreadable }) {
+export function summarizeUpload({ stored, alreadyStored, refused, failed, unreadable, unreadableFiles = 0 }) {
   const lines = [`Sent ${stored + alreadyStored} requests: ${stored} new, ${alreadyStored} already stored.`];
   if (refused) lines.push(`The monitor refused ${refused} requests as invalid; they were not stored.`);
   if (failed) lines.push(`Stopped early: ${failed}. Re-run to finish; requests already stored are ignored.`);
-  lines.push(`Could not read ${unreadable} log lines.`);
+  lines.push(`Could not read ${unreadable} log lines${unreadableFiles ? ` and ${unreadableFiles} whole log files` : ''}.`);
   return lines;
 }

@@ -16,12 +16,12 @@
 //
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { readFlags } from './lib/operator.mjs';
-import { buildReport, firstCwdIn, marksByBranch, ownsProject, projectDirsFor } from './lib/issue-cost.mjs';
+import { buildReport, marksByBranch, thisRepoProjectDirs } from './lib/issue-cost.mjs';
 
 let args;
 try {
@@ -59,10 +59,7 @@ if (!existsSync(projectsDir)) {
   console.error(`no session logs at ${projectsDir} - is this the machine that ran the work?`);
   process.exit(1);
 }
-const allDirs = readdirSync(projectsDir).filter((name) => statSync(join(projectsDir, name)).isDirectory());
-const projectDirs = projectDirsFor(repoRoot, allDirs)
-  .map((name) => join(projectsDir, name))
-  .filter((dir) => ownsProject(repoRoot, firstCwdIn(dir)));
+const projectDirs = thisRepoProjectDirs(repoRoot, projectsDir);
 
 const { resolveIssue, resolveMarks, marksUnreadable } = makeIssueResolver(repoRoot);
 const report = buildReport({ projectDirs, resolveIssue, resolveMarks, marksUnreadable, since: sinceMs, only });
