@@ -77,6 +77,7 @@ import {
   panelTakesItems,
 } from '@cockpit/shared';
 import { foldName } from '../domain/names.js';
+import { decideSourceConnection } from '../domain/connections.js';
 import {
   dashboardFromCommand,
   dashboardNamed,
@@ -1951,8 +1952,8 @@ export function runCommand<N extends CommandName>(
       db.transaction((tx) => {
         // The choice the account at this source already held in this Workspace,
         // to tell a reconnect that changes it from one that does not (issue 942).
-        const choiceBefore = tx
-          .select({ choice: connectorAccounts.choice })
+        const heldRow = tx
+          .select({ id: connectorAccounts.id, choice: connectorAccounts.choice })
           .from(connectorAccounts)
           .where(
             and(
@@ -1962,10 +1963,24 @@ export function runCommand<N extends CommandName>(
               eq(connectorAccounts.externalAccountKey, cmd.externalAccountKey),
             ),
           )
-          .get()?.choice;
+          .get();
+        const decided = decideSourceConnection(
+          {
+            held: heldRow && {
+              id: heldRow.id,
+              choice: heldRow.choice,
+              failing: !!tx
+                .select({ id: connectionFailures.sourceAccountId })
+                .from(connectionFailures)
+                .where(eq(connectionFailures.sourceAccountId, heldRow.id))
+                .get(),
+            },
+          },
+          { sourceAccountId: cmd.sourceAccountId, choice: cmd.choice, issuedAt: cmd.issuedAt },
+        );
         tx.insert(connectorAccounts)
           .values({
-            id: cmd.sourceAccountId,
+            id: decided.accountId,
             tenantId,
             workspaceId: cmd.workspaceId,
             connectorId: cmd.connectorId,
@@ -2008,14 +2023,14 @@ export function runCommand<N extends CommandName>(
               lastTestedAt: cmd.issuedAt,
               // Asked again on a reconnect, so the answer replaces the stored
               // one; a reconnect that asked nothing leaves it.
-              ...(cmd.choice !== undefined ? { choice: cmd.choice } : {}),
+              ...(decided.choiceOnRefresh !== undefined ? { choice: decided.choiceOnRefresh } : {}),
             },
           })
           .run();
         // A reconnect under another choice drops what was waiting for the
         // source, as changing it does: a change made under the old choice no
         // longer applies (issue 942).
-        if (cmd.choice !== undefined && choiceBefore !== undefined && choiceBefore !== cmd.choice) {
+        if (decided.dropWaiting) {
           dropPulledWanted(tx, tenantId, {
             workspaceId: cmd.workspaceId,
             connectorId: cmd.connectorId,
@@ -2024,33 +2039,18 @@ export function runCommand<N extends CommandName>(
         }
         // Reconnecting is proof it works again, so whatever said it was
         // failing ends ("Drop an agent on an item to start a Claude Code
-        // session on it", issue 571). Named by the key rather than by
-        // `sourceAccountId`, which a reconnect's upsert leaves unused.
-        tx.delete(connectionFailures)
-          .where(
-            inArray(
-              connectionFailures.sourceAccountId,
-              tx
-                .select({ id: connectorAccounts.id })
-                .from(connectorAccounts)
-                .where(
-                  and(
-                    eq(connectorAccounts.tenantId, tenantId),
-                    eq(connectorAccounts.workspaceId, cmd.workspaceId),
-                    eq(connectorAccounts.connectorId, cmd.connectorId),
-                    eq(connectorAccounts.externalAccountKey, cmd.externalAccountKey),
-                  ),
-                ),
-            ),
-          )
-          .run();
+        // session on it", issue 571). Named by the id the account already
+        // held, not `sourceAccountId`, which a reconnect's upsert leaves unused.
+        if (decided.clearFailure && heldRow) {
+          tx.delete(connectionFailures).where(eq(connectionFailures.sourceAccountId, heldRow.id)).run();
+        }
         // A pulled connection connected again is checked now with its new
         // sign-in rather than at its next check, which may be five minutes off
         // after a run that failed for want of it (issue 944). One already
         // queued or running keeps its time: that check ends by setting the
         // next, as every run does.
         tx.update(pulledConnections)
-          .set({ dueAt: cmd.issuedAt })
+          .set({ dueAt: decided.nextCheckDueAt })
           .where(
             and(
               eq(pulledConnections.tenantId, tenantId),
