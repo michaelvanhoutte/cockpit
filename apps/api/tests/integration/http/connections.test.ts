@@ -199,6 +199,40 @@ describe('Connector management', () => {
     });
 
     /**
+     * Reconnecting is proof it works again, so what said it was failing ends -
+     * for that connection alone, in that Workspace alone.
+     */
+    it('ends the failing of the connection reconnected and no other', async () => {
+      await connect(ADA);
+      await connect(MICHAEL);
+      const rows = await storedRows();
+      const failures = () =>
+        inTheStore((sql) => [
+          ...sql.exec<{ source_account_id: string }>(
+            'SELECT source_account_id FROM connection_failures ORDER BY source_account_id',
+          ),
+        ]);
+      for (const row of rows) {
+        await inTheStore((sql) =>
+          sql.exec(
+            `INSERT INTO connection_failures (source_account_id, tenant_id, reason, failed_at)
+             VALUES (?, ?, 'Microsoft no longer accepts the sign-in', '2026-09-18T10:00:00.000Z')`,
+            row.id,
+            row.tenant_id,
+          ),
+        );
+      }
+      expect(await failures()).toHaveLength(2);
+
+      await connect(ADA);
+
+      const adaRow = rows.find((row) => row.display_name === 'Ada Lovelace')!;
+      const left = (await failures()).map((one) => one.source_account_id);
+      expect(left).toHaveLength(1);
+      expect(left).not.toContain(adaRow.id);
+    });
+
+    /**
      * A connection belongs to the Workspace that made it, so the same account
      * connected from two Workspaces is two connections rather than one moving.
      */

@@ -2039,8 +2039,8 @@ export function runCommand<N extends CommandName>(
         }
         // Reconnecting is proof it works again, so whatever said it was
         // failing ends ("Drop an agent on an item to start a Claude Code
-        // session on it", issue 571). Named by the key rather than by
-        // `sourceAccountId`, which a reconnect's upsert leaves unused.
+        // session on it", issue 571). Named by the id the account already
+        // held, not `sourceAccountId`, which a reconnect's upsert leaves unused.
         if (decided.clearFailure && heldRow) {
           tx.delete(connectionFailures).where(eq(connectionFailures.sourceAccountId, heldRow.id)).run();
         }
