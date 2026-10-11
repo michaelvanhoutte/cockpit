@@ -33,6 +33,10 @@ jobs:
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
+        env:
+          # The usage hook (scripts/report-usage.mjs) reads these; unset, it sends nothing.
+          HARNESS_WRITE_KEY: ${{ secrets.HARNESS_WRITE_KEY }}
+          HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
