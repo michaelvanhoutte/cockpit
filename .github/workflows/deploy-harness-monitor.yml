@@ -1,0 +1,76 @@
+name: Deploy Harness Monitor
+
+# Every merge to `main` that touches the app deploys it to production, migrations
+# first. There is no staging: the monitor is development data, and D1's
+# point-in-time restore is the backstop (docs/deployment.md, "The Harness
+# Monitor"). Independent of Cockpit's own promotion.
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/harness-monitor/**
+      - .github/workflows/deploy-harness-monitor.yml
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-harness-monitor
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Harness Monitor
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_ID: ${{ vars.HARNESS_MONITOR_DATABASE_ID }}
+    steps:
+      # Until a person has created the database and set the repository variable,
+      # a merge must not fail: say so and stop (docs/deployment.md, "The Harness
+      # Monitor", has the bootstrap steps).
+      - name: Check the one-time setup is done
+        id: ready
+        run: |
+          if [ -z "$DATABASE_ID" ]; then
+            echo "::notice title=Harness Monitor not deployed::The repository variable HARNESS_MONITOR_DATABASE_ID is not set. Follow the bootstrap steps in docs/deployment.md, then re-run this workflow."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.ready.outputs.ready == 'true'
+      - uses: ./.github/actions/setup
+        if: steps.ready.outputs.ready == 'true'
+
+      - name: Test
+        if: steps.ready.outputs.ready == 'true'
+        run: |
+          pnpm --filter @harness-monitor/worker typecheck
+          pnpm --filter @harness-monitor/worker test
+
+      # The id is not a secret; the placeholder in wrangler.jsonc is replaced
+      # for this run only.
+      - name: Point the config at the production database
+        if: steps.ready.outputs.ready == 'true'
+        run: sed -i "s/00000000-0000-0000-0000-000000000000/$DATABASE_ID/" apps/harness-monitor/wrangler.jsonc
+
+      - name: Migrate the database
+        if: steps.ready.outputs.ready == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/harness-monitor
+          command: d1 migrations apply harness-monitor --remote
+
+      - name: Deploy
+        if: steps.ready.outputs.ready == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/harness-monitor
+          command: deploy
+
+      - name: Verify the public page answers
+        if: steps.ready.outputs.ready == 'true'
+        run: curl --fail --silent --show-error --retry 5 --retry-delay 3 --retry-all-errors "https://harness-monitor.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev/" > /dev/null

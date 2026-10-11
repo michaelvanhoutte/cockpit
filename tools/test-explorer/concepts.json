@@ -545,6 +545,17 @@
         "apps/web/src/captureOutbox.ts",
         "apps/web/src/captureOutboxSender.tsx"
       ]
+    },
+    {
+      "key": "Harness Monitor",
+      "label": "Harness Monitor",
+      "sourcePatterns": [
+        "apps/harness-monitor/src/worker.ts",
+        "apps/harness-monitor/src/validate.ts",
+        "apps/harness-monitor/src/auth.ts",
+        "apps/harness-monitor/src/store.ts",
+        "apps/harness-monitor/src/page.ts"
+      ]
     }
   ]
 }

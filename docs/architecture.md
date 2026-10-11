@@ -24,7 +24,8 @@ Three deployable parts, one repository:
 cockpit/
 ├── apps/
 │   ├── web/          # React + Vite installed PWA (§5), served as static assets on Cloudflare
-│   └── api/          # Cloudflare Worker: HTTP API + SSE + queue consumers + cron triggers (§6)
+│   ├── api/          # Cloudflare Worker: HTTP API + SSE + queue consumers + cron triggers (§6)
+│   └── harness-monitor/ # separate Worker + D1: Claude Code token usage, shares no code with the rest
 ├── packages/
 │   ├── shared/        # Item/Association domain types, Zod schemas, API contract
 │   ├── connector-sdk/ # the connector SPI: what a connector is and what the host offers it (§6.2)
@@ -39,7 +40,18 @@ cockpit/
 
 - **Monorepo, pnpm workspaces**, so a contract change and both sides of its implementation land in one reviewable PR. A second service only exists when a real boundary demands one.
 - **`apps/api` is one Worker deployment** exposing the HTTP routes, the SSE endpoint, the queue consumers and the cron schedules together. Splitting them is a deployment decision for when load demands it.
+- **`apps/harness-monitor` is the one second service**, see "The Harness Monitor" below.
 - **`packages/shared` is the contract** — domain types, Zod schemas, command definitions (§4.3), API client. The frontend never redefines a server shape by hand.
+
+### The Harness Monitor
+
+`apps/harness-monitor` counts the tokens Claude Code spends on this repository. It is a second Worker with its own D1 database, importing nothing from Cockpit's packages, and nothing of Cockpit's imports it (the lint layer holds the first, the absence of any dependency the second).
+
+**The boundary is real, not tidy.** It is public with no sign-in, it holds development data rather than user data, and it is meant to be lifted into a repository of its own. Routes in Cockpit's Worker would have put a public surface and an outside write key inside the product's trust boundary. The cost is a second deployable with its own workflow ("The Harness Monitor" in [deployment.md](deployment.md)).
+
+- **One row per request, keyed by its request id.** A request already stored is ignored, so a re-send, a history upload overlapping the hook, or a forked session carrying earlier requests never counts twice.
+- **Daily totals are written in the same batch as the rows**, from the rows that batch actually inserted, and rebuilt nightly from the rows. Screens read only the totals.
+- **One write key**, a Worker secret, can only add rows. Reads need none.
 
 ## 4. Data layer
 

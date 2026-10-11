@@ -147,6 +147,33 @@ until the allowance resets. An app whose access is still current keeps
 capturing until that access runs out, within the hour, since checking it only
 reads KV; the rest of Cockpit does not use KV and is unaffected.
 
+### The Harness Monitor
+
+A second, separate service: Worker `harness-monitor` with its own D1 database `harness-monitor`, in `apps/harness-monitor`. It shares no code, binding or secret with Cockpit ("The Harness Monitor" in the architecture document says why). Its database is the third of the free plan's ten.
+
+| | Deployed by | Worker | Database | Cron | URL |
+|---|---|---|---|---|---|
+| **production** | every merge to `main` touching `apps/harness-monitor` (`deploy-harness-monitor.yml`) | `harness-monitor` | `harness-monitor` | nightly rebuild of the daily totals | `harness-monitor.<subdomain>.workers.dev` |
+
+- **No staging.** Migrations are expand-then-contract like Cockpit's; D1's point-in-time restore is the backstop, since rows from cloud sessions exist nowhere else. The workflow applies migrations, then deploys.
+- **Reading is public; writing needs the write key**, the Worker secret `HARNESS_WRITE_KEY`, sent as `Authorization: Bearer <key>`. Unset, every write is refused. Rotate it with `wrangler secret put HARNESS_WRITE_KEY` and update each holder of it.
+- **Locally**, `pnpm dev:harness` (or `pnpm --filter @harness-monitor/worker dev`) applies the local migrations and runs the Worker on this checkout's own port (`harnessMonitor` in `scripts/lib/ports.mjs`), printing the address and a local-only write key.
+- **The database id lives in a repository variable**, `HARNESS_MONITOR_DATABASE_ID`, which the workflow writes into `wrangler.jsonc` for the run. Until it is set the workflow reports a notice and deploys nothing, so merging this before the bootstrap below fails nothing.
+
+**Bootstrap, once, by a person** (the workflow cannot: it needs the database to exist). The Cloudflare token and account id are the repository secrets Cockpit's workflows already use.
+
+```bash
+cd apps/harness-monitor
+pnpm exec wrangler d1 create harness-monitor        # note the returned database_id
+pnpm exec wrangler secret put HARNESS_WRITE_KEY     # needs the Worker to exist: run `deploy` first if it refuses
+```
+
+1. Create the database and note its id.
+2. Set the repository variable `HARNESS_MONITOR_DATABASE_ID` to that id (it is not a secret).
+3. Run the workflow *Deploy Harness Monitor* by hand once; it migrates and deploys.
+4. Put `HARNESS_WRITE_KEY` on the Worker with a long random value, and keep a copy for the hook and the history upload that will send with it.
+5. Open `https://harness-monitor.<subdomain>.workers.dev/`: it says there is nothing yet.
+
 ## 3. One Worker serves the whole application
 
 Not Pages plus a separate API Worker. One Worker per environment serves the Hono

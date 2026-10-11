@@ -102,6 +102,27 @@ importers:
         specifier: ^4.128.0
         version: 4.128.0(patch_hash=90fd7012c511cff11366cbf84d39510bef3321b73a1c81622e03b67b297ca364)(@cloudflare/workers-types@5.20260902.1)
 
+  apps/harness-monitor:
+    devDependencies:
+      '@cloudflare/vitest-pool-workers':
+        specifier: ^0.22.0
+        version: 0.22.0(@cloudflare/workers-types@5.20260902.1)(@vitest/runner@4.1.10)(@vitest/snapshot@4.1.10)(vitest@4.1.10)
+      '@cloudflare/workers-types':
+        specifier: ^5.20260831.1
+        version: 5.20260902.1
+      '@vitest/coverage-istanbul':
+        specifier: 4.1.10
+        version: 4.1.10(vitest@4.1.10)
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@26.4.0)(@vitest/coverage-istanbul@4.1.10)(@vitest/coverage-v8@4.1.10)(jsdom@30.0.1)(vite@7.3.6(@types/node@26.4.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.0))
+      wrangler:
+        specifier: ^4.128.0
+        version: 4.128.0(patch_hash=90fd7012c511cff11366cbf84d39510bef3321b73a1c81622e03b67b297ca364)(@cloudflare/workers-types@5.20260902.1)
+
   apps/web:
     dependencies:
       '@cockpit/shared':

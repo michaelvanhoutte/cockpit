@@ -176,4 +176,24 @@ export default [
       ],
     },
   },
+
+  {
+    // The Harness Monitor shares no code with Cockpit, in either direction
+    // (docs/architecture.md, "The Harness Monitor"): it imports nothing of
+    // Cockpit's packages. The other direction needs no rule: no Cockpit package
+    // depends on it, so nothing resolves.
+    files: ['apps/harness-monitor/**/*.{ts,mjs,js}'],
+    ignores: ['**/tests/unit/**'],
+    languageOptions,
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            { group: ['@cockpit/*'], message: 'The Harness Monitor imports nothing from Cockpit.' },
+          ],
+        },
+      ],
+    },
+  },
 ];
