@@ -154,10 +154,11 @@ A second, separate service: Worker `harness-monitor` with its own D1 database `h
 
 | | Deployed by | Worker | Database | Cron | URL |
 |---|---|---|---|---|---|
-| **production** | every merge to `main` touching `apps/harness-monitor` (`deploy-harness-monitor.yml`) | `harness-monitor` | `harness-monitor` | nightly rebuild of the daily totals | `harness-monitor.<subdomain>.workers.dev` |
+| **production** | every merge to `main` touching `apps/harness-monitor` (`deploy-harness-monitor.yml`) | `harness-monitor` | `harness-monitor` | daily, 03:10 UTC: fetch the price list, price waiting rows, rebuild the daily totals | `harness-monitor.<subdomain>.workers.dev` |
 
 - **No staging.** Migrations are expand-then-contract like Cockpit's; D1's point-in-time restore is the backstop, since rows from cloud sessions exist nowhere else. The workflow applies migrations, then deploys.
 - **Reading is public; writing needs the write key**, the Worker secret `HARNESS_WRITE_KEY`, sent as `Authorization: Bearer <key>`. Unset, every write is refused. Rotate it with `wrangler secret put HARNESS_WRITE_KEY` and update each holder of it.
+- **Prices come from LiteLLM's public file** (`raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json`, no secret), fetched by the daily cron. To correct or add a model before LiteLLM does, edit `apps/harness-monitor/src/price-overrides.json` (USD per million tokens; it wins over LiteLLM for the models it names). The page shows how old the list is and whether the last fetch failed.
 - **Locally**, `pnpm dev:harness` (or `pnpm --filter @harness-monitor/worker dev`) applies the local migrations and runs the Worker on this checkout's own port (`harnessMonitor` in `scripts/lib/ports.mjs`), printing the address and a local-only write key.
 - **The database id lives in a repository variable**, `HARNESS_MONITOR_DATABASE_ID`, which the workflow writes into `wrangler.jsonc` for the run. Until it is set the workflow reports a notice and deploys nothing, so merging this before the bootstrap below fails nothing.
 
