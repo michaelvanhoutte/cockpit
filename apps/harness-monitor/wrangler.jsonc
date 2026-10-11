@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // The Harness Monitor: its own Worker and its own D1 database, sharing no
+  // code, binding or secret with Cockpit (docs/architecture.md, "The Harness
+  // Monitor").
+  "name": "harness-monitor",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-01",
+  "preview_urls": false,
+  "observability": { "logs": { "enabled": true } },
+
+  // Nightly, 03:10 UTC: rebuild the daily totals from the rows.
+  "triggers": { "crons": ["10 3 * * *"] },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "harness-monitor",
+      // A placeholder. The deploy workflow swaps in the repository variable
+      // HARNESS_MONITOR_DATABASE_ID before it migrates or deploys; local runs
+      // and tests never read it (docs/deployment.md, "The Harness Monitor").
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ]
+  // HARNESS_WRITE_KEY is a secret (`wrangler secret put`), so it is not here.
+  // Locally scripts/dev-harness.mjs passes a local-only value with --var.
+}

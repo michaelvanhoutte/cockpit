@@ -9,6 +9,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:api": "node scripts/dev.mjs --only api",
     "dev:web": "node scripts/dev.mjs --only web",
+    "dev:harness": "node scripts/dev-harness.mjs",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json",
     "lint": "eslint . --max-warnings=0",

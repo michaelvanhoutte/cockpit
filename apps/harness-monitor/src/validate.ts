@@ -1,0 +1,148 @@
+/** The six things a request can be spent on, as the slugs stored. */
+export const CATEGORIES = [
+  'scoping-planning',
+  'building',
+  'local-code-review',
+  'local-security-review',
+  'after-push',
+  'ci-reviews',
+] as const;
+export type Category = (typeof CATEGORIES)[number];
+
+export const REVIEW_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export const SPEEDS = ['standard', 'fast'] as const;
+export const WHERE = ['local', 'cloud', 'actions'] as const;
+export const SOURCES = ['hook', 'upload'] as const;
+
+/** Most rows one write may carry. */
+export const MAX_BATCH = 200;
+
+export interface UsageRow {
+  requestId: string;
+  sessionId: string;
+  occurredAt: number;
+  day: string;
+  branch: string | null;
+  category: Category;
+  reviewLevel: string | null;
+  model: string;
+  speed: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  subagent: boolean;
+  ranWhere: string;
+  source: string;
+}
+
+export type Validated = { ok: true; rows: UsageRow[] } | { ok: false; error: string };
+
+/** A four-digit year and an explicit zone, so the UTC day is never guessed or malformed. */
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+
+const TOKEN_FIELDS =['inputTokens', 'outputTokens', 'cacheCreationTokens', 'cacheReadTokens'] as const;
+
+function text(value: unknown, max: number): string | null {
+  return typeof value === 'string' && value.trim() !== '' && value.length <= max ? value : null;
+}
+
+function oneOf<T extends string>(value: unknown, allowed: readonly T[]): T | null {
+  return typeof value === 'string' && (allowed as readonly string[]).includes(value) ? (value as T) : null;
+}
+
+/**
+ * Checks a whole write. One bad row refuses the batch, and the error names the
+ * row by its position (and its request id where it has one).
+ */
+export function validateBatch(body: unknown): Validated {
+  const list = (body as { rows?: unknown } | null)?.rows;
+  if (!Array.isArray(list)) return { ok: false, error: 'The body must be {"rows": [...]}.' };
+  if (list.length === 0) return { ok: false, error: 'The batch has no rows.' };
+  if (list.length > MAX_BATCH) {
+    return { ok: false, error: `The batch has ${list.length} rows; the most one write takes is ${MAX_BATCH}.` };
+  }
+
+  const rows: UsageRow[] = [];
+  for (const [index, raw] of list.entries()) {
+    const result = validateRow(raw);
+    if (typeof result === 'string') {
+      const id = text((raw as { requestId?: unknown } | null)?.requestId, 200);
+      return { ok: false, error: `Row ${index}${id ? ` (${id})` : ''}: ${result}` };
+    }
+    rows.push(result);
+  }
+  return { ok: true, rows };
+}
+
+/** The row, or what is wrong with it. */
+function validateRow(raw: unknown): UsageRow | string {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return 'is not an object.';
+  const r = raw as Record<string, unknown>;
+
+  const requestId = text(r.requestId, 200);
+  if (!requestId) return 'has no requestId.';
+  const sessionId = text(r.sessionId, 200);
+  if (!sessionId) return 'has no sessionId.';
+  if (typeof r.time !== 'string' || r.time.trim() === '') return 'has no time.';
+  const when = new Date(r.time);
+  if (!ISO_TIME.test(r.time) || Number.isNaN(when.getTime())) {
+    return 'has a time that is not an ISO 8601 timestamp with a time zone.';
+  }
+
+  const category = oneOf(r.category, CATEGORIES);
+  if (!category) return `has category "${String(r.category)}", which is not one of ${CATEGORIES.join(', ')}.`;
+
+  let reviewLevel: string | null = null;
+  if (r.reviewLevel !== undefined && r.reviewLevel !== null) {
+    reviewLevel = oneOf(r.reviewLevel, REVIEW_LEVELS);
+    if (!reviewLevel) {
+      return `has reviewLevel "${String(r.reviewLevel)}", which is not one of ${REVIEW_LEVELS.join(', ')}.`;
+    }
+    if (category !== 'local-code-review') return 'has a reviewLevel, which only a local-code-review has.';
+  }
+
+  const model = text(r.model, 200);
+  if (!model) return 'has no model.';
+  const speed = oneOf(r.speed, SPEEDS);
+  if (!speed) return `has speed "${String(r.speed)}", which is not one of ${SPEEDS.join(', ')}.`;
+  const ranWhere = oneOf(r.ranWhere, WHERE);
+  if (!ranWhere) return `has ranWhere "${String(r.ranWhere)}", which is not one of ${WHERE.join(', ')}.`;
+  const source = oneOf(r.source, SOURCES);
+  if (!source) return `has source "${String(r.source)}", which is not one of ${SOURCES.join(', ')}.`;
+  if (typeof r.subagent !== 'boolean') return 'has a subagent that is not true or false.';
+
+  let branch: string | null = null;
+  if (r.branch !== undefined && r.branch !== null && r.branch !== '') {
+    branch = text(r.branch, 300);
+    if (!branch) return 'has a branch that is not a short string.';
+  }
+
+  const counts: Record<string, number> = {};
+  for (const field of TOKEN_FIELDS) {
+    const value = r[field];
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+      return `has ${field} ${JSON.stringify(value)}, which is not a whole number of tokens, zero or more.`;
+    }
+    counts[field] = value;
+  }
+
+  return {
+    requestId,
+    sessionId,
+    occurredAt: when.getTime(),
+    day: when.toISOString().slice(0, 10),
+    branch,
+    category,
+    reviewLevel,
+    model,
+    speed,
+    inputTokens: counts.inputTokens!,
+    outputTokens: counts.outputTokens!,
+    cacheCreationTokens: counts.cacheCreationTokens!,
+    cacheReadTokens: counts.cacheReadTokens!,
+    subagent: r.subagent,
+    ranWhere,
+    source,
+  };
+}

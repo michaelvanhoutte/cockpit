@@ -129,9 +129,10 @@ Production therefore **lags `main` by design**. `git log <promoted-sha>..main`
 answers "what is merged but not live"; the promotion run's summary records which
 commit shipped.
 
-Two D1 databases, out of the free plan's ten. The two thresholds that would force
+Three D1 databases, Cockpit's two and the Harness Monitor's, out of the free plan's
+ten. The two thresholds that would force
 the $5/month Workers Paid plan, recorded so they are recognised rather than
-rediscovered: **a database crossing 500 MB** (or 5 GB across both), and **needing
+rediscovered: **a database crossing 500 MB** (or 5 GB across all three), and **needing
 queue retention beyond 24 hours**. Cloudflare Queues moved onto the free plan in
 February 2026, so it is no longer a reason to upgrade on its own - but its
 **10,000 operations a day** are shared by both environments, and each message
@@ -146,6 +147,33 @@ the day's writes are spent, connecting an app and refreshing its access fail
 until the allowance resets. An app whose access is still current keeps
 capturing until that access runs out, within the hour, since checking it only
 reads KV; the rest of Cockpit does not use KV and is unaffected.
+
+### The Harness Monitor
+
+A second, separate service: Worker `harness-monitor` with its own D1 database `harness-monitor`, in `apps/harness-monitor`. It shares no code, binding or secret with Cockpit ("The Harness Monitor" in the architecture document says why). Its database is the third of the free plan's ten.
+
+| | Deployed by | Worker | Database | Cron | URL |
+|---|---|---|---|---|---|
+| **production** | every merge to `main` touching `apps/harness-monitor` (`deploy-harness-monitor.yml`) | `harness-monitor` | `harness-monitor` | nightly rebuild of the daily totals | `harness-monitor.<subdomain>.workers.dev` |
+
+- **No staging.** Migrations are expand-then-contract like Cockpit's; D1's point-in-time restore is the backstop, since rows from cloud sessions exist nowhere else. The workflow applies migrations, then deploys.
+- **Reading is public; writing needs the write key**, the Worker secret `HARNESS_WRITE_KEY`, sent as `Authorization: Bearer <key>`. Unset, every write is refused. Rotate it with `wrangler secret put HARNESS_WRITE_KEY` and update each holder of it.
+- **Locally**, `pnpm dev:harness` (or `pnpm --filter @harness-monitor/worker dev`) applies the local migrations and runs the Worker on this checkout's own port (`harnessMonitor` in `scripts/lib/ports.mjs`), printing the address and a local-only write key.
+- **The database id lives in a repository variable**, `HARNESS_MONITOR_DATABASE_ID`, which the workflow writes into `wrangler.jsonc` for the run. Until it is set the workflow reports a notice and deploys nothing, so merging this before the bootstrap below fails nothing.
+
+**Bootstrap, once, by a person** (the workflow cannot: it needs the database to exist). The Cloudflare token and account id are the repository secrets Cockpit's workflows already use.
+
+```bash
+cd apps/harness-monitor
+pnpm exec wrangler d1 create harness-monitor        # note the returned database_id
+pnpm exec wrangler secret put HARNESS_WRITE_KEY     # needs the Worker to exist: run `deploy` first if it refuses
+```
+
+1. Create the database and note its id.
+2. Set the repository variable `HARNESS_MONITOR_DATABASE_ID` to that id (it is not a secret).
+3. Run the workflow *Deploy Harness Monitor* by hand once; it migrates and deploys.
+4. Put `HARNESS_WRITE_KEY` on the Worker with a long random value, and keep a copy for the hook and the history upload that will send with it.
+5. Open `https://harness-monitor.<subdomain>.workers.dev/`: it says there is nothing yet.
 
 ## 3. One Worker serves the whole application
 

@@ -53,7 +53,7 @@ export function levelForTestFile(relPath) {
   // backend-shaped code with no frontend equivalent. packages/connectors/<name>/
   // needs its own alternative here (not just packages/[^/]+) because a connector
   // package nests one level deeper than packages/shared does.
-  m = relPath.match(/^(?:apps\/api|packages\/(?:connectors\/)?[^/]+)\/tests\/([^/]+)\//);
+  m = relPath.match(/^(?:apps\/(?:api|harness-monitor)|packages\/(?:connectors\/)?[^/]+)\/tests\/([^/]+)\//);
   if (m) {
     if (m[1] === 'unit') return 'L1';
     if (m[1] === 'integration') return 'L2';

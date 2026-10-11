@@ -1,0 +1,28 @@
+{
+  "name": "@harness-monitor/worker",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Harness Monitor: a Cloudflare Worker and D1 database counting Claude Code's token use. Shares no code with Cockpit.",
+  "type": "module",
+  "scripts": {
+    "dev": "node ../../scripts/dev-harness.mjs",
+    "deploy": "wrangler deploy",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:fast": "pnpm test:unit",
+    "test:all": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "db:migrate:local": "wrangler d1 migrations apply harness-monitor --local"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20260831.1",
+    "@vitest/coverage-istanbul": "4.1.10",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.128.0"
+  }
+}
