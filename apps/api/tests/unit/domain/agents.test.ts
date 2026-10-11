@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Agent } from '@cockpit/shared';
 import { AGENT_COLORS } from '@cockpit/shared';
-import { agentFromCommand, agentNamed } from '../../../src/domain/agents.js';
+import { agentFromCommand, agentNamed, decideAgentStart, type AgentStartFacts } from '../../../src/domain/agents.js';
 
 const AT = '2026-09-28T10:00:00.000Z';
 
@@ -72,6 +72,47 @@ describe('Agents', () => {
         asksForPrompt: true,
         startsInProgress: false,
       });
+    });
+  });
+
+  describe('an agent starts only where it could, and says why where it cannot', () => {
+    const agent = anAgent('Scope it', 0);
+    const startable: AgentStartFacts = {
+      item: { completedAt: null, deletedAt: null },
+      dashboardId: 'dash',
+      dashboardExists: true,
+      hasClaudeCodeConnection: true,
+      itemIsFiled: true,
+      agentId: agent.id,
+      agents: [agent],
+      hiddenAgentIds: [],
+      openRun: undefined,
+    };
+
+    const situations: { situation: string; facts: AgentStartFacts; refusal: string | null }[] = [
+      { situation: 'an item still to be done on a dashboard holding the agent, with a connection', facts: startable, refusal: null },
+      { situation: 'an item already done', facts: { ...startable, item: { completedAt: AT, deletedAt: null } }, refusal: 'item-not-to-be-done' },
+      { situation: 'a dismissed item', facts: { ...startable, item: { completedAt: null, deletedAt: AT } }, refusal: 'item-not-to-be-done' },
+      { situation: 'an item in the Inbox', facts: { ...startable, itemIsFiled: false }, refusal: 'item-in-inbox' },
+      { situation: 'an agent hidden on this dashboard', facts: { ...startable, hiddenAgentIds: [agent.id] }, refusal: 'agent-not-on-dashboard' },
+      { situation: 'an agent that does not exist', facts: { ...startable, agentId: 'ask-claude' }, refusal: 'agent-not-on-dashboard' },
+      { situation: 'a workspace with no Claude Code connection', facts: { ...startable, hasClaudeCodeConnection: false }, refusal: 'no-claude-code-connection' },
+      { situation: 'Claude already on the item', facts: { ...startable, openRun: { status: 'working' } }, refusal: 'claude-already-on-item' },
+      { situation: 'a run Claude refused, which started nothing', facts: { ...startable, openRun: { status: 'failed' } }, refusal: null },
+    ];
+
+    it.each(situations)('$situation', ({ facts, refusal }) => {
+      expect(decideAgentStart(facts).refusal).toBe(refusal);
+    });
+
+    it('names a dashboard that is gone, but only once the item itself could start', () => {
+      expect(decideAgentStart({ ...startable, dashboardExists: false })).toEqual({
+        refusal: 'dashboard-not-found',
+        id: 'dash',
+      });
+      expect(
+        decideAgentStart({ ...startable, dashboardExists: false, item: { completedAt: AT, deletedAt: null } }).refusal,
+      ).toBe('item-not-to-be-done');
     });
   });
 });

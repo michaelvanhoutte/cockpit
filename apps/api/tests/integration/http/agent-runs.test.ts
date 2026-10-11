@@ -398,15 +398,6 @@ describe('Agents', () => {
         refusal: 'Claude is already on this item.',
       },
       {
-        situation: 'a dismissed item',
-        arrange: async (agentId: string) => {
-          const itemId = await anItem('Filed', panelId);
-          await postChange('set_dismissed', { workspaceId: WORKSPACE_ID, itemId, dismissed: true });
-          return { itemId, agentId };
-        },
-        refusal: 'Claude only starts on an item still to be done.',
-      },
-      {
         situation: 'a done item',
         arrange: async (agentId: string) => {
           const itemId = await anItem('Filed', panelId);
