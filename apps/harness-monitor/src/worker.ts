@@ -1,7 +1,10 @@
 import { checkWriteKey } from './auth';
 import { costsPage, parseQuery, queryString } from './costs';
+import { exportCsv } from './export';
 import { linkBranches } from './linking';
 import { renderPage } from './page';
+import { pullRequestPage } from './pull-request';
+import { renderNothingFound, renderPullRequest } from './pull-request-page';
 import { listStatus, priceWaitingRows, refreshPriceList } from './price-list';
 import { rebuildTotals, storeBatch, unpricedLines } from './store';
 import { validateBatch } from './validate';
@@ -71,9 +74,44 @@ async function costs(request: Request, env: Env, ctx: ExecutionContext): Promise
   return response;
 }
 
+/** One pull request's page, cached like the costs page; a number no link knows is "nothing found". */
+async function pullRequest(request: Request, env: Env, ctx: ExecutionContext, raw: string): Promise<Response> {
+  const url = new URL(request.url);
+  const query = parseQuery(url.searchParams);
+  const number = /^[1-9]\d{0,9}$/.test(raw) ? Number(raw) : null;
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(`${url.origin}/pr/${raw}${queryString(query, { engineer: null, group: 'pr', page: 1 })}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const page = number === null ? null : await pullRequestPage(env.DB, query, number);
+  const response = new Response(page === null ? renderNothingFound() : renderPullRequest(page), {
+    status: page === null ? 404 : 200,
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': cache && page !== null ? `public, max-age=${seconds}` : 'no-store',
+    },
+  });
+  if (cache && page !== null) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
+/** The request rows under the page's filters (and one pull request's, with `pr`), as a CSV download. Never cached: it can be a year of rows. */
+function exportRows(request: Request, env: Env): Response {
+  const params = new URL(request.url).searchParams;
+  const pr = params.get('pr');
+  const number = pr !== null && /^[1-9]\d{0,9}$/.test(pr) ? Number(pr) : null;
+  if (pr !== null && number === null) return exportCsv(env.DB, parseQuery(params), -1, 'claude-code-requests.csv');
+  return exportCsv(env.DB, parseQuery(params), number, number === null ? 'claude-code-requests.csv' : `claude-code-pull-request-${number}.csv`);
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const { pathname } = new URL(request.url);
+    const prPath = /^\/pr\/([^/]*)\/?$/.exec(pathname);
+    if (prPath && request.method === 'GET') return pullRequest(request, env, ctx, prPath[1]!);
+    if (pathname === '/export.csv' && request.method === 'GET') return exportRows(request, env);
     if (pathname === '/v1/usage') {
       return request.method === 'POST' ? write(request, env) : json({ error: 'Use POST.' }, 405);
     }

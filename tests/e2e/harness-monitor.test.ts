@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { expect, test } from './support/app';
 
 /**
@@ -5,7 +6,7 @@ import { expect, test } from './support/app';
  * the table only regroups when the browser submits them. What each grouping
  * sums, and what each filter keeps, is
  * apps/harness-monitor/tests/integration/costs-grouping.test.ts and
- * costs-filters.test.ts; this proves the page those figures sit on is
+ * costs-filters.test.ts; a pull request's page and the CSV are\n * pull-request-page.test.ts and csv-export.test.ts. This proves the page those figures sit on is
  * reachable, laid out and switchable, on a phone too.
  *
  * The Harness Monitor is its own Worker with its own database, on its own port
@@ -49,7 +50,7 @@ const SEED = {
 };
 
 test.describe('Harness Monitor', () => {
-  test('the costs page opens grouped by pull request, regroups by engineer, and narrows to a category', async ({ page, request: api }) => {
+  test('the costs page opens grouped by pull request, opens one pull request and exports it, regroups by engineer, and narrows to a category', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     const seeded = await api.post(`${monitor}/__e2e/seed`, { data: SEED });
     expect(seeded.ok()).toBe(true);
@@ -66,6 +67,30 @@ test.describe('Harness Monitor', () => {
     await expect(page.getByText('at API list price')).toBeVisible();
     // The page fits the screen; only the table scrolls inside its own box.
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+    // Open one pull request from the table: its total, categories and sessions.
+    await table.getByRole('link', { name: /#9001 Add a filter panel/ }).click();
+    await expect(page.getByRole('heading', { level: 1, name: /#9001 Add a filter panel/ })).toBeVisible();
+    await expect(page.locator('#pr-total')).toHaveText('$6.00');
+    const byCategory = page.getByRole('region', { name: 'By category' });
+    await expect(byCategory).toContainText('Building');
+    await expect(byCategory).toContainText('$4.00');
+    await expect(byCategory).toContainText('app reviews not measured');
+    const sessions = page.getByRole('region', { name: 'Sessions' });
+    await expect(sessions.getByRole('row', { name: /e2e-session-claude\/e2e-filter-panel/ })).toContainText('Local');
+    await expect(sessions.getByRole('row', { name: /e2e-session-claude\/e2e-filter-panel/ })).toContainText('$6.00');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+    // Narrow to a category, then export: the file holds exactly that page's requests.
+    await page.getByLabel('Category', { exact: true }).selectOption('after-push');
+    await expect(page.locator('#pr-total')).toHaveText('$2.00');
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Export CSV' }).click()]);
+    expect(download.suggestedFilename()).toBe('claude-code-pull-request-9001.csv');
+    const csv = (await readFile((await download.path())!, 'utf8')).trimEnd().split('\r\n');
+    expect(csv[0]).toMatch(/^time,session,branch,pull_request,issue,engineer,category,model,/);
+    expect(csv).toHaveLength(2);
+    expect(csv[1]).toContain(',claude/e2e-filter-panel,9001,9000,e2e-alice,after-push,');
+    await page.getByRole('link', { name: 'All pull requests' }).click();
 
     // Switch to engineer: the same dollars, regrouped.
     await page.getByRole('button', { name: 'Engineer' }).click();

@@ -7,6 +7,7 @@ import {
   queryString,
   UNATTRIBUTED,
   type CostGroup,
+  type CostQuery,
   type CostsPage,
   type Group,
   type Period,
@@ -15,15 +16,15 @@ import type { ListStatus } from './price-list';
 import type { UnpricedLine } from './store';
 import { CATEGORIES, type Category } from './validate';
 
-const number = (n: number) => n.toLocaleString('en-US');
-const dollars = (micros: number) => `$${(micros / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+export const number = (n: number) => n.toLocaleString('en-US');
+export const dollars = (micros: number) => `$${(micros / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 /** Names, titles and logins come from outside, so they are escaped. */
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-const utc = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+export const utc = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
 
 /** Colours by category, in the design's order. Every other colour is a token in the stylesheet. */
-const COLOURS: Record<Category, string> = {
+export const COLOURS: Record<Category, string> = {
   'scoping-planning': '#B9C4D6',
   building: '#2F5BEA',
   'local-code-review': '#F0A04B',
@@ -39,7 +40,7 @@ const SHORT: Record<Category, string> = {
   'after-push': 'After push',
   'ci-reviews': 'CI rev.',
 };
-const PERIOD_LABELS: Record<Period, string> = { '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days', all: 'All time' };
+export const PERIOD_LABELS: Record<Period, string> = { '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days', all: 'All time' };
 const GROUP_LABELS: Record<Group, string> = { pr: 'Pull request', issue: 'Issue', engineer: 'Engineer', category: 'Category', day: 'Day' };
 const UNITS: Record<Group, [string, string]> = {
   pr: ['pull request', 'pull requests'],
@@ -111,6 +112,7 @@ ${select('category', 'Category', [['', 'All categories'], ...CATEGORIES.map((c):
 <div class="field"><span id="groupby">Group by</span><div class="segmented" role="group" aria-labelledby="groupby">${buttons}</div></div>
 <input type="hidden" name="group" value="${query.group}">
 <noscript><button type="submit">Apply</button></noscript>
+<a class="button" href="/export.csv${queryString(query, { group: 'pr', page: 1 })}" download>Export CSV</a>
 </form>`;
 }
 
@@ -141,9 +143,10 @@ function whereItWent(page: CostsPage): string {
 </section>`;
 }
 
-function row(g: CostGroup, group: Group, max: number): string {
+function row(g: CostGroup, group: Group, max: number, query: CostQuery): string {
+  const label = g.prNumber === null ? esc(g.label) : `<a href="/pr/${g.prNumber}${queryString(query, { engineer: null, group: 'pr', page: 1 })}">${esc(g.label)}</a>`;
   const first =
-    `<td class="first">${esc(g.label)}${g.sub === null ? '' : `<div class="muted small">${esc(g.sub)}</div>`}</td>`;
+    `<td class="first">${label}${g.sub === null ? '' : `<div class="muted small">${esc(g.sub)}</div>`}</td>`;
   const extra =
     group === 'pr'
       ? `<td>${g.engineer === null ? '' : esc(g.engineer)}</td><td class="nowrap">${g.merged === null ? '' : esc(g.merged)}</td>`
@@ -176,13 +179,13 @@ function table(page: CostsPage): string {
 <div class="scroll"><table class="costs">
 <thead><tr><th scope="col" class="first">${GROUP_LABELS[query.group]}</th>${extraHeads}<th scope="col" class="split-head">Split</th>${heads}<th scope="col" class="num">Total ▾</th></tr></thead>
 <tbody>
-${shown.map((g) => row(g, query.group, max)).join('\n')}
+${shown.map((g) => row(g, query.group, max, query)).join('\n')}
 </tbody></table></div>
 <div class="foot"><span>Showing ${shown.length === groups.length ? number(groups.length) : `${number(start + 1)}–${number(start + shown.length)} of ${number(groups.length)}`} · sorted by total</span><span>${pager}</span></div>
 </section>`;
 }
 
-const STYLE = `
+export const STYLE = `
 :root{--bg:#F6F6F3;--card:#FFF;--ink:#1B1D21;--muted:#5A5E66;--line:#DCDCD6;--line-soft:#EDEDE8;--control:#C9CAC3;--accent:#EEF1FB;--link:#2448C8;--warn-bg:#FDF5E6;--warn-line:#E3B25A;--warn-ink:#8A5A00;--track:#F0F0EC}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 'IBM Plex Sans',system-ui,sans-serif}
@@ -201,6 +204,7 @@ select{padding:0 12px;border:1px solid var(--control);border-radius:6px;backgrou
 .segmented button{padding:0 14px;border:0;border-left:1px solid var(--control);background:var(--card);cursor:pointer}
 .segmented button:first-child{border-left:0}
 .segmented button[aria-pressed=true]{background:var(--ink);color:#FFF}
+a.button{display:inline-flex;align-items:center;height:40px;padding:0 14px;border:1px solid var(--control);border-radius:6px;background:var(--card);color:var(--ink);text-decoration:none;margin-left:auto}
 :focus-visible{outline:2px solid var(--link);outline-offset:2px}
 .warning{border:1px solid var(--warn-line);border-radius:8px;background:var(--warn-bg);padding:12px 16px;display:flex;flex-direction:column;gap:8px}
 .warning h2{color:var(--warn-ink)}
