@@ -381,6 +381,7 @@ describe('localChangeAnswer', () => {
       }
     });
   });
+
   it('answers product changed, security and stored data, on an empty diff, agreeing with changeClass rather than reading it as documentation', () => {
     // paths.length is 0, not > 0 - the one case the docs-only short-circuit
     // deliberately excludes (scripts/local-changes.mjs's own comment on it),
