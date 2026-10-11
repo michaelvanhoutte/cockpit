@@ -56,9 +56,7 @@ export type StoredItem = Omit<Item, 'source'> & {
  * so this is the only place either half is seen.
  */
 export function asStored(item: Item): StoredItem {
-  return item.source === CAPTURED_HERE
-    ? { ...item, source: CAPTURED_HERE, sourceConnector: null }
-    : { ...item, source: CAPTURED_HERE, sourceConnector: item.source };
+  return { ...item, source: CAPTURED_HERE, sourceConnector: item.source === CAPTURED_HERE ? null : item.source };
 }
 
 export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
@@ -82,7 +80,7 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
      * with nothing beside it for every front door that captures what somebody
      * typed here.
      */
-    source: cmd.capturedFrom?.source ?? 'internal',
+    source: cmd.capturedFrom?.source ?? CAPTURED_HERE,
     sourceId: cmd.capturedFrom?.sourceId ?? null,
     sourceLink: cmd.capturedFrom?.sourceLink ?? null,
     sender: cmd.capturedFrom?.sender ?? null,

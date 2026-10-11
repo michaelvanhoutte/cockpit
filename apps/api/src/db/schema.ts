@@ -357,7 +357,7 @@ export const providerCalls = sqliteTable(
     operation: text('operation').notNull(),
     /** The prompt file the call was built from, e.g. `clean-up-a-note.v11`. */
     promptVersion: text('prompt_version'),
-    /** What started it: `captured-in-app`, `mcp`, `connector:teams`, `gmail-check`, `panel-settled`. */
+    /** What started it: `captured-in-app`, `mcp`, `connector:teams`, `panel-settled`. */
     triggeredBy: text('triggered_by'),
     accountName: text('account_name'),
     userId: text('user_id'),
