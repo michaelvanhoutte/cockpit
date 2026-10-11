@@ -642,3 +642,54 @@ function unwrap<T>(answer: Answer<T>): T {
       throw new AllowanceSpentError();
   }
 }
+
+/**
+ * Opens an account the register has just made, and says whether it opened -
+ * for adding somebody, and for somebody's first sign-in making them one.
+ *
+ * **Opened straight away**, so a change that will not apply is met by whoever
+ * made the account rather than by its owner's first request.
+ *
+ * **Never throws.** After the register and never before it: a store opened for
+ * an account nobody owns is an object nothing can reach, while a person whose
+ * account is not ready simply has it made on their first request. So what a
+ * failure here costs is a log line, not the answer.
+ */
+export async function accountOpened(env: Env, accountId: string, who: string): Promise<boolean> {
+  try {
+    await (await openAccount(env, accountId)).workspaces();
+    return true;
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: `${who} but their account would not open`,
+        cause: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    return false;
+  }
+}
+
+/**
+ * An attachment's bytes as a response, or null where R2 no longer holds them
+ * - what the signed-in download and an agent's link both answer with.
+ */
+export async function serveAttachment(env: Env, attachment: AttachmentForDownload): Promise<Response | null> {
+  const object = await env.ATTACHMENTS.get(attachment.r2Key);
+  if (!object) return null;
+  // The same DOM-lib-vs-workers-types conflict the upload route's own
+  // comment explains - `unknown` bridges this one cleanly, unlike the
+  // upload route's `.put()` call, whose own parameter type needed `any`
+  // instead: the two sides of that conflict don't fail identically.
+  return new Response(object.body as unknown as ReadableStream, {
+    status: 200,
+    headers: {
+      // The stored, allowlisted type - never a passthrough of whatever the
+      // upload claimed (issue 441's own download test case), even though
+      // `add_attachment`'s own write already made the two agree.
+      'Content-Type': attachment.contentType,
+      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(attachment.filename)}`,
+    },
+  });
+}

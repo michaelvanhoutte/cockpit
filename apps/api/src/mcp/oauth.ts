@@ -33,7 +33,7 @@ import { answerMcp } from './server.js';
  * using - the one the provider's tokens and discovery documents name.
  *
  * **Not this Worker's own address, for the reason the sign-in callback is
- * configured rather than derived** (`callbackUrl`, `http/app.ts`): in
+ * configured rather than derived** (`callbackUrl`, `auth/gate.ts`): in
  * development the browser and the app are on Vite, which proxies here under
  * another host, and the library checks a token's audience against the address
  * the request arrived on. A deployment is reached on `APP_ORIGIN` anyway, so

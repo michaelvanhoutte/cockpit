@@ -185,7 +185,7 @@ export type Visit = {
   user: SigningIn;
   /**
    * The account this sign-in made, where it made one - for the route to open
-   * straight away, the way adding somebody opens theirs (`http/app.ts`).
+   * straight away, the way adding somebody opens theirs (`accountOpened`, `accounts/index.ts`).
    */
   newAccount?: string;
 };
