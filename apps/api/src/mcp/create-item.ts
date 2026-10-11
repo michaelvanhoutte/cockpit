@@ -22,13 +22,6 @@ export const CREATE_ITEM = 'create_item';
 export const SERVER_INSTRUCTIONS =
   'Use create_item when the user asks to capture, note or remember something in Cockpit.';
 
-/**
- * How many `create_item` calls one grant is admitted for in a minute, refused ones included - the same number
- * the Claude Code hooks are held to (`HOOK_CALLS_PER_MINUTE`, accounts/call-window.ts), for the same
- * reason: well above anything a person asking Claude does, and a ceiling on
- * what a runaway loop can write before somebody notices.
- */
-export const APP_CAPTURES_PER_MINUTE = 60;
 
 /** The tool as `tools/list` answers it: a JSON Schema the client shows the model. */
 export interface ToolDefinition {

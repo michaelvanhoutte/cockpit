@@ -44,7 +44,7 @@
       "sourcePatterns": [
         "apps/api/src/worker.ts",
         "apps/api/src/auth/return-path.ts",
-        "apps/api/src/mcp/paths.ts",
+        "apps/api/src/auth/mcp-paths.ts",
         "apps/api/src/mcp/oauth.ts",
         "apps/api/src/mcp/consent.ts",
         "apps/api/src/mcp/grant.ts",

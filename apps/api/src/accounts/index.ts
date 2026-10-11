@@ -10,7 +10,7 @@ import type {
   Workspace,
 } from '@cockpit/shared';
 import type { Env } from '../env.js';
-import { GUEST_ACCOUNT_NAME, whoHoldsTheGuestAccount } from '../auth/register.js';
+import { GUEST_ACCOUNT_NAME } from './new-user.js';
 import {
   accountIsRegistered,
   accountOwnedBy,
@@ -18,6 +18,7 @@ import {
   endSignInsOf,
   removeFromRegister,
   whoCanBeDeleted,
+  whoHoldsTheGuestAccount,
 } from './register.js';
 import { describeForeignRows, type AccountBackup } from './backup.js';
 import { ALLOWANCE_SPENT_MESSAGE } from './allowance.js';
@@ -28,7 +29,7 @@ import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
-import type { RefreshAsk } from '../jobs/debounce.js';
+import type { RefreshAsk } from './debounce.js';
 import type { CompleteListing, EmittedItem, OpenStateWanted, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
 import type { PulledRunBegun } from './pulled.js';
 

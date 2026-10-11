@@ -59,7 +59,7 @@ async function connectTeams(workspaceId = WORKSPACE_ID): Promise<void> {
   expect(back.headers.get('location')).toBe(`/w/${workspaceId}?connections=connected`);
 }
 
-const host = () => pushHostFor('teams', { env, waitUntil: () => {} });
+const host = () => pushHostFor('teams', { env, filed: () => {} });
 
 const directoryRows = () =>
   env.DB.prepare('SELECT account_id FROM connector_directory').all().then((read) => read.results);

@@ -143,11 +143,6 @@ describe('the engine list: the core reaches an engine only through it', () => {
     assert.equal(breachesOf(api('accounts/store.ts'), api('engines/list.ts')).length, 1);
     assert.deepEqual(breachesOf(api('engines/claude-code-hooks.ts'), api('connectors/credential-crypto.ts')), []);
   });
-
-  it('leaves no Claude Code entry on the real allowlist', () => {
-    const { allowlist } = JSON.parse(readFileSync(join(repo, 'scripts/import-rules.json'), 'utf8'));
-    assert.deepEqual(allowlist.filter((entry) => /claude-?code/i.test(`${entry.from} ${entry.to}`)), []);
-  });
 });
 
 describe('rule 3: the allowlist can only shrink', () => {
@@ -207,7 +202,8 @@ describe('specifiersOf', () => {
 });
 
 describe("today's tree", () => {
-  it('passes, with the allowlist holding exactly the breaches the tree has', () => {
+  it('passes with nothing excused: every API area imports only the areas below it', () => {
+    assert.deepEqual(JSON.parse(readFileSync(join(repo, 'scripts/import-rules.json'), 'utf8')).allowlist, []);
     const git = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
     const base = readBase({ event: process.env.GITHUB_EVENT_NAME, ci: process.env.GITHUB_ACTIONS === 'true', git });
     if (base.skipped) console.log(`# shrink-only comparison skipped: ${base.skipped}`);

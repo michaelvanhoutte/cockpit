@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAnsweredByTheAuthorizationServer } from '../../../src/mcp/paths.js';
+import { isAnsweredByTheAuthorizationServer } from '../../../src/auth/mcp-paths.js';
 
 /**
  * L1: which addresses are an app's, answered in front of the sign-in gate.

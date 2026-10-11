@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import type { Workspace } from '@cockpit/shared';
-import { GUEST_ACCOUNT_NAME } from '../../../src/auth/register.js';
+import { GUEST_ACCOUNT_NAME } from '../../../src/accounts/new-user.js';
 import {
   WORKSPACE_ID,
   asUser,

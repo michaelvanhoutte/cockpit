@@ -1,5 +1,5 @@
 import { base64url } from '../auth/oidc.js';
-import { signingKey } from '../connectors/credential-crypto.js';
+import { signingKey } from '../auth/key-derivation.js';
 
 /**
  * Claude Code hooks reporting a session's state back to Cockpit ("See on the

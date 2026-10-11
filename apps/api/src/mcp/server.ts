@@ -14,7 +14,7 @@ import { enqueueCleanUp, enqueueReadingItsMeaning } from '../jobs/enrichment.js'
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
-import { MCP_PATH } from './paths.js';
+import { MCP_PATH } from '../auth/mcp-paths.js';
 
 /**
  * `/mcp`, once the OAuth library has accepted the access token

@@ -18,7 +18,7 @@ import { consent } from './mcp/consent.js';
 import { asReachedAt, oauthHelpersFor, providerFor } from './mcp/oauth.js';
 import { SHARE_TARGET_PATH } from '@cockpit/shared';
 import { answerShare } from './share-target.js';
-import { AUTHORIZE_PATH, isAnsweredByTheAuthorizationServer } from './mcp/paths.js';
+import { AUTHORIZE_PATH, isAnsweredByTheAuthorizationServer } from './auth/mcp-paths.js';
 import { AccountStoreBase } from './accounts/store.js';
 import { mirroringConnectorIds, pulledConnectorIds } from './connectors/registry.js';
 

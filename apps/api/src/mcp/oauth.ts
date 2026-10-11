@@ -8,7 +8,7 @@ import {
 import type { Env } from '../env.js';
 import { GRANT_LIFETIME_S } from './connected-apps.js';
 import { grantHolder } from './grant.js';
-import { AUTHORIZE_PATH, MCP_PATH, REGISTER_PATH, TOKEN_PATH } from './paths.js';
+import { AUTHORIZE_PATH, MCP_PATH, REGISTER_PATH, TOKEN_PATH } from '../auth/mcp-paths.js';
 import { answerMcp } from './server.js';
 
 /**

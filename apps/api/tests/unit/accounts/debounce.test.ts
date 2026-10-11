@@ -5,7 +5,7 @@ import {
   isSuperseded,
   laterOf,
   type RefreshAsk,
-} from '../../../src/jobs/debounce.js';
+} from '../../../src/accounts/debounce.js';
 
 /**
  * Unit level: which of several asks for the same refresh is left to run is a

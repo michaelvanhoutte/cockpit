@@ -17,7 +17,7 @@ import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
-import type { RefreshAsk } from '../jobs/debounce.js';
+import type { RefreshAsk } from './debounce.js';
 import type { CompleteListing, EmittedItem, OpenStateWanted, SourceItem, SourceStateChange } from '@cockpit/connector-sdk';
 import type { PulledRunBegun } from './pulled.js';
 

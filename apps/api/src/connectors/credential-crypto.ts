@@ -21,6 +21,8 @@
  * bytes rather than derived from anything about them.
  */
 
+import { bytesOf } from '../auth/key-derivation.js';
+
 /** 96 bits, which is the nonce length AES-GCM is defined and fastest for. */
 const NONCE_BYTES = 12;
 
@@ -44,45 +46,6 @@ export async function sealingKey(secret: string | undefined): Promise<CryptoKey 
   const bytes = secret ? bytesOf(secret) : null;
   if (!bytes || bytes.length !== 32) return null;
   return crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
-}
-
-/**
- * An HMAC key derived from the same secret for one named purpose ("See on the
- * item when Claude is waiting on you", issue 572), or `null` where
- * `sealingKey` would be. **Derived rather than the secret itself**, so nothing
- * signed with it can be mistaken for, or help open, a sealed credential.
- */
-export function signingKey(secret: string | undefined, purpose: string): Promise<CryptoKey | null> {
-  return derived(secret, purpose, { name: 'HMAC', hash: 'SHA-256', length: 256 }, ['sign', 'verify']);
-}
-
-/**
- * An AES-GCM key for one other purpose, derived from the same secret
- * ("Send an item's attachments along when an agent starts", issue 573), so a
- * new use needs no secret of its own and never shares a key with a stored
- * credential. `null` where `sealingKey` would be.
- */
-export function derivedKey(secret: string | undefined, purpose: string): Promise<CryptoKey | null> {
-  return derived(secret, purpose, { name: 'AES-GCM', length: 256 }, ['encrypt', 'decrypt']);
-}
-
-/** HKDF over the secret, with `purpose` as its info, to a key of the kind asked for. */
-async function derived(
-  secret: string | undefined,
-  purpose: string,
-  algorithm: Parameters<typeof crypto.subtle.deriveKey>[2],
-  usages: Parameters<typeof crypto.subtle.deriveKey>[4],
-): Promise<CryptoKey | null> {
-  const bytes = secret ? bytesOf(secret) : null;
-  if (!bytes || bytes.length !== 32) return null;
-  const root = await crypto.subtle.importKey('raw', bytes, 'HKDF', false, ['deriveKey']);
-  return crypto.subtle.deriveKey(
-    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: new TextEncoder().encode(purpose) },
-    root,
-    algorithm,
-    false,
-    usages,
-  );
 }
 
 /** Seals a credential under a fresh nonce. */
@@ -120,23 +83,4 @@ function base64(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
-}
-
-/**
- * Base64 back to bytes, or `null` for anything that is not base64 at all.
- *
- * `Uint8Array<ArrayBuffer>` rather than the bare alias, because apps/web
- * compiles this file too (to infer the API contract) under the DOM lib, whose
- * `BufferSource` will not take a view over a buffer that might be shared - the
- * same two-ambient-declarations problem the attachment routes record.
- */
-function bytesOf(value: string): Uint8Array<ArrayBuffer> | null {
-  try {
-    const binary = atob(value.trim());
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-    return bytes;
-  } catch {
-    return null;
-  }
 }

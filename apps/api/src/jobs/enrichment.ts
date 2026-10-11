@@ -8,7 +8,7 @@ import {
 } from '../accounts/index.js';
 import { aiFor } from '../ai/index.js';
 import type { Trigger } from '../gateway/attempts.js';
-import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
+import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
 import type { PanelRead, RoutingCandidate } from '../ai/index.js';
 import {
   asFarAsItReads,
@@ -19,7 +19,7 @@ import {
 import { couldStillBeActedOn, whatAnItemSays } from '../domain/duplicates.js';
 import { itemsToReadAgain } from '../domain/panel-refresh.js';
 import type { QueuedRewriteAttempt } from '../domain/rewrite-history.js';
-import { debounceSecondsFor, isSuperseded, type RefreshAsk } from './debounce.js';
+import { debounceSecondsFor, isSuperseded, type RefreshAsk } from '../accounts/debounce.js';
 
 /** What What Cockpit changed says of a guest's capture, which is never cleaned up (issue 887). */
 const GUEST_NEVER_CALLS_THE_MODEL = 'nothing was enriched: the guest account never calls the model';

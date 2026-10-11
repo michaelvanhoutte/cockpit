@@ -1,6 +1,6 @@
 import type { Env } from '../env.js';
 import { openAccount, AccountNotInRegisterError, NotFoundInAccountError } from '../accounts/index.js';
-import { GUEST_ACCOUNT_NAME } from '../auth/register.js';
+import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
 import { noteTypeId, taskTypeId } from '../accounts/changes.js';
 import { typeToBringInAs } from '../domain/item-types.js';
 import { demoAddress } from '@cockpit/shared';

@@ -1,4 +1,4 @@
-import { AUTHORIZE_PATH } from '../mcp/paths.js';
+import { AUTHORIZE_PATH } from './mcp-paths.js';
 
 /**
  * Where a finished sign-in goes back to, when something sent the browser to

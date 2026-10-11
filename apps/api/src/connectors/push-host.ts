@@ -9,7 +9,6 @@ import { AccountNotInRegisterError, openAccount, type Account } from '../account
 import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
 import { noteTypeId } from '../accounts/changes.js';
 import { typeToCaptureAs } from '../domain/item-types.js';
-import { enqueueCleanUp, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { open, sealingKey } from './credential-crypto.js';
 import { connectionsFor, forgetConnection, type ConnectionPointer } from './directory.js';
 
@@ -26,11 +25,19 @@ import { connectionsFor, forgetConnection, type ConnectionPointer } from './dire
  * is opened for that connection or for none at all.
  */
 
-/** What the ingress route hands in: the environment, and how to outlive the response. */
+/**
+ * What the ingress route hands in: the environment, and what an Item newly
+ * filed asks for.
+ *
+ * `filed` queues the same jobs capture's own route queues. The ingress route
+ * hands it in, as the queue consumer hands the pulled host its own, because
+ * `connectors` may not import `jobs`. It queues behind the response, so it
+ * returns at once; it is told which connector filed the Item, for the record
+ * of the call its clean-up makes.
+ */
 export interface PushSurroundings {
   readonly env: Env;
-  /** Work that outlives the response - the enrichment a capture fires, as capture's own route fires it. */
-  readonly waitUntil: (work: Promise<unknown>) => void;
+  readonly filed: (accountName: string, itemId: string, connectorId: string) => void;
 }
 
 export function pushHostFor(connectorId: string, around: PushSurroundings): PushHost {
@@ -149,8 +156,7 @@ function connectedHost(
       // them: only where the Item was actually written, so a redelivered save
       // buys no second model call.
       if (!result.applied) return 'already-known';
-      around.waitUntil(enqueueCleanUp(around.env, pointer.accountName, itemId, `connector:${connectorId}`));
-      around.waitUntil(enqueueReadingItsMeaning(around.env, pointer.accountName, itemId, `connector:${connectorId}`));
+      around.filed(pointer.accountName, itemId, connectorId);
       return 'filed';
     },
   };

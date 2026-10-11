@@ -1,4 +1,5 @@
 import { jwtVerify, type JWTPayload, type JWTVerifyGetKey } from 'jose';
+import { foldAddress } from '../accounts/new-user.js';
 
 /**
  * The OpenID Connect code flow, as much of it as is ours: where to send the
@@ -291,21 +292,10 @@ export async function identityFrom(
   const name = typeof claims.name === 'string' ? claims.name.trim() : '';
   return {
     identified: true,
-    identity: { subject, email: normaliseAddress(email), ...(name ? { name } : {}) },
+    identity: { subject, email: foldAddress(email), ...(name ? { name } : {}) },
   };
 }
 
-/**
- * The one spelling of an address this application uses.
- *
- * The register holds an address as it is written and the unique index compares
- * it the same way (apps/api/src/db/schema.ts), so two spellings of one address
- * would be two people. Settling it here means every way in settles it the same
- * way, since this is the only place an address enters from Google.
- */
-export function normaliseAddress(email: string): string {
-  return email.trim().toLowerCase();
-}
 
 /** 256 bits, base64url, which is what every one of these values may contain. */
 function randomToken(random: Pick<Crypto, 'getRandomValues'>): string {
