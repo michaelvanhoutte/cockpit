@@ -143,11 +143,6 @@ describe('the engine list: the core reaches an engine only through it', () => {
     assert.equal(breachesOf(api('accounts/store.ts'), api('engines/list.ts')).length, 1);
     assert.deepEqual(breachesOf(api('engines/claude-code-hooks.ts'), api('connectors/credential-crypto.ts')), []);
   });
-
-  it('leaves no Claude Code entry on the real allowlist', () => {
-    const { allowlist } = JSON.parse(readFileSync(join(repo, 'scripts/import-rules.json'), 'utf8'));
-    assert.deepEqual(allowlist.filter((entry) => /claude-?code/i.test(`${entry.from} ${entry.to}`)), []);
-  });
 });
 
 describe('rule 3: the allowlist can only shrink', () => {

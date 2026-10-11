@@ -29,11 +29,11 @@ import { connectionsFor, forgetConnection, type ConnectionPointer } from './dire
  * What the ingress route hands in: the environment, and what an Item newly
  * filed asks for.
  *
- * `filed` is the jobs capture's own route queues, handed in by the caller
- * (the ingress route, as the queue consumer hands the pulled host its own),
- * since a connector may not import the jobs it runs under. It queues
- * behind the response, so it returns at once; it is told which connector filed
- * the Item, for the record of the call its clean-up makes.
+ * `filed` queues the same jobs capture's own route queues. The ingress route
+ * hands it in, as the queue consumer hands the pulled host its own, because
+ * `connectors` may not import `jobs`. It queues behind the response, so it
+ * returns at once; it is told which connector filed the Item, for the record
+ * of the call its clean-up makes.
  */
 export interface PushSurroundings {
   readonly env: Env;
