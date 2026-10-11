@@ -33,5 +33,8 @@ SELECT day, COALESCE(branch, ''), category, model, COUNT(*), SUM(COALESCE(cost_m
        MAX(occurred_at)
 FROM usage_requests GROUP BY day, COALESCE(branch, ''), category, model;
 
+-- The unpriced warning reads only these rows, which are few, on every page view.
+CREATE INDEX daily_branch_totals_unpriced ON daily_branch_totals (model) WHERE unpriced_requests > 0;
+
 -- The costs page joins these to branch_links by branch.
 CREATE INDEX branch_links_engineer ON branch_links (engineer);

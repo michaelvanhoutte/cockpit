@@ -47,7 +47,9 @@ async function write(request: Request, env: Env): Promise<Response> {
 /**
  * The costs page, cached at the edge so public traffic cannot spend the free
  * read allowance: the cache key is the page's canonical address, so the
- * filters' spellings and stray parameters all share the few real pages.
+ * filters' spellings and stray parameters all share the few real pages. On
+ * `workers.dev` the Cache API does nothing, so this takes effect only once the
+ * Worker has a custom domain or route.
  */
 async function costs(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);

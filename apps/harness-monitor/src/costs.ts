@@ -27,7 +27,8 @@ export function parseQuery(params: URLSearchParams): CostQuery {
   const category = params.get('category') as Category;
   const page = Number(params.get('page'));
   return {
-    period: period in PERIODS ? period : '30d',
+    // Own keys only: `in` would accept `toString` and the page would throw.
+    period: period !== null && Object.hasOwn(PERIODS, period) ? period : '30d',
     engineer: params.get('engineer') || null,
     category: (CATEGORIES as readonly string[]).includes(category) ? category : null,
     group: (GROUPS as readonly string[]).includes(group) ? group : 'pr',

@@ -161,13 +161,15 @@ function row(g: CostGroup, group: Group, max: number): string {
 function table(page: CostsPage): string {
   const { query, groups } = page;
   if (groups.length === 0) return `<section class="card"><p class="empty">Nothing in this period. No Claude Code requests match the filters.</p></section>`;
-  const start = (query.page - 1) * PAGE_SIZE;
+  // A page past the end shows the last one, rather than an empty table.
+  const pageNo = Math.min(query.page, Math.ceil(groups.length / PAGE_SIZE));
+  const start = (pageNo - 1) * PAGE_SIZE;
   const shown = groups.slice(start, start + PAGE_SIZE);
   const max = Math.max(...shown.map((g) => g.totalMicros), 1);
   const extraHeads = query.group === 'pr' ? '<th scope="col">Engineer</th><th scope="col">Merged</th>' : query.group === 'issue' || query.group === 'engineer' ? '<th scope="col">Pull requests</th>' : '';
   const heads = CATEGORIES.map((c) => `<th scope="col" class="num">${SHORT[c]}</th>`).join('');
   const link = (to: number, text: string) => `<a href="/${queryString(query, { page: to })}">${text}</a>`;
-  const pager = [query.page > 1 ? link(query.page - 1, 'Previous') : '', start + PAGE_SIZE < groups.length ? link(query.page + 1, `Next ${PAGE_SIZE}`) : '']
+  const pager = [pageNo > 1 ? link(pageNo - 1, 'Previous') : '', start + PAGE_SIZE < groups.length ? link(pageNo + 1, `Next ${PAGE_SIZE}`) : '']
     .filter(Boolean)
     .join(' · ');
   return `<section class="card table-card" aria-label="Cost by ${GROUP_LABELS[query.group].toLowerCase()}">

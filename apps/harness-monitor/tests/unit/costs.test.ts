@@ -31,6 +31,11 @@ describe('Harness Monitor', () => {
         query: 'period=forever&category=lunch&group=colour&page=-2',
         expected: { period: '30d', engineer: null, category: null, group: 'pr', page: 1 },
       },
+      {
+        situation: 'names every object inherits',
+        query: 'period=toString&category=constructor&group=__proto__',
+        expected: { period: '30d', engineer: null, category: null, group: 'pr', page: 1 },
+      },
     ])('$situation is read as the filters it names, or the default', ({ query, expected }) => {
       expect(parseQuery(new URLSearchParams(query))).toEqual(expected);
     });
