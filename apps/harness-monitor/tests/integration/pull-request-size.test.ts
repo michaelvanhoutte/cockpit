@@ -252,20 +252,20 @@ describe('Harness Monitor', () => {
 
       const row = (await pullRequestRows())['#10 Merged one']!;
 
-      // engineer, merged, lines, open → merged, CI rounds
-      expect(row.details.slice(2)).toEqual(['+120 −30', '1d 4h', '2']);
+      // engineer, merged, lines, open → merged, CI rounds (then Rounds and Findings, which a body with no record leaves blank)
+      expect(row.details.slice(2, 5)).toEqual(['+120 −30', '1d 4h', '2']);
     });
 
     it('an open pull request has lines and rounds but no open → merged time', async () => {
       await seeded(numbered(11, { title: 'Open one', state: 'OPEN', mergedAt: null, files: filesOf([file('src/a.ts', 3, 1)]) }));
 
-      expect((await pullRequestRows())['#11 Open one']!.details.slice(2)).toEqual(['+3 −1', '', '0']);
+      expect((await pullRequestRows())['#11 Open one']!.details.slice(2)).toEqual(['+3 −1', '', '0', '', '']);
     });
 
     it('a pull request not yet sized shows blanks, not zeros', async () => {
       await seeded(unread(numbered(12, { title: 'Unsized one' })));
 
-      expect((await pullRequestRows())['#12 Unsized one']!.details.slice(2)).toEqual(['', '', '']);
+      expect((await pullRequestRows())['#12 Unsized one']!.details.slice(2)).toEqual(['', '', '', '', '']);
     });
 
     it('an issue with a stored title reads "#N title", and one whose title has not been read yet reads "#N"', async () => {
@@ -283,6 +283,69 @@ describe('Harness Monitor', () => {
       await seeded(numbered(13, { title: 'Lockfile only', files: filesOf([file('pnpm-lock.yaml', 5, 5)]) }));
 
       expect((await pullRequestRows())['#13 Lockfile only']!.details[2]).toBe('+0 −0');
+    });
+  });
+  describe('linking stores the local review rounds and findings of each pull request’s session record', () => {
+    const recorded = (...lines: string[]) => ['## Summary', '', '<!-- session-record:start -->', ...lines.map((l) => `- 2026-10-01T10:00:00.000Z ${l}`), '<!-- session-record:end -->'].join('\n');
+    const twoRounds = recorded('review-start code-review high', 'review-end code-review high:2', 'review-start security-review high', 'review-end security-review high:1');
+
+    it('a body with a record has its rounds and findings stored on the pull request’s row', async () => {
+      await linked(numbered(1, { body: twoRounds }));
+
+      expect(await theStats()).toMatchObject([{ pr_number: 1, local_rounds: 2, findings: 3 }]);
+    });
+
+    it('a body with no record stores neither', async () => {
+      await linked(numbered(1, { body: 'Just a summary.' }));
+
+      expect((await theStats())[0]).toMatchObject({ local_rounds: null, findings: null });
+    });
+
+    it('a body edited with a new round has it at the next run', async () => {
+      await linked(numbered(1, { body: recorded('review-start code-review high', 'review-end code-review high:1') }));
+      expect((await theStats())[0]).toMatchObject({ local_rounds: 1, findings: 1 });
+
+      await linked(numbered(1, { updatedAt: '2026-10-05T10:00:00Z', body: `${recorded('review-start code-review high', 'review-end code-review high:1', 'review-start code-review high', 'review-end code-review high:0')}` }));
+
+      expect((await theStats())[0]).toMatchObject({ local_rounds: 2, findings: 1 });
+    });
+
+    it('an answer with errors beside it, which may only be missing the body, keeps the stored counts', async () => {
+      await linked(numbered(1, { body: twoRounds }));
+      fakeGitHub(async () => withErrors(pageOf([numbered(1, { updatedAt: '2026-10-05T10:00:00Z', body: null })]), 'Resource not accessible by integration'));
+
+      await runHourly();
+
+      expect((await theStats())[0]).toMatchObject({ local_rounds: 2, findings: 3 });
+    });
+  });
+
+  describe('the costs page shows each pull request’s Rounds, local plus CI, and its Findings', () => {
+    beforeEach(withPrices);
+
+    const seeded = async (...nodes: Node[]) => {
+      await linked(...nodes);
+      await send(nodes.map((n, i) => spend(`r${i}`, 1, { branch: n.headRefName })));
+    };
+    const body = (...lines: string[]) => ['<!-- session-record:start -->', ...lines.map((l) => `- 2026-10-01T10:00:00.000Z ${l}`), '<!-- session-record:end -->'].join('\n');
+
+    it('known local rounds and CI rounds show their sum, and the findings', async () => {
+      await seeded(withCommits({ number: 20, title: 'Counted', headRefName: 'b/20', body: body('review-start code-review high', 'review-end code-review high:2', 'review-start code-review high', 'review-end code-review high:1') }, '2026-10-01T11:00:00Z'));
+
+      // CI rounds, Rounds, Findings
+      expect((await pullRequestRows())['#20 Counted']!.details.slice(4)).toEqual(['1', '3', '3']);
+    });
+
+    it('findings unknown show blank, while the rounds still show', async () => {
+      await seeded(numbered(21, { title: 'Uncounted', body: body('review-start code-review high', 'review-end code-review high') }));
+
+      expect((await pullRequestRows())['#21 Uncounted']!.details.slice(4)).toEqual(['0', '1', '']);
+    });
+
+    it('a pull request with no record is blank, not zero', async () => {
+      await seeded(numbered(22, { title: 'Unrecorded', body: 'No record here.' }));
+
+      expect((await pullRequestRows())['#22 Unrecorded']!.details.slice(4)).toEqual(['0', '', '']);
     });
   });
 });
