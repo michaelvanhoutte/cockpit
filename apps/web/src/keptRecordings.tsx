@@ -39,6 +39,7 @@ export function readRecording(raw: unknown): KeptRecording | null {
   const one = raw as Partial<KeptRecording>;
   if (one.v !== RECORDING_VERSION) return null;
   if (typeof one.id !== 'string' || typeof one.owner !== 'string' || typeof one.recordedAt !== 'string') return null;
+  if (typeof one.seconds !== 'number' || typeof one.type !== 'string') return null;
   // Asked of the shape, not by `instanceof`: what IndexedDB hands back can be another realm's ArrayBuffer.
   if (typeof one.bytes !== 'object' || one.bytes === null || typeof one.bytes.byteLength !== 'number') return null;
   return one as KeptRecording;
@@ -153,7 +154,8 @@ export class KeptRecordings {
       bytes: await bytesOf(recording),
     };
     await this.deps.store.put(kept);
-    await this.changedHere();
+    // Not waited for: the recording is sent as soon as it is kept, not after every kept one is read back.
+    void this.changedHere();
   }
 
   /**
