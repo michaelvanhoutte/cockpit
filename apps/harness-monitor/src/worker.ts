@@ -53,12 +53,17 @@ async function write(request: Request, env: Env): Promise<Response> {
   return json(await storeBatch(env.DB, checked.rows));
 }
 
-/** Starts a job now, the code its schedule runs, and answers with what it did. The write key is the only credential. */
+/**
+ * Starts a job now, the code its schedule runs, and answers with what it did. The write key is the only credential.
+ * `?full=1` re-reads linking from the first pull request; no other job reads anything it could re-read.
+ */
 async function startJob(request: Request, env: Env, name: string): Promise<Response> {
   const refused = await refusal(request, env);
   if (refused) return refused;
   if (!isJob(name)) return json({ error: `Unknown job. Use one of: ${JOBS.join(', ')}.` }, 404);
-  return json({ job: name, ...(await runJob(env, name, 'hand')) });
+  const full = new URL(request.url).searchParams.get('full') === '1';
+  if (full && name !== 'linking') return json({ error: 'Only linking re-reads from the start; run this job without full.' }, 400);
+  return json({ job: name, ...(await runJob(env, name, 'hand', Date.now(), full)) });
 }
 
 /**

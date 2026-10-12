@@ -61,4 +61,23 @@ describe('Harness Monitor', () => {
       });
     }
   });
+
+  describe('a full re-read goes with linking alone', () => {
+    it('linking --full is planned against the job address asking to start from the first pull request', () => {
+      assert.equal(planRun(['linking', '--full'], env).url.href, 'https://monitor.example/v1/jobs/linking?full=1');
+      assert.equal(planRun(['--full', 'linking'], env).url.href, 'https://monitor.example/v1/jobs/linking?full=1');
+    });
+
+    for (const { situation, args, error } of [
+      { situation: '--full with prices', args: ['prices', '--full'], error: '--full re-reads pull requests from the start, so it goes only with linking.' },
+      { situation: 'anything else after the job', args: ['linking', '--fulll'], error: 'Unexpected --fulll' },
+    ]) {
+      it(`${situation} is refused and runs nothing`, () => {
+        const plan = planRun(args, env);
+
+        assert.ok(plan.error.startsWith(error), plan.error);
+        assert.equal(plan.url, undefined);
+      });
+    }
+  });
 });

@@ -18,9 +18,9 @@ ON CONFLICT (branch) DO UPDATE SET
   pr_updated_at = excluded.pr_updated_at, linked_at = excluded.linked_at
 WHERE excluded.pr_updated_at >= branch_links.pr_updated_at`;
 
-const SAVE_STATE = `INSERT INTO link_state (id, cursor, last_success_at) VALUES (1, ?1, ?2)
+const SAVE_STATE = `INSERT INTO link_state (id, page_cursor, last_success_at) VALUES (1, ?1, ?2)
 ON CONFLICT (id) DO UPDATE SET
-  cursor = COALESCE(excluded.cursor, link_state.cursor),
+  page_cursor = COALESCE(excluded.page_cursor, link_state.page_cursor),
   last_success_at = COALESCE(excluded.last_success_at, link_state.last_success_at)`;
 
 export interface LinkEnv {
@@ -43,28 +43,32 @@ function describe(error: unknown): string {
 }
 
 /**
- * The hourly job. Reads the pull requests updated since the stored cursor and
- * stores their links and the new cursor in one batch, so a run that fails
- * anywhere before that batch leaves the links, the cursor and the last success
- * time as they were. A run that hits its request budget, or that GitHub times
- * out on after a page was read, stores what it read and moves the cursor there, but does not count as a success: the page's
- * "last succeeded" time, shown beside a failed run, stays at the last catch-up.
+ * The hourly job. Reads the pull requests after the stored cursor in update
+ * order and stores their links and the new cursor in one batch, so a run that
+ * fails anywhere before that batch leaves the links, the cursor and the last
+ * success time as they were. A run that hits its request budget, or that GitHub
+ * times out on after a page was read, stores what it read and moves the cursor
+ * there, but does not count as a success: the page's "last succeeded" time, and
+ * which branches read as still linking, stay at the last catch-up.
+ *
+ * `full` starts from the repository's first pull request instead of the cursor,
+ * so links an earlier run missed are made; later runs continue from where it
+ * stopped. It writes only links, which all come from GitHub.
  */
-export async function linkBranches(env: LinkEnv, now = Date.now()): Promise<LinkResult> {
+export async function linkBranches(env: LinkEnv, now = Date.now(), full = false): Promise<LinkResult> {
   if (!env.GITHUB_TOKEN || !env.GITHUB_REPOSITORY) {
     console.log('Branch linking skipped: GITHUB_TOKEN or GITHUB_REPOSITORY is not set.');
     return { status: 'skipped' };
   }
   try {
-    const state = await env.DB.prepare('SELECT cursor FROM link_state WHERE id = 1').first<{ cursor: string | null }>();
+    const state = full ? null : await env.DB.prepare('SELECT page_cursor AS cursor FROM link_state WHERE id = 1').first<{ cursor: string | null }>();
     const fetched = await fetchChangedPullRequests(env.GITHUB_REPOSITORY, env.GITHUB_TOKEN, state?.cursor ?? null);
 
     // Oldest first, so the newest-updated pull request of a branch is stored last and wins.
     const ordered: PullRequest[] = [...fetched.pullRequests].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
-    const newest = ordered.at(-1)?.updatedAt ?? null;
     await env.DB.batch([
       env.DB.prepare(UPSERT_LINKS).bind(JSON.stringify(ordered), now),
-      env.DB.prepare(SAVE_STATE).bind(newest, fetched.caughtUp ? now : null),
+      env.DB.prepare(SAVE_STATE).bind(fetched.cursor, fetched.caughtUp ? now : null),
     ]);
     return { status: fetched.caughtUp ? 'caught-up' : 'more-to-read', linked: ordered.length, timeout: fetched.timeout };
   } catch (error) {

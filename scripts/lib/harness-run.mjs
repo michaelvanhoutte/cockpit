@@ -6,13 +6,21 @@
 
 export const JOBS = ['linking', 'prices', 'rebuild'];
 
-/** The job, the address and the key to start it with, or the one thing that is missing. */
+/**
+ * The job, the address and the key to start it with, or the one thing that is missing.
+ * `--full` re-reads linking from the first pull request, so it goes with linking alone.
+ */
 export function planRun(args, env) {
-  const job = args[0];
+  const full = args.includes('--full');
+  const [job, ...rest] = args.filter((arg) => arg !== '--full');
   if (!JOBS.includes(job)) return { error: `Name the job to start: ${JOBS.join(', ')}.` };
+  if (rest.length > 0) return { error: `Unexpected ${rest.join(' ')}: name one job, and --full only with linking.` };
+  if (full && job !== 'linking') return { error: '--full re-reads pull requests from the start, so it goes only with linking.' };
   const missing = ['HARNESS_MONITOR_URL', 'HARNESS_WRITE_KEY'].filter((name) => !env[name]);
   if (missing.length > 0) return { error: `Set ${missing.join(' and ')} first (docs/deployment.md, "Where the usage hook finds the key").` };
-  return { job, url: new URL(`/v1/jobs/${job}`, env.HARNESS_MONITOR_URL), key: env.HARNESS_WRITE_KEY };
+  const url = new URL(`/v1/jobs/${job}`, env.HARNESS_MONITOR_URL);
+  if (full) url.searchParams.set('full', '1');
+  return { job, url, key: env.HARNESS_WRITE_KEY };
 }
 
 /** Why no answer came: a timeout leaves the job possibly still running, so the page is where to look. */

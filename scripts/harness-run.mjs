@@ -3,7 +3,9 @@
 // `pnpm harness:run <linking|prices|rebuild>`: starts one of the Harness
 // Monitor's jobs on the live Worker now and prints what it did (Start the
 // Harness Monitor's jobs by hand, issue 1013). It is the code the schedule
-// runs, so a run here proves the scheduled one. Needs HARNESS_MONITOR_URL and
+// runs, so a run here proves the scheduled one. `linking --full` re-reads every
+// pull request from the first (Link every branch that has a pull request,
+// issue 1020). Needs HARNESS_MONITOR_URL and
 // HARNESS_WRITE_KEY in the environment, as `pnpm harness:upload` does. Exits 1
 // when the job failed or the monitor refused, 2 when the command is misused.
 //

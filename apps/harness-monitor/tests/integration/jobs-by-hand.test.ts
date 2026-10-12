@@ -1,7 +1,7 @@
 import { createExecutionContext, createScheduledController, env, SELF, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_REQUESTS } from '../../src/github';
-import { fakeGitHub, jobLine, pageOf, pullRequest, recordedPullRequest, theLinks, theLinkState } from './github-support';
+import { fakeGitHub, jobLine, listing, pageOf, pullRequest, pullRequestRows, recordedPullRequest, theLinks, theLinkState } from './github-support';
 import { dollars, emptyTheDatabase, pricing, recordedFile, runTheDailyJob, send, theFileAnswers, usage, WRITE_KEY } from './support';
 
 beforeEach(async () => {
@@ -43,13 +43,13 @@ describe('Harness Monitor', () => {
       expect(first).toEqual({ job: 'linking', ok: true, message: `Linked ${MAX_REQUESTS} pull requests; more to read — run it again.` });
       expect(await jobLine('linking')).toContain('more to read — run it again.');
       const cursor = (await theLinkState())[0]!.cursor;
-      expect(cursor).toBe(`2026-10-01T10:00:${String(MAX_REQUESTS).padStart(2, '0')}Z`);
+      expect(cursor).toBe(`cursor-${MAX_REQUESTS}`);
 
       vi.restoreAllMocks();
       const calls = fakeGitHub(() => pageOf([pullRequest({ number: 500, headRefName: 'b/500', updatedAt: '2026-10-02T10:00:00Z' })]));
       const second = await (await start('linking')).json();
 
-      expect(calls[0]!.q).toContain(`updated:>=${cursor}`);
+      expect(calls[0]!.after).toBe(cursor);
       expect(second).toEqual({ job: 'linking', ok: true, message: 'Linked 1 pull request; caught up with GitHub.' });
     });
 
@@ -73,7 +73,7 @@ describe('Harness Monitor', () => {
       expect(body).toEqual({ job: 'linking', ok: true, message: `Linked 1 pull request; ${said} — run it again.` });
       expect((await theLinks()).map((l) => l.pr_number)).toEqual([1]);
       const state = (await theLinkState())[0]!;
-      expect(state.cursor).toBe('2026-10-01T10:00:00Z');
+      expect(state.cursor).toBe('cursor-1');
       expect(state.last_success_at).toBeNull();
     });
 
@@ -118,6 +118,43 @@ describe('Harness Monitor', () => {
 
       expect(response.status).toBe(404);
       expect(((await response.json()) as { error: string }).error).toContain('linking, prices, rebuild');
+    });
+  });
+
+  describe('a full re-read links branches an earlier run skipped', () => {
+    it('linking in full reads from the first pull request, and the runs after it carry on until every branch with a pull request is linked', async () => {
+      await send([usage('r1', { branch: 'b/skipped' })]);
+      const seen = [1, 2].map((n) => pullRequest({ number: n, headRefName: `b/${n}`, updatedAt: `2026-10-0${n}T10:00:00Z` }));
+      fakeGitHub(listing(seen));
+      await start('linking');
+      vi.restoreAllMocks();
+      // GitHub now answers a pull request the first run never saw, behind the place it stopped.
+      const skipped = pullRequest({ number: 3, headRefName: 'b/skipped', title: 'Skipped once', updatedAt: '2026-09-26T16:27:20Z' });
+      const answer = listing([skipped, ...seen]);
+      fakeGitHub((call) => (call.after === null ? answer({ ...call, first: 1 }) : new Response('timeout', { status: 504 })));
+      const first = await (await start('linking?full=1')).json();
+      vi.restoreAllMocks();
+      const calls = fakeGitHub(answer);
+
+      const second = await (await start('linking')).json();
+
+      expect(first).toEqual({
+        job: 'linking',
+        ok: true,
+        message: 'Linked 1 pull request; GitHub did not answer in time (504). More to read — run it again without --full.',
+      });
+      expect(calls[0]!.after).toBe('cursor-3');
+      expect(second).toEqual({ job: 'linking', ok: true, message: 'Linked 2 pull requests; caught up with GitHub.' });
+      expect((await theLinks()).map((l) => l.branch)).toEqual(['b/1', 'b/2', 'b/skipped']);
+      expect(Object.keys(await pullRequestRows())).toEqual(['#3 Skipped once']);
+    });
+
+    it('a full re-read of any other job is refused and runs nothing', async () => {
+      const response = await start('rebuild?full=1');
+
+      expect(response.status).toBe(400);
+      expect(((await response.json()) as { error: string }).error).toContain('Only linking');
+      expect(await jobLine('rebuild')).toBe('Daily totals: has not run yet.');
     });
   });
 
