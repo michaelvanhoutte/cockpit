@@ -276,6 +276,8 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   ): Awaitable<Answer<'admitted' | 'too-many'>>;
   /** An app connected to this account calling `create_item` ("Connect Claude to Cockpit, and capture an item from it", issue 599) - admitted, or one of too many from that grant. */
   appCaptureArrived(grantId: string, at: string): Awaitable<'admitted' | 'too-many'>;
+  /** A recording sent to be transcribed ("Hold each account to 20 transcriptions a minute", issue 1043) - admitted, or one of too many from this account. */
+  transcriptionArrived(at: string): Awaitable<'admitted' | 'too-many'>;
   /** When a hook last reached one of this Workspace's Claude Code connections (issue 572). */
   claudeCodeHookArrival(
     accountName: string,

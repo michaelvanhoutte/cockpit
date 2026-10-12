@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { MAX_RECORDING_SECONDS } from '@cockpit/shared';
-import { transcribeRecording } from './api/transcription';
+import { TooManyTranscriptions, transcribeRecording } from './api/transcription';
 import { DICTATION_BLOCKED, DICTATION_FAILED, DICTATION_NO_MICROPHONE } from './dictation';
 
 /**
@@ -98,6 +98,9 @@ export function browserRecorder(): StartRecording | null {
 
 /** What a person is told when a transcription did not come back; the recording is not kept, so this says to say it again. */
 export const DICTATION_COULD_NOT_TRANSCRIBE = 'Could not transcribe that. Check your connection and dictate it again.';
+
+/** What is told when the account was held to its 20 transcriptions a minute (issue 1043). */
+export const DICTATION_TOO_MANY = 'Too many recordings were sent in a minute. Try again shortly.';
 
 /** What is said after a recording stopped itself. */
 export const DICTATION_STOPPED_AT_THE_LIMIT = `Stopped at the ${MAX_RECORDING_SECONDS / 60}-minute limit. What was said up to then is in the note.`;
@@ -227,8 +230,10 @@ export function useRecordedDictation({
         words.current(text);
         if (atTheLimit) setNotice(DICTATION_STOPPED_AT_THE_LIMIT);
         return true;
-      } catch {
-        if (mounted.current) setError(DICTATION_COULD_NOT_TRANSCRIBE);
+      } catch (failure) {
+        if (mounted.current) {
+          setError(failure instanceof TooManyTranscriptions ? DICTATION_TOO_MANY : DICTATION_COULD_NOT_TRANSCRIBE);
+        }
         return false;
       } finally {
         underway.current = null;

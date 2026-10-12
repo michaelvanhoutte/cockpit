@@ -22,7 +22,7 @@ import {
   type OutboxStore,
 } from '../../../src/captureOutboxSender';
 import { DICTATION_BLOCKED, DICTATION_NO_MICROPHONE } from '../../../src/dictation';
-import { DICTATION_COULD_NOT_TRANSCRIBE, type StartRecording } from '../../../src/recording';
+import { DICTATION_COULD_NOT_TRANSCRIBE, DICTATION_TOO_MANY, type StartRecording } from '../../../src/recording';
 import type { WakeLockApi } from '../../../src/wakeLock';
 import { aRecorder, aTranscriber } from '../support/recording';
 
@@ -447,6 +447,19 @@ describe('Capture', () => {
       await transcriber.fails();
 
       expect(theStatus()).toHaveTextContent(DICTATION_COULD_NOT_TRANSCRIBE);
+      expect(theButton()).toHaveAccessibleName('Speak a note');
+      await settled();
+      expect(capturedCalls()).toHaveLength(0);
+    });
+
+    it('says too many were sent in a minute when the account is held to its limit, and captures nothing', async () => {
+      const { user, transcriber } = await drivingWith();
+      await recording(user);
+      await user.click(theButton());
+
+      await transcriber.isTurnedAway();
+
+      expect(theStatus()).toHaveTextContent(DICTATION_TOO_MANY);
       expect(theButton()).toHaveAccessibleName('Speak a note');
       await settled();
       expect(capturedCalls()).toHaveLength(0);
