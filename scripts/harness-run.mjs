@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 //
-// `pnpm harness:run <linking|prices|rebuild>`: starts one of the Harness
+// `pnpm harness:run <linking [--full]|prices|rebuild>`: starts one of the Harness
 // Monitor's jobs on the live Worker now and prints what it did (Start the
 // Harness Monitor's jobs by hand, issue 1013); `prices` repeats until nothing
-// more is priced, then starts `rebuild` (issue 1021). It is the code the schedule
-// runs, so a run here proves the scheduled one. Needs HARNESS_MONITOR_URL and
+// more is priced, then starts `rebuild` (issue 1021). `linking --full` re-reads
+// every pull request from the first (Link every branch that has a pull request,
+// issue 1020). It is the code the schedule runs, so a run here proves the
+// scheduled one. Needs HARNESS_MONITOR_URL and
 // HARNESS_WRITE_KEY in the environment, as `pnpm harness:upload` does. Exits 1
 // when the job failed or the monitor refused, 2 when the command is misused.
 //
@@ -22,7 +24,7 @@ if (plan.error) {
 
 async function start(job) {
   try {
-    const response = await fetch(jobUrl(job, plan.url), {
+    const response = await fetch(jobUrl(job, plan.url, job === plan.job && plan.full), {
       method: 'POST',
       headers: { authorization: `Bearer ${plan.key}` },
       signal: AbortSignal.timeout(WAIT_MS),

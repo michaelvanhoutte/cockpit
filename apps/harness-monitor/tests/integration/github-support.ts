@@ -1,10 +1,13 @@
-import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from 'cloudflare:test';
+import { createExecutionContext, createScheduledController, env, SELF, waitOnExecutionContext } from 'cloudflare:test';
 import { vi } from 'vitest';
 import worker from '../../src/worker';
 import recorded from './fixtures/github-pull-requests.json';
-import { costRows, thePage, type CostRow } from './support';
+import { costRows, thePage, WRITE_KEY, type CostRow } from './support';
 
-/** The pull requests of GitHub's real answer, recorded once from the GraphQL query the job sends. */
+/**
+ * The pull requests of GitHub's real answer, recorded once from the job's GraphQL search. The repository listing
+ * the job reads now asks the same fields of each pull request, so the fakes wrap these nodes in its envelope.
+ */
 export const RECORDED_NODES: Node[] = recorded.data.search.nodes;
 export interface Node {
   number: number;
@@ -31,20 +34,46 @@ export const pullRequest = (over: Partial<Node> & { number: number }, from = 979
   ...over,
 });
 
-export const pageOf = (nodes: Node[], hasNextPage = false) =>
-  Response.json({ data: { search: { pageInfo: { hasNextPage, endCursor: hasNextPage ? `cursor-${nodes.length}` : null }, nodes } } });
+/** GitHub's cursor after a pull request; here it names the pull request, which is all a test needs to tell them apart. */
+export const cursorAfter = (node: Node) => `cursor-${node.number}`;
 
-/** An answer that pages through `all` by the size asked for, as GitHub does; the cursor is how many were given so far. */
-export const listing = (all: Node[]) => (call: { after: string | null; first: number }) => {
-  const from = call.after === null ? 0 : Number(call.after.replace('cursor-', ''));
-  const to = Math.min(from + call.first, all.length);
-  return Response.json({
-    data: { search: { pageInfo: { hasNextPage: to < all.length, endCursor: to < all.length ? `cursor-${to}` : null }, nodes: all.slice(from, to) } },
+/** One page of the repository's pull requests, as GitHub answers it: its end is the place after its last pull request. */
+export const pageOf = (nodes: Node[], hasNextPage = false) =>
+  Response.json({
+    data: { repository: { pullRequests: { pageInfo: { hasNextPage, endCursor: nodes.length > 0 ? cursorAfter(nodes.at(-1)!) : null }, nodes } } },
   });
+
+/**
+ * An answer that pages through `all`, in the order given, by the size asked
+ * for, as GitHub does. The next page starts after the pull request the cursor
+ * names, wherever it now stands, so moving another pull request to the end, as
+ * an update does, has it read again. Never move the one a stored cursor names.
+ */
+export const listing = (all: Node[]) => (call: { after: string | null; first: number }) => {
+  const at = call.after === null ? -1 : all.findIndex((n) => cursorAfter(n) === call.after);
+  if (call.after !== null && at === -1) return badCursor(call.after);
+  const from = at + 1;
+  const to = Math.min(from + call.first, all.length);
+  return pageOf(all.slice(from, to), to < all.length);
 };
 
+/** GitHub's answer to an `after` it cannot read. */
+export const badCursor = (after: string) => Response.json({ data: null, errors: [{ message: `\`${after}\` does not appear to be a valid cursor.` }] });
+
+/** A page as GitHub answers it with an error about part of it beside the data. */
+export async function withErrors(page: Response, message: string) {
+  return Response.json({ ...((await page.json()) as object), errors: [{ message }] });
+}
+
+/** GitHub taking too long over a page. */
+export const timedOut = () => new Response('timeout', { status: 504 });
+
+/** Pages are only places in this order, so the cursor design rests on the job asking for it. */
+const UPDATE_ORDER = /pullRequests\(\s*orderBy:\s*\{\s*field:\s*UPDATED_AT,\s*direction:\s*ASC\s*\}/;
+
 export interface GitHubCall {
-  q: string;
+  /** The repository asked for, as `owner/name`. */
+  repository: string;
   after: string | null;
   /** The page size asked for. */
   first: number;
@@ -61,8 +90,17 @@ export function fakeGitHub(answer: (call: GitHubCall, calls: GitHubCall[]) => Re
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.href !== 'https://api.github.com/graphql') throw new Error(`Unexpected request to ${url.href}`);
-    const { variables } = JSON.parse(String(init?.body)) as { variables: { q: string; after: string | null; first: number } };
-    const call = { q: variables.q, after: variables.after, first: variables.first, authorization: new Headers(init?.headers).get('authorization') };
+    const { query, variables } = JSON.parse(String(init?.body)) as {
+      query: string;
+      variables: { owner: string; name: string; after: string | null; first: number };
+    };
+    if (!UPDATE_ORDER.test(query)) throw new Error('The job did not ask for pull requests in update order, oldest first.');
+    const call = {
+      repository: `${variables.owner}/${variables.name}`,
+      after: variables.after,
+      first: variables.first,
+      authorization: new Headers(init?.headers).get('authorization'),
+    };
     calls.push(call);
     return answer(call, calls);
   });
@@ -78,7 +116,7 @@ export async function runHourly(over: { GITHUB_TOKEN?: string | undefined } = { 
 }
 
 export async function theLinkState() {
-  const { results } = await env.DB.prepare('SELECT cursor, last_success_at FROM link_state').all<{ cursor: string | null; last_success_at: number | null }>();
+  const { results } = await env.DB.prepare('SELECT page_cursor AS cursor, last_success_at FROM link_state').all<{ cursor: string | null; last_success_at: number | null }>();
   return results;
 }
 
@@ -107,4 +145,20 @@ export async function linked(...nodes: Node[]) {
 /** What the page shows for each row of the pull request table, by label (the pull request, or the branch while it has none). */
 export async function pullRequestRows(): Promise<Record<string, CostRow>> {
   return Object.fromEntries(costRows(await thePage('?period=all')).map((r) => [r.label, r]));
+}
+/** A job started by hand, as `pnpm harness:run` starts it, with the write key unless told otherwise. */
+export const startJob = (job: string, headers: Record<string, string> = { authorization: `Bearer ${WRITE_KEY}` }) =>
+  SELF.fetch(`https://monitor.test/v1/jobs/${job}`, { method: 'POST', headers });
+
+/** Gives the Worker a token and a repository for linking started by hand, and returns what puts both back as they were. */
+export function giveTheWorkerAToken() {
+  const before = { GITHUB_TOKEN: env.GITHUB_TOKEN, GITHUB_REPOSITORY: env.GITHUB_REPOSITORY };
+  env.GITHUB_TOKEN = 'test-token';
+  env.GITHUB_REPOSITORY = 'owner/repo';
+  return () => {
+    for (const [name, value] of Object.entries(before) as [keyof typeof before, string | undefined][]) {
+      if (value === undefined) delete env[name];
+      else env[name] = value;
+    }
+  };
 }

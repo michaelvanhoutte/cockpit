@@ -6,16 +6,27 @@
 
 export const JOBS = ['linking', 'prices', 'rebuild'];
 
-/** The job, the address and the key to start it with, or the one thing that is missing. */
+/**
+ * The job, the address and the key to start it with, or the one thing that is missing.
+ * `--full` re-reads linking from the first pull request, so it goes with linking alone.
+ */
 export function planRun(args, env) {
-  const job = args[0];
-  if (!JOBS.includes(job)) return { error: `Name the job to start: ${JOBS.join(', ')}.` };
+  const full = args.includes('--full');
+  const [job, ...rest] = args.filter((arg) => arg !== '--full');
+  if (!JOBS.includes(job)) return { error: `Name the job to start: ${JOBS.join(', ')}; linking --full re-reads from the first pull request.` };
+  if (rest.length > 0) return { error: `Unexpected ${rest.join(' ')}: name one job, and --full only with linking.` };
+  if (full && job !== 'linking') return { error: '--full re-reads pull requests from the start, so it goes only with linking.' };
   const missing = ['HARNESS_MONITOR_URL', 'HARNESS_WRITE_KEY'].filter((name) => !env[name]);
   if (missing.length > 0) return { error: `Set ${missing.join(' and ')} first (docs/deployment.md, "Where the usage hook finds the key").` };
-  return { job, url: jobUrl(job, env.HARNESS_MONITOR_URL), key: env.HARNESS_WRITE_KEY };
+  return { job, full, url: jobUrl(job, env.HARNESS_MONITOR_URL, full), key: env.HARNESS_WRITE_KEY };
 }
 
-export const jobUrl = (job, monitor) => new URL(`/v1/jobs/${job}`, monitor);
+/** Where to start `job`; `full` asks linking to re-read from the first pull request. */
+export function jobUrl(job, monitor, full = false) {
+  const url = new URL(`/v1/jobs/${job}`, monitor);
+  if (full) url.searchParams.set('full', '1');
+  return url;
+}
 
 /**
  * The job to start after `previous` (null before the first), or null to stop.

@@ -1,4 +1,4 @@
-import { linkBranches, type LinkEnv } from './linking';
+import { linkBranches, type LinkEnv, type LinkOptions } from './linking';
 import { hasFetchedList, priceWaitingRows, refreshPriceList } from './price-list';
 import { rebuildTotals } from './store';
 
@@ -31,15 +31,18 @@ export interface JobStatus {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-async function execute(env: LinkEnv, job: JobName, now: number): Promise<JobOutcome> {
+async function execute(env: LinkEnv, job: JobName, now: number, full: boolean): Promise<JobOutcome> {
   if (job === 'linking') {
-    const run = await linkBranches(env, now);
+    const run = await linkBranches(env, { now, full });
     if (run.status === 'skipped') return { ok: false, message: 'Skipped: GITHUB_TOKEN or GITHUB_REPOSITORY is not set on the Worker.' };
     if (run.status === 'failed') return { ok: false, message: run.error };
-    const linked = `Linked ${plural(run.linked, 'pull request')}`;
+    const restarted = run.restarted ? "GitHub no longer accepted linking's stored place; started again from the first pull request. " : '';
+    const linked = `${restarted}Linked ${plural(run.linked, 'pull request')}`;
+    if (run.status === 'place-moved') return { ok: true, message: `${linked}; another run moved linking's place, so this one stopped.` };
     if (run.status === 'caught-up') return { ok: true, message: `${linked}; caught up with GitHub.` };
     const stopped = run.timeout ? `${run.timeout}. More to read` : 'more to read';
-    return { ok: true, message: `${linked}; ${stopped} — run it again.` };
+    // A second full re-read would start over; a plain run carries on from here.
+    return { ok: true, message: `${linked}; ${stopped} — run ${full ? 'linking again (a plain run continues from here)' : 'it again'}.` };
   }
   if (job === 'prices') {
     const refreshed = await refreshPriceList(env.DB, now);
@@ -57,11 +60,12 @@ async function execute(env: LinkEnv, job: JobName, now: number): Promise<JobOutc
 /**
  * Runs one job, the same code whoever starts it, and stores what it did as the
  * job's last run. A job that throws is a failed run, never a crashed Worker.
+ * `full` restarts linking from the first pull request (see linkBranches).
  */
-export async function runJob(env: LinkEnv, job: JobName, startedBy: StartedBy, now = Date.now()): Promise<JobOutcome> {
+export async function runJob(env: LinkEnv, job: JobName, startedBy: StartedBy, { now = Date.now(), full = false }: LinkOptions = {}): Promise<JobOutcome> {
   let outcome: JobOutcome;
   try {
-    outcome = await execute(env, job, now);
+    outcome = await execute(env, job, now, full);
   } catch (error) {
     outcome = { ok: false, message: error instanceof Error ? error.message : String(error) };
   }

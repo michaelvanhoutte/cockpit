@@ -89,11 +89,30 @@ describe('Harness Monitor', () => {
       { situation: 'no address', args: ['prices'], set: { HARNESS_MONITOR_URL: undefined }, error: 'Set HARNESS_MONITOR_URL first' },
       { situation: 'no key', args: ['prices'], set: { HARNESS_WRITE_KEY: '' }, error: 'Set HARNESS_WRITE_KEY first' },
       { situation: 'neither', args: ['prices'], set: { HARNESS_MONITOR_URL: undefined, HARNESS_WRITE_KEY: undefined }, error: 'Set HARNESS_MONITOR_URL and HARNESS_WRITE_KEY first' },
-      { situation: 'no job named', args: [], set: {}, error: 'Name the job to start: linking, prices, rebuild.' },
-      { situation: 'an unknown job', args: ['everything'], set: {}, error: 'Name the job to start: linking, prices, rebuild.' },
+      { situation: 'no job named', args: [], set: {}, error: 'Name the job to start: linking, prices, rebuild; linking --full re-reads from the first pull request.' },
+      { situation: 'an unknown job', args: ['everything'], set: {}, error: 'Name the job to start: linking, prices, rebuild; linking --full' },
     ]) {
       it(`${situation} says what is missing and runs nothing`, () => {
         const plan = planRun(args, { ...env, ...set });
+
+        assert.ok(plan.error.startsWith(error), plan.error);
+        assert.equal(plan.url, undefined);
+      });
+    }
+  });
+
+  describe('a full re-read goes with linking alone', () => {
+    it('linking --full is planned against the job address asking to start from the first pull request', () => {
+      assert.equal(planRun(['linking', '--full'], env).url.href, 'https://monitor.example/v1/jobs/linking?full=1');
+      assert.equal(planRun(['--full', 'linking'], env).url.href, 'https://monitor.example/v1/jobs/linking?full=1');
+    });
+
+    for (const { situation, args, error } of [
+      { situation: '--full with prices', args: ['prices', '--full'], error: '--full re-reads pull requests from the start, so it goes only with linking.' },
+      { situation: 'anything else after the job', args: ['linking', '--fulll'], error: 'Unexpected --fulll' },
+    ]) {
+      it(`${situation} is refused and runs nothing`, () => {
+        const plan = planRun(args, env);
 
         assert.ok(plan.error.startsWith(error), plan.error);
         assert.equal(plan.url, undefined);
