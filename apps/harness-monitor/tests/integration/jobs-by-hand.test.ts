@@ -98,6 +98,45 @@ describe('Harness Monitor', () => {
       expect((await pricing())[0]!.cost_micros).toBe(2_000_000);
     });
 
+    it('prices answers with how many requests it priced', async () => {
+      await send([usage('a', { model: 'claude-sonnet-5' }), usage('b', { model: 'claude-sonnet-5' })]);
+      theFileAnswers(recordedFile);
+
+      expect(await (await start('prices')).json()).toMatchObject({ job: 'prices', ok: true, priced: 2 });
+
+      theFileAnswers(recordedFile);
+      expect(await (await start('prices')).json()).toMatchObject({ ok: true, priced: 0 });
+    });
+
+    it('prices that still has rows waiting after its cap counts the cap, and the next run prices the rest', async () => {
+      const cap = 20 * 1000;
+      await env.DB
+        .prepare(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?1)
+          INSERT INTO usage_requests (request_id, session_id, occurred_at, day, category, model, speed, input_tokens, output_tokens,
+            cache_creation_tokens, cache_read_tokens, subagent, ran_where, source, ingest_id, received_at)
+          SELECT 'r' || printf('%06d', i), 's', 0, '2026-01-01', 'other', 'claude-sonnet-5', 'standard', 1, 0, 0, 0, 0, 'local', 'hook', 'i', 0 FROM n`)
+        .bind(cap + 5)
+        .run();
+      theFileAnswers(recordedFile);
+      const first = (await (await start('prices')).json()) as { priced: number };
+      theFileAnswers(recordedFile);
+      const second = (await (await start('prices')).json()) as { priced: number };
+
+      expect([first.priced, second.priced]).toEqual([cap, 5]);
+    });
+
+    it('prices counts the rows it priced from the last good list when the fetch fails', async () => {
+      await send([usage('a', { model: 'claude-sonnet-5' })]);
+      theFileAnswers(recordedFile);
+      await start('prices');
+      await send([usage('b', { model: 'claude-sonnet-5' })]);
+      await env.DB.prepare("UPDATE usage_requests SET cost_micros = NULL WHERE request_id = 'b'").run();
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.stubGlobal('fetch', async () => new Response('down', { status: 500 }));
+
+      expect(await (await start('prices')).json()).toMatchObject({ ok: false, priced: 1 });
+    });
+
     it('rebuild rebuilds the daily totals and answers with the days', async () => {
       await send([usage('a', { time: '2026-03-01T10:00:00Z' }), usage('b', { time: '2026-03-02T10:00:00Z' })]);
       await env.DB.prepare('DELETE FROM daily_totals').run();

@@ -155,7 +155,15 @@ function heldText(held) {
 
 /** A local slice in words: its kind, level (a review) and duration, and the scope of a test run. */
 function sliceText(slice) {
-  return [KIND_LABEL[reviewClass(slice.kind)], slice.level, humanMs(slice.sliceMs ?? slice.ms), slice.scopes ? slice.scopes.join(', ') : null].filter(Boolean).join(' · ');
+  return [
+    KIND_LABEL[reviewClass(slice.kind)],
+    slice.level,
+    humanMs(slice.sliceMs ?? slice.ms),
+    slice.scopes ? slice.scopes.join(', ') : null,
+    slice.endedTogether ? 'ended together with the other review, so its own length is not recorded' : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 const PART_TITLE = {
@@ -215,12 +223,18 @@ function segment(part, pull) {
     return `<span class="seg ${part.type === 'review' ? 'review' : 'local'} ${reviewClass(part.kind)}${part.cut ? ' cut' : ''}" style="${grow}" title="${esc(sliceText(part))}"></span>`;
   }
 
-  // Two local slices at once (a test run during a review): one stretch striped in both colours, naming both.
-  if (part.type === 'overlap') {
-    // A stripe per kind present, so a third kind at once is never dropped.
-    const colours = [...new Set(part.slices.map((slice) => `var(--${reviewClass(slice.kind)})`))];
-    const stripes = `background:repeating-linear-gradient(135deg, ${colours.map((colour, index) => `${colour} ${index * 4}px ${(index + 1) * 4}px`).join(', ')})`;
-    return `<span class="seg local overlap${part.cut ? ' cut' : ''}" style="${grow};${stripes}" title="${esc(part.slices.map(sliceText).join('\n'))}"></span>`;
+  // Local work in parallel: one full-height lane per thread, stacked about the strip's centre line, each where its own work sits in the stretch.
+  if (part.type === 'parallel') {
+    const lanes = part.lanes.filter((lane) => lane.offsetMs < part.ms);
+    const lanesHtml = lanes
+      .map((lane, index) => {
+        const left = (lane.offsetMs / part.ms) * 100;
+        const width = (Math.min(lane.ms, part.ms - lane.offsetMs) / part.ms) * 100;
+        const top = (index - (lanes.length - 1) / 2) * 100;
+        return `<span class="lane ${reviewClass(lane.kind)}" style="left:${left.toFixed(3)}%;width:${width.toFixed(3)}%;top:${top}%" title="${esc(sliceText(lane))}"></span>`;
+      })
+      .join('');
+    return `<span class="seg parallel${part.cut ? ' cut' : ''}" style="${grow}">${lanesHtml}</span>`;
   }
 
   const unrecorded = part.type === 'coding' && !pull.recorded ? ' unrecorded' : '';
@@ -231,7 +245,10 @@ function strip(pull, fitted, scaleMs) {
   if (pull.rounds.length === 0) return '<div class="track"><span class="trackempty">no check ran on it</span></div>';
   const filler = fitted.shownMs < scaleMs ? `<span class="fill-space" style="flex:${Math.round((scaleMs - fitted.shownMs) / 1000)} 1 0"></span>` : '';
   const cap = fitted.clipped ? '<span class="clipmark" aria-hidden="true">&#9656;</span>' : '';
-  return `<div class="track">${fitted.parts.map((part) => segment(part, pull)).join('')}${filler}${cap}</div>`;
+  // The track makes room above and below for the tallest stack of lanes, which is centred on its line.
+  const stack = Math.max(1, ...fitted.parts.filter((part) => part.type === 'parallel').map((part) => part.lanes.filter((lane) => lane.offsetMs < part.ms).length));
+  const room = stack > 1 ? ` style="--lanes:${stack}"` : '';
+  return `<div class="track${stack > 1 ? ' stacked' : ''}"${room}>${fitted.parts.map((part) => segment(part, pull)).join('')}${filler}${cap}</div>`;
 }
 
 function stripRow(pull, parts, scaleMs) {
@@ -296,7 +313,7 @@ function strips(model) {
   if (model.pulls.length === 0) return '<div class="card"><p class="empty">No merged pull requests in this period.</p></div>';
   const allParts = model.pulls.map(partsOf);
   const scaleMs = scaleFor(allParts);
-  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}. Time away is not on it. A round is split into the checks that held it, in the order they finished — hover a slice for which one and how long; open a row for its rounds in words. A local review, test run or browser pass is cut out of the coding or fixing it sat in, at the time it ran; where two overlap, the stretch they share is striped in both colours and counted once. Work on the developer&rsquo;s machine is drawn in greens and teals, CI in blue.</p>`;
+  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}. Time away is not on it. A round is split into the checks that held it, in the order they finished — hover a slice for which one and how long; open a row for its rounds in words. A local review, test run or browser pass is cut out of the coding or fixing it sat in, at the time it ran; where two run in parallel, the stretch splits into a lane each, code review on top, and the minutes they share are counted once. Work on the developer&rsquo;s machine is drawn in greens and teals, CI in blue.</p>`;
   return `${scaleNote}${legend()}<div class="card">${model.pulls.map((pull, index) => stripRow(pull, allParts[index], scaleMs)).join('')}</div>`;
 }
 

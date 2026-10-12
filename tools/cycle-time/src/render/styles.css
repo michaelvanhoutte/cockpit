@@ -136,7 +136,10 @@ td.pr .title { color: var(--ink-2); }
 .who { font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
 .who .when { color: var(--ink-3); font-size: 12px; margin-top: 2px; }
 .strip { min-width: 0; }
-.track { display: flex; align-items: stretch; height: 22px; background: var(--raised); border-radius: 4px; overflow: hidden; position: relative; }
+.track { display: flex; align-items: stretch; height: 22px; background: var(--raised); border-radius: 4px; position: relative; overflow-x: clip; }
+/* The track clips only sideways, so a stack of lanes can stand above and below it; its ends are rounded here instead. */
+.track > .seg:first-child { border-radius: 4px 0 0 4px; }
+.track > .seg:last-child { border-radius: 0 4px 4px 0; }
 .trackempty { color: var(--ink-3); font-size: 12px; padding: 3px 8px; }
 .seg { display: block; min-width: 3px; position: relative; height: 100%; }
 .seg + .seg { margin-left: 1px; }
@@ -157,6 +160,14 @@ td.pr .title { color: var(--ink-2); }
 .seg.review.local-security-review { background: var(--local-security-review); }
 .seg.local.local-test { background: var(--local-test); }
 .seg.local.local-browser { background: var(--local-browser); }
+/* Parallel local work: a full-height lane per thread, the stack centred on the strip's line. */
+.seg.parallel { background: transparent; }
+.lane { position: absolute; height: 100%; min-width: 3px; }
+.lane.local-code-review { background: var(--local-code-review); }
+.lane.local-security-review { background: var(--local-security-review); }
+.lane.local-test { background: var(--local-test); }
+.lane.local-browser { background: var(--local-browser); }
+.track.stacked { margin-block: calc((var(--lanes) - 1) * 11px); }
 /* Hatched, so that "not recorded" is a different thing from a coloured stretch,
    and from nothing. */
 .seg.unrecorded { background: repeating-linear-gradient(135deg, var(--coding) 0 3px, transparent 3px 6px); outline: 1px solid var(--coding); outline-offset: -1px; }

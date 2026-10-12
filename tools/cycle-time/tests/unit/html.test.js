@@ -57,7 +57,7 @@ const rowOf = (html, number) => {
   const rows = html.split('<footer>')[0].split('<div class="pullrow">');
   return rows.find((each) => each.includes(`<b>#${number}</b>`));
 };
-const stripOf = (html, number) => rowOf(html, number).split('<div class="track">')[1].split('</div>')[0];
+const stripOf = (html, number) => rowOf(html, number).split(/<div class="track[^"]*"[^>]*>/)[1].split('</div>')[0];
 
 describe('Cycle time', () => {
   it('is titled and headed "Cycle time"', () => {
@@ -680,7 +680,7 @@ describe('Cycle time', () => {
     const testRun = (from, to, ...scopes) => ({ run: 'test', scopes, start: at(from), end: at(to) });
     const browser = (from, to) => [{ at: at(from), phase: 'browser-start' }, { at: at(to), phase: 'browser-end' }];
     const withBody = (body) => pull({ body, mergedAt: at(60), commits: [commit('a', 0, [check('Test', 20, 40)])] });
-    const titlesOf = (html) => [...stripOf(html, 1).matchAll(/<span class="seg (?:review|local)(?: overlap)? ([\w-]+)[^"]*" style="[^"]*" title="([^"]*)"/g)].map((match) => [match[1], match[2]]);
+    const titlesOf = (html) => [...stripOf(html, 1).matchAll(/<span class="seg (?:review|local) ([\w-]+)[^"]*" style="[^"]*" title="([^"]*)"/g)].map((match) => [match[1], match[2]]);
     // The evolution panels need a second pull request to show a trend.
     const later = pull({ number: 2, mergedAt: at(120), commits: [commit('b', 60, [check('Test', 62, 72)])] });
     const panelOf = (html) => html.split('<h2>Evolution</h2>')[1].split('<h2>')[0];
@@ -693,16 +693,50 @@ describe('Cycle time', () => {
       ]);
     });
 
-    it('names both kinds on the one stretch a test run and a review share', () => {
-      const reviewing = [{ at: at(2), phase: 'review-start', kind: 'code-review', level: 'high' }, { at: at(10), phase: 'review-end', kind: 'code-review', level: 'high' }, testRun(8, 12, 'a')];
-      const html = render({ pulls: [withBody(recorded(reviewing))] });
-      expect(stripOf(html, 1)).toContain('title="Local code review · high · 8m 00s\nLocal test run · 4m 00s · a"');
+    const review = (kind, from, to) => [{ at: at(from), phase: 'review-start', kind, level: 'high' }, { at: at(to), phase: 'review-end', kind, level: 'high' }];
+    const lanesIn = (html) => [...stripOf(html, 1).matchAll(/<span class="lane ([\w-]+)" style="([^"]*)" title="([^"]*)"/g)].map((match) => ({ cls: match[1], style: match[2], title: match[3] }));
+
+    it('draws a test run during a review as two full-height lanes, the review above, each hovering its own full length', () => {
+      const html = render({ pulls: [withBody(recorded([...review('code-review', 2, 10), testRun(8, 12, 'a')]))] });
+      expect(lanesIn(html).map((lane) => [lane.cls, lane.title])).toEqual([
+        ['local-code-review', 'Local code review · high · 8m 00s'],
+        ['local-test', 'Local test run · 4m 00s · a'],
+      ]);
+      expect(lanesIn(html).map((lane) => /top:(-?[\d.]+)%/.exec(lane.style)[1])).toEqual(['-50', '50']);
+      expect(stripOf(html, 1)).not.toMatch(/repeating-linear-gradient|overlap/);
     });
 
-    it('stripes a stretch three local kinds share in all three colours', () => {
-      const reviewing = [{ at: at(2), phase: 'review-start', kind: 'code-review', level: 'high' }, { at: at(10), phase: 'review-end', kind: 'code-review', level: 'high' }, testRun(4, 12, 'a'), ...browser(6, 14)];
-      const html = render({ pulls: [withBody(recorded(reviewing))] });
-      expect(stripOf(html, 1)).toContain('var(--local-code-review) 0px 4px, var(--local-test) 4px 8px, var(--local-browser) 8px 12px');
+    it('stacks three lanes about the strip’s line, in the fixed order, and makes room for them', () => {
+      const html = render({ pulls: [withBody(recorded([...review('code-review', 2, 10), testRun(4, 12, 'a'), ...browser(6, 14)]))] });
+      expect(lanesIn(html).map((lane) => [lane.cls, /top:(-?[\d.]+)%/.exec(lane.style)[1]])).toEqual([['local-code-review', '-100'], ['local-test', '0'], ['local-browser', '100']]);
+      expect(rowOf(html, 1)).toContain('<div class="track stacked" style="--lanes:3">');
+    });
+
+    it('ends each lane where its own work ends within the stretch', () => {
+      const html = render({ pulls: [withBody(recorded([...review('code-review', 2, 14), ...review('security-review', 4, 6)]))] });
+      const [code, security] = lanesIn(html).map((lane) => ({ left: Number(/left:([\d.]+)%/.exec(lane.style)[1]), width: Number(/width:([\d.]+)%/.exec(lane.style)[1]) }));
+      expect(code.left + code.width).toBeCloseTo(100, 1);
+      expect(security.left + security.width).toBeCloseTo(((6 - 2) / 12) * 100, 1);
+    });
+
+    it('draws a review with nothing alongside it as one row with no lanes', () => {
+      const html = render({ pulls: [withBody(recorded(review('code-review', 2, 10)))] });
+      expect(lanesIn(html)).toEqual([]);
+      expect(rowOf(html, 1)).toContain('<div class="track">');
+    });
+
+    it('says on the hover of a review whose end was written with another that it ended together with it', () => {
+      const marks = [
+        { at: at(2), phase: 'review-start', kind: 'code-review', level: 'high' },
+        { at: at(2), phase: 'review-start', kind: 'security-review', level: 'high' },
+        { at: at(10), phase: 'review-end', kind: 'code-review', level: 'high' },
+        { at: at(10), phase: 'review-end', kind: 'security-review', level: 'high' },
+      ];
+      const html = render({ pulls: [withBody(recorded(marks))] });
+      expect(lanesIn(html).map((lane) => lane.title)).toEqual([
+        'Local code review · high · 8m 00s · ended together with the other review, so its own length is not recorded',
+        'Local security review · high · 8m 00s · ended together with the other review, so its own length is not recorded',
+      ]);
     });
 
     it('keys the test run and the browser pass as local, at the time they ran', () => {
