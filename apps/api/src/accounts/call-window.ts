@@ -33,7 +33,8 @@ export function countedCalls(
 ): { admitted: boolean; calls: number[] } {
   const admitted = admittedCalls(earlier, now, limit);
   if (admitted) return { admitted: true, calls: admitted };
-  return { admitted: false, calls: [...earlier.filter((at) => now - at < WINDOW_MS), now] };
+  // Only the newest `limit` can decide the next answer, so the rest are dropped: a flood does not grow the count.
+  return { admitted: false, calls: [...earlier.filter((at) => now - at < WINDOW_MS), now].slice(-limit) };
 }
 
 /**

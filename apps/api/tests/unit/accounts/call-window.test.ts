@@ -31,7 +31,13 @@ describe('Connector management', () => {
       const refused = countedCalls(full, NOW, TRANSCRIPTIONS_PER_MINUTE);
 
       expect(refused.admitted).toBe(false);
-      expect(refused.calls).toHaveLength(TRANSCRIPTIONS_PER_MINUTE + 1);
+      expect(refused.calls).toContain(NOW);
+    });
+
+    it('keeps no more than the limit, however many are refused', () => {
+      const flood = Array.from({ length: 1000 }, (_, i) => NOW + i);
+
+      expect(countedCalls(flood, NOW + 1000, TRANSCRIPTIONS_PER_MINUTE).calls).toHaveLength(TRANSCRIPTIONS_PER_MINUTE);
     });
 
     it('stays refused while the account keeps asking, even once the admitted ones have aged out', () => {
