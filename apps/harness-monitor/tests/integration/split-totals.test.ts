@@ -38,16 +38,14 @@ describe('Harness Monitor', () => {
       ]);
     });
 
-    it('with the old per-branch table dropped, a batch still counts its rows and the nightly rebuild succeeds', async () => {
-      const old = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'daily_branch_totals'").all();
-      expect(old.results).toEqual([]);
-
+    it('the batch and the nightly rebuild no longer write the old per-branch table, which a later change drops', async () => {
       await send(mixed());
       const written = await splitTotals();
       expect(written.reduce((sum, t) => sum + t.requests, 0)).toBe(5);
 
       await runTheNightlyJob();
       expect(await splitTotals()).toEqual(written);
+      expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM daily_branch_totals').first<{ n: number }>())!.n).toBe(0);
     });
 
     it('the nightly rebuild leaves the totals as writing the rows made them', async () => {
