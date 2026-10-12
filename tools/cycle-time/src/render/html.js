@@ -679,7 +679,7 @@ export function renderHtml(model) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Cockpit Cycle time</title>
+<title>Cockpit Cycle Time</title>
 <style>${styles}</style>
 </head>
 <body>

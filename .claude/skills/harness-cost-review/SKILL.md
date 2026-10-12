@@ -15,7 +15,7 @@ The harness is everything a change waits on after it is written: CI, the local r
 
 | Model | Command | Gives |
 |---|---|---|
-| Cycle time | `node tools/cycle-time/src/cli.js --json --out <scratch>/lead.json` | per merged pull request: coding against harness (`balance`), rounds, red rounds, flukes, which check held each round, local reviews, size; per window: failing tests and steps (`failures`), queue time per check (`queue`), cancelled runner minutes (`cancelled`) |
+| Cycle time | `node tools/cycle-time/src/cli.js --json --out <scratch>/cycle.json` | per merged pull request: coding against harness (`balance`), rounds, red rounds, flukes, which check held each round, local reviews, size; per window: failing tests and steps (`failures`), queue time per check (`queue`), cancelled runner minutes (`cancelled`) |
 | Selection | `node tools/selection/src/cli.js --json --out <scratch>/sel.json` | paths forcing a full run, tests selected on nearly every pull request, misses |
 | CI stability | `node tools/ci-stability/src/cli.js --json --days 30 --max-runs 2500 --out <scratch>/ci.json` | job and step durations on `main` per window |
 | Token cost | `pnpm cost:issue --since <window start> --json` | per issue: tokens, API-equivalent cost, subagents, review passes by level; tokens and cost also split by session phase (`phases`) |

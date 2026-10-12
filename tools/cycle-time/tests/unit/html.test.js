@@ -62,7 +62,7 @@ const stripOf = (html, number) => rowOf(html, number).split('<div class="track">
 describe('Cycle time', () => {
   it('is titled and headed "Cycle time"', () => {
     const html = render({});
-    expect(html).toContain('<title>Cockpit Cycle time</title>');
+    expect(html).toContain('<title>Cockpit Cycle Time</title>');
     expect(html).toContain('<h1>Cycle time</h1>');
   });
 
