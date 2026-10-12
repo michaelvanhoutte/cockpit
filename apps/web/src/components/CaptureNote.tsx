@@ -17,7 +17,7 @@ import { DUE_DATE_SHORTCUTS } from '../dueDateShortcuts';
 import { PRIORITY_LABELS } from '../priority';
 import { appendPhrase } from '../dictation';
 import { clock, useRecordedDictation, type RecordedDictation, type StartRecording } from '../recording';
-import { transcriptionOffered } from '../api/transcription';
+import { transcriptionOfferedQuery } from '../api/transcription';
 
 /**
  * The Capture form itself: the note, the types as chips, where it goes as one
@@ -128,10 +128,7 @@ export function CaptureNote({
   };
   /** Whether the Worker can transcribe at all; the mic is drawn only where it can. */
   const transcribable = useQuery({
-    queryKey: ['transcription-offered'],
-    queryFn: transcriptionOffered,
-    retry: false,
-    staleTime: 5 * 60_000,
+    ...transcriptionOfferedQuery,
     enabled: dictating?.transcriber === undefined,
   });
   const dictation = useRecordedDictation({

@@ -7,7 +7,7 @@ import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { useCapture } from '../capture';
 import { useOutbox } from '../captureOutboxSender';
 import { typesOffered } from '../itemTypes';
-import { transcriptionOffered } from '../api/transcription';
+import { transcriptionOfferedQuery } from '../api/transcription';
 import { browserRecorder, clock, useRecordedDictation, type StartRecording } from '../recording';
 import { browserWakeLock, useScreenWakeLock, type WakeLockApi } from '../wakeLock';
 
@@ -133,10 +133,7 @@ export function CarCapture({
     dictating?.record === undefined ? browserRecorder() : dictating.record,
   );
   const transcribable = useQuery({
-    queryKey: ['transcription-offered'],
-    queryFn: transcriptionOffered,
-    retry: false,
-    staleTime: 5 * 60_000,
+    ...transcriptionOfferedQuery,
     enabled: record !== null && dictating?.transcriber === undefined,
   });
   const transcriber = dictating?.transcriber ?? transcribable.data;

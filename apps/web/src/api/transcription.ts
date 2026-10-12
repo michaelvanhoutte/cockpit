@@ -26,6 +26,14 @@ export async function transcribeRecording(recording: Blob, signal: AbortSignal =
   return transcriptionSchema.parse(await res.json()).text;
 }
 
+/** How the Capture form and the Car view ask `transcriptionOffered`: one key, so `/health` is read once for both. */
+export const transcriptionOfferedQuery = {
+  queryKey: ['transcription-offered'],
+  queryFn: () => transcriptionOffered(),
+  retry: false,
+  staleTime: 5 * 60_000,
+} as const;
+
 /**
  * Whether this Cockpit can transcribe at all, which `/health` says of every
  * environment: a local run and the browser suite answer with a stand-in, a
