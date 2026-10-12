@@ -79,6 +79,23 @@ describe('Harness Monitor', () => {
       expect(figures.sessions.map((s) => [s.id, s.cost])).toEqual([['s-cloud', '$7.00']]);
     });
 
+    it('a model and requests carried in from the costs page narrow it, show as chosen, and can be cleared', async () => {
+      await send([
+        spend('m1', 3, { sessionId: 's-1', model: 'claude-opus-5' }),
+        spend('m2', 2, { sessionId: 's-1', model: 'claude-sonnet-5', subagent: true }),
+        spend('m3', 1, { sessionId: 's-1', model: 'claude-sonnet-5' }),
+      ]);
+      await linked(pullRequest({ number: 471, headRefName: 'claude/build-1' }));
+
+      const html = await (await thePullRequest(471, '?period=all&model=claude-sonnet-5&who=subagents')).text();
+
+      expect(pullRequestFigures(html).total).toBe('$2.00');
+      expect(html).toContain('<option value="claude-sonnet-5" selected>');
+      expect(html).toContain('<option value="">All models</option>');
+      expect(html).toContain('<option value="subagents" selected>');
+      expect(html).toContain('<option value="all">All</option>');
+    });
+
     it('a request with no price is left out of the dollars and counted beside them', async () => {
       await send([usage('waiting', { model: 'claude-future-1', sessionId: 's-1' }), spend('paid', 4, { sessionId: 's-1' })]);
       await linked(pullRequest({ number: 471, headRefName: 'claude/build-1' }));

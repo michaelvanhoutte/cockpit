@@ -1,5 +1,5 @@
 import { jobReads, jobStatuses, type JobStatus } from './jobs';
-import { CATEGORIES, type Category } from './validate';
+import { CATEGORIES, WHERE, type Category } from './validate';
 
 /** What the costs page can be asked, parsed from the address; anything unrecognised is the default. */
 export const PERIODS = { '7d': 7, '30d': 30, '90d': 90, all: null } as const;
@@ -127,11 +127,12 @@ export interface Series {
   short: string;
 }
 
-const WHERE_SERIES: Series[] = [
-  { key: 'local', label: "Engineers' machines", short: "Engineers' machines" },
-  { key: 'cloud', label: 'Cloud sessions', short: 'Cloud' },
-  { key: 'actions', label: 'CI (GitHub Actions)', short: 'CI' },
-];
+const WHERE_NAMES: Record<(typeof WHERE)[number], [label: string, short: string]> = {
+  local: ["Engineers' machines", "Engineers' machines"],
+  cloud: ['Cloud sessions', 'Cloud'],
+  actions: ['CI (GitHub Actions)', 'CI'],
+};
+const WHERE_SERIES: Series[] = WHERE.map((key) => ({ key, label: WHERE_NAMES[key][0], short: WHERE_NAMES[key][1] }));
 const OUTCOME_SERIES: Series[] = [
   { key: 'merged', label: 'Merged', short: 'Merged' },
   { key: 'open', label: 'Still open', short: 'Open' },
@@ -159,9 +160,8 @@ const PHASE_SHORT: Record<Category, string> = {
 };
 
 /**
- * The columns of a split, in order. Phases, places and outcomes are fixed
- * models are the
- * ones with dollars in the result, biggest first.
+ * The columns of a split, in order. Phases, places and outcomes are fixed;
+ * models are the ones with dollars in the result, biggest first.
  */
 export function seriesOf(split: Split, totals: Record<string, number>): Series[] {
   switch (split) {

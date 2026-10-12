@@ -47,13 +47,17 @@ const SERIES_COLOURS: Record<string, string> = {
   'no-pr': '#B9C4D6',
   'on-main': '#9A4A12',
 };
-/** Models take these in the order of their cost, wrapping once there are more models than colours. */
+/** A model takes these by its place among every model on record, so it keeps its colour whatever the filters; they wrap past eight. */
 const MODEL_COLOURS = ['#2F5BEA', '#F0A04B', '#6E3FA3', '#2B9A8A', '#C0504D', '#9A4A12', '#5F6672', '#B9C4D6'];
-const colourOf = (split: Split, key: string, index: number) =>
-  split === 'phase' ? COLOURS[key as Category] : split === 'model' ? MODEL_COLOURS[index % MODEL_COLOURS.length]! : SERIES_COLOURS[key]!;
+const colourOf = (split: Split, key: string, models: string[]) =>
+  split === 'phase'
+    ? COLOURS[key as Category]
+    : split === 'model'
+      ? MODEL_COLOURS[Math.max(models.indexOf(key), 0) % MODEL_COLOURS.length]!
+      : SERIES_COLOURS[key]!;
 export const PERIOD_LABELS: Record<Period, string> = { '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days', all: 'All time' };
 const SPLIT_LABELS: Record<Split, string> = { phase: 'Phase', model: 'Model', where: 'Where', outcome: 'Outcome' };
-const WHO_LABELS: Record<Who, string> = { all: 'All', main: 'Main session', subagents: 'Subagents' };
+export const WHO_LABELS: Record<Who, string> = { all: 'All', main: 'Main session', subagents: 'Subagents' };
 const GROUP_LABELS: Record<Group, string> = { pr: 'Pull request', issue: 'Issue', engineer: 'Engineer', category: 'Category', day: 'Day' };
 const UNITS: Record<Group, [string, string]> = {
   pr: ['pull request', 'pull requests'],
@@ -152,13 +156,13 @@ function whereItWent(page: CostsPage): string {
       : `<span class="muted">${number(groups.length)} ${groups.length === 1 ? one : many} · median ${dollars(median(groups.map((g) => g.totalMicros)))} each · at API list price</span>`;
   const cost = (s: Series) => bySeries[s.key] ?? 0;
   const segments = series
-    .map((s, i) => (cost(s) > 0 ? `<div style="width:${((cost(s) / totalMicros) * 100).toFixed(2)}%;background:${colourOf(query.split, s.key, i)}"></div>` : ''))
+    .map((s) => (cost(s) > 0 ? `<div style="width:${((cost(s) / totalMicros) * 100).toFixed(2)}%;background:${colourOf(query.split, s.key, page.models)}"></div>` : ''))
     .join('');
   const label = series.map((s) => `${s.label} ${dollars(cost(s))}`).join(', ');
   const legend = series
     .map(
-      (s, i) =>
-        `<div class="legend-item"><span class="swatch" style="background:${colourOf(query.split, s.key, i)}" aria-hidden="true"></span><span>${esc(s.label)}</span><span class="mono muted">${dollars(cost(s))}</span></div>`,
+      (s) =>
+        `<div class="legend-item"><span class="swatch" style="background:${colourOf(query.split, s.key, page.models)}" aria-hidden="true"></span><span>${esc(s.label)}</span><span class="mono muted">${dollars(cost(s))}</span></div>`,
     )
     .join('');
   return `<section class="card where" aria-labelledby="where">
@@ -169,7 +173,7 @@ function whereItWent(page: CostsPage): string {
 </section>`;
 }
 
-function row(g: CostGroup, group: Group, max: number, query: CostQuery, series: Series[]): string {
+function row(g: CostGroup, group: Group, max: number, query: CostQuery, series: Series[], models: string[]): string {
   const label = g.prNumber === null ? esc(g.label) : `<a href="/pr/${g.prNumber}${queryString(query, { engineer: null, group: 'pr', page: 1 })}">${esc(g.label)}</a>`;
   const first =
     `<td class="first">${label}${g.sub === null ? '' : `<div class="muted small">${esc(g.sub)}</div>`}</td>`;
@@ -181,7 +185,7 @@ function row(g: CostGroup, group: Group, max: number, query: CostQuery, series: 
         : '';
   const cost = (s: Series) => g.bySeries[s.key] ?? 0;
   const split = series
-    .map((s, i) => (cost(s) > 0 ? `<div style="width:${((cost(s) / max) * 100).toFixed(1)}%;background:${colourOf(query.split, s.key, i)}"></div>` : ''))
+    .map((s) => (cost(s) > 0 ? `<div style="width:${((cost(s) / max) * 100).toFixed(1)}%;background:${colourOf(query.split, s.key, models)}"></div>` : ''))
     .join('');
   const cells = series.map((s) => `<td class="num mono${s.key === 'ci-reviews' ? ' muted' : ''}">${cost(s) > 0 ? dollars(cost(s)) : '—'}</td>`).join('');
   const unpriced = g.unpricedRequests > 0 ? ` <span class="unpriced">+ ${number(g.unpricedRequests)} unpriced</span>` : '';
@@ -206,7 +210,7 @@ function table(page: CostsPage): string {
 <div class="scroll"><table class="costs">
 <thead><tr><th scope="col" class="first">${GROUP_LABELS[query.group]}</th>${extraHeads}<th scope="col" class="split-head">Split</th>${heads}<th scope="col" class="num">Total ▾</th></tr></thead>
 <tbody>
-${shown.map((g) => row(g, query.group, max, query, page.series)).join('\n')}
+${shown.map((g) => row(g, query.group, max, query, page.series, page.models)).join('\n')}
 </tbody></table></div>
 <div class="foot"><span>Showing ${shown.length === groups.length ? number(groups.length) : `${number(start + 1)}–${number(start + shown.length)} of ${number(groups.length)}`} · sorted by total</span><span>${pager}</span></div>
 </section>`;

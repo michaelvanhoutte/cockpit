@@ -1,5 +1,5 @@
-import { categoryName, PERIODS, queryString, type CostQuery, type Period } from './costs';
-import { COLOURS, dollars, esc, number, PERIOD_LABELS, STYLE, utc } from './page';
+import { categoryName, PERIODS, queryString, WHOS, type CostQuery, type Period } from './costs';
+import { COLOURS, dollars, esc, number, PERIOD_LABELS, STYLE, utc, WHO_LABELS } from './page';
 import type { CategoryLine, PullRequestPage, SessionLine } from './pull-request';
 import { CATEGORIES } from './validate';
 
@@ -53,19 +53,25 @@ ${page.sessions.map(sessionRow).join('\n')}
 </tbody></table></div></section>`;
 }
 
-/** The filters that apply to one pull request: period and category. The engineer is the pull request's own. */
+/** The filters that apply to one pull request: period, category, model and requests. The engineer is the pull request's own. */
 function filters(page: PullRequestPage): string {
   const q = page.query;
   const periods = (Object.keys(PERIODS) as Period[]).map((p) => `<option value="${p}"${p === q.period ? ' selected' : ''}>${PERIOD_LABELS[p]}</option>`).join('');
   const cats = [['', 'All categories'] as const, ...CATEGORIES.map((c) => [c, categoryName(c)] as const)]
     .map(([v, t]) => `<option value="${v}"${v === (q.category ?? '') ? ' selected' : ''}>${esc(t)}</option>`)
     .join('');
+  // The models this pull request's sessions used, and the one the address names, so a filter carried in from the costs page shows and can be cleared.
+  const used = [...new Set([...page.sessions.flatMap((s) => s.models), ...(q.model === null ? [] : [q.model])])].sort();
+  const models = [['', 'All models'] as const, ...used.map((m) => [m, m] as const)]
+    .map(([v, t]) => `<option value="${esc(v)}"${v === (q.model ?? '') ? ' selected' : ''}>${esc(t)}</option>`)
+    .join('');
+  const whos = WHOS.map((w) => `<option value="${w}"${w === q.who ? ' selected' : ''}>${WHO_LABELS[w]}</option>`).join('');
   const csv = `/export.csv?pr=${page.number}${queryString(q, { engineer: null, group: 'pr', split: 'phase', page: 1 }).replace('?', '&')}`;
   return `<form class="filters" method="get" action="/pr/${page.number}">
 <div class="field"><label for="period">Period</label><select id="period" name="period" onchange="this.form.submit()">${periods}</select></div>
 <div class="field"><label for="category">Category</label><select id="category" name="category" onchange="this.form.submit()">${cats}</select></div>
-${q.model === null ? '' : `<input type="hidden" name="model" value="${esc(q.model)}">`}
-${q.who === 'all' ? '' : `<input type="hidden" name="who" value="${q.who}">`}
+<div class="field"><label for="model">Model</label><select id="model" name="model" onchange="this.form.submit()">${models}</select></div>
+<div class="field"><label for="who">Requests</label><select id="who" name="who" onchange="this.form.submit()">${whos}</select></div>
 <noscript><button type="submit">Apply</button></noscript>
 <a class="button" href="${csv}" download>Export CSV</a>
 </form>`;
