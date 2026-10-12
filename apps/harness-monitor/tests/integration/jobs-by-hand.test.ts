@@ -1,6 +1,7 @@
 import { createExecutionContext, createScheduledController, env, SELF, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fakeGitHub, jobLine, pageOf, recordedPullRequest, theLinks, theLinkState } from './github-support';
+import { MAX_PAGES } from '../../src/github';
+import { fakeGitHub, jobLine, pageOf, pullRequest, recordedPullRequest, theLinks, theLinkState } from './github-support';
 import { dollars, emptyTheDatabase, pricing, recordedFile, runTheDailyJob, send, theFileAnswers, usage, WRITE_KEY } from './support';
 
 beforeEach(async () => {
@@ -30,6 +31,28 @@ describe('Harness Monitor', () => {
       expect((await theLinkState())[0]!.last_success_at).not.toBeNull();
     });
 
+    it('linking stopped by its budget says there is more to read, and the next run continues from the cursor and catches up', async () => {
+      let next = 0;
+      fakeGitHub(() => {
+        next += 1;
+        return pageOf([pullRequest({ number: next, headRefName: `b/${next}`, updatedAt: `2026-10-01T10:00:${String(next).padStart(2, '0')}Z` })], true);
+      });
+
+      const first = await (await start('linking')).json();
+
+      expect(first).toEqual({ job: 'linking', ok: true, message: `Linked ${MAX_PAGES} pull requests; more to read — run it again.` });
+      expect(await jobLine('linking')).toContain('more to read — run it again.');
+      const cursor = (await theLinkState())[0]!.cursor;
+      expect(cursor).toBe(`2026-10-01T10:00:${MAX_PAGES}Z`);
+
+      vi.restoreAllMocks();
+      const calls = fakeGitHub(() => pageOf([pullRequest({ number: 500, headRefName: 'b/500', updatedAt: '2026-10-02T10:00:00Z' })]));
+      const second = await (await start('linking')).json();
+
+      expect(calls[0]!.q).toContain(`updated:>=${cursor}`);
+      expect(second).toEqual({ job: 'linking', ok: true, message: 'Linked 1 pull request; caught up with GitHub.' });
+    });
+
     it('prices fetches the list and prices the waiting rows, answering with both counts', async () => {
       await send([usage('waiting', { model: 'claude-sonnet-5', inputTokens: 1_000_000, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 })]);
       theFileAnswers(recordedFile);
@@ -53,7 +76,8 @@ describe('Harness Monitor', () => {
 
     it.each([
       { situation: 'refuses the token', status: 401, message: 'GitHub refused the token (401).' },
-      { situation: 'errors', status: 502, message: 'GitHub answered 502.' },
+      { situation: 'errors', status: 500, message: 'GitHub answered 500.' },
+      { situation: 'times out', status: 502, message: 'GitHub timed out (502).' },
     ])('linking with GitHub that $situation answers with that error and changes nothing', async ({ status, message }) => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
       fakeGitHub(() => new Response('refused', { status }));

@@ -10,20 +10,24 @@ export interface PullRequest {
   engineer: string | null;
 }
 
-/** Pull requests per page. */
-export const PAGE_SIZE = 100;
+/**
+ * Pull requests per page. A page of 100, each with its closing issue, makes GitHub
+ * time out (a 502 or 504), so pages are small; a retry asks for half.
+ */
+export const PAGE_SIZE = 25;
 
 /** GitHub's search returns at most this many results for one query, then reports no next page. */
 export const SEARCH_CAP = 1000;
 
 /**
- * Most pages one run reads. Each page is one subrequest, and the free plan allows
- * 50 per invocation (D1 queries count too), so this leaves room for the rest.
+ * Most requests one run makes to GitHub, a retry after a timeout included. Each is
+ * one subrequest, and the free plan allows 50 per invocation (D1 queries count
+ * too), so this leaves room for the rest.
  */
 export const MAX_PAGES = 30;
 
-const QUERY = `query($q: String!, $after: String) {
-  search(query: $q, type: ISSUE, first: ${PAGE_SIZE}, after: $after) {
+const QUERY = `query($q: String!, $after: String, $first: Int!) {
+  search(query: $q, type: ISSUE, first: $first, after: $after) {
     pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
@@ -70,6 +74,8 @@ function toPullRequest(node: Node | null): PullRequest | null {
   };
 }
 
+const timedOut = (response: Response) => response.status === 502 || response.status === 504;
+
 /**
  * Reads the pull requests updated at or after `since`, oldest first, so a run
  * cut short by its page budget leaves a cursor with nothing older unread.
@@ -90,17 +96,25 @@ export async function fetchChangedPullRequests(
   // Results read under the current query, and the newest updated time among them.
   let inWindow = 0;
   let newest = since;
-  for (let page = 1; ; page += 1) {
-    const response: Response = await fetch('https://api.github.com/graphql', {
+  let requests = 0;
+  const ask = (first: number): Promise<Response> => {
+    requests += 1;
+    return fetch('https://api.github.com/graphql', {
       method: 'POST',
       headers: {
         authorization: `Bearer ${token}`,
         'content-type': 'application/json',
         'user-agent': 'harness-monitor',
       },
-      body: JSON.stringify({ query: QUERY, variables: { q, after } }),
+      body: JSON.stringify({ query: QUERY, variables: { q, after, first } }),
       signal: AbortSignal.timeout(15_000),
     });
+  };
+  for (;;) {
+    let response = await ask(PAGE_SIZE);
+    // 502 and 504 are GitHub timing out on a slow page: one retry at half the size, if the budget has a request left.
+    if (timedOut(response) && requests < MAX_PAGES) response = await ask(Math.floor(PAGE_SIZE / 2));
+    if (timedOut(response)) throw new Error(`GitHub timed out (${response.status}).`);
     if (!response.ok) throw new Error(`GitHub answered ${response.status}.`);
     const body = (await response.json()) as {
       data?: { search?: { pageInfo?: { hasNextPage?: boolean; endCursor?: string | null }; nodes?: (Node | null)[] } };
@@ -120,7 +134,7 @@ export async function fetchChangedPullRequests(
     // At the cap GitHub reports no next page though more may match: search again from the newest read.
     const capped = !more && inWindow >= SEARCH_CAP;
     if (!more && !capped) return { pullRequests, caughtUp: true };
-    if (page === MAX_PAGES) return { pullRequests, caughtUp: false };
+    if (requests >= MAX_PAGES) return { pullRequests, caughtUp: false };
     if (capped) {
       q = query(newest);
       after = null;

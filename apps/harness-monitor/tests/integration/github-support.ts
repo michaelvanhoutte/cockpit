@@ -37,6 +37,8 @@ export const pageOf = (nodes: Node[], hasNextPage = false) =>
 export interface GitHubCall {
   q: string;
   after: string | null;
+  /** The page size asked for. */
+  first: number;
   authorization: string | null;
 }
 
@@ -50,8 +52,8 @@ export function fakeGitHub(answer: (call: GitHubCall, calls: GitHubCall[]) => Re
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.href !== 'https://api.github.com/graphql') throw new Error(`Unexpected request to ${url.href}`);
-    const { variables } = JSON.parse(String(init?.body)) as { variables: { q: string; after: string | null } };
-    const call = { q: variables.q, after: variables.after, authorization: new Headers(init?.headers).get('authorization') };
+    const { variables } = JSON.parse(String(init?.body)) as { variables: { q: string; after: string | null; first: number } };
+    const call = { q: variables.q, after: variables.after, first: variables.first, authorization: new Headers(init?.headers).get('authorization') };
     calls.push(call);
     return answer(call, calls);
   });

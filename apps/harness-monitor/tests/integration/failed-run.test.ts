@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { PAGE_SIZE } from '../../src/github';
 import { fakeGitHub, pageOf, recordedPullRequest, runHourly, theLinks, theLinkState } from './github-support';
 import { emptyTheDatabase, send, usage } from './support';
 
@@ -33,6 +34,29 @@ describe('Harness Monitor', () => {
 
       await runHourly();
 
+      expect(await theLinks()).toEqual(before.links);
+      expect(await theLinkState()).toEqual(before.state);
+    });
+
+    it.each([502, 504])('a page GitHub times out on (%i) is asked again once at half the size, and the run carries on', async (status) => {
+      const calls = fakeGitHub((call) => (call.first === PAGE_SIZE ? new Response('timeout', { status }) : pageOf([recordedPullRequest(979)])));
+
+      await runHourly();
+
+      expect(calls.map((c) => c.first)).toEqual([PAGE_SIZE, Math.floor(PAGE_SIZE / 2)]);
+      expect((await theLinks()).map((l) => l.pr_number)).toEqual([979]);
+      expect((await theLinkState())[0]!.last_success_at).not.toBeNull();
+    });
+
+    it('a page that times out again on the retry fails the run, says GitHub timed out, and changes nothing', async () => {
+      const before = await afterASuccessfulRun();
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const calls = fakeGitHub(() => new Response('timeout', { status: 504 }));
+
+      await runHourly();
+
+      expect(calls).toHaveLength(2);
+      expect(console.error).toHaveBeenCalledWith(expect.stringContaining('GitHub timed out (504).'));
       expect(await theLinks()).toEqual(before.links);
       expect(await theLinkState()).toEqual(before.state);
     });

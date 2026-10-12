@@ -42,16 +42,17 @@ describe('Harness Monitor', () => {
     });
 
     it("at GitHub's cap on one search's results, the run searches again from the newest pull request read", async () => {
+      const perPage = 100;
       const page = (from: number) =>
-        Array.from({ length: PAGE_SIZE }, (_, i) =>
+        Array.from({ length: perPage }, (_, i) =>
           pullRequest({ number: from + i, headRefName: `b/${from + i}`, updatedAt: `2026-10-01T${String(Math.floor((from + i) / 60)).padStart(2, '0')}:${String((from + i) % 60).padStart(2, '0')}:00Z` }),
         );
-      const pages = SEARCH_CAP / PAGE_SIZE;
+      const pages = SEARCH_CAP / perPage;
       const beyond = pullRequest({ number: 5000, headRefName: 'b/beyond', updatedAt: '2026-10-02T10:00:00Z' });
       const calls = fakeGitHub((call, all) => {
         if (call.q.includes('updated:>=')) return pageOf([beyond]);
         const n = all.length;
-        return pageOf(page((n - 1) * PAGE_SIZE), n < pages);
+        return pageOf(page((n - 1) * perPage), n < pages);
       });
 
       await runHourly();

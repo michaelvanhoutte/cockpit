@@ -35,7 +35,7 @@ async function execute(env: LinkEnv, job: JobName, now: number): Promise<JobOutc
     if (run.status === 'skipped') return { ok: false, message: 'Skipped: GITHUB_TOKEN or GITHUB_REPOSITORY is not set on the Worker.' };
     if (run.status === 'failed') return { ok: false, message: run.error };
     const linked = `Linked ${plural(run.linked, 'pull request')}`;
-    return { ok: true, message: run.status === 'caught-up' ? `${linked}; caught up with GitHub.` : `${linked}; more are left to read.` };
+    return { ok: true, message: run.status === 'caught-up' ? `${linked}; caught up with GitHub.` : `${linked}; more to read — run it again.` };
   }
   if (job === 'prices') {
     const refreshed = await refreshPriceList(env.DB, now);
