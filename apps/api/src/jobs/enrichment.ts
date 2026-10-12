@@ -179,7 +179,7 @@ export interface GuestArrivalJob {
   kind: 'guest-arrival';
   accountName: string;
   workspaceId: string;
-  source: 'gmail' | 'teams';
+  source: string;
   itemId: string;
   commandId: string;
 }
@@ -237,7 +237,7 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     kind: z.literal('guest-arrival'),
     accountName: z.string().min(1),
     workspaceId: z.string().min(1),
-    source: z.enum(['gmail', 'teams']),
+    source: z.string().min(1),
     itemId: z.uuid(),
     commandId: z.uuid(),
   }),
