@@ -1825,10 +1825,6 @@ const routes = app
   .openapi(commandRoute('set_item_form_presentation'), async (c) =>
     c.json(await change(c, 'set_item_form_presentation', c.req.valid('json')), 200),
   )
-  // --- attachments ("Attach a file to an item", issue 441): outside the
-  // OpenAPI/JSON contract, the same as the ingress and operator routes below
-  // - a file's bytes cannot ride in a `commandRoute`'s JSON body, and a
-  // download answers with the bytes themselves rather than JSON.
   // --- dictation ("Dictate in Write with Whisper", issue 1041): outside the
   // OpenAPI/JSON contract for the reason attachments are - the body is the
   // recording's own bytes. Behind the sign-in gate like everything not named
@@ -1848,6 +1844,10 @@ const routes = app
     const text = await transcriber.transcribe(audio, c.get('visitor').accountName);
     return c.json({ text }, 200);
   })
+  // --- attachments ("Attach a file to an item", issue 441): outside the
+  // OpenAPI/JSON contract, the same as the ingress and operator routes below
+  // - a file's bytes cannot ride in a `commandRoute`'s JSON body, and a
+  // download answers with the bytes themselves rather than JSON.
   .post('/v1/items/:itemId/attachments', async (c) => {
     const itemId = c.req.param('itemId');
 
