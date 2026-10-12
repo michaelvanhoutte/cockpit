@@ -7,8 +7,10 @@ const PHASE = phaseSql('t.');
 /** What the costs page can be asked, parsed from the address; anything unrecognised is the default. */
 export const PERIODS = { '7d': 7, '30d': 30, '90d': 90, all: null } as const;
 export type Period = keyof typeof PERIODS;
-export const GROUPS = ['pr', 'issue', 'engineer', 'category', 'day'] as const;
+/** Over time ('day') comes first and is the page the bare address opens. */
+export const GROUPS = ['day', 'pr', 'issue', 'engineer', 'category'] as const;
 export type Group = (typeof GROUPS)[number];
+export const DEFAULT_GROUP: Group = 'day';
 
 /** What the dollars are split by: the "where it went" bar, each row's split bar and the $ columns. */
 export const SPLITS = ['phase', 'model', 'where', 'outcome'] as const;
@@ -53,7 +55,7 @@ export function parseQuery(params: URLSearchParams): CostQuery {
     category: (CATEGORIES as readonly string[]).includes(category) ? category : null,
     model: MODEL_ID.test(model) ? model : null,
     who: (WHOS as readonly string[]).includes(who) ? who : 'all',
-    group: (GROUPS as readonly string[]).includes(group) ? group : 'pr',
+    group: (GROUPS as readonly string[]).includes(group) ? group : DEFAULT_GROUP,
     split: (SPLITS as readonly string[]).includes(split) ? split : 'phase',
     page: Number.isInteger(page) && page >= 1 ? page : 1,
   };
@@ -68,7 +70,7 @@ export function queryString(q: CostQuery, over: Partial<CostQuery> = {}): string
   if (all.category) params.set('category', all.category);
   if (all.model) params.set('model', all.model);
   if (all.who !== 'all') params.set('who', all.who);
-  if (all.group !== 'pr') params.set('group', all.group);
+  if (all.group !== DEFAULT_GROUP) params.set('group', all.group);
   if (all.split !== 'phase') params.set('split', all.split);
   if (all.page > 1) params.set('page', String(all.page));
   const text = params.toString();
@@ -117,8 +119,10 @@ export interface CostGroup {
   label: string;
   /** A second line under the label. */
   sub: string | null;
-  /** The pull request a by-pull-request group is, once linked; its page opens from the label. */
+  /** The pull request a by-pull-request group is, once linked. */
   prNumber: number | null;
+  /** The issue a by-pull-request or by-issue group names; null for none. */
+  issue: number | null;
   engineer: string | null;
   /** When a pull request merged, or its state while it has not. */
   merged: string | null;
@@ -259,7 +263,7 @@ export function groupRows(rows: TotalRow[], group: Group, lastLinkSuccessAt: num
     const place = placeOf(row, group, linking);
     let g = groups.get(place.key);
     if (!g) {
-      g = { ...place, prNumber: group === 'pr' ? row.prNumber : null, engineer: row.prNumber === null ? null : row.engineer, merged: mergedOf(row), pullRequests: 0, openToMerged: row.openedAt !== null && row.mergedAt !== null ? openFor(row.openedAt, row.mergedAt) : null, lines: row.linesAdded !== null && row.linesRemoved !== null ? { added: row.linesAdded, removed: row.linesRemoved } : null, ciRounds: row.ciRounds, rounds: row.localRounds !== null && row.ciRounds !== null ? row.localRounds + row.ciRounds : null, findings: row.findings, bySeries: bag(), totalMicros: 0, unpricedRequests: 0 };
+      g = { ...place, prNumber: group === 'pr' ? row.prNumber : null, issue: group === 'pr' || group === 'issue' ? row.issue : null, engineer: row.prNumber === null ? null : row.engineer, merged: mergedOf(row), pullRequests: 0, openToMerged: row.openedAt !== null && row.mergedAt !== null ? openFor(row.openedAt, row.mergedAt) : null, lines: row.linesAdded !== null && row.linesRemoved !== null ? { added: row.linesAdded, removed: row.linesRemoved } : null, ciRounds: row.ciRounds, rounds: row.localRounds !== null && row.ciRounds !== null ? row.localRounds + row.ciRounds : null, findings: row.findings, bySeries: bag(), totalMicros: 0, unpricedRequests: 0 };
       groups.set(place.key, g);
       prs.set(place.key, new Set());
     }
@@ -271,7 +275,46 @@ export function groupRows(rows: TotalRow[], group: Group, lastLinkSuccessAt: num
     if (row.prNumber !== null) prs.get(place.key)!.add(row.prNumber);
   }
   for (const [key, g] of groups) g.pullRequests = prs.get(key)!.size;
-  return [...groups.values()].sort((a, b) => b.totalMicros - a.totalMicros || a.label.localeCompare(b.label));
+  // Over time lists the newest day first; every other grouping, the dearest.
+  return [...groups.values()].sort((a, b) => (group === 'day' ? b.key.localeCompare(a.key) : b.totalMicros - a.totalMicros || a.label.localeCompare(b.label)));
+}
+
+/** One line of the per-day chart: a series' dollars on every day of the range. */
+export interface DayLine {
+  key: string;
+  label: string;
+  /** One value per day, in micros; 0 for a day with no cost. */
+  micros: number[];
+}
+
+export interface DayChart {
+  /** Every UTC day from the first to the last, oldest first. */
+  days: string[];
+  /** A line per series with any cost. */
+  lines: DayLine[];
+  /** The total's dollars on each day. */
+  total: number[];
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Cost per day as lines: one per series of the split that has cost, and the
+ * total. The range runs from the period's first day (the earliest day with
+ * cost for all time) to today, so a day with no cost is a zero, not a gap.
+ */
+export function dayChart(groups: CostGroup[], series: Series[], first: string | null, now: number): DayChart {
+  if (groups.length === 0) return { days: [], lines: [], total: [] };
+  const byDay = new Map(groups.map((g) => [g.key, g]));
+  const keys = groups.map((g) => g.key).sort();
+  const start = first ?? keys[0]!;
+  const end = [new Date(now).toISOString().slice(0, 10), keys.at(-1)!].sort().at(-1)!;
+  const days: string[] = [];
+  for (let t = Date.parse(start); t <= Date.parse(end); t += DAY_MS) days.push(new Date(t).toISOString().slice(0, 10));
+  const lines = series
+    .filter((s) => groups.some((g) => (g.bySeries[s.key] ?? 0) > 0))
+    .map((s) => ({ key: s.key, label: s.label, micros: days.map((d) => byDay.get(d)?.bySeries[s.key] ?? 0) }));
+  return { days, lines, total: days.map((d) => byDay.get(d)?.totalMicros ?? 0) };
 }
 
 export function median(values: number[]): number {

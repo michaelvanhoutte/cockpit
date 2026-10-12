@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { firstDay, groupRows, median, parseQuery, queryString, type TotalRow } from '../../src/costs';
+import { dayChart, firstDay, groupRows, seriesOf, median, parseQuery, queryString, type TotalRow } from '../../src/costs';
 
 const row = (over: Partial<TotalRow>): TotalRow => ({
   day: '',
@@ -28,21 +28,21 @@ const row = (over: Partial<TotalRow>): TotalRow => ({
 describe('Harness Monitor', () => {
   describe('the costs page is asked for by its address', () => {
     it.each([
-      { situation: 'nothing', query: '', expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'pr', split: 'phase', page: 1 } },
+      { situation: 'nothing', query: '', expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', page: 1 } },
       {
         situation: 'every filter',
-        query: 'period=all&engineer=alice&category=ci-reviews&model=claude-opus-5&who=subagents&group=day&split=outcome&page=3',
-        expected: { period: 'all', engineer: 'alice', category: 'ci-reviews', model: 'claude-opus-5', who: 'subagents', group: 'day', split: 'outcome', page: 3 },
+        query: 'period=all&engineer=alice&category=ci-reviews&model=claude-opus-5&who=subagents&group=pr&split=outcome&page=3',
+        expected: { period: 'all', engineer: 'alice', category: 'ci-reviews', model: 'claude-opus-5', who: 'subagents', group: 'pr', split: 'outcome', page: 3 },
       },
       {
         situation: 'values it does not know',
         query: 'period=forever&category=lunch&group=colour&split=colour&model=%20not%20a%20model&who=everyone&page=-2',
-        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'pr', split: 'phase', page: 1 },
+        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', page: 1 },
       },
       {
         situation: 'names every object inherits',
         query: 'period=toString&category=constructor&group=__proto__&split=constructor&who=toString',
-        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'pr', split: 'phase', page: 1 },
+        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', page: 1 },
       },
     ])('$situation is read as the filters it names, or the default', ({ query, expected }) => {
       expect(parseQuery(new URLSearchParams(query))).toEqual(expected);
@@ -64,7 +64,7 @@ describe('Harness Monitor', () => {
     });
 
     it('the same page has one address however it was spelled (period, group, page)', () => {
-      const spelled = parseQuery(new URLSearchParams('junk=1&group=pr&engineer=&period=30d&page=1'));
+      const spelled = parseQuery(new URLSearchParams('junk=1&group=day&engineer=&period=30d&page=1'));
 
       expect(queryString(spelled)).toBe('');
       expect(queryString(spelled, { group: 'issue', page: 2 })).toBe('?group=issue&page=2');
@@ -162,6 +162,64 @@ describe('Harness Monitor', () => {
       const [group] = groupRows([row({ prNumber: null, title: null, branch, lastAt })], 'pr', success);
 
       expect(group!.sub).toBe(says);
+    });
+  });
+
+  describe('Over time lists the newest day first and charts every day of the range', () => {
+    const day = (d: string, series: string, micros: number) => row({ day: d, series, costMicros: micros, prNumber: null, title: null, branch: '' });
+    const chartOf = (rows: TotalRow[], split: 'phase' | 'model', first: string | null, now: string) => {
+      const groups = groupRows(rows, 'day', null);
+      const totals: Record<string, number> = {};
+      for (const g of groups) for (const [k, v] of Object.entries(g.bySeries)) totals[k] = (totals[k] ?? 0) + v;
+      return dayChart(groups, seriesOf(split, totals), first, Date.parse(now));
+    };
+
+    it('a newer day that cost less sits above an older one that cost more', () => {
+      const groups = groupRows([day('2026-10-01', 'building', 9), day('2026-10-02', 'building', 1)], 'day', null);
+
+      expect(groups.map((g) => g.label)).toEqual(['2026-10-02', '2026-10-01']);
+    });
+
+    it('split by phase there is a line per phase with cost, and the total', () => {
+      const chart = chartOf([day('2026-10-01', 'building', 2), day('2026-10-01', 'after-push', 1)], 'phase', null, '2026-10-01T12:00:00Z');
+
+      expect(chart.lines.map((l) => [l.key, l.micros])).toEqual([
+        ['building', [2]],
+        ['after-push', [1]],
+      ]);
+      expect(chart.total).toEqual([3]);
+    });
+
+    it('split by model there is a line per model', () => {
+      const chart = chartOf([day('2026-10-01', 'claude-a', 2), day('2026-10-01', 'claude-b', 5)], 'model', null, '2026-10-01T12:00:00Z');
+
+      expect(chart.lines.map((l) => l.key)).toEqual(['claude-b', 'claude-a']);
+    });
+
+    it('a day with no cost between two that have some is a zero, not a gap', () => {
+      const chart = chartOf([day('2026-10-01', 'building', 2), day('2026-10-03', 'building', 4)], 'phase', null, '2026-10-03T12:00:00Z');
+
+      expect(chart.days).toEqual(['2026-10-01', '2026-10-02', '2026-10-03']);
+      expect(chart.lines[0]!.micros).toEqual([2, 0, 4]);
+      expect(chart.total).toEqual([2, 0, 4]);
+    });
+
+    it('the range runs from the first day of the period to today, so leading and trailing days are zeros', () => {
+      const chart = chartOf([day('2026-10-02', 'building', 2)], 'phase', '2026-10-01', '2026-10-03T12:00:00Z');
+
+      expect(chart.days).toEqual(['2026-10-01', '2026-10-02', '2026-10-03']);
+      expect(chart.total).toEqual([0, 2, 0]);
+    });
+
+    it('a single day is one point and no error', () => {
+      const chart = chartOf([day('2026-10-01', 'building', 2)], 'phase', null, '2026-10-01T12:00:00Z');
+
+      expect(chart.days).toEqual(['2026-10-01']);
+      expect(chart.lines[0]!.micros).toEqual([2]);
+    });
+
+    it('with no cost there is nothing to chart', () => {
+      expect(chartOf([], 'phase', null, '2026-10-01T12:00:00Z')).toEqual({ days: [], lines: [], total: [] });
     });
   });
 });

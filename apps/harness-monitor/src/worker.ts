@@ -1,5 +1,5 @@
 import { checkWriteKey } from './auth';
-import { costsPage, parseQuery, queryString } from './costs';
+import { costsPage, DEFAULT_GROUP, parseQuery, queryString } from './costs';
 import { exportCsv } from './export';
 import { isJob, JOBS, runJob, type JobName } from './jobs';
 import { renderPage } from './page';
@@ -86,7 +86,7 @@ async function costs(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (hit) return hit;
 
   const [page, unpriced] = await Promise.all([costsPage(env.DB, query), unpricedLines(env.DB)]);
-  const response = new Response(renderPage(page, { unpriced }), {
+  const response = new Response(renderPage(page, { unpriced, repository: env.GITHUB_REPOSITORY }), {
     headers: {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': cache ? `public, max-age=${seconds}` : 'no-store',
@@ -106,7 +106,7 @@ async function pullRequest(request: Request, env: Env, ctx: ExecutionContext, ra
   const number = prNumber(raw);
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
-  const key = new Request(`${url.origin}/pr/${raw}${queryString(query, { engineer: null, group: 'pr', split: 'phase', page: 1 })}`);
+  const key = new Request(`${url.origin}/pr/${raw}${queryString(query, { engineer: null, group: DEFAULT_GROUP, split: 'phase', page: 1 })}`);
   const hit = await cache?.match(key);
   if (hit) return hit;
 
