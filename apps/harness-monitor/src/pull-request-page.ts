@@ -45,7 +45,7 @@ const share = (part: number, whole: number) => (whole > 0 ? `${Math.round((part 
 function sessionRows(s: SessionLine): string {
   const head =
     `<tr class="session"><td class="mono small">${esc(s.sessionId)}</td><td>${esc(s.where.map((w) => WHERE_NAMES[w] ?? w).join(', '))}</td><td>${esc(s.models.join(', '))}</td>` +
-    `<td class="num mono">${number(s.requests)}</td><td class="num mono">${compact(s.tokens)}</td><td class="num mono total">${dollars(s.costMicros)}${unpriced(s.unpricedRequests)}</td><td class="num mono">${share(s.costMicros, s.costMicros)}</td></tr>`;
+    `<td class="num mono">${number(s.requests)}</td><td class="num mono">${compact(s.tokens)}</td><td class="num mono total">${dollars(s.costMicros)}${unpriced(s.unpricedRequests)}</td><td></td></tr>`;
   const agents = s.agents.map((a) => {
     const name = a.kind === 'main' ? 'Main agent' : a.type === null ? '<span class="muted">type not recorded</span>' : esc(a.type);
     const id = a.kind === 'main' || a.id === null ? '' : `<span class="mono small muted"> ${esc(a.id)}</span>`;

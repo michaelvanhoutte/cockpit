@@ -130,10 +130,11 @@ export async function pullRequestPage(db: D1Database, query: CostQuery, number: 
 
     // Requests stored before the type was recorded all share one line, whatever subagent they were.
     const kind = r.subagent ? 'subagent' : 'main';
-    const key = kind === 'main' ? `${r.sessionId}\0main` : `${r.sessionId}\0${r.subagentType ?? ''}\0${r.subagentId ?? ''}`;
+    const id = r.subagentType === null ? null : r.subagentId;
+    const key = kind === 'main' ? `${r.sessionId}\0main` : `${r.sessionId}\0${r.subagentType ?? ''}\0${id ?? ''}`;
     let a = agents.get(key);
     if (!a) {
-      a = { kind, type: r.subagentType, id: r.subagentId, models: [], requests: 0, tokens: 0, costMicros: 0, unpricedRequests: 0 };
+      a = { kind, type: r.subagentType, id, models: [], requests: 0, tokens: 0, costMicros: 0, unpricedRequests: 0 };
       agents.set(key, a);
       s.agents.push(a);
     }

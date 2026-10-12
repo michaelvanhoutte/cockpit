@@ -121,7 +121,8 @@ describe('Harness Monitor', () => {
         spend('e1', 5, { sessionId: 's1', subagent: true, subagentType: 'Explore', subagentId: 'ex-1' }),
         spend('g1', 1, { sessionId: 's1', subagent: true, subagentType: 'general-purpose', subagentId: 'gp-1', category: 'after-push' }),
         spend('o1', 1, { sessionId: 's1', subagent: true }),
-        spend('o2', 1, { sessionId: 's1', subagent: true }),
+        // An id with no type still joins the one untyped line.
+        spend('o2', 1, { sessionId: 's1', subagent: true, subagentId: 'lost-1' }),
         spend('solo', 3, { sessionId: 's2' }),
       ]);
       await linked(pullRequest({ number: 5, headRefName: 'claude/build-1' }));
