@@ -37,7 +37,6 @@ export async function emptyTheDatabase() {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM usage_requests'),
     env.DB.prepare('DELETE FROM daily_totals'),
-    env.DB.prepare('DELETE FROM daily_branch_totals'),
     env.DB.prepare('DELETE FROM daily_split_totals'),
     env.DB.prepare('DELETE FROM session_starts'),
     env.DB.prepare('DELETE FROM price_list'),

@@ -67,7 +67,6 @@ describe('Harness Monitor', () => {
       await send([spend('old', 4, { time: BEFORE }), spend('new', 2, { time: AFTER })]);
       const written = await totals();
       // A totals row from a deployment that predates the rule: Building, on a day before it.
-      await env.DB.prepare("UPDATE daily_branch_totals SET category = 'building'").run();
       await env.DB.prepare("UPDATE daily_totals SET category = 'building'").run();
       await env.DB.prepare("UPDATE daily_split_totals SET category = 'building'").run();
 
