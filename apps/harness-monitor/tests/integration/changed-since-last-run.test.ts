@@ -1,6 +1,7 @@
+import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_REQUESTS } from '../../src/github';
-import { cursorAfter, fakeGitHub, listing, pageOf, pullRequest, recordedPullRequest, runHourly, theLinks, theLinkState, timedOut } from './github-support';
+import { cursorAfter, fakeGitHub, listing, pageOf, pullRequest, recordedPullRequest, runHourly, theLinks, theLinkState, timedOut, withErrors } from './github-support';
 import { emptyTheDatabase } from './support';
 
 beforeEach(emptyTheDatabase);
@@ -57,8 +58,7 @@ describe('Harness Monitor', () => {
     it('a page GitHub answers in part, beside errors about the rest, is kept and the run carries on', async () => {
       // A closing issue the token cannot see comes back as null with an error naming it.
       const hidden = { ...pullRequest({ number: 1, headRefName: 'b/1' }), closingIssuesReferences: null } as unknown as ReturnType<typeof pullRequest>;
-      const page = (await pageOf([hidden, pullRequest({ number: 2, headRefName: 'b/2' })]).json()) as object;
-      fakeGitHub(() => Response.json({ ...page, errors: [{ message: 'Resource not accessible by integration', path: ['repository', 'pullRequests', 'nodes', 0, 'closingIssuesReferences'] }] }));
+      fakeGitHub(async () => withErrors(pageOf([hidden, pullRequest({ number: 2, headRefName: 'b/2' })]), 'Resource not accessible by integration'));
 
       await runHourly();
 
@@ -67,6 +67,58 @@ describe('Harness Monitor', () => {
         ['b/2', recordedPullRequest(979).closingIssuesReferences.nodes[0]!.number],
       ]);
       expect((await theLinkState())[0]!.last_success_at).not.toBeNull();
+    });
+
+    it("an issue or engineer GitHub could not give, beside errors, never erases the one a branch is already linked to", async () => {
+      fakeGitHub(() => pageOf([pullRequest({ number: 1, headRefName: 'b/1' })]));
+      await runHourly();
+      const before = (await theLinks())[0]!;
+      vi.restoreAllMocks();
+      const hidden = { ...pullRequest({ number: 1, headRefName: 'b/1', title: 'renamed', updatedAt: '2026-10-12T10:00:00Z' }), closingIssuesReferences: null, author: null };
+      fakeGitHub(async () => withErrors(pageOf([hidden as unknown as ReturnType<typeof pullRequest>]), 'Resource not accessible by integration'));
+
+      await runHourly();
+
+      expect((await theLinks())[0]).toEqual({ ...before, title: 'renamed' });
+    });
+
+    it('a pull request read again unchanged is not written again', async () => {
+      fakeGitHub(() => pageOf([recordedPullRequest(979)]));
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-04-01T12:00:00Z') });
+      try {
+        await runHourly();
+        vi.setSystemTime(new Date('2026-04-01T13:00:00Z'));
+        await runHourly();
+      } finally {
+        vi.useRealTimers();
+      }
+
+      const { results } = await env.DB.prepare('SELECT linked_at FROM branch_links').all<{ linked_at: number }>();
+      expect(results.map((r) => r.linked_at)).toEqual([Date.parse('2026-04-01T12:00:00Z')]);
+    });
+  });
+
+  describe('a page GitHub answers only in part is never stepped past', () => {
+    const first = pullRequest({ number: 1, headRefName: 'b/1', updatedAt: '2026-10-01T10:00:00Z' });
+    const second = pullRequest({ number: 2, headRefName: 'b/2', updatedAt: '2026-10-02T10:00:00Z' });
+    const partOfAPage = async (body: Record<string, unknown>) => Response.json(body);
+    const connection = (pageInfo: unknown, nodes: unknown[]) => ({ data: { repository: { pullRequests: { pageInfo, nodes } } } });
+
+    it.each([
+      {
+        situation: 'pull requests beside an error saying the query timed out',
+        answer: async () => withErrors(pageOf([second], true), 'Something went wrong while executing your query. This may be the result of a timeout.'),
+      },
+      { situation: 'a pull request left out as null', answer: () => partOfAPage({ ...connection({ hasNextPage: false, endCursor: 'cursor-2' }, [second, null]), errors: [{ message: 'x' }] }) },
+      { situation: 'no word on where the page ends', answer: () => partOfAPage(connection(undefined, [second])) },
+      { situation: 'more to read but no place to read it from', answer: () => partOfAPage(connection({ hasNextPage: true, endCursor: null }, [second])) },
+    ])('$situation: the pages before it are kept, the run stops there, and the next run starts at that page', async ({ answer }) => {
+      fakeGitHub((call) => (call.after === null ? pageOf([first], true) : answer()));
+
+      await runHourly();
+
+      expect((await theLinks()).map((l) => l.branch)).toEqual(['b/1']);
+      expect((await theLinkState())[0]).toEqual({ cursor: cursorAfter(first), last_success_at: null });
     });
   });
 

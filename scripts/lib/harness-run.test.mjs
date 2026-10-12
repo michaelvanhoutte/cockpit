@@ -50,8 +50,8 @@ describe('Harness Monitor', () => {
       { situation: 'no address', args: ['prices'], set: { HARNESS_MONITOR_URL: undefined }, error: 'Set HARNESS_MONITOR_URL first' },
       { situation: 'no key', args: ['prices'], set: { HARNESS_WRITE_KEY: '' }, error: 'Set HARNESS_WRITE_KEY first' },
       { situation: 'neither', args: ['prices'], set: { HARNESS_MONITOR_URL: undefined, HARNESS_WRITE_KEY: undefined }, error: 'Set HARNESS_MONITOR_URL and HARNESS_WRITE_KEY first' },
-      { situation: 'no job named', args: [], set: {}, error: 'Name the job to start: linking, prices, rebuild.' },
-      { situation: 'an unknown job', args: ['everything'], set: {}, error: 'Name the job to start: linking, prices, rebuild.' },
+      { situation: 'no job named', args: [], set: {}, error: 'Name the job to start: linking, prices, rebuild; linking --full re-reads from the first pull request.' },
+      { situation: 'an unknown job', args: ['everything'], set: {}, error: 'Name the job to start: linking, prices, rebuild; linking --full' },
     ]) {
       it(`${situation} says what is missing and runs nothing`, () => {
         const plan = planRun(args, { ...env, ...set });

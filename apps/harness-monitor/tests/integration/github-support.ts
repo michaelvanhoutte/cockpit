@@ -60,6 +60,11 @@ export const listing = (all: Node[]) => (call: { after: string | null; first: nu
 /** GitHub's answer to an `after` it cannot read. */
 export const badCursor = (after: string) => Response.json({ data: null, errors: [{ message: `\`${after}\` does not appear to be a valid cursor.` }] });
 
+/** A page as GitHub answers it with an error about part of it beside the data. */
+export async function withErrors(page: Response, message: string) {
+  return Response.json({ ...((await page.json()) as object), errors: [{ message }] });
+}
+
 /** GitHub taking too long over a page. */
 export const timedOut = () => new Response('timeout', { status: 504 });
 

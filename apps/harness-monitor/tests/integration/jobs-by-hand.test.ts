@@ -2,6 +2,7 @@ import { createExecutionContext, createScheduledController, env, waitOnExecution
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_REQUESTS } from '../../src/github';
 import {
+  badCursor,
   fakeGitHub,
   giveTheWorkerAToken,
   jobLine,
@@ -178,8 +179,9 @@ describe('Harness Monitor', () => {
       await vi.waitFor(() => expect(calls.some((c) => c.after === 'cursor-1')).toBe(true));
       await start('linking?full=1');
       release();
-      await plain;
+      const answered = await (await plain).json();
 
+      expect(answered).toEqual({ job: 'linking', ok: true, message: "Linked 0 pull requests; another run moved linking's place, so this one stopped." });
       expect((await theLinkState())[0]!.cursor).toBe('cursor-3');
     });
 
@@ -206,24 +208,34 @@ describe('Harness Monitor', () => {
       expect(await jobLine('linking')).toBe('Branch linking: has not run yet.');
     });
 
-    it('a stored place GitHub refuses fails the run, says a full re-read resets it, and a full re-read does', async () => {
-      vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('a stored place GitHub no longer accepts is dropped, and the run reads from the first pull request and says so', async () => {
       const seen = [1, 2].map((n) => pullRequest({ number: n, headRefName: `b/${n}`, updatedAt: `2026-10-0${n}T10:00:00Z` }));
       const before = listing(seen);
       fakeGitHub((call) => before({ ...call, first: 1 }));
       await start('linking');
       vi.restoreAllMocks();
-      vi.spyOn(console, 'error').mockImplementation(() => {});
       // GitHub no longer knows the stored place.
-      fakeGitHub(listing([pullRequest({ number: 7, headRefName: 'b/7' })]));
+      const calls = fakeGitHub(listing([pullRequest({ number: 7, headRefName: 'b/7' })]));
 
-      const refused = (await (await start('linking')).json()) as { ok: boolean; message: string };
-      const reset = (await (await start('linking?full=1')).json()) as { ok: boolean; message: string };
+      const body = await (await start('linking')).json();
 
-      expect(refused.ok).toBe(false);
-      expect(refused.message).toContain('`cursor-1` does not appear to be a valid cursor.');
-      expect(refused.message).toContain('pnpm harness:run linking --full');
-      expect(reset).toMatchObject({ ok: true, message: 'Linked 1 pull request; caught up with GitHub.' });
+      expect(calls.map((c) => c.after)).toEqual(['cursor-1', null]);
+      expect(body).toEqual({
+        job: 'linking',
+        ok: true,
+        message: "GitHub no longer accepted linking's stored place; started again from the first pull request. Linked 1 pull request; caught up with GitHub.",
+      });
+      expect((await theLinks()).map((l) => l.branch)).toEqual(['b/1', 'b/2', 'b/7']);
+    });
+
+    it('a place GitHub refuses on a later page fails the run like any other error, and changes nothing', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      fakeGitHub((call) => (call.after === null ? pageOf([recordedPullRequest(979)], true) : badCursor(call.after)));
+
+      const body = (await (await start('linking')).json()) as { ok: boolean; message: string };
+
+      expect(body).toEqual({ job: 'linking', ok: false, message: 'GitHub reported: `cursor-979` does not appear to be a valid cursor.' });
+      expect(await theLinks()).toEqual([]);
     });
 
     it('a full re-read of any other job is refused and runs nothing', async () => {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 //
-// `pnpm harness:run <linking|prices|rebuild>`: starts one of the Harness
+// `pnpm harness:run <linking [--full]|prices|rebuild>`: starts one of the Harness
 // Monitor's jobs on the live Worker now and prints what it did (Start the
 // Harness Monitor's jobs by hand, issue 1013). It is the code the schedule
 // runs, so a run here proves the scheduled one. `linking --full` re-reads every

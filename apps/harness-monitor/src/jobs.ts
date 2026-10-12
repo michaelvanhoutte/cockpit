@@ -34,7 +34,9 @@ async function execute(env: LinkEnv, job: JobName, now: number, full: boolean): 
     const run = await linkBranches(env, { now, full });
     if (run.status === 'skipped') return { ok: false, message: 'Skipped: GITHUB_TOKEN or GITHUB_REPOSITORY is not set on the Worker.' };
     if (run.status === 'failed') return { ok: false, message: run.error };
-    const linked = `Linked ${plural(run.linked, 'pull request')}`;
+    const restarted = run.restarted ? "GitHub no longer accepted linking's stored place; started again from the first pull request. " : '';
+    const linked = `${restarted}Linked ${plural(run.linked, 'pull request')}`;
+    if (run.status === 'place-moved') return { ok: true, message: `${linked}; another run moved linking's place, so this one stopped.` };
     if (run.status === 'caught-up') return { ok: true, message: `${linked}; caught up with GitHub.` };
     const stopped = run.timeout ? `${run.timeout}. More to read` : 'more to read';
     // A second full re-read would start over; a plain run carries on from here.

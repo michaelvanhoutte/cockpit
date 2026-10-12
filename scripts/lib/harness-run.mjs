@@ -13,7 +13,7 @@ export const JOBS = ['linking', 'prices', 'rebuild'];
 export function planRun(args, env) {
   const full = args.includes('--full');
   const [job, ...rest] = args.filter((arg) => arg !== '--full');
-  if (!JOBS.includes(job)) return { error: `Name the job to start: ${JOBS.join(', ')}.` };
+  if (!JOBS.includes(job)) return { error: `Name the job to start: ${JOBS.join(', ')}; linking --full re-reads from the first pull request.` };
   if (rest.length > 0) return { error: `Unexpected ${rest.join(' ')}: name one job, and --full only with linking.` };
   if (full && job !== 'linking') return { error: '--full re-reads pull requests from the start, so it goes only with linking.' };
   const missing = ['HARNESS_MONITOR_URL', 'HARNESS_WRITE_KEY'].filter((name) => !env[name]);
