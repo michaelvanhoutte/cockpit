@@ -109,12 +109,12 @@ describe('Cycle time', () => {
       const html = render({
         pulls: [pull({ mergedAt: at(430), commits: [commit('a', 0, [check('Test', 2, 12)]), commit('b', 420, [check('Test', 421, 430)])] })],
       });
-      expect(rowOf(html, 1)).toContain('7h 10m to merge, 2 rounds');
+      expect(rowOf(html, 1)).toContain('7h 10m to merge, 2 CI Rounds');
     });
 
     it('reads the time to merge of a pull request no check ran on, rather than as nothing', () => {
       const html = render({ pulls: [pull({ mergedAt: at(180), commits: [commit('a', 0)] })] });
-      expect(rowOf(html, 1)).toContain('3h 00m to merge, 0 rounds');
+      expect(rowOf(html, 1)).toContain('3h 00m to merge, 0 CI Rounds');
     });
   });
 
@@ -911,7 +911,7 @@ describe('Cycle time', () => {
     it('draws a closed strip with no axis, on the shared scale', () => {
       const row = rowOf(html, 1);
       expect(row.split('<div class="zoomed">')[0]).not.toContain('class="axis"');
-      expect(row.split('<div class="zoomed">')[0]).toMatch(/--span:calc\(100% - 30px\)/);
+      expect(row.split('<div class="zoomed">')[0]).toMatch(/--span:calc\(100% - var\(--break\) \* 1\)/);
     });
 
     it('opens the pull request on a clock-time axis from its start to its merge, above its round list', () => {

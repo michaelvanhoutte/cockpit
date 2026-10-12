@@ -208,15 +208,13 @@ function roundPieces(round, visibleMs = round.ms) {
   return shown.map((held) => `<span class="piece checks" style="flex:${growOf(held.ms)} 1 0" title="${esc(heldText(held))}"></span>`).join('');
 }
 
-/** The width of a break (time away) in the row, in px: a fixed width off the scale, with 2px either side. */
-const BREAK_PX = 30;
-
 /**
  * Where a part sits in its strip: at its own time and its own length of the scale, never pushed by a
- * neighbour. `--span` is the track less its breaks, so the time on the scale fills what is left.
+ * neighbour. `--span` is the track less its breaks, so the time on the scale fills what is left; a
+ * break is `--break` wide (styles.css), its stripes inset 2px either side.
  */
 function placeStyle(part, scaleMs) {
-  const left = `calc(var(--span) * ${(part.startMs / scaleMs).toFixed(5)} + ${part.breaksBefore * BREAK_PX + (part.type === 'away' ? 2 : 0)}px)`;
+  const left = `calc(var(--span) * ${(part.startMs / scaleMs).toFixed(5)} + var(--break) * ${part.breaksBefore}${part.type === 'away' ? ' + 2px' : ''})`;
   return part.type === 'away' ? `left:${left}` : `left:${left};width:calc(var(--span) * ${(part.ms / scaleMs).toFixed(5)})`;
 }
 
@@ -270,7 +268,7 @@ function track(pull, fitted, scaleMs) {
 }
 
 /** The track's width less its breaks: what the time on the scale is drawn across. */
-const spanOf = (fitted) => (fitted.breaks ? `calc(100% - ${fitted.breaks * BREAK_PX}px)` : '100%');
+const spanOf = (fitted) => (fitted.breaks ? `calc(100% - var(--break) * ${fitted.breaks})` : '100%');
 
 /** A clock time on the axis: the hour and minute, with the day too where it is not the strip's first. */
 function clockLabel(atMs, startedAt) {
@@ -283,7 +281,7 @@ function axis(pull, zoomed) {
   const startedAt = Date.parse(pull.rounds[0].pushedAt) - pull.beforeFirstPushMs;
   const scale = Math.max(1, zoomed.shownMs);
   const ticks = axisFor(startedAt, zoomed)
-    .map((tick) => `<span class="tick ${tick.align}" style="left:calc(var(--span) * ${(tick.startMs / scale).toFixed(5)} + ${tick.breaksBefore * BREAK_PX}px)">${clockLabel(tick.atMs, startedAt)}</span>`)
+    .map((tick) => `<span class="tick ${tick.align}" style="left:calc(var(--span) * ${(tick.startMs / scale).toFixed(5)} + var(--break) * ${tick.breaksBefore})">${clockLabel(tick.atMs, startedAt)}</span>`)
     .join('');
   return `<div class="axis" style="--span:${spanOf(zoomed)}" title="Clock time, UTC">${ticks}</div>`;
 }
@@ -333,7 +331,7 @@ function stripRow(pull, parts, scaleMs) {
       <a href="${esc(pull.url)}" target="_blank" rel="noopener"><b>#${esc(pull.number)}</b> ${esc(pull.title)}</a>
       <div class="when">merged ${esc(stamp(pull.mergedAt))} ${tags}</div>
     </div>
-    <div class="strip">${strip(pull, parts, fitted, scaleMs, summary, notes)}<span class="sr">${esc(humanMs(pull.totalMs))} to merge, ${plural(pull.rounds.length, 'round')}</span>${clipNote}${detail}</div>
+    <div class="strip">${strip(pull, parts, fitted, scaleMs, summary, notes)}<span class="sr">${esc(humanMs(pull.totalMs))} to merge, ${plural(pull.rounds.length, 'CI Round')}</span>${clipNote}${detail}</div>
   </div>`;
 }
 
@@ -769,7 +767,7 @@ function generatedStyles(maxRounds) {
     numbers.length === 0
       ? ''
       : `${pair('.seg.round', '.roundlist li')} { background: var(--raised); color: var(--ink-1); outline: 1px solid var(--accent); }
-${pair('.roundlist li', '.seg.round')} { outline: 2px solid var(--ink-1); outline-offset: -2px; z-index: 1; }`;
+${pair('.roundlist li', '.seg.round')} { outline: 2px solid var(--ink-1); outline-offset: -2px; z-index: 2; }`;
   return `${labelRules.join('\n')}\n${links}`;
 }
 
