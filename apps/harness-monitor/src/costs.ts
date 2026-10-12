@@ -308,7 +308,8 @@ export function dayChart(groups: CostGroup[], series: Series[], first: string | 
   const byDay = new Map(groups.map((g) => [g.key, g]));
   const keys = groups.map((g) => g.key).sort();
   const start = first ?? keys[0]!;
-  const end = [new Date(now).toISOString().slice(0, 10), keys.at(-1)!].sort().at(-1)!;
+  const today = new Date(now).toISOString().slice(0, 10);
+  const end = today > keys.at(-1)! ? today : keys.at(-1)!;
   const days: string[] = [];
   for (let t = Date.parse(start); t <= Date.parse(end); t += DAY_MS) days.push(new Date(t).toISOString().slice(0, 10));
   const lines = series
