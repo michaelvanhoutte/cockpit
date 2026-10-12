@@ -1,12 +1,14 @@
 import { defineConfig } from 'vitest/config';
 import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers';
 import path from 'node:path';
+import { sessionRunReporter } from '../../scripts/lib/vitest-session-reporter.mjs';
 
 /** L1 (tests/unit) and L2 (tests/integration) share this config, as Cockpit's API does. */
 export default defineConfig(async () => {
   const migrations = await readD1Migrations(path.join(import.meta.dirname, 'migrations'));
   return {
     test: {
+      reporters: ['default', sessionRunReporter],
       testTimeout: 20_000,
       disableConsoleIntercept: true,
       setupFiles: ['./tests/integration/apply-migrations.ts'],

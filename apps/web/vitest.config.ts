@@ -1,9 +1,11 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import { sessionRunReporter } from '../../scripts/lib/vitest-session-reporter.mjs';
 
 export default defineConfig({
   plugins: [react()],
   test: {
+    reporters: ['default', sessionRunReporter],
     environment: 'jsdom',
     // styles.css is read as text by the dark Car view's contrast test.
     css: { include: [/styles\.css/] },

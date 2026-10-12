@@ -29,6 +29,11 @@ export function recordFileName(branch) {
   return `cockpit-session-record.${encodeURIComponent(branch).replaceAll('%', '_')}.jsonl`;
 }
 
+/** The browser pass's two boundaries. Kept apart from `PHASES`, which a report reads as the phases a record can miss. */
+export const BROWSER_PHASES = ['browser-start', 'browser-end'];
+
+const MARKS = [...PHASES, ...BROWSER_PHASES];
+
 /** The two phases that name which local review, and at what level, they bound. */
 const REVIEW_PHASES = ['review-start', 'review-end'];
 
@@ -47,8 +52,8 @@ const list = (words) => words.map((word) => `\`${word}\``).join(', ');
  */
 export function parseMark(words) {
   const [phase, ...rest] = words;
-  if (!PHASES.includes(phase)) {
-    throw new Error(`${phase === undefined ? 'No phase given' : `Unknown phase ${JSON.stringify(phase)}`}. The phases are ${list(PHASES)}.`);
+  if (!MARKS.includes(phase)) {
+    throw new Error(`${phase === undefined ? 'No phase given' : `Unknown phase ${JSON.stringify(phase)}`}. The phases are ${list(MARKS)}.`);
   }
   if (!REVIEW_PHASES.includes(phase)) {
     if (rest.length > 0) throw new Error(`${phase} takes nothing after it, and the time comes from the clock - got ${JSON.stringify(rest.join(' '))}.`);
@@ -61,12 +66,35 @@ export function parseMark(words) {
   return { phase, kind, level };
 }
 
-/** The record as one line per mark, `[]` for text with none - the shape kept on disk. */
-export function parseRecord(text) {
-  return text
-    .split('\n')
-    .filter((line) => line.trim() !== '')
-    .map((line) => JSON.parse(line));
+const time = (text) => (typeof text === 'string' ? Date.parse(text) : Number.NaN);
+
+/** A test run: `{ run: 'test', scopes, start, end }`, written by the runner itself when it finishes. A mark has a `phase`; a run never does. */
+export const isRun = (entry) => entry.run !== undefined;
+
+const wellFormed = (entry) =>
+  entry !== null &&
+  typeof entry === 'object' &&
+  !Array.isArray(entry) &&
+  (!isRun(entry) ||
+    (entry.run === 'test' && Array.isArray(entry.scopes) && entry.scopes.length > 0 && entry.scopes.every((scope) => typeof scope === 'string' && scope !== '') && time(entry.start) <= time(entry.end)));
+
+/**
+ * The record as one line per entry, `[]` for text with none - the shape kept on disk. A line that cannot be read (a torn write, a half-written run) is skipped and handed to `onUnreadable`, so one bad line never blocks the body's refresh; by default it is named on stderr.
+ */
+export function parseRecord(text, onUnreadable = (line) => console.error(`Skipped an unreadable line in the session record: ${line.slice(0, 120)}`)) {
+  const entries = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (line.trim() === '') continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      entry = undefined;
+    }
+    if (wellFormed(entry)) entries.push(entry);
+    else onUnreadable(line);
+  }
+  return entries;
 }
 
 export function serialiseRecord(entries) {
@@ -85,10 +113,63 @@ function line({ at, phase, kind, level }) {
   return `- ${at} ${[phase, kind, level].filter(Boolean).join(' ')}`;
 }
 
-/** The block for a record, or `null` where nothing has been marked - a session that skipped every marker leaves no block, which a report reads as "not recorded". */
-export function renderBlock(entries) {
+/** Runs that overlap, or touch, as one interval naming every scope in them - a workspace run's packages in parallel count once. Runs one after the other stay apart, the same suite twice in a row included. */
+export function mergeRuns(runs) {
+  const merged = [];
+  for (const run of [...runs].sort((a, b) => time(a.start) - time(b.start))) {
+    const last = merged.at(-1);
+    if (last && time(run.start) <= time(last.end)) merged[merged.length - 1] = join(last, run);
+    else merged.push({ ...run });
+  }
+  return merged;
+}
+
+/** Two runs as one: the earliest start, the latest end, every scope. */
+function join(a, b) {
+  return {
+    run: 'test',
+    scopes: [...new Set([...a.scopes, ...b.scopes])].sort(),
+    start: time(b.start) < time(a.start) ? b.start : a.start,
+    end: time(b.end) > time(a.end) ? b.end : a.end,
+  };
+}
+
+/** What the block carries of its runs: one line each, a scope's whitespace and commas made `_` so the line stays three words. */
+const runLine = ({ start, end, scopes }) => `- test-run ${start}/${end} ${scopes.map((scope) => scope.replace(/[\s,]/g, '_')).join(',')}`;
+
+/** About 16 KB of a pull request body's 65,536 characters. */
+export const BLOCK_BUDGET = 16_000;
+
+/**
+ * The block for a record, or `null` where nothing has been recorded - a session that skipped every marker leaves no block, which a report reads as "not recorded". Test runs are merged where they overlap; past `budget` characters the two closest together are merged again, and again, so a long session loses detail rather than runs.
+ */
+export function renderBlock(entries, budget = BLOCK_BUDGET) {
   if (entries.length === 0) return null;
-  return [BLOCK_START, HEADING, '', ...entries.map(line), BLOCK_END].join('\n');
+  const marks = entries.filter((entry) => !isRun(entry));
+  let runs = mergeRuns(entries.filter(isRun));
+  const build = () => [BLOCK_START, HEADING, '', ...marks.map(line), ...runs.map(runLine), BLOCK_END].join('\n');
+  let block = build();
+  while (block.length > budget && runs.length > 1) {
+    let closest = 0;
+    for (let i = 1; i < runs.length - 1; i += 1) {
+      if (time(runs[i + 1].start) - time(runs[i].end) < time(runs[closest + 1].start) - time(runs[closest].end)) closest = i;
+    }
+    runs = [...runs.slice(0, closest), join(runs[closest], runs[closest + 1]), ...runs.slice(closest + 2)];
+    block = build();
+  }
+  return block;
+}
+
+/** The test runs a block carries, for a report to read: `[]` where a body has none. Throws where the markers are not a pair. */
+export function readRuns(body) {
+  const span = blockSpan(body);
+  if (span === null) return [];
+  return body
+    .slice(span.start, span.end)
+    .split(/\r?\n/)
+    .map((text) => /^- test-run (\S+)\/(\S+) (\S+)$/.exec(text))
+    .filter(Boolean)
+    .map(([, start, end, scopes]) => ({ run: 'test', scopes: scopes.split(','), start, end }));
 }
 
 /** The marks a block carries, for a report to read: `[]` where a body has none. Throws where the markers are not a pair. */

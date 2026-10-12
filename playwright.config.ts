@@ -1,3 +1,5 @@
+import { join } from 'node:path';
+
 import { defineConfig, devices } from '@playwright/test';
 
 import { isLinkedWorktree, portsFor } from './scripts/lib/ports.mjs';
@@ -61,6 +63,8 @@ import { isLinkedWorktree, portsFor } from './scripts/lib/ports.mjs';
 // package.json's `engines` asks for a later Node than that, for a reason of its
 // own, so this constraint is satisfied without being the binding one.
 const root = __dirname;
+// A path rather than an import: this file is loaded as CommonJS, the reporter is an ES module.
+const playwrightSessionReporter = join(root, 'scripts', 'lib', 'playwright-session-reporter.mjs');
 const ports = portsFor(root, { linked: isLinkedWorktree(root), env: process.env });
 const baseURL = process.env.E2E_BASE_URL ?? `http://localhost:${ports.e2eWeb}`;
 const drivingLocalStack = !process.env.E2E_BASE_URL;
@@ -103,7 +107,8 @@ export default defineConfig({
   // the fix is a stack per worker, not parallelism over shared state.
   workers: 1,
   forbidOnly: !!process.env.CI,
-  reporter: process.env.CI ? [['github'], ['list']] : [['list']],
+  // The last records the run on the branch's session record, where it has one.
+  reporter: process.env.CI ? [['github'], ['list'], [playwrightSessionReporter]] : [['list'], [playwrightSessionReporter]],
 
   use: {
     baseURL,

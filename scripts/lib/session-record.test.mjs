@@ -7,9 +7,11 @@ import {
   PHASES,
   applyBlock,
   markPhase,
+  mergeRuns,
   parseRecord,
   recordFileName,
   readBlock,
+  readRuns,
   renderBlock,
   serialiseRecord,
 } from './session-record.mjs';
@@ -137,5 +139,114 @@ describe('the pull request body keeps its record however often it is rewritten',
   it('reads back what it wrote, and reads nothing from a body with no block', () => {
     assert.deepEqual(readBlock(applyBlock('Text.\n', block)), entries);
     assert.deepEqual(readBlock('Text.\n'), []);
+  });
+});
+
+const run = (scopes, start, end) => ({ run: 'test', scopes, start: `2026-09-21T${start}.000Z`, end: `2026-09-21T${end}.000Z` });
+
+describe('the browser pass is marked like a review', () => {
+  it('keeps browser-start and browser-end, stamped by the clock', () => {
+    const entries = markPhase(markPhase([], ['browser-start'], at('2026-09-21T10:00:00.000Z')), ['browser-end'], at('2026-09-21T10:12:00.000Z'));
+    assert.deepEqual(entries, [
+      { phase: 'browser-start', at: '2026-09-21T10:00:00.000Z' },
+      { phase: 'browser-end', at: '2026-09-21T10:12:00.000Z' },
+    ]);
+    assert.deepEqual(readBlock(applyBlock('', renderBlock(entries))), entries);
+  });
+
+  it('refuses a word after either, as a time-shaped word is refused', () => {
+    for (const phase of ['browser-start', 'browser-end']) {
+      assert.throws(() => markPhase([], [phase, '2020-01-01T00:00:00Z']), /takes nothing after it/);
+      assert.throws(() => markPhase([], [phase, 'code-review']), /the time comes from the clock/);
+    }
+  });
+});
+
+describe('local test runs are one interval where they overlap', () => {
+  const cases = [
+    {
+      situation: "a workspace run's packages in parallel",
+      runs: [run(['@cockpit/api'], '10:00:00', '10:03:00'), run(['@cockpit/web'], '10:00:05', '10:01:00'), run(['@cockpit/shared'], '10:00:10', '10:00:30')],
+      expected: [run(['@cockpit/api', '@cockpit/shared', '@cockpit/web'], '10:00:00', '10:03:00')],
+    },
+    {
+      situation: 'two runs one after the other, not touching',
+      runs: [run(['@cockpit/api'], '10:00:00', '10:01:00'), run(['@cockpit/web'], '10:05:00', '10:06:00')],
+      expected: [run(['@cockpit/api'], '10:00:00', '10:01:00'), run(['@cockpit/web'], '10:05:00', '10:06:00')],
+    },
+    {
+      situation: 'the same suite run twice in a row',
+      runs: [run(['@cockpit/api'], '10:05:00', '10:06:00'), run(['@cockpit/api'], '10:00:00', '10:01:00')],
+      expected: [run(['@cockpit/api'], '10:00:00', '10:01:00'), run(['@cockpit/api'], '10:05:00', '10:06:00')],
+    },
+  ];
+  for (const { situation, runs, expected } of cases) {
+    it(situation, () => assert.deepEqual(mergeRuns(runs), expected));
+  }
+});
+
+describe('the block keeps to its budget without dropping a run', () => {
+  const runs = Array.from({ length: 40 }, (_, i) => run([`@cockpit/package-${i % 4}`], `10:${String(i).padStart(2, '0')}:00`, `10:${String(i).padStart(2, '0')}:30`));
+  const marks = markPhase([], ['start'], at('2026-09-21T09:00:00.000Z'));
+
+  it('carries every run as recorded where it is under budget', () => {
+    const block = renderBlock([...marks, ...runs]);
+    assert.ok(block.length < 16_000);
+    assert.equal(readRuns(applyBlock('', block)).length, 40);
+    assert.deepEqual(readRuns(applyBlock('', block)).map(({ start, end }) => [start, end]), runs.map(({ start, end }) => [start, end]));
+  });
+
+  it('merges the runs closest together until it is under, keeping the earliest start and the latest end', () => {
+    const budget = 1_200;
+    const full = renderBlock([...marks, ...runs]);
+    assert.ok(full.length > budget);
+    const block = renderBlock([...marks, ...runs], budget);
+    assert.ok(block.length <= budget);
+    const kept = readRuns(applyBlock('', block));
+    assert.ok(kept.length >= 1 && kept.length < 40);
+    assert.equal(kept[0].start, runs[0].start);
+    assert.equal(kept.at(-1).end, runs.at(-1).end);
+    assert.deepEqual([...new Set(kept.flatMap((r) => r.scopes))].sort(), ['@cockpit/package-0', '@cockpit/package-1', '@cockpit/package-2', '@cockpit/package-3']);
+  });
+
+  it('merges the pair with the smallest gap first', () => {
+    const near = [run(['a'], '10:00:00', '10:00:10'), run(['b'], '10:10:00', '10:10:10'), run(['c'], '10:10:20', '10:10:30')];
+    const block = renderBlock(near, renderBlock(near).length - 1);
+    assert.deepEqual(readRuns(block).map(({ scopes }) => scopes), [['a'], ['b', 'c']]);
+  });
+
+  it('reads no block from an empty record, as today', () => {
+    assert.equal(renderBlock([]), null);
+  });
+});
+
+describe('bodies already written read as they do', () => {
+  const reviews = markPhase(markPhase(markPhase([], ['start'], at('2026-09-21T10:00:00.000Z')), ['review-start', 'code-review', 'high'], at('2026-09-21T10:20:00.000Z')), ['review-end', 'code-review', 'high'], at('2026-09-21T10:30:00.000Z'));
+
+  it('reads the same marks from a block with test runs in it as from one without', () => {
+    const withRuns = renderBlock([...reviews, run(['@cockpit/api'], '10:05:00', '10:08:00'), run(['E2E'], '10:22:00', '10:25:00')]);
+    assert.deepEqual(readBlock(applyBlock('Text.\n', withRuns)), reviews);
+    assert.deepEqual(readBlock(applyBlock('Text.\n', renderBlock(reviews))), reviews);
+    assert.equal(readRuns(applyBlock('Text.\n', withRuns)).length, 2);
+  });
+
+  it('reads a body written before test runs existed unchanged', () => {
+    const old = `Text.\n\n${BLOCK_START}\n### Session record\n\n- 2026-09-21T10:00:00.000Z start\n- 2026-09-21T10:20:00.000Z review-start code-review high\n${BLOCK_END}\n`;
+    assert.deepEqual(readBlock(old), [
+      { at: '2026-09-21T10:00:00.000Z', phase: 'start' },
+      { at: '2026-09-21T10:20:00.000Z', phase: 'review-start', kind: 'code-review', level: 'high' },
+    ]);
+    assert.deepEqual(readRuns(old), []);
+    assert.equal(applyBlock(old, renderBlock(readBlock(old))), old);
+  });
+
+  it('names a line it cannot read and skips it, keeping the rest', () => {
+    const text = `${serialiseRecord(reviews.slice(0, 1))}{"phase":"built","at":"2026-09\n${serialiseRecord([run(['@cockpit/api'], '10:00:00', '10:01:00')])}{"run":"test","scopes":[],"start":"x","end":"y"}\n${serialiseRecord(reviews.slice(1, 2))}`;
+    const unreadable = [];
+    const entries = parseRecord(text, (line) => unreadable.push(line));
+    assert.equal(entries.length, 3);
+    assert.equal(unreadable.length, 2);
+    assert.ok(unreadable[0].startsWith('{"phase":"built"'));
+    assert.ok(renderBlock(entries) !== null);
   });
 });

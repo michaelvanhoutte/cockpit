@@ -13,29 +13,32 @@
 //
 // The record is a file per branch in this worktree's own git directory, so it
 // is never tracked, two worktrees never share one, and a branch started after
-// another in the same worktree begins empty. `body` prints its input
-// unchanged where nothing has been marked.
+// another in the same worktree begins empty. The test runners append their own
+// runs to it (scripts/lib/test-run-record.mjs), so `mark` appends one line too
+// rather than rewriting the file under them. `body` prints its input unchanged
+// where nothing has been recorded.
 //
 
-import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 
-import { applyBlock, markPhase, parseRecord, recordFileName, renderBlock, serialiseRecord } from './lib/session-record.mjs';
+import { applyBlock, markPhase, parseRecord, renderBlock, serialiseRecord } from './lib/session-record.mjs';
+import { locateSessionRecord } from './lib/test-run-record.mjs';
 
-const gitDir = execFileSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).trim();
-const branch = spawnSync('git', ['symbolic-ref', '--short', '-q', 'HEAD'], { encoding: 'utf8' }).stdout.trim() || 'detached';
-const recordFile = join(gitDir, recordFileName(branch));
+const where = locateSessionRecord(process.cwd());
+if (where === null) {
+  console.error('Not inside a git repository, so there is no session record to read or write.');
+  process.exit(2);
+}
+const recordFile = where.file;
 const entries = () => (existsSync(recordFile) ? parseRecord(readFileSync(recordFile, 'utf8')) : []);
 
 const [command, ...words] = process.argv.slice(2);
 
 try {
   if (command === 'mark') {
-    const marked = markPhase(entries(), words);
-    writeFileSync(recordFile, serialiseRecord(marked));
-    const { at, phase } = marked.at(-1);
-    console.log(`${at} ${phase}`);
+    const [mark] = markPhase([], words).slice(-1);
+    appendFileSync(recordFile, serialiseRecord([mark]));
+    console.log(`${mark.at} ${mark.phase}`);
   } else if (command === 'body' && words.length === 0) {
     process.stdout.write(applyBlock(readFileSync(0, 'utf8'), renderBlock(entries())));
   } else {

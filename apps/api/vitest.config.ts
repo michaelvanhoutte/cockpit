@@ -1,5 +1,6 @@
 import { configDefaults, defineConfig } from 'vitest/config';
 import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
+import { sessionRunReporter } from '../../scripts/lib/vitest-session-reporter.mjs';
 
 /**
  * L1 (tests/unit) and L2 (tests/integration) share this config: the workers
@@ -10,6 +11,7 @@ import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
  */
 export default defineConfig({
   test: {
+    reporters: ['default', sessionRunReporter],
     globalSetup: ['./tests/integration/global-setup.ts'],
     /**
      * The contract tier is deliberately not part of any run this config drives.
