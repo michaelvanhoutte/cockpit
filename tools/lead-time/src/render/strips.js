@@ -21,23 +21,47 @@ const SCALE_CAP_MS = 4 * 3_600_000;
 const SCALE_FLOOR_MS = 60_000;
 
 /**
+ * One gap of writing — before the first push, or between rounds — as the stretches of
+ * `type` and the local reviews that sat in it, in the order they ran. The reviews are
+ * the model's slices, already cut to the gap, so what is left of `type` is the gap's
+ * length less them, and the strip adds up to the same minutes the scatter's harness does.
+ */
+function gapParts(type, from, to, slices) {
+  const parts = [];
+  let cursor = from;
+  for (const slice of [...slices].sort((a, b) => Date.parse(a.at) - Date.parse(b.at))) {
+    const begins = Date.parse(slice.at);
+    if (begins > cursor) parts.push({ type, ms: begins - cursor });
+    parts.push({ type: 'review', ms: slice.ms, kind: slice.kind, level: slice.level, at: slice.at });
+    cursor = begins + slice.ms;
+  }
+  if (to > cursor) parts.push({ type, ms: to - cursor });
+  return parts;
+}
+
+/**
  * A pull request's parts, in the order they were spent. Empty where no check ever
  * ran on it, since every part after the first push is measured from a round.
  *
  * @param {object} pull a pull request from the model
- * @returns {{ type: 'coding'|'round'|'fixing'|'wait'|'away', ms: number, round?: object, index?: number }[]}
+ * @returns {{ type: 'coding'|'review'|'round'|'fixing'|'wait'|'away', ms: number, round?: object, index?: number, kind?: string, level?: string }[]}
  */
 export function partsOf(pull) {
   const parts = [];
   if (pull.rounds.length === 0) return parts;
+  const slicesIn = (gap) => (pull.reviewSlices ?? []).filter((slice) => slice.gap === gap);
 
-  if (pull.beforeFirstPushMs > 0) parts.push({ type: 'coding', ms: pull.beforeFirstPushMs });
+  const firstPush = Date.parse(pull.rounds[0].pushedAt);
+  parts.push(...gapParts('coding', firstPush - pull.beforeFirstPushMs, firstPush, slicesIn(0)));
   pull.rounds.forEach((round, position) => {
     parts.push({ type: 'round', ms: round.ms, round, index: position + 1 });
     const next = pull.rounds[position + 1];
-    const gap = Math.max(0, Date.parse(next ? next.pushedAt : pull.mergedAt) - Date.parse(round.endedAt));
+    const from = Date.parse(round.endedAt);
+    const to = Date.parse(next ? next.pushedAt : pull.mergedAt);
+    const gap = Math.max(0, to - from);
     if (gap > AWAY_MS) parts.push({ type: 'away', ms: gap });
-    else if (gap > 0) parts.push({ type: next ? 'fixing' : 'wait', ms: gap });
+    else if (next) parts.push(...gapParts('fixing', from, to, slicesIn(position + 1)));
+    else if (gap > 0) parts.push({ type: 'wait', ms: gap });
   });
   return parts;
 }

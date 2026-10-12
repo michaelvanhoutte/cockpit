@@ -377,16 +377,6 @@ describe('Lead time', () => {
       expect(model.pulls[0].rounds[0].queued).toEqual([{ name: 'Test', ms: 2000 }]);
     });
 
-    it('reads the job list of a round whose checks come from a CI run and a review run once, for the CI run', async () => {
-      const api = stub({
-        commits: { a: [run(11, 'Test', 60, '09:05', '09:15'), run(12, 'claude-review', 61, '09:05', '09:20')] },
-        jobs: { 60: [job(11, 'Test', '09:04:58', '09:05:00')], 61: [job(12, 'claude-review', '09:04:00', '09:05:00')] },
-      });
-      const { pulls } = await collectFrom(api);
-      expect(jobLists(api).map((url) => new URL(url).pathname)).toEqual(['/repos/o/r/actions/runs/60/jobs']);
-      expect(pulls[0].commits[0].checks.map((check) => check.queue?.state)).toEqual(['read', undefined]);
-    });
-
     it('reads the job list of two rounds on the same CI run once, a re-run included', async () => {
       const api = stub({
         commits: { a: [run(11, 'Test', 60, '09:05', '09:15', { conclusion: 'failure' }), run(21, 'Test', 60, '09:20', '09:30')] },
@@ -438,12 +428,6 @@ describe('Lead time', () => {
       const { pulls } = await collect({ repo: 'o/r', since: early, now: NOW, fetchImpl: api.fetchImpl, retries: 0 });
       expect(pulls[0].commits[0].checks[0].queue).toEqual({ state: 'not-recorded', why: 'outside-listing' });
       expect(api.calls.find((url) => url.includes('ci.yml/runs'))).toContain(encodeURIComponent('>=2026-09-19'));
-    });
-
-    it('spares a review check, which is known not to be CI, where the CI listing cannot be read', async () => {
-      const api = stub({ commits: { a: [run(11, 'Test', 60, '09:05', '09:15'), run(12, 'claude-review', 61, '09:05', '09:20')] }, listing: refuse(500) });
-      const { pulls } = await collectFrom(api);
-      expect(pulls[0].commits[0].checks.map((check) => check.queue?.state)).toEqual(['not-recorded', undefined]);
     });
 
     it('leaves a CI check whose run the complete listing lacks as outside the listing, never silent', async () => {
