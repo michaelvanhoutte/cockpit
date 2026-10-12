@@ -86,10 +86,11 @@ export function theFileAnswers(answer: unknown) {
   });
 }
 
-/** The daily job, run the way the platform runs it. */
+/** The day's two schedules, prices then totals, run the way the platform runs them. */
 export async function runTheDailyJob() {
   const ctx = createExecutionContext();
   await worker.scheduled(createScheduledController({ cron: '10 3 * * *' }), env, ctx);
+  await worker.scheduled(createScheduledController({ cron: '20 3 * * *' }), env, ctx);
   await waitOnExecutionContext(ctx);
 }
 

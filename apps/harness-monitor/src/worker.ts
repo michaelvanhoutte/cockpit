@@ -20,8 +20,9 @@ export interface Env {
   PAGE_CACHE_SECONDS?: string;
 }
 
-/** The daily job (prices, then the totals); any other schedule links branches. */
-const DAILY = '10 3 * * *';
+/** The price job's schedule and the totals rebuild's; any other schedule links branches. */
+const PRICES = '10 3 * * *';
+const REBUILD = '20 3 * * *';
 
 /** Far above MAX_BATCH full rows, so only a malformed write reaches it. */
 const MAX_BODY = 1_000_000;
@@ -139,13 +140,6 @@ export default {
   },
 
   async scheduled(controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
-    if (controller.cron !== DAILY) {
-      await runJob(env, 'linking', 'schedule');
-      return;
-    }
-    // The daily job: refresh the prices (a failure keeps the last good list),
-    // price what was waiting, then rebuild the totals from the rows.
-    await runJob(env, 'prices', 'schedule');
-    await runJob(env, 'rebuild', 'schedule');
+    await runJob(env, controller.cron === PRICES ? 'prices' : controller.cron === REBUILD ? 'rebuild' : 'linking', 'schedule');
   },
 } satisfies ExportedHandler<Env>;

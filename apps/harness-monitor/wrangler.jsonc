@@ -10,9 +10,10 @@
   "observability": { "logs": { "enabled": true } },
 
   // Hourly: link branches to pull requests (src/linking.ts). Daily, 03:10 UTC:
-  // fetch the price list, price the rows waiting for one, then rebuild the daily
-  // totals from the rows.
-  "triggers": { "crons": ["0 * * * *", "10 3 * * *"] },
+  // fetch the price list and price the rows waiting for one. 03:20 UTC: rebuild
+  // the daily totals from the rows. Separate schedules, so each stays inside the
+  // free plan's 50 queries per invocation.
+  "triggers": { "crons": ["0 * * * *", "10 3 * * *", "20 3 * * *"] },
   // PAGE_CACHE_SECONDS: how long the edge keeps the public costs page (src/worker.ts).
   "vars": { "GITHUB_REPOSITORY": "michaelvanhoutte/cockpit", "PAGE_CACHE_SECONDS": "300" },
 

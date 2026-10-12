@@ -47,8 +47,8 @@ function describe(error: unknown): string {
  * stores their links and the new cursor in one batch, so a run that fails
  * anywhere before that batch leaves the links, the cursor and the last success
  * time as they were. A run that hits its page budget stores what it read and
- * moves the cursor there, but does not count as a success: the page keeps
- * saying when linking last caught up.
+ * moves the cursor there, but does not count as a success: the page's
+ * "last succeeded" time, shown beside a failed run, stays at the last catch-up.
  */
 export async function linkBranches(env: LinkEnv, now = Date.now()): Promise<LinkResult> {
   if (!env.GITHUB_TOKEN || !env.GITHUB_REPOSITORY) {

@@ -15,6 +15,12 @@ export function planRun(args, env) {
   return { job, url: new URL(`/v1/jobs/${job}`, env.HARNESS_MONITOR_URL), key: env.HARNESS_WRITE_KEY };
 }
 
+/** Why no answer came: a timeout leaves the job possibly still running, so the page is where to look. */
+export function unreachable(error) {
+  if (error?.name === 'TimeoutError') return 'No answer within 5 minutes; the job may still be running. Check the costs page for its last run.';
+  return `Could not reach the monitor: ${error instanceof Error ? error.message : String(error)}`;
+}
+
 /** What the monitor answered, as one line and whether the job succeeded. */
 export function describeAnswer(job, status, body) {
   if (status === 401) return { ok: false, line: 'The monitor refused the write key.' };

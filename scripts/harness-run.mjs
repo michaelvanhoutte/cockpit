@@ -8,7 +8,10 @@
 // when the job failed or the monitor refused, 2 when the command is misused.
 //
 
-import { describeAnswer, planRun } from './lib/harness-run.mjs';
+import { describeAnswer, planRun, unreachable } from './lib/harness-run.mjs';
+
+// Linking can read up to 30 GitHub pages inside the one request.
+const WAIT_MS = 5 * 60_000;
 
 const plan = planRun(process.argv.slice(2), process.env);
 if (plan.error) {
@@ -21,12 +24,12 @@ try {
   const response = await fetch(plan.url, {
     method: 'POST',
     headers: { authorization: `Bearer ${plan.key}` },
-    signal: AbortSignal.timeout(60_000),
+    signal: AbortSignal.timeout(WAIT_MS),
   });
   const body = await response.json().catch(() => null);
   result = describeAnswer(plan.job, response.status, body);
 } catch (error) {
-  result = { ok: false, line: `Could not reach the monitor: ${error instanceof Error ? error.message : String(error)}` };
+  result = { ok: false, line: unreachable(error) };
 }
 (result.ok ? console.log : console.error)(result.line);
 process.exitCode = result.ok ? 0 : 1;

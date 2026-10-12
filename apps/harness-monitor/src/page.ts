@@ -62,7 +62,9 @@ function jobLines(runs: JobRun[]): string {
   const items = JOBS.map((job) => {
     const run = runs.find((r) => r.job === job);
     const text = run
-      ? `last run ${utc(run.ranAt)} (${run.startedBy === 'hand' ? 'by hand' : 'scheduled'}) &mdash; ${esc(run.message)}`
+      ? `last run ${utc(run.ranAt)} (${run.startedBy === 'hand' ? 'by hand' : 'scheduled'}) &mdash; ${esc(run.message)}${
+          run.ok ? '' : run.lastSucceededAt === null ? ' Never succeeded.' : ` Last succeeded ${utc(run.lastSucceededAt)}.`
+        }`
       : NEVER_RAN[job];
     return `<li data-job="${job}" class="${run && !run.ok ? 'failed' : ''}">${JOB_LABELS[job]}: ${text}</li>`;
   });

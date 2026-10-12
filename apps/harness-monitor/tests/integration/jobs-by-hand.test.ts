@@ -1,4 +1,4 @@
-import { env, SELF } from 'cloudflare:test';
+import { createExecutionContext, createScheduledController, env, SELF, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeGitHub, jobLine, pageOf, recordedPullRequest, theLinks, theLinkState } from './github-support';
 import { dollars, emptyTheDatabase, pricing, recordedFile, runTheDailyJob, send, theFileAnswers, usage, WRITE_KEY } from './support';
@@ -37,7 +37,7 @@ describe('Harness Monitor', () => {
       const body = (await (await start('prices')).json()) as { ok: boolean; message: string };
 
       expect(body.ok).toBe(true);
-      expect(body.message).toMatch(/^Fetched \d+ model prices; priced 1 waiting request\.$/);
+      expect(body.message).toMatch(/^Fetched \d+ model prices; priced 1 waiting request; run rebuild next so the page's dollars include them\.$/);
       expect((await pricing())[0]!.cost_micros).toBe(2_000_000);
     });
 
@@ -127,7 +127,65 @@ describe('Harness Monitor', () => {
         vi.useRealTimers();
       }
 
-      expect(await jobLine('linking')).toBe('Branch linking: last run 2026-04-01 12:00 UTC (by hand) — GitHub refused the token (401).');
+      expect(await jobLine('linking')).toBe('Branch linking: last run 2026-04-01 12:00 UTC (by hand) — GitHub refused the token (401). Never succeeded.');
+    });
+
+    it('a failed run also says when the job last succeeded', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-04-01T12:00:00Z') });
+      try {
+        fakeGitHub(() => pageOf([recordedPullRequest(979)]));
+        await start('linking');
+        vi.restoreAllMocks();
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        fakeGitHub(() => new Response('no', { status: 401 }));
+        vi.setSystemTime(new Date('2026-04-01T13:00:00Z'));
+        await start('linking');
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(await jobLine('linking')).toBe(
+        'Branch linking: last run 2026-04-01 13:00 UTC (by hand) — GitHub refused the token (401). Last succeeded 2026-04-01 12:00 UTC.',
+      );
+    });
+
+    it('a run that finished late never replaces a newer one on the page', async () => {
+      try {
+        vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-04-01T12:00:00Z') });
+        await start('rebuild');
+        vi.setSystemTime(new Date('2026-04-01T11:00:00Z'));
+        await start('rebuild');
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(await jobLine('rebuild')).toMatch(/^Daily totals: last run 2026-04-01 12:00 UTC/);
+    });
+
+    it('a run that cannot be recorded still does its work and answers', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      await send([usage('a')]);
+      await env.DB.prepare('DELETE FROM daily_totals').run();
+      const failing = new Proxy(env.DB, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          if (property === 'prepare') {
+            return (sql: string) => {
+              if (sql.includes('job_runs')) throw new Error('cannot record');
+              return target.prepare(sql);
+            };
+          }
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+      const { default: worker } = await import('../../src/worker');
+      const ctx = createExecutionContext();
+
+      await worker.scheduled(createScheduledController({ cron: '20 3 * * *' }), { ...env, DB: failing }, ctx);
+      await waitOnExecutionContext(ctx);
+
+      expect((await dollars()).unpriced).toBe(1);
     });
 
     it('a job that has never run says so', async () => {

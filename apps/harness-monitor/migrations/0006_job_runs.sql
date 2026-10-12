@@ -5,5 +5,6 @@ CREATE TABLE job_runs (
   ran_at INTEGER NOT NULL,                                  -- epoch milliseconds
   started_by TEXT NOT NULL CHECK (started_by IN ('schedule', 'hand')),
   ok INTEGER NOT NULL CHECK (ok IN (0, 1)),
-  message TEXT NOT NULL                                     -- what it did, or the error it met
+  message TEXT NOT NULL,                                    -- what it did, or the error it met
+  last_ok_at INTEGER                                        -- epoch milliseconds of the last run that succeeded
 );

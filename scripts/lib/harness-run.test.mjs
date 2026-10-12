@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { describeAnswer, planRun } from './harness-run.mjs';
+import { describeAnswer, planRun, unreachable } from './harness-run.mjs';
 
 const env = { HARNESS_MONITOR_URL: 'https://monitor.example', HARNESS_WRITE_KEY: 'k' };
 
@@ -23,6 +23,19 @@ describe('Harness Monitor', () => {
         assert.deepEqual(describeAnswer('linking', status, body), { ok: false, line });
       });
     }
+  });
+
+  describe('a run that outlasts the wait is not reported as unreachable', () => {
+    it('a timeout says the job may still be running and to check the page', () => {
+      const line = unreachable(Object.assign(new Error('timed out'), { name: 'TimeoutError' }));
+
+      assert.match(line, /may still be running/);
+      assert.match(line, /costs page/);
+    });
+
+    it('any other failure says the monitor could not be reached', () => {
+      assert.equal(unreachable(new TypeError('fetch failed')), 'Could not reach the monitor: fetch failed');
+    });
   });
 
   describe('the command needs a job and the monitor\'s address and key', () => {

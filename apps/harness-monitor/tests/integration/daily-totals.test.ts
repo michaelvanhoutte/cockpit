@@ -5,10 +5,10 @@ import { emptyTheDatabase, send, totals, usage } from './support';
 
 beforeEach(emptyTheDatabase);
 
-/** The nightly job, run the way the platform runs it. */
+/** The nightly rebuild, run the way the platform runs it. */
 async function runTheNightlyJob() {
   const ctx = createExecutionContext();
-  await worker.scheduled(createScheduledController({ cron: '10 3 * * *' }), env, ctx);
+  await worker.scheduled(createScheduledController({ cron: '20 3 * * *' }), env, ctx);
   await waitOnExecutionContext(ctx);
 }
 
