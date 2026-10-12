@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayChart, firstDay, groupRows, seriesOf, median, parseQuery, queryString, type TotalRow } from '../../src/costs';
+import { dayChart, firstDay, trends, groupRows, seriesOf, median, parseQuery, queryString, type TotalRow } from '../../src/costs';
 
 const row = (over: Partial<TotalRow>): TotalRow => ({
   day: '',
@@ -220,6 +220,75 @@ describe('Harness Monitor', () => {
 
     it('with no cost there is nothing to chart', () => {
       expect(chartOf([], 'phase', null, '2026-10-01T12:00:00Z')).toEqual({ days: [], lines: [], total: [] });
+    });
+  });
+
+  describe("each trend chart's value per bucket is its median or ratio over that bucket", () => {
+    const NOW = Date.parse('2026-10-31T12:00:00Z');
+    const pr = (day: string, lines: number | null, costByPhase: Record<string, number>) => ({ day, lines, costByPhase });
+
+    it('the last 30 days are bucketed by day, the last 7 as well', () => {
+      expect(trends([], [], '30d', NOW).buckets).toHaveLength(30);
+      expect(trends([], [], '7d', NOW).buckets).toEqual(['2026-10-25', '2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31']);
+    });
+
+    it('the last 90 days and all time are bucketed by week, each starting on a Monday', () => {
+      const ninety = trends([], [], '90d', NOW);
+      const all = trends([{ day: '2026-09-23', tokens: 1 }], [], 'all', NOW);
+
+      expect(ninety.weekly).toBe(true);
+      expect(ninety.buckets[0]).toBe('2026-08-03');
+      expect(ninety.buckets.every((b) => new Date(b).getUTCDay() === 1)).toBe(true);
+      expect(all.buckets).toEqual(['2026-09-21', '2026-09-28', '2026-10-05', '2026-10-12', '2026-10-19', '2026-10-26']);
+    });
+
+    it('starting context and size are medians of the sessions and pull requests in the bucket', () => {
+      const t = trends(
+        [{ day: '2026-10-30', tokens: 100 }, { day: '2026-10-30', tokens: 300 }, { day: '2026-10-30', tokens: 200 }, { day: '2026-10-31', tokens: 50 }],
+        [pr('2026-10-30', 10, {}), pr('2026-10-30', 30, {}), pr('2026-10-30', 20, {}), pr('2026-10-30', null, {})],
+        '7d',
+        NOW,
+      );
+
+      expect(t.startingContext.slice(-2)).toEqual([200, 50]);
+      expect(t.prSize.slice(-2)).toEqual([20, null]);
+    });
+
+    it('cost per 1,000 lines is the merged pull requests cost over their lines, overall and per phase', () => {
+      const t = trends([], [pr('2026-10-30', 1_000, { building: 3_000_000, 'after-push': 1_000_000 }), pr('2026-10-30', 3_000, { building: 4_000_000 })], '7d', NOW);
+
+      const byKey = Object.fromEntries(t.costPerThousandLines.map((l) => [l.key, l.values.at(-2)]));
+      expect(byKey).toEqual({ total: 2_000_000, building: 1_750_000, 'after-push': 250_000 });
+    });
+
+    it('a merged pull request with no counted lines is left out of the ratio, cost and lines alike', () => {
+      const t = trends([], [pr('2026-10-30', 1_000, { building: 2_000_000 }), pr('2026-10-30', 0, { building: 50_000_000 }), pr('2026-10-30', null, { building: 50_000_000 })], '7d', NOW);
+
+      expect(t.costPerThousandLines[0]!.values.at(-2)).toBe(2_000_000);
+    });
+
+    it('a bucket with no merged pull request has no point, rather than zero', () => {
+      const t = trends([{ day: '2026-10-29', tokens: 1 }], [pr('2026-10-29', 10, { building: 1 })], '7d', NOW);
+
+      expect(t.prSize).toEqual([null, null, null, null, 10, null, null]);
+      expect(t.startingContext).toEqual([null, null, null, null, 1, null, null]);
+      expect(t.costPerThousandLines[0]!.values).toEqual([null, null, null, null, 100, null, null]);
+    });
+
+    it('Unphased is drawn only before 21 Sep 2026 and every other phase only from then on', () => {
+      const t = trends(
+        [],
+        [pr('2026-09-17', 1_000, { unphased: 1, building: 2 }), pr('2026-09-22', 1_000, { unphased: 3, building: 4 })],
+        '30d',
+        Date.parse('2026-09-25T12:00:00Z'),
+      );
+
+      const line = (key: string) => Object.fromEntries(t.buckets.map((b, i) => [b, t.costPerThousandLines.find((l) => l.key === key)!.values[i]])) as Record<string, number | null>;
+      expect(line('unphased')['2026-09-17']).toBe(1);
+      expect(line('unphased')['2026-09-22']).toBeNull();
+      expect(line('building')['2026-09-17']).toBeNull();
+      expect(line('building')['2026-09-22']).toBe(4);
+      expect(line('total')['2026-09-22']).toBe(7);
     });
   });
 });

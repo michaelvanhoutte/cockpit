@@ -1,5 +1,5 @@
 import { jobReads, jobStatuses, type JobStatus } from './jobs';
-import { CATEGORIES, phaseSql, WHERE, type Category } from './validate';
+import { CATEGORIES, PHASES_BEGIN, phaseSql, WHERE, type Category } from './validate';
 
 /** The phase a totals row counts as: the stored one, except Building before phase marks existed. */
 const PHASE = phaseSql('t.');
@@ -325,6 +325,95 @@ export function median(values: number[]): number {
   return sorted.length % 2 === 1 ? sorted[mid]! : Math.round((sorted[mid - 1]! + sorted[mid]!) / 2);
 }
 
+/** A session's first main-agent request: the day it was made and what it started with. */
+export interface SessionStart {
+  day: string;
+  /** Input, cache write and cache read tokens of the request. */
+  tokens: number;
+}
+
+/** A merged pull request: the day it merged, the lines it changed once sized, and its cost per phase. */
+export interface MergedPullRequest {
+  day: string;
+  /** Lines added plus removed, leaving out lockfiles, snapshots and generated files; null until sized. */
+  lines: number | null;
+  costByPhase: Record<string, number>;
+}
+
+/** One line of a trend chart: a value per bucket, null where the bucket has none to show. */
+export interface TrendLine {
+  key: string;
+  label: string;
+  values: (number | null)[];
+}
+
+export interface Trends {
+  /** The first UTC day of each bucket, oldest first: a day, or the Monday of a week. */
+  buckets: string[];
+  weekly: boolean;
+  /** Median tokens in a session's first main-agent request. */
+  startingContext: (number | null)[];
+  /** Median lines changed per merged pull request. */
+  prSize: (number | null)[];
+  /** Micros per 1,000 lines changed: the total first, then each phase that is drawn anywhere. */
+  costPerThousandLines: TrendLine[];
+}
+
+/** The Monday of the week a UTC day falls in. */
+export function weekStart(day: string): string {
+  const t = Date.parse(day);
+  return new Date(t - ((new Date(t).getUTCDay() + 6) % 7) * DAY_MS).toISOString().slice(0, 10);
+}
+
+/**
+ * The charts' values per bucket: days for 7 and 30 days, weeks (starting
+ * Monday) otherwise. A bucket with nothing to show holds null, not zero.
+ * Cost per line divides the merged pull requests' cost by their thousands of
+ * lines, leaving out a pull request with no counted lines from both. A phase
+ * is not drawn before it was recorded: Unphased only before the day phase marks
+ * began, every other phase only from then on.
+ */
+export function trends(sessions: SessionStart[], pullRequests: MergedPullRequest[], period: Period, now: number): Trends {
+  const weekly = period !== '7d' && period !== '30d';
+  const bucketOf = (day: string) => (weekly ? weekStart(day) : day);
+  const span = weekly ? 7 : 1;
+  const today = new Date(now).toISOString().slice(0, 10);
+  const earliest = [...sessions.map((s) => s.day), ...pullRequests.map((p) => p.day)].sort()[0];
+  const first = firstDay(period, now) ?? earliest;
+  const buckets: string[] = [];
+  if (first !== undefined) for (let t = Date.parse(bucketOf(first)); t <= Date.parse(today); t += span * DAY_MS) buckets.push(new Date(t).toISOString().slice(0, 10));
+
+  const index = new Map(buckets.map((b, i) => [b, i]));
+  const tokens: number[][] = buckets.map(() => []);
+  for (const s of sessions) tokens[index.get(bucketOf(s.day)) ?? -1]?.push(s.tokens);
+  const merged: MergedPullRequest[][] = buckets.map(() => []);
+  for (const p of pullRequests) merged[index.get(bucketOf(p.day)) ?? -1]?.push(p);
+
+  const sizes = merged.map((prs) => prs.flatMap((p) => (p.lines === null ? [] : [p.lines])));
+  const counted = merged.map((prs) => prs.filter((p) => p.lines !== null && p.lines > 0));
+  const perThousand = (prs: MergedPullRequest[], phase: string | null) => {
+    const lines = prs.reduce((sum, p) => sum + p.lines!, 0);
+    const cost = prs.reduce((sum, p) => sum + (phase === null ? Object.values(p.costByPhase).reduce((a, b) => a + b, 0) : (p.costByPhase[phase] ?? 0)), 0);
+    return (cost / lines) * 1000;
+  };
+  const drawn = (phase: string, bucket: string) => {
+    const last = new Date(Date.parse(bucket) + (span - 1) * DAY_MS).toISOString().slice(0, 10);
+    return phase === 'unphased' ? bucket < PHASES_BEGIN : last >= PHASES_BEGIN;
+  };
+  const phaseLines = CATEGORIES.map((c) => ({
+    key: c as string,
+    label: categoryName(c),
+    values: buckets.map((b, i) => (counted[i]!.length === 0 || !drawn(c, b) ? null : perThousand(counted[i]!, c))),
+  })).filter((l) => l.values.some((v) => v !== null && v > 0));
+  return {
+    buckets,
+    weekly,
+    startingContext: tokens.map((t) => (t.length === 0 ? null : median(t))),
+    prSize: sizes.map((s) => (s.length === 0 ? null : median(s))),
+    costPerThousandLines: [{ key: 'total', label: 'All phases', values: counted.map((prs) => (prs.length === 0 ? null : perThousand(prs, null))) }, ...phaseLines],
+  };
+}
+
 export interface CostsPage {
   query: CostQuery;
   engineers: string[];
@@ -340,6 +429,8 @@ export interface CostsPage {
   lastLinkSuccessAt: number | null;
   /** What each job last did: read in the same batch as the figures. */
   jobs: JobStatus[];
+  /** The Over time page's trend charts; null for every other grouping. */
+  trends: Trends | null;
 }
 
 /** Where a request's pull request stands, from its branch and the link GitHub linking stored. */
@@ -354,26 +445,27 @@ const SERIES_COLUMN: Record<Split, string> = { phase: PHASE, model: 't.model', w
  */
 export async function costsPage(db: D1Database, query: CostQuery, now = Date.now()): Promise<CostsPage> {
   const first = firstDay(query.period, now);
-  const where: string[] = [];
-  const binds: (string | number)[] = [];
-  if (first !== null) {
-    where.push('t.day >= ?');
-    binds.push(first);
-  }
+  // What narrows a request: its phase, model and agent, then the engineer its pull request names.
+  const narrowing: string[] = [];
+  const narrowBinds: (string | number)[] = [];
   if (query.category !== null) {
-    where.push(`${PHASE} = ?`);
-    binds.push(query.category);
+    narrowing.push(`${PHASE} = ?`);
+    narrowBinds.push(query.category);
   }
   if (query.model !== null) {
-    where.push('t.model = ?');
-    binds.push(query.model);
+    narrowing.push('t.model = ?');
+    narrowBinds.push(query.model);
   }
-  if (query.who !== 'all') where.push(`t.subagent = ${query.who === 'subagents' ? 1 : 0}`);
-  if (query.engineer === UNATTRIBUTED) where.push('l.branch IS NULL');
+  if (query.who !== 'all') narrowing.push(`t.subagent = ${query.who === 'subagents' ? 1 : 0}`);
+  const byEngineer: string[] = [];
+  const engineerBinds: string[] = [];
+  if (query.engineer === UNATTRIBUTED) byEngineer.push('l.branch IS NULL');
   else if (query.engineer !== null) {
-    where.push('l.engineer = ?');
-    binds.push(query.engineer);
+    byEngineer.push('l.engineer = ?');
+    engineerBinds.push(query.engineer);
   }
+  const where = [...(first === null ? [] : ['t.day >= ?']), ...narrowing, ...byEngineer];
+  const binds = [...(first === null ? [] : [first]), ...narrowBinds, ...engineerBinds];
   const needsLinks = query.group !== 'day' || query.engineer !== null || query.split === 'outcome';
   const conditions = where.length === 0 ? '' : `WHERE ${where.join(' AND ')}`;
   // The phase is read only for a by-category question; the split's own column is read always.
@@ -399,12 +491,13 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
          LEFT JOIN pull_request_stats s ON s.pr_number = l.pr_number
          ${conditions} GROUP BY t.branch${phaseKey}, ${series}`;
 
-  const [rows, engineers, models, state, runs, list] = await db.batch([
+  const [rows, engineers, models, state, runs, list, sessionRows, pullRequestRows] = await db.batch([
     db.prepare(select).bind(...binds),
     db.prepare('SELECT DISTINCT engineer FROM branch_links WHERE engineer IS NOT NULL ORDER BY engineer'),
     db.prepare('SELECT DISTINCT model FROM daily_split_totals ORDER BY model'),
     db.prepare('SELECT last_success_at AS lastSuccessAt FROM link_state WHERE id = 1'),
     ...jobReads(db),
+    ...(query.group === 'day' ? trendReads(db, query, first, { narrowing, narrowBinds, byEngineer, engineerBinds }) : []),
   ]);
   const lastLinkSuccessAt = (state!.results[0] as { lastSuccessAt: number | null } | undefined)?.lastSuccessAt ?? null;
   const groups = groupRows(rows!.results as unknown as TotalRow[], query.group, lastLinkSuccessAt);
@@ -420,5 +513,66 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
     totalMicros: groups.reduce((sum, g) => sum + g.totalMicros, 0),
     lastLinkSuccessAt,
     jobs: jobStatuses(runs!, list!, lastLinkSuccessAt),
+    trends:
+      sessionRows === undefined
+        ? null
+        : trends(sessionRows.results as unknown as SessionStart[], mergedPullRequests(pullRequestRows!.results as unknown as MergedRow[]), query.period, now),
   };
+}
+
+interface Narrowing {
+  narrowing: string[];
+  narrowBinds: (string | number)[];
+  byEngineer: string[];
+  engineerBinds: string[];
+}
+
+/**
+ * The reads behind the trend charts. Starting context follows the period, the
+ * engineer and the model alone, from the sessions' first main-agent requests.
+ * Pull request size and cost per line follow every filter, over the pull
+ * requests merged in the period, each with its whole cost: a pull request with
+ * no request that passes the filters is not in them.
+ */
+function trendReads(db: D1Database, query: CostQuery, first: string | null, f: Narrowing) {
+  const since = first === null ? [] : [first];
+  const starts = [...(first === null ? [] : ['ss.day >= ?']), ...(query.model === null ? [] : ['ss.model = ?']), ...f.byEngineer];
+  const merged = ["l.state = 'MERGED' AND l.merged_at IS NOT NULL", ...(first === null ? [] : ['substr(l.merged_at, 1, 10) >= ?']), ...f.narrowing, ...f.byEngineer];
+  return [
+    db
+      .prepare(
+        `SELECT ss.day AS day, ss.input_tokens + ss.cache_creation_tokens + ss.cache_read_tokens AS tokens
+         FROM session_starts ss ${query.engineer === null ? '' : 'LEFT JOIN branch_links l ON l.branch = ss.branch'}
+         ${starts.length === 0 ? '' : `WHERE ${starts.join(' AND ')}`}`,
+      )
+      .bind(...since, ...(query.model === null ? [] : [query.model]), ...f.engineerBinds),
+    db
+      .prepare(
+        `SELECT l.pr_number AS pr, substr(l.merged_at, 1, 10) AS day, s.lines_added + s.lines_removed AS lines, ${PHASE} AS category, SUM(t.cost_micros) AS costMicros
+         FROM daily_split_totals t JOIN branch_links l ON l.branch = t.branch
+         LEFT JOIN pull_request_stats s ON s.pr_number = l.pr_number
+         WHERE ${merged.join(' AND ')}
+         GROUP BY l.pr_number, ${PHASE}`,
+      )
+      .bind(...since, ...f.narrowBinds, ...f.engineerBinds),
+  ];
+}
+
+interface MergedRow {
+  pr: number;
+  day: string;
+  lines: number | null;
+  category: string;
+  costMicros: number;
+}
+
+/** One entry per merged pull request, from the per-phase rows the query returns for it. */
+function mergedPullRequests(rows: MergedRow[]): MergedPullRequest[] {
+  const found = new Map<number, MergedPullRequest>();
+  for (const r of rows) {
+    const p = found.get(r.pr) ?? { day: r.day, lines: r.lines, costByPhase: {} };
+    p.costByPhase[r.category] = (p.costByPhase[r.category] ?? 0) + r.costMicros;
+    found.set(r.pr, p);
+  }
+  return [...found.values()];
 }

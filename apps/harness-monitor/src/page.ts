@@ -19,6 +19,8 @@ import {
   type Period,
   type Series,
   type Split,
+  type TrendLine,
+  type Trends,
   type Who,
 } from './costs';
 import { type JobName, type JobStatus } from './jobs';
@@ -222,6 +224,88 @@ function overTime(page: CostsPage, now: number): string {
 </section>`;
 }
 
+/** A count as an axis reads it: 120,000 is "120k". */
+const compact = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000).toLocaleString('en-US')}k` : n.toLocaleString('en-US', { maximumFractionDigits: 0 }));
+
+interface TrendDrawing {
+  id: string;
+  title: string;
+  /** What the chart measures, in a sentence. */
+  note: string;
+  lines: (TrendLine & { colour: string; dash?: boolean })[];
+  /** A value as a point's title reads it, and as the axis does. */
+  value: (n: number) => string;
+  axis: (n: number) => string;
+}
+
+/** One trend chart: a line per series over the buckets, broken where a bucket has no value rather than dropped to zero. */
+function trendChart(t: Trends, d: TrendDrawing): string {
+  const { width, height, left, right, top, bottom } = CHART;
+  const shown = d.lines.filter((l) => l.values.some((v) => v !== null));
+  const head = `<section class="card chart" aria-labelledby="${d.id}"><h2 id="${d.id}">${d.title}</h2><p class="muted small">${d.note}</p>`;
+  if (shown.length === 0) return `${head}<p class="empty" data-empty="${d.id}">Nothing to chart in this period.</p></section>`;
+  const peak = Math.max(...shown.flatMap((l) => l.values.map((v) => v ?? 0)), 1);
+  const x = (i: number) => (t.buckets.length === 1 ? (left + width - right) / 2 : left + (i / (t.buckets.length - 1)) * (width - left - right));
+  const y = (v: number) => top + (1 - v / peak) * (height - top - bottom);
+  const grid = [0, 0.5, 1]
+    .map((f) => `<line x1="${left}" x2="${width - right}" y1="${y(peak * f).toFixed(1)}" y2="${y(peak * f).toFixed(1)}" stroke="var(--line-soft)"/><text x="${left - 8}" y="${(y(peak * f) + 4).toFixed(1)}" text-anchor="end" class="axis">${d.axis(peak * f)}</text>`)
+    .join('');
+  const ends = [...new Set([0, Math.floor((t.buckets.length - 1) / 2), t.buckets.length - 1])];
+  const dates = ends.map((i) => `<text x="${x(i).toFixed(1)}" y="${height - 10}" text-anchor="${i === 0 && ends.length > 1 ? 'start' : i === t.buckets.length - 1 && ends.length > 1 ? 'end' : 'middle'}" class="axis">${t.weekly ? 'Week of ' : ''}${t.buckets[i]}</text>`).join('');
+  const drawn = shown
+    .map((l) => {
+      // A run of buckets with values is one segment; a bucket with none ends it.
+      const segments: string[][] = [[]];
+      l.values.forEach((v, i) => {
+        if (v === null) segments.push([]);
+        else segments.at(-1)!.push(`${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+      });
+      const paths = segments.filter((s) => s.length > 1).map((s) => `<polyline points="${s.join(' ')}" fill="none" stroke="${l.colour}" stroke-width="2"${l.dash ? ' stroke-dasharray="6 4"' : ''}/>`).join('');
+      const dots = l.values
+        .map((v, i) => (v === null ? '' : `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${l.colour}"><title>${esc(l.label)} · ${t.weekly ? 'week of ' : ''}${t.buckets[i]} · ${d.value(v)}</title></circle>`))
+        .join('');
+      return `<g data-line="${esc(l.key)}">${paths}${dots}</g>`;
+    })
+    .join('');
+  const legend = shown.length === 1 ? '' : `<div class="legend">${shown.map((l) => `<div class="legend-item"><span class="swatch${l.dash ? ' dash' : ''}" style="background:${l.dash ? 'none' : l.colour}" aria-hidden="true"></span><span>${esc(l.label)}</span></div>`).join('')}</div>`;
+  return `${head}<div class="scroll"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${d.title}, ${t.buckets[0]} to ${t.buckets.at(-1)}">${grid}${dates}${drawn}</svg></div>${legend}</section>`;
+}
+
+/** "Is the harness getting more expensive?": starting context, pull request size and cost per 1,000 lines changed. */
+function harnessTrends(page: CostsPage): string {
+  const t = page.trends;
+  if (t === null) return '';
+  const ink = '#2F5BEA';
+  const per = t.weekly ? 'week' : 'day';
+  const charts = [
+    trendChart(t, {
+      id: 'starting-context',
+      title: 'Starting context',
+      note: `Median tokens (input, cache write and cache read) in each session&rsquo;s first main-agent request, by ${per}.`,
+      lines: [{ key: 'starting-context', label: 'Starting context', values: t.startingContext, colour: ink }],
+      value: (n) => `${number(n)} tokens`,
+      axis: compact,
+    }),
+    trendChart(t, {
+      id: 'pull-request-size',
+      title: 'Pull request size',
+      note: `Median lines changed per merged pull request, by ${per} merged.`,
+      lines: [{ key: 'pull-request-size', label: 'Lines changed', values: t.prSize, colour: ink }],
+      value: (n) => `${number(n)} lines`,
+      axis: compact,
+    }),
+    trendChart(t, {
+      id: 'cost-per-line',
+      title: 'Cost per 1,000 lines changed',
+      note: `Merged pull requests&rsquo; cost divided by thousands of lines added plus removed, by ${per} merged. A phase is not drawn before it was recorded (21 Sep 2026).`,
+      lines: t.costPerThousandLines.map((l) => (l.key === 'total' ? { ...l, colour: 'var(--ink)', dash: true } : { ...l, colour: COLOURS[l.key as Category] })),
+      value: dollars,
+      axis: dollars,
+    }),
+  ];
+  return `<section class="trends" aria-labelledby="trends"><h2 id="trends">Is the harness getting more expensive?</h2>${charts.join('\n')}</section>`;
+}
+
 /** The repository as GitHub names it, `owner/name`; anything else is no repository and links nowhere. */
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
@@ -332,6 +416,7 @@ th:first-child,td:first-child{padding-left:16px}th:last-child,td:last-child{padd
 .jobs .failed{color:var(--warn-ink)}
 .empty{padding:24px;color:var(--muted)}
 .chart{display:flex;flex-direction:column;gap:12px;padding:20px}.chart svg{display:block;width:100%;min-width:640px;height:auto}.axis{font-size:12px;fill:var(--muted)}
+.trends{display:flex;flex-direction:column;gap:12px}
 .swatch.dash{width:18px;height:0;border-top:2px dashed var(--ink);border-radius:0}
 @media (max-width:640px){.segmented button{flex:1 1 auto}}
 `;
@@ -355,6 +440,7 @@ ${filters(page)}
 ${warning(report.unpriced)}
 ${whereItWent(page)}
 ${page.query.group === 'day' ? overTime(page, now) : ''}
+${harnessTrends(page)}
 ${table(page, repository)}
 ${jobLines(page.jobs)}
 </main>

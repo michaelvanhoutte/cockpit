@@ -14,6 +14,8 @@ const github = `https://github.com/${env.GITHUB_REPOSITORY}`;
 /** The first cell of each row of the cost table, as the page writes it: links included. */
 const firstCells = (html: string) => [...html.matchAll(/<tr>(<td class="first">.*?<\/td>)/gs)].map((m) => m[1]!);
 const hrefs = (cell: string) => [...cell.matchAll(/<a href="([^"]*)"([^>]*)>(.*?)<\/a>/gs)].map(([, href, attributes, text]) => ({ href: href!, newTab: attributes!.includes('target="_blank"'), text: text! }));
+/** The cost-per-day chart alone: the trend charts below it draw lines of their own. */
+const perDay = (html: string) => /<section class="card chart" aria-labelledby="perday">.*?<\/section>/s.exec(html)![0];
 
 describe('Harness Monitor', () => {
   describe('the page opens on Over time, newest day first; every other grouping keeps its own address', () => {
@@ -56,7 +58,7 @@ describe('Harness Monitor', () => {
 
       expect(html).toContain('<h2 id="perday">Cost per day</h2>');
       expect(html).toContain('<svg viewBox=');
-      expect([...html.matchAll(/<g data-line="([^"]*)">/g)].map((m) => m[1])).toEqual(['building', 'after-push', 'total']);
+      expect([...perDay(html).matchAll(/<g data-line="([^"]*)">/g)].map((m) => m[1])).toEqual(['building', 'after-push', 'total']);
       const legend = /<section class="card chart".*?<div class="legend">(.*?)<\/div>\s*<\/section>/s.exec(html)![1]!;
       expect([...legend.matchAll(/<span>(.*?)<\/span>/g)].map((m) => m[1])).toEqual(['Building', 'After push', 'Total']);
     });
@@ -75,7 +77,7 @@ describe('Harness Monitor', () => {
 
       const html = await theBarePage('?period=all&split=model');
 
-      expect([...html.matchAll(/<g data-line="([^"]*)">/g)].map((m) => m[1]).sort()).toEqual(['claude-haiku-4-5', 'claude-sonnet-5', 'total']);
+      expect([...perDay(html).matchAll(/<g data-line="([^"]*)">/g)].map((m) => m[1]).sort()).toEqual(['claude-haiku-4-5', 'claude-sonnet-5', 'total']);
     });
 
     it('is on Over time only', async () => {
