@@ -48,29 +48,6 @@ ON CONFLICT (day, category, model) DO UPDATE SET
   cost_micros = cost_micros + excluded.cost_micros,
   unpriced_requests = unpriced_requests + excluded.unpriced_requests`;
 
-const BRANCH_TOTALS_SELECT = `SELECT day, COALESCE(branch, ''), ${PHASE}, model, COUNT(*), SUM(COALESCE(cost_micros, 0)), SUM(cost_micros IS NULL),
-       SUM(CASE WHEN cost_micros IS NULL THEN input_tokens ELSE 0 END),
-       SUM(CASE WHEN cost_micros IS NULL THEN output_tokens ELSE 0 END),
-       SUM(CASE WHEN cost_micros IS NULL THEN cache_creation_tokens ELSE 0 END),
-       SUM(CASE WHEN cost_micros IS NULL THEN cache_read_tokens ELSE 0 END),
-       MAX(occurred_at)`;
-/** The same rows folded into the per-branch dollars the costs page reads. */
-const ADD_TO_BRANCH_TOTALS = `INSERT INTO daily_branch_totals (
-  day, branch, category, model, requests, cost_micros, unpriced_requests,
-  unpriced_input_tokens, unpriced_output_tokens, unpriced_cache_creation_tokens, unpriced_cache_read_tokens, last_at
-)
-${BRANCH_TOTALS_SELECT}
-FROM usage_requests WHERE ingest_id = ?
-GROUP BY day, COALESCE(branch, ''), ${PHASE}, model
-ON CONFLICT (day, branch, category, model) DO UPDATE SET
-  requests = requests + excluded.requests,
-  cost_micros = cost_micros + excluded.cost_micros,
-  unpriced_requests = unpriced_requests + excluded.unpriced_requests,
-  unpriced_input_tokens = unpriced_input_tokens + excluded.unpriced_input_tokens,
-  unpriced_output_tokens = unpriced_output_tokens + excluded.unpriced_output_tokens,
-  unpriced_cache_creation_tokens = unpriced_cache_creation_tokens + excluded.unpriced_cache_creation_tokens,
-  unpriced_cache_read_tokens = unpriced_cache_read_tokens + excluded.unpriced_cache_read_tokens,
-  last_at = MAX(last_at, excluded.last_at)`;
 const SPLIT_TOTALS_COLUMNS = `day, branch, category, model, ran_where, subagent, requests, cost_micros, unpriced_requests,
   unpriced_input_tokens, unpriced_output_tokens, unpriced_cache_creation_tokens, unpriced_cache_read_tokens, last_at`;
 const SPLIT_TOTALS_SELECT = `SELECT day, COALESCE(branch, ''), ${PHASE}, model, ran_where, subagent, COUNT(*), SUM(COALESCE(cost_micros, 0)), SUM(cost_micros IS NULL),
@@ -137,7 +114,6 @@ export async function storeBatch(db: D1Database, rows: UsageRow[], now = Date.no
   const [inserted] = await db.batch([
     db.prepare(INSERT_ROWS).bind(payload, ingestId, now),
     db.prepare(ADD_TO_TOTALS).bind(ingestId),
-    db.prepare(ADD_TO_BRANCH_TOTALS).bind(ingestId),
     db.prepare(ADD_TO_SPLIT_TOTALS).bind(ingestId),
     db.prepare(ADD_TO_SESSION_STARTS).bind(ingestId),
   ]);
@@ -149,7 +125,6 @@ export async function storeBatch(db: D1Database, rows: UsageRow[], now = Date.no
 export async function rebuildTotals(db: D1Database): Promise<number> {
   await db.batch([
     db.prepare('DELETE FROM daily_totals'),
-    db.prepare('DELETE FROM daily_branch_totals'),
     db.prepare('DELETE FROM daily_split_totals'),
     db.prepare('DELETE FROM session_starts'),
     db.prepare(`INSERT INTO daily_totals (
@@ -160,12 +135,6 @@ export async function rebuildTotals(db: D1Database): Promise<number> {
              SUM(cache_creation_tokens), SUM(cache_read_tokens),
              SUM(COALESCE(cost_micros, 0)), SUM(cost_micros IS NULL)
       FROM usage_requests GROUP BY day, ${PHASE}, model`),
-    db.prepare(`INSERT INTO daily_branch_totals (
-        day, branch, category, model, requests, cost_micros, unpriced_requests,
-        unpriced_input_tokens, unpriced_output_tokens, unpriced_cache_creation_tokens, unpriced_cache_read_tokens, last_at
-      )
-      ${BRANCH_TOTALS_SELECT}
-      FROM usage_requests GROUP BY day, COALESCE(branch, ''), ${PHASE}, model`),
     db.prepare(`INSERT INTO daily_split_totals (${SPLIT_TOTALS_COLUMNS})
       ${SPLIT_TOTALS_SELECT} GROUP BY ${SPLIT_TOTALS_KEYS}`),
     db.prepare(`INSERT INTO session_starts (${SESSION_START_COLUMNS})
