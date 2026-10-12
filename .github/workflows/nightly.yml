@@ -1,7 +1,7 @@
 name: Nightly
 
 # The reports that are too dear to build on every merge, built once a night
-# ("Run the cycle-time report nightly, and publish it beside the other two",
+# ("Run the lead-time report nightly, and publish it beside the other two",
 # issue 515). The cycle-time report re-reads 14 days of history, which
 # takes most of the 1,000 requests an hour every workflow in this repository
 # shares (tools/cycle-time/src/github.js works it out):

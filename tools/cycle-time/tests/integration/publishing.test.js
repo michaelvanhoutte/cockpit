@@ -29,7 +29,8 @@ describe('the nightly cycle-time job, as nightly.yml assembles it', () => {
 
   it('uploads the page and model as the cycle-time-report artifact', () => {
     expect(nightly).toContain('name: cycle-time-report');
-    expect(nightly).not.toContain('lead-time');
+    expect(nightly).not.toContain('lead-time-report');
+    expect(nightly).not.toContain('tools/lead-time');
   });
 });
 

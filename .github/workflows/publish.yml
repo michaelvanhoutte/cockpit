@@ -11,7 +11,7 @@ name: Publish
 # Every report is fetched the same way regardless of which workflow called
 # this one: the newest artifact from an eligible run of either workflow on
 # `main`, never the newest *successful* run, so one report's failure never
-# costs another's page — the same tolerance "Run the cycle-time report
+# costs another's page — the same tolerance "Run the lead-time report
 # nightly, and publish it beside the other two" (issue 515) established for
 # the cycle-time and test-selection reports, now true of all five.
 on:
