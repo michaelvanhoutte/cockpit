@@ -138,7 +138,7 @@ describe('Harness Monitor', () => {
     });
 
     it('rebuild rebuilds the daily totals and answers with the days', async () => {
-      await send([usage('a', { time: '2026-03-01T10:00:00Z' }), usage('b', { time: '2026-03-02T10:00:00Z' })]);
+      await send([usage('a', { time: '2026-10-01T10:00:00Z' }), usage('b', { time: '2026-10-02T10:00:00Z' })]);
       await env.DB.prepare('DELETE FROM daily_totals').run();
 
       const response = await start('rebuild');
@@ -402,17 +402,17 @@ describe('Harness Monitor', () => {
 
     it('a deployment from before runs were recorded shows what the jobs stored, not "has not run yet"', async () => {
       await env.DB.batch([
-        env.DB.prepare('INSERT INTO link_state (id, cursor, last_success_at) VALUES (1, NULL, ?)').bind(Date.parse('2026-03-01T08:00:00Z')),
-        env.DB.prepare('INSERT INTO price_list (id, models, fetched_at, last_attempt_at) VALUES (1, ?, ?, ?)').bind('{}', Date.parse('2026-03-02T03:10:00Z'), Date.parse('2026-03-02T03:10:00Z')),
+        env.DB.prepare('INSERT INTO link_state (id, cursor, last_success_at) VALUES (1, NULL, ?)').bind(Date.parse('2026-10-01T08:00:00Z')),
+        env.DB.prepare('INSERT INTO price_list (id, models, fetched_at, last_attempt_at) VALUES (1, ?, ?, ?)').bind('{}', Date.parse('2026-10-02T03:10:00Z'), Date.parse('2026-10-02T03:10:00Z')),
       ]);
 
-      expect(await jobLine('linking')).toBe('Branch linking: last succeeded 2026-03-01 08:00 UTC.');
-      expect(await jobLine('prices')).toBe('Price list: last succeeded 2026-03-02 03:10 UTC.');
+      expect(await jobLine('linking')).toBe('Branch linking: last succeeded 2026-10-01 08:00 UTC.');
+      expect(await jobLine('prices')).toBe('Price list: last succeeded 2026-10-02 03:10 UTC.');
       expect(await jobLine('rebuild')).toBe('Daily totals: has not run yet.');
     });
 
     it('a failed first run on such a deployment names the earlier success', async () => {
-      await env.DB.prepare('INSERT INTO link_state (id, cursor, last_success_at) VALUES (1, NULL, ?)').bind(Date.parse('2026-03-01T08:00:00Z')).run();
+      await env.DB.prepare('INSERT INTO link_state (id, cursor, last_success_at) VALUES (1, NULL, ?)').bind(Date.parse('2026-10-01T08:00:00Z')).run();
       vi.spyOn(console, 'error').mockImplementation(() => {});
       fakeGitHub(() => new Response('no', { status: 401 }));
       vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-04-01T12:00:00Z') });
@@ -422,7 +422,7 @@ describe('Harness Monitor', () => {
         vi.useRealTimers();
       }
 
-      expect(await jobLine('linking')).toContain('Last succeeded 2026-03-01 08:00 UTC.');
+      expect(await jobLine('linking')).toContain('Last succeeded 2026-10-01 08:00 UTC.');
     });
 
     it('a schedule no job answers to runs nothing and says so', async () => {
