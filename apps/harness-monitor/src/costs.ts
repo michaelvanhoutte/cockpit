@@ -72,6 +72,13 @@ export interface TotalRow {
   mergedAt: string | null;
   issue: number | null;
   engineer: string | null;
+  /** What linking read of the pull request; null until it has, or has read every file. */
+  linesAdded: number | null;
+  linesRemoved: number | null;
+  openedAt: string | null;
+  ciRounds: number | null;
+  /** The closing issue's title. */
+  issueTitle: string | null;
 }
 
 export interface CostGroup {
@@ -84,6 +91,12 @@ export interface CostGroup {
   engineer: string | null;
   /** When a pull request merged, or its state while it has not. */
   merged: string | null;
+  /** How long a merged pull request was open, as a short phrase; null while it is not merged or its opening is unknown. */
+  openToMerged: string | null;
+  /** Lines added and removed, leaving out lockfiles, snapshots and generated files; null until sized. */
+  lines: { added: number; removed: number } | null;
+  /** Head commits pushed after it opened; null until read. */
+  ciRounds: number | null;
   /** Distinct pull requests in the group. */
   pullRequests: number;
   byCategory: Record<Category, number>;
@@ -119,7 +132,7 @@ function placeOf(row: TotalRow, group: Group, linking: (row: TotalRow) => 'linki
       if (!linked) return { key: UNATTRIBUTED, label: 'Unattributed', sub: null };
       return row.issue === null
         ? { key: '~none', label: 'No issue', sub: null }
-        : { key: `issue-${row.issue}`, label: `Issue #${row.issue}`, sub: null };
+        : { key: `issue-${row.issue}`, label: issueLabel(row.issue, row.issueTitle), sub: null };
     case 'pr':
       return linked
         ? {
@@ -129,6 +142,17 @@ function placeOf(row: TotalRow, group: Group, linking: (row: TotalRow) => 'linki
           }
         : { key: `branch-${row.branch}`, label: row.branch === '' ? 'No branch' : row.branch, sub: row.branch === '' ? 'unattributed' : linking(row) };
   }
+}
+
+/** An issue as a row names it: "#N title", or "#N" until its title has been read. */
+const issueLabel = (number: number, title: string | null) => (title ? `#${number} ${title}` : `#${number}`);
+
+/** How long a pull request was open, in its two largest units: "45m", "5h 10m", "2d 4h". */
+export function openFor(openedAt: string, closedAt: string): string {
+  const minutes = Math.max(0, Math.floor((Date.parse(closedAt) - Date.parse(openedAt)) / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return `${Math.floor(minutes / (24 * 60))}d ${Math.floor((minutes % (24 * 60)) / 60)}h`;
 }
 
 const mergedOf = (row: TotalRow) =>
@@ -147,13 +171,15 @@ export function groupRows(rows: TotalRow[], group: Group, lastLinkSuccessAt: num
     const place = placeOf(row, group, linking);
     let g = groups.get(place.key);
     if (!g) {
-      g = { ...place, prNumber: group === 'pr' ? row.prNumber : null, engineer: row.prNumber === null ? null : row.engineer, merged: mergedOf(row), pullRequests: 0, byCategory: none(), totalMicros: 0, unpricedRequests: 0 };
+      g = { ...place, prNumber: group === 'pr' ? row.prNumber : null, engineer: row.prNumber === null ? null : row.engineer, merged: mergedOf(row), pullRequests: 0, openToMerged: row.openedAt !== null && row.mergedAt !== null ? openFor(row.openedAt, row.mergedAt) : null, lines: row.linesAdded !== null && row.linesRemoved !== null ? { added: row.linesAdded, removed: row.linesRemoved } : null, ciRounds: row.ciRounds, byCategory: none(), totalMicros: 0, unpricedRequests: 0 };
       groups.set(place.key, g);
       prs.set(place.key, new Set());
     }
     g.byCategory[row.category] += row.costMicros;
     g.totalMicros += row.costMicros;
     g.unpricedRequests += row.unpricedRequests;
+    // Two pull requests on one issue may have been read apart, one before the title was.
+    if (group === 'issue' && row.issue !== null && row.issueTitle && g.label === issueLabel(row.issue, null)) g.label = issueLabel(row.issue, row.issueTitle);
     if (row.prNumber !== null) prs.get(place.key)!.add(row.prNumber);
   }
   for (const [key, g] of groups) g.pullRequests = prs.get(key)!.size;
@@ -209,14 +235,18 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
     query.group === 'day'
       ? `SELECT t.day AS day, '' AS branch, t.category AS category, SUM(t.cost_micros) AS costMicros,
            SUM(t.unpriced_requests) AS unpricedRequests, MAX(t.last_at) AS lastAt,
-           NULL AS prNumber, NULL AS title, NULL AS state, NULL AS mergedAt, NULL AS issue, NULL AS engineer
+           NULL AS prNumber, NULL AS title, NULL AS state, NULL AS mergedAt, NULL AS issue, NULL AS engineer,
+           NULL AS linesAdded, NULL AS linesRemoved, NULL AS openedAt, NULL AS ciRounds, NULL AS issueTitle
          FROM daily_branch_totals t ${needsLinks ? 'LEFT JOIN branch_links l ON l.branch = t.branch' : ''}
          ${conditions} GROUP BY t.day, t.category`
       : `SELECT '' AS day, t.branch AS branch, t.category AS category, SUM(t.cost_micros) AS costMicros,
            SUM(t.unpriced_requests) AS unpricedRequests, MAX(t.last_at) AS lastAt,
            l.pr_number AS prNumber, l.title AS title, l.state AS state, l.merged_at AS mergedAt,
-           l.issue_number AS issue, l.engineer AS engineer
+           l.issue_number AS issue, l.engineer AS engineer,
+           s.lines_added AS linesAdded, s.lines_removed AS linesRemoved, s.opened_at AS openedAt,
+           s.ci_rounds AS ciRounds, s.issue_title AS issueTitle
          FROM daily_branch_totals t LEFT JOIN branch_links l ON l.branch = t.branch
+         LEFT JOIN pull_request_stats s ON s.pr_number = l.pr_number
          ${conditions} GROUP BY t.branch, t.category`;
 
   const [rows, engineers, state, runs, list] = await db.batch([

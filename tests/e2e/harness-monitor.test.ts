@@ -44,7 +44,7 @@ const SEED = {
     request('4', 'claude/e2e-teams-message', 'ci-reviews', 1),
   ],
   pullRequests: [
-    { branch: 'claude/e2e-filter-panel', number: 9001, title: 'Add a filter panel', state: 'MERGED', mergedAt: '2026-01-02T10:00:00Z', issue: 9000, engineer: 'e2e-alice' },
+    { branch: 'claude/e2e-filter-panel', number: 9001, title: 'Add a filter panel', state: 'MERGED', mergedAt: '2026-01-02T10:00:00Z', issue: 9000, engineer: 'e2e-alice', size: { added: 120, removed: 30, openedAt: '2026-01-01T10:00:00Z', ciRounds: 2, issueTitle: 'Filter the inbox' } },
     { branch: 'claude/e2e-teams-message', number: 9002, title: 'Save a Teams message', state: 'OPEN', mergedAt: null, issue: null, engineer: 'e2e-bob' },
   ],
 };
@@ -61,6 +61,9 @@ test.describe('Harness Monitor', () => {
     const table = page.getByRole('region', { name: 'Cost by pull request' });
     await expect(table.getByRole('row', { name: /#9001 Add a filter panel/ })).toContainText('$6.00');
     await expect(table.getByRole('row', { name: /#9002 Save a Teams message/ })).toContainText('$2.00');
+    // What linking read of a pull request: its lines, how long it was open, and its CI rounds.
+    await expect(table.getByRole('columnheader', { name: 'Lines' })).toBeVisible();
+    await expect(table.getByRole('row', { name: /#9001 Add a filter panel/ })).toContainText('+120 −30');
     await expect(page.getByRole('heading', { name: /Where the period.s \$8\.00 went/ })).toBeVisible();
     await expect(page.getByRole('img', { name: /Building \$5\.00.*After push \$2\.00.*CI reviews \$1\.00/ })).toBeVisible();
     await expect(page.getByText('are not measured')).toBeVisible();

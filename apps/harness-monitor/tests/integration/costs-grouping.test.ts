@@ -51,7 +51,7 @@ describe('Harness Monitor', () => {
 
     it('by issue, pull requests closing the same issue are summed together', async () => {
       expect(await rows('issue')).toEqual([
-        ['Issue #5', '$10.00', '—', '$5.00', '—', '—', '$4.00', '$1.00'],
+        ['#5', '$10.00', '—', '$5.00', '—', '—', '$4.00', '$1.00'],
         ['No issue', '$3.00', '—', '—', '$3.00', '—', '—', '—'],
         ['Unattributed', '$0.75', '$0.25', '$0.50', '—', '—', '—', '—'],
       ]);

@@ -23,6 +23,8 @@ interface SeededPullRequest {
   mergedAt: string | null;
   issue: number | null;
   engineer: string | null;
+  /** What linking would have read of it, when the walk looks at that. */
+  size?: { added: number; removed: number; openedAt: string; ciRounds: number; issueTitle: string | null };
 }
 
 export default {
@@ -50,6 +52,18 @@ export default {
            ON CONFLICT (branch) DO UPDATE SET pr_number = excluded.pr_number, title = excluded.title, state = excluded.state,
              merged_at = excluded.merged_at, issue_number = excluded.issue_number, engineer = excluded.engineer`,
         ).bind(p.branch, p.number, p.title, p.state, p.mergedAt, p.issue, p.engineer, now),
+      ),
+      ...pullRequests.flatMap((p) =>
+        p.size
+          ? [
+              env.DB.prepare(
+                `INSERT INTO pull_request_stats (pr_number, lines_added, lines_removed, opened_at, merged_at, ci_rounds, issue_title, pr_updated_at, read_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '2026-01-01T00:00:00Z', ?8)
+                 ON CONFLICT (pr_number) DO UPDATE SET lines_added = excluded.lines_added, lines_removed = excluded.lines_removed,
+                   opened_at = excluded.opened_at, merged_at = excluded.merged_at, ci_rounds = excluded.ci_rounds, issue_title = excluded.issue_title`,
+              ).bind(p.number, p.size.added, p.size.removed, p.size.openedAt, p.mergedAt, p.size.ciRounds, p.size.issueTitle, now),
+            ]
+          : [],
       ),
       env.DB.prepare(
         `INSERT INTO link_state (id, cursor, last_success_at) VALUES (1, NULL, ?1)

@@ -27,17 +27,55 @@ WHERE excluded.pr_updated_at > branch_links.pr_updated_at
      OR (${NEW_ISSUE}) IS NOT branch_links.issue_number OR (${NEW_ENGINEER}) IS NOT branch_links.engineer))`;
 
 /**
+ * Stores each pull request's size, timing, CI rounds and closing issue's title, one
+ * row per pull request, from the same JSON array. An older read never replaces a
+ * newer one. A figure GitHub did not give (a file it left unread, a push it did not
+ * list) keeps the one stored; a title it did not give keeps the stored one only
+ * when its answer carried errors, since a pull request that no longer closes an
+ * issue has none.
+ */
+const UPSERT_STATS = `INSERT INTO pull_request_stats (
+  pr_number, lines_added, lines_removed, opened_at, merged_at, ci_rounds, issue_title, pr_updated_at, read_at
+)
+SELECT value ->> '$.number', value ->> '$.additions', value ->> '$.deletions', value ->> '$.openedAt', value ->> '$.mergedAt',
+       value ->> '$.ciRounds',
+       CASE WHEN value ->> '$.partial' = 1 AND value ->> '$.issueTitle' IS NULL
+            THEN (SELECT issue_title FROM pull_request_stats WHERE pr_number = value ->> '$.number')
+            ELSE value ->> '$.issueTitle' END,
+       value ->> '$.updatedAt', ?2
+FROM json_each(?1) WHERE true
+ORDER BY key
+ON CONFLICT (pr_number) DO UPDATE SET
+  lines_added = COALESCE(excluded.lines_added, pull_request_stats.lines_added),
+  lines_removed = COALESCE(excluded.lines_removed, pull_request_stats.lines_removed),
+  opened_at = COALESCE(excluded.opened_at, pull_request_stats.opened_at),
+  merged_at = excluded.merged_at,
+  ci_rounds = COALESCE(excluded.ci_rounds, pull_request_stats.ci_rounds),
+  issue_title = excluded.issue_title,
+  pr_updated_at = excluded.pr_updated_at, read_at = excluded.read_at
+WHERE excluded.pr_updated_at >= pull_request_stats.pr_updated_at`;
+
+/**
  * The run's place and, when it caught up, the time. A full re-read sets its
  * place whatever is stored; any other run only moves the place it started from
  * (?3), so one that overlapped a full re-read and finished after it cannot undo
  * the rewind. A run that lost its place changes nothing here, which its
  * `changes` of 0 says.
  */
-const SAVE_STATE = `INSERT INTO link_state (id, page_cursor, last_success_at) VALUES (1, ?1, ?2)
+const SAVE_STATE = `INSERT INTO link_state (id, page_cursor, last_success_at, sizing_version) VALUES (1, ?1, ?2, ?5)
 ON CONFLICT (id) DO UPDATE SET
   page_cursor = excluded.page_cursor,
-  last_success_at = COALESCE(excluded.last_success_at, link_state.last_success_at)
+  last_success_at = COALESCE(excluded.last_success_at, link_state.last_success_at),
+  sizing_version = COALESCE(excluded.sizing_version, link_state.sizing_version)
 WHERE ?4 = 1 OR link_state.page_cursor IS ?3`;
+
+/**
+ * What linking reads of each pull request. Raise it when it reads more, and the
+ * next run re-reads every pull request from the first, once: it rewinds the place
+ * and stores this version beside it in the same batch, so a run that fails
+ * rewinds again and one that stored carries on from where it stopped.
+ */
+export const SIZING_VERSION = 1;
 
 export interface LinkEnv {
   DB: D1Database;
@@ -86,9 +124,14 @@ export async function linkBranches(env: LinkEnv, { now = Date.now(), full = fals
     return { status: 'skipped' };
   }
   try {
-    const state = await env.DB.prepare('SELECT page_cursor AS cursor FROM link_state WHERE id = 1').first<{ cursor: string | null }>();
+    const state = await env.DB.prepare('SELECT page_cursor AS cursor, sizing_version AS sizing FROM link_state WHERE id = 1').first<{
+      cursor: string | null;
+      sizing: number | null;
+    }>();
     const started = state?.cursor ?? null;
-    const fetched = await fetchChangedPullRequests(env.GITHUB_REPOSITORY, env.GITHUB_TOKEN, full ? null : started);
+    // Pull requests linked before the sizing version are read again from the first.
+    const rewind = full || state?.sizing !== SIZING_VERSION;
+    const fetched = await fetchChangedPullRequests(env.GITHUB_REPOSITORY, env.GITHUB_TOKEN, rewind ? null : started);
 
     // Oldest first, so the newest-updated pull request of a branch is stored last and wins.
     const ordered: PullRequest[] = [...fetched.pullRequests].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
@@ -96,7 +139,8 @@ export async function linkBranches(env: LinkEnv, { now = Date.now(), full = fals
     const results = await env.DB.batch([
       env.DB.prepare(UPSERT_LINKS).bind(links(false), now, 0),
       env.DB.prepare(UPSERT_LINKS).bind(links(true), now, 1),
-      env.DB.prepare(SAVE_STATE).bind(fetched.cursor, fetched.caughtUp ? now : null, started, full ? 1 : 0),
+      env.DB.prepare(UPSERT_STATS).bind(JSON.stringify(ordered), now),
+      env.DB.prepare(SAVE_STATE).bind(fetched.cursor, fetched.caughtUp ? now : null, started, rewind ? 1 : 0, rewind ? SIZING_VERSION : null),
     ]);
     const moved = results.at(-1)!.meta.changes === 0;
     const status = moved ? 'place-moved' : fetched.caughtUp ? 'caught-up' : 'more-to-read';

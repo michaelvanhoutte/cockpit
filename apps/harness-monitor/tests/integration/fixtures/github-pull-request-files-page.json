@@ -1,0 +1,24 @@
+{
+  "data": {
+    "node": {
+      "files": {
+        "pageInfo": {
+          "hasNextPage": true,
+          "endCursor": "NA"
+        },
+        "nodes": [
+          {
+            "path": "apps/harness-monitor/package.json",
+            "additions": 28,
+            "deletions": 0
+          },
+          {
+            "path": "apps/harness-monitor/src/auth.ts",
+            "additions": 26,
+            "deletions": 0
+          }
+        ]
+      }
+    }
+  }
+}
