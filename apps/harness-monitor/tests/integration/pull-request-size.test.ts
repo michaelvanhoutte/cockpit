@@ -76,11 +76,15 @@ describe('Harness Monitor', () => {
       expect(await theStats()).toMatchObject([{ lines_added: 100 + 28 + 26 + 7, lines_removed: 3 }]);
     });
 
-    it('a pull request whose remaining files cannot be read is stored without a size, not a short one, and the run carries on', async () => {
+    it.each([
+      { situation: 'GitHub times out on them', answer: () => timedOut() },
+      { situation: 'GitHub answers an error for them', answer: () => Response.json({ data: { node: null }, errors: [{ message: 'Something went wrong' }] }) },
+      { situation: 'GitHub leaves a file out of the page', answer: () => Response.json({ data: { node: { files: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [file('src/y.ts', 5, 0), null] } } } }) },
+    ])('a pull request whose remaining files cannot be read, as when $situation, is stored without a size, not a short one, and the run carries on', async ({ answer }) => {
       const first = Array.from({ length: 100 }, (_, i) => file(`src/f${i}.ts`, 1, 0));
       fakeGitHub(
         () => pageOf([numbered(1, { id: 'PR_one', files: filesOf(first, 'c100') }), numbered(2, { files: filesOf([file('src/x.ts', 6, 0)]) })]),
-        () => timedOut(),
+        answer,
       );
 
       await runHourly();
@@ -89,6 +93,19 @@ describe('Harness Monitor', () => {
         { pr_number: 1, lines_added: null, lines_removed: null },
         { pr_number: 2, lines_added: 6, lines_removed: 0 },
       ]);
+    });
+
+    it('a sized pull request whose new push cannot be read in full goes blank rather than keeping its older size', async () => {
+      await linked(numbered(1, { files: filesOf([file('src/a.ts', 10, 0)]) }));
+      const first = Array.from({ length: 100 }, (_, i) => file(`src/f${i}.ts`, 1, 0));
+      fakeGitHub(
+        () => pageOf([numbered(1, { id: 'PR_one', updatedAt: '2026-10-05T10:00:00Z', files: filesOf(first, 'c100') })]),
+        () => timedOut(),
+      );
+
+      await runHourly();
+
+      expect(await theStats()).toMatchObject([{ pr_number: 1, lines_added: null, lines_removed: null }]);
     });
 
     it('a pull request updated by a new push has its lines and CI rounds refreshed', async () => {

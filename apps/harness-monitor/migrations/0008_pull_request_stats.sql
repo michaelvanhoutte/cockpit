@@ -6,8 +6,7 @@ CREATE TABLE pull_request_stats (
   pr_number INTEGER PRIMARY KEY NOT NULL,
   lines_added INTEGER,            -- null until the job has read every changed file
   lines_removed INTEGER,          -- lockfiles, snapshots and generated files left out (src/excluded-files.json)
-  opened_at TEXT,                 -- ISO time
-  merged_at TEXT,                 -- ISO time, null unless merged
+  opened_at TEXT,                 -- ISO time; when it merged is branch_links.merged_at
   ci_rounds INTEGER,              -- head commits pushed after it opened
   issue_title TEXT,               -- the closing issue's title, null when it closes none
   pr_updated_at TEXT NOT NULL,    -- ISO time; an older read never replaces a newer one

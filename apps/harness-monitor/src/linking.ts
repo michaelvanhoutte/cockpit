@@ -29,16 +29,24 @@ WHERE excluded.pr_updated_at > branch_links.pr_updated_at
 /**
  * Stores each pull request's size, timing, CI rounds and closing issue's title, one
  * row per pull request, from the same JSON array. An older read never replaces a
- * newer one. A figure GitHub did not give (a file it left unread, a push it did not
- * list) keeps the one stored; a title it did not give keeps the stored one only
- * when its answer carried errors, since a pull request that no longer closes an
+ * newer one. A size the run could not finish reading is stored as none, so the page
+ * shows it blank rather than an older or shorter one; only an answer carrying errors,
+ * which may have left the files out altogether, keeps the stored size. A push GitHub
+ * did not list keeps the stored rounds; a title it did not give keeps the stored one
+ * only when its answer carried errors, since a pull request that no longer closes an
  * issue has none.
  */
 const UPSERT_STATS = `INSERT INTO pull_request_stats (
-  pr_number, lines_added, lines_removed, opened_at, merged_at, ci_rounds, issue_title, pr_updated_at, read_at
+  pr_number, lines_added, lines_removed, opened_at, ci_rounds, issue_title, pr_updated_at, read_at
 )
-SELECT value ->> '$.number', value ->> '$.additions', value ->> '$.deletions', value ->> '$.openedAt', value ->> '$.mergedAt',
-       value ->> '$.ciRounds',
+SELECT value ->> '$.number',
+       CASE WHEN value ->> '$.partial' = 1 AND value ->> '$.additions' IS NULL
+            THEN (SELECT lines_added FROM pull_request_stats WHERE pr_number = value ->> '$.number')
+            ELSE value ->> '$.additions' END,
+       CASE WHEN value ->> '$.partial' = 1 AND value ->> '$.deletions' IS NULL
+            THEN (SELECT lines_removed FROM pull_request_stats WHERE pr_number = value ->> '$.number')
+            ELSE value ->> '$.deletions' END,
+       value ->> '$.openedAt', value ->> '$.ciRounds',
        CASE WHEN value ->> '$.partial' = 1 AND value ->> '$.issueTitle' IS NULL
             THEN (SELECT issue_title FROM pull_request_stats WHERE pr_number = value ->> '$.number')
             ELSE value ->> '$.issueTitle' END,
@@ -46,10 +54,8 @@ SELECT value ->> '$.number', value ->> '$.additions', value ->> '$.deletions', v
 FROM json_each(?1) WHERE true
 ORDER BY key
 ON CONFLICT (pr_number) DO UPDATE SET
-  lines_added = COALESCE(excluded.lines_added, pull_request_stats.lines_added),
-  lines_removed = COALESCE(excluded.lines_removed, pull_request_stats.lines_removed),
+  lines_added = excluded.lines_added, lines_removed = excluded.lines_removed,
   opened_at = COALESCE(excluded.opened_at, pull_request_stats.opened_at),
-  merged_at = excluded.merged_at,
   ci_rounds = COALESCE(excluded.ci_rounds, pull_request_stats.ci_rounds),
   issue_title = excluded.issue_title,
   pr_updated_at = excluded.pr_updated_at, read_at = excluded.read_at

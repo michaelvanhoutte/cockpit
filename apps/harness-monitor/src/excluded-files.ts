@@ -17,7 +17,9 @@ function toRegExp(pattern: string): RegExp {
   let regExp = compiled.get(pattern);
   if (!regExp) {
     const directory = pattern.endsWith('/');
-    const body = directory ? pattern.slice(0, -1) : pattern;
+    const trimmed = directory ? pattern.slice(0, -1) : pattern;
+    // A leading slash anchors at the root, which GitHub's paths start from without one.
+    const body = trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
     let glob = '';
     for (let i = 0; i < body.length; i += 1) {
       const c = body[i]!;
@@ -28,7 +30,7 @@ function toRegExp(pattern: string): RegExp {
       else if (c === '?') glob += '[^/]';
       else glob += c.replace(/[.+^${}()|[\]\\]/, '\\$&');
     }
-    const anchored = body.includes('/') ? '^' : '(?:^|/)';
+    const anchored = trimmed.includes('/') ? '^' : '(?:^|/)';
     // A directory pattern needs something after it; any other may be the file itself or a directory holding it.
     regExp = new RegExp(`${anchored}${glob}${directory ? '/' : '(?:/|$)'}`);
     compiled.set(pattern, regExp);

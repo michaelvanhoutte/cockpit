@@ -23,6 +23,7 @@ describe('Harness Monitor', () => {
       { situation: 'a pattern with a slash is anchored at the root', patterns: ['docs/*.md'], path: 'docs/a.md', other: 'x/docs/a.md' },
       { situation: 'a double star crosses folders', patterns: ['gen/**/out.ts'], path: 'gen/a/b/out.ts', other: 'src/gen/a/out.ts' },
       { situation: 'a trailing slash names folders only', patterns: ['build/'], path: 'x/build/y.js', other: 'x/build' },
+      { situation: 'a leading slash anchors at the root', patterns: ['/gen.ts'], path: 'gen.ts', other: 'src/gen.ts' },
     ])('$situation', ({ patterns, path, other }) => {
       expect(isExcluded(path, patterns)).toBe(true);
       expect(isExcluded(other, patterns)).toBe(false);

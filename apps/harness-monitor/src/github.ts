@@ -117,12 +117,13 @@ interface Node {
   closingIssuesReferences?: { nodes?: { number?: number; title?: string }[] };
 }
 
-/** Lines in the files that count towards a pull request's size. */
-function sumLines(nodes: (FileNode | null)[]): { additions: number; deletions: number } {
+/** Lines in the files that count towards a pull request's size; null when GitHub left a file out, so the size is never short. */
+function sumLines(nodes: (FileNode | null)[]): { additions: number; deletions: number } | null {
   let additions = 0;
   let deletions = 0;
   for (const file of nodes) {
-    if (!file || typeof file.path !== 'string' || isExcluded(file.path)) continue;
+    if (!file || typeof file.path !== 'string') return null;
+    if (isExcluded(file.path)) continue;
     additions += file.additions ?? 0;
     deletions += file.deletions ?? 0;
   }
@@ -265,17 +266,19 @@ async function readPage(token: string, variables: Variables): Promise<Page> {
 
 /**
  * The files of a pull request from `after` on: totals of those that count and
- * the place the next page starts, or null when they are all read. A timeout
- * leaves them unread rather than failing the run, since the page they belong
- * to is already read and the pull request is sized when next it is.
+ * the place the next page starts, or null when they are all read. A timeout or
+ * a page GitHub could not give leaves them unread rather than failing the run,
+ * since the page they belong to is already read and the pull request is sized
+ * when next it is.
  */
 async function readFiles(token: string, id: string, after: string): Promise<{ lines: { additions: number; deletions: number }; next: string | null } | null> {
   const body = await post<{ node?: { files?: Files } | null }>(token, FILES_QUERY, { id, after });
   if ('timeout' in body) return null;
   const files = body.data?.node?.files;
-  if (!files?.nodes || typeof files.pageInfo?.hasNextPage !== 'boolean') throw new Error(`GitHub reported: ${body.errors?.[0]?.message ?? 'no files for a pull request'}`);
-  if (files.pageInfo.hasNextPage && !files.pageInfo.endCursor) return null;
-  return { lines: sumLines(files.nodes), next: files.pageInfo.hasNextPage ? files.pageInfo.endCursor! : null };
+  // A page GitHub could not give, whole and with its end, leaves the pull request unsized rather than failing the run on it every hour.
+  if (!files?.nodes || typeof files.pageInfo?.hasNextPage !== 'boolean' || (files.pageInfo.hasNextPage && !files.pageInfo.endCursor)) return null;
+  const lines = sumLines(files.nodes);
+  return lines && { lines, next: files.pageInfo.hasNextPage ? files.pageInfo.endCursor! : null };
 }
 
 /**
@@ -328,12 +331,12 @@ export async function fetchChangedPullRequests(repository: string, token: string
       if (!read) continue;
       // Past a pull request's first 100 files, the rest a page at a time while the run's file budget lasts.
       let after = read.moreFilesAfter;
-      while (after !== null && read.pr.id !== null && fileRequests < MAX_FILE_REQUESTS) {
+      while (after !== null && read.pr.id !== null && read.pr.additions !== null && read.pr.deletions !== null && fileRequests < MAX_FILE_REQUESTS) {
         fileRequests += 1;
         const more = await readFiles(token, read.pr.id, after);
         if (more === null) break;
-        read.pr.additions = (read.pr.additions ?? 0) + more.lines.additions;
-        read.pr.deletions = (read.pr.deletions ?? 0) + more.lines.deletions;
+        read.pr.additions += more.lines.additions;
+        read.pr.deletions += more.lines.deletions;
         after = more.next;
       }
       // A pull request whose files are not all read is stored unsized, not short.

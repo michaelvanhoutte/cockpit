@@ -176,8 +176,10 @@ export const linkingLine = () => jobLine('linking');
 /** What linking stored of each pull request's size, timing, rounds and closing issue's title. */
 export async function theStats() {
   const { results } = await env.DB.prepare(
-    `SELECT pr_number, lines_added, lines_removed, opened_at, merged_at, ci_rounds, issue_title
-     FROM pull_request_stats ORDER BY pr_number`,
+    `SELECT s.pr_number, s.lines_added, s.lines_removed, s.opened_at,
+            (SELECT l.merged_at FROM branch_links l WHERE l.pr_number = s.pr_number LIMIT 1) AS merged_at,
+            s.ci_rounds, s.issue_title
+     FROM pull_request_stats s ORDER BY s.pr_number`,
   ).all<{
     pr_number: number;
     lines_added: number | null;
