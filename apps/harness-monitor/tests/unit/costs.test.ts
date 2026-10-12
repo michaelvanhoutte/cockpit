@@ -311,6 +311,12 @@ describe('Harness Monitor', () => {
       });
     });
 
+    it('lines per pull request is the median, so one very large pull request does not swing it', () => {
+      const current = windowFigures(none, [], [pr(100, 1_000_000), pr(200, 1_000_000), pr(50_000, 1_000_000)]);
+
+      expect(driversOf(current, windowFigures(none, [], []))['lines-per-pr']).toEqual([200, null]);
+    });
+
     it('a window with no merged pull request has a dash for each ratio, not zero or infinity', () => {
       const empty = windowFigures(none, [], []);
       const unsized = windowFigures(none, [], [pr(null, 1_000_000)]);

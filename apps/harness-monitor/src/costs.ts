@@ -423,7 +423,7 @@ export interface WindowFigures {
   mergedPullRequests: number;
   /** Null when nothing merged, rather than zero or infinity. */
   costPerPullRequest: number | null;
-  /** Mean lines changed over the merged pull requests that are sized. */
+  /** Median lines changed over the merged pull requests that are sized, as the size chart takes it. */
   linesPerPullRequest: number | null;
   /** Micros per 1,000 lines, over the merged pull requests with counted lines. */
   costPerThousandLines: number | null;
@@ -443,7 +443,7 @@ export function windowFigures(byDimension: Record<Split, Record<string, number>>
     byDimension,
     mergedPullRequests: pullRequests.length,
     costPerPullRequest: pullRequests.length === 0 ? null : sum(pullRequests.map(costOf)) / pullRequests.length,
-    linesPerPullRequest: sized.length === 0 ? null : sum(sized.map((p) => p.lines!)) / sized.length,
+    linesPerPullRequest: sized.length === 0 ? null : median(sized.map((p) => p.lines!)),
     costPerThousandLines: lines === 0 ? null : (sum(counted.map(costOf)) / lines) * 1000,
     startingContext: sessions.length === 0 ? null : median(sessions.map((s) => s.tokens)),
   };
@@ -508,7 +508,7 @@ export function compare(current: WindowFigures, previous: WindowFigures, windows
     drivers: [
       driver('merged', 'Merged pull requests', 'count', (w) => w.mergedPullRequests),
       driver('cost-per-pr', 'Cost per merged pull request', 'dollars', (w) => w.costPerPullRequest),
-      driver('lines-per-pr', 'Lines per merged pull request', 'lines', (w) => w.linesPerPullRequest),
+      driver('lines-per-pr', 'Median lines per merged pull request', 'lines', (w) => w.linesPerPullRequest),
       driver('cost-per-line', 'Cost per 1,000 lines', 'dollars', (w) => w.costPerThousandLines),
       driver('starting-context', 'Median starting context', 'tokens', (w) => w.startingContext),
     ],
