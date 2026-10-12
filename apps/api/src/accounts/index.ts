@@ -295,6 +295,8 @@ export interface Account {
   claudeCodeHookArrived(workspaceId: string, sourceAccountId: string, at: string): Promise<'admitted' | 'too-many'>;
   /** An app connected to this account calling `create_item`, under one grant ("Connect Claude to Cockpit, and capture an item from it", issue 599). */
   appCaptureArrived(grantId: string, at: string): Promise<'admitted' | 'too-many'>;
+  /** A recording sent to be transcribed, counted against the account's 20 a minute (issue 1043). */
+  transcriptionArrived(at: string): Promise<'admitted' | 'too-many'>;
   /** When a hook last reached one of this Workspace's Claude Code connections (issue 572). */
   claudeCodeHookArrival(workspaceId: string, sourceAccountId: string): Promise<{ lastArrivedAt: string | null }>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
@@ -413,6 +415,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     claudeCodeHookArrived: async (workspaceId, sourceAccountId, at) =>
       unwrap(await store.claudeCodeHookArrived(accountName, workspaceId, sourceAccountId, at)),
     appCaptureArrived: async (grantId, at) => store.appCaptureArrived(grantId, at),
+    transcriptionArrived: async (at) => store.transcriptionArrived(at),
     claudeCodeHookArrival: async (workspaceId, sourceAccountId) =>
       unwrap(await store.claudeCodeHookArrival(accountName, workspaceId, sourceAccountId)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),

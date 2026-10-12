@@ -27,6 +27,7 @@ import { forgetEverything } from '../../../src/session/forget';
 import { DICTATION_BLOCKED, DICTATION_NO_MICROPHONE } from '../../../src/dictation';
 import {
   DICTATION_COULD_NOT_TRANSCRIBE,
+  DICTATION_TOO_MANY,
   DICTATION_STOPPED_AT_THE_LIMIT,
   type StartRecording,
 } from '../../../src/recording';
@@ -1523,6 +1524,19 @@ describe('Capture', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(DICTATION_COULD_NOT_TRANSCRIBE);
       expect(mic()).toHaveAttribute('aria-pressed', 'false');
       expect(mic()).toBeEnabled();
+      expect(box()).toHaveValue('Remember');
+    });
+
+    it('says too many were sent in a minute when the account is held to its limit, and keeps the note', async () => {
+      const { dictating, transcriber } = dictate();
+      const user = await thePage({ dictating });
+      await user.type(box(), 'Remember');
+      await user.click(mic());
+      await user.click(mic());
+
+      await transcriber.isTurnedAway();
+
+      expect(screen.getByRole('alert')).toHaveTextContent(DICTATION_TOO_MANY);
       expect(box()).toHaveValue('Remember');
     });
 

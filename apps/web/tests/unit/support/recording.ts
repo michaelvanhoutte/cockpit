@@ -1,4 +1,5 @@
 import { act } from '@testing-library/react';
+import { TooManyTranscriptions } from '../../../src/api/transcription';
 import type { RecordingSession, StartRecording } from '../../../src/recording';
 
 /**
@@ -74,6 +75,10 @@ export function aTranscriber() {
     },
     async fails() {
       await act(async () => asked.at(-1)!.reject(new Error('no connection')));
+    },
+    /** The Worker held the account to its transcriptions a minute. */
+    async isTurnedAway() {
+      await act(async () => asked.at(-1)!.reject(new TooManyTranscriptions()));
     },
   };
 }

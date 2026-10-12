@@ -4,6 +4,14 @@ import { refusal } from './client';
 /** A request that has not answered by now is given up on, so "Transcribing…" and a waiting Capture always end. */
 const TRANSCRIBE_TIMEOUT_MS = 90_000;
 
+/** The Worker held this account to its 20 transcriptions a minute ("Hold each account to 20 transcriptions a minute", issue 1043). */
+export class TooManyTranscriptions extends Error {
+  constructor() {
+    super('transcribing failed: 429');
+    this.name = 'TooManyTranscriptions';
+  }
+}
+
 /**
  * Turning a recording into words, on the Worker ("Dictate in Write with
  * Whisper", issue 1041). Its own function rather than a typed-client call: the
@@ -11,8 +19,9 @@ const TRANSCRIBE_TIMEOUT_MS = 90_000;
  * (`uploadAttachment`), and the route sits outside the JSON contract.
  *
  * **Any failure is one failure to the caller**, and the view says so in one line:
- * a connection that never got through, a refusal, a model that was down. The
- * status is kept on the error for whoever needs to tell them apart later.
+ * a connection that never got through, a refusal, a model that was down. Only
+ * the account's limit is told apart (`TooManyTranscriptions`), because trying
+ * again at once cannot work.
  */
 export async function transcribeRecording(recording: Blob, signal: AbortSignal = AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS)): Promise<string> {
   const res = await fetch(TRANSCRIPTION_PATH, {
@@ -22,6 +31,7 @@ export async function transcribeRecording(recording: Blob, signal: AbortSignal =
     body: recording,
     signal,
   });
+  if (res.status === 429) throw new TooManyTranscriptions();
   if (!res.ok) throw refusal('transcribing', res.status);
   return transcriptionSchema.parse(await res.json()).text;
 }

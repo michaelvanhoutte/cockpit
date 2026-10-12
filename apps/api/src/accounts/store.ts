@@ -31,7 +31,13 @@ import {
   type ForeignRow,
 } from './backup.js';
 import { GUEST_ACCOUNT_NAME } from './new-user.js';
-import { APP_CAPTURES_PER_MINUTE, HOOK_CALLS_PER_MINUTE, admittedCalls } from './call-window.js';
+import {
+  APP_CAPTURES_PER_MINUTE,
+  HOOK_CALLS_PER_MINUTE,
+  TRANSCRIPTIONS_PER_MINUTE,
+  admittedCalls,
+  countedCalls,
+} from './call-window.js';
 import { PULLED_CHECK_EVERY_MS } from '../domain/pulled-checks.js';
 import { bringPulledCheckForward } from './pulled-open-state.js';
 import {
@@ -202,6 +208,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   #hookCalls = new Map<string, number[]>();
   /** The calls each app's grant was admitted for, newest last - see `appCaptureArrived`. */
   #appCaptures = new Map<string, number[]>();
+  /** The transcriptions this account was sent, refused ones included, newest last - see `transcriptionArrived`. */
+  #transcriptions: number[] = [];
 
   /** All live types of the account, in the order they were put in. */
   itemTypes(accountName: string): Answer<ItemType[]> {
@@ -782,6 +790,24 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     if (!calls) return 'too-many';
     this.#appCaptures.set(grantId, calls);
     return 'admitted';
+  }
+
+  /**
+   * A recording sent to be transcribed ("Hold each account to 20
+   * transcriptions a minute", issue 1043): admitted, or refused as one of too
+   * many from this account in a minute - and counted either way, so an account
+   * that keeps asking stays refused.
+   *
+   * **Counted here, in memory, for the reason `appCaptureArrived` is**: every
+   * request for one account passes through this one object one at a time. A
+   * count lost to the object being evicted starts a flood's window over, which
+   * is all it costs. Nothing is read or written, so it answers before the
+   * account is brought up to date.
+   */
+  transcriptionArrived(at: string): 'admitted' | 'too-many' {
+    const { admitted, calls } = countedCalls(this.#transcriptions, Date.parse(at), TRANSCRIPTIONS_PER_MINUTE);
+    this.#transcriptions = calls;
+    return admitted ? 'admitted' : 'too-many';
   }
 
   /** When a hook last reached one of this Workspace's Claude Code connections (issue 572), for its form. */

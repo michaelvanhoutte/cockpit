@@ -1837,6 +1837,12 @@ const routes = app
     }
     const transcriber = transcriberFor(c.env);
     if (!transcriber) return c.json({ error: 'this environment cannot transcribe' }, 503);
+    // Counted before the body is read, and every request is counted, refused
+    // ones included: the guest account on production is shared by every visitor.
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    if ((await account.transcriptionArrived(new Date().toISOString())) === 'too-many') {
+      return c.json({ error: 'too many transcriptions in the last minute' }, 429);
+    }
     const audio = await bytesWithin(c.req.raw, MAX_RECORDING_BYTES);
     if (audio === null) return c.json({ error: 'that recording is longer than Cockpit transcribes' }, 413);
     if (audio.byteLength === 0) return c.json({ error: 'nothing was recorded' }, 400);

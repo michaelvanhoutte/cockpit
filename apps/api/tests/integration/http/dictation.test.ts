@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import { MAX_RECORDING_BYTES, TRANSCRIPTION_PATH } from '@cockpit/shared';
 import { STAND_IN_WORDS, TRANSCRIPTION_MODEL } from '../../../src/transcription/index.js';
-import { ACCOUNT_NAME, asUser, inTheStore, seedRegister, signInAs, startFromEmpty } from '../seed.js';
+import { ACCOUNT_NAME, OTHER_USER_ID, asUser, inTheStore, seedRegister, signInAs, startFromEmpty } from '../seed.js';
 
 /**
  * Integration level, through `SELF.fetch`: the sign-in gate and the refusals only
@@ -120,6 +120,62 @@ describe('Capture', () => {
 
       expect(res.status).toBe(200);
       expect(asked).toHaveLength(1);
+    });
+  });
+
+  describe('an account is held to 20 transcriptions a minute', () => {
+    const START = Date.parse('2026-10-12T10:00:00.000Z');
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'], now: START });
+    });
+    afterEach(() => vi.useRealTimers());
+
+    async function sendMany(count: number, userId?: string): Promise<number[]> {
+      const statuses: number[] = [];
+      for (let n = 0; n < count; n += 1) statuses.push((await asUser(URL_OF, recorded(AUDIO), userId)).status);
+      return statuses;
+    }
+
+    it('transcribes the 20th in a minute and refuses the 21st without asking the model', async () => {
+      whisperAnswers('words');
+
+      const statuses = await sendMany(21);
+
+      expect(statuses.slice(0, 20).every((status) => status === 200)).toBe(true);
+      expect(statuses[20]).toBe(429);
+      expect(asked).toHaveLength(20);
+    });
+
+    it('counts the refused ones, so an account that keeps asking stays refused', async () => {
+      whisperAnswers('words');
+      await sendMany(20);
+
+      // Twenty more, all refused, half a minute later.
+      vi.setSystemTime(START + 30_000);
+      expect((await sendMany(20)).every((status) => status === 429)).toBe(true);
+
+      // The twenty transcribed have aged out; the twenty refused have not.
+      vi.setSystemTime(START + 61_000);
+      expect(await sendMany(1)).toEqual([429]);
+      expect(asked).toHaveLength(20);
+    });
+
+    it('transcribes again in the next minute', async () => {
+      whisperAnswers('words');
+      await sendMany(21);
+
+      vi.setSystemTime(START + 61_000);
+
+      expect(await sendMany(1)).toEqual([200]);
+      expect(asked).toHaveLength(21);
+    });
+
+    it('does not count another account’s transcriptions', async () => {
+      whisperAnswers('words');
+      await sendMany(21);
+
+      expect(await sendMany(1, OTHER_USER_ID)).toEqual([200]);
     });
   });
 
