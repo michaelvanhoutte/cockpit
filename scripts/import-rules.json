@@ -65,6 +65,14 @@
     ]
   },
   "allowlist": [],
+  "names": {
+    "exempt": [
+      "apps/api/src/accounts/changes.ts",
+      "apps/api/src/accounts/guest-seed-data.ts",
+      "apps/api/src/jobs/guest-arrival.ts",
+      "packages/shared/src/domain/demo-address.ts"
+    ]
+  },
   "engines": [
     "apps/api/src/engines/list.ts",
     "apps/web/src/components/engines.ts"

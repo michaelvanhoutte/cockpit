@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Env } from '../env.js';
+import type { GuestArrivalSource } from './guest-arrival.js';
 import type { Account } from '../accounts/index.js';
 import {
   openAccount,
@@ -179,7 +180,7 @@ export interface GuestArrivalJob {
   kind: 'guest-arrival';
   accountName: string;
   workspaceId: string;
-  source: 'gmail' | 'teams';
+  source: GuestArrivalSource;
   itemId: string;
   commandId: string;
 }
@@ -237,7 +238,9 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     kind: z.literal('guest-arrival'),
     accountName: z.string().min(1),
     workspaceId: z.string().min(1),
-    source: z.enum(['gmail', 'teams']),
+    // Typed as the arrival's own sources, checked by `captureGuestArrival`,
+    // which drops one it does not know: the list stays in `jobs/guest-arrival.ts`.
+    source: z.custom<GuestArrivalSource>((value) => typeof value === 'string' && value.length > 0),
     itemId: z.uuid(),
     commandId: z.uuid(),
   }),

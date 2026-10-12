@@ -38,6 +38,9 @@ interface Arrival {
   readonly message: string;
 }
 
+/** The sources an arrival imitates, for the job that carries one (`jobs/enrichment.ts`). */
+export type GuestArrivalSource = Arrival['source'];
+
 const ARRIVALS: readonly Arrival[] = [
   {
     source: 'gmail',

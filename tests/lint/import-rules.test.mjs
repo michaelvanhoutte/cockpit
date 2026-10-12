@@ -17,9 +17,13 @@ import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
 import {
-    checkTree,
+  checkTree,
   failuresAgainst,
   findBreaches,
+  namedSourceFailure,
+  namedSourceIds,
+  namedSourcesIn,
+  readNamedSources,
   relaxations,
   sourcePackages,
   sourcesNamedBy,
@@ -208,6 +212,86 @@ describe("today's tree", () => {
     const base = readBase({ event: process.env.GITHUB_EVENT_NAME, ci: process.env.GITHUB_ACTIONS === 'true', git });
     if (base.skipped) console.log(`# shrink-only comparison skipped: ${base.skipped}`);
     assert.deepEqual(checkTree(repo, base), []);
+  });
+});
+
+describe('rule 4: the core does not write a source id as a string', () => {
+  const ids = namedSourceIds(rules);
+  const exempt = [
+    'apps/api/src/accounts/changes.ts',
+    'apps/api/src/accounts/guest-seed-data.ts',
+    'packages/shared/src/domain/demo-address.ts',
+  ];
+  const namedRules = { ...rules, names: { exempt } };
+  const tree = (files) => {
+    const dir = mkdtempSync(join(tmpdir(), 'names-rule-'));
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      writeFileSync(join(dir, path), text);
+    }
+    return dir;
+  };
+  const failuresOver = (files, declaration = namedRules) => {
+    const dir = tree(files);
+    try {
+      return readNamedSources(dir, declaration).map(namedSourceFailure);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it("fails a string in an API file's code, naming file, line and id", () => {
+    const failures = failuresOver({ [api('http/app.ts')]: "const a = 1;\nconst source = 'gmail';\n" });
+    assert.equal(failures.length, 1);
+    assert.match(failures[0], /apps\/api\/src\/http\/app\.ts:2 .*"gmail"/);
+  });
+
+  it('fails a template literal holding the id, with or without a substitution', () => {
+    assert.deepEqual(namedSourcesIn('x.ts', 'const a = `teams`;', ids), [{ line: 1, id: 'teams' }]);
+    assert.deepEqual(namedSourcesIn('x.ts', 'const a = `${prefix}teams`;', ids), [{ line: 1, id: 'teams' }]);
+    assert.deepEqual(namedSourcesIn('x.ts', 'const a = `${ { b: 1 }.b }\n${c}`;\nconst d = "gmail";', ids), [{ line: 3, id: 'gmail' }]);
+  });
+
+  it('passes the id in a comment, in an identifier, and in longer text', () => {
+    const source = [
+      "// 'gmail' is named here",
+      "/* const s = 'teams'; */",
+      'const gmailLink = teams.gmail;',
+      "const key = 'gmail-check-account';",
+      "const copy = 'Connect your Gmail';",
+    ].join('\n');
+    assert.deepEqual(namedSourcesIn('x.ts', source, ids), []);
+  });
+
+  it('passes the migrations, the guest demo seed and the engine list, and a connector package, which is not core', () => {
+    const named = "export const id = 'gmail';\n";
+    assert.deepEqual(
+      failuresOver({
+        [api('accounts/changes.ts')]: named,
+        [api('accounts/guest-seed-data.ts')]: named,
+        'packages/shared/src/domain/demo-address.ts': 'export const pages = ["gmail", "teams"];\n',
+        [api('engines/list.ts')]: "export const id = 'teams';\n",
+        'packages/connectors/gmail/src/manifest.ts': named,
+      }),
+      [],
+    );
+  });
+
+  it('still finds a literal after a regular expression holding a quote or a backtick on the same line', () => {
+    assert.deepEqual(namedSourcesIn('x.ts', "const a = /`/.test(s) && b === 'gmail';", ids), [{ line: 1, id: 'gmail' }]);
+    assert.deepEqual(namedSourcesIn('x.ts', "const a = /it's/.test(s) ? `teams` : 1;", ids), [{ line: 1, id: 'teams' }]);
+    assert.deepEqual(namedSourcesIn('x.tsx', "const a = <p>don't {'gmail'}</p>;", ids), [{ line: 1, id: 'gmail' }]);
+  });
+
+  it('leaves an engine to the engine list: its id is not a name the core may not write', () => {
+    const declared = { sources: { slack: {}, 'some-engine': { engine: true } } };
+    assert.deepEqual(namedSourceIds(declared), ['slack']);
+  });
+
+  it('flags a file added to the files that may name a source as a relaxation', () => {
+    const widened = structuredClone(namedRules);
+    widened.names.exempt.push(api('http/app.ts'));
+    assert.match(relaxations(widened, namedRules).join('\n'), /http\/app\.ts was added to the files that may name a source/);
   });
 });
 

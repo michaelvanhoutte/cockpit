@@ -52,6 +52,41 @@ export function specifiersOf(path, text) {
   return found;
 }
 
+const LITERAL_KINDS = new Set([
+  ts.SyntaxKind.StringLiteral,
+  ts.SyntaxKind.NoSubstitutionTemplateLiteral,
+  ts.SyntaxKind.TemplateHead,
+  ts.SyntaxKind.TemplateMiddle,
+  ts.SyntaxKind.TemplateTail,
+]);
+
+/**
+ * Every string or template literal whose text is exactly a source id, found
+ * by walking TypeScript's own parse of the file, so comments, identifiers and
+ * the quotes inside a regular expression never count or hide a literal. A
+ * template literal is read chunk by chunk, so `${x}teams` and `teams` both
+ * hold the id. Exact, not "contains": a literal holding the id inside longer
+ * text (copy that says "Connect your Gmail", a store key such as
+ * `gmail-check-account`, a path) is not the id being used as a value.
+ * @param {string} path
+ * @param {string} text
+ * @param {string[]} ids
+ * @returns {{ line: number, id: string }[]}
+ */
+export function namedSourcesIn(path, text, ids) {
+  const kind = path.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, false, kind);
+  const found = [];
+  const visit = (node) => {
+    if (LITERAL_KINDS.has(node.kind) && ids.includes(node.text)) {
+      found.push({ line: file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1, id: node.text });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return found;
+}
+
 /**
  * The file a relative specifier names, as a repo-relative path, or null.
  * @param {string} importer repo-relative
@@ -109,6 +144,45 @@ export function readImports(root, rules) {
   }
   return imports;
 }
+
+/**
+ * The registered source ids a core file's code may not write as a string:
+ * every declared source that is not an engine. An engine is named by the engine
+ * list and, until "Decide how Claude Code and other outbound integrations sit
+ * behind a boundary" (issue 879), by the core's own Claude Code code.
+ * @param {Rules} rules
+ */
+export const namedSourceIds = (rules) => Object.entries(rules.sources).flatMap(([id, source]) => (source.engine ? [] : [id]));
+
+/**
+ * Every core source file whose code writes a registered source id as a string,
+ * except the files `rules.names.exempt` lists (the migrations, the guest
+ * demo's seed) and the engine list. Tests under the core's folders are not
+ * scanned: only `src`.
+ * @param {string} root absolute repository root
+ * @param {Rules} rules
+ * @returns {{ file: string, line: number, id: string }[]}
+ */
+export function readNamedSources(root, rules) {
+  const ids = namedSourceIds(rules);
+  const exempt = new Set([...(rules.names?.exempt ?? []), ...(rules.engines ?? [])]);
+  const found = [];
+  for (const folder of rules.core) {
+    const files = [];
+    const src = join(root, folder, 'src');
+    if (existsSync(src)) walk(src, files);
+    for (const full of files) {
+      const file = slash(relative(root, full));
+      if (exempt.has(file)) continue;
+      for (const { line, id } of namedSourcesIn(file, readFileSync(full, 'utf8'), ids)) found.push({ file, line, id });
+    }
+  }
+  return found;
+}
+
+/** @param {{ file: string, line: number, id: string }} named */
+export const namedSourceFailure = ({ file, line, id }) =>
+  `${file}:${line} writes the source id "${id}" as a string: the core may not name a registered source`;
 
 /**
  * Every package that is a source: those the declaration names, and every
@@ -257,6 +331,7 @@ export function relaxations(rules, base) {
   for (const folder of base.core) if (!rules.core.includes(folder)) out.push(`core folder ${folder} was removed`);
   for (const file of base.engines ?? []) if (!(rules.engines ?? []).includes(file)) out.push(`engine list ${file} was removed`);
   for (const file of rules.engines ?? []) if (base.engines && !base.engines.includes(file)) out.push(`${file} was added to the engine lists`);
+  for (const file of rules.names?.exempt ?? []) if (base.names && !base.names.exempt.includes(file)) out.push(`${file} was added to the files that may name a source`);
   if (rules.registry !== base.registry) out.push(`the registry changed from ${base.registry} to ${rules.registry}`);
   if (rules.areas.folder !== base.areas.folder) out.push(`the areas folder changed from ${base.areas.folder} to ${rules.areas.folder}`);
   for (const file of rules.areas.root) if (!base.areas.root.includes(file)) out.push(`${file} was added to the composition root`);
@@ -294,7 +369,10 @@ export function readRules(root) {
 /** Every failure over the real tree, given the base copy's allowlist or why there is none. */
 export function checkTree(root, base) {
   const rules = readRules(root);
-  const failures = failuresAgainst(findBreaches(readImports(root, rules), rules), rules.allowlist);
+  const failures = [
+    ...failuresAgainst(findBreaches(readImports(root, rules), rules), rules.allowlist),
+    ...readNamedSources(root, rules).map(namedSourceFailure),
+  ];
   if (base.error) failures.push(`cannot read the merge base's copy of ${RULES_PATH}, so the shrink-only check cannot run: ${base.error}`);
   else if (base.rules) failures.push(...shrinkFailures(rules.allowlist, base.rules.allowlist), ...relaxations(rules, base.rules));
   return failures;
