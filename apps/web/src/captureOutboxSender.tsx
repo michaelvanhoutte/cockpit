@@ -82,11 +82,11 @@ export function inTabLock(): Lock {
   };
 }
 
-/** Across every tab of this browser, where it offers Web Locks. */
-export function browserLock(): Lock {
+/** Across every tab of this browser, where it offers Web Locks; one lock per name. */
+export function browserLock(name = 'cockpit-capture-outbox'): Lock {
   const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
   if (!locks) return inTabLock();
-  return <T,>(work: () => Promise<T>) => locks.request('cockpit-capture-outbox', work) as Promise<T>;
+  return <T,>(work: () => Promise<T>) => locks.request(name, work) as Promise<T>;
 }
 
 /** A capture as the form hands it over. */

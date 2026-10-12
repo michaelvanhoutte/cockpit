@@ -1,6 +1,6 @@
 import { act } from '@testing-library/react';
 import { TooManyTranscriptions } from '../../../src/api/transcription';
-import type { RecordingSession, StartRecording } from '../../../src/recording';
+import type { RecordingEvents, RecordingSession, StartRecording } from '../../../src/recording';
 
 /**
  * The phone's recorder and the Worker's transcription, both of which are third
@@ -12,12 +12,17 @@ import type { RecordingSession, StartRecording } from '../../../src/recording';
 export class FakeRecording implements RecordingSession {
   stopped = false;
   cancelled = false;
+  constructor(private readonly events: RecordingEvents = {}) {}
   stop(): Promise<Blob> {
     this.stopped = true;
     return Promise.resolve(new Blob(['audio'], { type: 'audio/webm' }));
   }
   cancel(): void {
     this.cancelled = true;
+  }
+  /** The recorder ended without being stopped: the microphone taken, the recorder failing. */
+  async endsByItself() {
+    await act(async () => this.events.endedByItself?.());
   }
 }
 
@@ -27,9 +32,9 @@ export function aRecorder() {
   let refusal: { name: string } | null = null;
   let held: ((session: FakeRecording) => void) | null = null;
   let holdNext = false;
-  const record: StartRecording = () => {
+  const record: StartRecording = (events) => {
     if (refusal) return Promise.reject(Object.assign(new Error('refused'), refusal));
-    const session = new FakeRecording();
+    const session = new FakeRecording(events);
     made.push(session);
     if (holdNext) {
       holdNext = false;
@@ -60,25 +65,41 @@ export function aRecorder() {
   };
 }
 
-/** A transcription that answers when the test says so. */
+/** A few turns of the event loop: a recording is kept on the device before it is sent, and its words land after the device is asked again. */
+const deviceTurns = async () => {
+  for (let i = 0; i < 30; i++) await new Promise((resolve) => setImmediate(resolve));
+};
+
+/**
+ * A transcription that answers when the test says so. Each answer goes to the
+ * latest request still waiting, waited for where it has not been sent yet, and
+ * returns once what follows from it on the device has settled.
+ */
 export function aTranscriber() {
-  const asked: { resolve: (words: string) => void; reject: (reason: Error) => void }[] = [];
+  const asked: { resolve: (words: string) => void; reject: (reason: Error) => void; settled: boolean }[] = [];
+  const settle = async (how: (one: (typeof asked)[number]) => void) => {
+    await act(async () => {
+      let waiting = asked.filter((one) => !one.settled).at(-1);
+      for (let i = 0; !waiting && i < 50; i++) {
+        await deviceTurns();
+        waiting = asked.filter((one) => !one.settled).at(-1);
+      }
+      if (!waiting) throw new Error('nothing was sent to transcribe');
+      waiting.settled = true;
+      how(waiting);
+      await deviceTurns();
+    });
+  };
   return {
     transcribe: (_recording: Blob) =>
       new Promise<string>((resolve, reject) => {
-        asked.push({ resolve, reject });
+        asked.push({ resolve, reject, settled: false });
       }),
     /** How many recordings were sent. */
     sent: () => asked.length,
-    async answers(words: string) {
-      await act(async () => asked.at(-1)!.resolve(words));
-    },
-    async fails() {
-      await act(async () => asked.at(-1)!.reject(new Error('no connection')));
-    },
+    answers: (words: string) => settle((one) => one.resolve(words)),
+    fails: () => settle((one) => one.reject(new Error('no connection'))),
     /** The Worker held the account to its transcriptions a minute. */
-    async isTurnedAway() {
-      await act(async () => asked.at(-1)!.reject(new TooManyTranscriptions()));
-    },
+    isTurnedAway: () => settle((one) => one.reject(new TooManyTranscriptions())),
   };
 }

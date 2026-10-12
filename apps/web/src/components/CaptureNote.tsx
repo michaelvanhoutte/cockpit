@@ -18,6 +18,7 @@ import { PRIORITY_LABELS } from '../priority';
 import { appendPhrase } from '../dictation';
 import { clock, useRecordedDictation, type RecordedDictation, type StartRecording } from '../recording';
 import { transcriptionOfferedQuery } from '../api/transcription';
+import { useKeptRecordings } from '../keptRecordings';
 
 /**
  * The Capture form itself: the note, the types as chips, where it goes as one
@@ -133,6 +134,9 @@ export function CaptureNote({
   });
   const dictation = useRecordedDictation({
     ...dictating,
+    // A recording whose words do not come back waits on this device, with Retry
+    // ("Keep a recording Write could not transcribe, with Retry", issue 1044).
+    keeping: useKeptRecordings(),
     transcriber: dictating?.transcriber ?? transcribable.data ?? false,
     onWords: (words) => changeNote(appendPhrase(noteNow.current, words)),
   });
@@ -1113,6 +1117,32 @@ function PriorityAndDue({
       <p role="status" className="px-3 pb-2 text-sm text-ink-soft">
         {dictation.notice}
       </p>
+    )}
+    {/* Each recording kept for want of its words, oldest first, with Retry
+        ("Keep a recording Write could not transcribe, with Retry", issue
+        1044): drawn only while one waits, and whether or not the mic is, since
+        what is kept is yours either way. */}
+    {dictation.waiting.length > 0 && (
+      <div role="group" aria-label="Not yet transcribed" className="flex flex-col gap-1 px-3 pb-2">
+        {dictation.waiting.map((one) => (
+          <div key={one.id} className="flex items-center gap-2 text-sm">
+            <span className="min-w-0 flex-1 text-ink-soft">
+              A recording of {clock(one.seconds)}, not yet transcribed
+            </span>
+            {one.retrying ? (
+              <span className="text-xs text-ink-faint">Transcribing…</span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => dictation.retry(one.id)}
+                className={`${STRIP_BUTTON} ${QUIET_BUTTON}`}
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
     )}
     </>
   );
