@@ -64,6 +64,10 @@ test.describe('Harness Monitor', () => {
     // The bare address is Over time: its tab pressed, the chart drawn, and the table's own column still reads Day.
     await expect(page.getByRole('button', { name: 'Over time' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('img', { name: /^Cost per day/ })).toBeVisible();
+    // The change card names this period and the one before it.
+    const change = page.getByRole('region', { name: 'Change on the previous period' });
+    await expect(change).toContainText('Last 30 days');
+    await expect(change).toContainText('the previous period');
     await expect(page.getByRole('region', { name: 'Cost by day' }).getByRole('columnheader', { name: 'Day' })).toBeVisible();
 
     // Grouped by pull request, the bar and the not-measured note shown.
