@@ -6,32 +6,31 @@ import { appendPhrase, replacePhrase } from '../dictation';
  *
  * While Chrome's engine listens, the phone also records the audio. When
  * listening stops, the recording and Chrome's text go to `/v1/poc/dictation`,
- * and the three readings are shown side by side, with a tally of which one
+ * and the two readings are shown side by side, with a tally of which one
  * was picked as best, kept on this device.
  */
 type Reading = { text: string | null; ms: number; error?: string; language?: string };
-type Compared = { chrome: string; whisper: Reading; corrected: Reading; bytes: number };
+type Compared = { chrome: string; whisper: Reading; bytes: number };
 type State =
   | { at: 'idle' }
   | { at: 'recording' }
   | { at: 'sending' }
   | { at: 'done'; result: Compared; picked?: Engine }
   | { at: 'failed'; why: string; chrome: string };
-type Engine = 'chrome' | 'corrected' | 'whisper';
+type Engine = 'chrome' | 'whisper';
 
 const TALLY_KEY = 'cockpit.poc-dictation-tally';
 const NAMES: Record<Engine, string> = {
   chrome: 'A · Chrome (today)',
-  corrected: 'B · Chrome + Claude',
-  whisper: 'C · Whisper',
+  whisper: 'B · Whisper',
 };
 
 function readTally(): Record<Engine, number> {
   try {
     const stored = JSON.parse(localStorage.getItem(TALLY_KEY) ?? '{}') as Partial<Record<Engine, number>>;
-    return { chrome: stored.chrome ?? 0, corrected: stored.corrected ?? 0, whisper: stored.whisper ?? 0 };
+    return { chrome: stored.chrome ?? 0, whisper: stored.whisper ?? 0 };
   } catch {
-    return { chrome: 0, corrected: 0, whisper: 0 };
+    return { chrome: 0, whisper: 0 };
   }
 }
 
@@ -137,13 +136,12 @@ export function PocCompare({
         </button>
       </div>
       {state.at === 'recording' && <p>Recording alongside Chrome…</p>}
-      {state.at === 'sending' && <p>Transcribing with Whisper and correcting with Claude…</p>}
+      {state.at === 'sending' && <p>Transcribing with Whisper…</p>}
       {state.at === 'failed' && <p className="text-over">Comparison failed: {state.why}</p>}
       {state.at === 'done' &&
         (
           [
             ['chrome', { text: state.result.chrome, ms: 0 }],
-            ['corrected', state.result.corrected],
             ['whisper', state.result.whisper],
           ] as [Engine, Reading][]
         ).map(([engine, reading]) => (
@@ -176,7 +174,7 @@ export function PocCompare({
           </div>
         ))}
       <p className="mt-2 text-xs text-gray-500">
-        Picked best so far: A {tally.chrome} · B {tally.corrected} · C {tally.whisper}
+        Picked best so far: A {tally.chrome} · B {tally.whisper}
       </p>
     </div>
   );
