@@ -46,8 +46,8 @@ function describe(error: unknown): string {
  * The hourly job. Reads the pull requests updated since the stored cursor and
  * stores their links and the new cursor in one batch, so a run that fails
  * anywhere before that batch leaves the links, the cursor and the last success
- * time as they were. A run that hits its request budget, or that GitHub times out on after a page was read, stores what it read and
- * moves the cursor there, but does not count as a success: the page's
+ * time as they were. A run that hits its request budget, or that GitHub times
+ * out on after a page was read, stores what it read and moves the cursor there, but does not count as a success: the page's
  * "last succeeded" time, shown beside a failed run, stays at the last catch-up.
  */
 export async function linkBranches(env: LinkEnv, now = Date.now()): Promise<LinkResult> {
