@@ -14,9 +14,9 @@ import { DICTATION_BLOCKED, DICTATION_FAILED, DICTATION_NO_MICROPHONE } from './
  * from Dutch itself - and no engine that ends on its own: a recording stops when
  * it is tapped off, or at the limit.
  *
- * Imported by the Capture form, which is fetched behind the shell
- * (`captureForm.ts`), so none of it is in the first bundle. The Car view still
- * dictates through `dictation.ts` until its own unit lands.
+ * Imported by the Capture form and the Car view ("Dictate in the Car view with
+ * Whisper", issue 1042), which are fetched behind the shell (`captureForm.ts`),
+ * so none of it is in the first bundle. The browser's speech engine is gone.
  */
 
 /** One recording in progress. */

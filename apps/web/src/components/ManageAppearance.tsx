@@ -4,10 +4,9 @@ import { useState } from 'react';
 type Choice = 'match' | 'light' | 'dark';
 
 /**
- * Where the choice is kept: this browser, not the account, as the dictation
- * language is (`dictation.ts`). `appearanceBoot.js` reads the same key before
- * the app runs, so the two must agree; it is not forgotten at sign-out, since
- * it says nothing about whoever was signed in.
+ * Where the choice is kept: this browser, not the account. `appearanceBoot.js`
+ * reads the same key before the app runs, so the two must agree; it is not
+ * forgotten at sign-out, since it says nothing about whoever was signed in.
  */
 export const APPEARANCE_KEY = 'cockpit.appearance';
 
