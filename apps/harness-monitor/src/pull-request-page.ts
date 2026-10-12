@@ -39,17 +39,30 @@ function categories(page: PullRequestPage): string {
   return `<section class="card pad" aria-labelledby="bycat"><h2 id="bycat">By category</h2>\n${rows}</section>`;
 }
 
-function sessionRow(s: SessionLine): string {
-  return `<tr><td class="mono small">${esc(s.sessionId)}</td><td>${esc(s.where.map((w) => WHERE_NAMES[w] ?? w).join(', '))}</td><td>${esc(s.models.join(', '))}</td>` +
-    `<td class="num mono">${number(s.requests)}</td><td class="num mono">${compact(s.tokens)}</td><td class="num mono total">${dollars(s.costMicros)}${unpriced(s.unpricedRequests)}</td></tr>`;
+const share = (part: number, whole: number) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : '—');
+
+/** A session's own line, then its main agent and each subagent indented beneath. */
+function sessionRows(s: SessionLine): string {
+  const head =
+    `<tr class="session"><td class="mono small">${esc(s.sessionId)}</td><td>${esc(s.where.map((w) => WHERE_NAMES[w] ?? w).join(', '))}</td><td>${esc(s.models.join(', '))}</td>` +
+    `<td class="num mono">${number(s.requests)}</td><td class="num mono">${compact(s.tokens)}</td><td class="num mono total">${dollars(s.costMicros)}${unpriced(s.unpricedRequests)}</td><td></td></tr>`;
+  const agents = s.agents.map((a) => {
+    const name = a.kind === 'main' ? 'Main agent' : a.type === null ? '<span class="muted">type not recorded</span>' : esc(a.type);
+    const id = a.kind === 'main' || a.id === null ? '' : `<span class="mono small muted"> ${esc(a.id)}</span>`;
+    return (
+      `<tr class="agent ${a.kind}" data-agent="${a.kind}"><td class="agent-name${a.kind === 'subagent' ? ' indent' : ''}">${name}${id}</td><td></td><td>${esc(a.models.join(', '))}</td>` +
+      `<td class="num mono">${number(a.requests)}</td><td class="num mono">${compact(a.tokens)}</td><td class="num mono">${dollars(a.costMicros)}${unpriced(a.unpricedRequests)}</td><td class="num mono">${share(a.costMicros, s.costMicros)}</td></tr>`
+    );
+  });
+  return [head, ...agents].join('\n');
 }
 
 function sessions(page: PullRequestPage): string {
   if (page.sessions.length === 0) return `<section class="card" aria-labelledby="sessions"><h2 id="sessions" class="pad">Sessions</h2><p class="empty">No requests match the filters.</p></section>`;
   return `<section class="card" aria-labelledby="sessions"><h2 id="sessions" class="pad">Sessions</h2><div class="scroll"><table class="sessions">
-<thead><tr><th scope="col" class="first">Session</th><th scope="col">Where</th><th scope="col">Models</th><th scope="col" class="num">Requests</th><th scope="col" class="num">Tokens</th><th scope="col" class="num">Cost</th></tr></thead>
+<thead><tr><th scope="col" class="first">Session / agent</th><th scope="col">Where</th><th scope="col">Models</th><th scope="col" class="num">Requests</th><th scope="col" class="num">Tokens</th><th scope="col" class="num">Cost</th><th scope="col" class="num">Share</th></tr></thead>
 <tbody>
-${page.sessions.map(sessionRow).join('\n')}
+${page.sessions.map(sessionRows).join('\n')}
 </tbody></table></div></section>`;
 }
 
@@ -84,7 +97,7 @@ h1{margin:0;font-size:24px;font-weight:600;line-height:1.3}.big{font-size:32px;f
 .pad{padding:20px;display:flex;flex-direction:column;gap:14px}h2.pad{padding:16px 16px 4px}
 .cat{display:grid;grid-template-columns:200px minmax(0,1fr) 150px 300px;gap:16px;align-items:center}.cat-name{display:flex;align-items:center;gap:8px}
 .track{height:14px;background:var(--track);border-radius:2px;overflow:hidden}
-.sessions{min-width:900px}
+.sessions{min-width:900px}.sessions tr.session td{font-weight:500;background:var(--track)}.sessions tr.agent td.agent-name{padding-left:28px}.sessions tr.agent td.indent{padding-left:48px}
 @media (max-width:900px){.cat{grid-template-columns:1fr 1fr}.track{grid-column:1/-1}}
 `;
 

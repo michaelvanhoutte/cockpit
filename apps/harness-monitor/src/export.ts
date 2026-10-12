@@ -1,4 +1,5 @@
 import { firstDay, UNATTRIBUTED, type CostQuery } from './costs';
+import { phaseSql } from './validate';
 
 /**
  * Rows read per D1 query. The free plan allows 50 queries per invocation, so a
@@ -17,7 +18,7 @@ export function requestFilter(query: CostQuery, pullRequest: number | null, now 
     binds.push(first);
   }
   if (query.category !== null) {
-    where.push('u.category = ?');
+    where.push(`${phaseSql('u.')} = ?`);
     binds.push(query.category);
   }
   if (query.model !== null) {
@@ -120,7 +121,7 @@ function csvLine(r: RequestRow): string {
 export function exportCsv(db: D1Database, query: CostQuery, pullRequest: number | null, filename: string, now = Date.now()): Response {
   const { where, binds } = requestFilter(query, pullRequest, now);
   const base = `SELECT u.occurred_at, u.request_id, u.session_id, u.branch, l.pr_number AS prNumber, l.issue_number AS issue,
-      l.engineer AS engineer, u.category, u.model, u.speed, u.ran_where, u.input_tokens, u.output_tokens,
+      l.engineer AS engineer, ${phaseSql('u.')} AS category, u.model, u.speed, u.ran_where, u.input_tokens, u.output_tokens,
       u.cache_creation_tokens, u.cache_read_tokens, u.cost_micros, u.price_basis
     FROM ${
       // One pull request starts from its few branches and reads their rows through usage_requests_branch;

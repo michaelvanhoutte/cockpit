@@ -9,7 +9,7 @@ export const WRITE_KEY = 'test-write-key';
 export const usage = (requestId: string, over: Record<string, unknown> = {}) => ({
   requestId,
   sessionId: 'session_1',
-  time: '2026-03-01T10:00:00Z',
+  time: '2026-10-01T10:00:00Z',
   branch: 'claude/build-1',
   category: 'building',
   model: 'claude-sonnet-5-5',
@@ -128,7 +128,7 @@ export interface CostRow {
   sub: string | null;
   /** The cells between the label and the split bar: engineer and merged for pull requests, the pull request count for issues and engineers. */
   details: string[];
-  /** Dollars per column of the split, left to right (by phase: scoping, building, code review, security review, after push, CI reviews); '—' for none. */
+  /** Dollars per column of the split, left to right (by phase: unphased, scoping, building, code review, security review, after push, CI reviews); '—' for none. */
   categories: string[];
   /** How many coloured segments the row's split bar is drawn with. */
   segments: number;
@@ -176,7 +176,7 @@ export function pullRequestFigures(html: string) {
   const categories = [...html.matchAll(/<div class="cat"><div class="cat-name">(.*?)<\/div><div class="track">.*?<div class="num mono">(.*?)<\/div><div class="muted small">(.*?)<\/div><\/div>/gs)].map(
     ([, name, amount, detail]) => ({ name: decodeHtml(name!), amount: decodeHtml(amount!), detail: decodeHtml(detail!) }),
   );
-  const sessions = [...html.matchAll(/<tr><td class="mono small">(.*?)<\/td><td>(.*?)<\/td><td>(.*?)<\/td><td class="num mono">(.*?)<\/td><td class="num mono">(.*?)<\/td><td class="num mono total">(.*?)<\/td><\/tr>/gs)].map(
+  const sessions = [...html.matchAll(/<tr class="session"><td class="mono small">(.*?)<\/td><td>(.*?)<\/td><td>(.*?)<\/td><td class="num mono">(.*?)<\/td><td class="num mono">(.*?)<\/td><td class="num mono total">(.*?)<\/td>/gs)].map(
     ([, id, where, models, requests, tokens, cost]) => ({
       id: decodeHtml(id!),
       where: decodeHtml(where!),
@@ -187,6 +187,22 @@ export function pullRequestFigures(html: string) {
     }),
   );
   return { total, categories, sessions };
+}
+
+/** The agent lines under each session, in the order shown: the main agent, then each subagent indented. */
+export function agentLines(html: string) {
+  return [...html.matchAll(/<tr class="agent (main|subagent)"[^>]*><td class="agent-name( indent)?">(.*?)<\/td><td><\/td><td>(.*?)<\/td><td class="num mono">(.*?)<\/td><td class="num mono">(.*?)<\/td><td class="num mono">(.*?)<\/td><td class="num mono">(.*?)<\/td><\/tr>/gs)].map(
+    ([, kind, indent, name, models, requests, tokens, cost, share]) => ({
+      kind: kind!,
+      indented: indent !== undefined,
+      name: decodeHtml(name!).trim(),
+      models: decodeHtml(models!),
+      requests: decodeHtml(requests!),
+      tokens: decodeHtml(tokens!),
+      cost: decodeHtml(cost!),
+      share: decodeHtml(share!),
+    }),
+  );
 }
 
 /** Dollars in a page's words ("$12.50", "$3.00 + 1 unpriced") as millionths. */

@@ -1,5 +1,8 @@
 import { jobReads, jobStatuses, type JobStatus } from './jobs';
-import { CATEGORIES, WHERE, type Category } from './validate';
+import { CATEGORIES, phaseSql, WHERE, type Category } from './validate';
+
+/** The phase a totals row counts as: the stored one, except Building before phase marks existed. */
+const PHASE = phaseSql('t.');
 
 /** What the costs page can be asked, parsed from the address; anything unrecognised is the default. */
 export const PERIODS = { '7d': 7, '30d': 30, '90d': 90, all: null } as const;
@@ -142,6 +145,7 @@ const OUTCOME_SERIES: Series[] = [
 ];
 
 const NAMES: Record<Category, string> = {
+  unphased: 'Unphased',
   'scoping-planning': 'Scoping & planning',
   building: 'Building',
   'local-code-review': 'Local code review',
@@ -151,6 +155,7 @@ const NAMES: Record<Category, string> = {
 };
 export const categoryName = (c: Category) => NAMES[c];
 const PHASE_SHORT: Record<Category, string> = {
+  unphased: 'Unphased',
   'scoping-planning': 'Scoping',
   building: 'Building',
   'local-code-review': 'Code rev.',
@@ -263,7 +268,7 @@ export interface CostsPage {
 /** Where a request's pull request stands, from its branch and the link GitHub linking stored. */
 const OUTCOME = `CASE WHEN t.branch = 'main' THEN 'on-main' WHEN l.state = 'MERGED' THEN 'merged' WHEN l.state = 'OPEN' THEN 'open'
   WHEN l.state = 'CLOSED' THEN 'closed' ELSE 'no-pr' END`;
-const SERIES_COLUMN: Record<Split, string> = { phase: 't.category', model: 't.model', where: 't.ran_where', outcome: OUTCOME };
+const SERIES_COLUMN: Record<Split, string> = { phase: PHASE, model: 't.model', where: 't.ran_where', outcome: OUTCOME };
 
 /**
  * Reads the page's figures from the split totals and the branch links, never
@@ -279,7 +284,7 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
     binds.push(first);
   }
   if (query.category !== null) {
-    where.push('t.category = ?');
+    where.push(`${PHASE} = ?`);
     binds.push(query.category);
   }
   if (query.model !== null) {
@@ -295,8 +300,8 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
   const needsLinks = query.group !== 'day' || query.engineer !== null || query.split === 'outcome';
   const conditions = where.length === 0 ? '' : `WHERE ${where.join(' AND ')}`;
   // The phase is read only for a by-category question; the split's own column is read always.
-  const phase = query.group === 'category' ? 't.category' : "''";
-  const phaseKey = query.group === 'category' ? ', t.category' : '';
+  const phase = query.group === 'category' ? PHASE : "''";
+  const phaseKey = query.group === 'category' ? `, ${PHASE}` : '';
   const series = SERIES_COLUMN[query.split];
   // A by-day question needs no branch unless it filters by engineer or splits by outcome, which are the things a link says.
   const select =

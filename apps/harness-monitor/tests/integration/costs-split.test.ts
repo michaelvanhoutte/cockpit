@@ -79,19 +79,24 @@ describe('Harness Monitor', () => {
         ['main', '—', '—', '—', '—', '$1.00'],
       ]);
       // A by-day question has no branch of its own, and still places each request by its pull request.
-      expect(byDay.rows.map((r) => [r.label, ...r.categories])).toEqual([['2026-03-01', '$5.00', '$4.00', '$3.00', '$2.00', '$1.00']]);
+      expect(byDay.rows.map((r) => [r.label, ...r.categories])).toEqual([['2026-10-01', '$5.00', '$4.00', '$3.00', '$2.00', '$1.00']]);
       expect(byDay.bar.bar).toBe('Merged $5.00, Still open $4.00, Closed unmerged $3.00, No pull request $2.00, On main $1.00');
     });
 
-    it('by phase, which is the default, the columns are the six phases', async () => {
-      await send([spend('a', 3, { branch: 'b/10', category: 'building' }), spend('b', 1, { branch: 'b/10', category: 'after-push' })]);
+    it('by phase, which is the default, the columns are the seven phases, Unphased included', async () => {
+      await send([
+        spend('a', 3, { branch: 'b/10', category: 'building' }),
+        spend('b', 1, { branch: 'b/10', category: 'after-push' }),
+        // Building from before phase marks existed counts as Unphased.
+        spend('c', 2, { branch: 'b/10', category: 'building', time: '2026-09-20T12:00:00Z' }),
+      ]);
       await linked(pullRequest({ number: 10, title: 'Phases', headRefName: 'b/10' }));
 
       const asked = await split('split=phase');
       const unasked = await split('');
 
-      expect(asked.columns).toEqual(['Scoping', 'Building', 'Code rev.', 'Security rev.', 'After push', 'CI rev.']);
-      expect(asked.rows.map((r) => r.categories)).toEqual([['—', '$3.00', '—', '—', '$1.00', '—']]);
+      expect(asked.columns).toEqual(['Unphased', 'Scoping', 'Building', 'Code rev.', 'Security rev.', 'After push', 'CI rev.']);
+      expect(asked.rows.map((r) => r.categories)).toEqual([['$2.00', '—', '$3.00', '—', '—', '$1.00', '—']]);
       expect(unasked.rows).toEqual(asked.rows);
       expect(unasked.bar).toEqual(asked.bar);
     });

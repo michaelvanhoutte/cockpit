@@ -34,6 +34,7 @@ describe('Harness Monitor', () => {
 
       expect(figures.total).toBe('$20.00');
       expect(figures.categories.map((c) => [c.name, c.amount])).toEqual([
+        ['Unphased', '$0.00'],
         ['Scoping & planning', '$0.00'],
         ['Building', '$5.00'],
         ['Local code review', '$6.00'],

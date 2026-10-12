@@ -4,7 +4,7 @@ import { CATEGORIES, MAX_BATCH, validateBatch } from '../../src/validate';
 const row = (over: Record<string, unknown> = {}) => ({
   requestId: 'req_1',
   sessionId: 'session_1',
-  time: '2026-03-01T10:00:00Z',
+  time: '2026-10-01T10:00:00Z',
   branch: 'claude/build-1',
   category: 'building',
   model: 'claude-sonnet-5-5',
@@ -50,18 +50,18 @@ describe('Harness Monitor', () => {
     it.each([
       { situation: 'a bare number', time: '1' },
       { situation: 'a year alone', time: '2026' },
-      { situation: 'a time with no zone', time: '2026-03-01T10:00:00' },
+      { situation: 'a time with no zone', time: '2026-10-01T10:00:00' },
       { situation: 'a year past 9999', time: '+010000-01-01T00:00:00Z' },
     ])('a time that is $situation is refused', ({ time }) => {
       expect(refusal([row({ time })])).toContain('ISO 8601');
     });
 
     it('a time with an offset is accepted and its day is the UTC day', () => {
-      const result = validateBatch({ rows: [row({ time: '2026-03-01T23:30:00-02:00' })] });
-      expect(result.ok && result.rows[0]!.day).toBe('2026-03-02');
+      const result = validateBatch({ rows: [row({ time: '2026-10-01T23:30:00-02:00' })] });
+      expect(result.ok && result.rows[0]!.day).toBe('2026-10-02');
     });
 
-    it('a category outside the six is refused', () => {
+    it('a category outside the seven is refused', () => {
       expect(refusal([row({ category: 'lunch' })])).toContain('category "lunch"');
     });
 
@@ -73,6 +73,27 @@ describe('Harness Monitor', () => {
       expect(validateBatch({ rows: [row({ category: 'local-code-review', reviewLevel: 'xhigh' })] }).ok).toBe(true);
       expect(refusal([row({ category: 'building', reviewLevel: 'xhigh' })])).toContain('reviewLevel');
       expect(refusal([row({ category: 'local-code-review', reviewLevel: 'ultra' })])).toContain('reviewLevel');
+    });
+
+    it('a subagent type and id are optional, kept on a subagent request, and nothing else', () => {
+      const accepted = validateBatch({
+        rows: [row(), row({ requestId: 'r2', subagent: true }), row({ requestId: 'r3', subagent: true, subagentType: 'Explore', subagentId: 'agent-1' })],
+      });
+      expect(accepted.ok && accepted.rows.map((r) => [r.subagentType, r.subagentId])).toEqual([
+        [null, null],
+        [null, null],
+        ['Explore', 'agent-1'],
+      ]);
+    });
+
+    it.each([
+      { situation: 'a type that is not a string', over: { subagent: true, subagentType: 3 }, field: 'subagentType' },
+      { situation: 'an empty id', over: { subagent: true, subagentId: '' }, field: 'subagentId' },
+      { situation: 'a type that is not short', over: { subagent: true, subagentType: 'x'.repeat(101) }, field: 'subagentType' },
+      { situation: 'a type on a main-agent request', over: { subagentType: 'Explore' }, field: 'subagentType' },
+      { situation: 'an id on a main-agent request', over: { subagentId: 'agent-1' }, field: 'subagentId' },
+    ])('$situation is refused, naming the field', ({ over, field }) => {
+      expect(refusal([row(over)])).toContain(field);
     });
 
     it('the 1-hour part of a cache write is optional, and never more than the cache write itself', () => {
@@ -90,9 +111,9 @@ describe('Harness Monitor', () => {
 
     it('a request just after midnight UTC belongs to the new day', () => {
       const result = validateBatch({
-        rows: [row({ requestId: 'a', time: '2026-03-01T23:59:59Z' }), row({ requestId: 'b', time: '2026-03-02T00:00:01Z' })],
+        rows: [row({ requestId: 'a', time: '2026-10-01T23:59:59Z' }), row({ requestId: 'b', time: '2026-10-02T00:00:01Z' })],
       });
-      expect(result.ok && result.rows.map((r) => r.day)).toEqual(['2026-03-01', '2026-03-02']);
+      expect(result.ok && result.rows.map((r) => r.day)).toEqual(['2026-10-01', '2026-10-02']);
     });
   });
 });

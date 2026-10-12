@@ -50,10 +50,16 @@ describe('Harness Monitor', () => {
     });
 
     it('the migration over rows already stored builds the totals a rebuild would', async () => {
-      await send([spend('p1', 3, { ranWhere: 'actions', subagent: true }), ...mixed(), usage('unpriced', { model: 'no-such-model', branch: 'b/x' })]);
+      await send([
+        spend('p1', 3, { ranWhere: 'actions', subagent: true }),
+        ...mixed(),
+        usage('unpriced', { model: 'no-such-model', branch: 'b/x' }),
+        usage('old', { time: '2026-09-20T12:00:00Z' }),
+      ]);
       const written = await splitTotals();
+      expect(written.some((t) => t.category === 'unphased')).toBe(true);
       await env.DB.prepare('DROP TABLE daily_split_totals').run();
-      const migration = inject('migrations').find((m) => m.name.startsWith('0008_'))!;
+      const migration = inject('migrations').find((m) => m.name.startsWith('0009_split_totals'))!;
 
       for (const query of migration.queries) await env.DB.prepare(query).run();
 

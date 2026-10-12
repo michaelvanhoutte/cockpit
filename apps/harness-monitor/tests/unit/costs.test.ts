@@ -12,7 +12,7 @@ const row = (over: Partial<TotalRow>): TotalRow => ({
   prNumber: 1,
   title: 'T',
   state: 'MERGED',
-  mergedAt: '2026-03-01T10:00:00Z',
+  mergedAt: '2026-10-01T10:00:00Z',
   issue: null,
   engineer: 'alice',
   ...over,
@@ -66,11 +66,11 @@ describe('Harness Monitor', () => {
 
   describe('a period is whole UTC days ending today', () => {
     it.each([
-      { period: '7d', first: '2026-03-25' },
-      { period: '30d', first: '2026-03-02' },
+      { period: '7d', first: '2026-10-25' },
+      { period: '30d', first: '2026-10-02' },
       { period: 'all', first: null },
     ] as const)('$period starts $first', ({ period, first }) => {
-      expect(firstDay(period, Date.parse('2026-03-31T23:59:59Z'))).toBe(first);
+      expect(firstDay(period, Date.parse('2026-10-31T23:59:59Z'))).toBe(first);
     });
   });
 
