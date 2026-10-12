@@ -693,6 +693,12 @@ describe('Lead time', () => {
       expect(stripOf(html, 1)).toContain('title="Local code review · high · 8m 00s\nLocal test run · 4m 00s · a"');
     });
 
+    it('stripes a stretch three local kinds share in all three colours', () => {
+      const reviewing = [{ at: at(2), phase: 'review-start', kind: 'code-review', level: 'high' }, { at: at(10), phase: 'review-end', kind: 'code-review', level: 'high' }, testRun(4, 12, 'a'), ...browser(6, 14)];
+      const html = render({ pulls: [withBody(recorded(reviewing))] });
+      expect(stripOf(html, 1)).toContain('var(--local-code-review) 0px 4px, var(--local-test) 4px 8px, var(--local-browser) 8px 12px');
+    });
+
     it('keys the test run and the browser pass as local, at the time they ran', () => {
       const html = render({ pulls: [withBody(recorded())] });
       const legend = html.split('<h2>Each pull request, start to merge</h2>')[1].split('<div class="card">')[0];

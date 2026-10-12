@@ -217,8 +217,9 @@ function segment(part, pull) {
 
   // Two local slices at once (a test run during a review): one stretch striped in both colours, naming both.
   if (part.type === 'overlap') {
-    const [a, b] = part.slices.map((slice) => `var(--${reviewClass(slice.kind)})`);
-    const stripes = `background:repeating-linear-gradient(135deg, ${a} 0 4px, ${b} 4px 8px)`;
+    // A stripe per kind present, so a third kind at once is never dropped.
+    const colours = [...new Set(part.slices.map((slice) => `var(--${reviewClass(slice.kind)})`))];
+    const stripes = `background:repeating-linear-gradient(135deg, ${colours.map((colour, index) => `${colour} ${index * 4}px ${(index + 1) * 4}px`).join(', ')})`;
     return `<span class="seg local overlap${part.cut ? ' cut' : ''}" style="${grow};${stripes}" title="${esc(part.slices.map(sliceText).join('\n'))}"></span>`;
   }
 
@@ -526,8 +527,8 @@ function evoHarness(pulls, t0, t1, maxLines, maxY) {
     .map((pull) => {
       const cx = px(Date.parse(pull.mergedAt));
       let y = EVO.top + plotH;
-      // A pull request whose record marks no review has no local lanes to draw, and says
-      // so on its bars rather than leaving a missing lane to read as zero.
+      // A lane the record has nothing of is said on the bar as not recorded, rather
+      // than left missing to read as zero.
       const unrecorded = LANES.filter((lane) => laneMs(pull, lane) === null).map((lane) => `\n${KIND_LABEL[lane]}: not recorded`).join('');
       return LANES.map((kind) => {
         const ms = laneMs(pull, kind);
