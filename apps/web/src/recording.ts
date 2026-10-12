@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import { MAX_RECORDING_SECONDS } from '@cockpit/shared';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { MAX_RECORDING_SECONDS, uuidv7 } from '@cockpit/shared';
 import { TooManyTranscriptions, transcribeRecording } from './api/transcription';
 import { DICTATION_BLOCKED, DICTATION_FAILED, DICTATION_NO_MICROPHONE } from './dictation';
+import { soundOf, type KeptRecording, type KeptRecordings } from './keptRecordings';
 
 /**
  * Speaking a note by recording it and having Whisper write it down ("Dictate in
@@ -21,17 +22,30 @@ import { DICTATION_BLOCKED, DICTATION_FAILED, DICTATION_NO_MICROPHONE } from './
 
 /** One recording in progress. */
 export interface RecordingSession {
-  /** Ends the recording and answers everything recorded, as one blob in the recorder's own format. */
+  /**
+   * Ends the recording and answers everything recorded, as one blob in the
+   * recorder's own format. A recording that already ended by itself answers
+   * what it had.
+   */
   stop(): Promise<Blob>;
   /** Ends it and throws the sound away; the microphone is let go either way. */
   cancel(): void;
+}
+
+/** What a recording says while it runs. */
+export interface RecordingEvents {
+  /**
+   * It ended without being stopped - the microphone taken by another app, the
+   * phone locked, the recorder failing - and what it had is kept for `stop`.
+   */
+  endedByItself?: () => void;
 }
 
 /**
  * Asks for the microphone and starts recording. Rejects like `getUserMedia` does
  * (`NotAllowedError`, `NotFoundError`), whose names `whyItCouldNotRecord` reads.
  */
-export type StartRecording = () => Promise<RecordingSession>;
+export type StartRecording = (events?: RecordingEvents) => Promise<RecordingSession>;
 
 /** The formats tried in order, first supported wins: Chrome's, then whatever the browser writes by default (Safari's MP4). */
 const PREFERRED_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
@@ -47,7 +61,7 @@ const BITS_PER_SECOND = 64_000;
 export function browserRecorder(): StartRecording | null {
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return null;
   if (typeof MediaRecorder === 'undefined') return null;
-  return async () => {
+  return async (events) => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const release = () => stream.getTracks().forEach((track) => track.stop());
     let recorder: MediaRecorder;
@@ -60,28 +74,41 @@ export function browserRecorder(): StartRecording | null {
       throw error;
     }
     const chunks: Blob[] = [];
+    /** Set once `stop` is asked for, so an end that follows it is not one the recording came to by itself. */
+    let asked = false;
+    let ended = false;
+    let settle: (recording: Blob) => void = () => {};
+    const finished = new Promise<Blob>((resolve) => {
+      settle = resolve;
+    });
+    /** The recording is over, asked or not: what it had is the answer to `stop`. */
+    const end = () => {
+      if (ended) return;
+      ended = true;
+      release();
+      settle(new Blob(chunks, { type: recorder.mimeType || 'audio/webm' }));
+      if (!asked) events?.endedByItself?.();
+    };
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunks.push(event.data);
     };
+    recorder.onstop = end;
+    // A recorder that fails stops; what it recorded until then is still kept.
+    recorder.onerror = () => {
+      if (recorder.state === 'inactive') end();
+    };
     return {
-      stop: () =>
-        new Promise<Blob>((resolve, reject) => {
-          recorder.onstop = () => {
-            release();
-            resolve(new Blob(chunks, { type: recorder.mimeType || 'audio/webm' }));
-          };
-          recorder.onerror = () => {
-            release();
-            reject(new Error('the recorder failed'));
-          };
-          try {
-            recorder.stop();
-          } catch (error) {
-            release();
-            reject(error);
-          }
-        }),
+      stop: () => {
+        asked = true;
+        try {
+          if (recorder.state !== 'inactive') recorder.stop();
+        } catch {
+          end();
+        }
+        return finished;
+      },
       cancel: () => {
+        ended = true;
         recorder.ondataavailable = null;
         recorder.onstop = null;
         recorder.onerror = null;
@@ -96,8 +123,11 @@ export function browserRecorder(): StartRecording | null {
   };
 }
 
-/** What a person is told when a transcription did not come back; the recording is not kept, so this says to say it again. */
+/** What a person is told when a transcription did not come back and the recording could not be kept, so it has to be said again. */
 export const DICTATION_COULD_NOT_TRANSCRIBE = 'Could not transcribe that. Check your connection and dictate it again.';
+
+/** And when it did not come back but the recording is kept, with Retry beside it (issue 1044). */
+export const DICTATION_KEPT_TO_RETRY = 'Could not transcribe that. The recording is kept here to retry.';
 
 /** What is told when the account was held to its 20 transcriptions a minute (issue 1043). */
 export const DICTATION_TOO_MANY = 'Too many recordings were sent in a minute. Try again shortly.';
@@ -127,6 +157,30 @@ export function clock(seconds: number): string {
 
 type Phase = 'idle' | 'starting' | 'recording' | 'transcribing';
 
+/** A recording kept for want of its words, as a view offers it with Retry. */
+export interface WaitingRecording {
+  id: string;
+  /** When it was stopped. */
+  recordedAt: string;
+  /** How long it is, in whole seconds. */
+  seconds: number;
+  /** True while its Retry is underway in this tab. */
+  retrying: boolean;
+}
+
+/** What the line says when the words did not come back, by whether the recording is kept to retry. */
+function whyNotTranscribed(failure: unknown, kept: boolean): string {
+  if (failure instanceof TooManyTranscriptions) return DICTATION_TOO_MANY;
+  return kept ? DICTATION_KEPT_TO_RETRY : DICTATION_COULD_NOT_TRANSCRIBE;
+}
+
+/** Where nothing keeps recordings: the Car view, until "Capture in the Car view without a connection" (issue 1045). */
+const NO_KEEPER = {
+  subscribe: () => () => {},
+  getShown: (): KeptRecording[] => NOTHING_KEPT,
+};
+const NOTHING_KEPT: KeptRecording[] = [];
+
 export interface RecordedDictation {
   /** Whether a mic is drawn: the browser can record and the page has a transcriber. */
   available: boolean;
@@ -149,6 +203,10 @@ export interface RecordedDictation {
    * false when the words could not be had - the error says why.
    */
   finish(): Promise<boolean>;
+  /** The recordings kept for want of their words, oldest first; none where nothing keeps them. */
+  waiting: WaitingRecording[];
+  /** Sends a kept recording again; its words land in the note once, however many tabs retry it. */
+  retry(id: string): void;
 }
 
 /**
@@ -157,8 +215,17 @@ export interface RecordedDictation {
  * `onWords` is read when the words arrive, so it may change every render.
  *
  * `record`, `transcribe` and `limitSeconds` are what a test hands in; a view
- * passes none of them. Unmounting lets go of the microphone and drops whatever
- * was recorded.
+ * passes none of them. Unmounting while recording lets go of the microphone and
+ * drops what was recorded, as closing the form means.
+ *
+ * **With `keeping`, a stopped recording is never lost** ("Keep a recording
+ * Write could not transcribe, with Retry", issue 1044): it is kept on the
+ * device before it is sent, and deleted only once its words are in the note,
+ * so a transcription that fails, a form closed while it is out, and a page
+ * closed before the answer each leave it waiting in `waiting`, with `retry`.
+ * Where it cannot be kept it is sent as it is. A page hidden mid-recording - the
+ * phone locked, another app opened - and a recorder that ends by itself each
+ * stop it as a tap would, so what was said up to then goes the same way.
  */
 export function useRecordedDictation({
   onWords,
@@ -166,6 +233,7 @@ export function useRecordedDictation({
   record,
   transcribe = transcribeRecording,
   limitSeconds = MAX_RECORDING_SECONDS,
+  keeping = null,
 }: {
   onWords: (words: string) => void;
   /** Whether the Worker can transcribe, as `/health` says; false until known. */
@@ -173,6 +241,8 @@ export function useRecordedDictation({
   record?: StartRecording | null;
   transcribe?: (recording: Blob) => Promise<string>;
   limitSeconds?: number;
+  /** Where a recording waits for its words; none, and a recording whose words do not come back is lost. */
+  keeping?: KeptRecordings | null;
 }): RecordedDictation {
   const [start] = useState<StartRecording | null>(() => (record === undefined ? browserRecorder() : record));
   const [phase, setPhaseState] = useState<Phase>('idle');
@@ -184,6 +254,21 @@ export function useRecordedDictation({
   words.current = onWords;
   const transcribeNow = useRef(transcribe);
   transcribeNow.current = transcribe;
+  const keeper = useRef(keeping);
+  keeper.current = keeping;
+  const source = keeping ?? NO_KEEPER;
+  const kept = useSyncExternalStore(source.subscribe, source.getShown, source.getShown);
+  /**
+   * The kept recordings this tab is transcribing now: a first attempt, not yet
+   * offered for Retry, or a retry. A ref for the check, state for the drawing.
+   */
+  const inHandNow = useRef(new Map<string, 'first' | 'retry'>());
+  const [inHand, setInHand] = useState<ReadonlyMap<string, 'first' | 'retry'>>(new Map());
+  const holding = (id: string, how: 'first' | 'retry' | null) => {
+    if (how === null) inHandNow.current.delete(id);
+    else inHandNow.current.set(id, how);
+    if (mounted.current) setInHand(new Map(inHandNow.current));
+  };
 
   /** Mirrors `phase` for code that runs between renders. */
   const phaseNow = useRef<Phase>('idle');
@@ -198,6 +283,8 @@ export function useRecordedDictation({
   const underway = useRef<Promise<boolean> | null>(null);
   const timers = useRef<{ tick: ReturnType<typeof setInterval>; limit: ReturnType<typeof setTimeout> } | null>(null);
   const mounted = useRef(true);
+  /** When the recording running now started, for how long it is once stopped. */
+  const startedAt = useRef(0);
 
   const stopTimers = () => {
     if (!timers.current) return;
@@ -216,32 +303,111 @@ export function useRecordedDictation({
     };
   }, []);
 
+  /**
+   * Keeps a stopped recording before it is sent, answering its id, or null
+   * where it cannot be kept. Held as a first attempt before it is written, so
+   * it is never offered for Retry while it is still on its way.
+   */
+  const keepIt = async (sound: Blob, length: number): Promise<string | null> => {
+    if (!keeper.current) return null;
+    const id = uuidv7();
+    holding(id, 'first');
+    try {
+      await keeper.current.keep(sound, length, id);
+      return id;
+    } catch {
+      holding(id, null);
+      return null;
+    }
+  };
+
+  /**
+   * Transcribes a recording and puts its words in the note; a kept one is
+   * deleted only once they are in. True when there is nothing more to wait
+   * for - including where another tab already put them in its own note -
+   * false where the form closed first and the recording stays. Throws where
+   * the words did not come back.
+   */
+  const carryOver = async (sound: Blob, id: string | null): Promise<boolean> => {
+    const text = await transcribeNow.current(sound);
+    let delivered = false;
+    const putIn = () => {
+      if (!mounted.current) return false;
+      words.current(text);
+      delivered = true;
+      return true;
+    };
+    if (id === null || !keeper.current) return putIn();
+    try {
+      return (await keeper.current.land(id, putIn)) !== 'not taken';
+    } catch {
+      // Storage failed around it: the words are not lost for that, though the
+      // recording may stay to be offered again.
+      return delivered || putIn();
+    }
+  };
+
   /** Ends the recording and carries its words into the note. */
   const stopAndTranscribe = (atTheLimit: boolean): Promise<boolean> => {
     const ended = session.current;
     if (!ended) return Promise.resolve(true);
     session.current = null;
+    const length = Math.floor((Date.now() - startedAt.current) / 1000);
     stopTimers();
     setPhase('transcribing');
     const run = (async () => {
+      let id: string | null = null;
       try {
-        const text = await transcribeNow.current(await ended.stop());
-        if (!mounted.current) return false;
-        words.current(text);
-        if (atTheLimit) setNotice(DICTATION_STOPPED_AT_THE_LIMIT);
-        return true;
+        const sound = await ended.stop();
+        id = await keepIt(sound, length);
+        const heard = await carryOver(sound, id);
+        if (heard && atTheLimit && mounted.current) setNotice(DICTATION_STOPPED_AT_THE_LIMIT);
+        return heard;
       } catch (failure) {
-        if (mounted.current) {
-          setError(failure instanceof TooManyTranscriptions ? DICTATION_TOO_MANY : DICTATION_COULD_NOT_TRANSCRIBE);
-        }
+        if (mounted.current) setError(whyNotTranscribed(failure, id !== null));
         return false;
       } finally {
+        if (id !== null) holding(id, null);
         underway.current = null;
         if (mounted.current) setPhase('idle');
       }
     })();
     underway.current = run;
     return run;
+  };
+  const stopNow = useRef(stopAndTranscribe);
+  stopNow.current = stopAndTranscribe;
+
+  // The page hidden mid-recording - the phone locked, another app opened - is a
+  // stop: what was said up to then is kept and transcribed, not left running
+  // where the browser may cut it off.
+  useEffect(() => {
+    const hidden = () => {
+      if (document.visibilityState !== 'hidden') return;
+      if (phaseNow.current === 'recording') void stopNow.current(false);
+      else if (phaseNow.current === 'starting') letGo.current = true;
+    };
+    document.addEventListener('visibilitychange', hidden);
+    return () => document.removeEventListener('visibilitychange', hidden);
+  }, []);
+
+  const retry = (id: string) => {
+    const keeping = keeper.current;
+    if (!keeping || inHandNow.current.has(id)) return;
+    const one = keeping.getShown().find((recording) => recording.id === id);
+    if (!one) return;
+    setError(null);
+    setNotice(null);
+    holding(id, 'retry');
+    void (async () => {
+      try {
+        await carryOver(soundOf(one), id);
+      } catch (failure) {
+        if (mounted.current) setError(whyNotTranscribed(failure, true));
+      } finally {
+        holding(id, null);
+      }
+    })();
   };
 
   const begin = async () => {
@@ -251,8 +417,15 @@ export function useRecordedDictation({
     letGo.current = false;
     setPhase('starting');
     let started: RecordingSession;
+    let mine: RecordingSession | null = null;
     try {
-      started = await start();
+      started = await start({
+        // Only the recording running now: one already stopped or let go has nothing more to say.
+        endedByItself: () => {
+          if (mine !== null && session.current === mine) void stopNow.current(false);
+        },
+      });
+      mine = started;
     } catch (failure) {
       if (!mounted.current) return;
       setPhase('idle');
@@ -266,6 +439,7 @@ export function useRecordedDictation({
     }
     session.current = started;
     const from = Date.now();
+    startedAt.current = from;
     setSeconds(0);
     setPhase('recording');
     timers.current = {
@@ -282,6 +456,15 @@ export function useRecordedDictation({
     seconds,
     error,
     notice,
+    waiting: kept
+      .filter((one) => inHand.get(one.id) !== 'first')
+      .map((one) => ({
+        id: one.id,
+        recordedAt: one.recordedAt,
+        seconds: one.seconds,
+        retrying: inHand.get(one.id) === 'retry',
+      })),
+    retry,
     toggle: () => {
       switch (phaseNow.current) {
         case 'idle':

@@ -20,13 +20,22 @@ import {
   browserOutboxStore,
   inTabLock,
   serverSender,
+  type Lock,
   type OutboxStore,
 } from '../../../src/captureOutboxSender';
+import {
+  KeptRecordings,
+  KeptRecordingsProvider,
+  browserRecordingStore,
+  type KeptRecording,
+  type RecordingStore,
+} from '../../../src/keptRecordings';
 import { NO_TYPES } from '../../../src/itemTypes';
 import { forgetEverything } from '../../../src/session/forget';
 import { DICTATION_BLOCKED, DICTATION_NO_MICROPHONE } from '../../../src/dictation';
 import {
   DICTATION_COULD_NOT_TRANSCRIBE,
+  DICTATION_KEPT_TO_RETRY,
   DICTATION_TOO_MANY,
   DICTATION_STOPPED_AT_THE_LIMIT,
   type StartRecording,
@@ -168,7 +177,19 @@ async function thePage({
   arrived,
   onPutOn,
   onCaptured,
+  recordingStore = browserRecordingStore(),
+  recordingLock = inTabLock(),
+  waitingRecordings = [],
+  signedInAs = 'user-michael',
 }: {
+  /** Where recordings not yet transcribed are kept: the fake IndexedDB, unless a case says storage is unavailable. */
+  recordingStore?: RecordingStore;
+  /** The lock every tab takes, shared by two pages drawn as two tabs. */
+  recordingLock?: Lock;
+  /** Recordings already kept on this device when the page opens. */
+  waitingRecordings?: KeptRecording[];
+  /** Who is signed in on the device. */
+  signedInAs?: string;
   /**
    * Null for an account that has not answered what types it has, and
    * `PREDATES_TYPES` for a stored copy from before the field.
@@ -234,10 +255,15 @@ async function thePage({
   });
   outbox.signedInAs('user-michael');
   everyOutbox.push(outbox);
+  for (const one of waitingRecordings) await recordingStore.put(one);
+  const kept = new KeptRecordings({ store: recordingStore, lock: recordingLock });
+  kept.signedInAs(signedInAs);
   const page = render(
     <QueryClientProvider client={client}>
       <OutboxProvider value={outbox}>
-        <CaptureNote startsIn={startsIn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} />
+        <KeptRecordingsProvider value={kept}>
+          <CaptureNote startsIn={startsIn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} />
+        </KeptRecordingsProvider>
       </OutboxProvider>
     </QueryClientProvider>,
   );
@@ -249,12 +275,20 @@ async function thePage({
     await screen.findByLabelText('What is on your mind?');
   } else if (types.length > 0) await screen.findByRole('button', { name: types[0]!.name });
   else await screen.findByText(NO_TYPES);
-  return Object.assign(userEvent.setup(), { client, outbox, unmount: page.unmount });
+  return Object.assign(userEvent.setup(), { client, outbox, kept, unmount: page.unmount, container: page.container });
 }
 
 /** Storage that refuses everything: a private window, or a full disk. */
 const UNAVAILABLE: OutboxStore = {
   all: () => Promise.reject(new Error('unavailable')),
+  put: () => Promise.reject(new Error('unavailable')),
+  remove: () => Promise.reject(new Error('unavailable')),
+};
+
+/** Recording storage that refuses everything, as `UNAVAILABLE` is for the outbox. */
+const RECORDINGS_UNAVAILABLE: RecordingStore = {
+  all: () => Promise.reject(new Error('unavailable')),
+  has: () => Promise.reject(new Error('unavailable')),
   put: () => Promise.reject(new Error('unavailable')),
   remove: () => Promise.reject(new Error('unavailable')),
 };
@@ -1512,16 +1546,23 @@ describe('Capture', () => {
       expect(mic()).toHaveAttribute('aria-pressed', 'false');
     });
 
-    it('says it could not transcribe when there is no connection or the request is refused, and keeps the note', async () => {
+    it.each([
+      { situation: 'the recording is kept to retry', recordingStore: undefined, line: DICTATION_KEPT_TO_RETRY },
+      {
+        situation: 'the device cannot keep it, so it has to be said again',
+        recordingStore: RECORDINGS_UNAVAILABLE,
+        line: DICTATION_COULD_NOT_TRANSCRIBE,
+      },
+    ])('says it could not transcribe, and keeps the note, when $situation', async ({ recordingStore, line }) => {
       const { dictating, transcriber } = dictate();
-      const user = await thePage({ dictating });
+      const user = await thePage({ dictating, ...(recordingStore ? { recordingStore } : {}) });
       await user.type(box(), 'Remember');
       await user.click(mic());
       await user.click(mic());
 
       await transcriber.fails();
 
-      expect(screen.getByRole('alert')).toHaveTextContent(DICTATION_COULD_NOT_TRANSCRIBE);
+      expect(screen.getByRole('alert')).toHaveTextContent(line);
       expect(mic()).toHaveAttribute('aria-pressed', 'false');
       expect(mic()).toBeEnabled();
       expect(box()).toHaveValue('Remember');
@@ -1602,8 +1643,258 @@ describe('Capture', () => {
       await settled();
 
       expect(everythingAsked()).not.toContain('capture_item');
-      expect(screen.getByRole('alert')).toHaveTextContent(DICTATION_COULD_NOT_TRANSCRIBE);
+      expect(screen.getByRole('alert')).toHaveTextContent(DICTATION_KEPT_TO_RETRY);
       expect(box()).toHaveValue('Remember to');
+    });
+  });
+
+  /**
+   * "Keep a recording Write could not transcribe, with Retry" (issue 1044). The
+   * recordings are kept in the fake IndexedDB the outbox uses, by the real
+   * keeper (`keptRecordings.tsx`); a reload is the form drawn again over it.
+   */
+  const waitingRows = () =>
+    screen.queryByRole('group', { name: 'Not yet transcribed' })?.querySelectorAll(':scope > div') ?? [];
+  const retries = () => screen.queryAllByRole('button', { name: 'Retry' });
+  const keptOnTheDevice = async () => (await browserRecordingStore().all()).length;
+  function aKeptRecording(seconds: number, recordedAt: string, owner = 'user-michael'): KeptRecording {
+    return {
+      v: 1,
+      id: `recording-${recordedAt}`,
+      owner,
+      recordedAt,
+      seconds,
+      type: 'audio/webm',
+      bytes: new TextEncoder().encode('audio').buffer as ArrayBuffer,
+    };
+  }
+  /** Dictated, stopped, and its words did not come back. */
+  const dictatedAndFailed = async () => {
+    const { dictating, transcriber } = dictate();
+    const user = await thePage({ dictating });
+    await user.click(mic());
+    await user.click(mic());
+    await transcriber.fails();
+    return { user, dictating, transcriber };
+  };
+
+  describe('a recording that could not be transcribed waits on the device with Retry', () => {
+    it('says so, offers Retry, and keeps the recording when the transcription fails', async () => {
+      const { dictating, transcriber } = dictate();
+      const user = await thePage({ dictating });
+      await user.click(mic());
+      await user.click(mic());
+      await waitFor(() => expect(transcriber.sent()).toBe(1));
+      // Kept before it was sent, and not offered while it is still on its way.
+      expect(await keptOnTheDevice()).toBe(1);
+      await settled();
+      expect(retries()).toHaveLength(0);
+
+      await transcriber.fails();
+
+      expect(screen.getByRole('alert')).toHaveTextContent(DICTATION_KEPT_TO_RETRY);
+      expect(await screen.findByRole('button', { name: 'Retry' })).toBeEnabled();
+      expect(await keptOnTheDevice()).toBe(1);
+    });
+
+    it('offers Retry for it once Capture is opened again', async () => {
+      const { user } = await dictatedAndFailed();
+
+      await reloaded(user);
+
+      expect(await screen.findByRole('button', { name: 'Retry' })).toBeEnabled();
+    });
+
+    it('offers no Retry with nothing waiting', async () => {
+      await thePage({ dictating: dictate().dictating });
+      await settled();
+
+      expect(retries()).toHaveLength(0);
+      expect(screen.queryByRole('group', { name: 'Not yet transcribed' })).toBeNull();
+    });
+
+    it('offers each of three waiting, oldest first', async () => {
+      await thePage({
+        dictating: dictate().dictating,
+        waitingRecordings: [
+          aKeptRecording(30, '2026-10-12T09:00:00.000Z'),
+          aKeptRecording(10, '2026-10-12T07:00:00.000Z'),
+          aKeptRecording(20, '2026-10-12T08:00:00.000Z'),
+        ],
+      });
+
+      await waitFor(() => expect(retries()).toHaveLength(3));
+      expect([...waitingRows()].map((row) => row.textContent)).toEqual([
+        expect.stringContaining('0:10'),
+        expect.stringContaining('0:20'),
+        expect.stringContaining('0:30'),
+      ]);
+    });
+  });
+
+  describe('a waiting recording is deleted only once its words are in the note', () => {
+    it('puts the words in the note and deletes the recording when Retry succeeds', async () => {
+      const { user, transcriber } = await dictatedAndFailed();
+      await user.type(box(), 'Remember to');
+
+      await user.click(await screen.findByRole('button', { name: 'Retry' }));
+      expect(transcriber.sent()).toBe(2);
+      await transcriber.answers('buy oat milk');
+
+      expect(box()).toHaveValue('Remember to buy oat milk');
+      await waitFor(() => expect(retries()).toHaveLength(0));
+      expect(await keptOnTheDevice()).toBe(0);
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('keeps it and still offers Retry when Retry fails again, saying so', async () => {
+      const { user, transcriber } = await dictatedAndFailed();
+      await user.click(await screen.findByRole('button', { name: 'Retry' }));
+      expect(screen.queryByRole('alert')).toBeNull();
+
+      await transcriber.fails();
+
+      expect(screen.getByRole('alert')).toHaveTextContent(DICTATION_KEPT_TO_RETRY);
+      expect(await screen.findByRole('button', { name: 'Retry' })).toBeEnabled();
+      expect(await keptOnTheDevice()).toBe(1);
+    });
+
+    it.each([
+      { situation: 'while it is first being transcribed', retried: false },
+      { situation: 'while it is being retried', retried: true },
+    ])('keeps it when the form is closed $situation and the words arrive after', async ({ retried }) => {
+      const { dictating, transcriber } = dictate();
+      const user = await thePage({ dictating });
+      await user.click(mic());
+      await user.click(mic());
+      if (retried) {
+        await transcriber.fails();
+        await user.click(await screen.findByRole('button', { name: 'Retry' }));
+      } else {
+        await waitFor(() => expect(transcriber.sent()).toBe(1));
+      }
+
+      user.unmount();
+      await transcriber.answers('buy oat milk');
+      await settled();
+
+      expect(await keptOnTheDevice()).toBe(1);
+      // And it is there to retry, in Write again or on the next visit.
+      await thePage({ dictating: dictate().dictating });
+      expect(await screen.findByRole('button', { name: 'Retry' })).toBeEnabled();
+    });
+
+    it('lands the words once when it is retried in two tabs, the second finding it gone', async () => {
+      held.types = [ACTION];
+      held.items = [];
+      held.workspaces = [WORK, HOME];
+      localStorage.setItem('cockpit.last-visited.workspace', 'ws-home');
+      const recording = aKeptRecording(12, '2026-10-12T07:00:00.000Z');
+      const store = browserRecordingStore();
+      await store.put(recording);
+      // One lock across both, as Web Locks is across a browser's tabs.
+      const lock = inTabLock();
+      const tab = (name: string) => {
+        const transcriber = aTranscriber();
+        const kept = new KeptRecordings({ store: browserRecordingStore(), lock });
+        kept.signedInAs('user-michael');
+        const outbox = new CaptureOutbox({ store: browserOutboxStore(), sender: serverSender, lock: inTabLock(), online: () => true });
+        everyOutbox.push(outbox);
+        outbox.signedInAs('user-michael');
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        const tree = (
+          <section aria-label={name}>
+            <QueryClientProvider client={client}>
+              <OutboxProvider value={outbox}>
+                <KeptRecordingsProvider value={kept}>
+                  <CaptureNote
+                    startsIn={null}
+                    dictating={{ record: aRecorder().record, transcribe: transcriber.transcribe, transcriber: true }}
+                  />
+                </KeptRecordingsProvider>
+              </OutboxProvider>
+            </QueryClientProvider>
+          </section>
+        );
+        return { transcriber, tree, kept };
+      };
+      const first = tab('first tab');
+      const second = tab('second tab');
+      render(
+        <>
+          {first.tree}
+          {second.tree}
+        </>,
+      );
+      const inTab = (name: string) => within(screen.getByRole('region', { name }));
+      const user = userEvent.setup();
+      await waitFor(() => expect(retries()).toHaveLength(2));
+
+      await user.click(inTab('first tab').getByRole('button', { name: 'Retry' }));
+      await user.click(inTab('second tab').getByRole('button', { name: 'Retry' }));
+      await first.transcriber.answers('buy oat milk');
+      await second.transcriber.answers('buy oat milk');
+      await settled();
+
+      // Both asked, which costs a call; the words are in one note only.
+      expect(first.transcriber.sent() + second.transcriber.sent()).toBe(2);
+      expect(inTab('first tab').getByLabelText('What is on your mind?')).toHaveValue('buy oat milk');
+      expect(inTab('second tab').getByLabelText('What is on your mind?')).toHaveValue('');
+      expect(await keptOnTheDevice()).toBe(0);
+      await first.kept.refresh();
+      await second.kept.refresh();
+      await waitFor(() => expect(retries()).toHaveLength(0));
+    });
+  });
+
+  describe('a waiting recording belongs to whoever recorded it', () => {
+    it.each([
+      { situation: 'another person signs in on the device', signedInAs: 'user-bob', offered: false },
+      { situation: 'the person who recorded it signs back in', signedInAs: 'user-michael', offered: true },
+    ])('is offered only to them: $situation', async ({ signedInAs, offered }) => {
+      await thePage({
+        dictating: dictate().dictating,
+        waitingRecordings: [aKeptRecording(12, '2026-10-12T07:00:00.000Z', 'user-michael')],
+        signedInAs,
+      });
+      await settled();
+
+      expect(retries()).toHaveLength(offered ? 1 : 0);
+      // Kept either way: nobody else's sign-in deletes it.
+      expect(await keptOnTheDevice()).toBe(1);
+    });
+  });
+
+  describe('a recording cut off mid-way keeps what was recorded, to transcribe', () => {
+    it.each([
+      {
+        situation: 'the page is hidden, as when the phone is locked',
+        cutOff: async () => {
+          Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+          await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+        },
+      },
+      {
+        situation: 'the recorder stops by itself',
+        cutOff: (recorder: ReturnType<typeof aRecorder>) => recorder.current().endsByItself(),
+      },
+    ])('when $situation', async ({ cutOff }) => {
+      const { dictating, recorder, transcriber } = dictate();
+      const user = await thePage({ dictating });
+      await user.click(mic());
+      expect(mic()).toHaveAttribute('aria-pressed', 'true');
+
+      try {
+        await cutOff(recorder);
+
+        expect(recorder.current().stopped).toBe(true);
+        await waitFor(() => expect(transcriber.sent()).toBe(1));
+        expect(await keptOnTheDevice()).toBe(1);
+        await transcriber.fails();
+        expect(await screen.findByRole('button', { name: 'Retry' })).toBeEnabled();
+      } finally {
+        Reflect.deleteProperty(document, 'visibilityState');
+      }
     });
   });
 

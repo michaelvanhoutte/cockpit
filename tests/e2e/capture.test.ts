@@ -1,4 +1,4 @@
-import { SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE } from '@cockpit/shared';
+import { SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE, TRANSCRIPTION_PATH } from '@cockpit/shared';
 import {
   captureBox,
   closeCapture,
@@ -183,6 +183,28 @@ test.describe('Capture', () => {
       await expect(page.getByRole('menuitem', { name: 'Move to…' })).toBeVisible();
       await expect(page.getByRole('menuitem', { name: 'Move to this workspace' })).toHaveCount(0);
       await page.keyboard.press('Escape');
+
+      // A recording whose words do not come back waits on the device with
+      // Retry, through a reload, and lands in the note once retried ("Keep a
+      // recording Write could not transcribe, with Retry", issue 1044). The
+      // transcriber is made to fail by turning its requests away. Only a
+      // browser keeps a real recording in IndexedDB across a real reload.
+      await page.goto('/capture');
+      await page.route(`**${TRANSCRIPTION_PATH}`, (route) => route.fulfill({ status: 503, body: '' }));
+      const again = page.getByRole('button', { name: 'Dictate' });
+      await press(again, isMobile);
+      await expect(page.getByText('Listening · 0:01')).toBeVisible();
+      await press(again, isMobile);
+      await expect(page.getByText('The recording is kept here to retry.', { exact: false })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
+      await page.unroute(`**${TRANSCRIPTION_PATH}`);
+      await page.reload();
+      await expect(captureBox(page)).toHaveValue('');
+      await press(page.getByRole('button', { name: 'Retry' }), isMobile);
+      await expect(captureBox(page)).toHaveValue(STAND_IN_WORDS);
+      await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+      // Not captured: the walk's point is the words reaching the note.
+      await captureBox(page).fill('');
 
       // What the phone's share sheet handed to the installed app ("Share photos,
       // files and links into Cockpit from Android's share sheet", issue 789).
