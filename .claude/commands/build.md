@@ -32,7 +32,7 @@ Mark a chapter at each phase boundary, per **Working in parallel**.
 | `scoped` | after step 3 |
 | `browser-start` / `browser-end` | around step 6's browser pass: starting the app to the walk written; skipped where the table drops the pass |
 | `built` | after step 6 |
-| `review-start` / `review-end` `<code-review\|security-review> <level>` | around each local review; a second round marks again, and both are kept |
+| `review-start` / `review-end` `<code-review\|security-review> <level>` | `review-start` as each review begins, `review-end` as that review finishes, never together: this session marks its own `/code-review` when it returns, and the security subagent marks `security-review <level>` as its last step before reporting, so its prompt says to; a second round marks again, and both are kept |
 | `pushed` | immediately before the push that opens the draft pull request |
 
 The test runners record their own runs in the same record, so nothing marks those. Every write to the pull request's body — opening it, the browser walk, marking it ready, **and every push after the first**, so a fix's test runs arrive with it — goes through the record's `body` command, which adds the block at the end or replaces it in place and touches nothing around it. A session that skips a marker reads "not recorded" in a report, never zero.
