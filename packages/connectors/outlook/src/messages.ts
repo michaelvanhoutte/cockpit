@@ -1,7 +1,7 @@
 /**
  * Reading what Graph answers. Pure: every function takes an answer already
  * parsed and says what it holds, so each branch is provable without a mailbox
- * (tests/unit/reading-outlook.test.ts). Every quirk these encode is in the
+ * (tests/unit/bringing-in-messages.test.ts). Every quirk these encode is in the
  * package README.
  */
 

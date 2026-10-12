@@ -107,6 +107,15 @@ describe('Connector management', () => {
       await expect(world.connector().sync(signedInHost())).rejects.toThrow(SIGN_IN_REFUSED);
     });
 
+    it('does not refresh a second time for a token it refreshed a moment ago and Microsoft still refused', async () => {
+      const world = new GraphWorld();
+      world.acceptedToken = 'something-else';
+
+      await expect(world.connector().sync(signedInHost({ expiresAt: null }))).rejects.toThrow(SIGN_IN_REFUSED);
+
+      expect(tokenRequests(world)).toHaveLength(1);
+    });
+
     it('does not fail on Microsoft only failing to answer a refresh this time', async () => {
       const world = new GraphWorld();
       world.refresh = { status: 503, body: {} };

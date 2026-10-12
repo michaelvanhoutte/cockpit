@@ -124,11 +124,14 @@ export class Mailbox {
     // A next link is followed only to the origin the token is meant for.
     if (!url.startsWith(`${this.#origin}/`)) throw new NotAnswering('Graph named a next page somewhere else');
     const prefer = options.bodyAsText ? `${IMMUTABLE_IDS}, outlook.body-content-type="text"` : IMMUTABLE_IDS;
+    const refreshedHere = this.#token === null;
     const token = this.#token ?? (await this.#refresh());
     let response = await this.#call(url, token, prefer);
     if (response.status === 401) {
       // A token Microsoft has stopped accepting early is refreshed once; a
-      // second refusal is the sign-in's.
+      // second refusal is the sign-in's. One refreshed a moment ago for this
+      // very call is not refreshed again: that refusal is already the second.
+      if (refreshedHere) throw new SignInLost();
       response = await this.#call(url, await this.#refresh(), prefer);
       if (response.status === 401) throw new SignInLost();
     }
