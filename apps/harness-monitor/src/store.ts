@@ -94,6 +94,23 @@ ON CONFLICT (day, branch, category, model, ran_where, subagent) DO UPDATE SET
   unpriced_cache_creation_tokens = unpriced_cache_creation_tokens + excluded.unpriced_cache_creation_tokens,
   unpriced_cache_read_tokens = unpriced_cache_read_tokens + excluded.unpriced_cache_read_tokens,
   last_at = MAX(last_at, excluded.last_at)`;
+const SESSION_START_COLUMNS = `session_id, request_id, occurred_at, day, branch, model, input_tokens, cache_creation_tokens, cache_read_tokens`;
+/** Each session's earliest main-agent request among the rows `from` selects; the request id breaks a tie. */
+const SESSION_STARTS_SELECT = (from: string) => `SELECT session_id, request_id, occurred_at, day, COALESCE(branch, ''), model, input_tokens, cache_creation_tokens, cache_read_tokens
+FROM (
+  SELECT *, ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY occurred_at, request_id) AS n
+  FROM usage_requests WHERE subagent = 0${from}
+)
+WHERE n = 1`;
+/** A session's start keeps the earliest main-agent request, whatever order its requests arrive in. */
+const ADD_TO_SESSION_STARTS = `INSERT INTO session_starts (${SESSION_START_COLUMNS})
+${SESSION_STARTS_SELECT(' AND ingest_id = ?')}
+ON CONFLICT (session_id) DO UPDATE SET
+  request_id = excluded.request_id, occurred_at = excluded.occurred_at, day = excluded.day, branch = excluded.branch,
+  model = excluded.model, input_tokens = excluded.input_tokens,
+  cache_creation_tokens = excluded.cache_creation_tokens, cache_read_tokens = excluded.cache_read_tokens
+WHERE excluded.occurred_at < session_starts.occurred_at
+   OR (excluded.occurred_at = session_starts.occurred_at AND excluded.request_id < session_starts.request_id)`;
 /**
  * Stores the rows not stored yet and counts exactly those into the daily totals.
  *
@@ -122,6 +139,7 @@ export async function storeBatch(db: D1Database, rows: UsageRow[], now = Date.no
     db.prepare(ADD_TO_TOTALS).bind(ingestId),
     db.prepare(ADD_TO_BRANCH_TOTALS).bind(ingestId),
     db.prepare(ADD_TO_SPLIT_TOTALS).bind(ingestId),
+    db.prepare(ADD_TO_SESSION_STARTS).bind(ingestId),
   ]);
   const stored = inserted!.meta.changes ?? 0;
   return { stored, ignored: rows.length - stored };
@@ -133,6 +151,7 @@ export async function rebuildTotals(db: D1Database): Promise<number> {
     db.prepare('DELETE FROM daily_totals'),
     db.prepare('DELETE FROM daily_branch_totals'),
     db.prepare('DELETE FROM daily_split_totals'),
+    db.prepare('DELETE FROM session_starts'),
     db.prepare(`INSERT INTO daily_totals (
         day, category, model, requests, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         cost_micros, unpriced_requests
@@ -149,6 +168,8 @@ export async function rebuildTotals(db: D1Database): Promise<number> {
       FROM usage_requests GROUP BY day, COALESCE(branch, ''), ${PHASE}, model`),
     db.prepare(`INSERT INTO daily_split_totals (${SPLIT_TOTALS_COLUMNS})
       ${SPLIT_TOTALS_SELECT} GROUP BY ${SPLIT_TOTALS_KEYS}`),
+    db.prepare(`INSERT INTO session_starts (${SESSION_START_COLUMNS})
+      ${SESSION_STARTS_SELECT('')}`),
   ]);
   const covered = await db.prepare('SELECT COUNT(DISTINCT day) AS days FROM daily_totals').first<{ days: number }>();
   return covered?.days ?? 0;
