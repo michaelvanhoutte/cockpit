@@ -180,7 +180,10 @@ function row(g: CostGroup, group: Group, max: number, query: CostQuery, series: 
     `<td class="first">${label}${g.sub === null ? '' : `<div class="muted small">${esc(g.sub)}</div>`}</td>`;
   const extra =
     group === 'pr'
-      ? `<td>${g.engineer === null ? '' : esc(g.engineer)}</td><td class="nowrap">${g.merged === null ? '' : esc(g.merged)}</td>`
+      ? `<td>${g.engineer === null ? '' : esc(g.engineer)}</td><td class="nowrap">${g.merged === null ? '' : esc(g.merged)}</td>` +
+        // Blank, not zero, for what linking has not read.
+        `<td class="nowrap mono">${g.lines === null ? '' : `+${number(g.lines.added)} −${number(g.lines.removed)}`}</td>` +
+        `<td class="nowrap">${g.openToMerged ?? ''}</td><td class="num mono">${g.ciRounds === null ? '' : number(g.ciRounds)}</td>`
       : group === 'issue' || group === 'engineer'
         ? `<td>${number(g.pullRequests)}</td>`
         : '';
@@ -201,7 +204,7 @@ function table(page: CostsPage): string {
   const start = (pageNo - 1) * PAGE_SIZE;
   const shown = groups.slice(start, start + PAGE_SIZE);
   const max = Math.max(...shown.map((g) => g.totalMicros), 1);
-  const extraHeads = query.group === 'pr' ? '<th scope="col">Engineer</th><th scope="col">Merged</th>' : query.group === 'issue' || query.group === 'engineer' ? '<th scope="col">Pull requests</th>' : '';
+  const extraHeads = query.group === 'pr' ? '<th scope="col">Engineer</th><th scope="col">Merged</th><th scope="col">Lines</th><th scope="col">Open → merged</th><th scope="col" class="num">CI rounds</th>' : query.group === 'issue' || query.group === 'engineer' ? '<th scope="col">Pull requests</th>' : '';
   const heads = page.series.map((s) => `<th scope="col" class="num">${esc(s.short)}</th>`).join('');
   const link = (to: number, text: string) => `<a href="/${queryString(query, { page: to })}">${text}</a>`;
   const pager = [pageNo > 1 ? link(pageNo - 1, 'Previous') : '', start + PAGE_SIZE < groups.length ? link(pageNo + 1, `Next ${PAGE_SIZE}`) : '']

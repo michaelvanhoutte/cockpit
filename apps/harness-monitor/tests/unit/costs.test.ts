@@ -15,6 +15,11 @@ const row = (over: Partial<TotalRow>): TotalRow => ({
   mergedAt: '2026-10-01T10:00:00Z',
   issue: null,
   engineer: 'alice',
+  linesAdded: null,
+  linesRemoved: null,
+  openedAt: null,
+  ciRounds: null,
+  issueTitle: null,
   ...over,
 });
 
@@ -106,6 +111,42 @@ describe('Harness Monitor', () => {
 
     it('the median of an even count is the mean of the middle two', () => {
       expect([median([]), median([5]), median([1, 9, 3]), median([4, 1, 3, 2])]).toEqual([0, 5, 3, 3]);
+    });
+  });
+
+  describe('a pull request row says how long it was open, and an issue row names the issue', () => {
+    it.each([
+      { situation: 'under an hour', opened: '2026-03-01T10:00:00Z', merged: '2026-03-01T10:45:59Z', says: '45m' },
+      { situation: 'under a day', opened: '2026-03-01T10:00:00Z', merged: '2026-03-01T15:10:00Z', says: '5h 10m' },
+      { situation: 'days', opened: '2026-03-01T10:00:00Z', merged: '2026-03-03T14:30:00Z', says: '2d 4h' },
+    ])('open $situation reads $says', ({ opened, merged, says }) => {
+      const [group] = groupRows([row({ openedAt: opened, mergedAt: merged })], 'pr', null);
+
+      expect(group!.openToMerged).toBe(says);
+    });
+
+    it.each([
+      { situation: 'not merged', over: { openedAt: '2026-03-01T10:00:00Z', mergedAt: null } },
+      { situation: 'its opening unread', over: { openedAt: null } },
+    ])('a pull request $situation has no open → merged time', ({ over }) => {
+      const [group] = groupRows([row(over)], 'pr', null);
+
+      expect(group!.openToMerged).toBeNull();
+    });
+
+    it.each([
+      { situation: 'with a stored title', title: 'Show costs', label: '#5 Show costs' },
+      { situation: 'with no title yet', title: null, label: '#5' },
+    ])('an issue $situation reads "$label"', ({ title, label }) => {
+      const [group] = groupRows([row({ issue: 5, issueTitle: title })], 'issue', null);
+
+      expect(group!.label).toBe(label);
+    });
+
+    it('an issue takes its title from whichever of its pull requests has it', () => {
+      const groups = groupRows([row({ issue: 5, issueTitle: null }), row({ prNumber: 2, branch: 'b/2', issue: 5, issueTitle: 'Show costs' })], 'issue', null);
+
+      expect(groups.map((g) => g.label)).toEqual(['#5 Show costs']);
     });
   });
 

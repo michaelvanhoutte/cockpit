@@ -1,0 +1,12 @@
+{
+  "patterns": [
+    "pnpm-lock.yaml",
+    "package-lock.json",
+    "yarn.lock",
+    "*.snap",
+    "__snapshots__/",
+    "worker-configuration.d.ts",
+    "*.generated.*",
+    "*.gen.ts"
+  ]
+}
