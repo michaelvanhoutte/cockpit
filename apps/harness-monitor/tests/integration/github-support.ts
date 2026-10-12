@@ -34,9 +34,20 @@ export const pullRequest = (over: Partial<Node> & { number: number }, from = 979
 export const pageOf = (nodes: Node[], hasNextPage = false) =>
   Response.json({ data: { search: { pageInfo: { hasNextPage, endCursor: hasNextPage ? `cursor-${nodes.length}` : null }, nodes } } });
 
+/** An answer that pages through `all` by the size asked for, as GitHub does; the cursor is how many were given so far. */
+export const listing = (all: Node[]) => (call: { after: string | null; first: number }) => {
+  const from = call.after === null ? 0 : Number(call.after.replace('cursor-', ''));
+  const to = Math.min(from + call.first, all.length);
+  return Response.json({
+    data: { search: { pageInfo: { hasNextPage: to < all.length, endCursor: to < all.length ? `cursor-${to}` : null }, nodes: all.slice(from, to) } },
+  });
+};
+
 export interface GitHubCall {
   q: string;
   after: string | null;
+  /** The page size asked for. */
+  first: number;
   authorization: string | null;
 }
 
@@ -50,8 +61,8 @@ export function fakeGitHub(answer: (call: GitHubCall, calls: GitHubCall[]) => Re
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.href !== 'https://api.github.com/graphql') throw new Error(`Unexpected request to ${url.href}`);
-    const { variables } = JSON.parse(String(init?.body)) as { variables: { q: string; after: string | null } };
-    const call = { q: variables.q, after: variables.after, authorization: new Headers(init?.headers).get('authorization') };
+    const { variables } = JSON.parse(String(init?.body)) as { variables: { q: string; after: string | null; first: number } };
+    const call = { q: variables.q, after: variables.after, first: variables.first, authorization: new Headers(init?.headers).get('authorization') };
     calls.push(call);
     return answer(call, calls);
   });

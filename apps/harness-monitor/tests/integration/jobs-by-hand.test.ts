@@ -1,6 +1,7 @@
 import { createExecutionContext, createScheduledController, env, SELF, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fakeGitHub, jobLine, pageOf, recordedPullRequest, theLinks, theLinkState } from './github-support';
+import { MAX_REQUESTS } from '../../src/github';
+import { fakeGitHub, jobLine, pageOf, pullRequest, recordedPullRequest, theLinks, theLinkState } from './github-support';
 import { dollars, emptyTheDatabase, pricing, recordedFile, runTheDailyJob, send, theFileAnswers, usage, WRITE_KEY } from './support';
 
 beforeEach(async () => {
@@ -30,6 +31,52 @@ describe('Harness Monitor', () => {
       expect((await theLinkState())[0]!.last_success_at).not.toBeNull();
     });
 
+    it('linking stopped by its budget says there is more to read, and the next run continues from the cursor and catches up', async () => {
+      let next = 0;
+      fakeGitHub(() => {
+        next += 1;
+        return pageOf([pullRequest({ number: next, headRefName: `b/${next}`, updatedAt: `2026-10-01T10:00:${String(next).padStart(2, '0')}Z` })], true);
+      });
+
+      const first = await (await start('linking')).json();
+
+      expect(first).toEqual({ job: 'linking', ok: true, message: `Linked ${MAX_REQUESTS} pull requests; more to read — run it again.` });
+      expect(await jobLine('linking')).toContain('more to read — run it again.');
+      const cursor = (await theLinkState())[0]!.cursor;
+      expect(cursor).toBe(`2026-10-01T10:00:${String(MAX_REQUESTS).padStart(2, '0')}Z`);
+
+      vi.restoreAllMocks();
+      const calls = fakeGitHub(() => pageOf([pullRequest({ number: 500, headRefName: 'b/500', updatedAt: '2026-10-02T10:00:00Z' })]));
+      const second = await (await start('linking')).json();
+
+      expect(calls[0]!.q).toContain(`updated:>=${cursor}`);
+      expect(second).toEqual({ job: 'linking', ok: true, message: 'Linked 1 pull request; caught up with GitHub.' });
+    });
+
+    it.each([
+      { situation: '504', answer: () => new Response('timeout', { status: 504 }), said: 'GitHub did not answer in time (504). More to read' },
+      { situation: '502', answer: () => new Response('bad gateway', { status: 502 }), said: 'GitHub failed to answer (502); usually the query took too long. More to read' },
+      {
+        situation: 'our own limit on waiting',
+        answer: (): Response => {
+          throw new DOMException('The operation timed out.', 'TimeoutError');
+        },
+        said: 'GitHub did not answer in time. More to read',
+      },
+    ])('linking that GitHub times out on ($situation) after a page was read keeps that page, moves the cursor, and says to run it again', async ({ answer, said }) => {
+      fakeGitHub((call) =>
+        call.after === null ? pageOf([pullRequest({ number: 1, headRefName: 'b/1', updatedAt: '2026-10-01T10:00:00Z' })], true) : answer(),
+      );
+
+      const body = await (await start('linking')).json();
+
+      expect(body).toEqual({ job: 'linking', ok: true, message: `Linked 1 pull request; ${said} — run it again.` });
+      expect((await theLinks()).map((l) => l.pr_number)).toEqual([1]);
+      const state = (await theLinkState())[0]!;
+      expect(state.cursor).toBe('2026-10-01T10:00:00Z');
+      expect(state.last_success_at).toBeNull();
+    });
+
     it('prices fetches the list and prices the waiting rows, answering with both counts', async () => {
       await send([usage('waiting', { model: 'claude-sonnet-5', inputTokens: 1_000_000, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 })]);
       theFileAnswers(recordedFile);
@@ -53,7 +100,8 @@ describe('Harness Monitor', () => {
 
     it.each([
       { situation: 'refuses the token', status: 401, message: 'GitHub refused the token (401).' },
-      { situation: 'errors', status: 502, message: 'GitHub answered 502.' },
+      { situation: 'errors', status: 500, message: 'GitHub answered 500.' },
+      { situation: 'times out', status: 502, message: 'GitHub failed to answer (502); usually the query took too long.' },
     ])('linking with GitHub that $situation answers with that error and changes nothing', async ({ status, message }) => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
       fakeGitHub(() => new Response('refused', { status }));
