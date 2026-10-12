@@ -46,7 +46,7 @@ A pull request is one line, cut into parts:
 | Part | From | To |
 |---|---|---|
 | Before the first push | the session's start where recorded, else the first commit's author date | the first push |
-| A round, each | a push | the last check that ran finishing, never past the next push |
+| A CI Round, each | a push | the last check that ran finishing, never past the next push |
 | Fixing | a round finishing | the next push |
 | Waiting to merge | the last round finishing | the merge |
 | Away | any gap of over three hours, in place of fixing or waiting | |
@@ -97,8 +97,8 @@ A pull request is one line, cut into parts:
   Test runs are the `test-run` lines the runners wrote into the record, the browser pass a
   `browser-start` paired with the next `browser-end`; a start with no end gives no slice. A test
   run during a review is drawn as well. Where local work runs in parallel the strip splits into one
-  full-height lane per thread, centred on its line, in a fixed order: code review, security review,
-  test run, browser pass. The harness total counts the union of every local slice once. A panel lane is a kind's own minutes, so
+  full-height lane per thread: the longest on the strip's line, the rest above it, then below (ties
+  fall to the order code review, security review, test run, browser pass). The harness total counts the union of every local slice once. A panel lane is a kind's own minutes, so
   lanes can add up to more than the harness total by the overlap.
 - **A conclusion it does not know is neither a pass nor a fail**, and is named in the round's
   `unrecognised`.
@@ -162,6 +162,17 @@ evolution panels, coding against the harness, and a strip per pull request.
 
 - **A strip is drawn on one scale for every pull request** (`src/render/strips.js`), up to four
   hours; a longer one is cut at the edge and says how much it cut. Time away is off the scale.
+  Every part sits at its own time and length on it, with no gap added: a slice too short to see is
+  drawn 3px wide over what follows it, which still starts at its own time.
+- **A round is a CI Round**, named on the strip by the width it has on screen: "CI Round 1", then
+  "CI 1", then only its red or fluke mark (a round with neither shows no name). The list under a
+  strip reads "CI Round 1 · …", and the legend defines the term. Hovering a round highlights its
+  line in the list and the other way about, within one pull request's row.
+- **Click a strip to zoom it**: the same pull request, uncut, on its own scale with a clock-time
+  axis (UTC) above its round list; click it again to close. A closed strip has no axis. Both are
+  CSS only (the strip is the label of a checkbox, the names are container queries).
+- **Overlapping local work keeps the longest piece on the strip's line**; the rest stack above it,
+  then below, then further out. Where none of them runs on the line, it shows the coding or fixing.
 - **Local and CI read apart.** Local kinds (coding, fixing, each local review, test runs, the browser pass) are in greens and
   teals, CI kinds in blue, and the legend is grouped under *Local* and *CI*. Waiting to merge and
   time away are in neither. A later local kind joins the first group.

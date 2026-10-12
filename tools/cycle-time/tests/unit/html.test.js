@@ -57,7 +57,10 @@ const rowOf = (html, number) => {
   const rows = html.split('<footer>')[0].split('<div class="pullrow">');
   return rows.find((each) => each.includes(`<b>#${number}</b>`));
 };
-const stripOf = (html, number) => rowOf(html, number).split(/<div class="track[^"]*"[^>]*>/)[1].split('</div>')[0];
+/** A row's strip as it is closed, on the shared scale: the first track in it, up to the end of the label it is clicked through. */
+const stripOf = (html, number) => rowOf(html, number).split(/<span class="track[^"]*"[^>]*>/)[1].split(/<\/label>|<input /)[0];
+/** The same pull request zoomed: the track, the axis and the round list in the block a click opens. */
+const zoomedOf = (html, number) => rowOf(html, number).split('<div class="zoomed">')[1];
 
 describe('Cycle time', () => {
   it('is titled and headed "Cycle time"', () => {
@@ -140,8 +143,8 @@ describe('Cycle time', () => {
         });
       expect(heldByRound).toEqual(['checks', 'checks', 'checks']);
       expect(stripOf(html, 1)).not.toMatch(/piece (code|security)-review/);
-      const titles = [...stripOf(html, 1).matchAll(/title="(Round \d)/g)].map((match) => match[1]);
-      expect(titles).toEqual(['Round 1', 'Round 2', 'Round 3']);
+      const titles = [...stripOf(html, 1).matchAll(/title="(CI Round \d)/g)].map((match) => match[1]);
+      expect(titles).toEqual(['CI Round 1', 'CI Round 2', 'CI Round 3']);
     });
 
     it('splits a round into the checks that held it, in the order they finished, rather than one colour for the whole span', () => {
@@ -223,7 +226,7 @@ describe('Cycle time', () => {
       expect(strip).toContain('Away for 3h 20m');
       // Off the scale: the fixed-width break carries no share of it, and the strip
       // is still no longer than its rounds and the short wait for merge.
-      expect(strip).not.toMatch(/seg away" style/);
+      expect(strip).not.toMatch(/seg away" style="[^"]*width/);
       expect(strip).not.toContain('Fixing before the next push');
     });
 
@@ -260,7 +263,13 @@ describe('Cycle time', () => {
 
     it('reads a pull request no check ran on as having no rounds, not as a strip of nothing', () => {
       const html = render({ pulls: [pull({ commits: [commit('a', 0)] })] });
-      expect(stripOf(html, 1)).toContain('no check ran on it');
+      expect(rowOf(html, 1)).toContain('no check ran on it');
+    });
+
+    it('offers nothing to zoom on a pull request no check ran on', () => {
+      const html = render({ pulls: [pull({ commits: [commit('a', 0)] })] });
+      expect(rowOf(html, 1)).not.toContain('zoomtoggle');
+      expect(rowOf(html, 1)).not.toContain('class="zoomed"');
     });
   });
 
@@ -696,20 +705,29 @@ describe('Cycle time', () => {
     const review = (kind, from, to) => [{ at: at(from), phase: 'review-start', kind, level: 'high' }, { at: at(to), phase: 'review-end', kind, level: 'high' }];
     const lanesIn = (html) => [...stripOf(html, 1).matchAll(/<span class="lane ([\w-]+)" style="([^"]*)" title="([^"]*)"/g)].map((match) => ({ cls: match[1], style: match[2], title: match[3] }));
 
-    it('draws a test run during a review as two full-height lanes, the review above, each hovering its own full length', () => {
+    const rowsOf = (html) => lanesIn(html).map((lane) => [lane.cls, /top:(-?[\d.]+)%/.exec(lane.style)[1]]);
+
+    it('keeps the longest of two overlapping pieces on the line and the other above it, each hovering its own full length', () => {
       const html = render({ pulls: [withBody(recorded([...review('code-review', 2, 10), testRun(8, 12, 'a')]))] });
       expect(lanesIn(html).map((lane) => [lane.cls, lane.title])).toEqual([
         ['local-code-review', 'Local code review · high · 8m 00s'],
         ['local-test', 'Local test run · 4m 00s · a'],
       ]);
-      expect(lanesIn(html).map((lane) => /top:(-?[\d.]+)%/.exec(lane.style)[1])).toEqual(['-50', '50']);
+      expect(rowsOf(html)).toEqual([['local-code-review', '0'], ['local-test', '-100']]);
       expect(stripOf(html, 1)).not.toMatch(/repeating-linear-gradient|overlap/);
     });
 
-    it('stacks three lanes about the strip’s line, in the fixed order, and makes room for them', () => {
+    it('stacks three overlapping pieces off the line, the longest on it, and makes room for them', () => {
       const html = render({ pulls: [withBody(recorded([...review('code-review', 2, 10), testRun(4, 12, 'a'), ...browser(6, 14)]))] });
-      expect(lanesIn(html).map((lane) => [lane.cls, /top:(-?[\d.]+)%/.exec(lane.style)[1]])).toEqual([['local-code-review', '-100'], ['local-test', '0'], ['local-browser', '100']]);
-      expect(rowOf(html, 1)).toContain('<div class="track stacked" style="--lanes:3">');
+      // All three run eight minutes, so the fixed order decides: the code review holds the line.
+      expect(rowsOf(html)).toEqual([['local-code-review', '0'], ['local-test', '-100'], ['local-browser', '100']]);
+      expect(rowOf(html, 1)).toMatch(/<span class="track stacked" style="[^"]*--above:1;--below:1">/);
+    });
+
+    it('lets the line show the coding around a piece, where it is not running, rather than leave it blank', () => {
+      const html = render({ pulls: [withBody(recorded([...review('code-review', 2, 10), testRun(8, 14, 'a')]))] });
+      expect(stripOf(html, 1)).toMatch(/<span class="seg parallel coding"/);
+      expect(stripOf(html, 1)).not.toMatch(/<span class="seg parallel"/);
     });
 
     it('ends each lane where its own work ends within the stretch', () => {
@@ -722,7 +740,7 @@ describe('Cycle time', () => {
     it('draws a review with nothing alongside it as one row with no lanes', () => {
       const html = render({ pulls: [withBody(recorded(review('code-review', 2, 10)))] });
       expect(lanesIn(html)).toEqual([]);
-      expect(rowOf(html, 1)).toContain('<div class="track">');
+      expect(rowOf(html, 1)).not.toContain('track stacked');
     });
 
     it('says on the hover of a review whose end was written with another that it ended together with it', () => {
@@ -766,6 +784,165 @@ describe('Cycle time', () => {
       const html = render({ pulls: [pull({ commits: [commit('a', 0, [check('Test', 20, 40)])] })] });
       expect(rowOf(html, 1)).toContain('>not recorded<');
       expect(stripOf(html, 1)).not.toMatch(/seg (review|local)/);
+    });
+  });
+
+  describe('a strip is drawn to scale', () => {
+    const css = render().split('<style>')[1].split('</style>')[0];
+    const placement = (html, selector) => {
+      const [, left, width] = new RegExp(`${selector}[^>]*style="left:calc\\(var\\(--span\\) \\* ([\\d.]+)[^;]*;width:calc\\(var\\(--span\\) \\* ([\\d.]+)\\)`).exec(stripOf(html, 1));
+      return { left: Number(left), width: Number(width) };
+    };
+
+    it('places the coding and the first CI Round at their own times and lengths of the scale', () => {
+      // Thirty-three minutes before the first push, a round of 21, and six waiting: sixty minutes in all.
+      const html = render({ pulls: [pull({ body: withRecord(0), mergedAt: at(60), commits: [commit('a', 0, [check('Test', 33, 54)])] })] });
+      expect(placement(html, '<span class="seg coding')).toEqual({ left: 0, width: 0.55 });
+      expect(placement(html, '<span class="seg round')).toEqual({ left: 0.55, width: 0.35 });
+    });
+
+    it('gives a part no gap and no push on its neighbours, so a part too short to see is drawn over what follows', () => {
+      expect(css).toMatch(/\.seg \{[^}]*position: absolute;/);
+      expect(css).toMatch(/\.seg \{[^}]*min-width: 3px;/);
+      expect(css).not.toMatch(/\.seg \+ \.seg/);
+      expect(css).not.toMatch(/\.seg[^{]*\{[^}]*flex: ?\d/);
+    });
+
+    it('draws a pull request shorter than the scale from the start of its strip, not stretched across it', () => {
+      const html = render({ pulls: [pull({ number: 1, mergedAt: at(60) }), pull({ number: 2, mergedAt: at(30), commits: [commit('b', 0, [check('Test', 2, 12)])] })] });
+      expect(placement(html, '<span class="seg round').left).toBeCloseTo(2 / 60, 4);
+      const shorter = rowOf(html, 2);
+      expect(shorter).toMatch(/seg wait" style="left:calc\(var\(--span\) \* 0\.2/);
+      expect(shorter).not.toContain('fill-space');
+    });
+  });
+
+  describe('a CI Round is named on the strip, in the list and in the legend', () => {
+    const rounds = (...commits) => pull({ mergedAt: at(120), commits });
+    const two = rounds(commit('a', 0, [check('Test', 2, 12), check('Lint', 2, 5, 'failure')]), commit('b', 30, [check('Test', 31, 40)]));
+
+    it('carries a long and a short name in each round, and the red mark beside them', () => {
+      const [first, second] = stripOf(render({ pulls: [two] }), 1).split('<span class="seg round').slice(1);
+      expect(first).toContain('<span class="cilong">CI Round 1</span><span class="cishort">CI 1</span>');
+      expect(first).toContain('<i class="mark red" aria-hidden="true">✕</i>');
+      expect(second).toContain('<span class="cilong">CI Round 2</span><span class="cishort">CI 2</span>');
+      expect(second).not.toContain('mark');
+    });
+
+    it('shows the short name from 2.6em wide and the long from 6em, wider for a second digit or a mark, and only the mark below that', () => {
+      const css = render({ pulls: [two] }).split('<style>')[1].split('</style>')[0];
+      expect(css).toContain('.cilong, .cishort { display: none; }');
+      expect(css).toContain('@container (min-width: 2.6em) { .seg.round.d1.m0 .cishort { display: inline; } }');
+      expect(css).toContain('@container (min-width: 6em) { .seg.round.d1.m0 .cishort { display: none; } .seg.round.d1.m0 .cilong { display: inline; } }');
+      expect(css).toContain('@container (min-width: 4.5em) { .seg.round.d1.m1 .cishort { display: inline; } }');
+      expect(css).toContain('@container (min-width: 3.2em) { .seg.round.d2.m0 .cishort { display: inline; } }');
+      expect(css).toMatch(/\.seg\.round \{[^}]*container-type: inline-size;/);
+    });
+
+    it('classes a round by the digits in its number and the marks beside its name, which the widths above are keyed on', () => {
+      const [first, second] = stripOf(render({ pulls: [two] }), 1).split('<span class="seg round').slice(1);
+      expect(first).toMatch(/^ red d1 m1"/);
+      expect(second).toMatch(/^ d1 m0"/);
+    });
+
+    it('names the same round in the closed strip and in the zoomed one, each with its own width to choose a name by', () => {
+      const row = rowOf(render({ pulls: [two] }), 1);
+      const [closed, zoomed] = [stripOf(render({ pulls: [two] }), 1), zoomedOf(render({ pulls: [two] }), 1).split('</label>')[0]];
+      for (const strip of [closed, zoomed]) expect(strip).toContain('<span class="cilong">CI Round 1</span>');
+      expect(row.match(/class="seg round/g)).toHaveLength(4);
+    });
+
+    it('opens each line of the round list "CI Round N · …", and names the round the same on hover', () => {
+      const html = render({ pulls: [two] });
+      const lines = [...rowOf(html, 1).split('<ol class="roundlist">')[1].matchAll(/<li data-round="(\d)">([^<]*)<\/li>/g)].map((match) => [match[1], match[2].split(' · ')[0]]);
+      expect(lines.slice(0, 2)).toEqual([['1', 'CI Round 1'], ['2', 'CI Round 2']]);
+      expect([...stripOf(html, 1).matchAll(/class="seg round[^"]*" data-round="\d" style="[^"]*" title="([^"·]*) ·/g)].map((match) => match[1].trim())).toEqual(['CI Round 1', 'CI Round 2']);
+    });
+
+    it('defines a CI Round once in the legend, in one line', () => {
+      const html = render({ pulls: [two] });
+      const legend = html.split('<h2>Each pull request, start to merge</h2>')[1].split('<div class="card">')[0];
+      expect(legend).toContain('<b>CI Round</b>: a push, until the last check on it finishes; a red one failed and was pushed again.');
+      expect(html.match(/a push, until the last check on it finishes/g)).toHaveLength(1);
+    });
+  });
+
+  describe('a CI Round and its line in the list point at each other, within one pull request', () => {
+    const rounded = (number) =>
+      pull({ number, url: `https://github.com/o/r/pull/${number}`, mergedAt: at(120), commits: [commit(`a${number}`, 0, [check('Test', 2, 12)]), commit(`b${number}`, 30, [check('Test', 31, 40)])] });
+    const html = render({ pulls: [rounded(1), rounded(2)] });
+    const css = html.split('<style>')[1].split('</style>')[0];
+
+    it('numbers a round and its line alike, so the two can be paired', () => {
+      for (const number of [1, 2]) {
+        expect([...rowOf(html, number).matchAll(/class="seg round[^"]*" data-round="(\d)"/g)].map((match) => match[1])).toEqual(['1', '2', '1', '2']);
+        expect([...rowOf(html, number).matchAll(/<li data-round="(\d)"/g)].map((match) => match[1])).toEqual(['1', '2', '1', '2']);
+      }
+    });
+
+    it('outlines a hovered round and highlights its line, and the other way about', () => {
+      expect(css).toContain('.pullrow:has(.seg.round[data-round="2"]:hover) .roundlist li[data-round="2"]');
+      expect(css).toContain('.pullrow:has(.roundlist li[data-round="2"]:hover) .seg.round[data-round="2"]');
+      expect(css).toMatch(/\.roundlist li\[data-round="2"\][^{]*\{ background: var\(--raised\)/);
+      expect(css).toMatch(/\.seg\.round\[data-round="2"\]\s*\{ outline: 2px solid/);
+    });
+
+    it('scopes every pairing to the row of one pull request, so a CI Round 1 elsewhere is left alone', () => {
+      const lines = css.split('\n').filter((line) => line.includes('data-round'));
+      expect(lines.length).toBeGreaterThan(0);
+      for (const line of lines) expect(line).toMatch(/^\.pullrow:has\(/);
+    });
+  });
+
+  describe('clicking a strip zooms it, and clicking again closes it', () => {
+    const away = pull({ mergedAt: at(250), commits: [commit('a', 0, [check('Test', 2, 12)]), commit('b', 20, [check('Test', 212, 222)])] });
+    const html = render({ pulls: [away] });
+    const css = html.split('<style>')[1].split('</style>')[0];
+
+    it('makes the strip the label of a checkbox, so a click on it toggles the zoomed form', () => {
+      const row = rowOf(html, 1);
+      expect(row).toMatch(/<input type="checkbox" class="zoomtoggle" id="zoom-1"/);
+      expect(row.match(/<label class="striphit[^"]*" for="zoom-1"/g)).toHaveLength(2);
+      expect(css).toContain('.zoomtoggle:checked ~ .zoomed { display: block; }');
+      expect(css).toContain('.zoomtoggle:checked ~ .whenclosed { display: none; }');
+      expect(css).toMatch(/\.zoomed \{ display: none; \}/);
+    });
+
+    it('draws a closed strip with no axis, on the shared scale', () => {
+      const row = rowOf(html, 1);
+      expect(row.split('<div class="zoomed">')[0]).not.toContain('class="axis"');
+      expect(row.split('<div class="zoomed">')[0]).toMatch(/--span:calc\(100% - 30px\)/);
+    });
+
+    it('opens the pull request on a clock-time axis from its start to its merge, above its round list', () => {
+      const zoomed = zoomedOf(html, 1);
+      expect(zoomed.indexOf('class="axis"')).toBeGreaterThan(zoomed.indexOf('class="track'));
+      expect(zoomed.indexOf('<ol class="roundlist">')).toBeGreaterThan(zoomed.indexOf('class="axis"'));
+      const labels = [...zoomed.matchAll(/<span class="tick (\w+)" style="[^"]*">([^<]*)</g)].map((match) => [match[1], match[2]]);
+      expect(labels[0]).toEqual(['start', '09:00']);
+      expect(labels[labels.length - 1]).toEqual(['end', '13:10']);
+    });
+
+    it('reads the real clock time either side of time away in the zoomed axis', () => {
+      const labels = [...zoomedOf(html, 1).matchAll(/<span class="tick (\w+)" style="[^"]*">([^<]*)</g)].map((match) => match[2]);
+      expect(labels).toContain('09:12');
+      expect(labels).toContain('12:32');
+      expect(labels.filter((label) => label > '09:12' && label < '12:32')).toEqual([]);
+    });
+
+    it('zooms the whole of a pull request that was cut on the shared scale', () => {
+      const long = render({ pulls: [pull({ mergedAt: at(60 * 8), commits: [commit('a', 0, [check('Test', 2, 12)]), commit('b', 100, [check('Test', 101, 170)]), commit('c', 300, [check('Test', 301, 420)])] })] });
+      expect(stripOf(long, 1)).toContain('clipmark');
+      const zoomed = zoomedOf(long, 1);
+      expect(zoomed).not.toContain('clipmark');
+      expect(zoomed).toContain('CI Round 3');
+      expect(zoomed).toMatch(/<span class="tick end"[^>]*>17:00</);
+    });
+
+    it('reads a pull request no check ran on as it did, with nothing to zoom', () => {
+      const html = render({ pulls: [pull({ commits: [commit('a', 0)] })] });
+      expect(rowOf(html, 1)).toContain('no check ran on it');
+      expect(rowOf(html, 1)).not.toContain('class="axis"');
     });
   });
 });
