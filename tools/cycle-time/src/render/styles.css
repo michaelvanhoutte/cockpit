@@ -136,7 +136,10 @@ td.pr .title { color: var(--ink-2); }
 .who { font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
 .who .when { color: var(--ink-3); font-size: 12px; margin-top: 2px; }
 .strip { min-width: 0; }
-.track { display: flex; align-items: stretch; height: 22px; background: var(--raised); border-radius: 4px; position: relative; clip-path: inset(-60px 0); }
+.track { display: flex; align-items: stretch; height: 22px; background: var(--raised); border-radius: 4px; position: relative; overflow-x: clip; }
+/* The track clips only sideways, so a stack of lanes can stand above and below it; its ends are rounded here instead. */
+.track > .seg:first-child { border-radius: 4px 0 0 4px; }
+.track > .seg:last-child { border-radius: 0 4px 4px 0; }
 .trackempty { color: var(--ink-3); font-size: 12px; padding: 3px 8px; }
 .seg { display: block; min-width: 3px; position: relative; height: 100%; }
 .seg + .seg { margin-left: 1px; }
