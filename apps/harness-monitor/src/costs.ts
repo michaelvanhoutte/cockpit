@@ -414,6 +414,117 @@ export function trends(sessions: SessionStart[], pullRequests: MergedPullRequest
   };
 }
 
+/** Everything the comparison says about one window of the period. */
+export interface WindowFigures {
+  micros: number;
+  /** Dollars per series key, for each way of splitting. */
+  byDimension: Record<Split, Record<string, number>>;
+  /** Pull requests merged in the window that have a cost under the filters. */
+  mergedPullRequests: number;
+  /** Null when nothing merged, rather than zero or infinity. */
+  costPerPullRequest: number | null;
+  /** Mean lines changed over the merged pull requests that are sized. */
+  linesPerPullRequest: number | null;
+  /** Micros per 1,000 lines, over the merged pull requests with counted lines. */
+  costPerThousandLines: number | null;
+  /** Median tokens in a session's first main-agent request. */
+  startingContext: number | null;
+}
+
+const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
+const costOf = (p: MergedPullRequest) => sum(Object.values(p.costByPhase));
+
+export function windowFigures(byDimension: Record<Split, Record<string, number>>, sessions: SessionStart[], pullRequests: MergedPullRequest[]): WindowFigures {
+  const sized = pullRequests.filter((p) => p.lines !== null);
+  const counted = pullRequests.filter((p) => p.lines !== null && p.lines > 0);
+  const lines = sum(counted.map((p) => p.lines!));
+  return {
+    micros: sum(Object.values(byDimension.phase)),
+    byDimension,
+    mergedPullRequests: pullRequests.length,
+    costPerPullRequest: pullRequests.length === 0 ? null : sum(pullRequests.map(costOf)) / pullRequests.length,
+    linesPerPullRequest: sized.length === 0 ? null : sum(sized.map((p) => p.lines!)) / sized.length,
+    costPerThousandLines: lines === 0 ? null : (sum(counted.map(costOf)) / lines) * 1000,
+    startingContext: sessions.length === 0 ? null : median(sessions.map((s) => s.tokens)),
+  };
+}
+
+/** A change smaller than this is noise and is left out of a dimension's list: 50 cents, in micros. */
+export const SMALLEST_CHANGE_MICROS = 500_000;
+/** How many changes a dimension lists. */
+export const CHANGES_SHOWN = 4;
+
+export interface Driver {
+  key: 'merged' | 'cost-per-pr' | 'lines-per-pr' | 'cost-per-line' | 'starting-context';
+  label: string;
+  /** How the page writes the values. */
+  unit: 'count' | 'dollars' | 'lines' | 'tokens';
+  current: number | null;
+  previous: number | null;
+}
+
+export interface Change {
+  key: string;
+  label: string;
+  currentMicros: number;
+  previousMicros: number;
+  /** Positive for an increase. */
+  changeMicros: number;
+}
+
+export interface Comparison {
+  current: { from: string; to: string };
+  previous: { from: string; to: string };
+  currentMicros: number;
+  previousMicros: number;
+  changeMicros: number;
+  /** Null when the previous window has no cost to be a percent of. */
+  changePercent: number | null;
+  drivers: Driver[];
+  /** The largest changes in each way of splitting, by size in dollars; empty for "no change". */
+  dimensions: { split: Split; changes: Change[] }[];
+}
+
+/** The largest changes between two windows' series, by size; a series in only one window counts as all of its dollars. */
+export function topChanges(split: Split, current: Record<string, number>, previous: Record<string, number>): Change[] {
+  const both = bag();
+  for (const [k, v] of [...Object.entries(current), ...Object.entries(previous)]) both[k] = (both[k] ?? 0) + v;
+  const labels = new Map(seriesOf(split, both).map((s) => [s.key, s.label]));
+  return Object.keys(both)
+    .map((key) => ({ key, label: labels.get(key) ?? key, currentMicros: current[key] ?? 0, previousMicros: previous[key] ?? 0, changeMicros: (current[key] ?? 0) - (previous[key] ?? 0) }))
+    .filter((c) => Math.abs(c.changeMicros) >= SMALLEST_CHANGE_MICROS)
+    .sort((a, b) => Math.abs(b.changeMicros) - Math.abs(a.changeMicros) || a.label.localeCompare(b.label))
+    .slice(0, CHANGES_SHOWN);
+}
+
+export function compare(current: WindowFigures, previous: WindowFigures, windows: Pick<Comparison, 'current' | 'previous'>): Comparison {
+  const driver = (key: Driver['key'], label: string, unit: Driver['unit'], pick: (w: WindowFigures) => number | null): Driver => ({ key, label, unit, current: pick(current), previous: pick(previous) });
+  return {
+    ...windows,
+    currentMicros: current.micros,
+    previousMicros: previous.micros,
+    changeMicros: current.micros - previous.micros,
+    changePercent: previous.micros === 0 ? null : ((current.micros - previous.micros) / previous.micros) * 100,
+    drivers: [
+      driver('merged', 'Merged pull requests', 'count', (w) => w.mergedPullRequests),
+      driver('cost-per-pr', 'Cost per merged pull request', 'dollars', (w) => w.costPerPullRequest),
+      driver('lines-per-pr', 'Lines per merged pull request', 'lines', (w) => w.linesPerPullRequest),
+      driver('cost-per-line', 'Cost per 1,000 lines', 'dollars', (w) => w.costPerThousandLines),
+      driver('starting-context', 'Median starting context', 'tokens', (w) => w.startingContext),
+    ],
+    dimensions: SPLITS.map((split) => ({ split, changes: topChanges(split, current.byDimension[split], previous.byDimension[split]) })),
+  };
+}
+
+/** The period's window and the one before it, of the same length; null for all time, which has no before. */
+export function windowsOf(period: Period, now: number): Pick<Comparison, 'current' | 'previous'> | null {
+  const days = PERIODS[period];
+  if (days === null) return null;
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const from = now - (days - 1) * DAY_MS;
+  return { current: { from: day(from), to: day(now) }, previous: { from: day(from - days * DAY_MS), to: day(from - DAY_MS) } };
+}
+
 export interface CostsPage {
   query: CostQuery;
   engineers: string[];
@@ -431,6 +542,8 @@ export interface CostsPage {
   jobs: JobStatus[];
   /** The Over time page's trend charts; null for every other grouping. */
   trends: Trends | null;
+  /** This period against the one before it, under the same filters; null for all time. */
+  comparison: Comparison | null;
 }
 
 /** Where a request's pull request stands, from its branch and the link GitHub linking stored. */
@@ -491,13 +604,19 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
          LEFT JOIN pull_request_stats s ON s.pr_number = l.pr_number
          ${conditions} GROUP BY t.branch${phaseKey}, ${series}`;
 
-  const [rows, engineers, models, state, runs, list, sessionRows, pullRequestRows] = await db.batch([
+  const windows = windowsOf(query.period, now);
+  const narrow = { narrowing, narrowBinds, byEngineer, engineerBinds };
+  // The comparison and the Over time charts read the same sessions and merged pull requests, from the previous window on.
+  const reads = windows === null && query.group !== 'day' ? [] : trendReads(db, query, windows?.previous.from ?? first, narrow);
+  const [rows, engineers, models, state, runs, list, dimensionRows, sessionRows, pullRequestRows] = await db.batch([
     db.prepare(select).bind(...binds),
     db.prepare('SELECT DISTINCT engineer FROM branch_links WHERE engineer IS NOT NULL ORDER BY engineer'),
     db.prepare('SELECT DISTINCT model FROM daily_split_totals ORDER BY model'),
     db.prepare('SELECT last_success_at AS lastSuccessAt FROM link_state WHERE id = 1'),
     ...jobReads(db),
-    ...(query.group === 'day' ? trendReads(db, query, first, { narrowing, narrowBinds, byEngineer, engineerBinds }) : []),
+    // Dollars per window under every way of splitting; one read, whatever the grouping.
+    windows === null ? db.prepare('SELECT 1 WHERE 0') : dimensionRead(db, windows, narrow),
+    ...reads,
   ]);
   const lastLinkSuccessAt = (state!.results[0] as { lastSuccessAt: number | null } | undefined)?.lastSuccessAt ?? null;
   const groups = groupRows(rows!.results as unknown as TotalRow[], query.group, lastLinkSuccessAt);
@@ -514,10 +633,53 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
     lastLinkSuccessAt,
     jobs: jobStatuses(runs!, list!, lastLinkSuccessAt),
     trends:
-      sessionRows === undefined
+      sessionRows === undefined || query.group !== 'day'
         ? null
-        : trends(sessionRows.results as unknown as SessionStart[], mergedPullRequests(pullRequestRows!.results as unknown as MergedRow[]), query.period, now),
+        : trends(
+            (sessionRows.results as unknown as SessionStart[]).filter((r) => first === null || r.day >= first),
+            mergedPullRequests(pullRequestRows!.results as unknown as MergedRow[]).filter((r) => first === null || r.day >= first),
+            query.period,
+            now,
+          ),
+    comparison:
+      windows === null
+        ? null
+        : comparisonOf(windows, dimensionRows!.results as unknown as DimensionRow[], sessionRows!.results as unknown as SessionStart[], mergedPullRequests(pullRequestRows!.results as unknown as MergedRow[])),
   };
+}
+
+interface DimensionRow {
+  inPeriod: number;
+  phase: string;
+  model: string;
+  ranWhere: string;
+  outcome: string;
+  costMicros: number;
+}
+
+/** Dollars per phase, model, place and outcome in each window, under the page's filters. */
+function dimensionRead(db: D1Database, windows: NonNullable<ReturnType<typeof windowsOf>>, f: Narrowing) {
+  const where = ['t.day >= ?', ...f.narrowing, ...f.byEngineer];
+  return db
+    .prepare(
+      `SELECT CASE WHEN t.day >= ? THEN 1 ELSE 0 END AS inPeriod, ${PHASE} AS phase, t.model AS model, t.ran_where AS ranWhere, ${OUTCOME} AS outcome, SUM(t.cost_micros) AS costMicros
+       FROM daily_split_totals t LEFT JOIN branch_links l ON l.branch = t.branch
+       WHERE ${where.join(' AND ')} GROUP BY 1, 2, 3, 4, 5`,
+    )
+    .bind(windows.current.from, windows.previous.from, ...f.narrowBinds, ...f.engineerBinds);
+}
+
+/** Splits what the reads returned at the period's first day, and compares the two halves. */
+function comparisonOf(windows: NonNullable<ReturnType<typeof windowsOf>>, dimensions: DimensionRow[], sessions: SessionStart[], merged: MergedPullRequest[]): Comparison {
+  const figures = (inPeriod: boolean) => {
+    const by: Record<Split, Record<string, number>> = { phase: bag(), model: bag(), where: bag(), outcome: bag() };
+    for (const r of dimensions.filter((d) => (d.inPeriod === 1) === inPeriod)) {
+      for (const [split, key] of [['phase', r.phase], ['model', r.model], ['where', r.ranWhere], ['outcome', r.outcome]] as const) by[split][key] = (by[split][key] ?? 0) + r.costMicros;
+    }
+    const inWindow = (day: string) => (day >= windows.current.from) === inPeriod;
+    return windowFigures(by, sessions.filter((s) => inWindow(s.day)), merged.filter((p) => inWindow(p.day)));
+  };
+  return compare(figures(true), figures(false), windows);
 }
 
 interface Narrowing {

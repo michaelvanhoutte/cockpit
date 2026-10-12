@@ -11,7 +11,9 @@ import {
   SPLITS,
   UNATTRIBUTED,
   WHOS,
+  type Comparison,
   type CostGroup,
+  type Driver,
   type DayChart,
   type CostQuery,
   type CostsPage,
@@ -179,6 +181,45 @@ function whereItWent(page: CostsPage): string {
 <div class="bar" role="img" aria-label="${esc(label)}">${segments}</div>
 <div class="legend">${legend}</div>
 <p class="muted small">CI reviews counts the <span class="mono">@claude</span> runs in GitHub Actions only. Claude Code Review runs on Anthropic&rsquo;s side, is billed through claude.ai, and is <strong>not measured</strong>.</p>
+</section>`;
+}
+
+const DIMENSION_LABELS: Record<Split, string> = { phase: 'Phase', model: 'Model', where: 'Where it ran', outcome: 'Outcome' };
+const signed = (micros: number) => `${micros < 0 ? '−' : '+'}${dollars(Math.abs(micros))}`;
+const driverValue = (d: Driver, n: number | null) =>
+  n === null ? '—' : d.unit === 'dollars' ? dollars(n) : `${number(Math.round(n))}${d.unit === 'lines' ? ' lines' : d.unit === 'tokens' ? ' tokens' : ''}`;
+
+/**
+ * This period's total against the previous period of the same length, under
+ * the same filters, with the drivers and each way of splitting's four largest
+ * changes. Absent for all time, which has no period before it.
+ */
+function changeCard(c: Comparison | null, label: string): string {
+  if (c === null) return '';
+  const percent = c.changePercent === null ? '' : ` (${c.changePercent < 0 ? '−' : '+'}${Math.abs(c.changePercent).toFixed(1)}%)`;
+  const headline = c.changeMicros === 0 ? 'no change' : `<strong class="${c.changeMicros > 0 ? 'up' : 'down'}">${signed(c.changeMicros)}${percent}</strong>`;
+  const drivers = c.drivers
+    .map((d) => `<tr data-driver="${d.key}"><th scope="row">${d.label}</th><td class="num mono">${driverValue(d, d.current)}</td><td class="num mono muted">${driverValue(d, d.previous)}</td></tr>`)
+    .join('');
+  const dimensions = c.dimensions
+    .map(({ split, changes }) => {
+      const items =
+        changes.length === 0
+          ? '<li class="muted">no change</li>'
+          : changes
+              .map(
+                (ch) =>
+                  `<li class="${ch.changeMicros > 0 ? 'up' : 'down'}"><span aria-hidden="true">${ch.changeMicros > 0 ? '▲' : '▼'}</span> ${esc(ch.label)} <strong class="mono">${signed(ch.changeMicros)}</strong> <span class="muted mono">${dollars(ch.previousMicros)} → ${dollars(ch.currentMicros)}</span></li>`,
+              )
+              .join('');
+      return `<div data-dimension="${split}"><h3>${DIMENSION_LABELS[split]}</h3><ul>${items}</ul></div>`;
+    })
+    .join('');
+  return `<section class="card change" aria-labelledby="change" data-card="change">
+<h2 id="change">Change on the previous period</h2>
+<p>${esc(label)} (${c.current.from} to ${c.current.to}) cost <strong>${dollars(c.currentMicros)}</strong> against <strong>${dollars(c.previousMicros)}</strong> in the previous period (${c.previous.from} to ${c.previous.to}): ${headline}.</p>
+<div class="scroll"><table class="drivers"><thead><tr><th scope="col">Driver</th><th scope="col" class="num">This period</th><th scope="col" class="num">Previous</th></tr></thead><tbody>${drivers}</tbody></table></div>
+<div class="dimensions">${dimensions}</div>
 </section>`;
 }
 
@@ -417,6 +458,10 @@ th:first-child,td:first-child{padding-left:16px}th:last-child,td:last-child{padd
 .empty{padding:24px;color:var(--muted)}
 .chart{display:flex;flex-direction:column;gap:12px;padding:20px}.chart svg{display:block;width:100%;min-width:640px;height:auto}.axis{font-size:12px;fill:var(--muted)}
 .trends{display:flex;flex-direction:column;gap:12px}
+.change{display:flex;flex-direction:column;gap:12px;padding:20px}.change h3{margin:0 0 4px;font-size:13px;font-weight:600}
+.change ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.dimensions{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.drivers{min-width:420px}.up{color:var(--warn-ink)}.down{color:#2E7D4F}
 .swatch.dash{width:18px;height:0;border-top:2px dashed var(--ink);border-radius:0}
 @media (max-width:640px){.segmented button{flex:1 1 auto}}
 `;
@@ -438,6 +483,7 @@ export function renderPage(
 <main>
 ${filters(page)}
 ${warning(report.unpriced)}
+${changeCard(page.comparison, PERIOD_LABELS[page.query.period])}
 ${whereItWent(page)}
 ${page.query.group === 'day' ? overTime(page, now) : ''}
 ${harnessTrends(page)}
