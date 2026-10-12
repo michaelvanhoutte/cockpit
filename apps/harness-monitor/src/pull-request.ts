@@ -1,6 +1,6 @@
 import type { CostQuery } from './costs';
 import { requestFilter } from './export';
-import { CATEGORIES, REVIEW_LEVELS, type Category } from './validate';
+import { CATEGORIES, phaseSql, REVIEW_LEVELS, type Category } from './validate';
 
 /** One category of the pull request's cost, and what it holds. */
 export interface CategoryLine {
@@ -12,6 +12,19 @@ export interface CategoryLine {
   levels: { level: string; requests: number }[];
 }
 
+/** One agent of a session: its main agent, or one subagent it started. */
+export interface AgentLine {
+  kind: 'main' | 'subagent';
+  /** The subagent's kind (Explore, general-purpose, ...); null on the main agent and where none was recorded. */
+  type: string | null;
+  id: string | null;
+  models: string[];
+  requests: number;
+  tokens: number;
+  costMicros: number;
+  unpricedRequests: number;
+}
+
 export interface SessionLine {
   sessionId: string;
   /** Where it ran: local, cloud or actions. */
@@ -21,6 +34,8 @@ export interface SessionLine {
   tokens: number;
   costMicros: number;
   unpricedRequests: number;
+  /** The main agent first (when it made a request), then its subagents, dearest first. */
+  agents: AgentLine[];
 }
 
 export interface PullRequestPage {
@@ -61,15 +76,16 @@ export async function pullRequestPage(db: D1Database, query: CostQuery, number: 
   const [links, byCategory, bySession] = await db.batch([
     db.prepare('SELECT * FROM branch_links WHERE pr_number = ? ORDER BY pr_updated_at DESC, branch').bind(number),
     db.prepare(
-      `SELECT u.category AS category, COALESCE(u.review_level, '') AS level, COUNT(*) AS requests,
+      `SELECT ${phaseSql('u.')} AS category, COALESCE(u.review_level, '') AS level, COUNT(*) AS requests,
          SUM(COALESCE(u.cost_micros, 0)) AS costMicros, SUM(u.cost_micros IS NULL) AS unpriced
-       ${from} ${where} GROUP BY u.category, COALESCE(u.review_level, '')`,
+       ${from} ${where} GROUP BY ${phaseSql('u.')}, COALESCE(u.review_level, '')`,
     ).bind(...binds),
     db.prepare(
-      `SELECT u.session_id AS sessionId, u.ran_where AS ranWhere, u.model AS model, COUNT(*) AS requests,
+      `SELECT u.session_id AS sessionId, u.ran_where AS ranWhere, u.model AS model, u.subagent AS subagent,
+         u.subagent_type AS subagentType, u.subagent_id AS subagentId, COUNT(*) AS requests,
          SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens + u.cache_read_tokens) AS tokens,
          SUM(COALESCE(u.cost_micros, 0)) AS costMicros, SUM(u.cost_micros IS NULL) AS unpriced
-       ${from} ${where} GROUP BY u.session_id, u.ran_where, u.model`,
+       ${from} ${where} GROUP BY u.session_id, u.ran_where, u.model, u.subagent, u.subagent_type, u.subagent_id`,
     ).bind(...binds),
   ]);
   const link = (links!.results as unknown as LinkRow[])[0];
@@ -87,10 +103,22 @@ export async function pullRequestPage(db: D1Database, query: CostQuery, number: 
   for (const c of categories) c.levels.sort((a, b) => rank(b.level) - rank(a.level));
 
   const sessions = new Map<string, SessionLine>();
-  for (const r of bySession!.results as unknown as { sessionId: string; ranWhere: string; model: string; requests: number; tokens: number; costMicros: number; unpriced: number }[]) {
+  const agents = new Map<string, AgentLine>();
+  for (const r of bySession!.results as unknown as {
+    sessionId: string;
+    ranWhere: string;
+    model: string;
+    subagent: number;
+    subagentType: string | null;
+    subagentId: string | null;
+    requests: number;
+    tokens: number;
+    costMicros: number;
+    unpriced: number;
+  }[]) {
     let s = sessions.get(r.sessionId);
     if (!s) {
-      s = { sessionId: r.sessionId, where: [], models: [], requests: 0, tokens: 0, costMicros: 0, unpricedRequests: 0 };
+      s = { sessionId: r.sessionId, where: [], models: [], requests: 0, tokens: 0, costMicros: 0, unpricedRequests: 0, agents: [] };
       sessions.set(r.sessionId, s);
     }
     if (!s.where.includes(r.ranWhere)) s.where.push(r.ranWhere);
@@ -99,11 +127,35 @@ export async function pullRequestPage(db: D1Database, query: CostQuery, number: 
     s.tokens += r.tokens;
     s.costMicros += r.costMicros;
     s.unpricedRequests += r.unpriced;
+
+    // Requests stored before the type was recorded all share one line, whatever subagent they were.
+    const kind = r.subagent ? 'subagent' : 'main';
+    const id = r.subagentType === null ? null : r.subagentId;
+    const key = kind === 'main' ? `${r.sessionId}\0main` : `${r.sessionId}\0${r.subagentType ?? ''}\0${id ?? ''}`;
+    let a = agents.get(key);
+    if (!a) {
+      a = { kind, type: r.subagentType, id, models: [], requests: 0, tokens: 0, costMicros: 0, unpricedRequests: 0 };
+      agents.set(key, a);
+      s.agents.push(a);
+    }
+    if (!a.models.includes(r.model)) a.models.push(r.model);
+    a.requests += r.requests;
+    a.tokens += r.tokens;
+    a.costMicros += r.costMicros;
+    a.unpricedRequests += r.unpriced;
   }
   const ordered = [...sessions.values()].sort((a, b) => b.costMicros - a.costMicros || a.sessionId.localeCompare(b.sessionId));
   for (const s of ordered) {
     s.where.sort();
     s.models.sort();
+    for (const a of s.agents) a.models.sort();
+    s.agents.sort(
+      (a, b) =>
+        Number(b.kind === 'main') - Number(a.kind === 'main') ||
+        b.costMicros - a.costMicros ||
+        (a.type ?? '').localeCompare(b.type ?? '') ||
+        (a.id ?? '').localeCompare(b.id ?? ''),
+    );
   }
 
   return {

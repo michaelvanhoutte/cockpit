@@ -19,7 +19,7 @@ const monitor = process.env.E2E_HARNESS_MONITOR_URL;
 const at = new Date(Date.now() - 60_000).toISOString();
 
 /** A request costing exactly `dollars` at the seeded rate of $2 per million input tokens. */
-const request = (id: string, branch: string, category: string, dollars: number) => ({
+const request = (id: string, branch: string, category: string, dollars: number, subagent: Record<string, unknown> | null = null) => ({
   requestId: `e2e-${id}`,
   sessionId: `e2e-session-${branch}`,
   time: at,
@@ -31,7 +31,8 @@ const request = (id: string, branch: string, category: string, dollars: number) 
   outputTokens: 0,
   cacheCreationTokens: 0,
   cacheReadTokens: 0,
-  subagent: false,
+  subagent: subagent !== null,
+  ...subagent,
   ranWhere: 'local',
   source: 'hook',
 });
@@ -42,6 +43,9 @@ const SEED = {
     request('2', 'claude/e2e-filter-panel', 'after-push', 2),
     request('3', 'claude/e2e-teams-message', 'building', 1),
     request('4', 'claude/e2e-teams-message', 'ci-reviews', 1),
+    // Free, so no total moves: they are here to be drawn beneath the session's main agent.
+    request('5', 'claude/e2e-filter-panel', 'building', 0, { subagentType: 'Explore', subagentId: 'e2e-explore-1' }),
+    request('6', 'claude/e2e-filter-panel', 'building', 0, {}),
   ],
   pullRequests: [
     { branch: 'claude/e2e-filter-panel', number: 9001, title: 'Add a filter panel', state: 'MERGED', mergedAt: '2026-01-02T10:00:00Z', issue: 9000, engineer: 'e2e-alice', size: { added: 120, removed: 30, openedAt: '2026-01-01T10:00:00Z', ciRounds: 2, issueTitle: 'Filter the inbox' } },
@@ -66,7 +70,7 @@ test.describe('Harness Monitor', () => {
     await expect(table.getByRole('row', { name: /#9001 Add a filter panel/ })).toContainText('+120 −30');
     await expect(page.getByRole('heading', { name: /Where the period.s \$8\.00 went/ })).toBeVisible();
     await expect(page.getByRole('img', { name: /Building \$5\.00.*After push \$2\.00.*CI reviews \$1\.00/ })).toBeVisible();
-    await expect(page.getByText('are not measured')).toBeVisible();
+    await expect(page.getByText('billed through claude.ai, and is not measured')).toBeVisible();
     await expect(page.getByText('at API list price')).toBeVisible();
     // The page fits the screen; only the table scrolls inside its own box.
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
@@ -82,6 +86,13 @@ test.describe('Harness Monitor', () => {
     const sessions = page.getByRole('region', { name: 'Sessions' });
     await expect(sessions.getByRole('row', { name: /e2e-session-claude\/e2e-filter-panel/ })).toContainText('Local');
     await expect(sessions.getByRole('row', { name: /e2e-session-claude\/e2e-filter-panel/ })).toContainText('$6.00');
+    // The session's subagents sit indented beneath its main agent, each by type or as not recorded.
+    const subagents = sessions.locator('tr[data-agent="subagent"]');
+    await expect(subagents).toHaveCount(2);
+    await expect(subagents.filter({ hasText: 'Explore' })).toContainText('e2e-explore-1');
+    await expect(subagents.filter({ hasText: 'type not recorded' })).toHaveCount(1);
+    const indent = (row: ReturnType<typeof subagents.first>) => row.locator('td').first().evaluate((td) => parseFloat(getComputedStyle(td).paddingLeft));
+    expect(await indent(subagents.first())).toBeGreaterThan(await indent(sessions.locator('tr[data-agent="main"]').first()));
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
     // Narrow to a category, then export: the file holds exactly that page's requests.

@@ -38,8 +38,8 @@ describe('Harness Monitor', () => {
         subagent: 1,
         ran_where: 'cloud',
         source: 'upload',
-        occurred_at: Date.parse('2026-03-01T10:00:00Z'),
-        day: '2026-03-01',
+        occurred_at: Date.parse('2026-10-01T10:00:00Z'),
+        day: '2026-10-01',
       });
     });
 

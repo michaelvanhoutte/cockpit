@@ -30,13 +30,13 @@ describe('Harness Monitor', () => {
       { situation: 'one pull request', query: '?period=all&pr=2', times: ['04'] },
       { situation: 'a grouping, which changes no request', query: '?period=all&group=day&page=3', times: ['01', '02', '03', '04', '05'] },
     ])('$situation: the lines are the requests the page counts', async ({ query, times }) => {
-      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-03-31T12:00:00Z') });
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-31T12:00:00Z') });
       await send([
-        spend('1', 4, { branch: 'b/alice', category: 'building', time: '2026-03-01T10:01:00Z' }),
-        spend('2', 2, { branch: 'b/alice', category: 'after-push', time: '2026-03-01T10:02:00Z' }),
-        spend('3', 1, { branch: 'b/alice', category: 'building', time: '2026-03-02T10:03:00Z' }),
-        spend('4', 8, { branch: 'b/bob', category: 'after-push', time: '2026-03-28T10:04:00Z' }),
-        spend('5', 16, { branch: 'b/nobody', category: 'building', time: '2026-03-30T10:05:00Z' }),
+        spend('1', 4, { branch: 'b/alice', category: 'building', time: '2026-10-01T10:01:00Z' }),
+        spend('2', 2, { branch: 'b/alice', category: 'after-push', time: '2026-10-01T10:02:00Z' }),
+        spend('3', 1, { branch: 'b/alice', category: 'building', time: '2026-10-02T10:03:00Z' }),
+        spend('4', 8, { branch: 'b/bob', category: 'after-push', time: '2026-10-28T10:04:00Z' }),
+        spend('5', 16, { branch: 'b/nobody', category: 'building', time: '2026-10-30T10:05:00Z' }),
       ]);
       await linked(
         pullRequest({ number: 1, headRefName: 'b/alice', author: { login: 'alice' } }),
@@ -58,7 +58,7 @@ describe('Harness Monitor', () => {
     });
 
     it('a line says who the request was for and where it ran', async () => {
-      await send([spend('1', 3, { branch: 'b/alice', sessionId: 'session-9', category: 'after-push', ranWhere: 'cloud', speed: 'fast', time: '2026-03-01T10:00:00Z' })]);
+      await send([spend('1', 3, { branch: 'b/alice', sessionId: 'session-9', category: 'after-push', ranWhere: 'cloud', speed: 'fast', time: '2026-10-01T10:00:00Z' })]);
       await linked(pullRequest({ number: 12, headRefName: 'b/alice', author: { login: 'alice' }, closingIssuesReferences: { nodes: [{ number: 7 }] } }));
 
       const { header, rows, response } = await theExport('?period=all');
@@ -67,7 +67,7 @@ describe('Harness Monitor', () => {
       expect(response.headers.get('content-type')).toContain('text/csv');
       expect(response.headers.get('content-disposition')).toContain('attachment');
       expect(rows).toEqual([
-        ['2026-03-01T10:00:00.000Z', 'session-9', 'b/alice', '12', '7', 'alice', 'after-push', 'claude-sonnet-5', 'fast', 'cloud', '1500000', '0', '0', '0', '3.000000', 'priced'],
+        ['2026-10-01T10:00:00.000Z', 'session-9', 'b/alice', '12', '7', 'alice', 'after-push', 'claude-sonnet-5', 'fast', 'cloud', '1500000', '0', '0', '0', '3.000000', 'priced'],
       ]);
     });
 
@@ -80,7 +80,7 @@ describe('Harness Monitor', () => {
     });
 
     it('a request priced at upload says so, and one priced as it arrived does not', async () => {
-      await send([spend('uploaded', 1, { source: 'upload', time: '2026-03-01T10:00:00Z' }), spend('live', 1, { time: '2026-03-01T10:01:00Z' })]);
+      await send([spend('uploaded', 1, { source: 'upload', time: '2026-10-01T10:00:00Z' }), spend('live', 1, { time: '2026-10-01T10:01:00Z' })]);
 
       const { rows } = await theExport('?period=all');
 

@@ -25,6 +25,7 @@ export const utc = (ms: number) => new Date(ms).toISOString().slice(0, 16).repla
 
 /** Colours by category, in the design's order. Every other colour is a token in the stylesheet. */
 export const COLOURS: Record<Category, string> = {
+  unphased: '#C9B79C',
   'scoping-planning': '#B9C4D6',
   building: '#2F5BEA',
   'local-code-review': '#F0A04B',
@@ -33,6 +34,7 @@ export const COLOURS: Record<Category, string> = {
   'ci-reviews': '#5F6672',
 };
 const SHORT: Record<Category, string> = {
+  unphased: 'Unphased',
   'scoping-planning': 'Scoping',
   building: 'Building',
   'local-code-review': 'Code rev.',
@@ -140,7 +142,7 @@ function whereItWent(page: CostsPage): string {
 <div class="where-head"><h2 id="where">Where the period&rsquo;s ${dollars(totalMicros)} went</h2>${summary}</div>
 <div class="bar" role="img" aria-label="${esc(label)}">${segments}</div>
 <div class="legend">${legend}</div>
-<p class="muted small">CI reviews counts the <span class="mono">@claude</span> runs in GitHub Actions only. Claude Code Review and Claude Approvals run on Anthropic&rsquo;s side and are <strong>not measured</strong>.</p>
+<p class="muted small">CI reviews counts the <span class="mono">@claude</span> runs in GitHub Actions only. Claude Code Review runs on Anthropic&rsquo;s side, is billed through claude.ai, and is <strong>not measured</strong>.</p>
 </section>`;
 }
 
