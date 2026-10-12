@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { sessionRunReporter } from '../../../scripts/lib/vitest-session-reporter.mjs';
 
 /**
  * The tiers that run on every change. `tests/contract/` is deliberately not
@@ -7,6 +8,7 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
+    reporters: ['default', sessionRunReporter],
     include: ['tests/unit/**/*.test.ts'],
     coverage: {
       provider: 'v8',

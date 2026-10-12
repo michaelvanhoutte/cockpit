@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { sessionRunReporter } from '../../../scripts/lib/vitest-session-reporter.mjs';
 
 /**
  * The contract tier for this connector (docs/testing-strategy.md, "Third
@@ -15,6 +16,7 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
+    reporters: ['default', sessionRunReporter],
     include: ['tests/contract/**/*.test.ts'],
     testTimeout: 30_000,
   },

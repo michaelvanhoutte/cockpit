@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vitest/config';
+import { sessionRunReporter } from '../../scripts/lib/vitest-session-reporter.mjs';
 
 /**
  * The contract tier: the tests that talk to the real Claude API
@@ -43,6 +44,7 @@ const onDisk = fromDevVars();
 
 export default defineConfig({
   test: {
+    reporters: ['default', sessionRunReporter],
     include: ['tests/contract/**/*.test.ts'],
     // The model is what takes the time here, not the assertions.
     testTimeout: 120_000,
