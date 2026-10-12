@@ -446,8 +446,9 @@ describe('Last run', () => {
 
   it('ignores the windows: a finished run older than the shortest one is still the last', () => {
     const only = run({ conclusion: 'failure', createdAt: ago(20) });
-    const model = build({ runs: [only], jobs: [job({ runId: only.id, conclusion: 'failure' })], windows: [7] });
+    const model = build({ runs: [only], jobs: [job({ runId: only.id, conclusion: 'failure' })], windows: [7, 30] });
     expect(model.windows[0].workflows).toEqual([]);
+    expect(model.windows[1].workflows).toHaveLength(1);
     expect(model.lastRuns[0].last.outcome).toBe('fail');
     expect(model.lastRuns[0].jobs[0].last.outcome).toBe('fail');
   });
