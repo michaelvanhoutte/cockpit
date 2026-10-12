@@ -22,7 +22,7 @@ if (plan.error) {
 
 async function start(job) {
   try {
-    const response = await fetch(jobUrl(job, process.env.HARNESS_MONITOR_URL), {
+    const response = await fetch(jobUrl(job, plan.url), {
       method: 'POST',
       headers: { authorization: `Bearer ${plan.key}` },
       signal: AbortSignal.timeout(WAIT_MS),

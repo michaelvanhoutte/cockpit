@@ -37,12 +37,12 @@ export function unreachable(error) {
 
 /** What the monitor answered, as one line, whether the job succeeded and how many requests it priced. */
 export function describeAnswer(job, status, body) {
-  if (status === 401) return { ok: false, line: 'The monitor refused the write key.' };
-  if (status === 503) return { ok: false, line: 'The monitor has no write key set, so it starts nothing.' };
+  if (status === 401) return { ok: false, line: 'The monitor refused the write key.', priced: 0 };
+  if (status === 503) return { ok: false, line: 'The monitor has no write key set, so it starts nothing.', priced: 0 };
   if (typeof body?.message === 'string' && typeof body.ok === 'boolean') {
     const priced = Number.isInteger(body.priced) && body.priced > 0 ? body.priced : 0;
     return { ok: body.ok, line: `${job}: ${body.ok ? 'done' : 'failed'} - ${body.message}`, priced };
   }
   const why = typeof body?.error === 'string' ? ` ${body.error}` : '';
-  return { ok: false, line: `The monitor answered ${status}.${why}` };
+  return { ok: false, line: `The monitor answered ${status}.${why}`, priced: 0 };
 }

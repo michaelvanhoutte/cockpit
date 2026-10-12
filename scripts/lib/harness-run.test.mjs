@@ -25,7 +25,7 @@ describe('Harness Monitor', () => {
       { situation: 'an answer that is not the monitor\'s', status: 502, body: null, line: 'The monitor answered 502.' },
     ]) {
       it(`${situation} fails the command with the reason`, () => {
-        assert.deepEqual(describeAnswer('linking', status, body), { ok: false, line, ...(body?.message ? { priced: 0 } : {}) });
+        assert.deepEqual(describeAnswer('linking', status, body), { ok: false, line, priced: 0 });
       });
     }
   });
@@ -46,7 +46,7 @@ describe('Harness Monitor', () => {
     for (const { situation, answers, started } of [
       { situation: 'runs price 20,000, then 5, then 0', answers: [ok(20_000), ok(5), ok(0), ok(0)], started: ['prices', 'prices', 'prices', 'rebuild'] },
       { situation: 'the first run prices 0', answers: [ok(0), ok(0)], started: ['prices', 'rebuild'] },
-      { situation: 'an answer with no count (an older Worker)', answers: [ok(0), ok(0)], started: ['prices', 'rebuild'] },
+      { situation: 'an answer with no count (an older Worker)', answers: [{ ok: true }, ok(0)], started: ['prices', 'rebuild'] },
       { situation: 'the second prices run fails', answers: [ok(20_000), { ok: false, priced: 0 }], started: ['prices', 'prices'] },
       { situation: 'a prices run that failed after pricing some', answers: [{ ok: false, priced: 7 }], started: ['prices'] },
       { situation: 'the monitor is unreachable mid-loop', answers: [ok(5), { ok: false, priced: 0 }], started: ['prices', 'prices'] },
