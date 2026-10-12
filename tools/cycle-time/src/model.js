@@ -857,7 +857,7 @@ export function buildModel({
   commit = null,
   windows = [7, 14],
 }) {
-  // A pull closed without merging has no lead time to give.
+  // A pull closed without merging has no cycle time to give.
   const merged = pulls.filter((pull) => time(pull.mergedAt) !== null).map(pullModel).sort((a, b) => time(b.mergedAt) - time(a.mergedAt));
   const requestedSince = now.getTime() - requestedDays * DAY_MS;
 

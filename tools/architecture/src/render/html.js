@@ -129,10 +129,10 @@ export function renderDiagramPages(model) {
 
 /**
  * @param {ReturnType<import('../model.js').buildModel>} model
- * @param {{ explorerHref?: string, stabilityHref?: string, leadTimeHref?: string, selectionHref?: string, comparison?: object }} [options] `comparison` is what compare.js answered; without one the section says there is nothing to compare
+ * @param {{ explorerHref?: string, stabilityHref?: string, cycleTimeHref?: string, selectionHref?: string, comparison?: object }} [options] `comparison` is what compare.js answered; without one the section says there is nothing to compare
  * @returns {string} a complete HTML document
  */
-export function renderHtml(model, { explorerHref = '../', stabilityHref = '../stability/', leadTimeHref = '../lead-time/', selectionHref = '../selection/', comparison = { state: 'unavailable', reason: 'no earlier report was given to compare against' } } = {}) {
+export function renderHtml(model, { explorerHref = '../', stabilityHref = '../stability/', cycleTimeHref = '../cycle-time/', selectionHref = '../selection/', comparison = { state: 'unavailable', reason: 'no earlier report was given to compare against' } } = {}) {
   const styles = readFileSync(path.join(here, 'styles.css'), 'utf8');
   const { date } = model.drawnFrom;
   const commitCell = commitLine(model.drawnFrom);
@@ -167,7 +167,7 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
       <span>${plural(workflows.length, 'workflow')}</span>
       <span><a href="${esc(explorerHref)}"><b>Test explorer &rarr;</b></a></span>
       <span><a href="${esc(stabilityHref)}"><b>CI stability &rarr;</b></a></span>
-      <span><a href="${esc(leadTimeHref)}"><b>Lead time &rarr;</b></a></span>
+      <span><a href="${esc(cycleTimeHref)}"><b>Cycle time &rarr;</b></a></span>
       <span><a href="${esc(selectionHref)}"><b>Selection &rarr;</b></a></span>
     </div>
     <nav class="views" aria-label="Views"><a href="#changes">What changed</a><a href="#context">Context</a><a href="#modules">Modules</a><a href="#deps">Dependencies</a><a href="#deployment">Deployment</a></nav>

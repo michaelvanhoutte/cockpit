@@ -45,7 +45,7 @@ const recordBody = (marks) =>
 
 const NOW = new Date(BASE + 24 * 60 * MIN);
 
-describe('Lead time', () => {
+describe('Cycle time', () => {
   describe("each merged pull request's time is split into the parts it spent", () => {
     it('answers before the first push, each round, the fixing between them and the wait to merge', () => {
       const model = pullModel(
@@ -923,7 +923,7 @@ describe('Lead time', () => {
 
     it.each([
       { situation: 'a test run before the first push', body: recording({ runs: [[5, 9, '@cockpit/api']] }), slices: [['test', ['@cockpit/api'], 0, 5, 4]] },
-      { situation: 'a test run while fixing between rounds', body: recording({ runs: [[44, 48, 'tools/lead-time']] }), slices: [['test', ['tools/lead-time'], 1, 44, 4]] },
+      { situation: 'a test run while fixing between rounds', body: recording({ runs: [[44, 48, 'tools/cycle-time']] }), slices: [['test', ['tools/cycle-time'], 1, 44, 4]] },
       { situation: 'a browser pass, apart from the test runs', body: recording({ marks: browserPass(10, 16), runs: [[2, 4, 'a']] }), slices: [['test', ['a'], 0, 2, 2], ['browser', null, 0, 10, 6]] },
     ])('keeps $situation at the time it ran, with its kind and scope', ({ body, slices }) => {
       expect(shape(modelled(body).runSlices)).toEqual(slices);

@@ -1,6 +1,6 @@
 ---
 name: harness-cost-review
-description: Cockpit's process for periodically checking whether the harness - CI, local reviews and the session's own waiting on them - is too slow or too expensive for the development it gates, and why - reading the lead-time, selection and CI stability models and pnpm cost:issue, applying one bar per cause (harness outweighing coding, unselective tests, slices too small, avoidable rounds, repeating failures, token cost, queue time, serial jobs, cancelled runs, setup overhead, a job grown slower), then filing one issue per cause for a person to decide. Never counts anything a tool already measures, never a report, and never on an impression without a sampled window behind it. Hands each candidate through scoping, engineering-plan and github-issue; never edits workflows, branch-protection, or review prompts itself.
+description: Cockpit's process for periodically checking whether the harness - CI, local reviews and the session's own waiting on them - is too slow or too expensive for the development it gates, and why - reading the cycle-time, selection and CI stability models and pnpm cost:issue, applying one bar per cause (harness outweighing coding, unselective tests, slices too small, avoidable rounds, repeating failures, token cost, queue time, serial jobs, cancelled runs, setup overhead, a job grown slower), then filing one issue per cause for a person to decide. Never counts anything a tool already measures, never a report, and never on an impression without a sampled window behind it. Hands each candidate through scoping, engineering-plan and github-issue; never edits workflows, branch-protection, or review prompts itself.
 ---
 
 # Is the harness too heavy for the development
@@ -15,7 +15,7 @@ The harness is everything a change waits on after it is written: CI, the local r
 
 | Model | Command | Gives |
 |---|---|---|
-| Lead time | `node tools/lead-time/src/cli.js --json --out <scratch>/lead.json` | per merged pull request: coding against harness (`balance`), rounds, red rounds, flukes, which check held each round, local reviews, size; per window: failing tests and steps (`failures`), queue time per check (`queue`), cancelled runner minutes (`cancelled`) |
+| Cycle time | `node tools/cycle-time/src/cli.js --json --out <scratch>/cycle.json` | per merged pull request: coding against harness (`balance`), rounds, red rounds, flukes, which check held each round, local reviews, size; per window: failing tests and steps (`failures`), queue time per check (`queue`), cancelled runner minutes (`cancelled`) |
 | Selection | `node tools/selection/src/cli.js --json --out <scratch>/sel.json` | paths forcing a full run, tests selected on nearly every pull request, misses |
 | CI stability | `node tools/ci-stability/src/cli.js --json --days 30 --max-runs 2500 --out <scratch>/ci.json` | job and step durations on `main` per window |
 | Token cost | `pnpm cost:issue --since <window start> --json` | per issue: tokens, API-equivalent cost, subagents, review passes by level; tokens and cost also split by session phase (`phases`) |
@@ -28,15 +28,15 @@ Read the 14-day window unless a bar says otherwise. A bar needs at least 20 merg
 
 | Cause | Bar | Read from |
 |---|---|---|
-| **Harness outweighs coding** | `balance.ratio.median` > 1, or more than half the `balance.dots` above 1, over ≥ 20 recorded pull requests | lead time |
+| **Harness outweighs coding** | `balance.ratio.median` > 1, or more than half the `balance.dots` above 1, over ≥ 20 recorded pull requests | cycle time |
 | **Not selective enough** | one `forcedFull` rule or path forces a full run on ≥ 25% of the pull requests that ran; or a test file selected on ≥ 80% of the pull requests that could have skipped it, over ≥ 10 | selection |
-| **Slices too small** | pull requests under 100 lines changed (`size.additions + size.deletions`) with a median `balance.ratio` ≥ 2, over ≥ 8 of them: the fixed cost of a round outweighs the change | lead time |
-| **Avoidable rounds** | `rounds.perPull.median` ≥ 2; or red rounds whose `failed` includes `Checks` (lint, typecheck, build — all runnable before a push) on ≥ 10% of rounds | lead time |
-| **Repeating failures** | a check with flukes on ≥ 3 pull requests and ≥ 5% of its rounds; or one test file in `failures.files` failing on ≥ 3 pull requests | lead time |
-| **Token cost** | an issue costing ≥ 3× the window's median cost per 100 lines changed, where ≥ 2 such issues share a cause; a `/code-review` or `/security-review` level above what CLAUDE.md's review table gives the change, on ≥ 2 issues; subagents ≥ 50% of an issue's cost on ≥ 2 issues; or `phases.afterPush` plus `phases.afterPushReview` ≥ 40% of an issue's cost on ≥ 2 issues | token cost, joined to lead time by the pull request that closes the issue |
-| **Queue time** | `queue.<check>.median` ≥ 2 minutes for any required check | lead time |
+| **Slices too small** | pull requests under 100 lines changed (`size.additions + size.deletions`) with a median `balance.ratio` ≥ 2, over ≥ 8 of them: the fixed cost of a round outweighs the change | cycle time |
+| **Avoidable rounds** | `rounds.perPull.median` ≥ 2; or red rounds whose `failed` includes `Checks` (lint, typecheck, build — all runnable before a push) on ≥ 10% of rounds | cycle time |
+| **Repeating failures** | a check with flukes on ≥ 3 pull requests and ≥ 5% of its rounds; or one test file in `failures.files` failing on ≥ 3 pull requests | cycle time |
+| **Token cost** | an issue costing ≥ 3× the window's median cost per 100 lines changed, where ≥ 2 such issues share a cause; a `/code-review` or `/security-review` level above what CLAUDE.md's review table gives the change, on ≥ 2 issues; subagents ≥ 50% of an issue's cost on ≥ 2 issues; or `phases.afterPush` plus `phases.afterPushReview` ≥ 40% of an issue's cost on ≥ 2 issues | token cost, joined to cycle time by the pull request that closes the issue |
+| **Queue time** | `queue.<check>.median` ≥ 2 minutes for any required check | cycle time |
 | **Serial jobs** | a job that others `needs:` in `.github/workflows/ci.yml` takes ≥ 25% of the critical path: its median plus the slowest median of the jobs waiting on it | CI stability, 7-day window |
-| **Cancelled runs** | `cancelled.share` ≥ 10% of runner minutes; `cancelled.supersededShare` says how much of it a newer push caused | lead time |
+| **Cancelled runs** | `cancelled.share` ≥ 10% of runner minutes; `cancelled.supersededShare` says how much of it a newer push caused | cycle time |
 | **Setup overhead** | setup steps (install, browser install, build) in a job's `steps` ≥ 25% of the job's median | CI stability |
 | **A job grown slower** | a required job's 7-day median ≥ 50% above its 30-day median and ≥ 3 minutes, both windows non-partial with ≥ 20 runs. Median, not p90: the 7-day window is inside the 30-day one, so a regression lifts the 30-day p90 to match within days and the ratio reads flat | CI stability |
 

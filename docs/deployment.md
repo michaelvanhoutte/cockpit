@@ -97,8 +97,8 @@ says what another one already said", issue 407).
 A third *GitHub* environment, `github-pages`, does exist beside these two and holds no
 part of the app: it is where CI publishes the five reports from `main` — the test
 explorer at the root (`tools/test-explorer/README.md`), the CI stability page at
-`/stability/` (`tools/ci-stability/README.md`), the lead-time page at
-`/lead-time/` (`tools/lead-time/README.md`), the test-selection page at
+`/stability/` (`tools/ci-stability/README.md`), the cycle-time page at
+`/cycle-time/` (`tools/cycle-time/README.md`), the test-selection page at
 `/selection/` (`tools/selection/README.md`) and the architecture page at
 `/architecture/` (`tools/architecture/README.md`).
 
@@ -1145,8 +1145,8 @@ Then, by hand (no API, or deliberately not automated):
 4. **GitHub Pages**, at Settings → Pages → Source: **GitHub Actions**. `publish.yml`
    deploys the five reports there from `main` — the test explorer
    (`tools/test-explorer/README.md`), the CI stability page
-   (`tools/ci-stability/README.md`), the lead-time page
-   (`tools/lead-time/README.md`), the test-selection page
+   (`tools/ci-stability/README.md`), the cycle-time page
+   (`tools/cycle-time/README.md`), the test-selection page
    (`tools/selection/README.md`) and the architecture page
    (`tools/architecture/README.md`) — called from both `ci.yml`'s `Publish` job on
    every merge and `nightly.yml`'s own `Publish` job, so a nightly run goes

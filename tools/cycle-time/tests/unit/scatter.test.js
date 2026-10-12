@@ -5,7 +5,7 @@ import { layoutScatter, radiusFor } from '../../src/render/scatter.js';
 const MIN = 60_000;
 const dot = (number, coding, harness, rounds = 1) => ({ number, codingMs: coding * MIN, harnessMs: harness * MIN, rounds, ratio: coding ? harness / coding : null });
 
-describe('Lead time', () => {
+describe('Cycle time', () => {
   describe('the scatter puts each pull request where its minutes are, and names the ones furthest above the line', () => {
     it('places a dot as a share of one scale that both axes use', () => {
       const layout = layoutScatter([dot(1, 15, 30), dot(2, 45, 10)], null);

@@ -61,6 +61,12 @@ describe('The architecture page', () => {
     });
   });
 
+  it('links to the cycle-time page', () => {
+    const html = page();
+    expect(html).toContain('href="../cycle-time/"');
+    expect(html).toContain('Cycle time');
+  });
+
   it('opens from disk: styles inline, no script, no remote address but links a reader follows', () => {
     const html = page();
     expect(html).toContain('<style>');

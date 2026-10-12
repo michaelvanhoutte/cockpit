@@ -65,7 +65,7 @@ export function renderHtml(model, { repoRelPrefix }) {
            from; in the downloadable artifact, which is this report alone, they
            do not resolve at all. -->
       <span><a href="stability/"><b>CI stability &rarr;</b></a></span>
-      <span><a href="lead-time/"><b>Lead time &rarr;</b></a></span>
+      <span><a href="cycle-time/"><b>Cycle time &rarr;</b></a></span>
       <span><a href="selection/"><b>Test selection &rarr;</b></a></span>
     </div>
   </header>

@@ -2,7 +2,7 @@ name: Publish
 
 # The five reports' one publish path, called from wherever a fresh one exists —
 # ci.yml after a merge (the test explorer, the stability report) and
-# nightly.yml after its own run (the lead-time report, the test-selection
+# nightly.yml after its own run (the cycle-time report, the test-selection
 # report, the architecture report) — so a report goes live as soon as
 # something built it, not only when the next unrelated merge happens to carry
 # it in ("Publish nightly's reports
@@ -13,7 +13,7 @@ name: Publish
 # `main`, never the newest *successful* run, so one report's failure never
 # costs another's page — the same tolerance "Run the lead-time report
 # nightly, and publish it beside the other two" (issue 515) established for
-# the lead-time and test-selection reports, now true of all five.
+# the cycle-time and test-selection reports, now true of all five.
 on:
   workflow_call:
 
@@ -87,8 +87,8 @@ jobs:
 
       # The site is five reports, assembled here rather than uploaded by
       # whichever job finished last: the explorer at the root, the stability
-      # page one directory down at /stability/, the lead-time page at
-      # /lead-time/, the test-selection page at /selection/ and the architecture
+      # page one directory down at /stability/, the cycle-time page at
+      # /cycle-time/, the test-selection page at /selection/ and the architecture
       # page at /architecture/. Each stays downloadable on its own as the
       # artifact its own job uploaded.
       - name: Find the test explorer's report
@@ -127,23 +127,41 @@ jobs:
           run-id: ${{ steps.stability.outputs.run-id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Find the lead-time page
-        id: lead-time
+      - name: Find the cycle-time page
+        id: cycle-time
         continue-on-error: true
         uses: ./.github/actions/find-artifact
         with:
-          name: lead-time-report
+          name: cycle-time-report
           runs: ${{ steps.runs.outputs.runs }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Take the lead-time page, if there is one
-        if: ${{ steps.lead-time.outputs.run-id != '' }}
+      - name: Take the cycle-time page, if there is one
+        if: ${{ steps.cycle-time.outputs.run-id != '' }}
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: lead-time-report
-          path: site/lead-time/
-          run-id: ${{ steps.lead-time.outputs.run-id }}
+          name: cycle-time-report
+          path: site/cycle-time/
+          run-id: ${{ steps.cycle-time.outputs.run-id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+      # The report's old name, /lead-time/, still has links to it. Every publish
+      # rebuilds the site, so the redirect page and a copy of model.json (a
+      # JSON file cannot redirect) are written on every publish. With no
+      # cycle-time page taken the old address is no worse than the new one.
+      - name: Keep the old /lead-time/ address working
+        continue-on-error: true
+        run: |
+          mkdir -p site/lead-time
+          cat > site/lead-time/index.html <<'EOF'
+          <!doctype html>
+          <meta charset="utf-8">
+          <title>Moved to Cycle time</title>
+          <meta http-equiv="refresh" content="0; url=../cycle-time/">
+          <link rel="canonical" href="../cycle-time/">
+          <script>location.replace('../cycle-time/' + location.search + location.hash);</script>
+          <p>This report is now called <a href="../cycle-time/">Cycle time</a>.</p>
+          EOF
+          if [ -f site/cycle-time/model.json ]; then cp site/cycle-time/model.json site/lead-time/model.json; fi
 
       - name: Find the test-selection page
         id: selection

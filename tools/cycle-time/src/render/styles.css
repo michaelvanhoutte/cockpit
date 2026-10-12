@@ -198,7 +198,7 @@ summary { cursor: pointer; }
 .evobar.local-security-review { fill: var(--local-security-review); }
 .evobar.local-test { fill: var(--local-test); }
 .evobar.local-browser { fill: var(--local-browser); }
-.evobar.lead { fill: var(--accent); }
+.evobar.cycle { fill: var(--accent); }
 .evobar.rounds { fill: var(--ink-2); }
 .evobar.red { fill: var(--bad); }
 .evodot { fill: var(--ink-2); fill-opacity: 0.75; }

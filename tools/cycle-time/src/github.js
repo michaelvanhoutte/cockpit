@@ -115,7 +115,7 @@ async function request(path, { token, fetchImpl, retries = 2, retryDelayMs = 250
         headers: {
           accept: 'application/vnd.github+json',
           'x-github-api-version': '2022-11-28',
-          'user-agent': 'cockpit-lead-time',
+          'user-agent': 'cockpit-cycle-time',
           ...(token ? { authorization: `Bearer ${token}` } : {}),
         },
       });

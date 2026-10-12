@@ -125,7 +125,7 @@ The `Architecture` job of [`.github/workflows/nightly.yml`](../../.github/workfl
 once a night, and by hand from the Actions tab when a night was missed. It uploads the page and
 `model.json` as the `architecture-report` artifact, and that same run's `Publish` job takes it live at
 **<https://michaelvanhoutte.github.io/cockpit/architecture/>**, beside the test explorer, the
-[CI stability page](../ci-stability/README.md), the [lead-time page](../lead-time/README.md) and the
+[CI stability page](../ci-stability/README.md), the [cycle-time page](../cycle-time/README.md) and the
 [test-selection page](../selection/README.md). A missing artifact costs this page and never the site.
 
 The job installs this package's own dependencies (`yaml` and `jsonc-parser`, so neither file format is
