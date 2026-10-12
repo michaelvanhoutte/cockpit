@@ -323,7 +323,8 @@ const LISTING_CAP = 1000;
  * so the CI runs are listed once, from a day before `since`: about one request per 100
  * runs, against one per run to ask each. Then each distinct CI run's job list is read once,
  * however many rounds, attempts or pulls share it (`filter=all`, so a re-run's attempts come
- * together), and a job's id is its check run's id. *
+ * together), and a job's id is its check run's id.
+ *
  * This is supplementary detail read last, so unlike `readFailure` even a spent allowance
  * leaves the affected checks `not-recorded` (`rate-limit`) and every pull request in place,
  * rather than discarding what was already read. Only a bug in this code throws. A check is never left silently without a queue where its run could have been CI:
