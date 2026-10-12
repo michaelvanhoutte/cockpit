@@ -99,10 +99,10 @@ describe('renderHtml', () => {
     expect(html).toContain('Test explorer');
   });
 
-  it('links to the lead-time page', () => {
+  it('links to the cycle-time page', () => {
     const html = render({ runs: [run()] });
-    expect(html).toContain('href="../lead-time/"');
-    expect(html).toContain('Lead time');
+    expect(html).toContain('href="../cycle-time/"');
+    expect(html).toContain('Cycle time');
   });
 
   it('links to the test-selection page', () => {

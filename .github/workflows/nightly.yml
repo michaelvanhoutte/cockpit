@@ -1,10 +1,10 @@
 name: Nightly
 
 # The reports that are too dear to build on every merge, built once a night
-# ("Run the lead-time report nightly, and publish it beside the other two",
-# issue 515). The lead-time report re-reads 14 days of history, which
+# ("Run the cycle-time report nightly, and publish it beside the other two",
+# issue 515). The cycle-time report re-reads 14 days of history, which
 # takes most of the 1,000 requests an hour every workflow in this repository
-# shares (tools/lead-time/src/github.js works it out):
+# shares (tools/cycle-time/src/github.js works it out):
 # run on each merge it would fail in a burst, and take the stability report
 # down with it.
 #
@@ -36,8 +36,8 @@ permissions:
   contents: read
 
 jobs:
-  lead-time:
-    name: Lead time
+  cycle-time:
+    name: Cycle time
     runs-on: ubuntu-latest
     # Reads pull requests, their commits, their check runs and the Actions API,
     # all through the workflow's own token. Nothing else, and no write anywhere.
@@ -55,18 +55,18 @@ jobs:
         with:
           node-version-file: package.json
       - name: Work out where a change spends its time
-        run: node tools/lead-time/src/cli.js --out tools/lead-time/out/index.html --model tools/lead-time/out/model.json
+        run: node tools/cycle-time/src/cli.js --out tools/cycle-time/out/index.html --model tools/cycle-time/out/model.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
-          name: lead-time-report
-          path: tools/lead-time/out/
+          name: cycle-time-report
+          path: tools/cycle-time/out/
 
   # Whether test selection is working: misses, what forces a full run, and
   # which tests are selected most often, read across pull requests ("Publish a
   # test selection report", issue 540). Nightly for the same reason as
-  # lead-time above: up to ten requests per pull request read, which a run on
+  # cycle-time above: up to ten requests per pull request read, which a run on
   # every merge would burn through this workflow's shared hourly allowance.
   selection:
     name: Selection
@@ -136,7 +136,7 @@ jobs:
   # schedule that started the run, only on being on `main`.
   publish:
     name: Publish
-    needs: [lead-time, selection, architecture]
+    needs: [cycle-time, selection, architecture]
     if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
     permissions:
       contents: read

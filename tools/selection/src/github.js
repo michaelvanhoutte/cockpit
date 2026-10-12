@@ -19,7 +19,7 @@
  * **Any failure to read one pull request's data fails the whole run.** A
  * report that quietly dropped a pull request would look complete while being
  * wrong in the reassuring direction — the opposite of ci-stability and
- * lead-time, which are advisory pages a missing pull request only thins.
+ * cycle-time, which are advisory pages a missing pull request only thins.
  * This one is read to find gaps in selection, so a gap in the reading itself
  * has to be loud. Only a genuinely absent record — the artifact expired, or
  * the Test job never ran because the pull request was documentation-only —
@@ -148,7 +148,7 @@ export async function pool(items, limit, worker, abort) {
 /**
  * Merged pulls into `base`, most recently updated first, back to `since` or
  * until `maxPulls` is reached — whichever comes first. Ordered and stopped the
- * same way lead-time's own `listPulls` is; see there for why that makes the
+ * same way cycle-time's own `listPulls` is; see there for why that makes the
  * coverage honest.
  *
  * @returns {Promise<{ pulls: Pull[], truncated: boolean, reachedWindowEdge: boolean, oldestSeen: Date|null }>}
@@ -327,7 +327,7 @@ async function readPull({ repo, pull, ...ctx }) {
 /**
  * Everything the model needs, in as few requests as it can be had.
  *
- * Unlike ci-stability and lead-time, a pull request that cannot be read is not
+ * Unlike ci-stability and cycle-time, a pull request that cannot be read is not
  * dropped and counted — see this file's own top comment for why — so the
  * first failure here fails the whole run, named to the pull request it came
  * from.

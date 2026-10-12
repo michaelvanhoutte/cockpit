@@ -22,9 +22,9 @@ describe('renderHtml', () => {
     expect(html).toContain('CI stability');
   });
 
-  it('links to the lead-time page', () => {
+  it('links to the cycle-time page', () => {
     const html = renderHtml(model, { repoRelPrefix: '../../..' });
-    expect(html).toContain('href="lead-time/"');
+    expect(html).toContain('href="cycle-time/"');
   });
 
   it('links to the test-selection page', () => {

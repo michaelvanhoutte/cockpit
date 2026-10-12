@@ -293,10 +293,10 @@ function pullsSection(model) {
 
 /**
  * @param {object} model the model buildModel produced
- * @param {{ explorerHref?: string, stabilityHref?: string, leadTimeHref?: string }} [options]
+ * @param {{ explorerHref?: string, stabilityHref?: string, cycleTimeHref?: string }} [options]
  * @returns {string} a complete HTML document
  */
-export function renderHtml(model, { explorerHref = '../', stabilityHref = '../stability/', leadTimeHref = '../lead-time/' } = {}) {
+export function renderHtml(model, { explorerHref = '../', stabilityHref = '../stability/', cycleTimeHref = '../cycle-time/' } = {}) {
   const styles = readFileSync(path.join(here, 'styles.css'), 'utf8');
   const commitUrl = model.commit ? `https://github.com/${model.repo}/commit/${model.commit}` : null;
 
@@ -326,7 +326,7 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
       <span>covering <b>${coveredDays(model.coverage.actualDays)} ${coveredDays(model.coverage.actualDays) === '1' ? 'day' : 'days'}</b></span>
       <span><a href="${esc(explorerHref)}"><b>Test explorer &rarr;</b></a></span>
       <span><a href="${esc(stabilityHref)}"><b>CI stability &rarr;</b></a></span>
-      <span><a href="${esc(leadTimeHref)}"><b>Lead time &rarr;</b></a></span>
+      <span><a href="${esc(cycleTimeHref)}"><b>Cycle time &rarr;</b></a></span>
     </div>
   </header>
 

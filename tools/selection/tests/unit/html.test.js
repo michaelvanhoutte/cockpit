@@ -134,6 +134,7 @@ describe('renderHtml', () => {
     const html = render([]);
     expect(html).toContain('Test explorer');
     expect(html).toContain('CI stability');
-    expect(html).toContain('Lead time');
+    expect(html).toContain('Cycle time');
+    expect(html).toContain('href="../cycle-time/"');
   });
 });

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { main, output, parseArgs } from '../../src/cli.js';
 import { buildModel } from '../../src/model.js';
 
-describe('Lead time', () => {
+describe('Cycle time', () => {
   describe('the command line refuses what would silently widen the fetch', () => {
     it('reports over 7 and 14 days when told nothing', () => {
       const args = parseArgs([]);

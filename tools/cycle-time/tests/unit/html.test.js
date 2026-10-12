@@ -59,7 +59,13 @@ const rowOf = (html, number) => {
 };
 const stripOf = (html, number) => rowOf(html, number).split('<div class="track">')[1].split('</div>')[0];
 
-describe('Lead time', () => {
+describe('Cycle time', () => {
+  it('is titled and headed "Cycle time"', () => {
+    const html = render({});
+    expect(html).toContain('<title>Cockpit Cycle time</title>');
+    expect(html).toContain('<h1>Cycle time</h1>');
+  });
+
   describe('the page says what period it covered and what it cannot see', () => {
     it('names the period it actually covered, not the one asked for, where the fetch was capped', () => {
       const html = render({ requestedDays: 14, coveredDays: 9, truncated: true });
@@ -680,9 +686,9 @@ describe('Lead time', () => {
     const panelOf = (html) => html.split('<h2>Evolution</h2>')[1].split('<h2>')[0];
 
     it('names a test run by its kind, duration and scope on hover, and the browser pass apart from it', () => {
-      const html = render({ pulls: [withBody(recorded([testRun(2, 6, '@cockpit/api', 'tools/lead-time'), ...browser(8, 14)]))] });
+      const html = render({ pulls: [withBody(recorded([testRun(2, 6, '@cockpit/api', 'tools/cycle-time'), ...browser(8, 14)]))] });
       expect(titlesOf(html)).toEqual([
-        ['local-test', 'Local test run · 4m 00s · @cockpit/api, tools/lead-time'],
+        ['local-test', 'Local test run · 4m 00s · @cockpit/api, tools/cycle-time'],
         ['local-browser', 'Browser pass · 6m 00s'],
       ]);
     });

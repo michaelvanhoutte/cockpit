@@ -246,12 +246,12 @@ function failuresSection(model) {
 
 /**
  * @param {object} model the model buildModel produced
- * @param {{ explorerHref?: string, leadTimeHref?: string, selectionHref?: string }} [options] where the
- *   test explorer, the lead-time page and the test-selection page sit relative to this one. The four are
- *   published together, so the defaults are the directory above and its `lead-time/` and `selection/`.
+ * @param {{ explorerHref?: string, cycleTimeHref?: string, selectionHref?: string }} [options] where the
+ *   test explorer, the cycle-time page and the test-selection page sit relative to this one. The four are
+ *   published together, so the defaults are the directory above and its `cycle-time/` and `selection/`.
  * @returns {string} a complete HTML document
  */
-export function renderHtml(model, { explorerHref = '../', leadTimeHref = '../lead-time/', selectionHref = '../selection/' } = {}) {
+export function renderHtml(model, { explorerHref = '../', cycleTimeHref = '../cycle-time/', selectionHref = '../selection/' } = {}) {
   const styles = readFileSync(path.join(here, 'styles.css'), 'utf8');
   const commitUrl = model.commit
     ? `https://github.com/${model.repo}/commit/${model.commit}`
@@ -296,7 +296,7 @@ export function renderHtml(model, { explorerHref = '../', leadTimeHref = '../lea
           : ''
       }
       <span><a href="${esc(explorerHref)}"><b>Test explorer &rarr;</b></a></span>
-      <span><a href="${esc(leadTimeHref)}"><b>Lead time &rarr;</b></a></span>
+      <span><a href="${esc(cycleTimeHref)}"><b>Cycle time &rarr;</b></a></span>
       <span><a href="${esc(selectionHref)}"><b>Test selection &rarr;</b></a></span>
     </div>
   </header>

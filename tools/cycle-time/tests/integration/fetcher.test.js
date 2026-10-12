@@ -55,7 +55,7 @@ function stubApi({ listing, override = () => undefined }) {
 
 const collectFrom = (api, options = {}) => collect({ repo: 'o/r', since: SINCE, now: NOW, fetchImpl: api.fetchImpl, retries: 0, ...options });
 
-describe('Lead time', () => {
+describe('Cycle time', () => {
   describe('a refused or partial fetch is reported, never silently shortened', () => {
     it('reads a pull request in about five requests, its earlier check attempts included', async () => {
       const api = stubApi({ listing: [listed(1, '2026-09-11T00:00:00Z'), listed(2, '2026-09-10T00:00:00Z'), listed(3, '2026-08-01T00:00:00Z')] });

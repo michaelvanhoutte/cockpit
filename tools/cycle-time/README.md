@@ -1,4 +1,4 @@
-# Lead time
+# Cycle time
 
 Answers, without querying the API by hand: **how long does a change spend being written
 against waiting on the harness, how many rounds does it take, and which check holds each
@@ -9,11 +9,11 @@ already stores this history, so every run re-derives it.
 
 ## Reading it without running it
 
-Built once a night by the `Lead time` job of
+Built once a night by the `Cycle time` job of
 [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml), which says why it is not
 per merge, and by hand from the Actions tab when a night was missed. It is uploaded as the
-`lead-time-report` artifact, and that same run's own `Publish` job takes it live into
-**<https://michaelvanhoutte.github.io/cockpit/lead-time/>**, beside the test explorer, the
+`cycle-time-report` artifact, and that same run's own `Publish` job takes it live into
+**<https://michaelvanhoutte.github.io/cockpit/cycle-time/>**, beside the test explorer, the
 [CI stability page](../ci-stability/README.md), the [test-selection page](../selection/README.md) and the
 [architecture page](../architecture/README.md) —
 the same night, not waiting on the next merge. A missing artifact costs this page and never the site.
@@ -22,12 +22,12 @@ The published site carries `model.json` beside the page.
 ## Running it
 
 ```bash
-pnpm lead-time            # from the repo root — writes tools/lead-time/out/index.html
-pnpm --filter @cockpit/lead-time model   # the model instead, at out/model.json
+pnpm cycle-time            # from the repo root — writes tools/cycle-time/out/index.html
+pnpm --filter @cockpit/cycle-time model   # the model instead, at out/model.json
 ```
 
 ```bash
-cd tools/lead-time
+cd tools/cycle-time
 node src/cli.js                       # over 7 and 14 days
 node src/cli.js --windows 1,7         # different windows
 node src/cli.js --max-pulls 40        # stop at 40 pull requests, and report the period it reached

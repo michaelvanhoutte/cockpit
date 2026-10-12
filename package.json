@@ -25,7 +25,7 @@
     "test:explorer": "pnpm --filter @cockpit/test-explorer generate",
     "test:explorer:check": "pnpm --filter @cockpit/test-explorer check-concepts",
     "stability": "pnpm --filter @cockpit/ci-stability generate",
-    "lead-time": "pnpm --filter @cockpit/lead-time generate",
+    "cycle-time": "pnpm --filter @cockpit/cycle-time generate",
     "selection": "pnpm --filter @cockpit/selection generate",
     "architecture": "pnpm --filter @cockpit/architecture generate",
     "backup:export": "node scripts/backup-export.mjs",

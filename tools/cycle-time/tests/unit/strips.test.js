@@ -37,7 +37,7 @@ const modelled = (marks, { rounds = [[20, 40], [55, 65]], merged = 70 } = {}) =>
 const review = (kind, from, to) => [[from, 'review-start', kind, 'high'], [to, 'review-end', kind, 'high']];
 const total = (parts, ...types) => parts.filter((part) => types.includes(part.type)).reduce((sum, part) => sum + part.ms, 0);
 
-describe('Lead time', () => {
+describe('Cycle time', () => {
   describe('a local review is its own slice on the strip, at the time it ran', () => {
     it('cuts a review before the first push out of the coding, which shortens by its length', () => {
       const parts = partsOf(modelled(review('code-review', 5, 15)));
