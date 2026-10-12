@@ -10,6 +10,10 @@
  * `AWAY_MS`) is not on that scale: it would swallow the row, and is drawn as a
  * fixed break instead. A strip that still outruns the scale is cut at its edge
  * and says how much it cut.
+ *
+ * Every part sits at its own time and length on that scale (`fitTo` places them): none
+ * is padded, and none pushes another along. A slice too short to see is drawn a little
+ * wider by the page, over what follows it, and what follows still starts at its own time.
  */
 
 import { AWAY_MS, LOCAL_REVIEW_KINDS, LOCAL_RUN_KINDS } from '../model.js';
@@ -22,6 +26,9 @@ const SCALE_CAP_MS = 4 * 3_600_000;
 
 /** Below this a scale would be a scale of nothing, and every part would draw as full width. */
 const SCALE_FLOOR_MS = 60_000;
+
+/** The row a lane takes in a stack, by its rank in length: 0 is the strip's line, then above (-1), below (1), further above (-2), further below (2)... */
+const rowOfRank = (rank) => (rank === 0 ? 0 : rank % 2 === 1 ? -(rank + 1) / 2 : rank / 2);
 
 /**
  * One gap of writing — before the first push, or between rounds — as the stretches of
@@ -55,7 +62,14 @@ function gapParts(type, from, to, slices) {
       const lanes = stretch.ranges
         .map((range) => ({ ...describe(range.slice), offsetMs: range.from - stretch.from, ms: range.to - range.from }))
         .sort((a, b) => LANE_ORDER.indexOf(a.kind) - LANE_ORDER.indexOf(b.kind) || a.offsetMs - b.offsetMs);
-      parts.push({ type: 'parallel', ms: stretch.to - stretch.from, lanes });
+      // The longest piece stays on the strip's line, so the line is never blank; the others stack off it. Equal lengths fall back on the fixed order, so the same piece holds the line on every render.
+      [...lanes]
+        .sort((a, b) => b.ms - a.ms || LANE_ORDER.indexOf(a.kind) - LANE_ORDER.indexOf(b.kind) || a.offsetMs - b.offsetMs)
+        .forEach((lane, rank) => {
+          lane.row = rowOfRank(rank);
+        });
+      // `base` is what the line shows where no lane of it is running: the coding or fixing the stretch sat in.
+      parts.push({ type: 'parallel', base: type, ms: stretch.to - stretch.from, lanes });
     }
     cursor = stretch.to;
   }
@@ -117,11 +131,15 @@ export function scaleFor(allParts) {
  * much was shown and how much there was — a cut that said nothing would read as a
  * pull request that ended there.
  *
- * @returns {{ parts: object[], shownMs: number, clipped: null | { shownMs: number, totalMs: number } }}
+ * Every part comes back placed: `startMs` is where it begins on the scale (the time
+ * before it, not counting time away) and `breaksBefore` how many breaks sit before
+ * it, so a part draws at its own time and length whatever sits beside it.
+ *
+ * @returns {{ parts: object[], shownMs: number, breaks: number, clipped: null | { shownMs: number, totalMs: number } }}
  */
 export function fitTo(parts, scaleMs) {
   const totalMs = onScaleMs(parts);
-  if (totalMs <= scaleMs) return { parts, shownMs: totalMs, clipped: null };
+  if (totalMs <= scaleMs) return { ...placed(parts), shownMs: totalMs, clipped: null };
 
   const shown = [];
   let used = 0;
@@ -137,5 +155,62 @@ export function fitTo(parts, scaleMs) {
     shown.push(part.ms > room ? { ...part, ms: room, cut: true } : part);
     used += Math.min(part.ms, room);
   }
-  return { parts: shown, shownMs: used, clipped: { shownMs: used, totalMs } };
+  return { ...placed(shown), shownMs: used, clipped: { shownMs: used, totalMs } };
+}
+
+/** The parts with where each starts on the scale, and how many breaks (time away) sit before it. */
+function placed(parts) {
+  let startMs = 0;
+  let breaks = 0;
+  const out = parts.map((part) => {
+    const placement = { ...part, startMs, breaksBefore: breaks };
+    if (part.type === 'away') breaks += 1;
+    else startMs += part.ms;
+    return placement;
+  });
+  return { parts: out, breaks };
+}
+
+/** Axis steps, whole clock minutes up to a day: the smallest that puts no more than `AXIS_TICKS` across the strip. */
+const AXIS_STEPS_MS = [1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1440].map((minutes) => minutes * 60_000);
+const AXIS_TICKS = 8;
+/** A tick this close (as a share of the strip) to an end or the edge of a break is left out, since its label would sit on the other's. */
+const AXIS_CROWD = 0.07;
+
+/**
+ * The clock-time axis of a strip drawn on its own scale: a tick at the start, at the end, at each edge of a
+ * break, and at round clock times between. Time away has no ticks inside it, so the axis reads the real
+ * clock either side of a break. `align` says which side of its tick a label hangs on.
+ *
+ * @param {number} startedAt the strip's start, in epoch milliseconds
+ * @param {{ parts: object[], shownMs: number }} fitted a strip from `fitTo`
+ * @returns {{ atMs: number, startMs: number, breaksBefore: number, align: 'start'|'end'|'mid' }[]} in order of position
+ */
+export function axisFor(startedAt, fitted) {
+  const ticks = [];
+  const edge = (atMs, offsetMs, breaksBefore, align) => ticks.push({ atMs, startMs: offsetMs, breaksBefore, align, edge: true });
+  let clock = startedAt;
+  edge(clock, 0, 0, 'start');
+  for (const part of fitted.parts) {
+    if (part.type === 'away') {
+      edge(clock, part.startMs, part.breaksBefore, 'end');
+      edge(clock + part.ms, part.startMs, part.breaksBefore + 1, 'start');
+    }
+    clock += part.ms;
+  }
+  edge(clock, fitted.shownMs, fitted.parts.filter((part) => part.type === 'away').length, 'end');
+
+  const step = AXIS_STEPS_MS.find((each) => fitted.shownMs / each <= AXIS_TICKS) ?? AXIS_STEPS_MS[AXIS_STEPS_MS.length - 1];
+  const crowded = (offsetMs, breaksBefore) => ticks.some((tick) => tick.edge && tick.breaksBefore === breaksBefore && Math.abs(tick.startMs - offsetMs) < fitted.shownMs * AXIS_CROWD);
+  clock = startedAt;
+  for (const part of fitted.parts) {
+    if (part.type !== 'away') {
+      for (let at = Math.ceil(clock / step) * step; at < clock + part.ms; at += step) {
+        const offsetMs = part.startMs + (at - clock);
+        if (!crowded(offsetMs, part.breaksBefore)) ticks.push({ atMs: at, startMs: offsetMs, breaksBefore: part.breaksBefore, align: 'mid' });
+      }
+    }
+    clock += part.ms;
+  }
+  return ticks.map(({ edge: _edge, ...tick }) => tick).sort((a, b) => a.breaksBefore - b.breaksBefore || a.startMs - b.startMs || a.atMs - b.atMs);
 }

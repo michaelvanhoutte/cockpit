@@ -18,6 +18,7 @@
   --warn-line: #4a3a2a;
   /* Two colour families: local work in greens and teals, CI in blue. A later local kind takes another step of the first family. Kinds within a family differ by lightness too, so they stay apart in greyscale. */
   --checks: #4f8ef7;
+  --on-checks: #0b1220;
   --local-code-review: #2fc6b1;
   --local-security-review: #8de06a;
   --local-test: #c9f7b0;
@@ -45,6 +46,7 @@
     --warn-bg: #fff6e5;
     --warn-line: #ecd29a;
     --checks: #2f6fe0;
+    --on-checks: #ffffff;
     --local-code-review: #0f9a87;
     --local-security-review: #4c9a2a;
     --local-test: #a8d97a;
@@ -135,14 +137,35 @@ td.pr .title { color: var(--ink-2); }
 .pullrow:last-child { border-bottom: none; }
 .who { font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
 .who .when { color: var(--ink-3); font-size: 12px; margin-top: 2px; }
-.strip { min-width: 0; }
-.track { display: flex; align-items: stretch; height: 22px; background: var(--raised); border-radius: 4px; position: relative; overflow-x: clip; }
+/* `--break` is the width time away takes in a strip and its axis, off the scale; html.js places every part after a break by it. */
+.strip { min-width: 0; position: relative; --break: 30px; }
+/* A track is a line of time: each part is placed at its own start and length of it (inline left and width), so none is pushed by another and none is padded. */
+.track { display: block; height: 22px; background: var(--raised); border-radius: 4px; position: relative; overflow-x: clip; }
 /* The track clips only sideways, so a stack of lanes can stand above and below it; its ends are rounded here instead. */
 .track > .seg:first-child { border-radius: 4px 0 0 4px; }
-.track > .seg:last-child { border-radius: 0 4px 4px 0; }
-.trackempty { color: var(--ink-3); font-size: 12px; padding: 3px 8px; }
-.seg { display: block; min-width: 3px; position: relative; height: 100%; }
-.seg + .seg { margin-left: 1px; }
+.trackempty { display: block; color: var(--ink-3); font-size: 12px; line-height: 22px; padding: 0 8px; }
+/* A part too short to see is drawn at 3px, over the one after it, which still starts at its own time. */
+.seg { display: block; min-width: 3px; position: absolute; top: 0; height: 100%; }
+/* A local slice, a stretch of parallel ones and a round sit above the coding, fixing or wait they abut, or a widened one would be painted over by the part after it. */
+.seg.review, .seg.local, .seg.parallel, .seg.round { z-index: 1; }
+.track.stacked { margin-top: calc(var(--above) * 22px); margin-bottom: calc(var(--below) * 22px); }
+
+/* Click a strip to zoom in on it, click it again to close: the strip is the label of a checkbox, so no script. */
+.zoomtoggle { position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; margin: 0; }
+.striphit { display: block; cursor: zoom-in; user-select: none; border-radius: 4px; }
+.zoomed .striphit { cursor: zoom-out; }
+.zoomtoggle:focus-visible ~ .striphit, .striphit:hover { outline: 1px solid var(--ink-3); outline-offset: 2px; }
+.zoomed { display: none; }
+.zoomtoggle:checked ~ .zoomed { display: block; }
+.zoomtoggle:checked ~ .whenclosed { display: none; }
+/* The zoomed strip's clock-time axis: the same line of time as the strip above it, ticks at clock times. */
+.axis { position: relative; height: 18px; margin-bottom: 4px; border-top: 1px solid var(--ink-3); font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tick { position: absolute; top: 0; padding-top: 3px; white-space: nowrap; transform: translateX(-50%); }
+.tick::before { content: ''; position: absolute; top: -4px; left: 50%; height: 4px; border-left: 1px solid var(--ink-3); }
+.tick.start { transform: none; }
+.tick.start::before { left: 0; }
+.tick.end { transform: translateX(-100%); }
+.tick.end::before { left: 100%; }
 .seg.coding { background: var(--coding); }
 .seg.fixing { background: var(--fixing); }
 .seg.wait { background: var(--wait); }
@@ -150,7 +173,11 @@ td.pr .title { color: var(--ink-2); }
    in the order they finished. Same-coloured slices sit flush against each other
    on purpose — that reads as one stretch, which is correct when nothing else
    held the round in between. */
-.seg.round { display: flex; align-items: stretch; }
+.seg.round { display: flex; align-items: stretch; container-type: inline-size; font-size: 11px; }
+/* A CI Round is named on the strip by the width it has: "CI Round 1", then "CI 1", then only its mark. Which one shows is decided by container queries written out in html.js, since they depend on the number and the marks. */
+.roundlabel { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 3px; white-space: nowrap; pointer-events: none; font-weight: 600; line-height: 1; color: var(--on-checks); }
+.cilong, .cishort { display: none; }
+.seg.round:hover { outline: 2px solid var(--ink-1); outline-offset: -2px; z-index: 2; }
 /* A floor well under .seg's own 3px: two checks settling in the same recorded
    second hold a round for 0ms, and without this a real, titled, coloured piece
    would round to nothing and never be seen or hovered. */
@@ -161,26 +188,24 @@ td.pr .title { color: var(--ink-2); }
 .seg.local.local-test { background: var(--local-test); }
 .seg.local.local-browser { background: var(--local-browser); }
 /* Parallel local work: a full-height lane per thread, the stack centred on the strip's line. */
-.seg.parallel { background: transparent; }
+.seg.parallel.coding { background: var(--coding); }
+.seg.parallel.fixing { background: var(--fixing); }
 .lane { position: absolute; height: 100%; min-width: 3px; }
 .lane.local-code-review { background: var(--local-code-review); }
 .lane.local-security-review { background: var(--local-security-review); }
 .lane.local-test { background: var(--local-test); }
 .lane.local-browser { background: var(--local-browser); }
-.track.stacked { margin-block: calc((var(--lanes) - 1) * 11px); }
 /* Hatched, so that "not recorded" is a different thing from a coloured stretch,
    and from nothing. */
 .seg.unrecorded { background: repeating-linear-gradient(135deg, var(--coding) 0 3px, transparent 3px 6px); outline: 1px solid var(--coding); outline-offset: -1px; }
-.seg.away { flex: 0 0 26px; background: repeating-linear-gradient(90deg, transparent 0 3px, var(--ink-3) 3px 4px); opacity: 0.7; margin: 0 2px; }
+.seg.away { width: calc(var(--break) - 4px); background: repeating-linear-gradient(90deg, transparent 0 3px, var(--ink-3) 3px 4px); opacity: 0.7; }
 .seg.red { box-shadow: inset 0 0 0 2px var(--bad); }
-.fill-space { display: block; }
-.clipmark { flex: 0 0 auto; padding: 0 5px; color: var(--ink-1); background: var(--bad); font-size: 12px; line-height: 22px; }
+.clipmark { position: absolute; z-index: 3; top: 0; right: 0; height: 100%; padding: 0 5px; color: var(--ink-1); background: var(--bad); font-size: 12px; line-height: 22px; }
 
-.mark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-style: normal; font-size: 11px; line-height: 1; font-weight: 700; padding: 1px 3px; border-radius: 3px; white-space: nowrap; }
+.mark { font-style: normal; font-size: 11px; line-height: 1; font-weight: 700; padding: 1px 3px; border-radius: 3px; white-space: nowrap; flex: none; }
 .mark.red { background: var(--bad); color: #fff; }
 .mark.fluke { background: var(--warn); color: #14171f; }
-.mark.red + .mark.fluke { transform: translate(60%, -50%); }
-.key .mark { position: static; transform: none; margin-right: 6px; }
+.key .mark { margin-right: 6px; }
 
 .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; margin-left: 4px; border: 1px solid var(--line); color: var(--ink-2); }
 .tag.red { color: var(--bad); border-color: var(--bad); }
@@ -191,8 +216,11 @@ td.pr .title { color: var(--ink-2); }
 .clipnote { margin: 4px 0 0; font-size: 12px; color: var(--ink-3); }
 details { margin-top: 4px; font-size: 12px; color: var(--ink-3); }
 summary { cursor: pointer; }
-.roundlist { margin: 6px 0 0; padding-left: 22px; color: var(--ink-2); }
-.roundlist li { margin: 2px 0; }
+.roundlist { margin: 6px 0 0; padding: 0; list-style: none; color: var(--ink-2); }
+.roundlist li { margin: 2px 0; padding: 1px 4px; border-radius: 3px; }
+/* The pairing of a CI Round with its line (hover either) is written out per number in html.js, scoped to one pull request's row. */
+.ciround { margin: 0; color: var(--ink-2); }
+.ciround b { color: var(--ink-1); }
 
 /* Evolution: several small time-series panels sharing one x-axis (the merge date),
    each on its own y-scale since minutes, a count and a percentage do not compare.

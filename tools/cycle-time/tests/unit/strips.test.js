@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { renderBlock } from '../../../../scripts/lib/session-record.mjs';
 import { pullModel } from '../../src/model.js';
-import { fitTo, partsOf, scaleFor } from '../../src/render/strips.js';
+import { axisFor, fitTo, partsOf, scaleFor } from '../../src/render/strips.js';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -167,7 +167,7 @@ describe('Cycle time', () => {
 
   describe('a local test run and the browser pass are slices on the strip, and the strip and scatter count the same time', () => {
     /** The same pull request `modelled` builds, with a record that carries test runs `[from, to, scope]` and browser passes `[from, to]`. */
-    const withRuns = ({ runs = [], browser = [], reviews = [] } = {}) => {
+    const withRuns = ({ runs = [], browser = [], reviews = [], securityReviews = [] } = {}) => {
       const [first, second] = [[20, 40], [55, 65]];
       let id = 1;
       const check = ([from, to]) => ({ id: id++, name: 'Test', suiteId: 1, status: 'completed', conclusion: 'success', startedAt: at(from), completedAt: at(to) });
@@ -180,6 +180,7 @@ describe('Cycle time', () => {
         body: renderBlock([
           { at: at(0), phase: 'start' },
           ...reviews.flatMap(([from, to]) => [{ at: at(from), phase: 'review-start', kind: 'code-review', level: 'high' }, { at: at(to), phase: 'review-end', kind: 'code-review', level: 'high' }]),
+          ...securityReviews.flatMap(([from, to]) => [{ at: at(from), phase: 'review-start', kind: 'security-review', level: 'high' }, { at: at(to), phase: 'review-end', kind: 'security-review', level: 'high' }]),
           ...browser.flatMap(([from, to]) => [{ at: at(from), phase: 'browser-start' }, { at: at(to), phase: 'browser-end' }]),
           ...runs.map(([from, to, scope]) => ({ run: 'test', scopes: [scope], start: at(from), end: at(to) })),
         ]),
@@ -284,6 +285,126 @@ describe('Cycle time', () => {
     it('draws a test run across the first push only as far as the push', () => {
       const parts = partsOf(withRuns({ runs: [[10, 30, 'api']] }));
       expect(parts.slice(0, 3).map((part) => [part.type, part.ms / MIN])).toEqual([['coding', 10], ['test', 10], ['round', 20]]);
+    });
+
+    describe('overlapping local work never blanks the line', () => {
+      const stretchOf = (parts) => parts.find((part) => part.type === 'parallel');
+      const rowsOf = (parts) => stretchOf(parts).lanes.map((lane) => [lane.kind, lane.row]);
+
+      it('keeps a review that overlapped two other pieces only at its end on the line as one piece, with them stacked off it', () => {
+        // The review runs 5½ minutes; a test run and a browser pass begin 45 and 30 seconds before it ends.
+        const parts = partsOf(withRuns({ reviews: [[2, 7.5]], runs: [[6.75, 9, 'api']], browser: [[7, 8.5]] }));
+        expect(rowsOf(parts)).toEqual([['code-review', 0], ['test', -1], ['browser', 1]]);
+        const review = stretchOf(parts).lanes[0];
+        expect([review.offsetMs / MIN, review.ms / MIN]).toEqual([0, 5.5]);
+      });
+
+      it('puts the longest of three overlapping pieces on the line, the next above it and the next below', () => {
+        const parts = partsOf(withRuns({ reviews: [[2, 12]], securityReviews: [[3, 11]], runs: [[4, 10, 'api']] }));
+        expect(stretchOf(parts).lanes.map((lane) => [lane.kind, lane.ms / MIN, lane.row])).toEqual([
+          ['code-review', 10, 0],
+          ['security-review', 8, -1],
+          ['test', 6, 1],
+        ]);
+      });
+
+      it('puts a fourth overlapping piece further out, above again', () => {
+        const parts = partsOf(withRuns({ reviews: [[2, 12]], securityReviews: [[3, 11]], runs: [[4, 10, 'api']], browser: [[5, 9]] }));
+        expect(stretchOf(parts).lanes.map((lane) => [lane.kind, lane.ms / MIN, lane.row])).toEqual([
+          ['code-review', 10, 0],
+          ['security-review', 8, -1],
+          ['test', 6, 1],
+          ['browser', 4, -2],
+        ]);
+      });
+
+      it('shows the coding or fixing on the line where no piece of the overlap is running on it', () => {
+        const coding = partsOf(withRuns({ reviews: [[2, 10]], runs: [[8, 14, 'api']] }));
+        expect(stretchOf(coding)).toMatchObject({ base: 'coding', ms: 12 * MIN });
+        const [line] = stretchOf(coding).lanes;
+        expect(line.row).toBe(0);
+        expect(line.offsetMs + line.ms).toBeLessThan(stretchOf(coding).ms);
+        const fixing = partsOf(withRuns({ reviews: [[42, 50]], runs: [[48, 53, 'api']] }));
+        expect(stretchOf(fixing).base).toBe('fixing');
+      });
+
+      it('keeps the same one of two equally long pieces on the line on every render, whichever was recorded first', () => {
+        const first = partsOf(modelled([...review('code-review', 2, 8), ...review('security-review', 2, 8)]));
+        const reversed = partsOf(modelled([...review('security-review', 2, 8), ...review('code-review', 2, 8)]));
+        expect(rowsOf(first)).toEqual([['code-review', 0], ['security-review', -1]]);
+        expect(rowsOf(reversed)).toEqual(rowsOf(first));
+      });
+    });
+  });
+
+  describe('every part sits at its own time and length on the scale', () => {
+    it('draws the 33 minutes before the first push at 33/21 of the width of a 21-minute round, and starts the round at minute 33', () => {
+      // Thirty-three minutes holding many short reviews, then a round of 21.
+      const short = [[1, 2], [5, 6], [9, 10], [13, 14], [17, 18], [21, 22], [25, 26], [29, 30]].flatMap(([from, to]) => review('code-review', from, to));
+      const fitted = fitTo(partsOf(modelled(short, { rounds: [[33, 54]], merged: 54 })), 60 * MIN);
+      const [round] = fitted.parts.filter((part) => part.type === 'round');
+      expect(round.startMs).toBe(33 * MIN);
+      expect(round.ms).toBe(21 * MIN);
+      const before = fitted.parts.filter((part) => part.startMs < round.startMs);
+      expect(before.reduce((sum, part) => sum + part.ms, 0) / round.ms).toBeCloseTo(33 / 21, 10);
+    });
+
+    it('starts every part where the one before it ends, with no gap added', () => {
+      const fitted = fitTo(partsOf(modelled([...review('code-review', 2, 6), ...review('security-review', 8, 10)])), 70 * MIN);
+      let end = 0;
+      for (const part of fitted.parts) {
+        expect(part.startMs).toBe(end);
+        end += part.ms;
+      }
+      expect(end).toBe(fitted.shownMs);
+    });
+
+    it('keeps a slice far shorter than anything visible at its own length, and the parts after it at their own times', () => {
+      // Fifteen seconds of review five minutes in: not widened here, so the round after it is still where its time puts it.
+      const fitted = fitTo(partsOf(modelled([[5, 'review-start', 'code-review', 'high'], [5.25, 'review-end', 'code-review', 'high']])), 70 * MIN);
+      const slice = fitted.parts.find((part) => part.type === 'review');
+      expect([slice.startMs, slice.ms]).toEqual([5 * MIN, 15_000]);
+      expect(fitted.parts.find((part) => part.type === 'round').startMs).toBe(20 * MIN);
+    });
+
+    it('keeps time away a break off the scale, and the parts after it at their own times from it', () => {
+      const fitted = fitTo(partsOf(pull([[0, 30], [400, 430]], 430)), 90 * MIN);
+      expect(fitted.parts.map((part) => [part.type, part.startMs / MIN, part.breaksBefore])).toEqual([
+        ['round', 0, 0],
+        ['away', 30, 0],
+        ['round', 30, 1],
+      ]);
+      expect(fitted.breaks).toBe(1);
+    });
+  });
+
+  describe('a zoomed strip has a clock-time axis from its start to its merge', () => {
+    const clock = (minutes) => BASE + minutes * MIN;
+
+    it('puts a tick at the pull request’s start and at its merge, and round clock times between', () => {
+      const fitted = fitTo(partsOf(pull([[10, 20], [30, 40]], 45, 10)), Infinity);
+      const ticks = axisFor(clock(0), fitted);
+      expect(ticks.map((tick) => [tick.atMs, tick.startMs / MIN])).toEqual([[clock(0), 0], [clock(10), 10], [clock(20), 20], [clock(30), 30], [clock(40), 40], [clock(45), 45]]);
+      expect([ticks[0].align, ticks[ticks.length - 1].align]).toEqual(['start', 'end']);
+    });
+
+    it('reads the real clock time either side of time away, with nothing inside it', () => {
+      const fitted = fitTo(partsOf(pull([[0, 30], [400, 430]], 430)), Infinity);
+      const ticks = axisFor(clock(0), fitted);
+      expect(ticks.filter((tick) => tick.atMs > clock(30) && tick.atMs < clock(400))).toEqual([]);
+      expect(ticks.filter((tick) => [clock(30), clock(400)].includes(tick.atMs)).map((tick) => [tick.atMs, tick.breaksBefore, tick.align])).toEqual([
+        [clock(30), 0, 'end'],
+        [clock(400), 1, 'start'],
+      ]);
+      expect(ticks[ticks.length - 1].atMs).toBe(clock(430));
+    });
+
+    it('covers the whole pull request, though it was cut on the shared scale', () => {
+      const parts = partsOf(pull([[0, 60], [70, 200]], 200));
+      expect(fitTo(parts, 120 * MIN).clipped).not.toBeNull();
+      const zoomed = fitTo(parts, Infinity);
+      expect(zoomed.clipped).toBeNull();
+      expect(axisFor(clock(0), zoomed).pop().atMs).toBe(clock(200));
     });
   });
 });

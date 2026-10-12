@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 import { AWAY_MS, LOCAL_REVIEW_KINDS, LOCAL_RUN_KINDS } from '../model.js';
 import { layoutScatter, radiusFor } from './scatter.js';
-import { fitTo, partsOf, scaleFor } from './strips.js';
+import { axisFor, fitTo, partsOf, scaleFor } from './strips.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -140,7 +140,7 @@ function heldBy(round) {
 
 /** What a round says about itself, in words, for the title on its segment and the list under its strip. */
 function roundText(round, index) {
-  const parts = [`Round ${index}`, humanMs(round.ms), `pushed ${stamp(round.pushedAt)}`];
+  const parts = [`CI Round ${index}`, humanMs(round.ms), `pushed ${stamp(round.pushedAt)}`];
   if (round.held.length) parts.push(`held by ${heldBy(round)}`);
   if (round.red) parts.push(`RED: ${round.failed.join(', ')} failed`);
   if (round.flukes.length) parts.push(`FLUKE: ${round.flukes.map((fluke) => `${fluke.name} failed and passed on re-run, +${humanMs(fluke.ms)}`).join('; ')}`);
@@ -208,47 +208,102 @@ function roundPieces(round, visibleMs = round.ms) {
   return shown.map((held) => `<span class="piece checks" style="flex:${growOf(held.ms)} 1 0" title="${esc(heldText(held))}"></span>`).join('');
 }
 
-function segment(part, pull) {
-  if (part.type === 'away') return `<span class="seg away" title="${esc(PART_TITLE.away(part))}"><span class="sr">away ${esc(humanMs(part.ms))}</span></span>`;
+/**
+ * Where a part sits in its strip: at its own time and its own length of the scale, never pushed by a
+ * neighbour. `--span` is the track less its breaks, so the time on the scale fills what is left; a
+ * break is `--break` wide (styles.css), its stripes inset 2px either side.
+ */
+function placeStyle(part, scaleMs) {
+  const left = `calc(var(--span) * ${(part.startMs / scaleMs).toFixed(5)} + var(--break) * ${part.breaksBefore}${part.type === 'away' ? ' + 2px' : ''})`;
+  return part.type === 'away' ? `left:${left}` : `left:${left};width:calc(var(--span) * ${(part.ms / scaleMs).toFixed(5)})`;
+}
 
-  const grow = `flex:${growOf(part.ms)} 1 0`;
+/** The lanes of a parallel stretch that fall inside it, once the stretch is cut at the scale's edge. */
+const visibleLanes = (part) => part.lanes.filter((lane) => lane.offsetMs < part.ms);
+
+function segment(part, pull, scaleMs) {
+  const place = placeStyle(part, scaleMs);
+  if (part.type === 'away') return `<span class="seg away" style="${place}" title="${esc(PART_TITLE.away(part))}"><span class="sr">away ${esc(humanMs(part.ms))}</span></span>`;
+
   if (part.type === 'round') {
-    const marks =
-      (part.round.red ? '<i class="mark red" aria-hidden="true">✕</i>' : '') + (part.round.flukes.length ? '<i class="mark fluke" aria-hidden="true">↻</i>' : '');
-    const pieces = roundPieces(part.round, part.cut ? part.ms : undefined);
-    return `<span class="seg round${part.round.red ? ' red' : ''}${part.cut ? ' cut' : ''}" style="${grow}" title="${esc(roundText(part.round, part.index))}">${pieces}${marks}</span>`;
+    const { round, index } = part;
+    const marked = [round.red ? '<i class="mark red" aria-hidden="true">✕</i>' : '', round.flukes.length ? '<i class="mark fluke" aria-hidden="true">↻</i>' : ''].filter(Boolean);
+    const pieces = roundPieces(round, part.cut ? part.ms : undefined);
+    // Named by the width it has on screen, which only the browser knows: the long form, the short, or only its mark (styles `roundLabelRules`).
+    const label = `<span class="roundlabel" aria-hidden="true">${marked.join('')}<span class="cilong">CI Round ${index}</span><span class="cishort">CI ${index}</span></span>`;
+    const size = `d${Math.min(3, String(index).length)} m${marked.length}`;
+    return `<span class="seg round${round.red ? ' red' : ''} ${size}${part.cut ? ' cut' : ''}" data-round="${index}" style="${place}" title="${esc(roundText(round, index))}">${pieces}${label}</span>`;
   }
 
   if (part.type === 'review' || part.type === 'test' || part.type === 'browser') {
-    return `<span class="seg ${part.type === 'review' ? 'review' : 'local'} ${reviewClass(part.kind)}${part.cut ? ' cut' : ''}" style="${grow}" title="${esc(sliceText(part))}"></span>`;
+    return `<span class="seg ${part.type === 'review' ? 'review' : 'local'} ${reviewClass(part.kind)}${part.cut ? ' cut' : ''}" style="${place}" title="${esc(sliceText(part))}"></span>`;
   }
 
-  // Local work in parallel: one full-height lane per thread, stacked about the strip's centre line, each where its own work sits in the stretch.
+  // Local work in parallel: the longest piece stays on the strip's line and the others stack off it, each where its own work sits in the stretch. The line shows the coding or fixing where no piece of it runs.
   if (part.type === 'parallel') {
-    const lanes = part.lanes.filter((lane) => lane.offsetMs < part.ms);
-    const lanesHtml = lanes
-      .map((lane, index) => {
+    const lanesHtml = visibleLanes(part)
+      .map((lane) => {
         const left = (lane.offsetMs / part.ms) * 100;
         const width = (Math.min(lane.ms, part.ms - lane.offsetMs) / part.ms) * 100;
-        const top = (index - (lanes.length - 1) / 2) * 100;
-        return `<span class="lane ${reviewClass(lane.kind)}" style="left:${left.toFixed(3)}%;width:${width.toFixed(3)}%;top:${top}%" title="${esc(sliceText(lane))}"></span>`;
+        return `<span class="lane ${reviewClass(lane.kind)}" style="left:${left.toFixed(3)}%;width:${width.toFixed(3)}%;top:${lane.row * 100}%" title="${esc(sliceText(lane))}"></span>`;
       })
       .join('');
-    return `<span class="seg parallel${part.cut ? ' cut' : ''}" style="${grow}">${lanesHtml}</span>`;
+    return `<span class="seg parallel ${part.base}${part.cut ? ' cut' : ''}" style="${place}">${lanesHtml}</span>`;
   }
 
   const unrecorded = part.type === 'coding' && !pull.recorded ? ' unrecorded' : '';
-  return `<span class="seg ${part.type}${unrecorded}${part.cut ? ' cut' : ''}" style="${grow}" title="${esc(PART_TITLE[part.type](part, pull))}"></span>`;
+  return `<span class="seg ${part.type}${unrecorded}${part.cut ? ' cut' : ''}" style="${place}" title="${esc(PART_TITLE[part.type](part, pull))}"></span>`;
 }
 
-function strip(pull, fitted, scaleMs) {
-  if (pull.rounds.length === 0) return '<div class="track"><span class="trackempty">no check ran on it</span></div>';
-  const filler = fitted.shownMs < scaleMs ? `<span class="fill-space" style="flex:${Math.round((scaleMs - fitted.shownMs) / 1000)} 1 0"></span>` : '';
+/** A strip's track, its parts placed against `scaleMs`; the shared scale in a row, and the pull request's own when zoomed. */
+function track(pull, fitted, scaleMs) {
+  const scale = Math.max(1, scaleMs);
   const cap = fitted.clipped ? '<span class="clipmark" aria-hidden="true">&#9656;</span>' : '';
-  // The track makes room above and below for the tallest stack of lanes, which is centred on its line.
-  const stack = Math.max(1, ...fitted.parts.filter((part) => part.type === 'parallel').map((part) => part.lanes.filter((lane) => lane.offsetMs < part.ms).length));
-  const room = stack > 1 ? ` style="--lanes:${stack}"` : '';
-  return `<div class="track${stack > 1 ? ' stacked' : ''}"${room}>${fitted.parts.map((part) => segment(part, pull)).join('')}${filler}${cap}</div>`;
+  // The track makes room above and below for the stack of lanes standing off its line.
+  const rows = fitted.parts.filter((part) => part.type === 'parallel').flatMap((part) => visibleLanes(part).map((lane) => lane.row));
+  const above = Math.max(0, ...rows.map((row) => -row));
+  const below = Math.max(0, ...rows);
+  const vars = [`--span:${spanOf(fitted)}`, above + below > 0 ? `--above:${above};--below:${below}` : ''].filter(Boolean).join(';');
+  return `<span class="track${above + below > 0 ? ' stacked' : ''}" style="${vars}">${fitted.parts.map((part) => segment(part, pull, scale)).join('')}${cap}</span>`;
+}
+
+/** The track's width less its breaks: what the time on the scale is drawn across. */
+const spanOf = (fitted) => (fitted.breaks ? `calc(100% - var(--break) * ${fitted.breaks})` : '100%');
+
+/** A clock time on the axis: the hour and minute, with the day too where it is not the strip's first. */
+function clockLabel(atMs, startedAt) {
+  const iso = new Date(atMs).toISOString();
+  return day(iso) === day(new Date(startedAt).toISOString()) ? iso.slice(11, 16) : `${iso.slice(5, 10)} ${iso.slice(11, 16)}`;
+}
+
+/** The zoomed strip's axis, in the clock time of the pull request, from its start to its merge. Time away has none of its own. */
+function axis(pull, zoomed) {
+  const startedAt = Date.parse(pull.rounds[0].pushedAt) - pull.beforeFirstPushMs;
+  const scale = Math.max(1, zoomed.shownMs);
+  const ticks = axisFor(startedAt, zoomed)
+    .map((tick) => `<span class="tick ${tick.align}" style="left:calc(var(--span) * ${(tick.startMs / scale).toFixed(5)} + var(--break) * ${tick.breaksBefore})">${clockLabel(tick.atMs, startedAt)}</span>`)
+    .join('');
+  return `<div class="axis" style="--span:${spanOf(zoomed)}" title="Clock time, UTC">${ticks}</div>`;
+}
+
+/** The lines under a strip, one per CI Round; each is paired with its round on the strip by `data-round`. */
+const roundList = (pull) =>
+  `<ol class="roundlist">${pull.rounds.map((round, position) => `<li data-round="${position + 1}">${esc(roundText(round, position + 1))}</li>`).join('')}</ol>`;
+
+/** The strip in a row: on the shared scale, and when clicked the same pull request zoomed on its own axis above its round list. */
+function strip(pull, parts, fitted, scaleMs, summary, notes) {
+  if (pull.rounds.length === 0) return '<span class="track"><span class="trackempty">no check ran on it</span></span>';
+  const id = `zoom-${esc(pull.number)}`;
+  const zoomed = fitTo(parts, Infinity);
+  // A checkbox the strip is the label of: a click toggles it and the page's styles show the other form, with no script.
+  return `<input type="checkbox" class="zoomtoggle" id="${id}" aria-label="Zoom in on #${esc(pull.number)}">
+      <label class="striphit whenclosed" for="${id}" title="Click to zoom in on this pull request">${track(pull, fitted, scaleMs)}</label>
+      <div class="zoomed">
+        <label class="striphit" for="${id}" title="Click to close">${track(pull, zoomed, zoomed.shownMs)}</label>
+        ${axis(pull, zoomed)}
+        <p class="clipnote">${summary}</p>
+        ${roundList(pull)}${notes}
+      </div>`;
 }
 
 function stripRow(pull, parts, scaleMs) {
@@ -265,20 +320,18 @@ function stripRow(pull, parts, scaleMs) {
   ].join('');
 
   const clipNote = fitted.clipped
-    ? `<p class="clipnote">Clipped: ${humanMs(fitted.clipped.totalMs)} on the scale in all (time away is not counted), the first ${humanMs(fitted.clipped.shownMs)} shown. The strip ends at the edge of the scale, not at the merge.</p>`
+    ? `<p class="clipnote whenclosed">Clipped: ${humanMs(fitted.clipped.totalMs)} on the scale in all (time away is not counted), the first ${humanMs(fitted.clipped.shownMs)} shown. The strip ends at the edge of the scale, not at the merge. Click it to see all of it.</p>`
     : '';
-  const detail = pull.rounds.length
-    ? `<details><summary>${plural(pull.rounds.length, 'round')}${reds ? `, ${reds} red` : ''} &middot; ${humanMs(pull.totalMs)} to merge</summary><ol class="roundlist">${pull.rounds
-        .map((round, position) => `<li>${esc(roundText(round, position + 1))}</li>`)
-        .join('')}</ol>${pull.notes.length ? `<p class="clipnote">${esc(pull.notes.join(' '))}</p>` : ''}</details>`
-    : '';
+  const summary = `${plural(pull.rounds.length, 'CI Round')}${reds ? `, ${reds} red` : ''} &middot; ${humanMs(pull.totalMs)} to merge`;
+  const notes = pull.notes.length ? `<p class="clipnote">${esc(pull.notes.join(' '))}</p>` : '';
+  const detail = pull.rounds.length ? `<details class="whenclosed"><summary>${summary}</summary>${roundList(pull)}${notes}</details>` : '';
 
   return `<div class="pullrow">
     <div class="who">
       <a href="${esc(pull.url)}" target="_blank" rel="noopener"><b>#${esc(pull.number)}</b> ${esc(pull.title)}</a>
       <div class="when">merged ${esc(stamp(pull.mergedAt))} ${tags}</div>
     </div>
-    <div class="strip">${strip(pull, fitted, scaleMs)}<span class="sr">${esc(humanMs(pull.totalMs))} to merge, ${plural(pull.rounds.length, 'round')}</span>${clipNote}${detail}</div>
+    <div class="strip">${strip(pull, parts, fitted, scaleMs, summary, notes)}<span class="sr">${esc(humanMs(pull.totalMs))} to merge, ${plural(pull.rounds.length, 'CI Round')}</span>${clipNote}${detail}</div>
   </div>`;
 }
 
@@ -298,6 +351,7 @@ function groupedKeys(ids, text) {
 function legend() {
   const text = (id) => (id.startsWith('local-') ? `${KIND[id].key} (local, at the time it ran)` : KIND[id].key);
   return `<div class="legend grouped">
+    <p class="ciround"><b>CI Round</b>: a push, until the last check on it finishes; a red one failed and was pushed again.</p>
     ${groupedKeys(['coding', 'fixing', 'local-code-review', 'local-security-review', 'local-test', 'local-browser', 'checks'], text)}
     <div class="keygroup">
       ${swatch('wait', 'waiting to merge')}
@@ -313,7 +367,7 @@ function strips(model) {
   if (model.pulls.length === 0) return '<div class="card"><p class="empty">No merged pull requests in this period.</p></div>';
   const allParts = model.pulls.map(partsOf);
   const scaleMs = scaleFor(allParts);
-  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}. Time away is not on it. A round is split into the checks that held it, in the order they finished — hover a slice for which one and how long; open a row for its rounds in words. A local review, test run or browser pass is cut out of the coding or fixing it sat in, at the time it ran; where two run in parallel, the stretch splits into a lane each, code review on top, and the minutes they share are counted once. Work on the developer&rsquo;s machine is drawn in greens and teals, CI in blue.</p>`;
+  const scaleNote = `<p class="sectionnote">Every strip is on one scale, up to ${humanMs(scaleMs)}, and every part sits at its own time and length on it; one too short to see is drawn a little wider, over what follows it. Time away is not on it. A CI Round is split into the checks that held it, in the order they finished — hover a slice for which one and how long, and hover a round to find its line in the list; it is named on the strip as far as its width allows. Click a strip to open that pull request on its own scale, uncut, with a clock-time axis (UTC) above its CI Rounds in words; click it again to close it. A local review, test run or browser pass is cut out of the coding or fixing it sat in, at the time it ran; where several run in parallel, the longest stays on the line and the others stack above it, then below, and the minutes they share are counted once. Work on the developer&rsquo;s machine is drawn in greens and teals, CI in blue.</p>`;
   return `${scaleNote}${legend()}<div class="card">${model.pulls.map((pull, index) => stripRow(pull, allParts[index], scaleMs)).join('')}</div>`;
 }
 
@@ -683,11 +737,46 @@ function evolutionZoomTabs(model) {
 }
 
 /**
+ * The widths, in the em of a round's own 11px type, at which a CI Round has room for its short
+ * name ("CI 1") and its long one ("CI Round 1"). Each is for one digit and no mark, and grows by
+ * `PER_DIGIT` for every digit more in the number and `PER_MARK` for every mark beside the name.
+ */
+const LABEL_FITS = { short: 2.6, long: 6, perDigit: 0.6, perMark: 1.9 };
+
+/**
+ * What the stylesheet cannot say for itself, written out for the rounds this page has:
+ * - which label a CI Round shows at the width it has, closed or zoomed, as container queries on the round (below the short form's width it shows only its mark, or nothing);
+ * - the pairing of a round with its line in the list, one rule per number, scoped to the pull request's own row so a CI Round 1 elsewhere is left alone.
+ */
+function generatedStyles(maxRounds) {
+  const em = (value) => `${Math.round(value * 10) / 10}em`;
+  const labelRules = [];
+  for (let digits = 1; digits <= 3; digits += 1) {
+    for (let marks = 0; marks <= 2; marks += 1) {
+      const own = `.seg.round.d${digits}.m${marks}`;
+      const extra = LABEL_FITS.perDigit * (digits - 1) + LABEL_FITS.perMark * marks;
+      labelRules.push(
+        `@container (min-width: ${em(LABEL_FITS.short + extra)}) { ${own} .cishort { display: inline; } }`,
+        `@container (min-width: ${em(LABEL_FITS.long + extra)}) { ${own} .cishort { display: none; } ${own} .cilong { display: inline; } }`,
+      );
+    }
+  }
+  const numbers = Array.from({ length: maxRounds }, (_, index) => index + 1);
+  const pair = (hovered, other) => numbers.map((number) => `.pullrow:has(${hovered}[data-round="${number}"]:hover) ${other}[data-round="${number}"]`).join(',\n');
+  const links =
+    numbers.length === 0
+      ? ''
+      : `${pair('.seg.round', '.roundlist li')} { background: var(--raised); color: var(--ink-1); outline: 1px solid var(--accent); }
+${pair('.roundlist li', '.seg.round')} { outline: 2px solid var(--ink-1); outline-offset: -2px; z-index: 2; }`;
+  return `${labelRules.join('\n')}\n${links}`;
+}
+
+/**
  * @param {object} model the model buildModel produced
  * @returns {string} a complete HTML document
  */
 export function renderHtml(model) {
-  const styles = readFileSync(path.join(here, 'styles.css'), 'utf8');
+  const styles = `${readFileSync(path.join(here, 'styles.css'), 'utf8')}\n${generatedStyles(Math.max(0, ...model.pulls.map((pull) => pull.rounds.length)))}`;
   const commitUrl = model.commit ? `https://github.com/${model.repo}/commit/${model.commit}` : null;
 
   return `<!doctype html>
