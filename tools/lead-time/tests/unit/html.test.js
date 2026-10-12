@@ -296,7 +296,7 @@ describe('Lead time', () => {
       const legend = legendOf(render({ pulls: [withReviews(['code-review', 'high', 5, 15])] }));
       const swatchesIn = (group) => [...group.matchAll(/class="swatch ([\w-]+)"/g)].map((match) => match[1]);
       const [, local, ci, neither] = legend.split('<div class="keygroup');
-      expect(swatchesIn(local)).toEqual(['coding', 'fixing', 'local-code-review', 'local-security-review']);
+      expect(swatchesIn(local)).toEqual(['coding', 'fixing', 'local-code-review', 'local-security-review', 'local-test', 'local-browser']);
       expect(swatchesIn(ci)).toEqual(['checks']);
       expect(local).toContain('>Local<');
       expect(ci).toContain('>CI<');
@@ -315,7 +315,7 @@ describe('Lead time', () => {
       };
       const valuesOf = (name) => [...css.matchAll(new RegExp(`--${name}: (#[0-9a-f]{6});`, 'g'))].map((match) => match[1]);
 
-      it.each(['coding', 'fixing', 'local-code-review', 'local-security-review'])('draws the local kind %s in greens and teals, in dark and light', (name) => {
+      it.each(['coding', 'fixing', 'local-code-review', 'local-security-review', 'local-test', 'local-browser'])('draws the local kind %s in greens and teals, in dark and light', (name) => {
         const values = valuesOf(name);
         expect(values).toHaveLength(2);
         for (const value of values) expect([hueOf(value) >= 90, hueOf(value) <= 180]).toEqual([true, true]);
@@ -342,7 +342,7 @@ describe('Lead time', () => {
       const html = render({ pulls: [pull({ commits: [commit('a', 0, [check('Test', 20, 40)])] })] });
       expect(stripOf(html, 1)).not.toContain('seg review');
       expect(rowOf(html, 1)).toContain('>not recorded<');
-      expect(rowOf(html, 1)).toContain('local review are not measured');
+      expect(rowOf(html, 1)).toContain('test runs and browser pass are not measured');
     });
 
     it('draws no review slice for a record that marks no review, and does not call it not recorded', () => {
@@ -665,6 +665,67 @@ describe('Lead time', () => {
       expect(html).toContain('href="../"');
       expect(html).toContain('href="../stability/"');
       expect(html).toContain('href="../selection/"');
+    });
+  });
+
+  describe('the strip and the panel draw a local test run and the browser pass', () => {
+    const recorded = (extra = []) =>
+      renderBlock([{ at: at(0), phase: 'start' }, ...extra, { at: at(19), phase: 'pushed' }]);
+    const testRun = (from, to, ...scopes) => ({ run: 'test', scopes, start: at(from), end: at(to) });
+    const browser = (from, to) => [{ at: at(from), phase: 'browser-start' }, { at: at(to), phase: 'browser-end' }];
+    const withBody = (body) => pull({ body, mergedAt: at(60), commits: [commit('a', 0, [check('Test', 20, 40)])] });
+    const titlesOf = (html) => [...stripOf(html, 1).matchAll(/<span class="seg (?:review|local)(?: overlap)? ([\w-]+)[^"]*" style="[^"]*" title="([^"]*)"/g)].map((match) => [match[1], match[2]]);
+    // The evolution panels need a second pull request to show a trend.
+    const later = pull({ number: 2, mergedAt: at(120), commits: [commit('b', 60, [check('Test', 62, 72)])] });
+    const panelOf = (html) => html.split('<h2>Evolution</h2>')[1].split('<h2>')[0];
+
+    it('names a test run by its kind, duration and scope on hover, and the browser pass apart from it', () => {
+      const html = render({ pulls: [withBody(recorded([testRun(2, 6, '@cockpit/api', 'tools/lead-time'), ...browser(8, 14)]))] });
+      expect(titlesOf(html)).toEqual([
+        ['local-test', 'Local test run · 4m 00s · @cockpit/api, tools/lead-time'],
+        ['local-browser', 'Browser pass · 6m 00s'],
+      ]);
+    });
+
+    it('names both kinds on the one stretch a test run and a review share', () => {
+      const reviewing = [{ at: at(2), phase: 'review-start', kind: 'code-review', level: 'high' }, { at: at(10), phase: 'review-end', kind: 'code-review', level: 'high' }, testRun(8, 12, 'a')];
+      const html = render({ pulls: [withBody(recorded(reviewing))] });
+      expect(stripOf(html, 1)).toContain('title="Local code review · high · 8m 00s\nLocal test run · 4m 00s · a"');
+    });
+
+    it('stripes a stretch three local kinds share in all three colours', () => {
+      const reviewing = [{ at: at(2), phase: 'review-start', kind: 'code-review', level: 'high' }, { at: at(10), phase: 'review-end', kind: 'code-review', level: 'high' }, testRun(4, 12, 'a'), ...browser(6, 14)];
+      const html = render({ pulls: [withBody(recorded(reviewing))] });
+      expect(stripOf(html, 1)).toContain('var(--local-code-review) 0px 4px, var(--local-test) 4px 8px, var(--local-browser) 8px 12px');
+    });
+
+    it('keys the test run and the browser pass as local, at the time they ran', () => {
+      const html = render({ pulls: [withBody(recorded())] });
+      const legend = html.split('<h2>Each pull request, start to merge</h2>')[1].split('<div class="card">')[0];
+      expect(legend).toContain('test run (local, at the time it ran)');
+      expect(legend).toContain('browser pass (local, at the time it ran)');
+    });
+
+    it("stacks a pull request's test run and browser pass in their own lanes, above CI", () => {
+      const html = render({ pulls: [withBody(recorded([testRun(2, 6, 'a'), ...browser(8, 14)])), later] });
+      const panel = panelOf(html);
+      expect(panel).toContain('#1 A change\nLocal test run: 4m 00s');
+      expect(panel).toContain('#1 A change\nBrowser pass: 6m 00s');
+      expect(panel).toMatch(/<rect class="evobar checks"[^>]*><title>#1[\s\S]*<rect class="evobar local-test"[^>]*><title>#1[\s\S]*<rect class="evobar local-browser"[^>]*><title>#1/);
+    });
+
+    it('says test time is not recorded, rather than zero, for a record with no test runs', () => {
+      const html = render({ pulls: [withBody(recorded()), later] });
+      const panel = panelOf(html);
+      expect(panel).toContain('#1 A change\nTests and checks: 20m 00s\nLocal code review: not recorded\nLocal security review: not recorded\nLocal test run: not recorded\nBrowser pass: not recorded');
+      expect(panel).toContain('#2 A change\nTests and checks: 10m 00s\nLocal code review: not recorded');
+      expect(panel).not.toMatch(/evobar local-(test|browser)/);
+    });
+
+    it('reads a pull request with no session record as not recorded on its strip, with no local slice drawn', () => {
+      const html = render({ pulls: [pull({ commits: [commit('a', 0, [check('Test', 20, 40)])] })] });
+      expect(rowOf(html, 1)).toContain('>not recorded<');
+      expect(stripOf(html, 1)).not.toMatch(/seg (review|local)/);
     });
   });
 });

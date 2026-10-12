@@ -19,7 +19,7 @@
  * has none starts at its first commit, and says so.
  */
 
-import { PHASES, REVIEW_KINDS, readBlock } from '../../../scripts/lib/session-record.mjs';
+import { PHASES, REVIEW_KINDS, readBlock, readRuns } from '../../../scripts/lib/session-record.mjs';
 
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
@@ -40,6 +40,9 @@ export const CHECK_KINDS = ['checks'];
 
 /** The reviews a session marks, from the session record: local time, apart from CI's. */
 export const LOCAL_REVIEW_KINDS = REVIEW_KINDS;
+
+/** The local time that is not a review: test runs the runners recorded, and the browser pass the session marked. */
+export const LOCAL_RUN_KINDS = ['test', 'browser'];
 
 /**
  * Every conclusion the Actions API documents, and what it means here. `other` is
@@ -392,13 +395,16 @@ function buildRounds(commits, mergedAt) {
  * recorded, not a record to throw away.
  */
 function readRecord(body, firstCommit) {
+  const absent = { present: false, start: null, notRecorded: [], localReviews: null, reviews: [], tests: [], browser: [], localRuns: { test: null, browser: null }, notes: [] };
   let entries;
+  let runs;
   try {
     entries = readBlock(body ?? '');
+    runs = readRuns(body ?? '');
   } catch (error) {
-    return { present: false, start: null, notRecorded: [], localReviews: null, reviews: [], notes: [`The session record could not be read: ${error.message}`] };
+    return { ...absent, notes: [`The session record could not be read: ${error.message}`] };
   }
-  if (entries.length === 0) return { present: false, start: null, notRecorded: [], localReviews: null, reviews: [], notes: [] };
+  if (entries.length === 0 && runs.length === 0) return absent;
 
   const marks = entries.map((entry) => ({ ...entry, ms: time(entry.at) })).filter((entry) => entry.ms !== null);
   const notes = [];
@@ -425,6 +431,23 @@ function readRecord(body, firstCommit) {
     }
   }
 
+  // The browser pass pairs the same way: a start with no end after it times nothing.
+  const browser = [];
+  let browserOpen = null;
+  for (const mark of marks) {
+    if (mark.phase === 'browser-start') browserOpen = mark;
+    else if (mark.phase === 'browser-end' && browserOpen) {
+      if (mark.ms >= browserOpen.ms) browser.push({ startMs: browserOpen.ms, endMs: mark.ms, ms: mark.ms - browserOpen.ms });
+      browserOpen = null;
+    }
+  }
+
+  // A test run the runners wrote is already an interval; one whose times cannot be read says nothing.
+  const tests = runs
+    .map((run) => ({ scopes: run.scopes, startMs: time(run.start), endMs: time(run.end) }))
+    .filter((run) => run.startMs !== null && run.endMs !== null && run.endMs >= run.startMs)
+    .map((run) => ({ ...run, ms: run.endMs - run.startMs }));
+
   const byKind = {};
   for (const review of reviews) {
     byKind[review.kind] ??= { count: 0, ms: 0 };
@@ -438,6 +461,13 @@ function readRecord(body, firstCommit) {
     notRecorded: PHASES.filter((phase) => !entries.some((entry) => entry.phase === phase)),
     localReviews: reviews.length ? { count: reviews.length, ms: sum(reviews.map((review) => review.ms)), byKind } : null,
     reviews,
+    tests,
+    browser,
+    // As marked, the way `localReviews` is; `null` for a kind the record has none of, which is not recorded and not zero.
+    localRuns: {
+      test: tests.length ? { count: tests.length, ms: sum(tests.map((run) => run.ms)) } : null,
+      browser: browser.length ? { count: browser.length, ms: sum(browser.map((pass) => pass.ms)) } : null,
+    },
     notes,
   };
 }
@@ -466,6 +496,37 @@ function sliceReviews(reviews, gaps) {
     }
   }
   return slices;
+}
+
+/**
+ * Where each test run and browser pass sat, cut to the same gaps as a review. Unlike
+ * two reviews, one of these is not moved to start where another ended: a test run in the
+ * background during a review is drawn as well as the review, and `unionMs` counts the
+ * minutes they share once.
+ *
+ * @param {{ kind: 'test'|'browser', scopes?: string[], startMs: number, endMs: number }[]} runs
+ */
+function sliceRuns(runs, gaps) {
+  const slices = [];
+  for (const run of [...runs].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs)) {
+    for (const gap of gaps) {
+      const start = Math.max(run.startMs, gap.from);
+      const end = Math.min(run.endMs, gap.to);
+      if (end > start) slices.push({ kind: run.kind, ...(run.scopes ? { scopes: run.scopes } : {}), gap: gap.gap, at: iso(start), ms: end - start });
+    }
+  }
+  return slices;
+}
+
+/** The minutes that slices cover between them, where two that overlap count their shared minutes once. */
+function unionMs(slices) {
+  let total = 0;
+  let reach = -Infinity;
+  for (const { from, to } of slices.map((slice) => ({ from: Date.parse(slice.at), to: Date.parse(slice.at) + slice.ms })).sort((a, b) => a.from - b.from)) {
+    total += Math.max(0, to - Math.max(from, reach));
+    reach = Math.max(reach, to);
+  }
+  return total;
 }
 
 /**
@@ -511,6 +572,7 @@ export function pullModel(pull) {
     if (to - from <= AWAY_MS) gaps.push({ gap: index + 1, from, to });
   }
   const reviewSlices = sliceReviews(record.reviews, gaps);
+  const runSlices = sliceRuns([...record.tests.map((run) => ({ ...run, kind: 'test' })), ...record.browser.map((pass) => ({ ...pass, kind: 'browser' }))], gaps);
 
   // Coding against the harness: where a person was writing, against where the harness
   // was being waited on. Only a pull request with a record can say — without one,
@@ -522,9 +584,10 @@ export function pullModel(pull) {
   if (record.present && rounds.length > 0) {
     const writingMs = beforeFirstPushMs + sum(fixing);
     // The slices are already cut to the gaps, so no more can move than the writing held.
-    const reviewMs = sum(reviewSlices.map((slice) => slice.ms));
-    const codingMs = writingMs - reviewMs;
-    const harnessMs = sum(rounds.map((round) => round.ms)) + reviewMs;
+    // Local time that overlaps (a test run during a review) is counted once.
+    const localMs = unionMs([...reviewSlices, ...runSlices]);
+    const codingMs = writingMs - localMs;
+    const harnessMs = sum(rounds.map((round) => round.ms)) + localMs;
     balance = { codingMs, harnessMs, rounds: rounds.length, ratio: codingMs > 0 ? harnessMs / codingMs : null };
   }
 
@@ -560,25 +623,37 @@ export function pullModel(pull) {
     // Each local review cut to the gaps it sat in, in the order they ran: what the strip
     // draws and the harness counts. `gap` is 0 before the first push and n after round n.
     reviewSlices,
+    // The same for the test runs and the browser pass, which can sit inside a review's time.
+    runSlices,
+    // What the record marked of each, as `localReviews` is: `null` for a kind it has none of.
+    localRuns: record.localRuns,
     // What each kind of check held this pull request's own rounds up for, the same
     // shape a window's `harness` is in — so the evolution chart can plot one pull
     // request's kinds the same way it reads a window's. `local` is the local review
     // that the scatter adds to the same rounds, per kind; `null` where none was marked,
     // which is not recorded and not zero.
-    harness: { ...harnessOf(rounds), local: localOf(record, reviewSlices) },
+    harness: { ...harnessOf(rounds), local: localOf(record, reviewSlices, runSlices) },
     notes,
   };
 }
 
-/** Local review time that counts towards the harness, per kind, or `null` where the record marks no review to count. */
-function localOf(record, slices) {
-  if (!record.present || !record.localReviews) return null;
-  return Object.fromEntries(
-    LOCAL_REVIEW_KINDS.map((kind) => {
-      const own = slices.filter((slice) => slice.kind === kind);
-      return [kind, { ms: sum(own.map((slice) => slice.ms)), runs: own.length }];
-    }),
-  );
+/**
+ * Local time that counts towards the harness, per kind: each review kind, then test runs and the browser pass. A kind the
+ * record has nothing of is `null`, which is not recorded and not zero; `null` altogether where no kind has anything.
+ * A lane is a kind's own minutes, so two lanes can share minutes that the harness total counts once.
+ */
+function localOf(record, reviewSlices, runSlices) {
+  if (!record.present) return null;
+  const lanes = {};
+  for (const kind of LOCAL_REVIEW_KINDS) {
+    const own = reviewSlices.filter((slice) => slice.kind === kind);
+    lanes[kind] = record.localReviews ? { ms: sum(own.map((slice) => slice.ms)), runs: own.length } : null;
+  }
+  for (const kind of LOCAL_RUN_KINDS) {
+    const own = runSlices.filter((slice) => slice.kind === kind);
+    lanes[kind] = record.localRuns[kind] ? { ms: sum(own.map((slice) => slice.ms)), runs: own.length } : null;
+  }
+  return Object.values(lanes).every((lane) => lane === null) ? null : lanes;
 }
 
 /** Minutes held, runs and rounds finished last, for each kind of check — every kind present, so a kind that held nothing reads as a zero it earned. */
@@ -677,6 +752,7 @@ function windowModel(pulls, { days, now, coveredSince }) {
   const each = (pick) => inWindow.flatMap((pull) => pick(pull).map((value) => ({ pull: pull.number, value })));
   const withRecord = inWindow.filter((pull) => pull.recorded);
   const reviewed = inWindow.filter((pull) => pull.localReviews);
+  const ranIn = (kind) => inWindow.filter((pull) => pull.localRuns[kind]);
   const placed = inWindow.filter((pull) => pull.balance);
 
   // A window is partial when the fetch did not read back to its start — a 14-day
@@ -720,6 +796,16 @@ function windowModel(pulls, { days, now, coveredSince }) {
         ]),
       ),
     },
+    // The test runs and the browser pass, per kind and over the pull requests whose record has that kind: `null` figures where none does.
+    localRuns: Object.fromEntries(
+      LOCAL_RUN_KINDS.map((kind) => [
+        kind,
+        {
+          count: figure(ranIn(kind).map((pull) => ({ pull: pull.number, value: pull.localRuns[kind].count }))),
+          ms: figure(ranIn(kind).map((pull) => ({ pull: pull.number, value: pull.localRuns[kind].ms }))),
+        },
+      ]),
+    ),
     rounds: inWindow.length
       ? {
           count: rounds.length,

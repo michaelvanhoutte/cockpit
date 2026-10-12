@@ -12,7 +12,7 @@
  * and says how much it cut.
  */
 
-import { AWAY_MS } from '../model.js';
+import { AWAY_MS, LOCAL_REVIEW_KINDS } from '../model.js';
 
 /** The longest stretch of time a strip is drawn to before it is cut. */
 const SCALE_CAP_MS = 4 * 3_600_000;
@@ -27,16 +27,30 @@ const SCALE_FLOOR_MS = 60_000;
  * length less them, and the strip adds up to the same minutes the scatter's harness does.
  */
 function gapParts(type, from, to, slices) {
+  const ranges = slices.map((slice) => ({ slice, from: Date.parse(slice.at), to: Date.parse(slice.at) + slice.ms }));
+  const edges = [...new Set([from, to, ...ranges.flatMap((range) => [range.from, range.to])])].filter((edge) => edge >= from && edge <= to).sort((a, b) => a - b);
   const parts = [];
-  let cursor = from;
-  for (const slice of [...slices].sort((a, b) => Date.parse(a.at) - Date.parse(b.at))) {
-    const begins = Date.parse(slice.at);
-    if (begins > cursor) parts.push({ type, ms: begins - cursor });
-    parts.push({ type: 'review', ms: slice.ms, kind: slice.kind, level: slice.level, at: slice.at });
-    cursor = begins + slice.ms;
+  for (let index = 0; index + 1 < edges.length; index += 1) {
+    const [begins, ends] = [edges[index], edges[index + 1]];
+    const active = ranges.filter((range) => range.from <= begins && range.to >= ends).map((range) => describe(range.slice));
+    if (active.length === 0) parts.push({ type, ms: ends - begins });
+    // The sweep cuts the gap at every slice's edges, so a stretch two slices share is one part naming both and the strip adds up to the union.
+    else if (active.length === 1) parts.push({ ...active[0], ms: ends - begins });
+    else parts.push({ type: 'overlap', ms: ends - begins, slices: active });
   }
-  if (to > cursor) parts.push({ type, ms: to - cursor });
   return parts;
+}
+
+/** What a strip says of one local slice: its kind, level or scope, and the length of the whole slice, which a part cut by another slice is shorter than. */
+function describe(slice) {
+  return {
+    type: LOCAL_REVIEW_KINDS.includes(slice.kind) ? 'review' : slice.kind,
+    kind: slice.kind,
+    ...(slice.level ? { level: slice.level } : {}),
+    ...(slice.scopes ? { scopes: slice.scopes } : {}),
+    at: slice.at,
+    sliceMs: slice.ms,
+  };
 }
 
 /**
@@ -44,12 +58,12 @@ function gapParts(type, from, to, slices) {
  * ran on it, since every part after the first push is measured from a round.
  *
  * @param {object} pull a pull request from the model
- * @returns {{ type: 'coding'|'review'|'round'|'fixing'|'wait'|'away', ms: number, round?: object, index?: number, kind?: string, level?: string }[]}
+ * @returns {{ type: 'coding'|'review'|'test'|'browser'|'overlap'|'round'|'fixing'|'wait'|'away', ms: number, round?: object, index?: number, kind?: string, level?: string, scopes?: string[], slices?: object[] }[]}
  */
 export function partsOf(pull) {
   const parts = [];
   if (pull.rounds.length === 0) return parts;
-  const slicesIn = (gap) => (pull.reviewSlices ?? []).filter((slice) => slice.gap === gap);
+  const slicesIn = (gap) => [...(pull.reviewSlices ?? []), ...(pull.runSlices ?? [])].filter((slice) => slice.gap === gap);
 
   const firstPush = Date.parse(pull.rounds[0].pushedAt);
   parts.push(...gapParts('coding', firstPush - pull.beforeFirstPushMs, firstPush, slicesIn(0)));
