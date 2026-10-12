@@ -16,15 +16,12 @@ export interface PullRequest {
  */
 export const PAGE_SIZE = 25;
 
-/** GitHub's search returns at most this many results for one query, then reports no next page. */
-export const SEARCH_CAP = 1000;
-
 /**
  * Most requests one run makes to GitHub, a retry after a timeout included. Each is
  * one subrequest, and the free plan allows 50 per invocation (D1 queries count
  * too), so this leaves room for the rest.
  */
-export const MAX_PAGES = 30;
+export const MAX_REQUESTS = 30;
 
 const QUERY = `query($q: String!, $after: String, $first: Int!) {
   search(query: $q, type: ISSUE, first: $first, after: $after) {
@@ -41,8 +38,10 @@ const QUERY = `query($q: String!, $after: String, $first: Int!) {
 
 export interface Fetched {
   pullRequests: PullRequest[];
-  /** False when the run stopped for its page budget with more still to read. */
+  /** False when the run stopped for its request budget, or for GitHub timing out, with more still to read. */
   caughtUp: boolean;
+  /** Why GitHub's answer ended the run early, in a sentence, when it did. */
+  timeout: string | null;
 }
 
 interface Node {
@@ -74,48 +73,75 @@ function toPullRequest(node: Node | null): PullRequest | null {
   };
 }
 
-const timedOut = (response: Response) => response.status === 502 || response.status === 504;
+/** GitHub's answer to a page, or `'abort'` when our own limit on waiting ran out. */
+type Answer = Response | 'abort';
+
+/** 502 and 504 are the query running too long; so is our own abort. */
+const timedOut = (answer: Answer) => answer === 'abort' || answer.status === 502 || answer.status === 504;
+
+function reason(answer: Answer): string {
+  if (answer === 'abort') return 'GitHub did not answer in time';
+  if (answer.status === 502) return 'GitHub failed to answer (502); usually the query took too long';
+  return `GitHub did not answer in time (${answer.status})`;
+}
 
 /**
  * Reads the pull requests updated at or after `since`, oldest first, so a run
- * cut short by its page budget leaves a cursor with nothing older unread.
+ * cut short by its request budget leaves a cursor with nothing older unread.
  * `>=` re-reads the pull request the cursor names; storing it again is harmless.
  *
- * Throws on anything GitHub answers badly, a rate limit included: the caller
- * stores nothing from a run that threw.
+ * Throws on anything GitHub answers badly, a rate limit included, and on a
+ * timeout before any page was read: the caller stores nothing from a run that
+ * threw. A timeout the retry does not cure, after pages were read, ends the run
+ * early with what it has.
  */
 export async function fetchChangedPullRequests(
   repository: string,
   token: string,
   since: string | null,
 ): Promise<Fetched> {
-  const query = (from: string | null) => `repo:${repository} is:pr sort:updated-asc${from ? ` updated:>=${from}` : ''}`;
-  let q = query(since);
+  const q = `repo:${repository} is:pr sort:updated-asc${since ? ` updated:>=${since}` : ''}`;
   const pullRequests: PullRequest[] = [];
   let after: string | null = null;
-  // Results read under the current query, and the newest updated time among them.
-  let inWindow = 0;
   let newest = since;
   let requests = 0;
-  const ask = (first: number): Promise<Response> => {
+  let size = PAGE_SIZE;
+  const ask = async (first: number): Promise<Answer> => {
     requests += 1;
-    return fetch('https://api.github.com/graphql', {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${token}`,
-        'content-type': 'application/json',
-        'user-agent': 'harness-monitor',
-      },
-      body: JSON.stringify({ query: QUERY, variables: { q, after, first } }),
-      signal: AbortSignal.timeout(15_000),
-    });
+    try {
+      return await fetch('https://api.github.com/graphql', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+          'user-agent': 'harness-monitor',
+        },
+        body: JSON.stringify({ query: QUERY, variables: { q, after, first } }),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'TimeoutError') return 'abort';
+      throw error;
+    }
   };
-  for (;;) {
-    let response = await ask(PAGE_SIZE);
-    // 502 and 504 are GitHub timing out on a slow page: one retry at half the size, if the budget has a request left.
-    if (timedOut(response) && requests < MAX_PAGES) response = await ask(Math.floor(PAGE_SIZE / 2));
-    if (timedOut(response)) throw new Error(`GitHub timed out (${response.status}).`);
-    if (!response.ok) throw new Error(`GitHub answered ${response.status}.`);
+  for (let pages = 0; ; pages += 1) {
+    let answer = await ask(size);
+    if (timedOut(answer) && requests < MAX_REQUESTS) {
+      // One retry at half the size, which the rest of the run keeps.
+      if (answer !== 'abort') await answer.body?.cancel();
+      size = Math.floor(size / 2);
+      answer = await ask(size);
+    }
+    if (timedOut(answer)) {
+      if (answer !== 'abort') await answer.body?.cancel();
+      if (pages === 0) throw new Error(`${reason(answer)}.`);
+      return { pullRequests, caughtUp: false, timeout: reason(answer) };
+    }
+    const response = answer as Response;
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`GitHub answered ${response.status}.`);
+    }
     const body = (await response.json()) as {
       data?: { search?: { pageInfo?: { hasNextPage?: boolean; endCursor?: string | null }; nodes?: (Node | null)[] } };
       errors?: { message?: string }[];
@@ -129,18 +155,9 @@ export async function fetchChangedPullRequests(
       const pr = toPullRequest(node);
       if (pr) pullRequests.push(pr);
     }
-    inWindow += search.nodes.length;
     const more = search.pageInfo?.hasNextPage === true && !!search.pageInfo.endCursor;
-    // At the cap GitHub reports no next page though more may match: search again from the newest read.
-    const capped = !more && inWindow >= SEARCH_CAP;
-    if (!more && !capped) return { pullRequests, caughtUp: true };
-    if (requests >= MAX_PAGES) return { pullRequests, caughtUp: false };
-    if (capped) {
-      q = query(newest);
-      after = null;
-      inWindow = 0;
-    } else {
-      after = search.pageInfo?.endCursor ?? null;
-    }
+    if (!more) return { pullRequests, caughtUp: true, timeout: null };
+    if (requests >= MAX_REQUESTS) return { pullRequests, caughtUp: false, timeout: null };
+    after = search.pageInfo?.endCursor ?? null;
   }
 }

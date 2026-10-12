@@ -34,7 +34,7 @@ export interface LinkEnv {
 export type LinkResult =
   | { status: 'skipped' }
   | { status: 'failed'; error: string }
-  | { status: 'caught-up' | 'more-to-read'; linked: number };
+  | { status: 'caught-up' | 'more-to-read'; linked: number; timeout: string | null };
 
 /** GitHub's refusal of the token in a sentence; any other failure as it came. */
 function describe(error: unknown): string {
@@ -46,7 +46,7 @@ function describe(error: unknown): string {
  * The hourly job. Reads the pull requests updated since the stored cursor and
  * stores their links and the new cursor in one batch, so a run that fails
  * anywhere before that batch leaves the links, the cursor and the last success
- * time as they were. A run that hits its page budget stores what it read and
+ * time as they were. A run that hits its request budget, or that GitHub times out on after a page was read, stores what it read and
  * moves the cursor there, but does not count as a success: the page's
  * "last succeeded" time, shown beside a failed run, stays at the last catch-up.
  */
@@ -66,7 +66,7 @@ export async function linkBranches(env: LinkEnv, now = Date.now()): Promise<Link
       env.DB.prepare(UPSERT_LINKS).bind(JSON.stringify(ordered), now),
       env.DB.prepare(SAVE_STATE).bind(newest, fetched.caughtUp ? now : null),
     ]);
-    return { status: fetched.caughtUp ? 'caught-up' : 'more-to-read', linked: ordered.length };
+    return { status: fetched.caughtUp ? 'caught-up' : 'more-to-read', linked: ordered.length, timeout: fetched.timeout };
   } catch (error) {
     const message = describe(error);
     console.error(`Branch linking failed, nothing changed: ${message}`);

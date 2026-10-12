@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PAGE_SIZE } from '../../src/github';
-import { fakeGitHub, pageOf, recordedPullRequest, runHourly, theLinks, theLinkState } from './github-support';
+import { fakeGitHub, listing, pageOf, pullRequest, recordedPullRequest, runHourly, theLinks, theLinkState } from './github-support';
 import { emptyTheDatabase, send, usage } from './support';
 
 beforeEach(emptyTheDatabase);
@@ -48,7 +48,30 @@ describe('Harness Monitor', () => {
       expect((await theLinkState())[0]!.last_success_at).not.toBeNull();
     });
 
-    it('a page that times out again on the retry fails the run, says GitHub timed out, and changes nothing', async () => {
+    it("our own limit on waiting running out is treated as GitHub timing out: asked again at half the size", async () => {
+      const calls = fakeGitHub((call) => {
+        if (call.first === PAGE_SIZE) throw new DOMException('The operation timed out.', 'TimeoutError');
+        return pageOf([recordedPullRequest(979)]);
+      });
+
+      await runHourly();
+
+      expect(calls.map((c) => c.first)).toEqual([PAGE_SIZE, Math.floor(PAGE_SIZE / 2)]);
+      expect((await theLinks()).map((l) => l.pr_number)).toEqual([979]);
+    });
+
+    it('once a page needed the half size, the rest of the run keeps it', async () => {
+      const all = Array.from({ length: 30 }, (_, i) => pullRequest({ number: i + 1, headRefName: `b/${i + 1}`, updatedAt: `2026-10-01T10:00:${String(i).padStart(2, '0')}Z` }));
+      const page = listing(all);
+      const calls = fakeGitHub((call) => (call.first === PAGE_SIZE ? new Response('timeout', { status: 504 }) : page(call)));
+
+      await runHourly();
+
+      expect(calls.map((c) => c.first)).toEqual([PAGE_SIZE, 12, 12, 12]);
+      expect(await theLinks()).toHaveLength(30);
+    });
+
+    it('the first page timing out again on the retry fails the run, says GitHub did not answer in time, and changes nothing', async () => {
       const before = await afterASuccessfulRun();
       vi.spyOn(console, 'error').mockImplementation(() => {});
       const calls = fakeGitHub(() => new Response('timeout', { status: 504 }));
@@ -56,14 +79,14 @@ describe('Harness Monitor', () => {
       await runHourly();
 
       expect(calls).toHaveLength(2);
-      expect(console.error).toHaveBeenCalledWith(expect.stringContaining('GitHub timed out (504).'));
+      expect(console.error).toHaveBeenCalledWith(expect.stringContaining('GitHub did not answer in time (504).'));
       expect(await theLinks()).toEqual(before.links);
       expect(await theLinkState()).toEqual(before.state);
     });
 
     it('a run that fails partway, after one page was read, stores nothing of that page', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
-      fakeGitHub((call) => (call.after === null ? pageOf([recordedPullRequest(979)], true) : new Response('Bad gateway', { status: 502 })));
+      fakeGitHub((call) => (call.after === null ? pageOf([recordedPullRequest(979)], true) : new Response('rate limited', { status: 403 })));
 
       await runHourly();
 
