@@ -1,3 +1,4 @@
+import { jobReads, jobStatuses, type JobStatus } from './jobs';
 import { CATEGORIES, type Category } from './validate';
 
 /** What the costs page can be asked, parsed from the address; anything unrecognised is the default. */
@@ -175,6 +176,8 @@ export interface CostsPage {
   totalMicros: number;
   /** Epoch milliseconds; null while linking has never succeeded. */
   lastLinkSuccessAt: number | null;
+  /** What each job last did: read in the same batch as the figures. */
+  jobs: JobStatus[];
 }
 
 /**
@@ -216,10 +219,11 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
          FROM daily_branch_totals t LEFT JOIN branch_links l ON l.branch = t.branch
          ${conditions} GROUP BY t.branch, t.category`;
 
-  const [rows, engineers, state] = await db.batch([
+  const [rows, engineers, state, runs, list] = await db.batch([
     db.prepare(select).bind(...binds),
     db.prepare('SELECT DISTINCT engineer FROM branch_links WHERE engineer IS NOT NULL ORDER BY engineer'),
     db.prepare('SELECT last_success_at AS lastSuccessAt FROM link_state WHERE id = 1'),
+    ...jobReads(db),
   ]);
   const lastLinkSuccessAt = (state!.results[0] as { lastSuccessAt: number | null } | undefined)?.lastSuccessAt ?? null;
   const groups = groupRows(rows!.results as unknown as TotalRow[], query.group, lastLinkSuccessAt);
@@ -232,5 +236,6 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
     byCategory,
     totalMicros: groups.reduce((sum, g) => sum + g.totalMicros, 0),
     lastLinkSuccessAt,
+    jobs: jobStatuses(runs!, list!, lastLinkSuccessAt),
   };
 }

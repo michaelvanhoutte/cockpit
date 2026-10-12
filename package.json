@@ -36,7 +36,8 @@
     "bundle:budget": "node scripts/bundle-budget.mjs",
     "branches:tidy": "node scripts/tidy-branches.mjs",
     "cost:issue": "node scripts/issue-cost.mjs",
-    "harness:upload": "node scripts/harness-upload.mjs"
+    "harness:upload": "node scripts/harness-upload.mjs",
+    "harness:run": "node scripts/harness-run.mjs"
   },
   "devDependencies": {
     "@cockpit/config": "workspace:*",

@@ -1,12 +1,11 @@
 import { checkWriteKey } from './auth';
 import { costsPage, parseQuery, queryString } from './costs';
 import { exportCsv } from './export';
-import { linkBranches } from './linking';
+import { isJob, JOBS, runJob, type JobName } from './jobs';
 import { renderPage } from './page';
 import { pullRequestPage } from './pull-request';
 import { renderNothingFound, renderPullRequest } from './pull-request-page';
-import { listStatus, priceWaitingRows, refreshPriceList } from './price-list';
-import { rebuildTotals, storeBatch, unpricedLines } from './store';
+import { storeBatch, unpricedLines } from './store';
 import { validateBatch } from './validate';
 
 export interface Env {
@@ -21,18 +20,25 @@ export interface Env {
   PAGE_CACHE_SECONDS?: string;
 }
 
-/** The daily job (prices, then the totals); any other schedule links branches. */
-const DAILY = '10 3 * * *';
+/** Which job each cron in wrangler.jsonc starts. */
+const SCHEDULES: Record<string, JobName> = { '0 * * * *': 'linking', '10 3 * * *': 'prices', '20 3 * * *': 'rebuild' };
 
 /** Far above MAX_BATCH full rows, so only a malformed write reaches it. */
 const MAX_BODY = 1_000_000;
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
-async function write(request: Request, env: Env): Promise<Response> {
+/** The refusal for a request without the write key, or null when it carries it. */
+async function refusal(request: Request, env: Env): Promise<Response | null> {
   const allowed = await checkWriteKey(request.headers.get('authorization'), env.HARNESS_WRITE_KEY);
   if (allowed === 'unconfigured') return json({ error: 'Writing is not set up on this Worker.' }, 503);
   if (allowed === 'refused') return json({ error: 'A valid write key is required.' }, 401);
+  return null;
+}
+
+async function write(request: Request, env: Env): Promise<Response> {
+  const refused = await refusal(request, env);
+  if (refused) return refused;
 
   const text = await request.text();
   if (text.length > MAX_BODY) return json({ error: `The body is over ${MAX_BODY} characters.` }, 413);
@@ -45,6 +51,14 @@ async function write(request: Request, env: Env): Promise<Response> {
   const checked = validateBatch(body);
   if (!checked.ok) return json({ error: checked.error }, 400);
   return json(await storeBatch(env.DB, checked.rows));
+}
+
+/** Starts a job now, the code its schedule runs, and answers with what it did. The write key is the only credential. */
+async function startJob(request: Request, env: Env, name: string): Promise<Response> {
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  if (!isJob(name)) return json({ error: `Unknown job. Use one of: ${JOBS.join(', ')}.` }, 404);
+  return json({ job: name, ...(await runJob(env, name, 'hand')) });
 }
 
 /**
@@ -63,8 +77,8 @@ async function costs(request: Request, env: Env, ctx: ExecutionContext): Promise
   const hit = await cache?.match(key);
   if (hit) return hit;
 
-  const [page, unpriced, list] = await Promise.all([costsPage(env.DB, query), unpricedLines(env.DB), listStatus(env.DB)]);
-  const response = new Response(renderPage(page, { unpriced, list }), {
+  const [page, unpriced] = await Promise.all([costsPage(env.DB, query), unpricedLines(env.DB)]);
+  const response = new Response(renderPage(page, { unpriced }), {
     headers: {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': cache ? `public, max-age=${seconds}` : 'no-store',
@@ -118,19 +132,18 @@ export default {
     if (pathname === '/v1/usage') {
       return request.method === 'POST' ? write(request, env) : json({ error: 'Use POST.' }, 405);
     }
+    const jobPath = /^\/v1\/jobs\/([^/]*)$/.exec(pathname);
+    if (jobPath) return request.method === 'POST' ? startJob(request, env, jobPath[1]!) : json({ error: 'Use POST.' }, 405);
     if (pathname === '/' && request.method === 'GET') return costs(request, env, ctx);
     return json({ error: 'Not found.' }, 404);
   },
 
   async scheduled(controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
-    if (controller.cron !== DAILY) {
-      await linkBranches(env);
+    const job = Object.hasOwn(SCHEDULES, controller.cron) ? SCHEDULES[controller.cron] : undefined;
+    if (!job) {
+      console.error(`No job is scheduled as "${controller.cron}"; nothing ran.`);
       return;
     }
-    // The daily job: refresh the prices (a failure keeps the last good list),
-    // price what was waiting, then rebuild the totals from the rows.
-    await refreshPriceList(env.DB);
-    await priceWaitingRows(env.DB);
-    await rebuildTotals(env.DB);
+    await runJob(env, job, 'schedule');
   },
 } satisfies ExportedHandler<Env>;

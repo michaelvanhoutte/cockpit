@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fakeGitHub, linkingLine, pageOf, recordedPullRequest, runHourly, theLinks, theLinkState } from './github-support';
+import { fakeGitHub, pageOf, recordedPullRequest, runHourly, theLinks, theLinkState } from './github-support';
 import { emptyTheDatabase, send, usage } from './support';
 
 beforeEach(emptyTheDatabase);
@@ -11,7 +11,7 @@ async function afterASuccessfulRun() {
   fakeGitHub(() => pageOf([recordedPullRequest(979)]));
   await runHourly();
   vi.restoreAllMocks();
-  return { links: await theLinks(), state: await theLinkState(), line: await linkingLine() };
+  return { links: await theLinks(), state: await theLinkState() };
 }
 
 describe('Harness Monitor', () => {
@@ -35,7 +35,6 @@ describe('Harness Monitor', () => {
 
       expect(await theLinks()).toEqual(before.links);
       expect(await theLinkState()).toEqual(before.state);
-      expect(await linkingLine()).toBe(before.line);
     });
 
     it('a run that fails partway, after one page was read, stores nothing of that page', async () => {

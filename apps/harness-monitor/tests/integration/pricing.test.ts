@@ -107,12 +107,9 @@ describe('Harness Monitor', () => {
   });
 
   describe('a failed price fetch keeps the last good list', () => {
-    const goodListFetchedHoursAgo = async (hours: number) => {
+    const aGoodList = async () => {
       theFileAnswers(recordedFile);
       await runTheDailyJob();
-      await env.DB.prepare('UPDATE price_list SET fetched_at = ?')
-        .bind(Date.now() - hours * 3_600_000)
-        .run();
     };
 
     it.each([
@@ -127,8 +124,8 @@ describe('Harness Monitor', () => {
       { situation: 'the file is not JSON', answer: new Response('<html>oops</html>'), why: 'The fetch failed' },
       { situation: 'the file is an empty list', answer: {}, why: 'not a price list' },
       { situation: 'the file has nothing we price', answer: { 'gpt-4o': { litellm_provider: 'openai' } }, why: 'not a price list' },
-    ])('$situation: prices are unchanged and the page says how old the list is', async ({ answer, why }) => {
-      await goodListFetchedHoursAgo(5);
+    ])('$situation: prices are unchanged and the page says why the fetch failed', async ({ answer, why }) => {
+      await aGoodList();
 
       theFileAnswers(answer);
       await runTheDailyJob();
@@ -136,9 +133,8 @@ describe('Harness Monitor', () => {
       await send([usage('after', { model: 'claude-sonnet-5', ...aMillionInAndATenthOut })]);
       expect((await pricing())[0]!.cost_micros).toBe(THREE_DOLLARS);
       const page = await thePage();
-      expect(page).toContain('Price list fetched 5 hours ago');
       expect(page).toContain(why);
-      expect(page).toContain('the last good list is still in use');
+      expect(page).toContain('The last good list is still in use');
     });
 
     it('a list that has never been fetched says so, and nothing is priced from it', async () => {
@@ -148,11 +144,11 @@ describe('Harness Monitor', () => {
       await send([usage('first', { model: 'claude-sonnet-5' })]);
 
       expect((await pricing())[0]!.cost_micros).toBeNull();
-      expect(await thePage()).toContain('No price list has been fetched yet');
+      expect(await thePage()).toContain('Nothing is priced from it');
     });
 
     it('a successful fetch after a failure clears the failure from the page', async () => {
-      await goodListFetchedHoursAgo(5);
+      await aGoodList();
       theFileAnswers(new Response('down', { status: 503 }));
       await runTheDailyJob();
 
@@ -160,8 +156,8 @@ describe('Harness Monitor', () => {
       await runTheDailyJob();
 
       const page = await thePage();
-      expect(page).toContain('Price list fetched 0 minutes ago');
-      expect(page).not.toContain('failed');
+      expect(page).toContain('Fetched ');
+      expect(page).not.toContain('LiteLLM answered');
     });
   });
 

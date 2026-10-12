@@ -31,20 +31,29 @@ export interface LinkEnv {
   GITHUB_REPOSITORY?: string;
 }
 
-export type LinkResult = 'skipped' | 'failed' | 'caught-up' | 'more-to-read';
+export type LinkResult =
+  | { status: 'skipped' }
+  | { status: 'failed'; error: string }
+  | { status: 'caught-up' | 'more-to-read'; linked: number };
+
+/** GitHub's refusal of the token in a sentence; any other failure as it came. */
+function describe(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return /^GitHub answered 40[13]\.$/.test(message) ? `GitHub refused the token (${message.slice(-4, -1)}).` : message;
+}
 
 /**
  * The hourly job. Reads the pull requests updated since the stored cursor and
  * stores their links and the new cursor in one batch, so a run that fails
  * anywhere before that batch leaves the links, the cursor and the last success
  * time as they were. A run that hits its page budget stores what it read and
- * moves the cursor there, but does not count as a success: the page keeps
- * saying when linking last caught up.
+ * moves the cursor there, but does not count as a success: the page's
+ * "last succeeded" time, shown beside a failed run, stays at the last catch-up.
  */
 export async function linkBranches(env: LinkEnv, now = Date.now()): Promise<LinkResult> {
   if (!env.GITHUB_TOKEN || !env.GITHUB_REPOSITORY) {
     console.log('Branch linking skipped: GITHUB_TOKEN or GITHUB_REPOSITORY is not set.');
-    return 'skipped';
+    return { status: 'skipped' };
   }
   try {
     const state = await env.DB.prepare('SELECT cursor FROM link_state WHERE id = 1').first<{ cursor: string | null }>();
@@ -57,9 +66,10 @@ export async function linkBranches(env: LinkEnv, now = Date.now()): Promise<Link
       env.DB.prepare(UPSERT_LINKS).bind(JSON.stringify(ordered), now),
       env.DB.prepare(SAVE_STATE).bind(newest, fetched.caughtUp ? now : null),
     ]);
-    return fetched.caughtUp ? 'caught-up' : 'more-to-read';
+    return { status: fetched.caughtUp ? 'caught-up' : 'more-to-read', linked: ordered.length };
   } catch (error) {
-    console.error(`Branch linking failed, nothing changed: ${error instanceof Error ? error.message : String(error)}`);
-    return 'failed';
+    const message = describe(error);
+    console.error(`Branch linking failed, nothing changed: ${message}`);
+    return { status: 'failed', error: message };
   }
 }

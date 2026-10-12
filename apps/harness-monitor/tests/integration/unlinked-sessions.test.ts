@@ -12,10 +12,10 @@ const subs = async () => Object.fromEntries(Object.entries(await pullRequestRows
 
 describe('Harness Monitor', () => {
   describe('a session without a link says why', () => {
-    it('before linking has ever succeeded the page says so, and a session with a branch is linking', async () => {
+    it('before linking has ever run the page says so, and a session with a branch is linking', async () => {
       await send([usage('r1', { sessionId: 's1', branch: 'claude/new' })]);
 
-      expect(await linkingLine()).toBe('Branch linking has not succeeded yet.');
+      expect(await linkingLine()).toBe('Branch linking: has not run yet.');
       expect(await subs()).toEqual({ 'claude/new': 'linking…' });
     });
 
@@ -32,7 +32,7 @@ describe('Harness Monitor', () => {
       expect(await subs()).toEqual({ 'claude/nobody-opened-a-pr': 'unattributed', 'No branch': 'unattributed' });
     });
 
-    it('a session newer than the last successful run is linking, and the page says when linking last succeeded', async () => {
+    it('a session newer than the last successful run is linking, and the page says when linking last ran', async () => {
       fakeGitHub(() => pageOf([recordedPullRequest(979)]));
       vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-04-01T12:00:00Z') });
       await runHourly();
@@ -41,7 +41,7 @@ describe('Harness Monitor', () => {
         usage('r2', { sessionId: 'after', branch: 'claude/y', time: '2026-04-01T12:30:00Z' }),
       ]);
 
-      expect(await linkingLine()).toBe('Branch linking last succeeded 2026-04-01 12:00 UTC.');
+      expect(await linkingLine()).toBe('Branch linking: last run 2026-04-01 12:00 UTC (scheduled) — Linked 1 pull request; caught up with GitHub.');
       expect(await subs()).toEqual({ 'claude/x': 'unattributed', 'claude/y': 'linking…' });
     });
 

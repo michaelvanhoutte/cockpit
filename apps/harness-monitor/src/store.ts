@@ -99,8 +99,8 @@ export async function storeBatch(db: D1Database, rows: UsageRow[], now = Date.no
   return { stored, ignored: rows.length - stored };
 }
 
-/** Throws the totals away and rebuilds them from the rows. */
-export async function rebuildTotals(db: D1Database) {
+/** Throws the totals away and rebuilds them from the rows. Returns how many days they now cover. */
+export async function rebuildTotals(db: D1Database): Promise<number> {
   await db.batch([
     db.prepare('DELETE FROM daily_totals'),
     db.prepare('DELETE FROM daily_branch_totals'),
@@ -119,6 +119,8 @@ export async function rebuildTotals(db: D1Database) {
       ${BRANCH_TOTALS_SELECT}
       FROM usage_requests GROUP BY day, COALESCE(branch, ''), category, model`),
   ]);
+  const covered = await db.prepare('SELECT COUNT(DISTINCT day) AS days FROM daily_totals').first<{ days: number }>();
+  return covered?.days ?? 0;
 }
 
 export interface UnpricedLine {
